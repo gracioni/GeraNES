@@ -4,6 +4,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <array>
 #include <sstream>
 #include <iostream>
 #include <map>
@@ -13,7 +14,12 @@
 
 #define ANALOG_TO_DIGITAL_THRESHOLD 0.6f
 
-typedef struct{
+class InputInfo {
+
+public:
+
+    static constexpr std::array<const char*, 11> BUTTONS {"A", "B", "Select", "Start", "Up", "Down", "Left", "Right", "Save", "Load", "Rewind"};
+
     std::string a;
     std::string b;
     std::string select;
@@ -25,7 +31,51 @@ typedef struct{
     std::string saveState;
     std::string loadState;
     std::string rewind;
-} InputInfo;
+
+private:
+
+    std::map<const std::string, std::string*> _map;
+
+public:    
+
+    InputInfo() {
+        _map.insert(std::make_pair(BUTTONS[0], &a));
+        _map.insert(std::make_pair(BUTTONS[1], &b));
+        _map.insert(std::make_pair(BUTTONS[2], &select));
+        _map.insert(std::make_pair(BUTTONS[3], &start));
+        _map.insert(std::make_pair(BUTTONS[4], &up));
+        _map.insert(std::make_pair(BUTTONS[5], &down));
+        _map.insert(std::make_pair(BUTTONS[6], &left));
+        _map.insert(std::make_pair(BUTTONS[7], &right));
+        _map.insert(std::make_pair(BUTTONS[8], &saveState));
+        _map.insert(std::make_pair(BUTTONS[9], &loadState));
+        _map.insert(std::make_pair(BUTTONS[10], &rewind));
+    }
+
+    const std::string& getByButtonName(const std::string& name) {
+        return *_map[name];
+    }
+
+    const void setByButtonIndex(int index, const std::string& input) {
+        
+        switch(index){
+            case 0: a = input; break;
+            case 1: b = input; break;
+            case 2: select = input; break;
+            case 3: start = input; break;
+            case 4: up = input; break;
+            case 5: down = input; break;
+            case 6: left = input; break;
+            case 7: right = input; break;
+            case 8: saveState = input; break;
+            case 9: loadState = input; break;
+            case 10: rewind = input; break;
+        }
+    }
+
+
+
+};
 
 class InputManager
 {
@@ -77,19 +127,19 @@ public:
             for(int j = 0; j < SDL_CONTROLLER_BUTTON_MAX; j++) {
                 std::stringstream name;
                 name << "J" << i << "B" << j;
-                setInputState(name.str(), SDL_GameControllerGetButton(controller, static_cast<SDL_GameControllerButton>(i)));
+                setInputState(name.str(), SDL_GameControllerGetButton(controller, static_cast<SDL_GameControllerButton>(j)));
             }
 
             //read axis
             for(int j = 0; j < SDL_CONTROLLER_AXIS_MAX; j++) {
                 std::stringstream posName;
                 posName << "J" << i << "A" << j << "+";
-                bool state = SDL_GameControllerGetAxis(controller, static_cast<SDL_GameControllerAxis>(i)) > ANALOG_TO_DIGITAL_THRESHOLD * 0x7FFF;
+                bool state = SDL_GameControllerGetAxis(controller, static_cast<SDL_GameControllerAxis>(j)) > ANALOG_TO_DIGITAL_THRESHOLD * 0x7FFF;
                 setInputState(posName.str(), state);
 
                 std::stringstream negName;
                 negName << "J" << i << "A" << j << "-";
-                state = SDL_GameControllerGetAxis(controller, static_cast<SDL_GameControllerAxis>(i)) < ANALOG_TO_DIGITAL_THRESHOLD * -0x7FFF;
+                state = SDL_GameControllerGetAxis(controller, static_cast<SDL_GameControllerAxis>(j)) < ANALOG_TO_DIGITAL_THRESHOLD * -0x7FFF;
                 setInputState(negName.str(), state);
             }
         }

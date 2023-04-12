@@ -584,9 +584,61 @@ public:
         return spec.format & 0xFF;       
     }
 
-    const std::string config(const std::string& deviceName, int sampleRate, int sampleSize)
+    std::vector<std::string> getAudioList() {
+
+        std::vector<std::string> ret;
+
+        int num = SDL_GetNumAudioDevices(0); // 1 input, 0 output
+        for (int i = 0; i < num; i++) {
+            const char* name = SDL_GetAudioDeviceName(i, 0); // 1 input, 0 output
+            ret.push_back(name);
+        }
+
+        return ret;
+    }
+
+    const std::string config(const std::string& deviceName)
     {
         turnOff();
+
+        std::string _deviceName = deviceName;
+
+        if(deviceName == "") {
+
+            char* name;
+            SDL_AudioSpec dummySpec;
+            if(SDL_GetDefaultAudioInfo(&name, &dummySpec, 0) != 0) return "SDL_GetDefaultAudioInfo error";
+            _deviceName = name;
+            SDL_free(name); 
+        }
+
+        int deviceIndex = 0;
+
+        auto deviceList = getAudioList();
+
+        for(int i = 0; i < deviceList.size(); i++) {
+            if(_deviceName == deviceList[i]) {
+                deviceIndex = i;
+                break;
+            }
+        }
+
+        SDL_AudioSpec preferedSpec;
+
+        if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) return "SDL_GetAudioDeviceSpec error";
+
+        int sampleRate = preferedSpec.freq;
+        int sampleSize = 8;
+
+        switch(preferedSpec.format) {
+            case AUDIO_U8: sampleSize=8; break;
+            case AUDIO_S16: sampleSize=16; break;
+            case AUDIO_S32: sampleSize=32; break;
+        }
+
+        std::cout << "device name: " << _deviceName << std::endl;
+        std::cout << "sample rate: " << sampleRate << std::endl;
+        std::cout << "sample size: " << sampleSize << std::endl;
     
         spec.freq = sampleRate;
         spec.channels = 1;
@@ -608,7 +660,7 @@ public:
 
         SDL_AudioSpec obtained;     
 
-        m_device = SDL_OpenAudioDevice(NULL, 0, &spec, &obtained, 0);
+        m_device = SDL_OpenAudioDevice(_deviceName != "" ? _deviceName.c_str() : nullptr, 0, &spec, &obtained, 0);
 
         if(m_device == 0 || spec.format != obtained.format) {
             turnOff();
@@ -637,7 +689,7 @@ public:
 
     bool init() override
     {
-        config("", sampleRate(), sampleSize());
+        config("");
         return true;
     }
 

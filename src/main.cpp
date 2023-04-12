@@ -118,6 +118,11 @@ void main() {
 #endif
 )html";
 
+float GetTime()
+{
+    return (float)SDL_GetTicks64()/1000.0f; 
+}
+
 
 GLuint loadTextureFromFile(const char* path) {
 
@@ -163,12 +168,166 @@ GLuint loadTextureFromFile(const char* path) {
 }
 
 
+class ControllerConfigWindow {
 
+private:
+
+    const static constexpr size_t N_BUTTONS = InputInfo::BUTTONS.size();
+    const float CAPTURE_TIME = 3.0f;
+    
+    int selected[N_BUTTONS] = {0};    
+
+    enum {NONE, WAIT_EMPTY, WAIT_BUTTON} m_captureState = NONE;
+    bool m_show = false;
+    InputInfo* m_inputInfo = nullptr;
+    int m_captureIndex = -1;
+    float m_lastTime = 0.0f;
+    float m_captureTime = 0.0f;
+
+    void startCapture(int index) {
+        m_captureIndex = index;
+        m_captureState = WAIT_EMPTY;
+        m_captureTime = CAPTURE_TIME;
+        m_lastTime = GetTime();
+
+        ImGuiIO& io = ImGui::GetIO();
+        // Desativa o input de teclado
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+    }
+
+    void stopCapture() {
+        m_captureState = NONE;
+        m_captureIndex = -1;
+
+        ImGuiIO& io = ImGui::GetIO();
+        // Desativa o input de teclado
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    }
+
+
+public:
+
+    void show(InputInfo& input) {
+
+        if(m_inputInfo != nullptr) {
+            stopCapture();
+        }
+
+        m_inputInfo = &input;
+        m_show = true;
+        m_captureIndex = -1;
+    }
+
+    void hide() {
+        m_show = false;
+        stopCapture();
+        m_inputInfo = nullptr;
+    }
+
+    void update() {
+
+        if(!m_show) return;
+
+        if(m_captureState != NONE) {
+
+            float time = GetTime();
+            float dt = time - m_lastTime;
+            m_captureTime -= dt;
+            m_lastTime = time;
+
+            if(m_captureTime <= 0) {
+                stopCapture();
+            }
+
+            InputManager::instance().updateInputs();
+            auto capture = InputManager::instance().capture();
+
+            switch(m_captureState) {
+
+                case WAIT_EMPTY:
+                    if(capture.size() == 0) m_captureState = WAIT_BUTTON;                    
+                    break;
+
+                case WAIT_BUTTON:
+                    if(capture.size() > 0) {
+                        m_inputInfo->setByButtonIndex(m_captureIndex, capture[0]);             
+                        if(m_captureIndex+1 < N_BUTTONS) startCapture(m_captureIndex+1);
+                        else stopCapture();                      
+                    }
+                    break;
+            }
+            
+        }
+
+        
+    
+        ImGui::Begin("Controller Config", &m_show, ImGuiWindowFlags_Modal);
+
+        if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
+
+            ImGui::TableSetupColumn("GeraNES Button");
+            ImGui::TableSetupColumn("Input");
+            ImGui::TableHeadersRow();
+
+            // Adicionar linhas à tabela
+            for (int i = 0; i < N_BUTTONS; i++) {
+
+                ImGui::TableNextRow(); 
+
+                if(m_captureState != NONE && i == m_captureIndex) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImColor(255, 255, 0));
+                     
+                ImGui::TableNextColumn(); 
+
+                // Coluna 1        
+                ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
+        
+                if (m_captureState == NONE && ImGui::IsItemActive()) {
+                    startCapture(i);                    
+                }                    
+
+                ImGui::TableNextColumn();   
+            
+                // Coluna 2
+                ImGui::Text(m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());      
+                
+                
+
+                
+
+                // Resetar a cor de fundo da linha
+                // if (hover) {
+                //     ImGui::PopStyleColor();
+                // }
+            }
+
+
+            // Finalizar a janela do ImGui
+            ImGui::EndTable();
+        }
+
+        if (m_captureState != NONE) {
+            char aux[64];
+            sprintf(aux, "Waiting intput for button '%s'... (%0.1f)s", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
+            ImGui::Text(aux);
+        } 
+
+        ImGui::End();
+
+        ImGui::SetWindowFocus("Controller Config");
+
+    }
+    
+};
 
 
 class MyApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
 private:
+
+    ControllerConfigWindow m_controllerConfigWindow;
+
+    std::vector<std::string> m_audioDevices;
+    int m_currentAudioDeviceIndex = -1;
 
     bool m_horizontalStretch = false;
     int m_clipHeightValue = 8;
@@ -202,7 +361,13 @@ public:
 
     MyApp() : m_emu(audioOutput) {
 
-        audioOutput.config("", 48000, 32);
+        m_audioDevices = audioOutput.getAudioList();
+
+        for(auto d : m_audioDevices) {
+            std::cout << d << std::endl;
+        }
+
+        audioOutput.config("");
 
         Logger::instance().signalLog.bind(&MyApp::onLog,this);
         m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
@@ -255,6 +420,9 @@ public:
             /* Problem: glewInit failed, something is seriously wrong. */
             printf("Error: %s\n", glewGetErrorString(err));
         }
+
+        //vsync 0(disabled) 1(enabled) -1(adaptative)
+        SDL_GL_SetSwapInterval(0);
 
 
         IMGUI_CHECKVERSION();
@@ -318,10 +486,7 @@ public:
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-        std::cout << "m_texture: " << m_texture << std::endl;
-
         updateMVP();
-
     }
 
     void shaderInit()
@@ -356,9 +521,6 @@ public:
 
     void updateBuffers()
     {
-        std::cout << "width: " << width() << std::endl;
-        std::cout << "height: " << height() << std::endl;
-
         if(!m_vbo.isCreated()){
             m_vbo.create();
         }
@@ -430,9 +592,7 @@ public:
             //glTexCoord2f(1.0,240.0/256.0 - m_clipHeightValue/256.0 ); //bottom right
             data.push_back(1.0);
             data.push_back(240.0/256.0 - m_clipHeightValue/256.0);
-        }
-
-        std::cout << "buffer: " << m_vbo.size() << std::endl;
+        }  
 
         m_vbo.bind();
         if( (size_t)m_vbo.size() != data.size()*sizeof(GLfloat))
@@ -444,11 +604,15 @@ public:
 
     virtual bool onEvent(SDL_Event& event) override {
 
-        //std::cout << "onEvent" << std::endl;
-
         ImGui_ImplSDL2_ProcessEvent(&event);
 
         switch(event.type) {
+
+            // case SDL_KEYDOWN:
+            //     if(event.key.keysym.sym == SDLK_ESCAPE) {             
+            //         std::cout << "quit" << std::endl;
+            //     }
+            //     break;
 
             case SDL_WINDOWEVENT:
 
@@ -456,52 +620,47 @@ public:
 
                     //case SDL_WINDOWEVENT_RESIZED:
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
-
-                        std::cout << "resize called" << std::endl;
-
-                        updateMVP();                    
-            
+                        updateMVP();                   
                         m_updateObjectsFlag = true;
-
                         break;
                 }
                 break;
 
-            case SDL_KEYDOWN:
-                    switch (event.key.keysym.sym)
-                    {
-                        case SDLK_ESCAPE:
-                            quit();
-                            break;
-                    }
-                    break;                                
+            // case SDL_KEYDOWN:
+            //         switch (event.key.keysym.sym)
+            //         {
+            //             case SDLK_ESCAPE:
+            //                 quit();
+            //                 break;
+            //         }
+            //         break;                                
 
-            case SDL_MOUSEBUTTONDOWN: {
+            // case SDL_MOUSEBUTTONDOWN: {
 
-                if (ImGui::GetIO().WantCaptureMouse) break;
+            //     if (ImGui::GetIO().WantCaptureMouse) break;
 
-                int mouseX = event.button.x;
-                int mouseY = event.button.y;
-                // Lidar com o evento do botão do mouse pressionado nas coordenadas (mouseX, mouseY)
-                std::cout << mouseX << "," << mouseY << std::endl;
-                break;
-            }
+            //     int mouseX = event.button.x;
+            //     int mouseY = event.button.y;
+            //     // Lidar com o evento do botão do mouse pressionado nas coordenadas (mouseX, mouseY)
+            //     std::cout << mouseX << "," << mouseY << std::endl;
+            //     break;
+            // }
                 
         }
 
         return SDLOpenGLWindow::onEvent(event);
     }
 
-    Uint64 m_lastTime = 0;
+    float m_lastTime = 0;
     Uint64 m_fpsTimer = 0;
     int m_fps = 0;
     int m_frameCounter = 0;
 
     void mainLoop()
     {
-        Uint64 tempTime = SDL_GetPerformanceCounter();
+        float tempTime = GetTime();
 
-        float dt = (tempTime - m_lastTime) / (float)SDL_GetPerformanceFrequency();
+        float dt = tempTime - m_lastTime;
 
         m_lastTime = tempTime;
  
@@ -634,43 +793,9 @@ void NESControllerDraw() {
 
 
         ImGui::End();
-}
+    }
 
-    virtual void paintGL()  override {
-
-        mainLoop();
-
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        if(m_updateObjectsFlag) {
-            m_updateObjectsFlag = false;
-            updateBuffers();
-        }
-
-        m_vao.bind();
-
-        glBindTexture(GL_TEXTURE_2D, m_texture);
-
-        if(m_shaderProgram.bind()) {
-            m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
-            m_shaderProgram.setUniformValue("Texture", 0);
-            m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);
-            //m_shaderProgram.setUniformValue("GrayScale", m_grayScaleOnRewind && m_emu.isRewinding());
-            m_shaderProgram.setUniformValue("GrayScale", false);
-
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-            //std::cout << "draw" << std::endl;
-
-            m_shaderProgram.release();
-        }
-
-        m_vao.release();      
-            
-        
-        ImGui_ImplOpenGL3_NewFrame();
-		ImGui_ImplSDL2_NewFrame();
-		ImGui::NewFrame();
+    void menuBar() {
 
         bool show_menu = true;
 
@@ -721,8 +846,75 @@ void NESControllerDraw() {
                 }
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("Audio"))
+            {
+                if (ImGui::BeginMenu("Device")) {
+
+                    for(int i = 0; i < m_audioDevices.size(); i++) {                        
+                        if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, i == m_currentAudioDeviceIndex)) {
+                            m_currentAudioDeviceIndex = i;
+                            audioOutput.config(m_audioDevices[i]);
+                        }      
+                    }              
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Input"))
+            {
+                if (ImGui::MenuItem("Controller 1"))
+                {
+                    m_controllerConfigWindow.show(m_controller1);
+                }
+                if (ImGui::MenuItem("Controller 2"))
+                {
+                    m_controllerConfigWindow.show(m_controller2);
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndMainMenuBar();
         }
+    }
+
+    virtual void paintGL()  override {
+
+        mainLoop();
+
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        if(m_updateObjectsFlag) {
+            m_updateObjectsFlag = false;
+            updateBuffers();
+        }
+
+        m_vao.bind();
+
+        glBindTexture(GL_TEXTURE_2D, m_texture);
+
+        if(m_shaderProgram.bind()) {
+            m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
+            m_shaderProgram.setUniformValue("Texture", 0);
+            m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);
+            //m_shaderProgram.setUniformValue("GrayScale", m_grayScaleOnRewind && m_emu.isRewinding());
+            m_shaderProgram.setUniformValue("GrayScale", false);
+
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+            //std::cout << "draw" << std::endl;
+
+            m_shaderProgram.release();
+        }
+
+        m_vao.release();      
+            
+        
+        ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplSDL2_NewFrame();
+		ImGui::NewFrame();
+
+        menuBar();
+
+        
 
         NESControllerDraw();
 
@@ -757,57 +949,11 @@ for (int i = 0; i < 8; i++) {
 ImGui::End();
 */        
 
-    static int selected[10] = {0};
-
-    ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders);
-
-    // Adicionar linhas à tabela
-    for (int i = 0; i < 10; i++) {
-        char label[32];
-        sprintf(label, "Item %d", i);
-        ImGui::Selectable(label, &selected[i], ImGuiSelectableFlags_SpanAllColumns);
-
-/*
-        bool hover = selectedIndex == i;
-
-        if (hover) {
-            // Mudar a cor de fundo da linha para verde
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
-
-            // Verificar se o botão esquerdo do mouse foi clicado
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                // Tomar uma ação com os dados dessa linha
-                printf("Linha %d clicada\n", i);
-            }
-
-        }
-        */
-
-        // Coluna 1
-        ImGui::Text("Linha %d", i);
-        ImGui::TableNextColumn();        
-        
-        // Verificar se o mouse está sobre a linha
 
 
-        if(ImGui::IsItemActivated()) std::cout << "click\n";
-       
-        // Coluna 2
-        ImGui::Text("Valor %d", i * i);      
-        
-        
 
-        ImGui::TableNextRow();
-
-        // Resetar a cor de fundo da linha
-        // if (hover) {
-        //     ImGui::PopStyleColor();
-        // }
-    }
-
-
-    // Finalizar a janela do ImGui
-    ImGui::EndTable();
+    //constexpr size_t nButtons = std::extent<InputInfo::BUTTONS>::value;
+    m_controllerConfigWindow.update();
 
 
         /*
