@@ -178,8 +178,12 @@ private:
     int selected[N_BUTTONS] = {0};    
 
     enum {NONE, WAIT_EMPTY, WAIT_BUTTON} m_captureState = NONE;
+
     bool m_show = false;
+    bool m_lastShow = false;
+
     InputInfo* m_inputInfo = nullptr;
+
     int m_captureIndex = -1;
     float m_lastTime = 0.0f;
     float m_captureTime = 0.0f;
@@ -207,6 +211,10 @@ private:
 
 public:
 
+    SigSlot::Signal<> signalShow;
+    SigSlot::Signal<> signalClose;
+    
+
     void show(InputInfo& input) {
 
         if(m_inputInfo != nullptr) {
@@ -224,9 +232,16 @@ public:
         m_inputInfo = nullptr;
     }
 
-    void update() {
+    void update() {    
 
-        if(!m_show) return;
+        if(m_show != m_lastShow) {
+            if(m_show) signalShow();
+            else signalClose();
+
+            m_lastShow = m_show;
+        }
+
+        if(!m_show) return;        
 
         if(m_captureState != NONE) {
 
@@ -259,28 +274,32 @@ public:
             
         }
 
-        
+        ImGui::SetNextWindowSize(ImVec2(340, 0));
     
-        ImGui::Begin("Controller Config", &m_show, ImGuiWindowFlags_Modal);
+        ImGui::Begin("Controller Config", &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize);
 
-        if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
+        if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
 
-            ImGui::TableSetupColumn("GeraNES Button");
+            ImGui::TableSetupColumn("Button");
             ImGui::TableSetupColumn("Input");
             ImGui::TableHeadersRow();
 
             // Adicionar linhas à tabela
             for (int i = 0; i < N_BUTTONS; i++) {
 
-                ImGui::TableNextRow(); 
+                ImGui::TableNextRow();
 
-                if(m_captureState != NONE && i == m_captureIndex) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImColor(255, 255, 0));
+                auto style = ImGui::GetStyle();
+                auto color = style.Colors[ImGuiCol_TabHovered];
+
+                if(m_captureState != NONE && i == m_captureIndex) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(color));
                      
                 ImGui::TableNextColumn(); 
 
                 // Coluna 1        
-                ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
-        
+                if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
+                else ImGui::Text(InputInfo::BUTTONS[i]);
+
                 if (m_captureState == NONE && ImGui::IsItemActive()) {
                     startCapture(i);                    
                 }                    
@@ -305,11 +324,15 @@ public:
             ImGui::EndTable();
         }
 
-        if (m_captureState != NONE) {
-            char aux[64];
-            sprintf(aux, "Waiting intput for button '%s'... (%0.1f)s", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
-            ImGui::Text(aux);
-        } 
+        char aux[128];
+
+        if (m_captureState != NONE) {            
+            sprintf(aux, "Waiting input for button '%s'... (%0.1fs)", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
+        }
+        else sprintf(aux, "");
+        ImGui::Text(aux);
+
+        
 
         ImGui::End();
 
@@ -352,6 +375,13 @@ private:
     InputInfo m_controller1;
     InputInfo m_controller2; 
 
+    bool m_emuInputEnabled = true;
+
+    enum VSyncType {OFF, SYNCRONIZED, ADAPTATIVE};
+    VSyncType m_vsync = OFF;
+
+    static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
+
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
         m_mvp = proj * glm::mat4(1.0f);
@@ -360,6 +390,9 @@ private:
 public:
 
     MyApp() : m_emu(audioOutput) {
+
+        m_controllerConfigWindow.signalShow.bind(MyApp::onCaptureBegin, this);
+        m_controllerConfigWindow.signalClose.bind(MyApp::onCaptureEnd, this);
 
         m_audioDevices = audioOutput.getAudioList();
 
@@ -383,6 +416,14 @@ public:
         m_controller1.right = "Right";
     }
 
+    void onCaptureBegin() {
+        m_emuInputEnabled = false;
+    }
+
+    void onCaptureEnd() {
+        m_emuInputEnabled = true;
+    }
+
     void onLog(const std::string& msg) {
         std::cout << msg << std::endl;
     }
@@ -395,16 +436,19 @@ public:
 
     void onFrameStart() {
 
-        InputManager& im = InputManager::instance();        
+        if(m_emuInputEnabled) {
 
-        im.updateInputs();
+            InputManager& im = InputManager::instance();        
 
-        m_emu.setController1Buttons(
-        im.get(m_controller1.a), im.get(m_controller1.b),
-        im.get(m_controller1.select),im.get(m_controller1.start),
-        im.get(m_controller1.up),im.get(m_controller1.down),
-        im.get(m_controller1.left),im.get(m_controller1.right)
-        );        
+            im.updateInputs();
+
+            m_emu.setController1Buttons(
+            im.get(m_controller1.a), im.get(m_controller1.b),
+            im.get(m_controller1.select),im.get(m_controller1.start),
+            im.get(m_controller1.up),im.get(m_controller1.down),
+            im.get(m_controller1.left),im.get(m_controller1.right)
+            );
+        }      
 
     }
 
@@ -835,6 +879,15 @@ void NESControllerDraw() {
             }
             if (ImGui::BeginMenu("Video"))
             {
+                if (ImGui::BeginMenu("VSync")) {
+
+                    for(int i = OFF; i <= ADAPTATIVE ; i++) {                        
+                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, i == m_currentAudioDeviceIndex)) {
+                            m_vsync = (VSyncType)i;
+                        }      
+                    }              
+                    ImGui::EndMenu();
+                }
                 if (ImGui::MenuItem("Scanlines", "Ctrl+S", m_scanlinesFlag))
                 {
                     m_scanlinesFlag = !m_scanlinesFlag;
@@ -864,7 +917,7 @@ void NESControllerDraw() {
             {
                 if (ImGui::MenuItem("Controller 1"))
                 {
-                    m_controllerConfigWindow.show(m_controller1);
+                    m_controllerConfigWindow.show(m_controller1);                    
                 }
                 if (ImGui::MenuItem("Controller 2"))
                 {
@@ -912,48 +965,11 @@ void NESControllerDraw() {
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
-        menuBar();
+        menuBar();        
 
-        
+        //NESControllerDraw();
 
-        NESControllerDraw();
-
-  /*      
-		ImGui::Begin("Configuração do controle do NES");
-
-const char* buttonNames[] = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
-
-ImGui::Columns(2);
-
-// Loop pelos botões do controle do NES
-for (int i = 0; i < 8; i++) {
-    ImGui::Text("%s:", buttonNames[i]);
-
-    ImGui::NextColumn();
-
-    ImGui::PushItemWidth(ImGui::GetColumnWidth());
-
-    // Exibe o botão atualmente configurado e um botão para trocar
-    if (ImGui::Button(i == 3 ? "geraldo" : "oi")) {
- 
-    }
-
-    ImGui::PopItemWidth();
-
-    ImGui::NextColumn();
-
-    //ImGui::SameLine();
-
-}
-
-ImGui::End();
-*/        
-
-
-
-
-    //constexpr size_t nButtons = std::extent<InputInfo::BUTTONS>::value;
-    m_controllerConfigWindow.update();
+        m_controllerConfigWindow.update();
 
 
         /*
