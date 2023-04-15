@@ -522,6 +522,7 @@ class AudioOutput : public IAudioOutput
 private:
 
     SDL_AudioDeviceID m_device = 0;
+    std::string m_currentDeviceName = "";
 
     std::vector<char> m_buffer;
     bool m_playFlag;
@@ -553,6 +554,7 @@ private:
             SDL_PauseAudioDevice(m_device, 1); 
             SDL_CloseAudioDevice(m_device);
             m_device = 0;
+            m_currentDeviceName = "";
         }
         clearBuffers();
     }
@@ -582,6 +584,10 @@ public:
     {
         //the formats hold the number of bits in the first byte
         return spec.format & 0xFF;       
+    }
+
+    const std::string& currentDeviceName() {
+        return m_currentDeviceName;
     }
 
     std::vector<std::string> getAudioList() {
@@ -626,6 +632,8 @@ public:
         SDL_AudioSpec preferedSpec;
 
         if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) return "SDL_GetAudioDeviceSpec error";
+
+        m_currentDeviceName = _deviceName;
 
         int sampleRate = preferedSpec.freq;
         int sampleSize = 8;
@@ -689,7 +697,7 @@ public:
 
     bool init() override
     {
-        config("");
+        if(m_device == 0) config("");
         return true;
     }
 

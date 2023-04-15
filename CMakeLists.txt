@@ -162,11 +162,26 @@ set(BUILD_SHARED_LIBS FALSE)
 
 FetchContent_MakeAvailable(glm)
 
+FetchContent_Declare(
+        json
+        GIT_REPOSITORY https://github.com/nlohmann/json
+        GIT_TAG v3.11.2
+
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+)
+
+set(BUILD_SHARED_LIBS FALSE)
+
+FetchContent_MakeAvailable(json)
+
+
+
 INCLUDE_DIRECTORIES(src)
 
-set(CPP_FILES src/GeraNes/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp)
+set(CPP_FILES src/GeraNes/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNesUI/ConfigFile.cpp)
 
 #add_executable(sdl_test WIN32 ./src/main.cpp)
 add_executable(${CMAKE_PROJECT_NAME} ./src/main.cpp ${CPP_FILES})
-target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_17)
-target_link_libraries(${CMAKE_PROJECT_NAME} -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype imgui nfd libglew_static glm ${OPENGL_LIBRARY})
+target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_17)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ stdc++fs SDL2::SDL2main SDL2::SDL2-static SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype imgui nfd libglew_static glm nlohmann_json::nlohmann_json ${OPENGL_LIBRARY})

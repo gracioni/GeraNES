@@ -22,6 +22,8 @@
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include "CppGL/CppGL.h"
 #include "SDLOpenGLWindow.h"
 
@@ -30,6 +32,8 @@
 
 #include "GeraNesUI/AudioOutput.h"
 #include "GeraNesUI/InputManager.h"
+#include "GeraNesUI/InputInfo.h"
+#include "GeraNesUI/ConfigFile.h"
 
 
 // C++11. 
@@ -120,7 +124,8 @@ void main() {
 
 float GetTime()
 {
-    return (float)SDL_GetTicks64()/1000.0f; 
+    return (float)SDL_GetTicks64()/1000.0f;
+    //return (float)SDL_GetTicks()/1000.0f; 
 }
 
 
@@ -175,7 +180,7 @@ private:
     const static constexpr size_t N_BUTTONS = InputInfo::BUTTONS.size();
     const float CAPTURE_TIME = 3.0f;
     
-    int selected[N_BUTTONS] = {0};    
+    std::vector<int> selected = std::vector<int>(N_BUTTONS, 0);   
 
     enum {NONE, WAIT_EMPTY, WAIT_BUTTON} m_captureState = NONE;
 
@@ -219,7 +224,7 @@ public:
 
         if(m_inputInfo != nullptr) {
             stopCapture();
-        }
+        }   
 
         m_inputInfo = &input;
         m_show = true;
@@ -253,7 +258,7 @@ public:
             if(m_captureTime <= 0) {
                 stopCapture();
             }
-
+          
             InputManager::instance().updateInputs();
             auto capture = InputManager::instance().capture();
 
@@ -272,7 +277,7 @@ public:
                     break;
             }
             
-        }
+        }  
 
         ImGui::SetNextWindowSize(ImVec2(340, 0));
     
@@ -284,7 +289,7 @@ public:
             ImGui::TableSetupColumn("Input");
             ImGui::TableHeadersRow();
 
-            // Adicionar linhas à tabela
+            // Adicionar linhas a tabela
             for (int i = 0; i < N_BUTTONS; i++) {
 
                 ImGui::TableNextRow();
@@ -307,16 +312,9 @@ public:
                 ImGui::TableNextColumn();   
             
                 // Coluna 2
-                ImGui::Text(m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());      
+                ImGui::Text(m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());
                 
                 
-
-                
-
-                // Resetar a cor de fundo da linha
-                // if (hover) {
-                //     ImGui::PopStyleColor();
-                // }
             }
 
 
@@ -331,7 +329,7 @@ public:
         }
         else sprintf(aux, "");
         ImGui::Text(aux);
-
+        
         
 
         ImGui::End();
@@ -350,7 +348,6 @@ private:
     ControllerConfigWindow m_controllerConfigWindow;
 
     std::vector<std::string> m_audioDevices;
-    int m_currentAudioDeviceIndex = -1;
 
     bool m_horizontalStretch = false;
     int m_clipHeightValue = 8;
@@ -389,7 +386,7 @@ private:
 
 public:
 
-    MyApp() : m_emu(audioOutput) {
+    MyApp() : m_emu(audioOutput) {        
 
         m_controllerConfigWindow.signalShow.bind(MyApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(MyApp::onCaptureEnd, this);
@@ -400,20 +397,15 @@ public:
             std::cout << d << std::endl;
         }
 
-        audioOutput.config("");
+        audioOutput.config(ConfigFile::instance().getAudioDevice());
 
         Logger::instance().signalLog.bind(&MyApp::onLog,this);
         m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
 
-        m_controller1.a = "S";
-        m_controller1.b = "A";
-        m_controller1.select = "Space";
-        m_controller1.start = "Return";
-        m_controller1.rewind = "Backspace";
-        m_controller1.up = "Up";
-        m_controller1.down = "Down";
-        m_controller1.left = "Left";
-        m_controller1.right = "Right";
+
+        ConfigFile::instance().getInputInfo(0, m_controller1);
+        ConfigFile::instance().getInputInfo(1, m_controller2);
+
     }
 
     void onCaptureBegin() {
@@ -421,7 +413,12 @@ public:
     }
 
     void onCaptureEnd() {
-        m_emuInputEnabled = true;
+
+        m_emuInputEnabled = true;        
+
+        //save both
+        ConfigFile::instance().setInputInfo(0, m_controller1);
+        ConfigFile::instance().setInputInfo(1, m_controller2);
     }
 
     void onLog(const std::string& msg) {
@@ -452,6 +449,14 @@ public:
 
     }
 
+    void updateVSyncConfig() {
+        switch(m_vsync) {
+            case OFF: SDL_GL_SetSwapInterval(0); break;
+            case SYNCRONIZED: SDL_GL_SetSwapInterval(1); break;
+            case ADAPTATIVE: SDL_GL_SetSwapInterval(-1); break;
+        }
+    }
+
     virtual void initGL() override {
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
@@ -466,7 +471,7 @@ public:
         }
 
         //vsync 0(disabled) 1(enabled) -1(adaptative)
-        SDL_GL_SetSwapInterval(0);
+        updateVSyncConfig();
 
 
         IMGUI_CHECKVERSION();
@@ -851,11 +856,17 @@ void NESControllerDraw() {
                 {
                     NFD_Init();
 
+                    std::cout << "last folder: " << ConfigFile::instance().getLastFolder().c_str() << std::endl;
+
                     nfdchar_t *outPath;
                     nfdfilteritem_t filterItem[] = { { "iNes Files", "nes,zip" } };
-                    nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), NULL);
+                    nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), (ConfigFile::instance().getLastFolder()).c_str());
                     if (result == NFD_OKAY)
                     {
+                        std::cout << "folder: " << outPath << std::endl;
+
+                        ConfigFile::instance().addRecentFile(outPath);
+                        ConfigFile::instance().setLastFolder(outPath);
                         m_emu.open(outPath);
                         NFD_FreePath(outPath);
                     }
@@ -871,10 +882,25 @@ void NESControllerDraw() {
                     NFD_Quit();
                     
                 }
+
+                auto recentFiles = ConfigFile::instance().getRecentFiles();
+                if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0))
+                {
+                    for(int i = 0; i < recentFiles.size(); i++) {
+                        if(ImGui::MenuItem(recentFiles[i].c_str())) {
+                            m_emu.open(recentFiles[i]);
+                            ConfigFile::instance().addRecentFile(recentFiles[i]);
+                        } 
+                    }
+                    ImGui::EndMenu();
+                }
+
+                ImGui::Separator();
+
                 if (ImGui::MenuItem("Quit", "Ctrl+Q"))
                 {
                     quit();
-                }
+                }                
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Video"))
@@ -882,8 +908,9 @@ void NESControllerDraw() {
                 if (ImGui::BeginMenu("VSync")) {
 
                     for(int i = OFF; i <= ADAPTATIVE ; i++) {                        
-                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, i == m_currentAudioDeviceIndex)) {
+                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsync == i)) {
                             m_vsync = (VSyncType)i;
+                            updateVSyncConfig();
                         }      
                     }              
                     ImGui::EndMenu();
@@ -903,10 +930,13 @@ void NESControllerDraw() {
             {
                 if (ImGui::BeginMenu("Device")) {
 
-                    for(int i = 0; i < m_audioDevices.size(); i++) {                        
-                        if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, i == m_currentAudioDeviceIndex)) {
-                            m_currentAudioDeviceIndex = i;
+                    for(int i = 0; i < m_audioDevices.size(); i++) {
+
+                        bool checked = audioOutput.currentDeviceName() == m_audioDevices[i].c_str();
+
+                        if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
                             audioOutput.config(m_audioDevices[i]);
+                            ConfigFile::instance().setAudioDevice(audioOutput.currentDeviceName());
                         }      
                     }              
                     ImGui::EndMenu();
@@ -915,11 +945,11 @@ void NESControllerDraw() {
             }
             if (ImGui::BeginMenu("Input"))
             {
-                if (ImGui::MenuItem("Controller 1"))
+                if (ImGui::MenuItem("Player 1"))
                 {
                     m_controllerConfigWindow.show(m_controller1);                    
                 }
-                if (ImGui::MenuItem("Controller 2"))
+                if (ImGui::MenuItem("Player 2"))
                 {
                     m_controllerConfigWindow.show(m_controller2);
                 }
