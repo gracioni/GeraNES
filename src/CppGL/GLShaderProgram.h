@@ -13,6 +13,7 @@ private:
     std::vector<GLuint> m_programs;
     GLuint m_shaderProgram = 0;
     bool m_linked = false;
+    std::string m_lastError;
 
 public:
 
@@ -47,10 +48,13 @@ public:
                 if (success) {
                     m_programs.push_back(vertexShader);               
                 }
-                else {       
-                    GLchar infoLog[512];
-                    glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-                    std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+                else {      
+                    GLint infoLogLength;
+                    glGetProgramiv(vertexShader, GL_INFO_LOG_LENGTH, &infoLogLength);
+                    char* infoLog = new char[infoLogLength + 1];
+                    glGetProgramInfoLog(vertexShader, infoLogLength, NULL, infoLog);
+                    m_lastError = std::string(infoLog);
+                    delete[] infoLog;
                     return false;
                 }
 
@@ -70,9 +74,12 @@ public:
                     m_programs.push_back(fragmentShader);
                 }
                 else {
-                    GLchar infoLog[512];
-                    glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-                    std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
+                    GLint infoLogLength;
+                    glGetProgramiv(fragmentShader, GL_INFO_LOG_LENGTH, &infoLogLength);
+                    char* infoLog = new char[infoLogLength + 1];
+                    glGetProgramInfoLog(fragmentShader, infoLogLength, NULL, infoLog);
+                    m_lastError = std::string(infoLog);
+                    delete[] infoLog;
                     return false;
                 }               
                 break;
@@ -98,15 +105,11 @@ public:
         glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &success);
         if (!success)
         {
-            // The program failed to link
             GLint infoLogLength;
             glGetProgramiv(m_shaderProgram, GL_INFO_LOG_LENGTH, &infoLogLength);
             char* infoLog = new char[infoLogLength + 1];
             glGetProgramInfoLog(m_shaderProgram, infoLogLength, NULL, infoLog);
-
-            std::cout << infoLog;
-
-            // Print or log the infoLog to investigate the cause of the link failure
+            m_lastError = std::string(infoLog);
             delete[] infoLog;
             return false;
         }
@@ -162,6 +165,10 @@ public:
     void setUniformValue(const char* name, const glm::mat4x4 value) {
         GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
         glUniformMatrix4fv(uniformLocation, 1, GL_FALSE, glm::value_ptr(value));
+    }
+
+    const std::string& lastError() {
+        return m_lastError;
     }
 };
 

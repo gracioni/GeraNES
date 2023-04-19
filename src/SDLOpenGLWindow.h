@@ -25,6 +25,10 @@ public:
         initGL();
     }
 
+    void setTitle(const char* title) {
+        SDL_SetWindowTitle(m_window, title);
+    }
+
     virtual void initGL() {        
     }
 
@@ -110,6 +114,16 @@ public:
 
     void quit() {
         m_quit = true;
+    }
+
+    bool isFullScreen() {
+        auto flags = SDL_GetWindowFlags(m_window);
+        return flags & SDL_WINDOW_FULLSCREEN_DESKTOP;
+    }
+
+    bool setFullScreen(bool state) {
+        int flags = state ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+        return SDL_SetWindowFullscreen(m_window, flags) == 0;
     }
 
 };

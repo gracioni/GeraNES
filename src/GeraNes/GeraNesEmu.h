@@ -234,6 +234,7 @@ private:
     void onError(const std::string& e)
     {
         signalError(e);
+        Logger::instance().log(e, Logger::ERROR);
         m_halt = true;
     }
 
@@ -376,7 +377,7 @@ public:
 
             m_saveStatePoint = 0;
 
-            Logger::instance().append(m_cartridge.debug());
+            Logger::instance().log(m_cartridge.debug());
 
             resetRewindSystem();
         }
@@ -536,7 +537,7 @@ public:
         serialization(s);
         m_serializationSize = s.size();
 
-        Logger::instance().append("Serialization size: " + std::to_string(m_serializationSize) + "\n");
+        Logger::instance().log("Serialization size: " + std::to_string(m_serializationSize) + "\n");
     }
     */
 

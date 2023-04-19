@@ -9,6 +9,10 @@
 
 #include "../Serialization.h"
 
+#include <experimental/filesystem>
+
+namespace fs = std::experimental::filesystem;
+
 class IMapper
 {
 
@@ -56,6 +60,9 @@ private:
     void saveSRAM()
     {
         if(!m_cartridgeData.hasBatteryRAM8k()) return;
+
+        std::string dir = fs::path(sramFile()).parent_path().string();
+        if(!fs::exists(dir)) fs::create_directory(dir);
 
         std::ofstream f(sramFile(), std::ios::binary | std::ios::trunc);
         if(f.is_open()) {

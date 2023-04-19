@@ -6,6 +6,10 @@
 #include <vector>
 #include <fstream>
 
+#include <experimental/filesystem>
+
+namespace fs = std::experimental::filesystem;
+
 class SerializationBase
 {
     private:
@@ -65,7 +69,10 @@ class Serialize : public SerializationBase
         }
 
         bool saveToFile(const std::string& fileName)
-        {
+        { 
+            std::string dir = fs::path(fileName).parent_path().string();
+            if(!fs::exists(dir)) fs::create_directory(dir);
+
             std::ofstream f(fileName, std::ios::binary | std::ios::trunc);
             if(f.is_open()) {
                 f.write(reinterpret_cast<char*>(&_data[0]), _data.size());

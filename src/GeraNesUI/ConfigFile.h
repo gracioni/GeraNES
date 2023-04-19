@@ -10,9 +10,22 @@
 #include <nlohmann/json.hpp>
 #include "InputInfo.h"
 
+#include "GeraNes/Logger.h"
+
+namespace fs = std::experimental::filesystem;
+
 class ConfigFile {
 
 private:
+
+    struct Improvements {   
+
+        bool disableSpritesLimit;
+        bool overclock;
+        int maxRewindTime;
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Improvements, disableSpritesLimit, overclock, maxRewindTime)
+    };
 
     const char* FILENAME = "config.json";
     const int MAX_RECENT_FILES = 10;
@@ -23,8 +36,9 @@ private:
     std::vector<std::string> recentFiles;
     std::string lastFolder;
     std::string audioDevice;
+    Improvements improvements;
 
-    ConfigFile(const ConfigFile&) = delete;
+    //ConfigFile(const ConfigFile&) = delete;
     ConfigFile& operator = (const ConfigFile&) = delete;
 
     ConfigFile();  
@@ -81,12 +95,12 @@ private:
             inputInfo.insert(std::make_pair("1", input)); 
         }      
          
-        if(lastFolder == "") lastFolder = std::experimental::filesystem::current_path().string();
+        if(lastFolder == "") lastFolder = fs::current_path().string();
     }
 
 public:
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ConfigFile, inputInfo, recentFiles, lastFolder, audioDevice)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ConfigFile, inputInfo, recentFiles, lastFolder, audioDevice, improvements)
 
     ~ConfigFile();
 
@@ -115,9 +129,9 @@ public:
     static ConfigFile& instance();    
 
     void save() {
-        std::cout << "saving..." << std::endl;
-       std::ofstream file(FILENAME);
-       file << std::setw(4) << nlohmann::json(*this);
+        Logger::instance().log("saving configs...", Logger::INFO);
+        std::ofstream file(FILENAME);
+        file << std::setw(4) << nlohmann::json(*this);
     }    
 
     bool getInputInfo(int index, InputInfo& result) {
@@ -158,7 +172,7 @@ public:
     }
 
     void setLastFolder(const std::string& path) {
-        std::experimental::filesystem::path p = path;
+        fs::path p = path;
         lastFolder = p.parent_path().string();
     }
 
@@ -172,6 +186,30 @@ public:
 
     void setAudioDevice(const std::string& name) {
         audioDevice = name;
+    }
+
+    void setDisableSpritesLimit(bool state) {
+        improvements.disableSpritesLimit = state;
+    }
+
+    bool getDisableSpritesLimit() {
+        return improvements.disableSpritesLimit;
+    }
+
+    void setOverclock(bool state) {
+        improvements.overclock = state;
+    }
+
+    bool getOverclock() {
+        return improvements.overclock;
+    }
+
+    int setMaxRewindTime(int seconds) {
+        improvements.maxRewindTime = seconds;
+    }
+
+    int getMaxRewindTime() {
+        return improvements.maxRewindTime;
     }
     
 };

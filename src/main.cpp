@@ -1,6 +1,4 @@
 #include <SDL.h>
-#include <SDL_image.h>
-#include <SDL_ttf.h>
 
 //#include <GL/glu.h>
 #include <iostream>
@@ -122,13 +120,13 @@ void main() {
 #endif
 )html";
 
-float GetTime()
+double_t GetTime()
 {
-    return (float)SDL_GetTicks64()/1000.0f;
+    return (double_t)SDL_GetTicks64()/1000.0;
     //return (float)SDL_GetTicks()/1000.0f; 
 }
 
-
+/*
 GLuint loadTextureFromFile(const char* path) {
 
     GLuint ret = 0;
@@ -171,6 +169,7 @@ GLuint loadTextureFromFile(const char* path) {
 
     return ret;
 }
+*/
 
 
 class ControllerConfigWindow {
@@ -250,8 +249,8 @@ public:
 
         if(m_captureState != NONE) {
 
-            float time = GetTime();
-            float dt = time - m_lastTime;
+            double time = GetTime();
+            double dt = time - m_lastTime;
             m_captureTime -= dt;
             m_lastTime = time;
 
@@ -281,60 +280,58 @@ public:
 
         ImGui::SetNextWindowSize(ImVec2(340, 0));
     
-        ImGui::Begin("Controller Config", &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize);
+        if(ImGui::Begin("Controller Config", &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
 
-        if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
+            if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
 
-            ImGui::TableSetupColumn("Button");
-            ImGui::TableSetupColumn("Input");
-            ImGui::TableHeadersRow();
+                ImGui::TableSetupColumn("Button");
+                ImGui::TableSetupColumn("Input");
+                ImGui::TableHeadersRow();
 
-            // Adicionar linhas a tabela
-            for (int i = 0; i < N_BUTTONS; i++) {
+                // Adicionar linhas a tabela
+                for (int i = 0; i < N_BUTTONS; i++) {
 
-                ImGui::TableNextRow();
+                    ImGui::TableNextRow();
 
-                auto style = ImGui::GetStyle();
-                auto color = style.Colors[ImGuiCol_TabHovered];
+                    auto style = ImGui::GetStyle();
+                    auto color = style.Colors[ImGuiCol_TabHovered];
 
-                if(m_captureState != NONE && i == m_captureIndex) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(color));
-                     
-                ImGui::TableNextColumn(); 
+                    if(m_captureState != NONE && i == m_captureIndex) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(color));
+                        
+                    ImGui::TableNextColumn(); 
 
-                // Coluna 1        
-                if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
-                else ImGui::Text(InputInfo::BUTTONS[i]);
+                    // Coluna 1        
+                    if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
+                    else ImGui::Text(InputInfo::BUTTONS[i]);
 
-                if (m_captureState == NONE && ImGui::IsItemActive()) {
-                    startCapture(i);                    
-                }                    
+                    if (m_captureState == NONE && ImGui::IsItemActive()) {
+                        startCapture(i);                    
+                    }                    
 
-                ImGui::TableNextColumn();   
-            
-                // Coluna 2
-                ImGui::Text(m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());
+                    ImGui::TableNextColumn();   
                 
-                
+                    // Coluna 2
+                    ImGui::Text(m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());
+                    
+                    
+                }
+
+
+                // Finalizar a janela do ImGui
+                ImGui::EndTable();
             }
 
+            char aux[128];
 
-            // Finalizar a janela do ImGui
-            ImGui::EndTable();
+            if (m_captureState != NONE) {            
+                sprintf(aux, "Waiting input for button '%s'... (%0.1fs)", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
+            }
+            else sprintf(aux, "");
+            ImGui::Text(aux);     
+
+            ImGui::SetWindowFocus("Controller Config");
         }
-
-        char aux[128];
-
-        if (m_captureState != NONE) {            
-            sprintf(aux, "Waiting input for button '%s'... (%0.1fs)", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
-        }
-        else sprintf(aux, "");
-        ImGui::Text(aux);
-        
-        
-
         ImGui::End();
-
-        ImGui::SetWindowFocus("Controller Config");
 
     }
     
@@ -384,9 +381,57 @@ private:
         m_mvp = proj * glm::mat4(1.0f);
     }
 
+    void openFile(const char* path) {
+        ConfigFile::instance().addRecentFile(path);
+        ConfigFile::instance().setLastFolder(path);
+        m_emu.open(path);
+        setTitle((std::string("GeraNES (") + path + ")").c_str());
+    }
+
+    void onLog(const std::string& msg, int flags) {
+        std::ofstream file("log.txt", std::ios_base::app); //append
+        file << msg << std::endl;
+    }
+
+    void onErrorLog(const std::string& msg, int flags) {
+        if(flags & Logger::ERROR)
+            std::cout << msg << std::endl;
+    }
+
+    void onFrameStart() {
+
+        m_frameCounter++;
+
+        if(m_emuInputEnabled) {
+
+            InputManager& im = InputManager::instance();        
+
+            im.updateInputs();
+
+            m_emu.setController1Buttons(
+            im.get(m_controller1.a), im.get(m_controller1.b),
+            im.get(m_controller1.select),im.get(m_controller1.start),
+            im.get(m_controller1.up),im.get(m_controller1.down),
+            im.get(m_controller1.left),im.get(m_controller1.right)
+            );
+
+            if(im.get(m_controller1.saveState)) m_emu.saveState();
+            if(im.get(m_controller1.loadState)) m_emu.loadState();
+            m_emu.setRewind(im.get(m_controller1.rewind));
+        }
+
+        
+
+    }
+
 public:
 
-    MyApp() : m_emu(audioOutput) {        
+    MyApp() : m_emu(audioOutput) {
+
+        Logger::instance().signalLog.bind(MyApp::onLog, this);
+        Logger::instance().signalLog.bind(MyApp::onErrorLog, this);
+        m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
+        
 
         m_controllerConfigWindow.signalShow.bind(MyApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(MyApp::onCaptureEnd, this);
@@ -397,14 +442,16 @@ public:
             std::cout << d << std::endl;
         }
 
-        audioOutput.config(ConfigFile::instance().getAudioDevice());
+        ConfigFile& cfg = ConfigFile::instance();
 
-        Logger::instance().signalLog.bind(&MyApp::onLog,this);
-        m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
+        audioOutput.config(cfg.getAudioDevice());    
+        
+        cfg.getInputInfo(0, m_controller1);
+        cfg.getInputInfo(1, m_controller2);
 
-
-        ConfigFile::instance().getInputInfo(0, m_controller1);
-        ConfigFile::instance().getInputInfo(1, m_controller2);
+        m_emu.setupRewindSystem(cfg.getMaxRewindTime() > 0, cfg.getMaxRewindTime());
+        m_emu.disableSpriteLimit(cfg.getDisableSpritesLimit());
+        m_emu.enableOverclock(cfg.getOverclock());
 
     }
 
@@ -421,33 +468,11 @@ public:
         ConfigFile::instance().setInputInfo(1, m_controller2);
     }
 
-    void onLog(const std::string& msg) {
-        std::cout << msg << std::endl;
-    }
-
     virtual ~MyApp() {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();
-    }
-
-    void onFrameStart() {
-
-        if(m_emuInputEnabled) {
-
-            InputManager& im = InputManager::instance();        
-
-            im.updateInputs();
-
-            m_emu.setController1Buttons(
-            im.get(m_controller1.a), im.get(m_controller1.b),
-            im.get(m_controller1.select),im.get(m_controller1.start),
-            im.get(m_controller1.up),im.get(m_controller1.down),
-            im.get(m_controller1.left),im.get(m_controller1.right)
-            );
-        }      
-
-    }
+    }    
 
     void updateVSyncConfig() {
         switch(m_vsync) {
@@ -460,14 +485,13 @@ public:
     virtual void initGL() override {
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
-            // error handling
+            Logger::instance().log("SDL_Init error", Logger::ERROR);
         }
 
         GLenum err = glewInit();
         if (GLEW_OK != err)
         {
-            /* Problem: glewInit failed, something is seriously wrong. */
-            printf("Error: %s\n", glewGetErrorString(err));
+            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR);
         }
 
         //vsync 0(disabled) 1(enabled) -1(adaptative)
@@ -547,14 +571,12 @@ public:
         m_shaderProgram.create();
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
-            //signalError(m_shaderProgram.log().toStdString());
-            std::cout << "erro vertex\n";
+            Logger::instance().log("vertex shader error: " + m_shaderProgram.lastError(), Logger::ERROR);
             return;
         }
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
-            //signalError(m_shaderProgram->log().toStdString());
-            std::cout << "erro fragment\n";       
+            Logger::instance().log("fragment shader error: " + m_shaderProgram.lastError(), Logger::ERROR);    
             return;
         }
 
@@ -562,8 +584,7 @@ public:
         m_shaderProgram.bindAttributeLocation("TexCoord", 1);
 
         if(!m_shaderProgram.link()){
-            //signalError(m_shaderProgram->log().toStdString());
-            std::cout << "erro link\n";      
+            Logger::instance().log("shader link error: " + m_shaderProgram.lastError(), Logger::ERROR);   
             return;
         }
     }
@@ -700,26 +721,26 @@ public:
         return SDLOpenGLWindow::onEvent(event);
     }
 
-    float m_lastTime = 0;
-    Uint64 m_fpsTimer = 0;
+    double m_lastTime = 0;
+    double m_fpsTimer = 0;
     int m_fps = 0;
     int m_frameCounter = 0;
 
     void mainLoop()
     {
-        float tempTime = GetTime();
+        double tempTime = GetTime();
 
-        float dt = tempTime - m_lastTime;
+        double dt = tempTime - m_lastTime;
 
         m_lastTime = tempTime;
  
         m_fpsTimer += dt;
 
-        if(m_fpsTimer >= 1000)
+        if(m_fpsTimer >= 1.0)
         {
             m_fps = m_frameCounter;
             m_frameCounter = 0;
-            m_fpsTimer -= 1000;
+            m_fpsTimer -= 1.0;
         }    
 
         if( m_emu.update(dt) ) render();
@@ -841,8 +862,10 @@ void NESControllerDraw() {
 
 
 
-        ImGui::End();
-    }
+    ImGui::End();
+}
+
+    bool m_showImprovementsWindows = false;
 
     void menuBar() {
 
@@ -854,20 +877,14 @@ void NESControllerDraw() {
             { 
                 if (ImGui::MenuItem("Open", "Ctrl+O"))
                 {
-                    NFD_Init();
-
-                    std::cout << "last folder: " << ConfigFile::instance().getLastFolder().c_str() << std::endl;
+                    NFD_Init();     
 
                     nfdchar_t *outPath;
                     nfdfilteritem_t filterItem[] = { { "iNes Files", "nes,zip" } };
                     nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), (ConfigFile::instance().getLastFolder()).c_str());
                     if (result == NFD_OKAY)
                     {
-                        std::cout << "folder: " << outPath << std::endl;
-
-                        ConfigFile::instance().addRecentFile(outPath);
-                        ConfigFile::instance().setLastFolder(outPath);
-                        m_emu.open(outPath);
+                        openFile(outPath);                        
                         NFD_FreePath(outPath);
                     }
                     else if (result == NFD_CANCEL)
@@ -876,7 +893,7 @@ void NESControllerDraw() {
                     }
                     else 
                     {
-                        printf("Error: %s\n", NFD_GetError());
+                        Logger::instance().log(NFD_GetError(), Logger::ERROR);
                     }
 
                     NFD_Quit();
@@ -888,8 +905,7 @@ void NESControllerDraw() {
                 {
                     for(int i = 0; i < recentFiles.size(); i++) {
                         if(ImGui::MenuItem(recentFiles[i].c_str())) {
-                            m_emu.open(recentFiles[i]);
-                            ConfigFile::instance().addRecentFile(recentFiles[i]);
+                            openFile(recentFiles[i].c_str());
                         } 
                     }
                     ImGui::EndMenu();
@@ -903,6 +919,15 @@ void NESControllerDraw() {
                 }                
                 ImGui::EndMenu();
             }
+
+            if (ImGui::BeginMenu("Emulator"))
+            {
+                if (ImGui::MenuItem("Improvements")) {
+                    m_showImprovementsWindows = true;                                       
+                }
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("Video"))
             {
                 if (ImGui::BeginMenu("VSync")) {
@@ -915,17 +940,26 @@ void NESControllerDraw() {
                     }              
                     ImGui::EndMenu();
                 }
+
                 if (ImGui::MenuItem("Scanlines", "Ctrl+S", m_scanlinesFlag))
                 {
                     m_scanlinesFlag = !m_scanlinesFlag;
                 }
+
                 if (ImGui::MenuItem("Horizontal Stretch", "Ctrl+H", m_horizontalStretch))
                 {
                     m_horizontalStretch = !m_horizontalStretch;
                     m_updateObjectsFlag = true;
                 }
+
+                if (ImGui::MenuItem("Full Screen", "Ctrl+Enter", isFullScreen()))
+                {
+                    setFullScreen(!isFullScreen());
+                }
+
                 ImGui::EndMenu();
             }
+
             if (ImGui::BeginMenu("Audio"))
             {
                 if (ImGui::BeginMenu("Device")) {
@@ -943,6 +977,7 @@ void NESControllerDraw() {
                 }
                 ImGui::EndMenu();
             }
+
             if (ImGui::BeginMenu("Input"))
             {
                 if (ImGui::MenuItem("Player 1"))
@@ -979,7 +1014,7 @@ void NESControllerDraw() {
             m_shaderProgram.setUniformValue("Texture", 0);
             m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);
             //m_shaderProgram.setUniformValue("GrayScale", m_grayScaleOnRewind && m_emu.isRewinding());
-            m_shaderProgram.setUniformValue("GrayScale", false);
+            m_shaderProgram.setUniformValue("GrayScale", m_emu.isRewinding());
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -1001,9 +1036,41 @@ void NESControllerDraw() {
 
         m_controllerConfigWindow.update();
 
+        if(m_showImprovementsWindows) { 
+
+            if(ImGui::Begin("Improve", &m_showImprovementsWindows)) {
+                
+                bool disableSpritesLimit = ConfigFile::instance().getDisableSpritesLimit();
+                if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
+                    m_emu.disableSpriteLimit(!ConfigFile::instance().getDisableSpritesLimit());
+                    ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
+                }
+
+                bool overclock = ConfigFile::instance().getOverclock();                     
+                if(ImGui::Checkbox("Overclock", &overclock)) {                   
+                    m_emu.enableOverclock(!ConfigFile::instance().getOverclock());
+                    ConfigFile::instance().setOverclock(m_emu.overclocked());
+                }
+
+                int value = ConfigFile::instance().getMaxRewindTime();               
+                if(ImGui::InputInt("Max Rewind Time(s)", &value)) {                        
+                    ConfigFile::instance().setMaxRewindTime(value);
+                    m_emu.setupRewindSystem(value > 0, value);
+                }
+            }                     
+            
+            ImGui::End();
+        }
+
+
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        drawList->AddText(ImVec2(width()-80,60), 0xFFFFFFFF, (std::to_string(m_fps) + " FPS").c_str());
+
+     
+
 
         /*
-        ImGui::Begin("another");
+        ImGui::Begin("another", &pqp);
             ImDrawList* drawList = ImGui::GetWindowDrawList();           
             
 
@@ -1019,13 +1086,14 @@ void NESControllerDraw() {
        
             float ref= std::min(size.x,size.y);
 
-            drawList->AddImage((void*)m_texture, vMin, vMax);
+            //drawList->AddImage((void*)m_texture, vMin, vMax);
             drawList->AddCircle(vMin+size/2,ref/2,0xFFFFFFFF);
 
             
 
-        ImGui::End();    
-        */
+        ImGui::End();
+        */  
+        
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -1038,7 +1106,7 @@ int main(int argc, char* argv[]) {
 
     MyApp app;
 
-    app.create("Meu App", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_RESIZABLE);
+    app.create("GeraNES", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_RESIZABLE);
 
     app.run();
 

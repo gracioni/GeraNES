@@ -13,7 +13,9 @@ private:
 
 public:
 
-    SigSlot::Signal<const std::string&> signalLog;
+    enum LogFlags {INFO = 1, DEBUG = 2, ERROR = 4};
+
+    SigSlot::Signal<const std::string&, int> signalLog;
 
     static Logger& instance()
     {
@@ -22,9 +24,9 @@ public:
         return instance;
     }
 
-    void append(const std::string& s)
+    void log(const std::string& s, int flags = LogFlags::INFO)
     {
-        signalLog(s);
+        signalLog(s, flags);
     }
 
 };
