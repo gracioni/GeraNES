@@ -101,7 +101,7 @@ void main() {
 
         float freq = float(Scanlines);
         float phase = freq*0.25;
-        const float lineIntensity = 0.33;
+        const float lineIntensity = 0.3;
         const float bright = 1.0 + 0.707/2.0 * 0.25;
 
         float value = sin(2.0 * M_PI * freq * uv.y + phase);
@@ -359,6 +359,7 @@ private:
     GLuint m_texture = 0;
 
     bool m_scanlinesFlag = false;
+    bool m_fullScreen = false;
 
     glm::mat4x4 m_mvp = glm::mat4x4(1.0f);
 
@@ -371,8 +372,8 @@ private:
 
     bool m_emuInputEnabled = true;
 
-    enum VSyncType {OFF, SYNCRONIZED, ADAPTATIVE};
-    VSyncType m_vsync = OFF;
+    enum VSyncMode {OFF, SYNCRONIZED, ADAPTATIVE};
+    VSyncMode m_vsyncMode = OFF;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
 
@@ -444,7 +445,8 @@ public:
 
         ConfigFile& cfg = ConfigFile::instance();
 
-        audioOutput.config(cfg.getAudioDevice());    
+        audioOutput.config(cfg.getAudioDevice());      
+        ConfigFile::instance().setAudioDevice(audioOutput.currentDeviceName());  
         
         cfg.getInputInfo(0, m_controller1);
         cfg.getInputInfo(1, m_controller2);
@@ -453,6 +455,10 @@ public:
         m_emu.disableSpriteLimit(cfg.getDisableSpritesLimit());
         m_emu.enableOverclock(cfg.getOverclock());
 
+        m_vsyncMode = (VSyncMode)cfg.getVSyncMode();
+        m_scanlinesFlag = cfg.getScanlines();
+        m_horizontalStretch = cfg.getHorizontalStretch();
+        m_fullScreen = cfg.getFullScreen();        
     }
 
     void onCaptureBegin() {
@@ -475,7 +481,7 @@ public:
     }    
 
     void updateVSyncConfig() {
-        switch(m_vsync) {
+        switch(m_vsyncMode) {
             case OFF: SDL_GL_SetSwapInterval(0); break;
             case SYNCRONIZED: SDL_GL_SetSwapInterval(1); break;
             case ADAPTATIVE: SDL_GL_SetSwapInterval(-1); break;
@@ -483,6 +489,8 @@ public:
     }
 
     virtual void initGL() override {
+
+        setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
             Logger::instance().log("SDL_Init error", Logger::ERROR);
@@ -493,6 +501,8 @@ public:
         {
             Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR);
         }
+
+        
 
         //vsync 0(disabled) 1(enabled) -1(adaptative)
         updateVSyncConfig();
@@ -933,8 +943,9 @@ void NESControllerDraw() {
                 if (ImGui::BeginMenu("VSync")) {
 
                     for(int i = OFF; i <= ADAPTATIVE ; i++) {                        
-                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsync == i)) {
-                            m_vsync = (VSyncType)i;
+                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsyncMode == i)) {
+                            m_vsyncMode = (VSyncMode)i;
+                            ConfigFile::instance().setVSyncMode(i);
                             updateVSyncConfig();
                         }      
                     }              
@@ -944,17 +955,21 @@ void NESControllerDraw() {
                 if (ImGui::MenuItem("Scanlines", "Ctrl+S", m_scanlinesFlag))
                 {
                     m_scanlinesFlag = !m_scanlinesFlag;
+                    ConfigFile::instance().setScanlines(m_scanlinesFlag);
                 }
 
                 if (ImGui::MenuItem("Horizontal Stretch", "Ctrl+H", m_horizontalStretch))
                 {
                     m_horizontalStretch = !m_horizontalStretch;
+                    ConfigFile::instance().setHorizontalStretch(m_horizontalStretch);
                     m_updateObjectsFlag = true;
                 }
 
-                if (ImGui::MenuItem("Full Screen", "Ctrl+Enter", isFullScreen()))
+                if (ImGui::MenuItem("Full Screen", "Ctrl+Enter", m_fullScreen))
                 {
-                    setFullScreen(!isFullScreen());
+                    m_fullScreen = !m_fullScreen;
+                    setFullScreen(m_fullScreen);
+                    ConfigFile::instance().setFullScreen(m_fullScreen);
                 }
 
                 ImGui::EndMenu();

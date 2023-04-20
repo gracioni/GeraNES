@@ -20,11 +20,28 @@ private:
 
     struct Improvements {   
 
-        bool disableSpritesLimit;
-        bool overclock;
-        int maxRewindTime;
+        bool disableSpritesLimit = false;
+        bool overclock = false;
+        int maxRewindTime = 0;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Improvements, disableSpritesLimit, overclock, maxRewindTime)
+    };
+
+    struct Video {
+
+        int vsyncMode = 1;
+        bool scanLines = false;
+        bool horizontalStretch = false;
+        bool fullScreen = false;
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, scanLines, horizontalStretch, fullScreen)
+    };
+
+    struct Audio {
+
+        std::string audioDevice = "";
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice)
     };
 
     const char* FILENAME = "config.json";
@@ -32,11 +49,12 @@ private:
 
     static std::unique_ptr<ConfigFile> _instance;
 
-    std::map<std::string, InputInfo> inputInfo;
+    std::map<std::string, InputInfo> input;
     std::vector<std::string> recentFiles;
-    std::string lastFolder;
-    std::string audioDevice;
+    std::string lastFolder;    
     Improvements improvements;
+    Video video;
+    Audio audio;
 
     //ConfigFile(const ConfigFile&) = delete;
     ConfigFile& operator = (const ConfigFile&) = delete;
@@ -57,42 +75,42 @@ private:
 
     void sanitizeDefaults() {
 
-        if(inputInfo.count("0") == 0) {
+        if(input.count("0") == 0) {
 
-            InputInfo input;
+            InputInfo i;
 
-            input.a = "Left Alt";
-            input.b = "Left Ctrl";
-            input.select = "Space";
-            input.start = "Return";        
-            input.up = "Up";
-            input.down = "Down";
-            input.left = "Left";
-            input.right = "Right";
-            input.saveState = "F5";
-            input.loadState = "F6";
-            input.rewind = "Backspace";
+            i.a = "Left Alt";
+            i.b = "Left Ctrl";
+            i.select = "Space";
+            i.start = "Return";        
+            i.up = "Up";
+            i.down = "Down";
+            i.left = "Left";
+            i.right = "Right";
+            i.saveState = "F5";
+            i.loadState = "F6";
+            i.rewind = "Backspace";
 
-            inputInfo.insert(std::make_pair("0", input));
+            input.insert(std::make_pair("0", i));
         }
 
-        if(inputInfo.count("1") == 0) {
+        if(input.count("1") == 0) {
 
-            InputInfo input;
+            InputInfo i;
 
-            input.a = "H";
-            input.b = "G";
-            input.select = "T";
-            input.start = "Y";        
-            input.up = "I";
-            input.down = "K";
-            input.left = "J";
-            input.right = "L";
-            input.saveState = "";
-            input.loadState = "";
-            input.rewind = "";
+            i.a = "H";
+            i.b = "G";
+            i.select = "T";
+            i.start = "Y";        
+            i.up = "I";
+            i.down = "K";
+            i.left = "J";
+            i.right = "L";
+            i.saveState = "";
+            i.loadState = "";
+            i.rewind = "";
 
-            inputInfo.insert(std::make_pair("1", input)); 
+            input.insert(std::make_pair("1", i)); 
         }      
          
         if(lastFolder == "") lastFolder = fs::current_path().string();
@@ -100,7 +118,7 @@ private:
 
 public:
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ConfigFile, inputInfo, recentFiles, lastFolder, audioDevice, improvements)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ConfigFile, input, recentFiles, lastFolder, improvements, video, audio)
 
     ~ConfigFile();
 
@@ -136,8 +154,8 @@ public:
 
     bool getInputInfo(int index, InputInfo& result) {
 
-        if(inputInfo.count(std::to_string(index))) {
-            result = inputInfo[std::to_string(index)];
+        if(input.count(std::to_string(index))) {
+            result = input[std::to_string(index)];
             return true;
         }
 
@@ -146,10 +164,10 @@ public:
 
     void setInputInfo(int index, const InputInfo& _if) {
 
-        if(inputInfo.count(std::to_string(index)) > 0)
-            inputInfo[std::to_string(index)] = _if;
+        if(input.count(std::to_string(index)) > 0)
+            input[std::to_string(index)] = _if;
         else
-            inputInfo.insert(std::make_pair(std::to_string(index), _if));
+            input.insert(std::make_pair(std::to_string(index), _if));
 
     }
 
@@ -181,11 +199,11 @@ public:
     }
 
     const std::string& getAudioDevice() {
-        return audioDevice;
+        return audio.audioDevice;
     }
 
     void setAudioDevice(const std::string& name) {
-        audioDevice = name;
+        audio.audioDevice = name;
     }
 
     void setDisableSpritesLimit(bool state) {
@@ -210,6 +228,38 @@ public:
 
     int getMaxRewindTime() {
         return improvements.maxRewindTime;
+    }
+
+    int getVSyncMode() {
+        return video.vsyncMode;
+    }
+
+    void setVSyncMode(int mode) {
+        video.vsyncMode = mode;
+    }
+
+    bool getScanlines() {
+        return video.scanLines;
+    }
+
+    void setScanlines(bool state) {
+        video.scanLines = state;
+    }
+
+    bool getHorizontalStretch() {
+        return video.horizontalStretch;
+    }
+
+    void setHorizontalStretch(bool state) {
+        video.horizontalStretch = state;
+    }
+
+    bool getFullScreen() {
+        return video.fullScreen;
+    }
+
+    void setFullScreen(bool state) {
+        video.fullScreen = state;
     }
     
 };
