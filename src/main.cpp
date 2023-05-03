@@ -17,6 +17,8 @@
 
 #include <vector>
 
+#include <functional>
+
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -337,6 +339,49 @@ public:
     
 };
 
+class ShortcutManager {
+
+public:
+
+    struct Data {
+        std::string key;
+        std::string label;
+        std::string shortcut;
+        std::string shortcutLabel;
+        std::function<void()> action;
+    };
+
+private:
+
+    std::map<std::string,Data> m_keyMap;
+
+public:
+
+    void add(const Data& data) {
+        m_keyMap.insert(make_pair(data.key,data));
+    }
+
+    Data* get(const std::string key) {        
+        if(m_keyMap.count(key)) return &(m_keyMap[key]);
+        return nullptr;
+    }
+
+    void invokeShortcut(const std::string& shortcut) {
+
+        std::cout << "calling " << shortcut << std::endl;
+
+        for (const auto& pair : m_keyMap) {
+
+            if(pair.second.shortcut == shortcut) {
+                pair.second.action();
+                break;
+            }
+        }
+    }
+
+};
+
+
 
 class MyApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
@@ -375,6 +420,10 @@ private:
     enum VSyncMode {OFF, SYNCRONIZED, ADAPTATIVE};
     VSyncMode m_vsyncMode = OFF;
 
+    bool m_showMenuBar = true;
+
+    ShortcutManager m_shotcuts;
+
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
 
     void updateMVP() {
@@ -387,6 +436,7 @@ private:
         ConfigFile::instance().setLastFolder(path);
         m_emu.open(path);
         setTitle((std::string("GeraNES (") + path + ")").c_str());
+        m_showMenuBar = false;
     }
 
     void onLog(const std::string& msg, int flags) {
@@ -458,7 +508,19 @@ public:
         m_vsyncMode = (VSyncMode)cfg.getVSyncMode();
         m_scanlinesFlag = cfg.getScanlines();
         m_horizontalStretch = cfg.getHorizontalStretch();
-        m_fullScreen = cfg.getFullScreen();        
+        m_fullScreen = cfg.getFullScreen();
+
+
+        // std::string key;
+        // std::string label;
+        // std::string shortcut;
+        // std::string shortcutLabel;
+        // std::function<void()> action;
+        m_shotcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "F11", "F11", [this]() {
+            m_fullScreen = !m_fullScreen;
+            setFullScreen(m_fullScreen);
+            ConfigFile::instance().setFullScreen(m_fullScreen);
+        }});     
     }
 
     void onCaptureBegin() {
@@ -694,6 +756,18 @@ public:
             //     }
             //     break;
 
+            case SDL_KEYDOWN: { 
+
+                    std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
+
+                    m_shotcuts.invokeShortcut(keyName);
+
+                    if(keyName == "Escape") {
+                        m_showMenuBar = !m_showMenuBar;
+                    }
+                }
+                break;
+
             case SDL_WINDOWEVENT:
 
                 switch(event.window.event) {
@@ -885,8 +959,10 @@ void NESControllerDraw() {
         {
             if (ImGui::BeginMenu("File"))
             { 
-                if (ImGui::MenuItem("Open", "Ctrl+O"))
+                if (ImGui::MenuItem("Open", "F2"))
                 {
+                    if(isFullScreen()) setFullScreen(false);
+
                     NFD_Init();     
 
                     nfdchar_t *outPath;
@@ -907,6 +983,8 @@ void NESControllerDraw() {
                     }
 
                     NFD_Quit();
+
+                    if(m_fullScreen) setFullScreen(true);
                     
                 }
 
@@ -923,7 +1001,7 @@ void NESControllerDraw() {
 
                 ImGui::Separator();
 
-                if (ImGui::MenuItem("Quit", "Ctrl+Q"))
+                if (ImGui::MenuItem("Quit", "F4"))
                 {
                     quit();
                 }                
@@ -952,24 +1030,26 @@ void NESControllerDraw() {
                     ImGui::EndMenu();
                 }
 
-                if (ImGui::MenuItem("Scanlines", "Ctrl+S", m_scanlinesFlag))
+                if (ImGui::MenuItem("Scanlines", "F9", m_scanlinesFlag))
                 {
                     m_scanlinesFlag = !m_scanlinesFlag;
                     ConfigFile::instance().setScanlines(m_scanlinesFlag);
                 }
 
-                if (ImGui::MenuItem("Horizontal Stretch", "Ctrl+H", m_horizontalStretch))
+                if (ImGui::MenuItem("Horizontal Stretch", "F10", m_horizontalStretch))
                 {
                     m_horizontalStretch = !m_horizontalStretch;
                     ConfigFile::instance().setHorizontalStretch(m_horizontalStretch);
                     m_updateObjectsFlag = true;
-                }
+                }   
+  
+                auto sc = m_shotcuts.get("fullscreen");
+                if( sc != nullptr) {
 
-                if (ImGui::MenuItem("Full Screen", "Ctrl+Enter", m_fullScreen))
-                {
-                    m_fullScreen = !m_fullScreen;
-                    setFullScreen(m_fullScreen);
-                    ConfigFile::instance().setFullScreen(m_fullScreen);
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcutLabel.c_str(), m_fullScreen))
+                    {
+                        sc->action();                        
+                    }
                 }
 
                 ImGui::EndMenu();
@@ -1045,7 +1125,7 @@ void NESControllerDraw() {
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
-        menuBar();        
+        if(m_showMenuBar) menuBar();        
 
         //NESControllerDraw();
 
