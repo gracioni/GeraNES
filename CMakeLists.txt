@@ -26,7 +26,7 @@ Set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(
         SDL2
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG release-2.26.3
+        GIT_TAG release-2.26.5
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )

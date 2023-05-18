@@ -282,7 +282,7 @@ public:
 
         ImGui::SetNextWindowSize(ImVec2(340, 0));
     
-        if(ImGui::Begin("Controller Config", &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+        if(ImGui::Begin("Input Config", &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
 
             if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
 
@@ -347,7 +347,6 @@ public:
         std::string key;
         std::string label;
         std::string shortcut;
-        std::string shortcutLabel;
         std::function<void()> action;
     };
 
@@ -368,7 +367,7 @@ public:
 
     void invokeShortcut(const std::string& shortcut) {
 
-        std::cout << "calling " << shortcut << std::endl;
+        //std::cout << "calling " << shortcut << std::endl;
 
         for (const auto& pair : m_keyMap) {
 
@@ -422,7 +421,7 @@ private:
 
     bool m_showMenuBar = true;
 
-    ShortcutManager m_shotcuts;
+    ShortcutManager m_shortcuts;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
 
@@ -445,7 +444,7 @@ private:
     }
 
     void onErrorLog(const std::string& msg, int flags) {
-        if(flags & Logger::ERROR)
+        if(flags & Logger::ERROR2)
             std::cout << msg << std::endl;
     }
 
@@ -516,11 +515,40 @@ public:
         // std::string shortcut;
         // std::string shortcutLabel;
         // std::function<void()> action;
-        m_shotcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "F11", "F11", [this]() {
+        m_shortcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "Alt+F", [this]() {
             m_fullScreen = !m_fullScreen;
             setFullScreen(m_fullScreen);
             ConfigFile::instance().setFullScreen(m_fullScreen);
-        }});     
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"openRom", "Open Rom", "Alt+O", [this]() {
+            openRom();
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"quit", "Quit", "Alt+Q", [this]() {
+            quit();
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"scanlines", "Scanlines", "Alt+S", [this]() {
+            m_scanlinesFlag = !m_scanlinesFlag;
+            ConfigFile::instance().setScanlines(m_scanlinesFlag);
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"horizontalStretch", "Horizontal Stretch", "Alt+H", [this]() {
+            m_horizontalStretch = !m_horizontalStretch;
+            ConfigFile::instance().setHorizontalStretch(m_horizontalStretch);
+            m_updateObjectsFlag = true;
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"saveState", "Save State", "Alt+S", [this]() {
+            m_emu.saveState();
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
+            m_emu.loadState();
+        }});
+
+        
     }
 
     void onCaptureBegin() {
@@ -540,7 +568,35 @@ public:
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();
-    }    
+    }
+
+    void openRom() {
+
+        if(isFullScreen()) minimizeWindow();
+
+        NFD_Init();     
+
+        nfdchar_t *outPath;
+        nfdfilteritem_t filterItem[] = { { "iNes Files", "nes,zip" } };
+        nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), (ConfigFile::instance().getLastFolder()).c_str());
+        if (result == NFD_OKAY)
+        {
+            openFile(outPath);                        
+            NFD_FreePath(outPath);
+        }
+        else if (result == NFD_CANCEL)
+        {
+            puts("User pressed cancel.");
+        }
+        else 
+        {
+            Logger::instance().log(NFD_GetError(), Logger::ERROR2);
+        }
+
+        NFD_Quit();
+
+        if(m_fullScreen) restoreWindow();
+    } 
 
     void updateVSyncConfig() {
         switch(m_vsyncMode) {
@@ -555,13 +611,13 @@ public:
         setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
-            Logger::instance().log("SDL_Init error", Logger::ERROR);
+            Logger::instance().log("SDL_Init error", Logger::ERROR2);
         }
 
         GLenum err = glewInit();
         if (GLEW_OK != err)
         {
-            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR);
+            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR2);
         }
 
         
@@ -643,12 +699,12 @@ public:
         m_shaderProgram.create();
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
-            Logger::instance().log("vertex shader error: " + m_shaderProgram.lastError(), Logger::ERROR);
+            Logger::instance().log("vertex shader error: " + m_shaderProgram.lastError(), Logger::ERROR2);
             return;
         }
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
-            Logger::instance().log("fragment shader error: " + m_shaderProgram.lastError(), Logger::ERROR);    
+            Logger::instance().log("fragment shader error: " + m_shaderProgram.lastError(), Logger::ERROR2);    
             return;
         }
 
@@ -656,7 +712,7 @@ public:
         m_shaderProgram.bindAttributeLocation("TexCoord", 1);
 
         if(!m_shaderProgram.link()){
-            Logger::instance().log("shader link error: " + m_shaderProgram.lastError(), Logger::ERROR);   
+            Logger::instance().log("shader link error: " + m_shaderProgram.lastError(), Logger::ERROR2);   
             return;
         }
     }
@@ -760,7 +816,9 @@ public:
 
                     std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
 
-                    m_shotcuts.invokeShortcut(keyName);
+                    if(event.key.keysym.mod & KMOD_ALT) keyName = "Alt+" + keyName;
+
+                    m_shortcuts.invokeShortcut(keyName);
 
                     if(keyName == "Escape") {
                         m_showMenuBar = !m_showMenuBar;
@@ -805,16 +863,16 @@ public:
         return SDLOpenGLWindow::onEvent(event);
     }
 
-    double m_lastTime = 0;
+    Uint64 m_lastTime = 0;
     double m_fpsTimer = 0;
     int m_fps = 0;
     int m_frameCounter = 0;
 
     void mainLoop()
     {
-        double tempTime = GetTime();
+        Uint64 tempTime = SDL_GetPerformanceCounter();
 
-        double dt = tempTime - m_lastTime;
+        double dt = (double)(tempTime - m_lastTime) / SDL_GetPerformanceFrequency();;
 
         m_lastTime = tempTime;
  
@@ -959,33 +1017,13 @@ void NESControllerDraw() {
         {
             if (ImGui::BeginMenu("File"))
             { 
-                if (ImGui::MenuItem("Open", "F2"))
-                {
-                    if(isFullScreen()) setFullScreen(false);
+                auto sc = m_shortcuts.get("openRom");
+                if( sc != nullptr) {
 
-                    NFD_Init();     
-
-                    nfdchar_t *outPath;
-                    nfdfilteritem_t filterItem[] = { { "iNes Files", "nes,zip" } };
-                    nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), (ConfigFile::instance().getLastFolder()).c_str());
-                    if (result == NFD_OKAY)
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
                     {
-                        openFile(outPath);                        
-                        NFD_FreePath(outPath);
+                        sc->action();                        
                     }
-                    else if (result == NFD_CANCEL)
-                    {
-                        puts("User pressed cancel.");
-                    }
-                    else 
-                    {
-                        Logger::instance().log(NFD_GetError(), Logger::ERROR);
-                    }
-
-                    NFD_Quit();
-
-                    if(m_fullScreen) setFullScreen(true);
-                    
                 }
 
                 auto recentFiles = ConfigFile::instance().getRecentFiles();
@@ -1001,18 +1039,42 @@ void NESControllerDraw() {
 
                 ImGui::Separator();
 
-                if (ImGui::MenuItem("Quit", "F4"))
-                {
-                    quit();
-                }                
+                sc = m_shortcuts.get("quit");
+                if( sc != nullptr) {
+
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                    {
+                        sc->action();                        
+                    }
+                }
+                      
                 ImGui::EndMenu();
             }
 
             if (ImGui::BeginMenu("Emulator"))
             {
+                auto sc = m_shortcuts.get("saveState");
+                if( sc != nullptr) {
+
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                    {
+                        sc->action();                        
+                    }
+                }
+
+                sc = m_shortcuts.get("loadState");
+                if( sc != nullptr) {
+
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                    {
+                        sc->action();                        
+                    }
+                }
+
                 if (ImGui::MenuItem("Improvements")) {
                     m_showImprovementsWindows = true;                                       
                 }
+
                 ImGui::EndMenu();
             }
 
@@ -1030,23 +1092,28 @@ void NESControllerDraw() {
                     ImGui::EndMenu();
                 }
 
-                if (ImGui::MenuItem("Scanlines", "F9", m_scanlinesFlag))
-                {
-                    m_scanlinesFlag = !m_scanlinesFlag;
-                    ConfigFile::instance().setScanlines(m_scanlinesFlag);
-                }
-
-                if (ImGui::MenuItem("Horizontal Stretch", "F10", m_horizontalStretch))
-                {
-                    m_horizontalStretch = !m_horizontalStretch;
-                    ConfigFile::instance().setHorizontalStretch(m_horizontalStretch);
-                    m_updateObjectsFlag = true;
-                }   
-  
-                auto sc = m_shotcuts.get("fullscreen");
+                auto sc = m_shortcuts.get("scanlines");
                 if( sc != nullptr) {
 
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcutLabel.c_str(), m_fullScreen))
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_scanlinesFlag))
+                    {
+                        sc->action();                        
+                    }
+                }
+
+                sc = m_shortcuts.get("horizontalStretch");
+                if( sc != nullptr) {
+
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_horizontalStretch))
+                    {
+                        sc->action();                        
+                    }
+                }            
+  
+                sc = m_shortcuts.get("fullscreen");
+                if( sc != nullptr) {
+
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_fullScreen))
                     {
                         sc->action();                        
                     }
@@ -1133,7 +1200,9 @@ void NESControllerDraw() {
 
         if(m_showImprovementsWindows) { 
 
-            if(ImGui::Begin("Improve", &m_showImprovementsWindows)) {
+            ImGui::SetNextWindowSize(ImVec2(270, 0));   
+
+            if(ImGui::Begin("Improvements", &m_showImprovementsWindows, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
                 
                 bool disableSpritesLimit = ConfigFile::instance().getDisableSpritesLimit();
                 if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
@@ -1147,8 +1216,11 @@ void NESControllerDraw() {
                     ConfigFile::instance().setOverclock(m_emu.overclocked());
                 }
 
+                ImGui::SetNextItemWidth(100);
+
                 int value = ConfigFile::instance().getMaxRewindTime();               
-                if(ImGui::InputInt("Max Rewind Time(s)", &value)) {                        
+                if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
+                    value = std::max(0,value);                       
                     ConfigFile::instance().setMaxRewindTime(value);
                     m_emu.setupRewindSystem(value > 0, value);
                 }

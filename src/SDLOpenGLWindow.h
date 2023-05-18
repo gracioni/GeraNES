@@ -123,8 +123,22 @@ public:
 
     bool setFullScreen(bool state) {
         int flags = state ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
-        return SDL_SetWindowFullscreen(m_window, flags) == 0;
+        return SDL_SetWindowFullscreen(m_window, flags) == 0;   
     }
+
+    void minimizeWindow() {
+        SDL_MinimizeWindow(m_window);
+    }
+
+    void restoreWindow() {
+        SDL_RestoreWindow(m_window);
+    }
+
+    void maximizeWindow() {
+        SDL_MaximizeWindow(m_window);
+    }
+
+    
 
 };
 

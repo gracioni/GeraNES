@@ -13,7 +13,7 @@ private:
 
 public:
 
-    enum LogFlags {INFO = 1, DEBUG = 2, ERROR = 4};
+    enum LogFlags {INFO = 1, DEBUG = 2, ERROR2 = 4};
 
     SigSlot::Signal<const std::string&, int> signalLog;
 
