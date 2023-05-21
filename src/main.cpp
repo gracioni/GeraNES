@@ -529,7 +529,7 @@ public:
             quit();
         }});
 
-        m_shortcuts.add(ShortcutManager::Data{"scanlines", "Scanlines", "Alt+S", [this]() {
+        m_shortcuts.add(ShortcutManager::Data{"scanlines", "Scanlines", "Alt+C", [this]() {
             m_scanlinesFlag = !m_scanlinesFlag;
             ConfigFile::instance().setScanlines(m_scanlinesFlag);
         }});
@@ -876,13 +876,13 @@ public:
 
         m_lastTime = tempTime;
  
-        m_fpsTimer += dt;
+        m_fpsTimer += dt;        
 
         if(m_fpsTimer >= 1.0)
         {
             m_fps = m_frameCounter;
             m_frameCounter = 0;
-            m_fpsTimer -= 1.0;
+            m_fpsTimer = 0;
         }    
 
         if( m_emu.update(dt) ) render();
