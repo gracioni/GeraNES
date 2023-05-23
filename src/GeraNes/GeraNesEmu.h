@@ -34,18 +34,17 @@ private:
     Controller m_controller1;
     Controller m_controller2;
 
-    float m_update_cycles;
+    uint32_t m_update_cycles;
 
     uint32_t m_4011WriteCounter;
     bool m_newFrame;
 
     bool m_halt;
 
-    float m_cyclesPerSecond;
-    float m_cycleSize;
-    float m_cycleStep;
+    uint32_t m_cyclesPerSecond;
+    uint32_t m_cycleSize;
 
-    float renderAudioCyclesAcc;
+    uint32_t renderAudioCyclesAcc;
 
     uint8_t m_openBus;
 
@@ -54,12 +53,12 @@ private:
     struct Rewind
     {
         bool activeFlag = false;
-        float timer = 0.0f;
+        double timer = 0.0;
         int FPSDivider = 1;
         int FPSAuxCounter = 0;
         CircularBuffer<std::vector<uint8_t>>* buffer = nullptr;
 
-        void setup(bool enabled, float maxTime, int _FPSDivider)
+        void setup(bool enabled, double maxTime, int _FPSDivider)
         {   
             FPSDivider = _FPSDivider;
 
@@ -71,13 +70,13 @@ private:
             if(enabled) buffer = new CircularBuffer<std::vector<uint8_t>>(static_cast<size_t>(60/FPSDivider * maxTime),CircularBuffer<std::vector<uint8_t>>::REPLACE);
 
             activeFlag = false;
-            timer = 0.0f;
+            timer = 0.0;
         }
 
         void reset()
         {
             activeFlag = false;
-            timer = 0.0f;
+            timer = 0.0;
             FPSAuxCounter = FPSDivider;
             if(buffer != nullptr) buffer->clear();
         }
@@ -110,7 +109,7 @@ private:
             }
 
             activeFlag = false;
-            timer = 0.0f;
+            timer = 0.0;
         }
 
     } m_rewind;
@@ -142,8 +141,7 @@ private:
                     //disable overclock when the game generate PCM audio
                     if(addr == 0x4011){
                         if(++m_4011WriteCounter == 2 ) {
-                            m_ppu.setOverclockFrame(false);
-                            m_cycleStep = m_cycleSize;
+                            m_ppu.setOverclockFrame(false);      
                          }
                     }
                 }
@@ -240,8 +238,6 @@ private:
 
     void onFrameStart()
     {
-        if(m_ppu.isOverclockFrame()) m_cycleStep = 1;
-
         m_4011WriteCounter = 0;
 
         signalFrameStart();
@@ -279,8 +275,8 @@ private:
 
     void updateInternalTimingStuff()
     {
-        m_cycleSize = 1.0 + static_cast<float>(m_settings.overclockLines())/m_settings.PPULinesPerFrame();
-        m_cyclesPerSecond = m_settings.CPUClockHz() * m_cycleSize;
+        m_cycleSize = 1 + 1*m_settings.overclockLines()/m_settings.PPULinesPerFrame();
+        m_cyclesPerSecond = m_settings.CPUClockHz() * m_cycleSize;   
     }
 
     const std::string saveStateFileName() {
@@ -322,7 +318,7 @@ public:
     }
 
     //maxTime - seconds
-    void setupRewindSystem(bool enabled, float maxTime, int FPSDivider = 1)
+    void setupRewindSystem(bool enabled, double maxTime, int FPSDivider = 1)
     {
         m_rewind.setup(enabled, maxTime, FPSDivider);
     }
@@ -349,6 +345,7 @@ public:
         std::string result;
 
         m_ppu.clearFramebuffer();
+      
 
         result = m_cartridge.open(filename);
 
@@ -395,20 +392,21 @@ public:
         busReadWrite<true>(addr,data);
     }
 
-    GERANES_INLINE_HOT bool update(float dt) //seconds
+    float m_audioRenderTime = 0.0f;
+
+    GERANES_INLINE_HOT bool update(uint32_t dt) //miliseconds
     {
         if(!m_cartridge.isValid()) return false;
 
-        dt = std::min(dt, 0.1f);
+        dt = std::min(dt, (uint32_t)1000/10);  //0.1s      
 
         m_update_cycles += m_cyclesPerSecond  * dt;
 
-        const float renderAudioCycles = m_cyclesPerSecond * 0.001f;
+        const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;
 
-        if(m_ppu.isOverclockFrame()) m_cycleStep = 1;
-        else m_cycleStep =  m_cycleSize;
+        
 
-        while(m_update_cycles >= 1.0f)
+        while(m_update_cycles >= 1000)
         {
             //PPU   X---X---X---X---X---X---X---X---X---X---X-...
             //CPU   --X-----------X-----------X-----------X---...
@@ -451,13 +449,18 @@ public:
                     m_ppu.ppuCyclePAL();
 
                     if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
+                  
+                    if(m_ppu.isOverclockFrame()) {
+                        m_update_cycles -= 1000;
+                        renderAudioCyclesAcc += 1000;
+                        m_audioRenderTime += 1000;
+                    }
+                    else {
+                        m_update_cycles -= 1000*m_cycleSize;
+                        renderAudioCyclesAcc += 1000*m_cycleSize;
 
-                    //if(m_settings.overclockFrame()) m_update_cycles--;
-                    //else m_update_cycles -= m_cycleSize;
-
-                    m_update_cycles -= m_cycleStep;
-
-                    renderAudioCyclesAcc += m_cycleStep;
+                        m_audioRenderTime += 1/(1000.0f*m_cycleSize);
+                    }              
 
                     if(renderAudioCyclesAcc >= renderAudioCycles) {
                         renderAudioCyclesAcc -= renderAudioCycles;
@@ -473,6 +476,8 @@ public:
 
 
                         m_audioOutput.render(0.001f, enableAudio ? 1.0f : 0.0f);
+
+                        m_audioRenderTime = 0;
                     }
 
                     break;
@@ -548,7 +553,7 @@ public:
 
     void enableOverclock(bool state)
     {
-        m_settings.setOverclockLines(state ? 261 : 0);
+        m_settings.setOverclockLines(state ? m_settings.PPULinesPerFrame() : 0);
         updateInternalTimingStuff();
     }
 
@@ -588,8 +593,7 @@ public:
 
         SERIALIZEDATA(s, m_cyclesPerSecond);
         SERIALIZEDATA(s, m_cycleSize);
-        SERIALIZEDATA(s, m_cycleStep);
-
+  
         SERIALIZEDATA(s, renderAudioCyclesAcc);
 
         SERIALIZEDATA(s, m_openBus);

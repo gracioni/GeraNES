@@ -864,21 +864,23 @@ public:
     }
 
     Uint64 m_lastTime = 0;
-    double m_fpsTimer = 0;
+    Uint64 m_fpsTimer = 0;
     int m_fps = 0;
     int m_frameCounter = 0;
 
     void mainLoop()
     {
-        Uint64 tempTime = SDL_GetPerformanceCounter();
+        Uint64 tempTime = SDL_GetTicks64();
 
-        double dt = (double)(tempTime - m_lastTime) / SDL_GetPerformanceFrequency();;
+        Uint64 dt = tempTime - m_lastTime;
+
+        if(dt == 0) return;
 
         m_lastTime = tempTime;
  
         m_fpsTimer += dt;        
 
-        if(m_fpsTimer >= 1.0)
+        if(m_fpsTimer >= 1000)
         {
             m_fps = m_frameCounter;
             m_frameCounter = 0;
@@ -1210,7 +1212,7 @@ void NESControllerDraw() {
                     ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
                 }
 
-                bool overclock = ConfigFile::instance().getOverclock();                     
+                bool overclock = m_emu.overclocked();                     
                 if(ImGui::Checkbox("Overclock", &overclock)) {                   
                     m_emu.enableOverclock(!ConfigFile::instance().getOverclock());
                     ConfigFile::instance().setOverclock(m_emu.overclocked());
