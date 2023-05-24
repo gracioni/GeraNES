@@ -314,7 +314,7 @@ public:
 
     bool inOverclockLines()
     {
-        return m_inOverclockLines;
+        return  m_inOverclockLines;
     }
 
     void updateSettings()
@@ -673,7 +673,7 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE_HOT void onScanlineChanged()
     {
         if(m_settings.overclockLines() > 0) {
-            if(m_currentScanline >= 241 && m_currentScanline < FRAME_VBLANK_START_LINE)
+            if(m_overclockFrame && m_currentScanline >= 241 && m_currentScanline < FRAME_VBLANK_START_LINE)
                 m_inOverclockLines = true;
             else
                 m_inOverclockLines = false;
