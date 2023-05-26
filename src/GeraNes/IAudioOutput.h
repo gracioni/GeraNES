@@ -8,7 +8,7 @@ class IAudioOutput
     public:
 
     virtual bool init(void) {return true;}
-    virtual void render(float dt, float volume){}
+    virtual void render(uint32_t dt, float volume){}
     virtual void setSquare1Frequency(float /*f*/){}
     virtual void setSquare1DutyCycle(float /*d*/){}
     virtual void setSquare1Volume(float /*v*/){}

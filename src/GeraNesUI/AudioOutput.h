@@ -541,11 +541,14 @@ private:
     FirstOrderHighPassFilter m_hpFilter2;
     FirstOrderLowPassFilter m_lpFilter;
 
+    uint32_t sampleAcc = 0;
+
     void clearBuffers()
     {
         m_buffer.clear();
         m_sampleDirect.clearBuffer();
         m_sample.clearBuffer();
+        sampleAcc = 0;
     }
 
     void turnOff()
@@ -554,7 +557,7 @@ private:
             SDL_PauseAudioDevice(m_device, 1); 
             SDL_CloseAudioDevice(m_device);
             m_device = 0;
-            m_currentDeviceName = "";
+            m_currentDeviceName = "";            
         }
         clearBuffers();
     }
@@ -724,20 +727,18 @@ public:
 
         return ret;
     }
-
-    void render(float dt, float volume) override
+    
+    void render(uint32_t dt, float volume) override
     {    
 
         if(m_device == 0){
             turnOff();
             return;
         }       
-        
-        int size = 0;             
 
-        size = (dt * sampleRate()) + 0.5; //round
+        sampleAcc = dt * sampleRate();
 
-        while(size > 0)
+        while(sampleAcc >= 1000)
         {
             float value = mix() * volume;
 
@@ -756,7 +757,7 @@ public:
                 }
             }
 
-            size--;
+            sampleAcc -= 1000;
         }
         
         if(m_playFlag || m_buffer.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME)

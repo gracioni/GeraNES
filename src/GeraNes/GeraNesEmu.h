@@ -21,7 +21,9 @@
 
 class GeraNesEmu : public Ibus, public SigSlot::SigSlotBase
 {
-private:    
+private:
+
+    const uint32_t MAX_4011_WRITES_TO_DISABLE_OVERCLOCK = 2;
 
     Settings m_settings;
     IAudioOutput& m_audioOutput;
@@ -139,9 +141,9 @@ private:
 
                     //disable overclock when the game generate PCM audio
                     if(addr == 0x4011){
-                        if(++m_4011WriteCounter == 2 && m_ppu.isOverclockFrame()) {
+                        if(++m_4011WriteCounter == MAX_4011_WRITES_TO_DISABLE_OVERCLOCK && m_ppu.isOverclockFrame()) {
                             m_ppu.setOverclockFrame(false);
-                            updateInternalTimingStuff();    
+                            updateInternalTimingStuff();                            
                          }
                     }
                 }
@@ -464,7 +466,7 @@ public:
                             else if(m_rewind.buffer->size() > 1) enableAudio = true;
                         }
 
-                        m_audioOutput.render(0.001f, enableAudio ? 1.0f : 0.0f);                       
+                        m_audioOutput.render(1, enableAudio ? 1.0f : 0.0f);                       
                     }
 
                     break;

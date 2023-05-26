@@ -3,6 +3,9 @@
 //#include <GL/glu.h>
 #include <iostream>
 
+#include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+
 #include <GL/glew.h>
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -110,8 +113,7 @@ void main() {
         value = clamp(value, 0.0, 1.0);
         value = 1.0 - lineIntensity *value;
 
-        gl_FragColor.xyz += value * bright * COMPAT_TEXTURE(Texture,uv).xyz;
-        //gl_FragColor = vec4(1.0,1.0,1.0,1.0);
+        gl_FragColor.xyz += value * bright * COMPAT_TEXTURE(Texture,uv).xyz;        
     }
     else gl_FragColor = COMPAT_TEXTURE(Texture,uv);
 
@@ -434,7 +436,8 @@ private:
         ConfigFile::instance().addRecentFile(path);
         ConfigFile::instance().setLastFolder(path);
         m_emu.open(path);
-        setTitle((std::string("GeraNES (") + path + ")").c_str());
+        const std::string filename = fs::path(path).filename().string();
+        setTitle((std::string("GeraNES (") + filename + ")").c_str());
         m_showMenuBar = false;
     }
 
@@ -1176,13 +1179,10 @@ void NESControllerDraw() {
         if(m_shaderProgram.bind()) {
             m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
             m_shaderProgram.setUniformValue("Texture", 0);
-            m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);
-            //m_shaderProgram.setUniformValue("GrayScale", m_grayScaleOnRewind && m_emu.isRewinding());
+            m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);    
             m_shaderProgram.setUniformValue("GrayScale", m_emu.isRewinding());
 
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-            //std::cout << "draw" << std::endl;
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);            
 
             m_shaderProgram.release();
         }
@@ -1194,41 +1194,45 @@ void NESControllerDraw() {
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
-        if(m_showMenuBar) menuBar();        
-
-        //NESControllerDraw();
-
-        m_controllerConfigWindow.update();
-
-        if(m_showImprovementsWindows) { 
-
-            ImGui::SetNextWindowSize(ImVec2(270, 0));   
-
-            if(ImGui::Begin("Improvements", &m_showImprovementsWindows, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
-                
-                bool disableSpritesLimit = ConfigFile::instance().getDisableSpritesLimit();
-                if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
-                    m_emu.disableSpriteLimit(!ConfigFile::instance().getDisableSpritesLimit());
-                    ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
-                }
-
-                bool overclock = m_emu.overclocked();                     
-                if(ImGui::Checkbox("Overclock", &overclock)) {                   
-                    m_emu.enableOverclock(!ConfigFile::instance().getOverclock());
-                    ConfigFile::instance().setOverclock(m_emu.overclocked());
-                }
-
-                ImGui::SetNextItemWidth(100);
-
-                int value = ConfigFile::instance().getMaxRewindTime();               
-                if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
-                    value = std::max(0,value);                       
-                    ConfigFile::instance().setMaxRewindTime(value);
-                    m_emu.setupRewindSystem(value > 0, value);
-                }
-            }                     
+        if(m_showMenuBar) {
             
-            ImGui::End();
+            menuBar();        
+
+            //NESControllerDraw();
+
+            m_controllerConfigWindow.update();
+
+            if(m_showImprovementsWindows) { 
+
+                ImGui::SetNextWindowSize(ImVec2(270, 0));   
+
+                if(ImGui::Begin("Improvements", &m_showImprovementsWindows, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+                    
+                    bool disableSpritesLimit = ConfigFile::instance().getDisableSpritesLimit();
+                    if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
+                        m_emu.disableSpriteLimit(!ConfigFile::instance().getDisableSpritesLimit());
+                        ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
+                    }
+
+                    bool overclock = m_emu.overclocked();                     
+                    if(ImGui::Checkbox("Overclock", &overclock)) {                   
+                        m_emu.enableOverclock(!ConfigFile::instance().getOverclock());
+                        ConfigFile::instance().setOverclock(m_emu.overclocked());
+                    }
+
+                    ImGui::SetNextItemWidth(100);
+
+                    int value = ConfigFile::instance().getMaxRewindTime();               
+                    if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
+                        value = std::max(0,value);                       
+                        ConfigFile::instance().setMaxRewindTime(value);
+                        m_emu.setupRewindSystem(value > 0, value);
+                    }
+                }                     
+                
+                ImGui::End();
+            }
+
         }
 
 
