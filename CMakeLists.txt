@@ -185,6 +185,7 @@ set(LIBS -static-libgcc -static-libstdc++ stdc++fs SDL2::SDL2main SDL2::SDL2-sta
 if(WIN32)
     set(APP_ICON_RESOURCE_WINDOWS ${CMAKE_CURRENT_SOURCE_DIR}/src/resources.rc)
     set(CPP_FILES ${CPP_FILES} ${APP_ICON_RESOURCE_WINDOWS})
+    set(LIBS ${LIBS} -ldwmapi)
 endif()
 
 

@@ -38,6 +38,7 @@ namespace fs = std::experimental::filesystem;
 #include "GeraNesUI/InputInfo.h"
 #include "GeraNesUI/ConfigFile.h"
 
+/*
 
 // C++11. 
 std::string shaderProgramText=R"html(
@@ -123,6 +124,107 @@ void main() {
 
 #endif
 )html";
+
+*/
+
+std::string shaderProgramText=R"html(
+#if __VERSION__ >= 130
+#define COMPAT_VARYING out
+#define COMPAT_ATTRIBUTE in
+#define COMPAT_TEXTURE texture
+#else
+#define COMPAT_VARYING varying
+#define COMPAT_ATTRIBUTE attribute
+#define COMPAT_TEXTURE texture2D
+#endif
+
+#ifdef GL_ES
+#define COMPAT_PRECISION mediump
+#else
+#define COMPAT_PRECISION
+#endif
+
+#define M_PI 3.1415926535897932384626433832795
+
+
+#ifdef VERTEX
+
+COMPAT_ATTRIBUTE vec2 VertexCoord;
+COMPAT_ATTRIBUTE vec2 TexCoord;
+
+uniform mat4 MVPMatrix;
+
+COMPAT_VARYING vec2 uv;
+
+void main() {
+    gl_Position = MVPMatrix * vec4(VertexCoord,0.0,1.0);
+    uv = TexCoord;
+}
+
+#endif
+
+#ifdef FRAGMENT
+
+#ifdef GL_ES
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+#endif
+
+uniform sampler2D Texture;
+uniform int Scanlines;
+uniform bool GrayScale;
+
+COMPAT_VARYING vec2 uv;
+
+vec4 toGray(vec4 color)
+{
+    float c = (color.r+color.g+color.b)/3.0;
+    return vec4(c,c,c,color.a);
+}
+
+float random (vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898,78.233)))* 43758.5453123);
+}
+
+void main() {
+
+    float iTime = 0.0;
+    float density = 1.3;
+    float opacityScanline = .2;
+    float opacityNoise = .15;
+    float flickering = 0.01;
+
+    if(Scanlines != 0) {
+
+        vec3 col = COMPAT_TEXTURE(Texture,uv).rgb;    
+
+        float freq = float(Scanlines);
+        float phase = freq*0.5;
+
+        float w = 2.0 * M_PI * freq * uv.y + phase;
+
+        vec2 sl = vec2(sin(w), cos(w));
+        vec3 scanlines = vec3(sl.x, sl.y, sl.x);
+
+        col += col * scanlines * opacityScanline;
+        col += col * vec3(random(uv*iTime)) * opacityNoise;
+        col += col * sin(110.0*iTime) * flickering;
+
+        gl_FragColor.xyz = col;
+            
+    }
+    else gl_FragColor = COMPAT_TEXTURE(Texture,uv);
+
+    if(GrayScale) gl_FragColor = toGray(gl_FragColor);
+
+}
+
+#endif
+)html";
+
 
 double_t GetTime()
 {
@@ -451,9 +553,7 @@ private:
             std::cout << msg << std::endl;
     }
 
-    void onFrameStart() {
-
-        m_frameCounter++;
+    void onFrameStart() {        
 
         if(m_emuInputEnabled) {
 
@@ -891,6 +991,8 @@ public:
         }    
 
         if( m_emu.update(dt) ) render();
+
+        m_frameCounter++;
     }
 
     void render()

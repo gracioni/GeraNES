@@ -4,6 +4,9 @@
 #include <SDL.h>
 #include <GL/gl.h>
 
+//#ifdef __MINGW32__
+#include <dwmapi.h>
+
 class SDLOpenGLWindow {
 
 private:
@@ -20,7 +23,12 @@ public:
         m_window = SDL_CreateWindow(title, x, y, w, h, flags | SDL_WINDOW_OPENGL);
         
         m_context = SDL_GL_CreateContext(m_window);
-        SDL_GL_MakeCurrent(m_window, m_context);        
+        SDL_GL_MakeCurrent(m_window, m_context);
+
+        HRESULT hr = DwmEnableComposition(DWM_EC_DISABLECOMPOSITION);
+        if (!SUCCEEDED(hr)) {
+        // log message or react in a different way
+        }   
 
         initGL();
     }
