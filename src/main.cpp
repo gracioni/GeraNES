@@ -176,6 +176,7 @@ void main() {
 uniform sampler2D Texture;
 uniform int Scanlines;
 uniform bool GrayScale;
+uniform float Time;
 
 COMPAT_VARYING vec2 uv;
 
@@ -189,12 +190,10 @@ float random (vec2 st) {
     return fract(sin(dot(st.xy, vec2(12.9898,78.233)))* 43758.5453123);
 }
 
-void main() {
+void main() {  
 
-    float iTime = 0.0;
-    float density = 1.3;
-    float opacityScanline = .2;
-    float opacityNoise = .15;
+    float opacityScanline = .25;
+    float opacityNoise = .175;
     float flickering = 0.01;
 
     if(Scanlines != 0) {
@@ -210,8 +209,8 @@ void main() {
         vec3 scanlines = vec3(sl.x, sl.y, sl.x);
 
         col += col * scanlines * opacityScanline;
-        col += col * vec3(random(uv*iTime)) * opacityNoise;
-        col += col * sin(110.0*iTime) * flickering;
+        col += col * vec3(random(uv*Time)) * opacityNoise;
+        col += col * sin(110.0*Time) * flickering;
 
         gl_FragColor.xyz = col;
             
@@ -523,11 +522,15 @@ private:
     enum VSyncMode {OFF, SYNCRONIZED, ADAPTATIVE};
     VSyncMode m_vsyncMode = OFF;
 
+    enum FilterMode {NEAREST, BILINEAR, TRILINEAR};
+    FilterMode m_filterMode = NEAREST;
+
     bool m_showMenuBar = true;
 
     ShortcutManager m_shortcuts;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
+    static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear", "Trilinear"};
 
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
@@ -608,6 +611,7 @@ public:
         m_emu.enableOverclock(cfg.getOverclock());
 
         m_vsyncMode = (VSyncMode)cfg.getVSyncMode();
+        m_filterMode = (FilterMode)cfg.getFilterMode();
         m_scanlinesFlag = cfg.getScanlines();
         m_horizontalStretch = cfg.getHorizontalStretch();
         m_fullScreen = cfg.getFullScreen();
@@ -709,6 +713,29 @@ public:
         }
     }
 
+    void updateFilterConfig() {
+        switch(m_filterMode) {
+            case NEAREST:
+                glBindTexture(GL_TEXTURE_2D, m_texture); 
+                glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE); //legacy
+                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                break;
+            case BILINEAR:
+                glBindTexture(GL_TEXTURE_2D, m_texture); 
+                glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE); //legacy
+                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                break;
+            case TRILINEAR:
+                glBindTexture(GL_TEXTURE_2D, m_texture);
+                glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE); //legacy
+                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                break;
+        }
+    }
+
     virtual void initGL() override {
 
         setFullScreen(m_fullScreen);
@@ -789,6 +816,8 @@ public:
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+        updateFilterConfig();
 
         updateMVP();
     }
@@ -1199,6 +1228,18 @@ void NESControllerDraw() {
                     ImGui::EndMenu();
                 }
 
+                if (ImGui::BeginMenu("Filter")) {
+
+                    for(int i = NEAREST; i <= TRILINEAR ; i++) {                        
+                        if(ImGui::MenuItem(FILTER_TYPE_LABELS[i], nullptr, m_filterMode == i)) {
+                            m_filterMode = (FilterMode)i;
+                            ConfigFile::instance().setFilterMode(i);
+                            updateFilterConfig();
+                        }      
+                    }              
+                    ImGui::EndMenu();
+                }
+
                 auto sc = m_shortcuts.get("scanlines");
                 if( sc != nullptr) {
 
@@ -1283,6 +1324,7 @@ void NESControllerDraw() {
             m_shaderProgram.setUniformValue("Texture", 0);
             m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);    
             m_shaderProgram.setUniformValue("GrayScale", m_emu.isRewinding());
+            m_shaderProgram.setUniformValue("Time", (float)GetTime());
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);            
 

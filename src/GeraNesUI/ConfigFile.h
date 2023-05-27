@@ -29,12 +29,13 @@ private:
 
     struct Video {
 
-        int vsyncMode = 1;
+        int vsyncMode = 0;
+        int filterMode = 0;
         bool scanLines = false;
         bool horizontalStretch = false;
         bool fullScreen = false;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, scanLines, horizontalStretch, fullScreen)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, filterMode, scanLines, horizontalStretch, fullScreen)
     };
 
     struct Audio {
@@ -236,6 +237,14 @@ public:
 
     void setVSyncMode(int mode) {
         video.vsyncMode = mode;
+    }
+
+    int getFilterMode() {
+        return video.filterMode;
+    }
+
+    void setFilterMode(int mode) {
+        video.filterMode = mode;
     }
 
     bool getScanlines() {
