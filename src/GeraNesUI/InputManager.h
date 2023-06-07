@@ -84,8 +84,6 @@ public:
 
     bool get(const std::string& name)
     {
-        //std::cout << "testing: " << name << std::endl;
-
         if(name.empty()) return false;
 
         if(m_inputMap.find(name) != m_inputMap.end()){

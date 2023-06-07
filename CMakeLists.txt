@@ -9,16 +9,15 @@ cmake_minimum_required(VERSION 3.26)
 
 #message("geraldo")
 
-# Check for Windows
-if(WIN32)
-    set(OPENGL_LIBRARY "opengl32")
-else()
-    set(OPENGL_LIBRARY "GL")
-endif()
+
+
 
 set(PKG_CONFIG_EXECUTABLE "C:/Users/geral/Downloads/pkg-config-lite-0.28-1_bin-win32/pkg-config-lite-0.28-1/bin/pkg-config.exe")
 
 project(sdl_test)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+include(CMakeRC)
 
 include(FetchContent)
 Set(FETCHCONTENT_QUIET FALSE)
@@ -175,21 +174,30 @@ FetchContent_MakeAvailable(json)
 
 
 
+
 INCLUDE_DIRECTORIES(src)
+
+# Obtém a lista de arquivos na pasta de recursos
+file(GLOB_RECURSE RECURSOS_LISTA "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+
+# Adiciona os arquivos de recursos usando a lista obtida
+cmrc_add_resource_library(resources ${RECURSOS_LISTA})
+
+if(WIN32)
+    set(OPENGL_LIBRARY "opengl32")
+else()
+    set(OPENGL_LIBRARY "GL")
+endif()
 
 set(CPP_FILES src/main.cpp src/GeraNes/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNesUI/ConfigFile.cpp)
 #SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype
-set(LIBS -static-libgcc -static-libstdc++ stdc++fs SDL2::SDL2main SDL2::SDL2-static imgui nfd libglew_static glm nlohmann_json::nlohmann_json ${OPENGL_LIBRARY})
-
+set(LIBS -static-libgcc -static-libstdc++ stdc++fs SDL2::SDL2main SDL2::SDL2-static imgui nfd libglew_static glm nlohmann_json::nlohmann_json ${OPENGL_LIBRARY} resources)
 
 if(WIN32)
     set(APP_ICON_RESOURCE_WINDOWS ${CMAKE_CURRENT_SOURCE_DIR}/src/resources.rc)
     set(CPP_FILES ${CPP_FILES} ${APP_ICON_RESOURCE_WINDOWS})
     set(LIBS ${LIBS} -ldwmapi)
 endif()
-
-
-
 
 #add_executable(sdl_test WIN32 ${CPP_FILES})
 add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})

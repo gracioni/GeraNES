@@ -21,6 +21,8 @@
 #include "GeraNes/defines.h"
 #include "GeraNes/util/CircularBuffer.h"
 
+#include "GeraNes/Logger.h"
+
 static GERANES_INLINE float linearInterpolation(float v0, float v1, float t)
 {
     return v0 + (v1-v0)*t;
@@ -568,8 +570,11 @@ public:
     {
         SDL_Init(SDL_INIT_AUDIO);
 
-        //m_device = nullptr;
-        //m_audioOutput = nullptr;
+        auto audioDevices = getAudioList();
+
+        for(auto d : audioDevices) {
+            Logger::instance().log(std::string("Audio device detected: ") + d, Logger::INFO);
+        }        
     }
 
     ~AudioOutput() override
@@ -606,9 +611,11 @@ public:
         return ret;
     }
 
-    const std::string config(const std::string& deviceName)
+    bool config(const std::string& deviceName)
     {
         turnOff();
+
+        Logger::instance().log("Initializing audio...", Logger::INFO);
 
         std::string _deviceName = deviceName;
 
@@ -616,7 +623,10 @@ public:
 
             char* name;
             SDL_AudioSpec dummySpec;
-            if(SDL_GetDefaultAudioInfo(&name, &dummySpec, 0) != 0) return "SDL_GetDefaultAudioInfo error";
+            if(SDL_GetDefaultAudioInfo(&name, &dummySpec, 0) != 0) {
+                Logger::instance().log("SDL_GetDefaultAudioInfo error", Logger::ERROR2);
+                return false;
+            }
             _deviceName = name;
             SDL_free(name); 
         }
@@ -634,7 +644,10 @@ public:
 
         SDL_AudioSpec preferedSpec;
 
-        if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) return "SDL_GetAudioDeviceSpec error";
+        if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) {
+            Logger::instance().log("SDL_GetAudioDeviceSpec error", Logger::ERROR2);
+            return false;
+        }
 
         m_currentDeviceName = _deviceName;
 
@@ -646,10 +659,6 @@ public:
             case AUDIO_S16: sampleSize=16; break;
             case AUDIO_S32: sampleSize=32; break;
         }
-
-        std::cout << "device name: " << _deviceName << std::endl;
-        std::cout << "sample rate: " << sampleRate << std::endl;
-        std::cout << "sample size: " << sampleSize << std::endl;
     
         spec.freq = sampleRate;
         spec.channels = 1;
@@ -675,9 +684,13 @@ public:
 
         if(m_device == 0 || spec.format != obtained.format) {
             turnOff();
-            std::cout << "audio erro" << std::endl;
-            return "ret audio erro";
-        }     
+            Logger::instance().log("Audio init error", Logger::ERROR2);
+            return false; 
+        }
+
+        Logger::instance().log(std::string("Audio device: ") + _deviceName, Logger::INFO);
+        Logger::instance().log(std::string("Sample rate: ") + std::to_string(sampleRate), Logger::INFO); 
+        Logger::instance().log(std::string("Sample size: ") + std::to_string(sampleSize), Logger::INFO); 
 
         SDL_PauseAudioDevice(m_device, 0);     
 
@@ -695,7 +708,7 @@ public:
 
         m_playFlag = false;
 
-        return "";
+        return true;
     }
 
     bool init() override

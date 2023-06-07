@@ -38,192 +38,11 @@ namespace fs = std::experimental::filesystem;
 #include "GeraNesUI/InputInfo.h"
 #include "GeraNesUI/ConfigFile.h"
 
-/*
+#include "cmrc/cmrc.hpp"
 
-// C++11. 
-std::string shaderProgramText=R"html(
-#if __VERSION__ >= 130
-#define COMPAT_VARYING out
-#define COMPAT_ATTRIBUTE in
-#define COMPAT_TEXTURE texture
-#else
-#define COMPAT_VARYING varying
-#define COMPAT_ATTRIBUTE attribute
-#define COMPAT_TEXTURE texture2D
-#endif
+CMRC_DECLARE(resources);
 
-#ifdef GL_ES
-#define COMPAT_PRECISION mediump
-#else
-#define COMPAT_PRECISION
-#endif
-
-#define M_PI 3.1415926535897932384626433832795
-
-
-#ifdef VERTEX
-
-COMPAT_ATTRIBUTE vec2 VertexCoord;
-COMPAT_ATTRIBUTE vec2 TexCoord;
-
-uniform mat4 MVPMatrix;
-
-COMPAT_VARYING vec2 uv;
-
-void main() {
-    gl_Position = MVPMatrix * vec4(VertexCoord,0.0,1.0);
-    uv = TexCoord;
-}
-
-#endif
-
-#ifdef FRAGMENT
-
-#ifdef GL_ES
-    #ifdef GL_FRAGMENT_PRECISION_HIGH
-    precision highp float;
-    #else
-    precision mediump float;
-    #endif
-#endif
-
-uniform sampler2D Texture;
-uniform int Scanlines;
-uniform bool GrayScale;
-
-COMPAT_VARYING vec2 uv;
-
-vec4 toGray(vec4 color)
-{
-    float c = (color.r+color.g+color.b)/3.0;
-    return vec4(c,c,c,color.a);
-}
-
-void main() {
-
-    if(Scanlines != 0) {
-
-        gl_FragColor = vec4(0.0,0.0,0.0,1.0);
-
-        float freq = float(Scanlines);
-        float phase = freq*0.25;
-        const float lineIntensity = 0.3;
-        const float bright = 1.0 + 0.707/2.0 * 0.25;
-
-        float value = sin(2.0 * M_PI * freq * uv.y + phase);
-        value = clamp(value, 0.0, 1.0);
-        value = 1.0 - lineIntensity *value;
-
-        gl_FragColor.xyz += value * bright * COMPAT_TEXTURE(Texture,uv).xyz;        
-    }
-    else gl_FragColor = COMPAT_TEXTURE(Texture,uv);
-
-    if(GrayScale) gl_FragColor = toGray(gl_FragColor);
-
-}
-
-#endif
-)html";
-
-*/
-
-std::string shaderProgramText=R"html(
-#if __VERSION__ >= 130
-#define COMPAT_VARYING out
-#define COMPAT_ATTRIBUTE in
-#define COMPAT_TEXTURE texture
-#else
-#define COMPAT_VARYING varying
-#define COMPAT_ATTRIBUTE attribute
-#define COMPAT_TEXTURE texture2D
-#endif
-
-#ifdef GL_ES
-#define COMPAT_PRECISION mediump
-#else
-#define COMPAT_PRECISION
-#endif
-
-#define M_PI 3.1415926535897932384626433832795
-
-
-#ifdef VERTEX
-
-COMPAT_ATTRIBUTE vec2 VertexCoord;
-COMPAT_ATTRIBUTE vec2 TexCoord;
-
-uniform mat4 MVPMatrix;
-
-COMPAT_VARYING vec2 uv;
-
-void main() {
-    gl_Position = MVPMatrix * vec4(VertexCoord,0.0,1.0);
-    uv = TexCoord;
-}
-
-#endif
-
-#ifdef FRAGMENT
-
-#ifdef GL_ES
-    #ifdef GL_FRAGMENT_PRECISION_HIGH
-    precision highp float;
-    #else
-    precision mediump float;
-    #endif
-#endif
-
-uniform sampler2D Texture;
-uniform int Scanlines;
-uniform bool GrayScale;
-uniform float Time;
-
-COMPAT_VARYING vec2 uv;
-
-vec4 toGray(vec4 color)
-{
-    float c = (color.r+color.g+color.b)/3.0;
-    return vec4(c,c,c,color.a);
-}
-
-float random (vec2 st) {
-    return fract(sin(dot(st.xy, vec2(12.9898,78.233)))* 43758.5453123);
-}
-
-void main() {  
-
-    float opacityScanline = .25;
-    float opacityNoise = .175;
-    float flickering = 0.01;
-
-    if(Scanlines != 0) {
-
-        vec3 col = COMPAT_TEXTURE(Texture,uv).rgb;    
-
-        float freq = float(Scanlines);
-        float phase = freq*0.5;
-
-        float w = 2.0 * M_PI * freq * uv.y + phase;
-
-        vec2 sl = vec2(sin(w), cos(w));
-        vec3 scanlines = vec3(sl.x, sl.y, sl.x);
-
-        col += col * scanlines * opacityScanline;
-        col += col * vec3(random(uv*Time)) * opacityNoise;
-        col += col * sin(110.0*Time) * flickering;
-
-        gl_FragColor.xyz = col;
-            
-    }
-    else gl_FragColor = COMPAT_TEXTURE(Texture,uv);
-
-    if(GrayScale) gl_FragColor = toGray(gl_FragColor);
-
-}
-
-#endif
-)html";
-
+const std::string LOG_FILE = "log.txt";
 
 double_t GetTime()
 {
@@ -374,7 +193,10 @@ public:
 
                 case WAIT_BUTTON:
                     if(capture.size() > 0) {
-                        m_inputInfo->setByButtonIndex(m_captureIndex, capture[0]);             
+
+                        if(capture[0] == "Escape") m_inputInfo->setByButtonIndex(m_captureIndex, "");
+                        else m_inputInfo->setByButtonIndex(m_captureIndex, capture[0]);
+
                         if(m_captureIndex+1 < N_BUTTONS) startCapture(m_captureIndex+1);
                         else stopCapture();                      
                     }
@@ -547,14 +369,17 @@ private:
     }
 
     void onLog(const std::string& msg, int flags) {
-        std::ofstream file("log.txt", std::ios_base::app); //append
+        std::ofstream file(LOG_FILE, std::ios_base::app);
         file << msg << std::endl;
+        std::cout << msg << std::endl;
     }
 
+    /*
     void onErrorLog(const std::string& msg, int flags) {
         if(flags & Logger::ERROR2)
             std::cout << msg << std::endl;
     }
+    */
 
     void onFrameStart() {        
 
@@ -584,19 +409,18 @@ public:
 
     MyApp() : m_emu(audioOutput) {
 
+        //reset log file content
+        std::ofstream file(LOG_FILE);
+        file.close();
+
         Logger::instance().signalLog.bind(MyApp::onLog, this);
-        Logger::instance().signalLog.bind(MyApp::onErrorLog, this);
-        m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
-        
+        //Logger::instance().signalLog.bind(MyApp::onErrorLog, this);
+        m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);        
 
         m_controllerConfigWindow.signalShow.bind(MyApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(MyApp::onCaptureEnd, this);
 
         m_audioDevices = audioOutput.getAudioList();
-
-        for(auto d : m_audioDevices) {
-            std::cout << d << std::endl;
-        }
 
         ConfigFile& cfg = ConfigFile::instance();
 
@@ -616,11 +440,9 @@ public:
         m_horizontalStretch = cfg.getHorizontalStretch();
         m_fullScreen = cfg.getFullScreen();
 
-
         // std::string key;
         // std::string label;
         // std::string shortcut;
-        // std::string shortcutLabel;
         // std::function<void()> action;
         m_shortcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "Alt+F", [this]() {
             m_fullScreen = !m_fullScreen;
@@ -736,21 +558,21 @@ public:
         }
     }
 
-    virtual void initGL() override {
+    virtual bool initGL() override {
 
         setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
             Logger::instance().log("SDL_Init error", Logger::ERROR2);
+            return false;
         }
 
         GLenum err = glewInit();
         if (GLEW_OK != err)
         {
             Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR2);
-        }
-
-        
+            return false;
+        }        
 
         //vsync 0(disabled) 1(enabled) -1(adaptative)
         updateVSyncConfig();
@@ -820,23 +642,29 @@ public:
         updateFilterConfig();
 
         updateMVP();
+
+        return true;
     }
 
     void shaderInit()
     {   
-        std::string shaderText = shaderProgramText;
+        auto fs2 = cmrc::resources::get_filesystem();
+        auto shaderFile = fs2.open("resources/default.glsl");
+
+        std::string shaderText(shaderFile.begin(), shaderFile.end());
+
         std::string vertexText = "#define VERTEX\n" + shaderText;
         std::string fragmentText = "#define FRAGMENT\n" + shaderText;
 
         m_shaderProgram.create();
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
-            Logger::instance().log("vertex shader error: " + m_shaderProgram.lastError(), Logger::ERROR2);
+            Logger::instance().log(std::string("vertex shader error: ") + m_shaderProgram.lastError(), Logger::ERROR2);
             return;
         }
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
-            Logger::instance().log("fragment shader error: " + m_shaderProgram.lastError(), Logger::ERROR2);    
+            Logger::instance().log(std::string("fragment shader error: ") + m_shaderProgram.lastError(), Logger::ERROR2);    
             return;
         }
 
@@ -844,7 +672,7 @@ public:
         m_shaderProgram.bindAttributeLocation("TexCoord", 1);
 
         if(!m_shaderProgram.link()){
-            Logger::instance().log("shader link error: " + m_shaderProgram.lastError(), Logger::ERROR2);   
+            Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::ERROR2);   
             return;
         }
     }
@@ -952,7 +780,7 @@ public:
 
                     m_shortcuts.invokeShortcut(keyName);
 
-                    if(keyName == "Escape") {
+                    if(keyName == "Escape" && m_emuInputEnabled) {
                         m_showMenuBar = !m_showMenuBar;
                     }
                 }
@@ -1206,6 +1034,8 @@ void NESControllerDraw() {
                         sc->action();                        
                     }
                 }
+
+                ImGui::Separator();
 
                 if (ImGui::MenuItem("Improvements")) {
                     m_showImprovementsWindows = true;                                       

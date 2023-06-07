@@ -45,7 +45,7 @@ private:
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice)
     };
 
-    const char* FILENAME = "config.json";
+    const char* FILENAME = "settings.json";
     const int MAX_RECENT_FILES = 10;
 
     static std::unique_ptr<ConfigFile> _instance;
@@ -63,6 +63,8 @@ private:
     ConfigFile();  
   
     void load() {
+
+        Logger::instance().log("Loading settings...", Logger::INFO);
 
         std::ifstream file(FILENAME);
 
@@ -148,7 +150,7 @@ public:
     static ConfigFile& instance();    
 
     void save() {
-        Logger::instance().log("saving configs...", Logger::INFO);
+        Logger::instance().log("Saving settings...", Logger::INFO);
         std::ofstream file(FILENAME);
         file << std::setw(4) << nlohmann::json(*this);
     }    

@@ -4,55 +4,89 @@
 #include <SDL.h>
 #include <GL/gl.h>
 
-//#ifdef __MINGW32__
+#ifdef __MINGW32__
 #include <dwmapi.h>
+#endif
+
+#include "GeraNes/Logger.h"
+
 
 class SDLOpenGLWindow {
 
 private:
 
-    SDL_Window* m_window;
-    SDL_GLContext m_context;
+    SDL_Window* m_window = NULL;
+    SDL_GLContext m_context = NULL;
 
     bool m_quit = false;
 
 public:
 
-    int create(const char *title, int x, int y, int w, int h, Uint32 flags) {
+    bool create(const std::string& title, int x, int y, int w, int h, Uint32 flags) {
 
-        m_window = SDL_CreateWindow(title, x, y, w, h, flags | SDL_WINDOW_OPENGL);
+        Logger::instance().log("Initializing SDL window...", Logger::INFO);
+
+        m_window = SDL_CreateWindow(title.c_str(), x, y, w, h, flags | SDL_WINDOW_OPENGL);
+
+        if(m_window == NULL) {
+            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR2);
+            return false;
+        }          
         
+        Logger::instance().log("Initializing GL context..", Logger::INFO);
+
         m_context = SDL_GL_CreateContext(m_window);
+
+        if(m_context == NULL) {
+            Logger::instance().log(std::string("SDL_GL_CreateContext error: ") + SDL_GetError(), Logger::ERROR2);
+            return false;
+        }
+
         SDL_GL_MakeCurrent(m_window, m_context);
 
+        #ifdef __MINGW32__
         HRESULT hr = DwmEnableComposition(DWM_EC_DISABLECOMPOSITION);
         if (!SUCCEEDED(hr)) {
         // log message or react in a different way
-        }   
+        }
+
+        #endif
 
         initGL();
+
+        return true;
     }
 
-    void setTitle(const char* title) {
-        SDL_SetWindowTitle(m_window, title);
+    void setTitle(const std::string& title) { 
+        if(m_window == NULL) return;
+        SDL_SetWindowTitle(m_window, title.c_str());
     }
 
-    virtual void initGL() {        
+    virtual bool initGL() {
+        return true;     
     }
 
     int width() {
+
+        if(m_window == NULL) return 0;
+
         int w, h;
         SDL_GetWindowSize(m_window, &w, &h);
         return w;
     }
 
     int height() {
+
+        if(m_window == NULL) return 0;
+
         int w, h;
         SDL_GetWindowSize(m_window, &w, &h);
         return h;
     }
 
     void run() {
+
+        if(m_window == NULL) return;
 
         while(!m_quit)
         {
@@ -94,8 +128,8 @@ public:
             if(m_quit) continue; 
 
             paintGL();
-
-            SDL_GL_SwapWindow(m_window);
+    
+            SDL_GL_SwapWindow(m_window);     
         }
     }
 
@@ -107,8 +141,8 @@ public:
     }
 
     virtual ~SDLOpenGLWindow() {
-        SDL_GL_DeleteContext(m_context);                   
-        SDL_DestroyWindow(m_window);
+        if(m_context != NULL) SDL_GL_DeleteContext(m_context);                   
+        if(m_window != NULL) SDL_DestroyWindow(m_window);
         SDL_Quit();
     }
 
