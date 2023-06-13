@@ -257,8 +257,6 @@ private:
 
         if(m_rewind.buffer != nullptr && m_rewind.activeFlag) {
 
-
-
             if(m_rewind.buffer->size() > 1 && m_rewind.update()) {
                 //load state from memory
                 loadStateFromMemory(m_rewind.buffer->readBack());
@@ -268,6 +266,8 @@ private:
             }
 
         }
+
+        signalFrameReady();
     }
 
     void onDMCRequest(uint16_t addr, bool reload) {
@@ -291,6 +291,7 @@ public:
 
     SigSlot::Signal<const std::string&> signalError;
     SigSlot::Signal<> signalFrameStart;
+    SigSlot::Signal<> signalFrameReady;
 
     GeraNesEmu(IAudioOutput& audioOutput = DummyAudioOutput::instance()) :
         m_settings(),
@@ -404,7 +405,7 @@ public:
 
         m_update_cycles += m_cyclesPerSecond  * dt;
 
-        const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;        
+        const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;
 
         while(m_update_cycles >= 1000)
         {
@@ -454,7 +455,7 @@ public:
 
                     renderAudioCyclesAcc += 1000;  
 
-                    if(renderAudioCyclesAcc >= renderAudioCycles) {
+                    while(renderAudioCyclesAcc >= renderAudioCycles) {
                         renderAudioCyclesAcc -= renderAudioCycles;
 
                         bool enableAudio = false;
@@ -477,15 +478,95 @@ public:
             if(m_halt) {
                 close();
                 break;
-            }
+            }     
         }
 
         if(m_newFrame){
             m_newFrame = false;
             return true;
         }
+
         return false;
     }
+
+    GERANES_INLINE_HOT bool updateUntilFrame(uint32_t dt) //miliseconds
+    {
+        if(!m_cartridge.isValid()) return false;
+
+        dt = std::min(dt, (uint32_t)1000/10);  //0.1s    
+
+        while(!m_newFrame)
+        {
+            //PPU   X---X---X---X---X---X---X---X---X---X---X-...
+            //CPU   --X-----------X-----------X-----------X---...
+            //CPU   --1-------2---1-------2---1-------2---1---...
+
+            // in the rewind system, a new save state is queued in each frameReady signal.
+            // this can happen in any ppuCycle() call, so we need this for loop to track
+            // where continue the simulation after load a save state
+            // without this the save state system is not deterministic
+
+            for(;m_saveStatePoint < 4; ++m_saveStatePoint) {
+                switch(m_saveStatePoint) {
+                case 0:
+
+                    m_ppu.ppuCycle();
+
+
+
+                    m_cpu.begin();
+
+                    if(!m_ppu.inOverclockLines()){
+                        m_dma.cycle();
+                        m_apu.cycle();
+                        m_cartridge.cycle();
+                    }
+
+                    m_cpu.phi1();
+
+                    break;
+
+                case 1:
+                    m_ppu.ppuCycle();
+                    break;
+
+                case 2:
+                    m_ppu.ppuCycle();
+                    break;
+
+                case 3:
+                    m_ppu.ppuCyclePAL();
+
+                    if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
+
+                    break;
+                }
+            }
+            m_saveStatePoint = 0;
+
+            if(m_halt) {
+                close();
+                break;
+            }     
+        }
+
+        {
+            bool enableAudio = false;
+
+            //dont render when holding 1 frame in rewind mode
+            if(m_rewind.buffer == nullptr) enableAudio = true;
+            else {
+                if(!m_rewind.activeFlag) enableAudio = true;
+                else if(m_rewind.buffer->size() > 1) enableAudio = true;
+            }
+
+            m_audioOutput.render(dt, enableAudio ? 1.0f : 0.0f);                       
+        }
+
+        m_newFrame = false;
+
+        return true;
+    }   
 
     GERANES_INLINE const uint32_t* getFramebuffer()
     {

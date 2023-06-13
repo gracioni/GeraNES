@@ -38,6 +38,8 @@ namespace fs = std::experimental::filesystem;
 #include "GeraNesUI/InputInfo.h"
 #include "GeraNesUI/ConfigFile.h"
 
+#include "GeraNes/util/CircularBuffer.h"
+
 #include "cmrc/cmrc.hpp"
 
 CMRC_DECLARE(resources);
@@ -415,7 +417,8 @@ public:
 
         Logger::instance().signalLog.bind(MyApp::onLog, this);
         //Logger::instance().signalLog.bind(MyApp::onErrorLog, this);
-        m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);        
+        m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
+    
 
         m_controllerConfigWindow.signalShow.bind(MyApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(MyApp::onCaptureEnd, this);
@@ -828,6 +831,8 @@ public:
     int m_fps = 0;
     int m_frameCounter = 0;
 
+    bool frameSync = false;
+
     void mainLoop()
     {
         Uint64 tempTime = SDL_GetTicks64();
@@ -847,7 +852,15 @@ public:
             m_fpsTimer = 0;
         }    
 
-        if( m_emu.update(dt) ) render();
+        if(m_vsyncMode == OFF) {
+            if( m_emu.update(dt) ) render();
+        }
+        else {
+            m_emu.updateUntilFrame(dt);
+            render();
+        }
+
+        
 
         m_frameCounter++;
     }

@@ -71,14 +71,14 @@ public:
         ++m_currentSize;
     }
 
-    T peak()
+    T& peak()
     {
         return m_data[m_start];
     }
 
-    T read()
+    T& read()
     {
-        T ret = peak();
+        T& ret = peak();
 
         if(m_currentSize > 0){
             m_start++;
@@ -89,7 +89,7 @@ public:
         return ret;
     }
 
-    T peakBack()
+    T& peakBack()
     {
         if(m_currentSize == 0) return m_data[m_start];
 
@@ -99,9 +99,9 @@ public:
         return m_data[index];
     }
 
-    T readBack()
+    T& readBack()
     {
-        T ret = peakBack();
+        T& ret = peakBack();
 
         if(m_currentSize > 0){
             m_currentSize--;
@@ -110,7 +110,7 @@ public:
         return ret;
     }
 
-    T peakAt(size_t index)
+    T& peakAt(size_t index)
     {
         index = m_start + index;
         index %= m_data.size();

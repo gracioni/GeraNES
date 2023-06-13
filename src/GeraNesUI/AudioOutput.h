@@ -15,7 +15,7 @@
 
 #include <fstream>
 
-#define BUFFER_TIME (0.05) //seconds
+#define BUFFER_TIME (0.1) //seconds
 
 #include "GeraNes/IAudioOutput.h"
 #include "GeraNes/defines.h"
@@ -527,7 +527,6 @@ private:
     std::string m_currentDeviceName = "";
 
     std::vector<char> m_buffer;
-    bool m_playFlag;
 
     SDL_AudioSpec spec; 
 
@@ -706,8 +705,6 @@ public:
         m_hpFilter2.init(spec.freq, 440);
         m_lpFilter.init(spec.freq, 14000);
 
-        m_playFlag = false;
-
         return true;
     }
 
@@ -771,19 +768,17 @@ public:
             }
 
             sampleAcc -= 1000;
-        }
+        }   
+
+        bool playFlag = SDL_GetQueuedAudioSize(m_device) != 0;
+
+        //if(!playFlag) std::cout << "Audio buffer underflow" << std::endl;
         
-        if(m_playFlag || m_buffer.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME)
-        {
-            m_playFlag = true;
+        if(playFlag || m_buffer.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME)
+        {   
             SDL_QueueAudio(m_device, (void*)(&m_buffer[0]), m_buffer.size());
-        }
-        
-        if(m_buffer.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME)
-        {
             m_buffer.clear();
-            m_playFlag = false;
-        }  
+        }      
 
     }
 
