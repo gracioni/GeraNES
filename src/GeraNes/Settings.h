@@ -70,7 +70,6 @@ public:
         return m_disableSpriteLimit;
     }
 
-
 };
 
 #endif // SETTINGS_H

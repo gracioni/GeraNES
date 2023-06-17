@@ -700,6 +700,11 @@ public:
         return m_rewind.buffer != nullptr && m_rewind.activeFlag;
     }
 
+    uint32_t getRegionFPS() {
+        if(m_settings.region() == Settings::NTSC) return 50;
+        return 60;
+    }
+
 };
 
 #endif

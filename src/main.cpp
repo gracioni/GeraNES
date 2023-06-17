@@ -532,9 +532,9 @@ public:
 
     void updateVSyncConfig() {
         switch(m_vsyncMode) {
-            case OFF: SDL_GL_SetSwapInterval(0); break;
-            case SYNCRONIZED: SDL_GL_SetSwapInterval(1); break;
-            case ADAPTATIVE: SDL_GL_SetSwapInterval(-1); break;
+            case OFF: setVSync(0); break;
+            case SYNCRONIZED: setVSync(1); break;
+            case ADAPTATIVE: setVSync(-1); break;
         }
     }
 
@@ -831,10 +831,10 @@ public:
     int m_fps = 0;
     int m_frameCounter = 0;
 
-    bool frameSync = false;
-
     void mainLoop()
-    {
+    {  
+        int displayFrameRate = getDisplayFrameRate();
+
         Uint64 tempTime = SDL_GetTicks64();
 
         Uint64 dt = tempTime - m_lastTime;
@@ -852,15 +852,13 @@ public:
             m_fpsTimer = 0;
         }    
 
-        if(m_vsyncMode == OFF) {
+        if(m_vsyncMode == OFF || displayFrameRate != m_emu.getRegionFPS()) {            
             if( m_emu.update(dt) ) render();
         }
         else {
             m_emu.updateUntilFrame(dt);
-            render();
-        }
-
-        
+            render();      
+        }        
 
         m_frameCounter++;
     }

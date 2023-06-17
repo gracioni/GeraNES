@@ -5,7 +5,9 @@
 #include <GL/gl.h>
 
 #ifdef __MINGW32__
+#include <windows.h>
 #include <dwmapi.h>
+#include <VersionHelpers.h>
 #endif
 
 #include "GeraNes/Logger.h"
@@ -19,6 +21,63 @@ private:
     SDL_GLContext m_context = NULL;
 
     bool m_quit = false;
+
+
+    //code from love2d
+    void swapBuffers() {
+
+    #ifdef __MINGW32__
+        bool useDwmFlush = false;
+        int swapInterval = getVSync();
+
+        // https://github.com/love2d/love/issues/1628
+        // VSync can interact badly with Windows desktop composition (DWM) in windowed mode. DwmFlush can be used instead
+        // of vsync, but it's much less flexible so we're very conservative here with where it's used:
+        // - It won't work with exclusive or desktop fullscreen.
+        // - DWM refreshes don't always match the refresh rate of the monitor the window is in (or the requested swap
+        //   interval), so we only use it when they do match.
+        // - The user may force GL vsync, and DwmFlush shouldn't be used together with GL vsync.
+        if (m_context != nullptr && !isFullScreen() && swapInterval == 1)
+        {
+            // Desktop composition is always enabled in Windows 8+. But DwmIsCompositionEnabled won't always return true...
+            // (see DwmIsCompositionEnabled docs).
+            BOOL compositionEnabled = IsWindows8OrGreater();
+            if (compositionEnabled || (SUCCEEDED(DwmIsCompositionEnabled(&compositionEnabled)) && compositionEnabled))
+            {
+                DWM_TIMING_INFO info = {};
+                info.cbSize = sizeof(DWM_TIMING_INFO);
+                double dwmRefreshRate = 0;
+                if (SUCCEEDED(DwmGetCompositionTimingInfo(nullptr, &info)))
+                    dwmRefreshRate = (double)info.rateRefresh.uiNumerator / (double)info.rateRefresh.uiDenominator;
+
+                SDL_DisplayMode dmode = {};
+                int displayindex = SDL_GetWindowDisplayIndex(m_window);
+
+                if (displayindex >= 0)
+                    SDL_GetCurrentDisplayMode(displayindex, &dmode);
+
+                if (dmode.refresh_rate > 0 && dwmRefreshRate > 0 && (fabs(dmode.refresh_rate - dwmRefreshRate) < 2))
+                {
+                    SDL_GL_SetSwapInterval(0);
+                    if (SDL_GL_GetSwapInterval() == 0)
+                        useDwmFlush = true;
+                    else
+                        SDL_GL_SetSwapInterval(swapInterval);
+                }
+            }
+        }
+    #endif
+
+        SDL_GL_SwapWindow(m_window);
+
+    #ifdef __MINGW32__
+        if (useDwmFlush)
+        {
+            DwmFlush();
+            SDL_GL_SetSwapInterval(swapInterval);
+        }
+    #endif
+    }
 
 public:
 
@@ -43,14 +102,6 @@ public:
         }
 
         SDL_GL_MakeCurrent(m_window, m_context);
-
-        #ifdef __MINGW32__
-        HRESULT hr = DwmEnableComposition(DWM_EC_DISABLECOMPOSITION);
-        if (!SUCCEEDED(hr)) {
-        // log message or react in a different way
-        }
-
-        #endif
 
         initGL();
 
@@ -128,8 +179,8 @@ public:
             if(m_quit) continue; 
 
             paintGL();
-    
-            SDL_GL_SwapWindow(m_window);     
+
+            swapBuffers();  
         }
     }
 
@@ -178,6 +229,34 @@ public:
 
     void maximizeWindow() {
         SDL_MaximizeWindow(m_window);
+    }
+
+    int getVSync() const
+    {
+        return m_context != nullptr ? SDL_GL_GetSwapInterval() : 0;
+    }
+
+    void setVSync(int vsync) const
+    {
+        if (m_context == nullptr) return;
+
+	    SDL_GL_SetSwapInterval(vsync);
+
+        // Check if adaptive vsync was requested but not supported, and fall back
+        // to regular vsync if so.
+        if (vsync == -1 && SDL_GL_GetSwapInterval() != -1)
+            SDL_GL_SetSwapInterval(1);  
+    
+    }
+
+    int getDisplayFrameRate() {
+
+        SDL_DisplayMode mode;
+        if(SDL_GetCurrentDisplayMode(0,&mode) != 0) {
+            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR2);
+        }
+
+        return mode.refresh_rate;
     }
 
     
