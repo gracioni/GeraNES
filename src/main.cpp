@@ -138,6 +138,74 @@ private:
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     }
 
+    void NESControllerDraw() {
+
+        const ImVec2 GRID_SIZE = ImVec2(11,5);
+        const ImVec2 GRID_PADDING = ImVec2(10,10);
+        const ImU32 WHITE = IM_COL32(255, 255, 255, 255);    
+  
+        ImDrawList* drawList = ImGui::GetWindowDrawList(); 
+
+        ImVec2 vMin = ImGui::GetWindowContentRegionMin();
+        ImVec2 vMax = ImGui::GetWindowContentRegionMax();
+
+        vMax.y = 128;
+
+        vMin += ImGui::GetWindowPos();
+        vMax += ImGui::GetWindowPos();
+        
+        ImVec2 unitSize =  ImVec2((vMax-vMin)/GRID_SIZE);
+
+        ImVec2 cursorOffset = ImGui::GetCursorScreenPos();     
+
+        ImGui::Dummy(unitSize * GRID_SIZE); 
+
+        // Draw Up button
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(2, 1) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(2, 1) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);       
+                
+        // Draw Left button
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(1, 2) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(1, 2) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+  
+
+        // Draw Right button
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(3, 2) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(3, 2) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+ 
+
+        // Draw Down button
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(2, 3) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(2, 3) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+ 
+
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(5, 3) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(5, 3) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+   
+
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(6, 3) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(6, 3) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+ 
+
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(8, 3) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(8, 3) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+
+
+        drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(9, 3) + GRID_PADDING/2,
+        cursorOffset + unitSize * ImVec2(9, 3) + GRID_PADDING/2 + unitSize - GRID_PADDING,
+        WHITE);
+
+
+
+}
+
 
 public:
 
@@ -249,6 +317,9 @@ public:
                 // Finalizar a janela do ImGui
                 ImGui::EndTable();
             }
+
+
+            //NESControllerDraw();
 
             char aux[128];
 
@@ -869,119 +940,6 @@ public:
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240-2*m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_emu.getFramebuffer()+m_clipHeightValue*256);
     }  
 
-    void DrawNESButton(const char* label, bool pressed)
-{
-    ImGuiStyle& style = ImGui::GetStyle();
-    ImVec2 size(48, 48);
-    ImVec2 padding(6, 6);
-    ImVec4 color = ImVec4(0.62f, 0.62f, 0.62f, 1.0f);
-
-    if (pressed)
-    {
-        color = ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
-    }
-
-    ImGui::PushStyleColor(ImGuiCol_Button, color);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, color);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, color);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
-    ImGui::Button(label, size);
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(3);
-}
-
-void NESControllerDraw() {
-
-    const ImVec2 GRID_SIZE = ImVec2(11,5);
-    const ImVec2 GRID_PADDING = ImVec2(10,10);
-
-    
-
-     // Draw NES buttons
-    ImGui::Begin("NES Controller");
-
-        ImDrawList* drawList = ImGui::GetWindowDrawList(); 
-
-        ImVec2 vMin = ImGui::GetWindowContentRegionMin();
-        ImVec2 vMax = ImGui::GetWindowContentRegionMax();
-
-        vMin += ImGui::GetWindowPos();
-        vMax += ImGui::GetWindowPos();
-        
-        ImVec2 unitSize =  ImVec2((vMax-vMin)/GRID_SIZE);
-
-        ImVec2 cursorOffset = ImGui::GetCursorScreenPos() - ImGui::GetWindowPos();
-
-        
-        /*
-        ImGui::Columns(3);
-        ImGui::SetColumnWidth(0, 64.0f);
-        ImGui::SetColumnWidth(1, 64.0f);
-        ImGui::SetColumnWidth(2, 64.0f);
-        */
-
-        // Draw Up button
-        //ImGui::Dummy(ImVec2(0, 16));
-        //ImGui::SameLine();
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(2, 1) + GRID_PADDING/2);
-        drawList->AddText(ImGui::GetCursorScreenPos()+ImVec2( ImVec2( (unitSize.x-ImGui::CalcTextSize("Up").x)/2,0).x,-unitSize.y/2), ImGui::GetColorU32(ImGuiCol_Text), "Up");
-        if (ImGui::Button("Up", unitSize - GRID_PADDING))
-        {
-            // Handle Up button pressed
-        }
-        
-
-        // Draw Left button
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(1, 2) + GRID_PADDING/2);
-        if (ImGui::Button("Left", unitSize - GRID_PADDING))
-        {
-            // Handle Left button pressed
-        }
-
-        // Draw Right button
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(3, 2) + GRID_PADDING/2);
-        if (ImGui::Button("Right", unitSize - GRID_PADDING))
-        {
-            // Handle Right button pressed
-        }
-
-        // Draw Down button
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(2, 3) + GRID_PADDING/2);
-        if (ImGui::Button("Down", unitSize - GRID_PADDING))
-        {
-            // Handle Down button pressed
-        }
-
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(5, 3) + GRID_PADDING/2);
-        if (ImGui::Button("Select", unitSize - GRID_PADDING))
-        {
-            // Handle Down button pressed
-        }
-
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(6, 3) + GRID_PADDING/2);
-        if (ImGui::Button("Start", unitSize - GRID_PADDING))
-        {
-            // Handle Down button pressed
-        }
-
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(8, 3) + GRID_PADDING/2);
-        if (ImGui::Button("B", unitSize - GRID_PADDING))
-        {
-            // Handle Down button pressed
-        }
-
-        ImGui::SetCursorPos(cursorOffset + unitSize * ImVec2(9, 3) + GRID_PADDING/2);
-        if (ImGui::Button("A", unitSize - GRID_PADDING))
-        {
-            // Handle Down button pressed
-        }
-
-
-
-    ImGui::End();
-}
-
     bool m_showImprovementsWindows = false;
 
     void menuBar() {
@@ -1181,9 +1139,7 @@ void NESControllerDraw() {
 
         if(m_showMenuBar) {
             
-            menuBar();        
-
-            //NESControllerDraw();
+            menuBar();       
 
             m_controllerConfigWindow.update();
 
@@ -1220,39 +1176,9 @@ void NESControllerDraw() {
 
         }
 
-
-        ImDrawList* drawList = ImGui::GetForegroundDrawList();
-        drawList->AddText(ImVec2(width()-80,60), 0xFFFFFFFF, (std::to_string(m_fps) + " FPS").c_str());
-
-     
-
-
-        /*
-        ImGui::Begin("another", &pqp);
-            ImDrawList* drawList = ImGui::GetWindowDrawList();           
-            
-
-            ImVec2 vMin = ImGui::GetWindowContentRegionMin();
-			ImVec2 vMax = ImGui::GetWindowContentRegionMax();
-
-			vMin.x += ImGui::GetWindowPos().x;
-			vMin.y += ImGui::GetWindowPos().y;
-			vMax.x += ImGui::GetWindowPos().x;
-			vMax.y += ImGui::GetWindowPos().y;
-
-            ImVec2 size = vMax - vMin;
-       
-            float ref= std::min(size.x,size.y);
-
-            //drawList->AddImage((void*)m_texture, vMin, vMax);
-            drawList->AddCircle(vMin+size/2,ref/2,0xFFFFFFFF);
-
-            
-
-        ImGui::End();
-        */  
-        
-
+        //ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        //drawList->AddText(ImVec2(width()-80,60), 0xFFFFFFFF, (std::to_string(m_fps) + " FPS").c_str());
+  
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         
