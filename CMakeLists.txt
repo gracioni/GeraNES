@@ -1,20 +1,11 @@
 cmake_minimum_required(VERSION 3.26)
 
-#message("geraldo")
 #message(${CMAKE_RC_COMPILER})
-
 
 #cmake -DCMAKE_BUILD_TYPE=Release
 #cmake -DCMAKE_BUILD_TYPE=Debug
 
-#message("geraldo")
-
-
-
-
-set(PKG_CONFIG_EXECUTABLE "C:/Users/geral/Downloads/pkg-config-lite-0.28-1_bin-win32/pkg-config-lite-0.28-1/bin/pkg-config.exe")
-
-project(sdl_test)
+project(GeraNES)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(CMakeRC)
@@ -138,7 +129,7 @@ FetchContent_Declare(
         GIT_PROGRESS TRUE
 )
 
-set(glew-cmake_BUILD_SHARED OFF)
+set(glew-cmake_BUILD_SHARED FALSE)
 set(glew-cmake_BUILD_STATIC ON)
 set(ONLY_LIBS ON)
 set(BUILD_SHARED_LIBS FALSE)
@@ -177,10 +168,10 @@ FetchContent_MakeAvailable(json)
 
 INCLUDE_DIRECTORIES(src)
 
-# Obtém a lista de arquivos na pasta de recursos
+# Gets the list of files in the resources folder
 file(GLOB_RECURSE RECURSOS_LISTA "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 
-# Adiciona os arquivos de recursos usando a lista obtida
+# Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RECURSOS_LISTA})
 
 if(WIN32)
@@ -199,7 +190,6 @@ if(WIN32)
     set(LIBS ${LIBS} -ldwmapi)
 endif()
 
-#add_executable(sdl_test WIN32 ${CPP_FILES})
 add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})
 target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_17)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
