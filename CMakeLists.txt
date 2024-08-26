@@ -16,10 +16,13 @@ Set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(
         SDL2
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG release-2.26.5
+        GIT_TAG release-2.30.6
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )
+
+set(BUILD_SHARED_LIBS FALSE)
+
 FetchContent_MakeAvailable(SDL2)
 
 INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
@@ -75,7 +78,7 @@ INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
 FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG v1.89.4
+        GIT_TAG v1.91.0
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )
@@ -129,7 +132,8 @@ FetchContent_Declare(
         GIT_PROGRESS TRUE
 )
 
-set(glew-cmake_BUILD_SHARED FALSE)
+set(glew-cmake_BUILD_SHARED OFF)
+set(glew-cmake_BUILD_SHARED OFF)
 set(glew-cmake_BUILD_STATIC ON)
 set(ONLY_LIBS ON)
 set(BUILD_SHARED_LIBS FALSE)

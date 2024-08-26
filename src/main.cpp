@@ -21,6 +21,7 @@ namespace fs = std::experimental::filesystem;
 #include <vector>
 
 #include <functional>
+#include <iterator>
 
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -114,6 +115,8 @@ private:
 
     InputInfo* m_inputInfo = nullptr;
 
+    std::string m_label = "";
+
     int m_captureIndex = -1;
     float m_lastTime = 0.0f;
     float m_captureTime = 0.0f;
@@ -168,9 +171,8 @@ private:
         // Draw Left button
         drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(1, 2) + GRID_PADDING/2,
         cursorOffset + unitSize * ImVec2(1, 2) + GRID_PADDING/2 + unitSize - GRID_PADDING,
-        WHITE);
+        WHITE);  
   
-
         // Draw Right button
         drawList->AddRectFilled(cursorOffset + unitSize * ImVec2(3, 2) + GRID_PADDING/2,
         cursorOffset + unitSize * ImVec2(3, 2) + GRID_PADDING/2 + unitSize - GRID_PADDING,
@@ -213,7 +215,9 @@ public:
     SigSlot::Signal<> signalClose;
     
 
-    void show(InputInfo& input) {
+    void show(const std::string label, InputInfo& input) {
+
+        m_label = label;
 
         if(m_inputInfo != nullptr) {
             stopCapture();
@@ -225,6 +229,7 @@ public:
     }
 
     void hide() {
+        m_label = "";
         m_show = false;
         stopCapture();
         m_inputInfo = nullptr;
@@ -277,7 +282,7 @@ public:
 
         ImGui::SetNextWindowSize(ImVec2(340, 0));
     
-        if(ImGui::Begin("Input Config", &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+        if(ImGui::Begin((m_label + " - Input Config").c_str(), &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
 
             if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
 
@@ -378,8 +383,6 @@ public:
 
 };
 
-
-
 class MyApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
 private:
@@ -400,7 +403,6 @@ private:
 
     GLuint m_texture = 0;
 
-    bool m_scanlinesFlag = false;
     bool m_fullScreen = false;
 
     glm::mat4x4 m_mvp = glm::mat4x4(1.0f);
@@ -417,7 +419,7 @@ private:
     enum VSyncMode {OFF, SYNCRONIZED, ADAPTATIVE};
     VSyncMode m_vsyncMode = OFF;
 
-    enum FilterMode {NEAREST, BILINEAR, TRILINEAR};
+    enum FilterMode {NEAREST, BILINEAR};
     FilterMode m_filterMode = NEAREST;
 
     bool m_showMenuBar = true;
@@ -425,7 +427,14 @@ private:
     ShortcutManager m_shortcuts;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
-    static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear", "Trilinear"};
+    static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};
+
+    struct ShaderItem {
+        std::string label;
+        std::string path;
+    };
+
+    std::vector<ShaderItem> shaderList;
 
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
@@ -510,7 +519,6 @@ public:
 
         m_vsyncMode = (VSyncMode)cfg.getVSyncMode();
         m_filterMode = (FilterMode)cfg.getFilterMode();
-        m_scanlinesFlag = cfg.getScanlines();
         m_horizontalStretch = cfg.getHorizontalStretch();
         m_fullScreen = cfg.getFullScreen();
 
@@ -532,11 +540,6 @@ public:
             quit();
         }});
 
-        m_shortcuts.add(ShortcutManager::Data{"scanlines", "Scanlines", "Alt+C", [this]() {
-            m_scanlinesFlag = !m_scanlinesFlag;
-            ConfigFile::instance().setScanlines(m_scanlinesFlag);
-        }});
-
         m_shortcuts.add(ShortcutManager::Data{"horizontalStretch", "Horizontal Stretch", "Alt+H", [this]() {
             m_horizontalStretch = !m_horizontalStretch;
             ConfigFile::instance().setHorizontalStretch(m_horizontalStretch);
@@ -551,7 +554,29 @@ public:
             m_emu.loadState();
         }});
 
+        loadShaderList();
         
+    }
+
+    void loadShaderList() {
+
+        const char* SHADER_DIR = "shaders/";
+
+        std::string dir = fs::path(SHADER_DIR).parent_path().string();
+        if(!fs::exists(dir)) fs::create_directory(dir);
+
+        for (const auto& entry : fs::directory_iterator(dir)) {
+            if (fs::is_regular_file(entry.path())) {
+                std::cout << "File: " << entry.path().filename().string() << std::endl;
+
+                ShaderItem item = {entry.path().filename().string(), entry.path().string()};         
+                shaderList.push_back(item);
+            }
+        }
+
+        std::sort(shaderList.begin(), shaderList.end(), [](const ShaderItem& a, const ShaderItem& b) {
+        return a.label < b.label;
+    });
     }
 
     void onCaptureBegin() {
@@ -622,13 +647,19 @@ public:
                 glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE); //legacy
                 glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                break;   
+        }
+    }
+
+    void updateShaderConfig() {
+
+        loadShader("");
+        
+        for(const ShaderItem& item : shaderList) {
+            if(item.label == ConfigFile::instance().getShader()) {
+                loadShader(item.path);
                 break;
-            case TRILINEAR:
-                glBindTexture(GL_TEXTURE_2D, m_texture);
-                glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE); //legacy
-                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-                glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                break;
+            }
         }
     }
 
@@ -669,7 +700,7 @@ public:
 
         glClearColor(0.0, 0.0, 0.0, 0.0);
 
-        shaderInit();
+        updateShaderConfig();
 
         //glEnable(GL_CULL_FACE);
         //glCullFace(GL_BACK);
@@ -720,26 +751,34 @@ public:
         return true;
     }
 
-    void shaderInit()
+    bool loadShader(const std::string& path)
     {   
         auto fs2 = cmrc::resources::get_filesystem();
         auto shaderFile = fs2.open("resources/default.glsl");
+        std::string shaderText(shaderFile.begin(), shaderFile.end());        
 
-        std::string shaderText(shaderFile.begin(), shaderFile.end());
+        if(path != "") {
+            std::ifstream file(path);            
+            shaderText = std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        }
 
         std::string vertexText = "#define VERTEX\n" + shaderText;
         std::string fragmentText = "#define FRAGMENT\n" + shaderText;
 
-        m_shaderProgram.create();
+        m_shaderProgram.destroy();
+
+        m_shaderProgram.create();       
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
-            Logger::instance().log(std::string("vertex shader error: ") + m_shaderProgram.lastError(), Logger::ERROR2);
-            return;
+            Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR2);
+            m_shaderProgram.destroy();
+            return false;
         }
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
-            Logger::instance().log(std::string("fragment shader error: ") + m_shaderProgram.lastError(), Logger::ERROR2);    
-            return;
+            Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR2);    
+            m_shaderProgram.destroy();
+            return false;
         }
 
         m_shaderProgram.bindAttributeLocation("VertexCoord", 0);
@@ -747,8 +786,11 @@ public:
 
         if(!m_shaderProgram.link()){
             Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::ERROR2);   
-            return;
+            m_shaderProgram.destroy();
+            return false;
         }
+
+        return true;
     }
 
     void updateBuffers()
@@ -921,15 +963,15 @@ public:
             m_fps = m_frameCounter;
             m_frameCounter = 0;
             m_fpsTimer = 0;
-        }    
+        }
 
-        if(m_vsyncMode == OFF || displayFrameRate != m_emu.getRegionFPS()) {            
+        if(m_vsyncMode == OFF || displayFrameRate != m_emu.getRegionFPS()) {          
             if( m_emu.update(dt) ) render();
         }
         else {
             m_emu.updateUntilFrame(dt);
             render();      
-        }        
+        }
 
         m_frameCounter++;
     }
@@ -940,7 +982,8 @@ public:
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240-2*m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_emu.getFramebuffer()+m_clipHeightValue*256);
     }  
 
-    bool m_showImprovementsWindows = false;
+    bool m_showImprovementsWindow = false;
+    bool m_showAboutWindow = false;
 
     void menuBar() {
 
@@ -1007,7 +1050,7 @@ public:
                 ImGui::Separator();
 
                 if (ImGui::MenuItem("Improvements")) {
-                    m_showImprovementsWindows = true;                                       
+                    m_showImprovementsWindow = true;                                       
                 }
 
                 ImGui::EndMenu();
@@ -1029,7 +1072,7 @@ public:
 
                 if (ImGui::BeginMenu("Filter")) {
 
-                    for(int i = NEAREST; i <= TRILINEAR ; i++) {                        
+                    for(int i = NEAREST; i <= BILINEAR ; i++) {                        
                         if(ImGui::MenuItem(FILTER_TYPE_LABELS[i], nullptr, m_filterMode == i)) {
                             m_filterMode = (FilterMode)i;
                             ConfigFile::instance().setFilterMode(i);
@@ -1039,16 +1082,18 @@ public:
                     ImGui::EndMenu();
                 }
 
-                auto sc = m_shortcuts.get("scanlines");
-                if( sc != nullptr) {
+                if (ImGui::BeginMenu("Shader")) {
 
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_scanlinesFlag))
-                    {
-                        sc->action();                        
-                    }
+                    for(const ShaderItem& item: shaderList) {
+                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == ConfigFile::instance().getShader())) {                            
+                            ConfigFile::instance().setShader(item.label);
+                            updateShaderConfig();
+                        } 
+                    }               
+                    ImGui::EndMenu();
                 }
 
-                sc = m_shortcuts.get("horizontalStretch");
+                auto sc = m_shortcuts.get("horizontalStretch");
                 if( sc != nullptr) {
 
                     if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_horizontalStretch))
@@ -1091,14 +1136,20 @@ public:
             {
                 if (ImGui::MenuItem("Player 1"))
                 {
-                    m_controllerConfigWindow.show(m_controller1);                    
+                    m_controllerConfigWindow.show("Player 1", m_controller1);                    
                 }
                 if (ImGui::MenuItem("Player 2"))
                 {
-                    m_controllerConfigWindow.show(m_controller2);
+                    m_controllerConfigWindow.show("Player 2", m_controller2);
                 }
                 ImGui::EndMenu();
             }
+
+            if (ImGui::MenuItem("About"))
+            {
+                m_showAboutWindow = true;              
+            }
+
             ImGui::EndMainMenuBar();
         }
     }
@@ -1121,9 +1172,12 @@ public:
         if(m_shaderProgram.bind()) {
             m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
             m_shaderProgram.setUniformValue("Texture", 0);
-            m_shaderProgram.setUniformValue("Scanlines", m_scanlinesFlag ? 256 : 0);    
-            m_shaderProgram.setUniformValue("GrayScale", m_emu.isRewinding());
-            m_shaderProgram.setUniformValue("Time", (float)GetTime());
+
+            m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
+            m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
+            m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)width(),(float)height()));
+            m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256.0f,256.0f));
+            m_shaderProgram.setUniformValue("InputSize", glm::vec2(256.0f,256.0f));
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);            
 
@@ -1137,17 +1191,19 @@ public:
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
+        //ImGui::ShowDemoWindow();
+
         if(m_showMenuBar) {
             
             menuBar();       
 
             m_controllerConfigWindow.update();
 
-            if(m_showImprovementsWindows) { 
+            if(m_showImprovementsWindow) { 
 
                 ImGui::SetNextWindowSize(ImVec2(270, 0));   
 
-                if(ImGui::Begin("Improvements", &m_showImprovementsWindows, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+                if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
                     
                     bool disableSpritesLimit = ConfigFile::instance().getDisableSpritesLimit();
                     if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
@@ -1173,6 +1229,38 @@ public:
                 
                 ImGui::End();
             }
+
+            if(m_showAboutWindow) {
+
+                ImGui::SetNextWindowSize(ImVec2(270, 0));         
+
+                if (ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+                    
+                    float windowWidth = ImGui::GetContentRegionAvail().x;                   
+          
+                    std::string txt = "GeraNES v1.4";              
+
+                    float textWidth = ImGui::CalcTextSize(txt.c_str()).x;
+                    ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
+                    ImGui::Text(txt.c_str());
+
+                    txt = "Racionisoft 2016 - 2024";
+
+                    textWidth = ImGui::CalcTextSize(txt.c_str()).x;
+                    ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
+                    ImGui::Text(txt.c_str());
+
+                    ImGui::NewLine();
+
+                    txt = "geraldoracioni@gmail.com";
+
+                    textWidth = ImGui::CalcTextSize(txt.c_str()).x;
+                    ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
+                    ImGui::Text(txt.c_str());              
+                }
+
+                ImGui::End();
+            }            
 
         }
 

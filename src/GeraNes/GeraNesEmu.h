@@ -51,6 +51,8 @@ private:
 
     uint8_t m_saveStatePoint;
 
+    uint32_t m_frameCount;
+
     struct Rewind
     {
         bool activeFlag = false;
@@ -248,6 +250,7 @@ private:
     void onFrameReady()
     {
         m_newFrame = true;
+        ++m_frameCount;
 
         if(m_rewind.buffer != nullptr && (!m_rewind.activeFlag || m_rewind.buffer->size() == 0) && m_rewind.update() ) {
             Serialize s;
@@ -359,6 +362,7 @@ public:
             m_halt = false;
             m_4011WriteCounter = 0;
             m_newFrame = false;
+            m_frameCount = 0;
 
             memset(m_ram, 0, sizeof(m_ram));
 
@@ -563,7 +567,7 @@ public:
             m_audioOutput.render(dt, enableAudio ? 1.0f : 0.0f);                       
         }
 
-        m_newFrame = false;
+        m_newFrame = false;        
 
         return true;
     }   
@@ -673,6 +677,8 @@ public:
         SERIALIZEDATA(s, m_newFrame);
 
         SERIALIZEDATA(s, m_saveStatePoint);
+
+        SERIALIZEDATA(s, m_frameCount);
     }
 
     void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
@@ -703,6 +709,10 @@ public:
     uint32_t getRegionFPS() {
         if(m_settings.region() == Settings::NTSC) return 50;
         return 60;
+    }
+
+    uint32_t frameCount() {
+        return m_frameCount;
     }
 
 };

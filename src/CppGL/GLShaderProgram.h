@@ -19,18 +19,27 @@ public:
 
     enum ShaderType {Vertex, Fragment};
 
-    void create() {
+    void create() {        
+
         if(m_shaderProgram == 0)
             m_shaderProgram = glCreateProgram();
     }
 
-    ~GLShaderProgram() {
+    void destroy() {
+
+        if(m_shaderProgram == 0) return;
 
         for(int i = 0; i < m_programs.size(); i++)
             glDeleteShader(m_programs[i]);
 
         if(m_shaderProgram)
             glDeleteProgram(m_shaderProgram);
+
+        m_shaderProgram = 0;
+    }
+
+    ~GLShaderProgram() {
+        destroy();
     }
 
     bool addShaderFromSourceCode(ShaderType type, const char* text) {
@@ -50,9 +59,9 @@ public:
                 }
                 else {      
                     GLint infoLogLength;
-                    glGetProgramiv(vertexShader, GL_INFO_LOG_LENGTH, &infoLogLength);
+                    glGetShaderiv(vertexShader, GL_INFO_LOG_LENGTH, &infoLogLength);
                     char* infoLog = new char[infoLogLength + 1];
-                    glGetProgramInfoLog(vertexShader, infoLogLength, NULL, infoLog);
+                    glGetShaderInfoLog(vertexShader, infoLogLength, NULL, infoLog);
                     m_lastError = std::string(infoLog);
                     delete[] infoLog;
                     return false;
@@ -75,9 +84,9 @@ public:
                 }
                 else {
                     GLint infoLogLength;
-                    glGetProgramiv(fragmentShader, GL_INFO_LOG_LENGTH, &infoLogLength);
+                    glGetShaderiv(fragmentShader, GL_INFO_LOG_LENGTH, &infoLogLength);
                     char* infoLog = new char[infoLogLength + 1];
-                    glGetProgramInfoLog(fragmentShader, infoLogLength, NULL, infoLog);
+                    glGetShaderInfoLog(fragmentShader, infoLogLength, NULL, infoLog);
                     m_lastError = std::string(infoLog);
                     delete[] infoLog;
                     return false;
@@ -160,6 +169,16 @@ public:
     void setUniformValue(const char* name, GLfloat value) {
         GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
         glUniform1f(uniformLocation, value);
+    }
+
+    void setUniformValue(const char* name, const glm::vec2 value) {
+        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
+        glUniform2f(uniformLocation, value[0], value[1]);
+    }
+
+    void setUniformValue(const char* name, const glm::vec3 value) {
+        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
+        glUniform3f(uniformLocation, value[0], value[1], value[2]);
     }
 
     void setUniformValue(const char* name, const glm::mat4x4 value) {

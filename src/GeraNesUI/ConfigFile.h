@@ -3,6 +3,7 @@
 
 #include <map>
 #include <vector>
+#include <string>
 #include <fstream>
 #include <iostream>
 #include <experimental/filesystem>
@@ -31,11 +32,12 @@ private:
 
         int vsyncMode = 0;
         int filterMode = 0;
-        bool scanLines = false;
+        std::string shader = "";  
         bool horizontalStretch = false;
         bool fullScreen = false;
+        
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, filterMode, scanLines, horizontalStretch, fullScreen)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, filterMode, shader, horizontalStretch, fullScreen)
     };
 
     struct Audio {
@@ -249,14 +251,6 @@ public:
         video.filterMode = mode;
     }
 
-    bool getScanlines() {
-        return video.scanLines;
-    }
-
-    void setScanlines(bool state) {
-        video.scanLines = state;
-    }
-
     bool getHorizontalStretch() {
         return video.horizontalStretch;
     }
@@ -272,6 +266,16 @@ public:
     void setFullScreen(bool state) {
         video.fullScreen = state;
     }
+
+    void setShader(const std::string& shader) {
+        video.shader = shader;
+    }
+
+    const std::string& getShader() {
+        return video.shader;
+    }
+
+    
     
 };
 
