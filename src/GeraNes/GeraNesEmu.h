@@ -473,7 +473,7 @@ public:
                             else if(m_rewind.buffer->size() > 1) enableAudio = true;
                         }
 
-                        m_audioOutput.render(1, enableAudio ? 1.0f : 0.0f);                       
+                        m_audioOutput.render(1, !enableAudio);                       
                     }
 
                     break;
@@ -566,7 +566,7 @@ public:
                 else if(m_rewind.buffer->size() > 1) enableAudio = true;
             }
 
-            m_audioOutput.render(dt, enableAudio ? 1.0f : 0.0f);                       
+            m_audioOutput.render(dt, !enableAudio);                       
         }
 
         m_newFrame = false;        

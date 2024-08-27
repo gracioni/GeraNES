@@ -509,7 +509,8 @@ public:
         ConfigFile& cfg = ConfigFile::instance();
 
         audioOutput.config(cfg.getAudioDevice());      
-        ConfigFile::instance().setAudioDevice(audioOutput.currentDeviceName());  
+        ConfigFile::instance().setAudioDevice(audioOutput.currentDeviceName()); 
+        audioOutput.setVolume(ConfigFile::instance().getAudioVolume());
         
         cfg.getInputInfo(0, m_controller1);
         cfg.getInputInfo(1, m_controller2);
@@ -568,8 +569,6 @@ public:
 
         for (const auto& entry : fs::directory_iterator(dir)) {
             if (fs::is_regular_file(entry.path())) {
-                std::cout << "File: " << entry.path().filename().string() << std::endl;
-
                 ShaderItem item = {entry.path().filename().string(), entry.path().string()};         
                 shaderList.push_back(item);
             }
@@ -654,17 +653,26 @@ public:
 
     void updateShaderConfig() {
 
-        bool loaded = false;        
+        bool loaded = false;
+
+        const std::string& shader = ConfigFile::instance().getShader();
+
+        if(shader != "") {
         
-        for(const ShaderItem& item : shaderList) {
-            if(item.label == ConfigFile::instance().getShader()) {
-                loaded = loadShader(item.path);
-                break;
+            for(const ShaderItem& item : shaderList) {
+                if(item.label == shader) {
+                    loaded = loadShader(item.path);
+                    break;
+                }
             }
         }
 
         if(!loaded) {
-            ConfigFile::instance().setShader("");
+
+            if(shader != "") {
+                Logger::instance().log("Failed to load shader " + shader + ". Using default shader.", Logger::INFO);
+                ConfigFile::instance().setShader("");
+            }
             loadShader(""); //default
         }
     }
@@ -1153,6 +1161,13 @@ public:
                     }              
                     ImGui::EndMenu();
                 }
+
+                float volume = audioOutput.getVolume();
+                if(ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
+                    audioOutput.setVolume(volume);
+                    ConfigFile::instance().setAudioVolume(volume);
+                }
+
                 ImGui::EndMenu();
             }
 
@@ -1200,8 +1215,8 @@ public:
             m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
             m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
             m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)width(),(float)height()));
-            m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256.0f,256.0f));
-            m_shaderProgram.setUniformValue("InputSize", glm::vec2(256.0f,256.0f));
+            m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256,256));
+            m_shaderProgram.setUniformValue("InputSize", glm::vec2(256,256));
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);            
 

@@ -43,8 +43,9 @@ private:
     struct Audio {
 
         std::string audioDevice = "";
+        float volume = 1.0f;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice, volume)
     };
 
     const char* FILENAME = "settings.json";
@@ -273,6 +274,14 @@ public:
 
     const std::string& getShader() {
         return video.shader;
+    }
+
+    void setAudioVolume(float volume) {
+        audio.volume = volume;
+    }
+
+    float getAudioVolume() {
+        return audio.volume;
     }
 
     

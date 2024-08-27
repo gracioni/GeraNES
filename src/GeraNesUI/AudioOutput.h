@@ -544,6 +544,8 @@ private:
 
     uint32_t sampleAcc = 0;
 
+    float m_volume = 1.0f;
+
     void clearBuffers()
     {
         m_buffer.clear();
@@ -738,7 +740,7 @@ public:
         return ret;
     }
     
-    void render(uint32_t dt, float volume) override
+    void render(uint32_t dt, bool silenceFlag) override
     {    
 
         if(m_device == 0){
@@ -750,7 +752,7 @@ public:
 
         while(sampleAcc >= 1000)
         {
-            float value = mix() * volume;
+            float value = silenceFlag ? 0 : (mix() * m_volume);
 
             if(sampleSize() == 8) {
                 int temp = (value/2+0.5)*255;
@@ -855,6 +857,14 @@ public:
     void addSampleDirect(float period, float sample) override
     {
         m_sampleDirect.add(period,sample);
+    }
+
+    void setVolume(float volume) {
+        m_volume = volume;
+    }
+
+    float getVolume() {
+        return m_volume;
     }
 
 
