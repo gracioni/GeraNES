@@ -22,6 +22,7 @@ namespace fs = std::experimental::filesystem;
 
 #include <functional>
 #include <iterator>
+#include <regex>
 
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -653,13 +654,18 @@ public:
 
     void updateShaderConfig() {
 
-        loadShader("");
+        bool loaded = false;        
         
         for(const ShaderItem& item : shaderList) {
             if(item.label == ConfigFile::instance().getShader()) {
-                loadShader(item.path);
+                loaded = loadShader(item.path);
                 break;
             }
+        }
+
+        if(!loaded) {
+            ConfigFile::instance().setShader("");
+            loadShader(""); //default
         }
     }
 
@@ -762,8 +768,19 @@ public:
             shaderText = std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
         }
 
-        std::string vertexText = "#define VERTEX\n" + shaderText;
-        std::string fragmentText = "#define FRAGMENT\n" + shaderText;
+        std::string vertexText;
+        std::string fragmentText;
+
+        std::regex versionPattern(R"(^#version[^\n]*\n)", std::regex::icase);
+
+        if(std::regex_search(shaderText, versionPattern)) {
+            vertexText = std::regex_replace(shaderText, versionPattern, R"($&#define VERTEX)" "\n");
+            fragmentText = std::regex_replace(shaderText, versionPattern, R"($&#define FRAGMENT)" "\n");
+        }
+        else {
+            vertexText = "#define VERTEX\n" + shaderText;
+            fragmentText = "#define FRAGMENT\n" + shaderText;
+        }
 
         m_shaderProgram.destroy();
 
@@ -1084,6 +1101,13 @@ public:
 
                 if (ImGui::BeginMenu("Shader")) {
 
+                    if(ImGui::MenuItem("default", nullptr, ConfigFile::instance().getShader() == "")) {                            
+                        ConfigFile::instance().setShader("");
+                        updateShaderConfig();
+                    }
+
+                    if(shaderList.size() > 0) ImGui::Separator();
+
                     for(const ShaderItem& item: shaderList) {
                         if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == ConfigFile::instance().getShader())) {                            
                             ConfigFile::instance().setShader(item.label);
@@ -1171,7 +1195,7 @@ public:
 
         if(m_shaderProgram.bind()) {
             m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
-            m_shaderProgram.setUniformValue("Texture", 0);
+            m_shaderProgram.setUniformValue("Texture", 0);      
 
             m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
             m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());

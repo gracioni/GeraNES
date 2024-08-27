@@ -313,6 +313,8 @@ public:
 
         renderAudioCyclesAcc = 0;
 
+        m_frameCount = 0;
+
         m_cpu.signalError.bind(&GeraNesEmu::onError, this);
 
         m_ppu.signalFrameStart.bind(&GeraNesEmu::onFrameStart, this);
