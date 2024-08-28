@@ -750,9 +750,11 @@ public:
 
         sampleAcc = dt * sampleRate();
 
+        float vol = std::pow(m_volume,2);
+
         while(sampleAcc >= 1000)
         {
-            float value = silenceFlag ? 0 : (mix() * m_volume);
+            float value = silenceFlag ? 0 : mix() * vol;
 
             if(sampleSize() == 8) {
                 int temp = (value/2+0.5)*255;

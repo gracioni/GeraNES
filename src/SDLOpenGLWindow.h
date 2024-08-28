@@ -4,14 +4,7 @@
 #include <SDL.h>
 #include <GL/gl.h>
 
-#ifdef __MINGW32__
-#include <windows.h>
-#include <dwmapi.h>
-#include <VersionHelpers.h>
-#endif
-
 #include "GeraNes/Logger.h"
-
 
 class SDLOpenGLWindow {
 

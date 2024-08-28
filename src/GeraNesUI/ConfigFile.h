@@ -43,7 +43,7 @@ private:
     struct Audio {
 
         std::string audioDevice = "";
-        float volume = 1.0f;
+        float volume = 0.5f;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice, volume)
     };
