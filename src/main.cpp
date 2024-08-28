@@ -1,4 +1,4 @@
-#include "GeraNESApp.h"
+#include "GeraNesUI/GeraNESApp.h"
 
 int main(int argc, char* argv[]) {
 
