@@ -36,6 +36,7 @@ namespace fs = std::experimental::filesystem;
 
 #include "GeraNes/GeraNesEmu.h"
 #include "GeraNes/Logger.h"
+#include "GeraNes/defines.h"
 
 #include "GeraNesUI/AudioOutput.h"
 #include "GeraNesUI/InputManager.h"
@@ -960,7 +961,7 @@ public:
                     
                     float windowWidth = ImGui::GetContentRegionAvail().x;                   
           
-                    std::string txt = "GeraNES v1.4";              
+                    std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;           
 
                     float textWidth = ImGui::CalcTextSize(txt.c_str()).x;
                     ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
