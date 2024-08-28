@@ -1,6 +1,6 @@
 #! /bin/sh
 
-USE_MINGW=true
+USE_MINGW=false
 
 BUILD_TYPE="Release"
 #BUILD_TYPE="Debug"

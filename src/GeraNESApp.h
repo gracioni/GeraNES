@@ -282,7 +282,7 @@ public:
         }
         else if (result == NFD_CANCEL)
         {
-            puts("User pressed cancel.");
+            //puts("User pressed cancel.");
         }
         else 
         {
