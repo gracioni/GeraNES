@@ -305,7 +305,7 @@ public:
 
                     // Coluna 1        
                     if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
-                    else ImGui::Text(InputInfo::BUTTONS[i]);
+                    else ImGui::Text("%s", InputInfo::BUTTONS[i]);
 
                     if (m_captureState == NONE && ImGui::IsItemActive()) {
                         startCapture(i);                    
@@ -314,7 +314,7 @@ public:
                     ImGui::TableNextColumn();   
                 
                     // Coluna 2
-                    ImGui::Text(m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());
+                    ImGui::Text("%s", m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());
                     
                     
                 }
@@ -332,8 +332,8 @@ public:
             if (m_captureState != NONE) {            
                 sprintf(aux, "Waiting input for button '%s'... (%0.1fs)", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
             }
-            else sprintf(aux, "");
-            ImGui::Text(aux);     
+            else sprintf(aux, "%s", "");
+            ImGui::Text("%s", aux);     
 
             ImGui::SetWindowFocus("Controller Config");
         }
@@ -496,13 +496,13 @@ public:
         std::ofstream file(LOG_FILE);
         file.close();
 
-        Logger::instance().signalLog.bind(MyApp::onLog, this);
+        Logger::instance().signalLog.bind(&MyApp::onLog, this);
         //Logger::instance().signalLog.bind(MyApp::onErrorLog, this);
         m_emu.signalFrameStart.bind(&MyApp::onFrameStart, this);
     
 
-        m_controllerConfigWindow.signalShow.bind(MyApp::onCaptureBegin, this);
-        m_controllerConfigWindow.signalClose.bind(MyApp::onCaptureEnd, this);
+        m_controllerConfigWindow.signalShow.bind(&MyApp::onCaptureBegin, this);
+        m_controllerConfigWindow.signalClose.bind(&MyApp::onCaptureEnd, this);
 
         m_audioDevices = audioOutput.getAudioList();
 
@@ -1281,13 +1281,13 @@ public:
 
                     float textWidth = ImGui::CalcTextSize(txt.c_str()).x;
                     ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
-                    ImGui::Text(txt.c_str());
+                    ImGui::Text("%s", txt.c_str());
 
                     txt = "Racionisoft 2016 - 2024";
 
                     textWidth = ImGui::CalcTextSize(txt.c_str()).x;
                     ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
-                    ImGui::Text(txt.c_str());
+                    ImGui::Text("%s", txt.c_str());
 
                     ImGui::NewLine();
 
@@ -1295,7 +1295,7 @@ public:
 
                     textWidth = ImGui::CalcTextSize(txt.c_str()).x;
                     ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
-                    ImGui::Text(txt.c_str());              
+                    ImGui::Text("%s", txt.c_str());              
                 }
 
                 ImGui::End();

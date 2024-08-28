@@ -76,6 +76,8 @@ public:
         saveState = other.saveState;
         loadState = other.loadState;
         rewind = other.rewind;
+
+        return *this;
     }
 
     const std::string& getByButtonName(const std::string& name) { 

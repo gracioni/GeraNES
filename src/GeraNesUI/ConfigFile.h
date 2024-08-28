@@ -228,7 +228,7 @@ public:
         return improvements.overclock;
     }
 
-    int setMaxRewindTime(int seconds) {
+    void setMaxRewindTime(int seconds) {
         improvements.maxRewindTime = seconds;
     }
 

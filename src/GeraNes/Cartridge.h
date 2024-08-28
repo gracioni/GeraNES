@@ -6,7 +6,7 @@
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
 
-#include "Mappers/dummymapper.h"
+#include "Mappers/Dummymapper.h"
 
 #include "Mappers/IMapper.h"
 #include "Mappers/Mapper000.h"
