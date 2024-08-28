@@ -124,6 +124,8 @@ FetchContent_MakeAvailable(nfd)
 
 INCLUDE_DIRECTORIES(${nfd_SOURCE_DIR}/src/include)
 
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+
 FetchContent_Declare(
         GLEW
         GIT_REPOSITORY https://github.com/Perlmint/glew-cmake.git
@@ -132,7 +134,6 @@ FetchContent_Declare(
         GIT_PROGRESS TRUE
 )
 
-set(glew-cmake_BUILD_SHARED OFF)
 set(glew-cmake_BUILD_SHARED OFF)
 set(glew-cmake_BUILD_STATIC ON)
 set(ONLY_LIBS ON)
