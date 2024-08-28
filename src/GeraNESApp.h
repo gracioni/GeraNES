@@ -142,14 +142,15 @@ private:
             im.updateInputs();
 
             m_emu.setController1Buttons(
-            im.get(m_controller1.a), im.get(m_controller1.b),
-            im.get(m_controller1.select),im.get(m_controller1.start),
-            im.get(m_controller1.up),im.get(m_controller1.down),
-            im.get(m_controller1.left),im.get(m_controller1.right)
+                im.get(m_controller1.a), im.get(m_controller1.b),
+                im.get(m_controller1.select),im.get(m_controller1.start),
+                im.get(m_controller1.up),im.get(m_controller1.down),
+                im.get(m_controller1.left),im.get(m_controller1.right)
             );
 
             if(im.get(m_controller1.saveState)) m_emu.saveState();
             if(im.get(m_controller1.loadState)) m_emu.loadState();
+            
             m_emu.setRewind(im.get(m_controller1.rewind));
         }
 
@@ -360,11 +361,9 @@ public:
         {
             Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR2);
             return false;
-        }        
+        }       
 
-        //vsync 0(disabled) 1(enabled) -1(adaptative)
         updateVSyncConfig();
-
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -385,15 +384,13 @@ public:
 
         updateShaderConfig();
 
-        //glEnable(GL_CULL_FACE);
-        //glCullFace(GL_BACK);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
         glEnable(GL_TEXTURE_2D) ;
         glDisable(GL_DEPTH_TEST);
 
         glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_BLEND);
-
-        //setFilter(m_currentBasicFilter,m_currentSpecialFilter);
 
         updateBuffers(); //create vbo
 
@@ -576,12 +573,6 @@ public:
 
         switch(event.type) {
 
-            // case SDL_KEYDOWN:
-            //     if(event.key.keysym.sym == SDLK_ESCAPE) {             
-            //         std::cout << "quit" << std::endl;
-            //     }
-            //     break;
-
             case SDL_KEYDOWN: { 
 
                     std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
@@ -606,27 +597,7 @@ public:
                         m_updateObjectsFlag = true;
                         break;
                 }
-                break;
-
-            // case SDL_KEYDOWN:
-            //         switch (event.key.keysym.sym)
-            //         {
-            //             case SDLK_ESCAPE:
-            //                 quit();
-            //                 break;
-            //         }
-            //         break;                                
-
-            // case SDL_MOUSEBUTTONDOWN: {
-
-            //     if (ImGui::GetIO().WantCaptureMouse) break;
-
-            //     int mouseX = event.button.x;
-            //     int mouseY = event.button.y;
-            //     // Lidar com o evento do botão do mouse pressionado nas coordenadas (mouseX, mouseY)
-            //     std::cout << mouseX << "," << mouseY << std::endl;
-            //     break;
-            // }
+                break;  
                 
         }
 
