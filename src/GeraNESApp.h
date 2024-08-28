@@ -150,7 +150,7 @@ private:
 
             if(im.get(m_controller1.saveState)) m_emu.saveState();
             if(im.get(m_controller1.loadState)) m_emu.loadState();
-            
+
             m_emu.setRewind(im.get(m_controller1.rewind));
         }
 
@@ -288,7 +288,7 @@ public:
         }
         else 
         {
-            Logger::instance().log(NFD_GetError(), Logger::ERROR2);
+            Logger::instance().log(NFD_GetError(), Logger::ERROR);
         }
 
         NFD_Quit();
@@ -352,14 +352,14 @@ public:
         setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
-            Logger::instance().log("SDL_Init error", Logger::ERROR2);
+            Logger::instance().log("SDL_Init error", Logger::ERROR);
             return false;
         }
 
         GLenum err = glewInit();
         if (GLEW_OK != err)
         {
-            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR2);
+            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR);
             return false;
         }       
 
@@ -461,13 +461,13 @@ public:
         m_shaderProgram.create();       
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
-            Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR2);
+            Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR);
             m_shaderProgram.destroy();
             return false;
         }
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
-            Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR2);    
+            Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR);    
             m_shaderProgram.destroy();
             return false;
         }
@@ -476,7 +476,7 @@ public:
         m_shaderProgram.bindAttributeLocation("TexCoord", 1);
 
         if(!m_shaderProgram.link()){
-            Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::ERROR2);   
+            Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::ERROR);   
             m_shaderProgram.destroy();
             return false;
         }

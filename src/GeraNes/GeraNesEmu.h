@@ -236,7 +236,7 @@ private:
     void onError(const std::string& e)
     {
         signalError(e);
-        Logger::instance().log(e, Logger::ERROR2);
+        Logger::instance().log(e, Logger::ERROR);
         m_halt = true;
     }
 

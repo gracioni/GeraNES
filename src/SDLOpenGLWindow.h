@@ -28,7 +28,7 @@ public:
         m_window = SDL_CreateWindow(title.c_str(), x, y, w, h, flags | SDL_WINDOW_OPENGL);
 
         if(m_window == NULL) {
-            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR2);
+            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR);
             return false;
         }          
         
@@ -37,7 +37,7 @@ public:
         m_context = SDL_GL_CreateContext(m_window);
 
         if(m_context == NULL) {
-            Logger::instance().log(std::string("SDL_GL_CreateContext error: ") + SDL_GetError(), Logger::ERROR2);
+            Logger::instance().log(std::string("SDL_GL_CreateContext error: ") + SDL_GetError(), Logger::ERROR);
             return false;
         }
 
@@ -193,7 +193,7 @@ public:
 
         SDL_DisplayMode mode;
         if(SDL_GetCurrentDisplayMode(0,&mode) != 0) {
-            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR2);
+            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR);
         }
 
         return mode.refresh_rate;

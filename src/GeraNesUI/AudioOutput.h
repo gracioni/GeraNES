@@ -625,7 +625,7 @@ public:
             char* name;
             SDL_AudioSpec dummySpec;
             if(SDL_GetDefaultAudioInfo(&name, &dummySpec, 0) != 0) {
-                Logger::instance().log("SDL_GetDefaultAudioInfo error", Logger::ERROR2);
+                Logger::instance().log("SDL_GetDefaultAudioInfo error", Logger::ERROR);
                 return false;
             }
             _deviceName = name;
@@ -646,7 +646,7 @@ public:
         SDL_AudioSpec preferedSpec;
 
         if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) {
-            Logger::instance().log("SDL_GetAudioDeviceSpec error", Logger::ERROR2);
+            Logger::instance().log("SDL_GetAudioDeviceSpec error", Logger::ERROR);
             return false;
         }
 
@@ -685,7 +685,7 @@ public:
 
         if(m_device == 0 || spec.format != obtained.format) {
             turnOff();
-            Logger::instance().log("Audio init error", Logger::ERROR2);
+            Logger::instance().log("Audio init error", Logger::ERROR);
             return false; 
         }
 
