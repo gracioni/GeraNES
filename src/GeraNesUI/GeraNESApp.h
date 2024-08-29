@@ -61,7 +61,15 @@
 #include "GeraNes/Logger.h"
 #include "GeraNes/defines.h"
 
-#include "GeraNesUI/AudioOutput.h"
+#ifdef __EMSCRIPTEN__
+    #include "GeraNesUI/OpenALAudioOutput.h"
+    typedef OpenALAudioOutput AudioOutput;
+#else   
+    #include "GeraNesUI/SDLAudioOutput.h"
+    typedef SDLAudioOutput AudioOutput;
+#endif
+
+
 #include "GeraNesUI/InputManager.h"
 #include "GeraNesUI/InputInfo.h"
 #include "GeraNesUI/ConfigFile.h"
