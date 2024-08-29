@@ -9,9 +9,19 @@
 
 #include "../Serialization.h"
 
-#include <filesystem>
+#ifdef __GNUC__
+    #if __GNUC__ >= 8
+        #include <filesystem>
+        namespace fs = std::filesystem;
+    #else
+        #include <experimental/filesystem>
+        namespace fs = std::experimental::filesystem;
+    #endif
+#else
+    #include <filesystem>
+    namespace fs = std::filesystem;
+#endif
 
-namespace fs = std::filesystem;
 
 class IMapper
 {

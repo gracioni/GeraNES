@@ -6,14 +6,26 @@
 #include <string>
 #include <fstream>
 #include <iostream>
-#include <filesystem>
 
 #include <nlohmann/json.hpp>
+
+#ifdef __GNUC__
+    #if __GNUC__ >= 8
+        #include <filesystem>
+        namespace fs = std::filesystem;
+    #else
+        #include <experimental/filesystem>
+        namespace fs = std::experimental::filesystem;
+    #endif
+#else
+    #include <filesystem>
+    namespace fs = std::filesystem;
+#endif
+
 #include "InputInfo.h"
 
 #include "GeraNes/Logger.h"
 
-namespace fs = std::filesystem;
 
 class ConfigFile {
 
