@@ -32,6 +32,8 @@ public:
         for(int i = 0; i < m_programs.size(); i++)
             glDeleteShader(m_programs[i]);
 
+        m_programs.clear();
+
         if(m_shaderProgram)
             glDeleteProgram(m_shaderProgram);
 
@@ -110,6 +112,9 @@ public:
             glAttachShader(m_shaderProgram, m_programs[i]);
 
         glLinkProgram(m_shaderProgram);
+
+        for(int i = 0; i < m_programs.size(); i++)
+            glDetachShader(m_shaderProgram, m_programs[i]);
 
         glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &success);
         if (!success)

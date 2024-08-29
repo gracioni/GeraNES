@@ -204,6 +204,12 @@ file(GLOB_RECURSE RECURSOS_LISTA "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 # Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RECURSOS_LISTA})
 
+if(EMSCRIPTEN)
+    set(DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --preload-file ${DATA_DIR}@/")
+endif()
+
+
 if(WIN32)
     set(OPENGL_LIBRARY "opengl32")
 else()
