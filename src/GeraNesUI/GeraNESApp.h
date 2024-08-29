@@ -495,7 +495,6 @@ public:
 
     bool loadShader(const std::string& path)
     {   
-        std::cout << "shader load (" << path << ")" << std::endl;
 
         auto fs2 = cmrc::resources::get_filesystem();
         auto shaderFile = fs2.open("resources/default.glsl");
@@ -520,20 +519,16 @@ public:
             fragmentText = "#define FRAGMENT\n" + shaderText;
         }
 
-        std::cout << "shader destroy" << std::endl;
         m_shaderProgram.destroy();
 
-        std::cout << "shader create" << std::endl;
-        m_shaderProgram.create();       
+        m_shaderProgram.create();      
 
-        std::cout << "shader add vertex" << std::endl;
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
             Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR);
             m_shaderProgram.destroy();
             return false;
         }
 
-        std::cout << "shader add fragment" << std::endl;
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
             Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR);    
             m_shaderProgram.destroy();
@@ -543,7 +538,6 @@ public:
         m_shaderProgram.bindAttributeLocation("VertexCoord", 0);
         m_shaderProgram.bindAttributeLocation("TexCoord", 1);
 
-        std::cout << "shader link" << std::endl;
         if(!m_shaderProgram.link()){
             Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::ERROR);   
             m_shaderProgram.destroy();

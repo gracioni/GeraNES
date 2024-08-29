@@ -1,5 +1,3 @@
-#version 110
-
 /*
    Copyright (C) 2007 guest(r) - guest.r@gmail.com
 

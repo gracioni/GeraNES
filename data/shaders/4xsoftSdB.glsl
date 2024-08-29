@@ -1,5 +1,3 @@
-#version 110
-
 /* 4xSoft Smart deBlur shader
    
    Copyright (C) 2016 guest(r) - guest.r@gmail.com
