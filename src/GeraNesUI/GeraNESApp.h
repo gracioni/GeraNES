@@ -282,22 +282,22 @@ public:
 
     void processFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
 
-        FILE* file = fopen("myfile", "w");
+        FILE* file = fopen(fileName, "w");
 
         if (file) {
             
             size_t written = fwrite(fileContent, sizeof(uint8_t), fileSize, file);
 
             if (written != fileSize) {
-                std::cerr << "Error writing file: only " << written << " bytes written out of " << fileSize << std::endl;
+                Logger::instance().log("Failed writing file in processFile call", Logger::ERROR);
             }
 
             fclose(file);
 
-            openFile("myfile");
+            openFile(fileName);
 
         } else {
-            std::cerr << "Failed to open file for writing" << std::endl;
+            Logger::instance().log("Failed to open file for writing in processFile call", Logger::ERROR);
         }
 
     }    

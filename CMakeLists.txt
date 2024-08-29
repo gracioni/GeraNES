@@ -9,13 +9,15 @@ project(GeraNES)
 
 if (EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1")
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2")
 endif()
 
 if (EMSCRIPTEN)
     # Emscripten compilation flags
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+#    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s STACK_SIZE=8MB -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
@@ -206,7 +208,7 @@ cmrc_add_resource_library(resources ${RECURSOS_LISTA})
 
 if(EMSCRIPTEN)
     set(DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --preload-file ${DATA_DIR}@/ --no-heap-copy")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${DATA_DIR}@/")
 endif()
 
 
@@ -223,10 +225,12 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 endif()
 
 #SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype
-set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui glm nlohmann_json::nlohmann_json resources)
+set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui glm nlohmann_json::nlohmann_json resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} libglew_static nfd stdc++fs ${OPENGL_LIBRARY})
+    set(LIBS ${LIBS} libglew_static nfd stdc++fs)
+else()
+set(LIBS ${LIBS} -lopenal)
 endif()
 
 

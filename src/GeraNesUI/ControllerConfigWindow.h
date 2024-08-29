@@ -189,6 +189,9 @@ public:
                         else stopCapture();                      
                     }
                     break;
+
+                default:
+                    break;
             }
             
         }  
@@ -216,7 +219,7 @@ public:
                     ImGui::TableNextColumn(); 
 
                     // Coluna 1        
-                    if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], &selected[i], ImGuiSelectableFlags_SpanAllColumns);
+                    if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], selected[i], ImGuiSelectableFlags_SpanAllColumns);
                     else ImGui::Text("%s", InputInfo::BUTTONS[i]);
 
                     if (m_captureState == NONE && ImGui::IsItemActive()) {

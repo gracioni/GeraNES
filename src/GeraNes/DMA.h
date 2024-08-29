@@ -72,14 +72,18 @@ public:
         dmcReload = false;
     }
 
-    void cycle() {
+    void cycle()
+    {
 
-        if(m_state == NONE) return;
+        if (m_state == NONE)
+            return;
 
-        switch(m_state) {
+        switch (m_state)
+        {
 
         case START_OAM:
-            if(!m_cpu.isWriteCycle()) {
+            if (!m_cpu.isWriteCycle())
+            {
                 m_cpu.sleep(1);
                 m_state = READ;
 
@@ -91,7 +95,8 @@ public:
             break;
 
         case START_DMC:
-            if(!m_cpu.isWriteCycle() && dmcReload == !m_cpu.isOddCycle()) {
+            if (!m_cpu.isWriteCycle() && dmcReload == !m_cpu.isOddCycle())
+            {
                 m_cpu.sleep(1);
                 m_state = DUMMY;
 
@@ -111,14 +116,15 @@ public:
 
             break;
 
+        case READ:
 
-         case READ:
+            if (m_cpu.isOddCycle())
+            { // align test
 
-            if(m_cpu.isOddCycle()) { //align test
+                // assert (m_cpu.isOddCycle() == true );
 
-                //assert (m_cpu.isOddCycle() == true );
-
-                if(m_dmcCounter > 0 && m_dmcSkip == 0) { //dmc priority
+                if (m_dmcCounter > 0 && m_dmcSkip == 0)
+                { // dmc priority
 
                     m_data = m_bus.read(m_dmcAddr);
 
@@ -130,28 +136,31 @@ public:
                     qDebug() << m_cpu.cycleNumber() << ": " << "DMC read";
                     #endif
 
-                    if(m_dmcCounter == 0 && m_oamCounter == 0) { //we can finish
+                    if (m_dmcCounter == 0 && m_oamCounter == 0)
+                    { // we can finish
                         m_state = NONE;
 
                         #ifdef DEBUG_DMA
-                        qDebug() << m_cpu.cycleNumber()+1 << ": " << "DMC end" << endl;
+                        qDebug() << m_cpu.cycleNumber() + 1 << ": " << "DMC end" << endl;
                         #endif
                     }
-                    else m_state = READ;
-
+                    else
+                        m_state = READ;
                 }
-                else if(m_oamCounter > 0){
+                else if (m_oamCounter > 0)
+                {
 
                     m_data = m_bus.read(m_oamAddr++);
                     --m_oamCounter;
 
                     m_state = WRITE;
                 }
-                else m_state = NONE;
-
+                else
+                    m_state = NONE;
             }
             #ifdef DEBUG_DMA
-            else {
+            else
+            {
                 qDebug() << m_cpu.cycleNumber() << ": " << "align";
             }
             #endif
@@ -160,57 +169,64 @@ public:
 
             break;
 
-          case WRITE:
+        case WRITE:
 
-            //assert (m_cpu.isOddCycle() == false );
+            // assert (m_cpu.isOddCycle() == false );
 
             m_bus.write(0x2004, m_data);
             --m_oamCounter;
 
-
-            if(m_dmcCounter == 0 && m_oamCounter == 0) {
+            if (m_dmcCounter == 0 && m_oamCounter == 0)
+            {
 
                 m_state = NONE;
 
                 #ifdef DEBUG_DMA
-                qDebug() << m_cpu.cycleNumber()+1 << ": " << "OAM end (" << (m_cpu.cycleNumber()+1-debugDmaStart) << ")" << endl;
+                qDebug() << m_cpu.cycleNumber() + 1 << ": " << "OAM end (" << (m_cpu.cycleNumber() + 1 - debugDmaStart) << ")" << endl;
                 #endif
             }
-            else {
+            else
+            {
 
-                if(m_oamCounter == 0 && m_dmcSkip > 0) {
+                if (m_oamCounter == 0 && m_dmcSkip > 0)
+                {
 
                     assert(m_dmcCounter > 0);
 
-                    if(m_dmcSkip == 3 || m_dmcSkip == 5) {
+                    if (m_dmcSkip == 3 || m_dmcSkip == 5)
+                    {
                         m_state = READ;
 
                         #ifdef DEBUG_DMA
-                        qDebug() << m_cpu.cycleNumber()+1 << ": " << "second-to-last put";
+                        qDebug() << m_cpu.cycleNumber() + 1 << ": " << "second-to-last put";
                         #endif
-
                     }
-                    else if(m_dmcSkip == 1){
+                    else if (m_dmcSkip == 1)
+                    {
 
                         m_state = START_DMC;
                         dmcReload = false;
 
                         #ifdef DEBUG_DMA
-                        qDebug() << m_cpu.cycleNumber()+1 << ": " << "last put";
+                        qDebug() << m_cpu.cycleNumber() + 1 << ": " << "last put";
                         #endif
                     }
 
                     m_dmcSkip = 0;
                 }
-                else m_state = READ;
+                else
+                    m_state = READ;
             }
 
             m_cpu.sleep(1);
 
             break;
+        
+        default:
+            break;
 
         }
-
+        
     }
 
     void OAMRequest(uint16_t addr) {
