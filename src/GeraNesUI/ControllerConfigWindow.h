@@ -216,7 +216,7 @@ public:
 
                     if(m_captureState != NONE && i == m_captureIndex) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(color));
                         
-                    ImGui::TableNextColumn(); 
+                    ImGui::TableNextColumn();
 
                     // Coluna 1        
                     if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], selected[i], ImGuiSelectableFlags_SpanAllColumns);

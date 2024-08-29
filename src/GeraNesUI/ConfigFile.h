@@ -42,7 +42,7 @@ private:
 
     struct Video {
 
-        int vsyncMode = 0;
+        int vsyncMode = 1;
         int filterMode = 0;
         std::string shader = "";  
         bool horizontalStretch = false;
