@@ -7,6 +7,17 @@ cmake_minimum_required(VERSION 3.26)
 
 project(GeraNES)
 
+if (EMSCRIPTEN)
+    set(CMAKE_EXECUTABLE_SUFFIX ".html")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1")
+endif()
+
+if (EMSCRIPTEN)
+    # Emscripten compilation flags
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(CMakeRC)
 
@@ -112,34 +123,48 @@ add_library("imgui" STATIC ${IMGUI_GLOB})
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH})
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH}/backends)
 
-FetchContent_Declare(
-        nfd
-        GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
-        GIT_TAG v1.0.2
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE
-)
+if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
+    message(STATUS "Compiling for Emscripten: Ignoring nfd libraries")
+    # Defina uma variável ou faça ajustes conforme necessário para Emscripten
+else()
 
-FetchContent_MakeAvailable(nfd)
+    FetchContent_Declare(
+            nfd
+            GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
+            GIT_TAG v1.0.2
+            GIT_SHALLOW TRUE
+            GIT_PROGRESS TRUE
+    )
 
-INCLUDE_DIRECTORIES(${nfd_SOURCE_DIR}/src/include)
+    FetchContent_MakeAvailable(nfd)
 
-set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    INCLUDE_DIRECTORIES(${nfd_SOURCE_DIR}/src/include)
 
-FetchContent_Declare(
-        GLEW
-        GIT_REPOSITORY https://github.com/Perlmint/glew-cmake.git
-        GIT_TAG glew-cmake-2.2.0
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE
-)
+endif()
 
-set(glew-cmake_BUILD_SHARED OFF)
-set(glew-cmake_BUILD_STATIC ON)
-set(ONLY_LIBS ON)
-set(BUILD_SHARED_LIBS FALSE)
+if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
+    message(STATUS "Compiling for Emscripten: Ignoring glew libraries")
+    # Defina uma variável ou faça ajustes conforme necessário para Emscripten
+else()
 
-FetchContent_MakeAvailable(GLEW)
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+
+    FetchContent_Declare(
+            GLEW
+            GIT_REPOSITORY https://github.com/Perlmint/glew-cmake.git
+            GIT_TAG glew-cmake-2.2.0
+            GIT_SHALLOW TRUE
+            GIT_PROGRESS TRUE
+    )
+
+    set(glew-cmake_BUILD_SHARED OFF)
+    set(glew-cmake_BUILD_STATIC ON)
+    set(ONLY_LIBS ON)
+    set(BUILD_SHARED_LIBS FALSE)
+
+    FetchContent_MakeAvailable(GLEW)
+
+endif()
 
 
 FetchContent_Declare(
@@ -185,9 +210,19 @@ else()
     set(OPENGL_LIBRARY "GL")
 endif()
 
-set(CPP_FILES src/main.cpp src/GeraNes/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNesUI/ConfigFile.cpp)
+set(CPP_FILES src/main.cpp src/GeraNes/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNesUI/ConfigFile.cpp src/GeraNesUI/SDLOpenGLWindow.cpp src/GeraNesUI/SDLUtil.cpp)
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
+    set(CPP_FILES ${CPP_FILES} src/GeraNesUI/EmscriptenProcessFile.cpp src/GeraNesUI/EmscriptenFileDialog.cpp)
+endif()
+
 #SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype
-set(LIBS -static-libgcc -static-libstdc++ stdc++fs SDL2::SDL2main SDL2::SDL2-static imgui nfd libglew_static glm nlohmann_json::nlohmann_json ${OPENGL_LIBRARY} resources)
+set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui glm nlohmann_json::nlohmann_json resources)
+
+if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
+    set(LIBS ${LIBS} libglew_static nfd stdc++fs ${OPENGL_LIBRARY})
+endif()
+
 
 if(WIN32)
     set(APP_ICON_RESOURCE_WINDOWS ${CMAKE_CURRENT_SOURCE_DIR}/src/resources.rc)

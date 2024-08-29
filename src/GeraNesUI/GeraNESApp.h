@@ -6,19 +6,32 @@
 //#include <GL/glu.h>
 #include <iostream>
 
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+#include <filesystem>
+namespace fs = std::filesystem;
 
+#ifdef __EMSCRIPTEN__
+#include <GLES3/gl3.h>
+#else
 #include <GL/glew.h>
 #include <GL/gl.h>
 #include <GL/glext.h>
+#endif
 
 #include "imgui_include.h"
 
 #include "ControllerConfigWindow.h"
 #include "ShortcutManager.h"
 
-#include <nfd.h>
+#ifndef __EMSCRIPTEN__
+    #include <nfd.h>
+#endif
+
+#ifdef __EMSCRIPTEN__
+    #include "EmscriptenFileDialog.h"
+#endif
+
+
+
 
 #include <vector>
 
@@ -52,6 +65,7 @@ namespace fs = std::experimental::filesystem;
 CMRC_DECLARE(resources);
 
 const std::string LOG_FILE = "log.txt";
+
 
 class GeraNESApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
@@ -109,16 +123,7 @@ private:
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
         m_mvp = proj * glm::mat4(1.0f);
-    }
-
-    void openFile(const char* path) {
-        ConfigFile::instance().addRecentFile(path);
-        ConfigFile::instance().setLastFolder(path);
-        m_emu.open(path);
-        const std::string filename = fs::path(path).filename().string();
-        setTitle((std::string("GeraNES (") + filename + ")").c_str());
-        m_showMenuBar = false;
-    }
+    }    
 
     void onLog(const std::string& msg, int flags) {
         std::ofstream file(LOG_FILE, std::ios_base::app);
@@ -154,8 +159,16 @@ private:
             m_emu.setRewind(im.get(m_controller1.rewind));
         }
 
-        
+    }
 
+    void openFile(const char* path) {
+
+        ConfigFile::instance().addRecentFile(path);
+        ConfigFile::instance().setLastFolder(path);
+        m_emu.open(path);
+        const std::string filename = fs::path(path).filename().string();
+        setTitle((std::string("GeraNES (") + filename + ")").c_str());
+        m_showMenuBar = false;        
     }
 
 public:
@@ -249,6 +262,28 @@ public:
     });
     }
 
+    void processFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
+
+        FILE* file = fopen("myfile", "w");
+
+        if (file) {
+            
+            size_t written = fwrite(fileContent, sizeof(uint8_t), fileSize, file);
+
+            if (written != fileSize) {
+                std::cerr << "Error writing file: only " << written << " bytes written out of " << fileSize << std::endl;
+            }
+
+            fclose(file);
+
+            openFile("myfile");
+
+        } else {
+            std::cerr << "Failed to open file for writing" << std::endl;
+        }
+
+    }    
+
     void onCaptureBegin() {
         m_emuInputEnabled = false;
     }
@@ -272,6 +307,12 @@ public:
 
         if(isFullScreen()) minimizeWindow();
 
+        #ifdef __EMSCRIPTEN__
+
+            emcriptenFileDialog(reinterpret_cast<int>(this));
+
+        #else
+
         NFD_Init();     
 
         nfdchar_t *outPath;
@@ -293,6 +334,8 @@ public:
 
         NFD_Quit();
 
+        #endif
+
         if(m_fullScreen) restoreWindow();
     } 
 
@@ -308,13 +351,13 @@ public:
         switch(m_filterMode) {
             case NEAREST:
                 glBindTexture(GL_TEXTURE_2D, m_texture); 
-                glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE); //legacy
+                //glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE); //legacy
                 glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 break;
             case BILINEAR:
                 glBindTexture(GL_TEXTURE_2D, m_texture); 
-                glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE); //legacy
+                //glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE); //legacy
                 glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 break;   
@@ -356,12 +399,14 @@ public:
             return false;
         }
 
+        #ifndef __EMSCRIPTEN__
         GLenum err = glewInit();
         if (GLEW_OK != err)
         {
             Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR);
             return false;
-        }       
+        }
+        #endif    
 
         updateVSyncConfig();
 
@@ -373,7 +418,7 @@ public:
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();
 
-        const char* glsl_version = "#version 330";
+        const char* glsl_version = "#version 100";
 
         // Setup Platform/Renderer bindings
         ImGui_ImplSDL2_InitForOpenGL(sdlWindow(), glContext());
@@ -386,7 +431,7 @@ public:
 
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
-        glEnable(GL_TEXTURE_2D) ;
+        //glEnable(GL_TEXTURE_2D) ;
         glDisable(GL_DEPTH_TEST);
 
         glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -418,8 +463,15 @@ public:
 
         glGenTextures(1, &m_texture);
         glBindTexture(GL_TEXTURE_2D, m_texture);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+
+        #ifdef __EMSCRIPTEN__
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        #else
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        #endif
+
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -440,7 +492,7 @@ public:
         if(path != "") {
             std::ifstream file(path);            
             shaderText = std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-        }
+        }     
 
         std::string vertexText;
         std::string fragmentText;

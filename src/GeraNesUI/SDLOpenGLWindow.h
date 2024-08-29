@@ -2,13 +2,27 @@
 #define INCLUDE_SDLOpenGLWindow
 
 #include <SDL.h>
+
+#ifdef __EMSCRIPTEN__
+#include <GLES3/gl3.h>
+#else
 #include <GL/gl.h>
+#endif
 
 #include "GeraNes/Logger.h"
 
+#ifdef __EMSCRIPTEN__
+    #include <emscripten.h>
+#endif
+
+#ifdef __EMSCRIPTEN__
+    class SDLOpenGLWindow;
+    extern SDLOpenGLWindow* instance;
+#endif
+
 class SDLOpenGLWindow {
 
-private:
+private:    
 
     SDL_Window* m_window = NULL;
     SDL_GLContext m_context = NULL;
@@ -19,7 +33,59 @@ private:
         SDL_GL_SwapWindow(m_window);
     }
 
+    void mainLoop() {
+
+        SDL_Event event;
+
+        while(SDL_PollEvent(&event))
+        {
+            onEvent(event);                
+
+            switch(event.type)
+            {
+                case SDL_QUIT:
+                    quit();
+                    break;                    
+
+                case SDL_WINDOWEVENT:
+
+                    switch(event.window.event) {
+
+                        //case SDL_WINDOWEVENT_RESIZED:
+                        case SDL_WINDOWEVENT_SIZE_CHANGED:
+
+                            int windowWidth = event.window.data1;
+                            int windowHeight = event.window.data2;
+                            // std::cout << "[INFO] Window size: "
+                            //           << windowWidth
+                            //           << "x"
+                            //           << windowHeight
+                            //           << std::endl;
+                            glViewport(0, 0, windowWidth, windowHeight);
+
+                            break;
+                    }
+                    
+                    break;                    
+                
+            }
+        }
+
+        if(m_quit) return; 
+
+        paintGL();
+
+        swapBuffers(); 
+
+    }
+
 public:
+
+    #ifdef __EMSCRIPTEN__
+    SDLOpenGLWindow() {
+        instance = this;
+    }
+    #endif
 
     bool create(const std::string& title, int x, int y, int w, int h, Uint32 flags) {
 
@@ -79,49 +145,19 @@ public:
 
         if(m_window == NULL) return;
 
-        while(!m_quit)
-        {
-            SDL_Event event;
-            while(SDL_PollEvent(&event))
+        #ifdef __EMSCRIPTEN__
+
+            // 0 fps means to use requestAnimationFrame; non-0 means to use setTimeout.
+            emscripten_set_main_loop([]() {
+                instance->mainLoop();
+            }, 0, 1);           
+
+        #else
+            while(!m_quit)
             {
-                onEvent(event);                
-
-                switch(event.type)
-                {
-                    case SDL_QUIT:
-                        quit();
-                        break;                    
-
-                    case SDL_WINDOWEVENT:
-
-                        switch(event.window.event) {
-
-                            //case SDL_WINDOWEVENT_RESIZED:
-                            case SDL_WINDOWEVENT_SIZE_CHANGED:
-
-                                int windowWidth = event.window.data1;
-                                int windowHeight = event.window.data2;
-                                // std::cout << "[INFO] Window size: "
-                                //           << windowWidth
-                                //           << "x"
-                                //           << windowHeight
-                                //           << std::endl;
-                                glViewport(0, 0, windowWidth, windowHeight);
-
-                                break;
-                        }
-                        
-                        break;                    
-                    
-                }
+                mainLoop();
             }
-
-            if(m_quit) continue; 
-
-            paintGL();
-
-            swapBuffers();  
-        }
+        #endif
     }
 
     virtual bool onEvent(SDL_Event& e) {

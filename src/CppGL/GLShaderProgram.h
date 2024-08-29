@@ -163,7 +163,7 @@ public:
 
     void setUniformValue(const char* name, GLuint value) {
         GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniform1ui(uniformLocation, value);
+        glUniform1i(uniformLocation, value);
     }
 
     void setUniformValue(const char* name, GLfloat value) {

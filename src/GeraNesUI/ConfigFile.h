@@ -6,14 +6,14 @@
 #include <string>
 #include <fstream>
 #include <iostream>
-#include <experimental/filesystem>
+#include <filesystem>
 
 #include <nlohmann/json.hpp>
 #include "InputInfo.h"
 
 #include "GeraNes/Logger.h"
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 class ConfigFile {
 
