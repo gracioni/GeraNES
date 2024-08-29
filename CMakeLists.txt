@@ -8,15 +8,11 @@ cmake_minimum_required(VERSION 3.26)
 project(GeraNES)
 
 if (EMSCRIPTEN)
-    set(CMAKE_EXECUTABLE_SUFFIX ".html")
-#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2")
-endif()
+    set(CMAKE_EXECUTABLE_SUFFIX ".html")    
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/template.html")
 
-if (EMSCRIPTEN)
-    # Emscripten compilation flags
-#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
-#    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -s STACK_SIZE=8MB -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2")
+
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s STACK_SIZE=8MB -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
 endif()
 
@@ -209,6 +205,7 @@ cmrc_add_resource_library(resources ${RECURSOS_LISTA})
 if(EMSCRIPTEN)
     set(DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${DATA_DIR}@/")
+    
 endif()
 
 
