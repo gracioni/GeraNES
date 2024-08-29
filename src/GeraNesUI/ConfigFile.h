@@ -9,8 +9,8 @@
 
 #include <nlohmann/json.hpp>
 
-#ifdef __GNUC__
-    #if __GNUC__ >= 8
+#if __GNUC__
+    #if __GNUC__ >= 8 || defined(__EMSCRIPTEN__)
         #include <filesystem>
         namespace fs = std::filesystem;
     #else
