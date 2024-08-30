@@ -44,7 +44,7 @@ private:
 
         int vsyncMode = 1;
         int filterMode = 0;
-        std::string shader = "";  
+        std::string shaderName = "";  
         bool horizontalStretch = false;
         bool fullScreen = false;
         
@@ -280,12 +280,12 @@ public:
         video.fullScreen = state;
     }
 
-    void setShader(const std::string& shader) {
-        video.shader = shader;
+    void setShaderName(const std::string& shader) {
+        video.shaderName = shader;
     }
 
-    const std::string& getShader() {
-        return video.shader;
+    const std::string& getShaderName() {
+        return video.shaderName;
     }
 
     void setAudioVolume(float volume) {

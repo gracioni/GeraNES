@@ -20,11 +20,11 @@
 #endif
 
 #ifdef __EMSCRIPTEN__
-#include <GLES3/gl3.h>
-#else
-#include <GL/glew.h>
-#include <GL/gl.h>
-#include <GL/glext.h>
+    #include <GLES3/gl3.h>
+    #else
+    #include <GL/glew.h>
+    #include <GL/gl.h>
+    #include <GL/glext.h>
 #endif
 
 #include "imgui_include.h"
@@ -32,16 +32,11 @@
 #include "ControllerConfigWindow.h"
 #include "ShortcutManager.h"
 
-#ifndef __EMSCRIPTEN__
-    #include <nfd.h>
-#endif
-
 #ifdef __EMSCRIPTEN__
     #include "EmscriptenFileDialog.h"
+#else
+    #include <nfd.h>
 #endif
-
-
-
 
 #include <vector>
 
@@ -164,6 +159,7 @@ private:
 
             im.updateInputs();
 
+            // Player1
             m_emu.setController1Buttons(
                 im.get(m_controller1.a), im.get(m_controller1.b),
                 im.get(m_controller1.select),im.get(m_controller1.start),
@@ -175,6 +171,19 @@ private:
             if(im.get(m_controller1.loadState)) m_emu.loadState();
 
             m_emu.setRewind(im.get(m_controller1.rewind));
+
+            // Player 2
+            m_emu.setController2Buttons(
+                im.get(m_controller2.a), im.get(m_controller2.b),
+                im.get(m_controller2.select),im.get(m_controller2.start),
+                im.get(m_controller2.up),im.get(m_controller2.down),
+                im.get(m_controller2.left),im.get(m_controller2.right)
+            );
+
+            if(im.get(m_controller2.saveState)) m_emu.saveState();
+            if(im.get(m_controller2.loadState)) m_emu.loadState();
+
+            m_emu.setRewind(im.get(m_controller2.rewind));
         }
 
     }
@@ -390,12 +399,12 @@ public:
 
         bool loaded = false;
 
-        const std::string& shader = ConfigFile::instance().getShader();
+        const std::string& shaderName = ConfigFile::instance().getShaderName();
 
-        if(shader != "") {
+        if(shaderName != "") {
         
             for(const ShaderItem& item : shaderList) {
-                if(item.label == shader) {
+                if(item.label == shaderName) {
                     loaded = loadShader(item.path);
                     break;
                 }
@@ -404,9 +413,9 @@ public:
 
         if(!loaded) {
 
-            if(shader != "") {
-                Logger::instance().log("Failed to load shader " + shader + ". Using default shader.", Logger::INFO);
-                ConfigFile::instance().setShader("");
+            if(shaderName != "") {
+                Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::INFO);
+                ConfigFile::instance().setShaderName("");
             }
             loadShader(""); //default
         }
@@ -453,7 +462,6 @@ public:
 
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
-        //glEnable(GL_TEXTURE_2D) ;
         glDisable(GL_DEPTH_TEST);
 
         glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -485,15 +493,8 @@ public:
 
         glGenTextures(1, &m_texture);
         glBindTexture(GL_TEXTURE_2D, m_texture);
-
-        #ifdef __EMSCRIPTEN__
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        #else
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        #endif
-
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -839,16 +840,16 @@ public:
 
                 if (ImGui::BeginMenu("Shader")) {
 
-                    if(ImGui::MenuItem("default", nullptr, ConfigFile::instance().getShader() == "")) {                            
-                        ConfigFile::instance().setShader("");
+                    if(ImGui::MenuItem("default", nullptr, ConfigFile::instance().getShaderName() == "")) {                            
+                        ConfigFile::instance().setShaderName("");
                         updateShaderConfig();
                     }
 
                     if(shaderList.size() > 0) ImGui::Separator();
 
                     for(const ShaderItem& item: shaderList) {
-                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == ConfigFile::instance().getShader())) {                            
-                            ConfigFile::instance().setShader(item.label);
+                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == ConfigFile::instance().getShaderName())) {                            
+                            ConfigFile::instance().setShaderName(item.label);
                             updateShaderConfig();
                         } 
                     }               
@@ -960,8 +961,8 @@ public:
             
         
         ImGui_ImplOpenGL3_NewFrame();
-		ImGui_ImplSDL2_NewFrame();
-		ImGui::NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
 
         //ImGui::ShowDemoWindow();
 
