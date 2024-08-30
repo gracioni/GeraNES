@@ -35,7 +35,7 @@ private:
 
         bool disableSpritesLimit = false;
         bool overclock = false;
-        int maxRewindTime = 0;
+        int maxRewindTime = 10;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Improvements, disableSpritesLimit, overclock, maxRewindTime)
     };
