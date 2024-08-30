@@ -211,7 +211,7 @@ public:
             return;
         }
 
-        sampleAcc = dt * sampleRate();
+        sampleAcc += dt * sampleRate();
         float vol = std::pow(m_volume, 2);
 
         while (sampleAcc >= 1000)
