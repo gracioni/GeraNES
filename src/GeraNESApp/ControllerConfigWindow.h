@@ -9,8 +9,8 @@
 #include "signal/SigSlot.h"
 #include "SDLUtil.h"
 
-#include "GeraNesUI/InputInfo.h"
-#include "GeraNesUI/InputManager.h"
+#include "GeraNESApp/InputInfo.h"
+#include "GeraNESApp/InputManager.h"
 
 class ControllerConfigWindow {
 

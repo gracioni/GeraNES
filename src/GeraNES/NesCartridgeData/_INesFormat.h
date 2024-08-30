@@ -1,7 +1,7 @@
 #ifndef INCLUDE_INESFORMAT
 #define INCLUDE_INESFORMAT
 
-#include "GeraNes/defines.h"
+#include "GeraNES/defines.h"
 #include "ICartridgeData.h"
 
 #define INES_HEADER_SIZE 16

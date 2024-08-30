@@ -19,7 +19,7 @@
 #include "Logger.h"
 
 
-class GeraNesEmu : public Ibus, public SigSlot::SigSlotBase
+class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase
 {
 private:
 
@@ -296,7 +296,7 @@ public:
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady;
 
-    GeraNesEmu(IAudioOutput& audioOutput = DummyAudioOutput::instance()) :
+    GeraNESEmu(IAudioOutput& audioOutput = DummyAudioOutput::instance()) :
         m_settings(),
         m_audioOutput(audioOutput),
         m_cartridge(),
@@ -315,14 +315,14 @@ public:
 
         m_frameCount = 0;
 
-        m_cpu.signalError.bind(&GeraNesEmu::onError, this);
+        m_cpu.signalError.bind(&GeraNESEmu::onError, this);
 
-        m_ppu.signalFrameStart.bind(&GeraNesEmu::onFrameStart, this);
-        m_ppu.signalFrameReady.bind(&GeraNesEmu::onFrameReady, this);
-        m_apu.getSampleChannel().dmcRequest2.bind(&GeraNesEmu::onDMCRequest, this);
+        m_ppu.signalFrameStart.bind(&GeraNESEmu::onFrameStart, this);
+        m_ppu.signalFrameReady.bind(&GeraNESEmu::onFrameReady, this);
+        m_apu.getSampleChannel().dmcRequest2.bind(&GeraNESEmu::onDMCRequest, this);
     }
 
-    ~GeraNesEmu()
+    ~GeraNESEmu()
     {
         m_rewind.shutdown();
     }

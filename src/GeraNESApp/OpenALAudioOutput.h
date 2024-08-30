@@ -13,9 +13,9 @@
 
 #define BUFFER_TIME (0.1) //seconds
 
-#include "GeraNes/IAudioOutput.h"
+#include "GeraNES/IAudioOutput.h"
 
-#include "GeraNes/Logger.h"
+#include "GeraNES/Logger.h"
 
 #include "AudioGenerator.h"
 

@@ -52,24 +52,24 @@
 #include "CppGL/CppGL.h"
 #include "SDLOpenGLWindow.h"
 
-#include "GeraNes/GeraNesEmu.h"
-#include "GeraNes/Logger.h"
-#include "GeraNes/defines.h"
+#include "GeraNES/GeraNESEmu.h"
+#include "GeraNES/Logger.h"
+#include "GeraNES/defines.h"
 
 #ifdef __EMSCRIPTEN__
-    #include "GeraNesUI/OpenALAudioOutput.h"
+    #include "GeraNESApp/OpenALAudioOutput.h"
     typedef OpenALAudioOutput AudioOutput;
 #else   
-    #include "GeraNesUI/SDLAudioOutput.h"
+    #include "GeraNESApp/SDLAudioOutput.h"
     typedef SDLAudioOutput AudioOutput;
 #endif
 
 
-#include "GeraNesUI/InputManager.h"
-#include "GeraNesUI/InputInfo.h"
-#include "GeraNesUI/ConfigFile.h"
+#include "GeraNESApp/InputManager.h"
+#include "GeraNESApp/InputInfo.h"
+#include "GeraNESApp/ConfigFile.h"
 
-#include "GeraNes/util/CircularBuffer.h"
+#include "GeraNES/util/CircularBuffer.h"
 
 #include "signal/SigSlot.h"
 
@@ -106,7 +106,7 @@ private:
 
     AudioOutput audioOutput;
 
-    GeraNesEmu m_emu;
+    GeraNESEmu m_emu;
 
     InputInfo m_controller1;
     InputInfo m_controller2; 
@@ -168,9 +168,7 @@ private:
             );
 
             if(im.get(m_controller1.saveState)) m_emu.saveState();
-            if(im.get(m_controller1.loadState)) m_emu.loadState();
-
-            m_emu.setRewind(im.get(m_controller1.rewind));
+            if(im.get(m_controller1.loadState)) m_emu.loadState();            
 
             // Player 2
             m_emu.setController2Buttons(
@@ -183,7 +181,8 @@ private:
             if(im.get(m_controller2.saveState)) m_emu.saveState();
             if(im.get(m_controller2.loadState)) m_emu.loadState();
 
-            m_emu.setRewind(im.get(m_controller2.rewind));
+            // Rewind
+            m_emu.setRewind(im.get(m_controller1.rewind) || im.get(m_controller2.rewind));            
         }
 
     }

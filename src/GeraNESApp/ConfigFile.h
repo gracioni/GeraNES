@@ -24,7 +24,7 @@
 
 #include "InputInfo.h"
 
-#include "GeraNes/Logger.h"
+#include "GeraNES/Logger.h"
 
 
 class ConfigFile {
@@ -49,7 +49,7 @@ private:
         bool fullScreen = false;
         
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, filterMode, shader, horizontalStretch, fullScreen)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, filterMode, shaderName, horizontalStretch, fullScreen)
     };
 
     struct Audio {

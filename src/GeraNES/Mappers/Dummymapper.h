@@ -2,8 +2,8 @@
 #define DUMMYMAPPER_H
 
 #include "IMapper.h"
-#include "GeraNes/NesCartridgeData/ICartridgeData.h"
-#include "GeraNes/NesCartridgeData/dummycartridgedata.h"
+#include "GeraNES/NesCartridgeData/ICartridgeData.h"
+#include "GeraNES/NesCartridgeData/dummycartridgedata.h"
 
 
 

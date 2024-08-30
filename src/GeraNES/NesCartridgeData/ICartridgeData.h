@@ -1,13 +1,13 @@
 #ifndef INCLUDE_INESCARTRIDGEDATA
 #define INCLUDE_INESCARTRIDGEDATA
 
-#include "GeraNes/defines.h"
-#include "GeraNes/functions.h"
+#include "GeraNES/defines.h"
+#include "GeraNES/functions.h"
 #include <string>
 #include <sstream>
 #include <vector>
 
-#include "GeraNes/RomFile.h"
+#include "GeraNES/RomFile.h"
 
 class ICartridgeData
 {

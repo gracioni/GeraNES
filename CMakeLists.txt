@@ -224,10 +224,10 @@ else()
     set(OPENGL_LIBRARY "GL")
 endif()
 
-set(CPP_FILES src/main.cpp src/GeraNes/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNesUI/ConfigFile.cpp src/GeraNesUI/SDLOpenGLWindow.cpp src/GeraNesUI/SDLUtil.cpp)
+set(CPP_FILES src/main.cpp src/GeraNES/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/ConfigFile.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/GeraNESApp/SDLUtil.cpp)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(CPP_FILES ${CPP_FILES} src/GeraNesUI/EmscriptenProcessFile.cpp src/GeraNesUI/EmscriptenFileDialog.cpp)
+    set(CPP_FILES ${CPP_FILES} src/GeraNESApp/EmscriptenProcessFile.cpp src/GeraNESApp/EmscriptenFileDialog.cpp)
 endif()
 
 #SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype

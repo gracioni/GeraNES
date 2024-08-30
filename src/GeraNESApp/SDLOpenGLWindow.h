@@ -9,7 +9,7 @@
 #include <GL/gl.h>
 #endif
 
-#include "GeraNes/Logger.h"
+#include "GeraNES/Logger.h"
 
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>

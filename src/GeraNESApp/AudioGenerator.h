@@ -4,8 +4,8 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 
-#include "GeraNes/defines.h"
-#include "GeraNes/util/CircularBuffer.h"
+#include "GeraNES/defines.h"
+#include "GeraNES/util/CircularBuffer.h"
 
 static GERANES_INLINE float linearInterpolation(float v0, float v1, float t)
 {
