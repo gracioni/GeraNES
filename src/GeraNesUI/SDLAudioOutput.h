@@ -18,7 +18,7 @@
 
 #include "AudioGenerator.h"
 
-class OpenALAudioOutput : public IAudioOutput
+class SDLAudioOutput : public IAudioOutput
 {
 
 private:
@@ -67,7 +67,7 @@ private:
 
 public:
 
-    OpenALAudioOutput()
+    SDLAudioOutput()
     {
         SDL_Init(SDL_INIT_AUDIO);
 
@@ -78,7 +78,7 @@ public:
         }        
     }
 
-    ~OpenALAudioOutput() override
+    ~SDLAudioOutput() override
     {
         //if(m_audioOutput != nullptr) delete m_audioOutput;
         turnOff();

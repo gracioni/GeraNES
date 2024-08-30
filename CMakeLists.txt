@@ -202,10 +202,19 @@ file(GLOB_RECURSE RECURSOS_LISTA "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 # Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RECURSOS_LISTA})
 
+# Copy data folder to build
 if(EMSCRIPTEN)
     set(DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${DATA_DIR}@/")
-    
+else()
+
+    file(GLOB source_files_and_dirs ${CMAKE_CURRENT_SOURCE_DIR}/data/*)
+
+    # Copia cada item (diretório ou arquivo) para o destino
+    foreach(item IN LISTS source_files_and_dirs)
+        file(COPY ${item} DESTINATION ${CMAKE_BINARY_DIR})
+    endforeach()
+
 endif()
 
 

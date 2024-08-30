@@ -709,7 +709,7 @@ public:
     }
 
     uint32_t getRegionFPS() {
-        if(m_settings.region() == Settings::NTSC) return 50;
+        if(m_settings.region() == Settings::PAL) return 50;
         return 60;
     }
 
