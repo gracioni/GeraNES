@@ -24,13 +24,15 @@ class OpenALAudioOutput : public IAudioOutput
 
 private:
 
+    static const size_t N_BUFFERS = 2;
+
     ALCdevice* m_device = nullptr;
     ALCcontext* m_context = nullptr;
     ALuint m_source;
-    ALuint m_buffer[2];
+    ALuint m_buffer[N_BUFFERS];
 
-   int m_currentBufferIndex;
-   int m_buffersAvailable;
+    int m_currentBufferIndex;
+    int m_buffersAvailable;
 
     std::string m_currentDeviceName = "";
     std::vector<ALshort> m_bufferData;
@@ -143,10 +145,10 @@ public:
         }
 
         alGenSources(1, &m_source);
-        alGenBuffers(2, m_buffer);
+        alGenBuffers(N_BUFFERS, m_buffer);
 
         m_currentBufferIndex = 0;
-        m_buffersAvailable = 2;
+        m_buffersAvailable = N_BUFFERS;
 
         m_currentDeviceName = deviceName;
 
@@ -224,25 +226,30 @@ public:
         alGetSourcei(m_source, AL_BUFFERS_PROCESSED, &numProcessed);
 
         if(numProcessed > 0) {
-            std::vector<ALuint> processedBuffers(numProcessed);
-            alSourceUnqueueBuffers(m_source, numProcessed, processedBuffers.data());
-            m_buffersAvailable++;
-        }
+            alSourceUnqueueBuffers(m_source, numProcessed, nullptr);
+            m_buffersAvailable += numProcessed;
+        }        
 
-        if(m_buffersAvailable > 0 && m_bufferData.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME) {
+        if(m_buffersAvailable > 0 && m_bufferData.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME/N_BUFFERS)  {
             alBufferData(m_buffer[m_currentBufferIndex], AL_FORMAT_MONO16, m_bufferData.data(), m_bufferData.size() * sizeof(ALshort), sampleRate());
             alSourceQueueBuffers(m_source, 1, &m_buffer[m_currentBufferIndex]);
-            m_currentBufferIndex = (m_currentBufferIndex+1)%2;
-            m_buffersAvailable--;
+            m_currentBufferIndex = (m_currentBufferIndex+1)%N_BUFFERS;
+
+            m_buffersAvailable--;  
+            
             m_bufferData.clear();     
         }
 
+        
         ALint state;
-        alGetSourcei(m_source, AL_SOURCE_STATE, &state);
-        if (state != AL_PLAYING && m_buffersAvailable < 2)
+        alGetSourcei(m_source, AL_SOURCE_STATE, &state);        
+
+        if (state != AL_PLAYING && m_buffersAvailable == 0)
         {
             alSourcePlay(m_source);
         }
+        
+        
     }
 
     void setSquare1Frequency(float f) override
