@@ -151,38 +151,42 @@ private:
     }
     */
 
-    void onFrameStart() {        
+   int frameId = -1;
+
+    void onFrameStart() {    
+
+        ++frameId;    
 
         if(m_emuInputEnabled) {
 
             InputManager& im = InputManager::instance();        
 
-            im.updateInputs();
+            im.updateInputs(frameId);
 
             // Player1
             m_emu.setController1Buttons(
-                im.get(m_controller1.a), im.get(m_controller1.b),
-                im.get(m_controller1.select),im.get(m_controller1.start),
-                im.get(m_controller1.up),im.get(m_controller1.down),
-                im.get(m_controller1.left),im.get(m_controller1.right)
+                im.isPressed(m_controller1.a), im.isPressed(m_controller1.b),
+                im.isPressed(m_controller1.select), im.isPressed(m_controller1.start),
+                im.isPressed(m_controller1.up), im.isPressed(m_controller1.down),
+                im.isPressed(m_controller1.left), im.isPressed(m_controller1.right)
             );
 
-            if(im.get(m_controller1.saveState)) m_emu.saveState();
-            if(im.get(m_controller1.loadState)) m_emu.loadState();            
+            if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
+            if(im.isJustPressed(m_controller1.loadState)) m_emu.loadState();            
 
             // Player 2
             m_emu.setController2Buttons(
-                im.get(m_controller2.a), im.get(m_controller2.b),
-                im.get(m_controller2.select),im.get(m_controller2.start),
-                im.get(m_controller2.up),im.get(m_controller2.down),
-                im.get(m_controller2.left),im.get(m_controller2.right)
+                im.isPressed(m_controller2.a), im.isPressed(m_controller2.b),
+                im.isPressed(m_controller2.select), im.isPressed(m_controller2.start),
+                im.isPressed(m_controller2.up), im.isPressed(m_controller2.down),
+                im.isPressed(m_controller2.left), im.isPressed(m_controller2.right)
             );
 
-            if(im.get(m_controller2.saveState)) m_emu.saveState();
-            if(im.get(m_controller2.loadState)) m_emu.loadState();
+            if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
+            if(im.isJustPressed(m_controller2.loadState)) m_emu.loadState();
 
             // Rewind
-            m_emu.setRewind(im.get(m_controller1.rewind) || im.get(m_controller2.rewind));            
+            m_emu.setRewind(im.isPressed(m_controller1.rewind) || im.isPressed(m_controller2.rewind));            
         }
 
     }
