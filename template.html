@@ -15,7 +15,7 @@
       .emscripten { padding-right: 0; margin-left: auto; margin-right: auto; display: block; }
       textarea.emscripten { font-family: monospace; width: 80%; }
       div.emscripten { text-align: center; }
-      div.emscripten_border { width: 100vw; height: 100vh; overflow: hidden;}
+      div.emscripten_border { width: 100vw; height: 100vh; height: calc(var(--vh, 1vh) * 100); overflow: hidden;}
       /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
       canvas.emscripten { width: 100%; height: 100%; background-color: black; }
 
@@ -74,6 +74,21 @@
     <textarea class="emscripten" id="output" rows="8"></textarea>
     <hr-->
     <script type='text/javascript'>
+
+      function updateVh() {
+        // First we get the viewport height and we multiple it by 1% to get a value for a vh unit
+        let vh = window.innerHeight * 0.01;
+        // Then we set the value in the --vh custom property to the root of the document
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+      }
+
+      updateVh();
+
+      // We listen to the resize event
+      window.addEventListener('resize', () => {
+        updateVh();
+      });
+
       var statusElement = document.getElementById('status');
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');
