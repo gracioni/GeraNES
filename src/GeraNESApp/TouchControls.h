@@ -59,6 +59,8 @@ public:
 
         float digitalPadThreshold = 16;
 
+        bool emulateTouch = false;
+
         int index = 0;
         bool evtDown = false;
         bool evtUp = false;
@@ -66,17 +68,17 @@ public:
         float x = 0;
         float y = 0;
 
-        if(ev.type == SDL_MOUSEBUTTONDOWN) {
+        if(emulateTouch && ev.type == SDL_MOUSEBUTTONDOWN) {
             evtDown = true;
             x = ev.button.x;
             y = ev.button.y;
         }
-        else if(ev.type == SDL_MOUSEBUTTONUP) {
+        else if(emulateTouch && ev.type == SDL_MOUSEBUTTONUP) {
             evtUp = true;
             x = ev.button.x;
             y = ev.button.y;
         }
-        else if(ev.type == SDL_MOUSEMOTION) {
+        else if(emulateTouch && ev.type == SDL_MOUSEMOTION) {
             evtDrag = true;
             x = ev.button.x;
             y = ev.button.y;
@@ -142,7 +144,7 @@ public:
 
                     glm::vec2 norm = glm::normalize(dir);
 
-                    float threshold = 0.707;
+                    float threshold = 0.5;
                    				
                     m_buttons.up = glm::dot(glm::vec2{0,-1}, norm) > threshold;
 

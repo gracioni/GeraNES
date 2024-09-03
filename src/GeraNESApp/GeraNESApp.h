@@ -314,19 +314,19 @@ public:
         m_horizontalStretch = cfg.getHorizontalStretch();
         m_fullScreen = cfg.getFullScreen();
 
-#ifndef __EMSCRIPTEN__
+//#ifndef __EMSCRIPTEN__
 
         // std::string key;
         // std::string label;
         // std::string shortcut;
         // std::function<void()> action;
         m_shortcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "F11", [this]() {
-            m_fullScreen = !m_fullScreen;
+            m_fullScreen = !isFullScreen();
             setFullScreen(m_fullScreen);
             ConfigFile::instance().setFullScreen(m_fullScreen);
         }});
 
-#endif
+//#endif
 
         m_shortcuts.add(ShortcutManager::Data{"openRom", "Open Rom", "Alt+O", [this]() {
             openRom();
@@ -956,17 +956,17 @@ public:
                     }
                 }
 
-#ifndef __EMSCRIPTEN__          
+//#ifndef __EMSCRIPTEN__          
   
                 sc = m_shortcuts.get("fullscreen");
                 if( sc != nullptr) {
 
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_fullScreen))
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), isFullScreen()))
                     {
                         sc->action();                        
                     }
                 }
-#endif
+//#endif
 
                 ImGui::EndMenu();
             }

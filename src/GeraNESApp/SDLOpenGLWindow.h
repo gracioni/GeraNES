@@ -3,16 +3,13 @@
 
 #include <SDL.h>
 
-#ifdef __EMSCRIPTEN__
-#include <GLES3/gl3.h>
-#else
-#include <GL/gl.h>
-#endif
+#include "CppGL/GLHeaders.h"
 
 #include "GeraNES/Logger.h"
 
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>
+    #include <emscripten/html5.h>
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -56,7 +53,7 @@ private:
                             int windowWidth = event.window.data1;
                             int windowHeight = event.window.data2;
                             glViewport(0, 0, windowWidth, windowHeight);
-                            
+
                             break;
                     }
                     
@@ -180,14 +177,56 @@ public:
     }
 
     bool isFullScreen() {
-        auto flags = SDL_GetWindowFlags(m_window);
-        return flags & SDL_WINDOW_FULLSCREEN_DESKTOP;
+
+        #ifdef __EMSCRIPTEN__
+
+            EmscriptenFullscreenChangeEvent fullscreenStatus;
+            EMSCRIPTEN_RESULT result = emscripten_get_fullscreen_status(&fullscreenStatus);
+
+            if (result == EMSCRIPTEN_RESULT_SUCCESS) {
+                return fullscreenStatus.isFullscreen;
+            }
+
+            return false;
+
+        #else
+
+            auto flags = SDL_GetWindowFlags(m_window);
+            return flags & SDL_WINDOW_FULLSCREEN_DESKTOP;
+
+        #endif
     }
 
     bool setFullScreen(bool state) {
 
-        int flags = state ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
-        return SDL_SetWindowFullscreen(m_window, flags) == 0;
+        #ifdef __EMSCRIPTEN__
+
+            if(state) {
+
+                EmscriptenFullscreenStrategy strategy;
+                strategy.scaleMode = EMSCRIPTEN_FULLSCREEN_CANVAS_SCALE_STDDEF;
+                strategy.filteringMode = EMSCRIPTEN_FULLSCREEN_FILTERING_DEFAULT;
+                strategy.canvasResizedCallback = nullptr;
+                strategy.canvasResizedCallbackUserData = nullptr;
+
+                // Solicita o modo de tela cheia "proper fullscreen"
+                EMSCRIPTEN_RESULT result = emscripten_request_fullscreen_strategy("canvas", EM_TRUE, &strategy);
+
+                return result == EMSCRIPTEN_RESULT_SUCCESS;
+            }
+            else {
+
+                EMSCRIPTEN_RESULT result = emscripten_exit_fullscreen();
+
+                return result == EMSCRIPTEN_RESULT_SUCCESS;    
+            }       
+
+        #else
+
+            int flags = state ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+            return SDL_SetWindowFullscreen(m_window, flags) == 0;
+
+        #endif
         
     }
 
