@@ -63,6 +63,8 @@
 #include "GeraNESApp/InputInfo.h"
 #include "GeraNESApp/ConfigFile.h"
 
+#include "TouchControls.h"
+
 #include "GeraNES/util/CircularBuffer.h"
 
 #include "signal/SigSlot.h"
@@ -126,6 +128,8 @@ private:
 
     std::vector<ShaderItem> shaderList;
 
+    std::unique_ptr<TouchControls> m_touch;
+
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
         m_mvp = proj * glm::mat4(1.0f);
@@ -144,8 +148,6 @@ private:
     }
     */
 
-   bool m_virtualStart = false;
-
     void onFrameStart() { 
 
         if(m_emuInputEnabled) {
@@ -156,10 +158,14 @@ private:
 
             // Player1
             m_emu.setController1Buttons(
-                im.isPressed(m_controller1.a), im.isPressed(m_controller1.b),
-                im.isPressed(m_controller1.select), im.isPressed(m_controller1.start) || m_virtualStart,
-                im.isPressed(m_controller1.up), im.isPressed(m_controller1.down),
-                im.isPressed(m_controller1.left), im.isPressed(m_controller1.right)
+                im.isPressed(m_controller1.a) || m_touch->buttons().a,
+                im.isPressed(m_controller1.b) || m_touch->buttons().b,
+                im.isPressed(m_controller1.select) || m_touch->buttons().select,
+                im.isPressed(m_controller1.start) || m_touch->buttons().start,
+                im.isPressed(m_controller1.up) || m_touch->buttons().up,
+                im.isPressed(m_controller1.down) || m_touch->buttons().down,
+                im.isPressed(m_controller1.left) || m_touch->buttons().left,
+                im.isPressed(m_controller1.right) || m_touch->buttons().right
             );
 
             if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
@@ -177,7 +183,11 @@ private:
             if(im.isJustPressed(m_controller2.loadState)) m_emu.loadState();
 
             // Rewind
-            m_emu.setRewind(im.isPressed(m_controller1.rewind) || im.isPressed(m_controller2.rewind));            
+            m_emu.setRewind(
+                im.isPressed(m_controller1.rewind) ||
+                im.isPressed(m_controller2.rewind) ||
+                m_touch->buttons().rewind
+            );            
         }
 
     }
@@ -189,7 +199,10 @@ private:
         m_emu.open(path);
         const std::string filename = fs::path(path).filename().string();
         setTitle((std::string("GeraNES (") + filename + ")").c_str());
-        m_showMenuBar = false;        
+
+        #ifndef __EMSCRIPTEN__
+        m_showMenuBar = false;
+        #endif      
     }
 
     struct InputPoint {
@@ -205,13 +218,12 @@ private:
         if (isDown) {
             inputPoints.push_back({e.fingerId, e.x, e.y, true});
             std::cout << "Finger down at (" << e.x << ", " << e.y << ") with ID: " << e.fingerId << std::endl;
-            m_virtualStart = true;
         } else {
             for (auto& point : inputPoints) {
                 if (point.id == e.fingerId) {
                     point.active = false;
                     std::cout << "Finger up at (" << e.x << ", " << e.y << ") with ID: " << e.fingerId << std::endl;
-                    m_virtualStart = false;
+
                     break;
                 }
             }
@@ -254,11 +266,7 @@ private:
                 break;
             case SDL_MOUSEBUTTONUP:
                 handleMouseEvent(event.button, false);
-                break;
-            case SDL_QUIT:
-                SDL_Quit();
-                exit(0);
-                break;
+                break; 
         }
 
         // Clear inactive touches
@@ -342,20 +350,7 @@ public:
             m_emu.loadState();
         }});
 
-        loadShaderList();
-
-/*
-#ifdef __EMSCRIPTEN__
-        emscripten_set_touchstart_callback("#canvas", this, true, ::touchCallback);
-        emscripten_set_touchmove_callback("#canvas", this, true, ::touchCallback);
-        emscripten_set_touchend_callback("#canvas", this, true, ::touchCallback);
-        emscripten_set_touchcancel_callback("#canvas", this, true, ::touchCallback);
-
-        emscripten_set_mousedown_callback("#canvas", this, true, ::mouseCallback);
-        emscripten_set_mousemove_callback("#canvas", this, true, ::mouseCallback);
-        emscripten_set_mouseup_callback("#canvas", this, true, ::mouseCallback);
-#endif
-*/
+        loadShaderList();        
         
     }
 
@@ -591,6 +586,8 @@ public:
 
         updateMVP();
 
+        m_touch = std::make_unique<TouchControls>(m_controller1, width(), height());
+
         return true;
     }
 
@@ -756,7 +753,8 @@ public:
                 switch(event.window.event) {
 
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
-                        updateMVP();                   
+                        updateMVP();
+                        m_touch->onResize(width(),height());               
                         m_updateObjectsFlag = true;
                         break;
                 }
@@ -764,7 +762,9 @@ public:
                 
         }
 
-        processoMouseAndTouchInput(event);
+        m_touch->onEvent(event);
+
+        //processoMouseAndTouchInput(event);
 
         return SDLOpenGLWindow::onEvent(event);
     }
@@ -777,7 +777,7 @@ public:
     int m_frameCounter = 0;
 
     void mainLoop()
-    {  
+    {
         int displayFrameRate = getDisplayFrameRate();
 
         Uint64 tempTime = SDL_GetTicks64();
