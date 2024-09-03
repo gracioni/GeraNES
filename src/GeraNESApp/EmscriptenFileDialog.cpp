@@ -5,6 +5,7 @@
 #include <cstring>
 
 void emcriptenFileDialog(int handler) {
+
     EM_ASM({
 
         function openFileDialog() {
@@ -44,6 +45,7 @@ void emcriptenFileDialog(int handler) {
             document.body.removeChild(input);
         }
         openFileDialog();
+        
     }, handler);
 }
 

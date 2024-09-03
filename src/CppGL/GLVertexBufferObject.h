@@ -1,7 +1,7 @@
-#ifndef INCLUDE_GLVertexBufferObject
-#define INCLUDE_GLVertexBufferObject
+#ifndef GL_VERTEX_BUFFER_OBJECT_H
+#define GL_VERTEX_BUFFER_OBJECT_H
 
-#include "Loader.h"
+#include "GLHeaders.h"
 
 class GLVertexBufferObject
 {

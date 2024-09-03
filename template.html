@@ -89,6 +89,37 @@
         updateVh();
       });
 
+      // ---
+
+      let wakeLock = null;
+
+      async function requestWakeLock() {
+          try {
+              if ('wakeLock' in navigator) {
+                  wakeLock = await navigator.wakeLock.request('screen');
+                  console.log('Wake Lock acquired');
+              } else {
+                  console.warn('Wake Lock API is not supported');
+              }
+          } catch (e) {
+              console.error(`${e.name}, ${e.message}`);
+          }
+      }
+
+      requestWakeLock();
+
+      async function handleVisibilityChange() {
+          if (document.visibilityState === 'visible') {
+              requestWakeLock();
+          } else {
+              wakeLock = null;
+          }
+      }
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      // ---
+
       var statusElement = document.getElementById('status');
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');

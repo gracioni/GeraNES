@@ -170,7 +170,7 @@ public:
                 stopCapture();
             }
           
-            InputManager::instance().updateInputs(0);
+            InputManager::instance().updateInputs();
             auto capture = InputManager::instance().capture();
 
             switch(m_captureState) {

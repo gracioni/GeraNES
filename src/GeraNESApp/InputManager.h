@@ -26,7 +26,7 @@ private:
 
     std::map<std::string, ButtonState> m_inputMap;
 
-    int m_currentFrameId = 0;  
+    int m_currentFrameId = -1;  
 
     InputManager()
     {
@@ -60,9 +60,12 @@ public:
         return staticInstance;
     }
 
-    void updateInputs(int frameId)
+    /**
+     * Must be called once per frame
+    */
+    void updateInputs()
     {
-        m_currentFrameId = frameId;
+        ++m_currentFrameId;
 
         const Uint8* keyboardState = SDL_GetKeyboardState(NULL);
 
@@ -130,7 +133,7 @@ public:
         std::vector<std::string> ret;
 
         for(auto i : m_inputMap){
-            if(isPressed(i.first)) ret.push_back(i.first);
+            if(isJustPressed(i.first)) ret.push_back(i.first);
         }
 
         return ret;

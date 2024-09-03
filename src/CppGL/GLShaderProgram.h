@@ -1,7 +1,7 @@
-#ifndef INCLUDE_GLShaderProgram_h
-#define INCLUDE_GLShaderProgram_h
+#ifndef GL_SHADER_PROGRAM_H
+#define GL_SHADER_PROGRAM_H
 
-#include "Loader.h"
+#include "GLHeaders.h"
 
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>

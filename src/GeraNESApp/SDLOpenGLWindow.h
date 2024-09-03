@@ -51,18 +51,12 @@ private:
 
                     switch(event.window.event) {
 
-                        //case SDL_WINDOWEVENT_RESIZED:
                         case SDL_WINDOWEVENT_SIZE_CHANGED:
 
                             int windowWidth = event.window.data1;
                             int windowHeight = event.window.data2;
-                            // std::cout << "[INFO] Window size: "
-                            //           << windowWidth
-                            //           << "x"
-                            //           << windowHeight
-                            //           << std::endl;
                             glViewport(0, 0, windowWidth, windowHeight);
-
+                            
                             break;
                     }
                     

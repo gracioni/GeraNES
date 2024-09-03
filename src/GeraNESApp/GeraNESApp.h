@@ -19,13 +19,7 @@
     namespace fs = std::filesystem;
 #endif
 
-#ifdef __EMSCRIPTEN__
-    #include <GLES3/gl3.h>
-    #else
-    #include <GL/glew.h>
-    #include <GL/gl.h>
-    #include <GL/glext.h>
-#endif
+#include "CppGL/GLHeaders.h"
 
 #include "imgui_include.h"
 
@@ -78,7 +72,6 @@
 CMRC_DECLARE(resources);
 
 const std::string LOG_FILE = "log.txt";
-
 
 class GeraNESApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
@@ -151,22 +144,20 @@ private:
     }
     */
 
-   int frameId = -1;
+   bool m_virtualStart = false;
 
-    void onFrameStart() {    
-
-        ++frameId;    
+    void onFrameStart() { 
 
         if(m_emuInputEnabled) {
 
             InputManager& im = InputManager::instance();        
 
-            im.updateInputs(frameId);
+            im.updateInputs();
 
             // Player1
             m_emu.setController1Buttons(
                 im.isPressed(m_controller1.a), im.isPressed(m_controller1.b),
-                im.isPressed(m_controller1.select), im.isPressed(m_controller1.start),
+                im.isPressed(m_controller1.select), im.isPressed(m_controller1.start) || m_virtualStart,
                 im.isPressed(m_controller1.up), im.isPressed(m_controller1.down),
                 im.isPressed(m_controller1.left), im.isPressed(m_controller1.right)
             );
@@ -199,6 +190,84 @@ private:
         const std::string filename = fs::path(path).filename().string();
         setTitle((std::string("GeraNES (") + filename + ")").c_str());
         m_showMenuBar = false;        
+    }
+
+    struct InputPoint {
+        SDL_FingerID id;  // ID do toque (ou 0 para mouse)
+        float x, y;       // Posição
+        bool active;      // Se o ponto está ativo
+    };
+
+    std::vector<InputPoint> inputPoints;
+
+    void handleFingerEvent(const SDL_TouchFingerEvent& e, bool isDown) {
+
+        if (isDown) {
+            inputPoints.push_back({e.fingerId, e.x, e.y, true});
+            std::cout << "Finger down at (" << e.x << ", " << e.y << ") with ID: " << e.fingerId << std::endl;
+            m_virtualStart = true;
+        } else {
+            for (auto& point : inputPoints) {
+                if (point.id == e.fingerId) {
+                    point.active = false;
+                    std::cout << "Finger up at (" << e.x << ", " << e.y << ") with ID: " << e.fingerId << std::endl;
+                    m_virtualStart = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    void handleMouseEvent(const SDL_MouseButtonEvent& e, bool isDown) {
+
+        float x = e.x / (float)SDL_GetWindowSurface(SDL_GetWindowFromID(e.windowID))->w;
+        float y = e.y / (float)SDL_GetWindowSurface(SDL_GetWindowFromID(e.windowID))->h;
+
+        if (isDown) {
+            inputPoints.push_back({0, x, y, true});
+            std::cout << "Mouse down at (" << x << ", " << y << ")" << std::endl;
+        } else {
+            for (auto& point : inputPoints) {
+                if (point.id == 0) { // Mouse event
+                    point.active = false;
+                    std::cout << "Mouse up at (" << x << ", " << y << ")" << std::endl;
+                    break;
+                }
+            }
+        }
+    }
+
+    void processoMouseAndTouchInput(SDL_Event& event) {
+
+        switch (event.type) {
+            case SDL_FINGERDOWN:
+                handleFingerEvent(event.tfinger, true);
+                break;
+            case SDL_FINGERMOTION:
+                // Você pode adicionar código aqui para detectar o movimento do toque, se necessário
+                break;
+            case SDL_FINGERUP:
+                handleFingerEvent(event.tfinger, false);
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                handleMouseEvent(event.button, true);
+                break;
+            case SDL_MOUSEBUTTONUP:
+                handleMouseEvent(event.button, false);
+                break;
+            case SDL_QUIT:
+                SDL_Quit();
+                exit(0);
+                break;
+        }
+
+        // Clear inactive touches
+        inputPoints.erase(
+            std::remove_if(inputPoints.begin(), inputPoints.end(),
+            [](const InputPoint& p) { return !p.active; }),
+            inputPoints.end()
+        );
+
     }
 
 public:
@@ -274,6 +343,19 @@ public:
         }});
 
         loadShaderList();
+
+/*
+#ifdef __EMSCRIPTEN__
+        emscripten_set_touchstart_callback("#canvas", this, true, ::touchCallback);
+        emscripten_set_touchmove_callback("#canvas", this, true, ::touchCallback);
+        emscripten_set_touchend_callback("#canvas", this, true, ::touchCallback);
+        emscripten_set_touchcancel_callback("#canvas", this, true, ::touchCallback);
+
+        emscripten_set_mousedown_callback("#canvas", this, true, ::mouseCallback);
+        emscripten_set_mousemove_callback("#canvas", this, true, ::mouseCallback);
+        emscripten_set_mouseup_callback("#canvas", this, true, ::mouseCallback);
+#endif
+*/
         
     }
 
@@ -296,6 +378,9 @@ public:
     });
     }
 
+    /**
+     * Process the file uploaded in browser
+    */
     void processFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
 
         FILE* file = fopen(fileName, "w");
@@ -316,7 +401,7 @@ public:
             Logger::instance().log("Failed to open file for writing in processFile call", Logger::ERROR);
         }
 
-    }    
+    }
 
     void onCaptureBegin() {
         m_emuInputEnabled = false;
@@ -670,7 +755,6 @@ public:
 
                 switch(event.window.event) {
 
-                    //case SDL_WINDOWEVENT_RESIZED:
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
                         updateMVP();                   
                         m_updateObjectsFlag = true;
@@ -680,8 +764,12 @@ public:
                 
         }
 
+        processoMouseAndTouchInput(event);
+
         return SDLOpenGLWindow::onEvent(event);
     }
+
+
 
     Uint64 m_lastTime = 0;
     Uint64 m_fpsTimer = 0;
@@ -1040,6 +1128,27 @@ public:
 
         }
 
+        
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::SetNextWindowBgAlpha(0.0f);
+
+        ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoTitleBar |
+                                   ImGuiWindowFlags_NoResize |
+                                   ImGuiWindowFlags_NoMove |
+                                   ImGuiWindowFlags_NoScrollbar |
+                                   ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoInputs |
+                                   ImGuiWindowFlags_NoBackground | 
+                                   ImGuiWindowFlags_NoDecoration;
+
+
+        
+        ImGui::Begin("Transparent Fullscreen Window", nullptr, windowFlags);
+    
+        ImGui::End();     
+
         //ImDrawList* drawList = ImGui::GetForegroundDrawList();
         //drawList->AddText(ImVec2(width()-80,60), 0xFFFFFFFF, (std::to_string(m_fps) + " FPS").c_str());
   
@@ -1048,6 +1157,7 @@ public:
         
 
     }
+ 
 };
 
 #endif

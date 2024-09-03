@@ -1,7 +1,7 @@
-#ifndef INCLUDE_GLVertexArrayObject_H
-#define INCLUDE_GLVertexArrayObject_H
+#ifndef GL_VERTEX_ARRAY_OBJECT_H
+#define GL_VERTEX_ARRAY_OBJECT_H
 
-#include "Loader.h"
+#include "GLHeaders.h"
 
 class GLVertexArrayObject
 {
