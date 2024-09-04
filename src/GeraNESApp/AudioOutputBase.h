@@ -32,7 +32,7 @@ public:
     {
     }
 
-    bool initChannels(int sampleRate)
+    void initChannels(int sampleRate)
     {    
         m_pulseWave1.init(sampleRate);
         m_pulseWave2.init(sampleRate);
