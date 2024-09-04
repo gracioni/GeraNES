@@ -205,7 +205,6 @@ public:
             m_flag = false;
         }
 
-        //m_value = m_rand;
         m_value = cosineInterpolate(m_lastRand, m_rand, m_currentPosition/m_period);
 
         m_value *= m_volume;
@@ -265,7 +264,6 @@ public:
                     else break;
                 }
             }
-            //else m_sample = 0; //dmc letterbox
 
             m_flag = false;
         }
@@ -370,8 +368,6 @@ public:
 
     GERANES_INLINE_HOT float get()
     {
-        //if(m_buffer.empty()) return m_value;
-
         if(m_flag){
 
             while(!m_buffer.empty()) {
@@ -452,13 +448,13 @@ public:
 
     virtual void init(int sampleRate, float cutoffFrequency) override{
         Filter::init(sampleRate, cutoffFrequency);
-        float RC = 1.0 / (2 * M_PI * cutoffFrequency); // Calcula o valor do tempo de constante do filtro
-        m_alpha = RC / (RC + 1.0 / sampleRate); // Calcula o valor do fator de suavização alpha
+        float RC = 1.0 / (2 * M_PI * cutoffFrequency);
+        m_alpha = RC / (RC + 1.0 / sampleRate);
     }
 
     float apply(float input) override {
 
-        float output = m_alpha * (m_prevOutput + input - m_prevInput); // Calcula o valor da saída filtrad
+        float output = m_alpha * (m_prevOutput + input - m_prevInput);
 
         m_prevInput = input;
         m_prevOutput = output;
@@ -485,13 +481,13 @@ public:
 
     virtual void init(int sampleRate, float cutoffFrequency) override{
         Filter::init(sampleRate, cutoffFrequency);
-        float RC = 1.0 / (2 * M_PI * cutoffFrequency); // Calcula o valor do tempo de constante do filtro
-        m_alpha = 1.0 / (1.0 + RC * sampleRate); // Calcula o valor do fator de suavização alpha
+        float RC = 1.0 / (2 * M_PI * cutoffFrequency);
+        m_alpha = 1.0 / (1.0 + RC * sampleRate);
     }
 
     float apply(float input) override {
 
-        float output = m_alpha * input + (1 - m_alpha) * m_prevOutput; // Calcula o valor da saída filtrad
+        float output = m_alpha * input + (1 - m_alpha) * m_prevOutput;
 
         m_prevOutput = output;
 
