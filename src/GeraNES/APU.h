@@ -1,5 +1,5 @@
-#ifndef INCLUDE_APU
-#define INCLUDE_APU
+#ifndef APU_H
+#define APU_H
 
 #include "defines.h"
 #include "IBus.h"

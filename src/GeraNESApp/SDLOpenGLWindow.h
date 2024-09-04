@@ -1,5 +1,5 @@
-#ifndef INCLUDE_SDLOpenGLWindow
-#define INCLUDE_SDLOpenGLWindow
+#ifndef SDL_OPENGL_WINDOW_H
+#define SDL_OPENGL_WINDOW_H
 
 #include <SDL.h>
 

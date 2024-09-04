@@ -1,5 +1,5 @@
-#ifndef INCLUDE_IMEMORY
-#define INCLUDE_IMEMORY
+#ifndef IBUS_H
+#define IBUS_H
 
 #include "defines.h"
 

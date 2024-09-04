@@ -1,5 +1,5 @@
-#ifndef INCLUDE_PPU
-#define INCLUDE_PPU
+#ifndef PPU_H
+#define PPU_H
 
 #include "signal/SigSlot.h"
 

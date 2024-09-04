@@ -1,5 +1,5 @@
-#ifndef INCLUDE_INESFORMAT
-#define INCLUDE_INESFORMAT
+#ifndef INES_FORMAT_H
+#define INES_FORMAT_H
 
 #include "GeraNES/defines.h"
 #include "ICartridgeData.h"

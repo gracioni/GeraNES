@@ -1,5 +1,5 @@
-#ifndef INCLUDE_CONTROLLER
-#define INCLUDE_CONTROLLER
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
 
 #include "defines.h"
 

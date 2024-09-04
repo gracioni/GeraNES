@@ -1,5 +1,5 @@
-#ifndef INCLUDE_GERANESEMU
-#define INCLUDE_GERANESEMU
+#ifndef GERANES_EMU_H
+#define GERANES_EMU_H
 
 #include "defines.h"
 #include "IBus.h"

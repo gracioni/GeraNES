@@ -1,5 +1,5 @@
-#ifndef INCLUDE_MAPPER019
-#define INCLUDE_MAPPER019
+#ifndef MAPPER019_H
+#define MAPPER019_H
 
 //TODO: expansion sound
 

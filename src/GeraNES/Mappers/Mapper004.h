@@ -1,5 +1,5 @@
-#ifndef INCLUDE_MAPPER004
-#define INCLUDE_MAPPER004
+#ifndef MAPPER004_H
+#define MAPPER004_H
 
 #include "IMapper.h"
 

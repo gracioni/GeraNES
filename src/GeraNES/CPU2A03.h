@@ -1,5 +1,5 @@
-#ifndef INCLUDE_CPU2A03
-#define INCLUDE_CPU2A03
+#ifndef CPU2A03_H
+#define CPU2A03_H
 
 #include "defines.h"
 #include "IBus.h"

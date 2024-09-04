@@ -1,5 +1,5 @@
-#ifndef INCLUDE_CARTRIDGE
-#define INCLUDE_CARTRIDGE
+#ifndef CARTRIDGE_H
+#define CARTRIDGE_H
 
 #include "defines.h"
 #include "functions.h"
