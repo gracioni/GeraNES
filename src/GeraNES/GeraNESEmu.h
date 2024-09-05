@@ -274,7 +274,6 @@ private:
     }
 
     void onDMCRequest(uint16_t addr, bool reload) {
-        //qDebug() << m_cpu.cycleNumber() << ": " << "DMC Request" << (reload ? " reload" : "write");
         m_dma.dmcRequest(addr, reload);
     }
 
@@ -429,8 +428,6 @@ public:
                 case 0:
 
                     m_ppu.ppuCycle();
-
-
 
                     m_cpu.begin();
 

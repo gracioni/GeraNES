@@ -60,7 +60,7 @@ public:
         m_oamAddr = 0;
         m_oamCounter = 0;
 
-        m_state = NONE;
+        m_state = State::NONE;
 
         m_dmcAddr = 0;
         m_dmcCounter = 0;
@@ -75,18 +75,19 @@ public:
     void cycle()
     {
 
-        if (m_state == NONE)
+        if (m_state == State::NONE)
             return;
 
         switch (m_state)
         {
 
-        case START_OAM:
-            if (!m_cpu.isWriteCycle())
+        case State::START_OAM:
+
+            if (!m_cpu.isOpcodeWriteCycle())
             {
                 m_cpu.sleep(1);
-                m_state = READ;
-
+                m_state = State::READ;
+       
                 #ifdef DEBUG_DMA
                 qDebug() << m_cpu.cycleNumber() << ": " << "OAM start";
                 debugDmaStart = m_cpu.cycleNumber();
@@ -94,11 +95,14 @@ public:
             }
             break;
 
-        case START_DMC:
-            if (!m_cpu.isWriteCycle() && dmcReload == !m_cpu.isOddCycle())
+        case State::START_DMC:   
+
+            if (!m_cpu.isOpcodeWriteCycle() && dmcReload == !m_cpu.isOddCycle())
             {
                 m_cpu.sleep(1);
-                m_state = DUMMY;
+                m_state = State::DUMMY;
+
+                //m_bus.read(m_cpu.addr()); //?                       
 
                 #ifdef DEBUG_DMA
                 qDebug() << m_cpu.cycleNumber() << ": " << "DMC start";
@@ -106,9 +110,9 @@ public:
             }
             break;
 
-        case DUMMY:
-            m_state = READ;
-            m_cpu.sleep(1);
+        case State::DUMMY:
+            m_state = State::READ;
+            m_cpu.sleep(1);    
 
             #ifdef DEBUG_DMA
             qDebug() << m_cpu.cycleNumber() << ": " << "DMC dummy";
@@ -116,7 +120,7 @@ public:
 
             break;
 
-        case READ:
+        case State::READ:
 
             if (m_cpu.isOddCycle())
             { // align test
@@ -138,14 +142,14 @@ public:
 
                     if (m_dmcCounter == 0 && m_oamCounter == 0)
                     { // we can finish
-                        m_state = NONE;
+                        m_state = State::NONE;
 
                         #ifdef DEBUG_DMA
                         qDebug() << m_cpu.cycleNumber() + 1 << ": " << "DMC end" << endl;
                         #endif
                     }
                     else
-                        m_state = READ;
+                        m_state = State::READ;
                 }
                 else if (m_oamCounter > 0)
                 {
@@ -153,10 +157,10 @@ public:
                     m_data = m_bus.read(m_oamAddr++);
                     --m_oamCounter;
 
-                    m_state = WRITE;
+                    m_state = State::WRITE;
                 }
                 else
-                    m_state = NONE;
+                    m_state = State::NONE;
             }
             #ifdef DEBUG_DMA
             else
@@ -179,7 +183,7 @@ public:
             if (m_dmcCounter == 0 && m_oamCounter == 0)
             {
 
-                m_state = NONE;
+                m_state = State::NONE;
 
                 #ifdef DEBUG_DMA
                 qDebug() << m_cpu.cycleNumber() + 1 << ": " << "OAM end (" << (m_cpu.cycleNumber() + 1 - debugDmaStart) << ")" << endl;
@@ -195,7 +199,7 @@ public:
 
                     if (m_dmcSkip == 3 || m_dmcSkip == 5)
                     {
-                        m_state = READ;
+                        m_state = State::READ;
 
                         #ifdef DEBUG_DMA
                         qDebug() << m_cpu.cycleNumber() + 1 << ": " << "second-to-last put";
@@ -204,7 +208,7 @@ public:
                     else if (m_dmcSkip == 1)
                     {
 
-                        m_state = START_DMC;
+                        m_state = State::START_DMC;
                         dmcReload = false;
 
                         #ifdef DEBUG_DMA
@@ -215,7 +219,7 @@ public:
                     m_dmcSkip = 0;
                 }
                 else
-                    m_state = READ;
+                    m_state = State::READ;
             }
 
             m_cpu.sleep(1);
@@ -235,7 +239,7 @@ public:
         qDebug() << m_cpu.cycleNumber() << ": " << "OAM Request";
         #endif
 
-        if(m_state == NONE || m_state == START_DMC) m_state = START_OAM;
+        if(m_state == State::NONE || m_state == State::START_DMC) m_state = State::START_OAM;
         m_oamAddr = addr;
         m_oamCounter = 512;
     }
@@ -244,8 +248,9 @@ public:
 
         //assert(m_dmcCounter == 0);
 
-        if(m_state == NONE) {
-            m_state = START_DMC;
+        if(m_state == State::NONE) {
+            m_state = State::START_DMC;
+            
             dmcReload = reload;
         }
         else {
@@ -259,7 +264,7 @@ public:
                 m_dmcSkip = m_oamCounter;
              }
             else if(m_oamCounter == 0 && m_cpu.isHalted()) {
-                m_state = START_DMC;
+                m_state = State::START_DMC;
                 dmcReload = true;
             }
         }
@@ -268,6 +273,10 @@ public:
         m_dmcAddr = addr;
         m_dmcCounter = 1;
 
+    }
+
+    bool isRunning() {
+        return m_state != State::NONE;
     }
 
 };

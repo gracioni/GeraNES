@@ -95,6 +95,36 @@ static const uint8_t OPCODE_WRITE_CYCLES_TABLE[256] =
 /*0xF0*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60
 };
 
+enum class AddrMode
+{
+    None, Acc, Imp, Imm, Rel,
+    Zero, Abs, ZeroX, ZeroY,
+    Ind, IndX, IndY, IndYW,
+    AbsX, AbsXW, AbsY, AbsYW
+};
+
+typedef AddrMode M;
+
+static AddrMode addrMode[] = {
+//          0           1               2           3               4               5               6               7               8           9           A           B           C           D           E           F
+/*0x00*/    M::Imp,     M::IndX,        M::None,    M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Acc,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0x10*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
+/*0x20*/    M::Abs,     M::IndX,        M::None,    M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Acc,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0x30*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
+/*0x40*/    M::Imp,     M::IndX,        M::None,    M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Acc,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0x50*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
+/*0x60*/    M::Imp,     M::IndX,        M::None,    M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Acc,     M::Imm,     M::Ind,     M::Abs,     M::Abs,     M::Abs,
+/*0x70*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
+/*0x80*/    M::Imm,     M::IndX,        M::Imm,     M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Imp,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0x90*/    M::Rel,     M::IndYW,       M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroY,       M::ZeroY,       M::Imp,     M::AbsYW,   M::Imp,     M::AbsYW,   M::AbsXW,   M::AbsXW,   M::AbsYW,   M::AbsYW,
+/*0xA0*/    M::Imm,     M::IndX,        M::Imm,     M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Imp,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0xB0*/    M::Rel,     M::IndY,        M::None,    M::IndY,        M::ZeroX,       M::ZeroX,       M::ZeroY,       M::ZeroY,       M::Imp,     M::AbsY,    M::Imp,     M::AbsY,    M::AbsX,    M::AbsX,    M::AbsY,    M::AbsY,
+/*0xC0*/    M::Imm,     M::IndX,        M::Imm,     M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Imp,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0xD0*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
+/*0xE0*/    M::Imm,     M::IndX,        M::Imm,     M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Imp,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
+/*0xF0*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
+};
+
 
 
 class CPU2A03
@@ -184,6 +214,10 @@ private:
         return MAKE16(low,high);
     }
 
+    GERANES_INLINE_HOT void dummyRead() {
+        m_bus.read(m_pc);
+    }
+
     GERANES_INLINE_HOT void getAddrImediate(void)
     {
         m_addr = m_pc+1;
@@ -199,24 +233,26 @@ private:
         m_addr = m_bus.read(m_pc+1);
     }
 
-    GERANES_INLINE_HOT void getAddrAbsoluteX(void)
+    GERANES_INLINE_HOT void getAddrAbsoluteX(bool dummyRead = true)
     {
         m_addr = MAKE16(m_bus.read(m_pc+1),m_bus.read(m_pc+2)); 
 
         m_pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
 
         //dummy read
-        if(m_pageCross) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
+        if(m_pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
 
 
         m_addr += m_x;
     }
 
-    GERANES_INLINE_HOT void getAddrAbsoluteY(void)
+    GERANES_INLINE_HOT void getAddrAbsoluteY(bool dummyRead = true)
     {
         m_addr = MAKE16(m_bus.read(m_pc+1),m_bus.read(m_pc+2));
 
         m_pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+
+        if(m_pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
         m_addr += m_y;
     }
@@ -245,7 +281,7 @@ private:
         m_addr = MAKE16(m_bus.read(temp),m_bus.read( (uint8_t)(temp+1) ));
     }
 
-    GERANES_INLINE_HOT void getAddrIndirectY(void)
+    GERANES_INLINE_HOT void getAddrIndirectY(bool dummyRead = true)
     {
         uint8_t temp = m_bus.read(m_pc+1);
         m_addr = MAKE16(m_bus.read(temp),m_bus.read( (uint8_t)(temp+1) ));
@@ -253,7 +289,7 @@ private:
         m_pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
         //dummy read
-        if(m_pageCross) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(m_pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
 
         m_addr += m_y;
@@ -336,7 +372,7 @@ public:
 
     GERANES_INLINE_HOT void OP_69_ADC(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _ADC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x69];
         m_pc += 2;
@@ -344,7 +380,7 @@ public:
 
     GERANES_INLINE_HOT void OP_65_ADC(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _ADC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x65];
         m_pc += 2;
@@ -352,7 +388,7 @@ public:
 
     GERANES_INLINE_HOT void OP_75_ADC(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _ADC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x75];
         m_pc += 2;
@@ -360,7 +396,7 @@ public:
 
     GERANES_INLINE_HOT void OP_6D_ADC(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _ADC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x6D];
         m_pc += 3;
@@ -368,7 +404,7 @@ public:
 
     GERANES_INLINE_HOT void OP_7D_ADC(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _ADC();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x7D];
@@ -379,7 +415,7 @@ public:
 
     GERANES_INLINE_HOT void OP_79_ADC(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _ADC();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x79];
@@ -390,7 +426,7 @@ public:
 
     GERANES_INLINE_HOT void OP_61_ADC(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _ADC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x61];;
         m_pc += 2;
@@ -398,7 +434,7 @@ public:
 
     GERANES_INLINE_HOT void OP_71_ADC(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _ADC();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x71];
@@ -416,7 +452,7 @@ public:
 
     GERANES_INLINE_HOT void OP_29_AND(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _AND();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x29];
         m_pc += 2;
@@ -424,7 +460,7 @@ public:
 
     GERANES_INLINE_HOT void OP_25_AND(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _AND();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x25];
         m_pc += 2;
@@ -432,7 +468,7 @@ public:
 
     GERANES_INLINE_HOT void OP_35_AND(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _AND();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x35];;
         m_pc += 2;
@@ -440,7 +476,7 @@ public:
 
     GERANES_INLINE_HOT void OP_2D_AND(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _AND();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x2D];
         m_pc += 3;
@@ -448,7 +484,7 @@ public:
 
     GERANES_INLINE_HOT void OP_3D_AND(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _AND();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x3D];
@@ -459,7 +495,7 @@ public:
 
     GERANES_INLINE_HOT void OP_39_AND(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _AND();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x39];
@@ -470,7 +506,7 @@ public:
 
     GERANES_INLINE_HOT void OP_21_AND(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _AND();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x21];
         m_pc += 2;
@@ -478,7 +514,7 @@ public:
 
     GERANES_INLINE_HOT void OP_31_AND(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _AND();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x31];
         if(m_pageCross) ++m_instructionCycles;
@@ -512,7 +548,7 @@ public:
 
     GERANES_INLINE_HOT void OP_06_ASL(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _ASL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x06];
         m_pc += 2;
@@ -520,7 +556,7 @@ public:
 
     GERANES_INLINE_HOT void OP_16_ASL(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _ASL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x16];
         m_pc += 2;
@@ -528,7 +564,7 @@ public:
 
     GERANES_INLINE_HOT void OP_0E_ASL(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _ASL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x0E];
         m_pc += 3;
@@ -536,7 +572,7 @@ public:
 
     GERANES_INLINE_HOT void OP_1E_ASL(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _ASL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x1E];
         m_pc += 3;
@@ -544,7 +580,7 @@ public:
 
     GERANES_INLINE_HOT void OP_90_BCC(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
 
@@ -568,7 +604,7 @@ public:
 
     GERANES_INLINE_HOT void OP_B0_BCS(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xB0];
@@ -590,7 +626,7 @@ public:
 
     GERANES_INLINE_HOT void OP_F0_BEQ(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xF0];
@@ -621,7 +657,7 @@ public:
 
     GERANES_INLINE_HOT void OP_24_BIT(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _BIT();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x24];
         m_pc += 2;
@@ -629,7 +665,7 @@ public:
 
     GERANES_INLINE_HOT void OP_2C_BIT(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _BIT();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x2C];
         m_pc += 3;
@@ -637,7 +673,7 @@ public:
 
     GERANES_INLINE_HOT void OP_30_BMI(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x30];
@@ -660,7 +696,7 @@ public:
 
     GERANES_INLINE_HOT void OP_D0_BNE(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xD0];
@@ -682,7 +718,7 @@ public:
 
     GERANES_INLINE_HOT void OP_10_BPL(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x10];
@@ -729,7 +765,7 @@ public:
 
     GERANES_INLINE_HOT void OP_50_BVC(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x50];
@@ -751,7 +787,7 @@ public:
 
     GERANES_INLINE_HOT void OP_70_BVS(void)
     {
-        getAddrRelative();
+        //getAddrRelative();
 
         m_pc += 2;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x70];
@@ -813,7 +849,7 @@ public:
 
     GERANES_INLINE_HOT void OP_C9_CMP(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _CMP();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xC9];
         m_pc += 2;
@@ -821,7 +857,7 @@ public:
 
     GERANES_INLINE_HOT void OP_C5_CMP(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _CMP();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xC5];
         m_pc += 2;
@@ -829,7 +865,7 @@ public:
 
     GERANES_INLINE_HOT void OP_D5_CMP(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _CMP();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xD5];
         m_pc += 2;
@@ -837,7 +873,7 @@ public:
 
     GERANES_INLINE_HOT void OP_CD_CMP(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _CMP();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xCD];
         m_pc += 3;
@@ -845,7 +881,7 @@ public:
 
     GERANES_INLINE_HOT void OP_DD_CMP(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _CMP();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xDD];
@@ -856,7 +892,7 @@ public:
 
     GERANES_INLINE_HOT void OP_D9_CMP(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _CMP();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xD9];
@@ -867,7 +903,7 @@ public:
 
     GERANES_INLINE_HOT void OP_C1_CMP(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _CMP();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xC1];
         m_pc += 2;
@@ -875,7 +911,7 @@ public:
 
     GERANES_INLINE_HOT void OP_D1_CMP(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _CMP();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xD1];
@@ -898,7 +934,7 @@ public:
 
     GERANES_INLINE_HOT void OP_E0_CPX(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _CPX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xE0];
         m_pc += 2;
@@ -906,7 +942,7 @@ public:
 
     GERANES_INLINE_HOT void OP_E4_CPX(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _CPX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xE4];
         m_pc += 2;
@@ -914,7 +950,7 @@ public:
 
     GERANES_INLINE_HOT void OP_EC_CPX(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _CPX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xEC];
         m_pc += 3;
@@ -934,7 +970,7 @@ public:
 
     GERANES_INLINE_HOT void OP_C0_CPY(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _CPY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xC0];
         m_pc += 2;
@@ -942,7 +978,7 @@ public:
 
     GERANES_INLINE_HOT void OP_C4_CPY(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _CPY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xC4];
         m_pc += 2;
@@ -950,7 +986,7 @@ public:
 
     GERANES_INLINE_HOT void OP_CC_CPY(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _CPY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xCC];
         m_pc += 3;
@@ -970,7 +1006,7 @@ public:
 
     GERANES_INLINE_HOT void OP_C6_DEC(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _DEC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xC6];
         m_pc += 2;
@@ -978,7 +1014,7 @@ public:
 
     GERANES_INLINE_HOT void OP_D6_DEC(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _DEC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xD6];
         m_pc += 2;
@@ -986,7 +1022,7 @@ public:
 
     GERANES_INLINE_HOT void OP_CE_DEC(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _DEC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xCE];
         m_pc += 3;
@@ -994,7 +1030,7 @@ public:
 
     GERANES_INLINE_HOT void OP_DE_DEC(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _DEC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xDE];
         m_pc += 3;
@@ -1032,7 +1068,7 @@ public:
 
     GERANES_INLINE_HOT void OP_49_EOR(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _EOR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x49];
         m_pc += 2;
@@ -1040,7 +1076,7 @@ public:
 
     GERANES_INLINE_HOT void OP_45_EOR(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _EOR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x45];
         m_pc += 2;
@@ -1048,7 +1084,7 @@ public:
 
     GERANES_INLINE_HOT void OP_55_EOR(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _EOR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x55];
         m_pc += 2;
@@ -1056,7 +1092,7 @@ public:
 
     GERANES_INLINE_HOT void OP_4D_EOR(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _EOR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x4D];
         m_pc += 3;
@@ -1064,7 +1100,7 @@ public:
 
     GERANES_INLINE_HOT void OP_5D_EOR(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _EOR();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x5D];
@@ -1075,7 +1111,7 @@ public:
 
     GERANES_INLINE_HOT void OP_59_EOR(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _EOR();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x59];
@@ -1086,7 +1122,7 @@ public:
 
     GERANES_INLINE_HOT void OP_41_EOR(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _EOR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x41];
         m_pc += 2;
@@ -1094,7 +1130,7 @@ public:
 
     GERANES_INLINE_HOT void OP_51_EOR(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _EOR();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x51];
@@ -1117,7 +1153,7 @@ public:
 
     GERANES_INLINE_HOT void OP_E6_INC(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _INC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xE6];
         m_pc += 2;
@@ -1125,7 +1161,7 @@ public:
 
     GERANES_INLINE_HOT void OP_F6_INC(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _INC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xF6];
         m_pc += 2;
@@ -1133,7 +1169,7 @@ public:
 
     GERANES_INLINE_HOT void OP_EE_INC(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _INC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xEE];
         m_pc += 3;
@@ -1141,7 +1177,7 @@ public:
 
     GERANES_INLINE_HOT void OP_FE_INC(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _INC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xFE];
         m_pc += 3;
@@ -1171,21 +1207,21 @@ public:
 
     GERANES_INLINE_HOT void OP_4C_JMP(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         m_pc = m_addr;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x4C];
     }
 
     GERANES_INLINE_HOT void OP_6C_JMP(void)
     {
-        getAddrIndirect();
+        //getAddrIndirect();
         m_pc = m_addr;
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x6C];
     }
 
     GERANES_INLINE_HOT void OP_20_JSR(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
 
         m_pc += 2;
         push16(m_pc);
@@ -1204,7 +1240,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A9_LDA(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _LDA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA9];
         m_pc += 2;
@@ -1212,7 +1248,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A5_LDA(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _LDA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA5];
         m_pc += 2;
@@ -1220,7 +1256,7 @@ public:
 
     GERANES_INLINE_HOT void OP_B5_LDA(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _LDA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xB5];
         m_pc += 2;
@@ -1228,7 +1264,7 @@ public:
 
     GERANES_INLINE_HOT void OP_AD_LDA(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _LDA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xAD];
         m_pc += 3;
@@ -1236,7 +1272,7 @@ public:
 
     GERANES_INLINE_HOT void OP_BD_LDA(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _LDA();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xBD];
@@ -1247,7 +1283,7 @@ public:
 
     GERANES_INLINE_HOT void OP_B9_LDA(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _LDA();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xB9];
@@ -1258,7 +1294,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A1_LDA(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _LDA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA1];
         m_pc += 2;
@@ -1266,7 +1302,7 @@ public:
 
     GERANES_INLINE_HOT void OP_B1_LDA(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _LDA();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xB1];
@@ -1284,7 +1320,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A2_LDX(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _LDX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA2];
         m_pc += 2;
@@ -1292,7 +1328,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A6_LDX(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _LDX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA6];
         m_pc += 2;
@@ -1300,7 +1336,7 @@ public:
 
     GERANES_INLINE_HOT void OP_B6_LDX(void)
     {
-        getAddrZeroPageY();
+        //getAddrZeroPageY();
         _LDX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xB6];
         m_pc += 2;
@@ -1308,7 +1344,7 @@ public:
 
     GERANES_INLINE_HOT void OP_AE_LDX(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _LDX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xAE];
         m_pc += 3;
@@ -1316,7 +1352,7 @@ public:
 
     GERANES_INLINE_HOT void OP_BE_LDX(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _LDX();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xBE];
@@ -1334,7 +1370,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A0_LDY(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _LDY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA0];
         m_pc += 2;
@@ -1342,7 +1378,7 @@ public:
 
     GERANES_INLINE_HOT void OP_A4_LDY(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _LDY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xA4];
         m_pc += 2;
@@ -1350,7 +1386,7 @@ public:
 
     GERANES_INLINE_HOT void OP_B4_LDY(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _LDY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xB4];
         m_pc += 2;
@@ -1358,7 +1394,7 @@ public:
 
     GERANES_INLINE_HOT void OP_AC_LDY(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _LDY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xAC];
         m_pc += 3;
@@ -1366,7 +1402,7 @@ public:
 
     GERANES_INLINE_HOT void OP_BC_LDY(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _LDY();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xBC];
@@ -1397,7 +1433,7 @@ public:
 
     GERANES_INLINE_HOT void OP_46_LSR(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _LSR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x46];
         m_pc += 2;
@@ -1405,7 +1441,7 @@ public:
 
     GERANES_INLINE_HOT void OP_56_LSR(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _LSR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x56];
         m_pc += 2;
@@ -1413,7 +1449,7 @@ public:
 
     GERANES_INLINE_HOT void OP_4E_LSR(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _LSR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x4E];
         m_pc += 3;
@@ -1421,7 +1457,7 @@ public:
 
     GERANES_INLINE_HOT void OP_5E_LSR(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _LSR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x5E];
         m_pc += 3;
@@ -1442,7 +1478,7 @@ public:
 
     GERANES_INLINE_HOT void OP_09_ORA(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _ORA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x09];
         m_pc += 2;
@@ -1450,7 +1486,7 @@ public:
 
     GERANES_INLINE_HOT void OP_05_ORA(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _ORA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x05];
         m_pc += 2;
@@ -1458,7 +1494,7 @@ public:
 
     GERANES_INLINE_HOT void OP_15_ORA(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _ORA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x15];
         m_pc += 2;
@@ -1466,7 +1502,7 @@ public:
 
     GERANES_INLINE_HOT void OP_0D_ORA(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _ORA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x0D];
         m_pc += 3;
@@ -1474,7 +1510,7 @@ public:
 
     GERANES_INLINE_HOT void OP_1D_ORA(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _ORA();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x1D];
@@ -1485,7 +1521,7 @@ public:
 
     GERANES_INLINE_HOT void OP_19_ORA(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _ORA();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x19];
@@ -1496,7 +1532,7 @@ public:
 
     GERANES_INLINE_HOT void OP_01_ORA(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _ORA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x01];
         m_pc += 2;
@@ -1504,7 +1540,7 @@ public:
 
     GERANES_INLINE_HOT void OP_11_ORA(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _ORA();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x11];
@@ -1579,7 +1615,7 @@ public:
 
     GERANES_INLINE_HOT void OP_26_ROL(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _ROL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x26];
         m_pc += 2;
@@ -1587,7 +1623,7 @@ public:
 
     GERANES_INLINE_HOT void OP_36_ROL(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _ROL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x36];
         m_pc += 2;
@@ -1595,7 +1631,7 @@ public:
 
     GERANES_INLINE_HOT void OP_2E_ROL(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _ROL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x2E];
         m_pc += 3;
@@ -1603,7 +1639,7 @@ public:
 
     GERANES_INLINE_HOT void OP_3E_ROL(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _ROL();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x3E];
         m_pc += 3;
@@ -1642,7 +1678,7 @@ public:
 
     GERANES_INLINE_HOT void OP_66_ROR(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _ROR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x66];
         m_pc += 2;
@@ -1650,7 +1686,7 @@ public:
 
     GERANES_INLINE_HOT void OP_76_ROR(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _ROR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x76];
         m_pc += 2;
@@ -1658,7 +1694,7 @@ public:
 
     GERANES_INLINE_HOT void OP_6E_ROR(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _ROR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x6E];
         m_pc += 3;
@@ -1666,7 +1702,7 @@ public:
 
     GERANES_INLINE_HOT void OP_7E_ROR(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _ROR();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x7E];
         m_pc += 3;
@@ -1708,7 +1744,7 @@ public:
 
     GERANES_INLINE_HOT void OP_E9_SBC(void)
     {
-        getAddrImediate();
+        //getAddrImediate();
         _SBC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xE9];
         m_pc += 2;
@@ -1716,7 +1752,7 @@ public:
 
     GERANES_INLINE_HOT void OP_E5_SBC(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _SBC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xE5];
         m_pc += 2;
@@ -1724,7 +1760,7 @@ public:
 
     GERANES_INLINE_HOT void OP_F5_SBC(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _SBC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xF5];
         m_pc += 2;
@@ -1732,7 +1768,7 @@ public:
 
     GERANES_INLINE_HOT void OP_ED_SBC(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _SBC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xED];
         m_pc += 3;
@@ -1740,7 +1776,7 @@ public:
 
     GERANES_INLINE_HOT void OP_FD_SBC(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _SBC();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xFD];
@@ -1751,7 +1787,7 @@ public:
 
     GERANES_INLINE_HOT void OP_F9_SBC(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _SBC();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xF9];
@@ -1762,7 +1798,7 @@ public:
 
     GERANES_INLINE_HOT void OP_E1_SBC(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _SBC();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xE1];
         m_pc += 2;
@@ -1770,7 +1806,7 @@ public:
 
     GERANES_INLINE_HOT void OP_F1_SBC(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _SBC();
 
         m_instructionCycles = OPCODE_CYCLES_TABLE[0xF1];
@@ -1807,7 +1843,7 @@ public:
 
     GERANES_INLINE_HOT void OP_85_STA(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x85];
         m_pc += 2;
@@ -1815,7 +1851,7 @@ public:
 
     GERANES_INLINE_HOT void OP_95_STA(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x95];
         m_pc += 2;
@@ -1823,7 +1859,7 @@ public:
 
     GERANES_INLINE_HOT void OP_8D_STA(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x8D];
         m_pc += 3;
@@ -1831,7 +1867,7 @@ public:
 
     GERANES_INLINE_HOT void OP_9D_STA(void)
     {
-        getAddrAbsoluteX();
+        //getAddrAbsoluteX();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x9D];
         m_pc += 3;
@@ -1839,7 +1875,7 @@ public:
 
     GERANES_INLINE_HOT void OP_99_STA(void)
     {
-        getAddrAbsoluteY();
+        //getAddrAbsoluteY();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x99];
         m_pc += 3;
@@ -1847,7 +1883,7 @@ public:
 
     GERANES_INLINE_HOT void OP_81_STA(void)
     {
-        getAddrIndirectX();
+        //getAddrIndirectX();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x81];
         m_pc += 2;
@@ -1855,7 +1891,7 @@ public:
 
     GERANES_INLINE_HOT void OP_91_STA(void)
     {
-        getAddrIndirectY();
+        //getAddrIndirectY();
         _STA();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x91];
         m_pc += 2;
@@ -1868,7 +1904,7 @@ public:
 
     GERANES_INLINE_HOT void OP_86_STX(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _STX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x86];
         m_pc += 2;
@@ -1876,7 +1912,7 @@ public:
 
     GERANES_INLINE_HOT void OP_96_STX(void)
     {
-        getAddrZeroPageY();
+        //getAddrZeroPageY();
         _STX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x96];
         m_pc += 2;
@@ -1884,7 +1920,7 @@ public:
 
     GERANES_INLINE_HOT void OP_8E_STX(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _STX();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x8E];
         m_pc += 3;
@@ -1897,7 +1933,7 @@ public:
 
     GERANES_INLINE_HOT void OP_84_STY(void)
     {
-        getAddrZeroPage();
+        //getAddrZeroPage();
         _STY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x84];
         m_pc += 2;
@@ -1905,7 +1941,7 @@ public:
 
     GERANES_INLINE_HOT void OP_94_STY(void)
     {
-        getAddrZeroPageX();
+        //getAddrZeroPageX();
         _STY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x94];
         m_pc += 2;
@@ -1913,7 +1949,7 @@ public:
 
     GERANES_INLINE_HOT void OP_8C_STY(void)
     {
-        getAddrAbsolute();
+        //getAddrAbsolute();
         _STY();
         m_instructionCycles = OPCODE_CYCLES_TABLE[0x8C];
         m_pc += 3;
@@ -2049,7 +2085,30 @@ public:
         printf("sp: %02X ", m_sp);
     }
 
-    GERANES_INLINE_HOT int emulateOpcode(void)
+    GERANES_INLINE_HOT void fetchOperand()
+    {
+        switch(addrMode[m_opcode]) {
+            case AddrMode::Acc:
+            case AddrMode::Imp: dummyRead(); break;
+            case AddrMode::Imm: getAddrImediate(); break;
+            case AddrMode::Rel: getAddrRelative(); break;
+            case AddrMode::Zero: getAddrZeroPage(); break;
+            case AddrMode::ZeroX: getAddrZeroPageX(); break;
+            case AddrMode::ZeroY: getAddrZeroPageY(); break;
+            case AddrMode::Ind: getAddrIndirect(); break;
+            case AddrMode::IndX: getAddrIndirectX(); break;
+            case AddrMode::IndY: getAddrIndirectY(false); break;
+            case AddrMode::IndYW: getAddrIndirectY(true); break;
+            case AddrMode::Abs: getAddrAbsolute(); break;
+            case AddrMode::AbsX: getAddrAbsoluteX(false); break;
+            case AddrMode::AbsXW: getAddrAbsoluteX(true); break;
+            case AddrMode::AbsY: getAddrAbsoluteY(false); break;
+            case AddrMode::AbsYW: getAddrAbsoluteY(true); break;
+            default: break;
+        }
+    }
+
+    GERANES_INLINE_HOT void emulateOpcode()
     {
         switch(m_opcode)
         {
@@ -2216,11 +2275,9 @@ public:
             break;
         }
         };
-
-        return m_instructionCycles;
     }
 
-    GERANES_INLINE int getNextOpcodeCyclesHint()
+    GERANES_INLINE int getOpcodeCyclesHint()
     {
         return OPCODE_CYCLES_TABLE[m_opcode];
     }
@@ -2242,8 +2299,9 @@ public:
             }
             else {
                 m_opcode = m_bus.read(m_pc);
-                m_waitCyclesToEmulate = getNextOpcodeCyclesHint();
+                m_waitCyclesToEmulate = getOpcodeCyclesHint();
                 m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
+                fetchOperand();
             }
         }
 
@@ -2266,9 +2324,9 @@ public:
                         emulateInterruptSequence();
                     }
                     else {
-                        int expected = getNextOpcodeCyclesHint();
-                        int real = emulateOpcode();
-                        m_realExpectedDiff = real - expected;
+                        int expected = getOpcodeCyclesHint();                        
+                        emulateOpcode();
+                        m_realExpectedDiff = m_instructionCycles - expected;
                     }
 
                 }
@@ -2312,7 +2370,7 @@ public:
         m_sleepCycles += cycles;
     }
 
-    GERANES_INLINE bool isWriteCycle(int offset = 0) {
+    GERANES_INLINE bool isOpcodeWriteCycle(int offset = 0) {
         return ((OPCODE_WRITE_CYCLES_TABLE[m_opcode] >> (m_currentInstructionCycle+offset)) & 0x01) != 0;
     }
 
@@ -2358,7 +2416,13 @@ public:
         SERIALIZEDATA(s, m_nextSequence);
     }
 
+    uint16_t addr() {
+        return m_addr;
+    }
+
 
 };
+
+
 
 #endif
