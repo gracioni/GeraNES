@@ -983,14 +983,13 @@ yyy NN YYYYY XXXXX
     {
         uint8_t ret = m_primaryOAM[m_OAMAddr];
 
-
         if (m_backgroundEnabled || m_spritesEnabled)
         {
-           if (m_currentScanlineCycle < 65)
+           if (m_currentScanlineCycle < 64)
               ret = 0xFF;
-           else if (m_currentScanlineCycle < 257)
+           else if (m_currentScanlineCycle < 256)
               ret = 0x00;
-           else if (m_currentScanlineCycle < 326) //321 Micro Machines relies on this
+           else if (m_currentScanlineCycle < 320) //Micro Machines relies on this
               ret = 0xFF;
            else //and this:
                //ret = m_primaryOAM[m_spritesIndexInThisLine[0]]; //first byte of secondary oam
