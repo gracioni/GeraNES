@@ -792,8 +792,6 @@ public:
             case 0x40:
             case 0xC0:
                 reload(true);
-                //m_currentAddr = m_sampleAddr;
-                //m_bytesRemaining = m_sampleLength;
                 break;
             case 0x80:
                 m_interruptFlag = true;
