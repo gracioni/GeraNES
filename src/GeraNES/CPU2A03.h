@@ -2425,30 +2425,7 @@ public:
         SERIALIZEDATA(s, m_nextSequence);
     }
 
-    uint16_t addr() {
-
-        int n = 0;
-
-        switch(addrMode[m_opcode]) {
-            case AddrMode::Acc: n = 2; break;
-            case AddrMode::Imp: n = 2; break;
-            case AddrMode::Imm: n = 2; break;
-            case AddrMode::Rel: n = 2; break;
-            case AddrMode::Zero: n = 3; break;
-            case AddrMode::ZeroX: n = 4; break;
-            case AddrMode::ZeroY: n = 4; break;
-            case AddrMode::Ind: n = 5; break;
-            case AddrMode::IndX: n = 6; break;
-            case AddrMode::IndY: n = 5; break;
-            case AddrMode::IndYW: n = 5; break;
-            case AddrMode::Abs: n = 4; break;
-            case AddrMode::AbsX: n = 4; break;
-            case AddrMode::AbsXW: n = 4; break;
-            case AddrMode::AbsY: n = 4; break;
-            case AddrMode::AbsYW: n = 4; break;
-            default: break;
-        }
-
+    uint16_t bus_addr() {  
         return m_currentInstructionCycle > 2 ? m_addr : 0;
     }
 

@@ -95,7 +95,7 @@ public:
             m_state = State::READ;
             m_cpu.sleep(1);  
 
-            m_bus.read(m_cpu.addr());
+            m_bus.read(m_cpu.bus_addr());
 
             break;
 
@@ -131,7 +131,7 @@ public:
                     m_state = State::NONE;
             }
             else {
-                m_bus.read(m_cpu.addr());
+                m_bus.read(m_cpu.bus_addr());
             }
 
             m_cpu.sleep(1);
