@@ -318,7 +318,7 @@ public:
 
         m_ppu.signalFrameStart.bind(&GeraNESEmu::onFrameStart, this);
         m_ppu.signalFrameReady.bind(&GeraNESEmu::onFrameReady, this);
-        m_apu.getSampleChannel().dmcRequest2.bind(&GeraNESEmu::onDMCRequest, this);
+        m_apu.getSampleChannel().dmcRequest.bind(&GeraNESEmu::onDMCRequest, this);
     }
 
     ~GeraNESEmu()

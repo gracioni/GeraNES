@@ -100,10 +100,8 @@ public:
             if (!m_cpu.isOpcodeWriteCycle() && dmcReload == !m_cpu.isOddCycle())
             {
                 m_cpu.sleep(1);
-                m_state = State::DUMMY;
-
-                //m_bus.read(m_cpu.addr()); //?                       
-
+                m_state = State::DUMMY;                
+                 
                 #ifdef DEBUG_DMA
                 qDebug() << m_cpu.cycleNumber() << ": " << "DMC start";
                 #endif
@@ -111,8 +109,11 @@ public:
             break;
 
         case State::DUMMY:
+
             m_state = State::READ;
-            m_cpu.sleep(1);    
+            m_cpu.sleep(1);  
+
+            m_bus.read(m_cpu.addr());   
 
             #ifdef DEBUG_DMA
             qDebug() << m_cpu.cycleNumber() << ": " << "DMC dummy";
@@ -122,9 +123,8 @@ public:
 
         case State::READ:
 
-            if (m_cpu.isOddCycle())
-            { // align test
-
+            if(m_cpu.isOddCycle()) // align test
+            {
                 // assert (m_cpu.isOddCycle() == true );
 
                 if (m_dmcCounter > 0 && m_dmcSkip == 0)
@@ -162,12 +162,9 @@ public:
                 else
                     m_state = State::NONE;
             }
-            #ifdef DEBUG_DMA
-            else
-            {
-                qDebug() << m_cpu.cycleNumber() << ": " << "align";
+            else {
+                m_bus.read(m_cpu.addr());
             }
-            #endif
 
             m_cpu.sleep(1);
 

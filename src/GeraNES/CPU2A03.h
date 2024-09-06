@@ -30,6 +30,8 @@ static const uint8_t OPCODE_CYCLES_TABLE[256] =
 /*0xF0*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
 };
 
+
+
 // BRK (NO_POOL)
 // CLI(0x58) SEI(0x78) PLP(0x28) in cycle 0
 // some references (https://www.nesdev.org/wiki/CPU_interrupts) says that branch instructions
@@ -166,7 +168,9 @@ private:
     bool m_nmiSignal;
     bool m_irqSignal;
 
-    int m_nmiStep;
+    enum class NmiStep {WAITING_HIGH = 0, WAITING_LOW, OK};
+
+    NmiStep m_nmiStep;
     bool m_irqStep;
 
     int m_nmiAtInstructionCycle; //the instruction cycle the NMI request flag was set
@@ -302,9 +306,9 @@ private:
 
     GERANES_INLINE_HOT void _phi1() {
 
-        if(m_nmiStep==2) {
+        if(m_nmiStep == NmiStep::OK) {
             m_nmiSignal = true;
-            m_nmiStep = 0;
+            m_nmiStep = NmiStep::WAITING_LOW;
             m_nmiAtInstructionCycle = m_currentInstructionCycle;
         }
 
@@ -340,7 +344,7 @@ public:
         m_nmiSignal = false;
         m_irqSignal = false;
 
-        m_nmiStep = 0;
+        m_nmiStep = NmiStep::WAITING_LOW;
         m_irqStep = false;
 
         m_nmiAtInstructionCycle = 0;
@@ -2345,13 +2349,18 @@ public:
             }
 
             switch(m_nmiStep) {
-            case 0:
-                if(!nmiState) m_nmiStep++;
-                 break;
 
-            case 1:
-                if(nmiState) m_nmiStep++;
-                break;
+                case NmiStep::WAITING_LOW:
+                    if(!nmiState) m_nmiStep = NmiStep::WAITING_HIGH;
+                    break;
+
+                case NmiStep::WAITING_HIGH:
+                    if(nmiState) m_nmiStep = NmiStep::OK;
+                    break;
+
+                case NmiStep::OK:
+                    assert(false); //should never occur
+                    break;
             }
 
             m_irqStep = irqState;
@@ -2417,7 +2426,30 @@ public:
     }
 
     uint16_t addr() {
-        return m_addr;
+
+        int n = 0;
+
+        switch(addrMode[m_opcode]) {
+            case AddrMode::Acc: n = 2; break;
+            case AddrMode::Imp: n = 2; break;
+            case AddrMode::Imm: n = 2; break;
+            case AddrMode::Rel: n = 2; break;
+            case AddrMode::Zero: n = 3; break;
+            case AddrMode::ZeroX: n = 4; break;
+            case AddrMode::ZeroY: n = 4; break;
+            case AddrMode::Ind: n = 5; break;
+            case AddrMode::IndX: n = 6; break;
+            case AddrMode::IndY: n = 5; break;
+            case AddrMode::IndYW: n = 5; break;
+            case AddrMode::Abs: n = 4; break;
+            case AddrMode::AbsX: n = 4; break;
+            case AddrMode::AbsXW: n = 4; break;
+            case AddrMode::AbsY: n = 4; break;
+            case AddrMode::AbsYW: n = 4; break;
+            default: break;
+        }
+
+        return m_currentInstructionCycle > 2 ? m_addr : 0;
     }
 
 

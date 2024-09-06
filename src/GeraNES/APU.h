@@ -550,7 +550,7 @@ private:
 
     void readSample(bool reload)
     {
-        dmcRequest2(m_currentAddr | 0x8000, reload);
+        dmcRequest(m_currentAddr | 0x8000, reload);
         m_currentAddr = (m_currentAddr + 1) & 0x7FFF;
     }
 
@@ -584,7 +584,7 @@ private:
 
 public:
 
-    SigSlot::Signal<uint16_t, bool> dmcRequest2;
+    SigSlot::Signal<uint16_t, bool> dmcRequest;
 
     void serialization(SerializationBase& s)
     {
@@ -830,14 +830,7 @@ class APU
     Noise m_noise;
     SampleChannel m_sample;
 
-public:
-
-    SigSlot::Signal<uint16_t, bool> dmcRequest;
-
-    void onDMCRequestgera(uint16_t addr, bool reload) {
-        dmcRequest(addr, reload);
-
-    }
+public:   
 
     void serialization(SerializationBase& s)
     {
