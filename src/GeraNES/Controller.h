@@ -20,12 +20,14 @@ public:
         memset(m_data,0,8*sizeof(uint8_t));
     }
 
-    uint8_t read(void)
+    uint8_t read(bool outputEnabled)
     {
         uint8_t ret = m_data[m_index];
 
-        if(m_index == 8) ret = 0x01;
-        else m_index++;
+        if(outputEnabled) {
+            if(m_index == 8) ret = 0x01;
+            else m_index++;
+        }
 
         return ret;
     }

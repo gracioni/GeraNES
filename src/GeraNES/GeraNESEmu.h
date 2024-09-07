@@ -183,7 +183,7 @@ private:
 
                     }
                     else {
-                        data = m_controller1.read();
+                        data = m_controller1.read(!m_cpu.isHalted());
                         data = (data&0x1F) | (m_openBus&(~0x1F));
                     }
                     break;
@@ -193,7 +193,7 @@ private:
                 {
                     if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data);
                     else {
-                        data = m_controller2.read();
+                        data = m_controller2.read(!m_cpu.isHalted());
                         data = (data&0x1F) | (m_openBus&(~0x1F));
                     }
                     break;
