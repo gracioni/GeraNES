@@ -83,7 +83,7 @@ public:
 
         case State::START_DMC:   
 
-            if (!m_cpu.isOpcodeWriteCycle() && dmcReload == !m_cpu.isOddCycle())
+            if (!m_cpu.isOpcodeWriteCycle() && (dmcReload || (!dmcReload && m_cpu.isOddCycle())))
             {
                 m_cpu.sleep(1);
                 m_state = State::DUMMY;
@@ -103,8 +103,6 @@ public:
 
             if(m_cpu.isOddCycle()) // align test
             {
-                // assert (m_cpu.isOddCycle() == true );
-
                 if (m_dmcCounter > 0 && m_dmcSkip == 0) // dmc dma has priority over oam dma
                 {
                     m_data = m_bus.read(m_dmcAddr);
@@ -206,8 +204,6 @@ public:
             m_dmcSkip = 0;   
         }
         else {  
-
-            //std::cout << m_oamCounter << std::endl;  
 
             if(m_oamCounter <= 4) {
                 m_dmcSkip = m_oamCounter;            

@@ -574,7 +574,7 @@ private:
         }
     }
 
-    GERANES_INLINE uint16_t _getPeriod() {
+    GERANES_INLINE uint16_t getPeriod() {
 
         if(m_settings.region() == Settings::PAL)
             return PAL_DMC_PERIOD_TABLE[m_periodIndex];
@@ -635,7 +635,7 @@ public:
 
         m_periodIndex = 0;
 
-        m_periodCounter = _getPeriod();
+        m_periodCounter = getPeriod();
 
         m_shiftCounter = 1;
 
@@ -659,7 +659,7 @@ public:
             //f = CPU / (16 * (t + 1))
             //t = (CPU / (16 * f)) - 1
 
-            m_audioGenerator.setSampleFrequency( 2*(m_settings.CPUClockHz()/16.0)/(_getPeriod()+1));
+            m_audioGenerator.setSampleFrequency( 2*(m_settings.CPUClockHz()/16.0)/(getPeriod()+1));
             m_audioGenerator.setSampleVolume(1.0);
 
             if ((data & 0x80) == 0x00) m_interruptFlag = false;
@@ -692,11 +692,6 @@ public:
             break;
         }
 
-    }
-
-    uint16_t getPeriod(void)
-    {
-        return _getPeriod();
     }
 
     void reload(bool reload)
@@ -740,7 +735,7 @@ public:
 
         if( --m_periodCounter == 0)
         {
-            m_periodCounter = _getPeriod();
+            m_periodCounter = getPeriod();
 
             clockDMC();
         }
