@@ -402,18 +402,28 @@ public:
         busReadWrite<true>(addr,data);
     }
 
-    GERANES_INLINE_HOT bool update(uint32_t dt) //miliseconds
+    template<bool waitForNewFrame>
+    GERANES_INLINE_HOT bool _update(uint32_t dt) //miliseconds
     {
         if(!m_cartridge.isValid()) return false;
 
-        dt = std::min(dt, (uint32_t)1000/10);  //0.1s      
+        dt = std::min(dt, (uint32_t)1000/10);  //0.1s
 
-        m_update_cycles += m_cyclesPerSecond  * dt;
+        if constexpr(!waitForNewFrame)
+            m_update_cycles += m_cyclesPerSecond  * dt;
 
-        const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;
+        bool loop = false;
 
-        while(m_update_cycles >= 1000)
-        {
+        if constexpr(waitForNewFrame)
+                loop = !m_newFrame;
+            else
+                loop = m_update_cycles >= 1000;
+
+        uint32_t renderAudioCycles = m_update_cycles * 1;
+
+        while(loop)
+        {            
+            
             //PPU   X---X---X---X---X---X---X---X---X---X---X-...
             //CPU   --X-----------X-----------X-----------X---...
             //CPU   --1-------2---1-------2---1-------2---1---...
@@ -454,8 +464,10 @@ public:
 
                     if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
                   
-                    m_update_cycles -= 1000;             
+                    if constexpr(!waitForNewFrame)
+                        m_update_cycles -= 1000;             
 
+                    
                     renderAudioCyclesAcc += 1000;  
 
                     while(renderAudioCyclesAcc >= renderAudioCycles) {
@@ -470,7 +482,7 @@ public:
                             else if(m_rewind.buffer->size() > 1) enableAudio = true;
                         }
 
-                        m_audioOutput.render(1, !enableAudio);                       
+                        m_audioOutput.render(dt, !enableAudio);                       
                     }
 
                     break;
@@ -481,7 +493,12 @@ public:
             if(m_halt) {
                 close();
                 break;
-            }     
+            }
+
+            if constexpr(waitForNewFrame)
+                loop = !m_newFrame;
+            else
+                loop = m_update_cycles >= 1000;
         }
 
         if(m_newFrame){
@@ -492,6 +509,15 @@ public:
         return false;
     }
 
+    GERANES_INLINE_HOT bool update(uint32_t dt) {
+        return _update<false>(dt);
+    }
+
+    GERANES_INLINE_HOT bool updateUntilFrame(uint32_t dt) {
+        return _update<true>(dt);
+    }
+
+    /*
     GERANES_INLINE_HOT bool updateUntilFrame(uint32_t dt) //miliseconds
     {
         if(!m_cartridge.isValid()) return false;
@@ -569,7 +595,8 @@ public:
         m_newFrame = false;        
 
         return true;
-    }   
+    }
+    */
 
     GERANES_INLINE const uint32_t* getFramebuffer()
     {
