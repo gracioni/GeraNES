@@ -30,7 +30,9 @@ private:
 
     uint8_t m_duty;
 
-    bool m_looping;
+    bool m_loop;
+    bool m_newLoop;
+
     bool m_constantVolumeMode;
     uint8_t m_envelopPeriod;
     uint8_t m_envelopVolume;
@@ -56,7 +58,8 @@ public:
 
         SERIALIZEDATA(s, m_duty);
 
-        SERIALIZEDATA(s, m_looping);
+        SERIALIZEDATA(s, m_loop);
+        SERIALIZEDATA(s, m_newLoop);
         SERIALIZEDATA(s, m_constantVolumeMode);
         SERIALIZEDATA(s, m_envelopPeriod);
         SERIALIZEDATA(s, m_envelopVolume);
@@ -86,7 +89,7 @@ public:
 
         m_duty = 0;
 
-        m_looping = false;
+        m_newLoop = m_loop = false;
         m_constantVolumeMode = false;
         m_envelopPeriod = 1;
         m_envelopVolume = 0;
@@ -109,11 +112,12 @@ public:
         {
         case 0x0000:
 
-            m_duty= data >> 6;
+            m_duty = data >> 6;
             m_constantVolume = data&0x0F;
-            m_looping = data & 0x20;
+            m_newLoop = data & 0x20;
             m_constantVolumeMode = data & 0x10;
             m_envelopPeriod = (data & 0x0F);
+
             break;
 
         case 0x0001:
@@ -142,7 +146,7 @@ public:
 
     void updateLengthCounter(void)
     {
-        if ((m_looping == false) && (m_lengthCounter > 0)) --m_lengthCounter;
+        if ((m_loop == false) && (m_lengthCounter > 0)) --m_lengthCounter;
     }
 
     void updateSweep(int channel)
@@ -198,7 +202,7 @@ public:
 
             if (!m_constantVolumeMode)
             {
-                if (m_looping)
+                if (m_loop)
                     m_envelopVolume = (m_envelopVolume - 1) & 0x0F;
                 else if (m_envelopVolume > 0)
                     m_envelopVolume--;
@@ -240,6 +244,10 @@ public:
         return m_lengthCounter;
     }
 
+    void cycle() {
+        m_loop = m_newLoop;
+    }
+
 };
 
 class Triangle
@@ -253,6 +261,7 @@ private:
 
     bool m_halt;
     bool m_loop;
+    bool m_newLoop;
     uint8_t m_linearLoad;
     uint16_t m_linearCounter;
 
@@ -266,6 +275,7 @@ public:
 
         SERIALIZEDATA(s, m_halt);
         SERIALIZEDATA(s, m_loop);
+        SERIALIZEDATA(s, m_newLoop);
         SERIALIZEDATA(s, m_linearLoad);
         SERIALIZEDATA(s, m_linearCounter);
     }
@@ -282,7 +292,7 @@ public:
         m_period = 1;
 
         m_halt = false;
-        m_loop = false;
+        m_newLoop = m_loop = false;
         m_linearLoad = 0;
         m_linearCounter = 0;
     }
@@ -293,7 +303,7 @@ public:
         {
         case 0x0000:
             m_linearLoad = data & 0x7F;
-            m_loop = data & 0x80;
+            m_newLoop = data & 0x80;
             break;
         case 0x0001:
             break;
@@ -353,6 +363,10 @@ public:
         return m_lengthCounter;
     }
 
+    void cycle() {
+        m_loop = m_newLoop;
+    }
+
 };
 
 class Noise
@@ -373,7 +387,9 @@ private:
     uint16_t m_lengthCounter;
     uint16_t m_period;
 
-    bool m_looping;
+    bool m_loop;
+    bool m_newLoop;
+
     bool m_constantVolumeMode;
     uint8_t m_envelopVolume;
     uint8_t m_constantVolumeAndEnvelopPeriod;
@@ -389,7 +405,8 @@ public:
         SERIALIZEDATA(s, m_lengthCounter);
         SERIALIZEDATA(s, m_period);
 
-        SERIALIZEDATA(s, m_looping);
+        SERIALIZEDATA(s, m_loop);
+        SERIALIZEDATA(s, m_newLoop);
         SERIALIZEDATA(s, m_constantVolumeMode);
         SERIALIZEDATA(s, m_envelopVolume);
         SERIALIZEDATA(s, m_constantVolumeAndEnvelopPeriod);
@@ -409,7 +426,7 @@ public:
         m_lengthCounter = 0;
         m_period = 1;
 
-        m_looping = false;
+        m_newLoop = m_loop = false;
         m_constantVolumeMode = false;
         m_envelopVolume = 0;
         m_constantVolumeAndEnvelopPeriod = 1;
@@ -425,7 +442,7 @@ public:
         case 0x0000:
         {
             m_constantVolumeAndEnvelopPeriod = data&0x0F;
-            m_looping = data & 0x20;
+            m_newLoop = data & 0x20;
             m_constantVolumeMode = data & 0x10;
             break;
         }
@@ -454,7 +471,7 @@ public:
 
     void updateLengthCounter(void)
     {
-        if ((m_looping == false) && (m_lengthCounter > 0)) --m_lengthCounter;
+        if ((m_loop == false) && (m_lengthCounter > 0)) --m_lengthCounter;
     }
 
     void updateEnvelop()
@@ -467,7 +484,7 @@ public:
 
             if (!m_constantVolumeMode)
             {
-                if (m_looping)
+                if (m_loop)
                     m_envelopVolume = (m_envelopVolume - 1) & 0x0F;
                 else if (m_envelopVolume > 0)
                     m_envelopVolume--;
@@ -507,6 +524,10 @@ public:
     bool getMode(void)
     {
         return m_mode;
+    }
+
+    void cycle() {
+        m_loop = m_newLoop;
     }
 
 };
@@ -1096,6 +1117,10 @@ public:
             }
         }
 
+        m_square1.cycle();
+        m_square2.cycle();
+        m_triangle.cycle();
+        m_noise.cycle();
         m_sample.cycle();
 
         m_jitter = !m_jitter;
