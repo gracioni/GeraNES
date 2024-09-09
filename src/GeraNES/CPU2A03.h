@@ -168,14 +168,14 @@ private:
     bool m_nmiSignal;
     bool m_irqSignal;
 
-    enum class NmiStep {WAITING_HIGH = 0, WAITING_LOW, OK};
+    enum class NmiStep {WAITING_HIGH, WAITING_LOW, OK};
 
     NmiStep m_nmiStep;
     bool m_irqStep;
 
     int m_nmiAtInstructionCycle; //the instruction cycle the NMI request flag was set
 
-    enum InterruptCause {NMI = 0, IRQ} m_interruptCause;
+    enum class InterruptCause {NMI, IRQ} m_interruptCause;
 
     int m_waitCyclesToEmulate;
     bool m_InstructionOrInterruptFlag; //false = instruction cycles, true = interrupt sequence
@@ -358,7 +358,7 @@ public:
         m_realExpectedDiff = 0;
 
         m_currentInstructionCycle = 0;
-        m_interruptCause = NMI;
+        m_interruptCause = InterruptCause::NMI;
 
     }    
 
@@ -2027,11 +2027,11 @@ public:
         {
             if(m_nmiSignal) {
                 m_nmiSignal = false;
-                m_interruptCause = NMI;
+                m_interruptCause = InterruptCause::NMI;
 
             }
             else {
-                m_interruptCause = IRQ;
+                m_interruptCause = InterruptCause::IRQ;
             }
 
             m_irqSignal = false;
@@ -2050,7 +2050,7 @@ public:
         push(m_status);
         m_intFlag = true;   
 
-        if(m_interruptCause == NMI) {
+        if(m_interruptCause == InterruptCause::NMI) {
             m_pc = MAKE16(m_bus.read(NMI_VECTOR),m_bus.read(NMI_VECTOR+1));
         }
         else {

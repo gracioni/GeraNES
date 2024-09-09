@@ -18,12 +18,14 @@ private:
     uint16_t m_oamAddr;
     int m_oamCounter;
 
-    enum State {NONE, START_OAM, START_DMC, DUMMY, READ, WRITE} m_state;
+    enum class State {NONE, START_OAM, START_DMC, DUMMY, READ, WRITE} m_state;
 
     uint16_t m_dmcAddr;
     int m_dmcCounter;
 
-    int m_dmcSkip;
+    enum class DmcSkip {NONE, LAST_PUT, SECOND_TO_LAST_PUT};
+
+    DmcSkip m_dmcSkip;
 
     uint8_t m_data;    
 
@@ -56,7 +58,7 @@ public:
         m_dmcAddr = 0;
         m_dmcCounter = 0;
 
-        m_dmcSkip = false;
+        m_dmcSkip = DmcSkip::NONE;
 
         m_data = 0;
 
@@ -103,7 +105,7 @@ public:
 
             if(m_cpu.isOddCycle()) // align test
             {
-                if (m_dmcCounter > 0 && m_dmcSkip == 0) // dmc dma has priority over oam dma
+                if (m_dmcCounter > 0 && m_dmcSkip == DmcSkip::NONE) // dmc dma has priority over oam dma
                 {
                     m_data = m_bus.read(m_dmcAddr);
 
@@ -136,7 +138,7 @@ public:
 
             break;
 
-        case WRITE:
+        case State::WRITE:
 
             // assert (m_cpu.isOddCycle() == false );
 
@@ -153,22 +155,21 @@ public:
             else
             {
 
-                if (m_oamCounter == 0 && m_dmcSkip > 0)
+                if (m_oamCounter == 0 && m_dmcSkip != DmcSkip::NONE)
                 {
-
                     assert(m_dmcCounter > 0);
 
-                    if (m_dmcSkip == 3 || m_dmcSkip == 4)
+                    if (m_dmcSkip == DmcSkip::SECOND_TO_LAST_PUT)
                     {
                         m_state = State::READ;
                     }
-                    else if (m_dmcSkip == 1 || m_dmcSkip == 2)
+                    else if (m_dmcSkip == DmcSkip::LAST_PUT)
                     {
                         m_state = State::START_DMC;
                         dmcReload = false;              
                     }
 
-                    m_dmcSkip = 0;
+                    m_dmcSkip = DmcSkip::NONE;
                 }
                 else
                     m_state = State::READ;
@@ -201,13 +202,16 @@ public:
         if(m_state == State::NONE) {
             m_state = State::START_DMC;            
             dmcReload = reload;
-            m_dmcSkip = 0;   
+            m_dmcSkip = DmcSkip::NONE;   
         }
-        else {  
+        else {   
 
-            if(m_oamCounter <= 4) {
-                m_dmcSkip = m_oamCounter;            
-            }         
+            if(m_oamCounter <= 2) {
+                m_dmcSkip = DmcSkip::LAST_PUT;
+            }
+            else if(m_oamCounter <= 4) {
+                m_dmcSkip = DmcSkip::SECOND_TO_LAST_PUT;
+            }
 
         }       
 
