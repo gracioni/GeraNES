@@ -878,8 +878,8 @@ public:
 
         //After reset or power-up, APU acts as if $4017 were written with $00 from
         //9 to 12 clocks before first instruction begins.
-        //write(0x0017, 0x00); //this LINE hangs cobra triangle
-        //for(int i = 0; i < 10; i++ ) process();
+        write(0x0017, 0x00); //this LINE hangs cobra triangle
+        for(int i = 0; i < 12; i++ ) cycle();
 
         return "";
     }
