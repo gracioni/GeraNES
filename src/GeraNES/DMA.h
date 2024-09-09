@@ -148,7 +148,7 @@ public:
 
             if (m_dmcCounter == 0 && m_oamCounter == 0)
             {
-                assert(m_dmcSkip == 0);
+                assert(m_dmcSkip == DmcSkip::NONE);
 
                 m_state = State::NONE;
             }

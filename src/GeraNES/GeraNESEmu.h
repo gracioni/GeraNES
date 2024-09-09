@@ -410,16 +410,16 @@ public:
         dt = std::min(dt, (uint32_t)1000/10);  //0.1s
 
         if constexpr(!waitForNewFrame)
-            m_update_cycles += m_cyclesPerSecond  * dt;
+            m_update_cycles += m_cyclesPerSecond  * dt;    
+
+        const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;
 
         bool loop = false;
 
         if constexpr(waitForNewFrame)
-                loop = !m_newFrame;
-            else
-                loop = m_update_cycles >= 1000;
-
-        uint32_t renderAudioCycles = m_update_cycles * 1;
+            loop = !m_newFrame;
+        else
+            loop = m_update_cycles >= 1000;
 
         while(loop)
         {            
@@ -464,25 +464,25 @@ public:
 
                     if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
                   
-                    if constexpr(!waitForNewFrame)
-                        m_update_cycles -= 1000;             
+                    if constexpr(!waitForNewFrame) {
+                        
+                        m_update_cycles -= 1000;
+                        renderAudioCyclesAcc += 1000;  
 
-                    
-                    renderAudioCyclesAcc += 1000;  
+                        while(renderAudioCyclesAcc >= renderAudioCycles) {
+                            renderAudioCyclesAcc -= renderAudioCycles;
 
-                    while(renderAudioCyclesAcc >= renderAudioCycles) {
-                        renderAudioCyclesAcc -= renderAudioCycles;
+                            bool enableAudio = false;
 
-                        bool enableAudio = false;
+                            //dont render when holding 1 frame in rewind mode
+                            if(m_rewind.buffer == nullptr) enableAudio = true;
+                            else {
+                                if(!m_rewind.activeFlag) enableAudio = true;
+                                else if(m_rewind.buffer->size() > 1) enableAudio = true;
+                            }
 
-                        //dont render when holding 1 frame in rewind mode
-                        if(m_rewind.buffer == nullptr) enableAudio = true;
-                        else {
-                            if(!m_rewind.activeFlag) enableAudio = true;
-                            else if(m_rewind.buffer->size() > 1) enableAudio = true;
+                            m_audioOutput.render(1, !enableAudio);                       
                         }
-
-                        m_audioOutput.render(dt, !enableAudio);                       
                     }
 
                     break;
@@ -500,6 +500,23 @@ public:
             else
                 loop = m_update_cycles >= 1000;
         }
+
+        if constexpr(waitForNewFrame) {
+
+            bool enableAudio = false;
+
+            //dont render when holding 1 frame in rewind mode
+            if(m_rewind.buffer == nullptr) enableAudio = true;
+            else {
+                if(!m_rewind.activeFlag) enableAudio = true;
+                else if(m_rewind.buffer->size() > 1) enableAudio = true;
+            }
+
+            m_audioOutput.render(dt, !enableAudio); 
+        }
+
+
+
 
         if(m_newFrame){
             m_newFrame = false;
