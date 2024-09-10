@@ -641,7 +641,10 @@ public:
 
         SERIALIZEDATA(s, m_interruptFlag);
 
-        SERIALIZEDATA(s, m_sampleBufferFilled); 
+        SERIALIZEDATA(s, m_cpuCycleCounter);
+        SERIALIZEDATA(s, m_directControlFlag);
+
+        SERIALIZEDATA(s, m_sampleBufferFilled);   
 
     }
 
@@ -852,6 +855,10 @@ class APU
     Noise m_noise;
     SampleChannel m_sample;
 
+    bool m_writeChannelsFlag;
+    int m_writeChannelsAddr;
+    uint8_t m_writeChannelsData;
+
 public:   
 
     void serialization(SerializationBase& s)
@@ -870,6 +877,10 @@ public:
         m_triangle.serialization(s);
         m_noise.serialization(s);
         m_sample.serialization(s);
+
+        SERIALIZEDATA(s, m_writeChannelsFlag);
+        SERIALIZEDATA(s, m_writeChannelsAddr);
+        SERIALIZEDATA(s, m_writeChannelsData);
     }
 
     APU(IAudioOutput& audioOutput, Settings& settings, Ibus& m) :
@@ -938,18 +949,14 @@ public:
         }
 
         return ret;
-    }
-
-    bool writeFlag = false;
-    int writeAddr;
-    uint8_t writeData;
+    }    
 
     void write(int addr, uint8_t data)
     {
         if(addr < 0x17) {
-            writeFlag = true;
-            writeAddr = addr;
-            writeData = data;
+            m_writeChannelsFlag = true;
+            m_writeChannelsAddr = addr;
+            m_writeChannelsData = data;
         }
 
         switch(addr) {
@@ -1157,9 +1164,9 @@ public:
             }
         }        
 
-        if(writeFlag) {
-            writeFlag = false;
-            writeChannels(writeAddr, writeData);            
+        if(m_writeChannelsFlag) {
+            m_writeChannelsFlag = false;
+            writeChannels(m_writeChannelsAddr, m_writeChannelsData);            
         }
 
         m_square1.cycle();

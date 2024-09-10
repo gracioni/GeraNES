@@ -1288,8 +1288,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_sprite0Hit);
         SERIALIZEDATA(s, m_sprite0HitDelayed);
         SERIALIZEDATA(s, m_spriteOverflow);
-        SERIALIZEDATA(s, m_lastPPUSTATUSReadCycle);
-
+        
         s.array(m_spritesIndexInThisLine,1,64);
         SERIALIZEDATA(s, m_spritesInThisLine);
         SERIALIZEDATA(s, m_testSprite0HitInThisLine);
@@ -1313,13 +1312,15 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_reg_w);
 
         SERIALIZEDATA(s, m_dataLatch);
-        SERIALIZEDATA(s, m_lastWrite);
+        SERIALIZEDATA(s, m_lastWrite);        
 
         SERIALIZEDATA(s, m_nameTableByte);
         SERIALIZEDATA(s, m_attributeTableByte);
         SERIALIZEDATA(s, m_lowTileByte);
         SERIALIZEDATA(s, m_highTileByte);
         SERIALIZEDATA(s, m_tileData);
+
+        SERIALIZEDATA(s, m_lastPPUSTATUSReadCycle);
 
         SERIALIZEDATA(s, m_openBus);
         s.array(m_openBusTimer, 1, 8);
@@ -1337,7 +1338,6 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s,m_renderLine);
 
         SERIALIZEDATA(s,m_overclockFrame);
-
     }
 
 };
