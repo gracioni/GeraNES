@@ -31,7 +31,6 @@ private:
     uint8_t m_duty;
 
     bool m_loop;
-    bool m_newLoop;
 
     bool m_constantVolumeMode;
     uint8_t m_envelopPeriod;
@@ -48,6 +47,8 @@ private:
     uint16_t m_sweepCounter;
     uint16_t m_sweepResult;
 
+    bool m_lengthUpdated;
+
 public:
 
     void serialization(SerializationBase& s)
@@ -59,7 +60,6 @@ public:
         SERIALIZEDATA(s, m_duty);
 
         SERIALIZEDATA(s, m_loop);
-        SERIALIZEDATA(s, m_newLoop);
         SERIALIZEDATA(s, m_constantVolumeMode);
         SERIALIZEDATA(s, m_envelopPeriod);
         SERIALIZEDATA(s, m_envelopVolume);
@@ -74,6 +74,8 @@ public:
 
         SERIALIZEDATA(s, m_sweepCounter);
         SERIALIZEDATA(s, m_sweepResult);
+
+        SERIALIZEDATA(s, m_lengthUpdated);
     }
 
     Square()
@@ -89,7 +91,7 @@ public:
 
         m_duty = 0;
 
-        m_newLoop = m_loop = false;
+        m_loop = false;
         m_constantVolumeMode = false;
         m_envelopPeriod = 1;
         m_envelopVolume = 0;
@@ -104,49 +106,56 @@ public:
 
         m_sweepCounter = 0;
         m_sweepResult = 0;
+
+        m_lengthUpdated = false;
     }
 
     void write(int addr, uint8_t data)
     {
         switch(addr)
         {
-        case 0x0000:
+            case 0x0000:
 
-            m_duty = data >> 6;
-            m_constantVolume = data&0x0F;
-            m_newLoop = data & 0x20;
-            m_constantVolumeMode = data & 0x10;
-            m_envelopPeriod = (data & 0x0F);
+                m_duty = data >> 6;
+                m_constantVolume = data&0x0F;
+                m_loop = data & 0x20;
+                m_constantVolumeMode = data & 0x10;
+                m_envelopPeriod = (data & 0x0F);
 
-            break;
+                break;
 
-        case 0x0001:
+            case 0x0001:
 
-            m_sweepEnabled = data & 0x80;
-            m_sweepPeriod = ((data >> 4) & 0x07);
-            m_sweepNegative	 = data & 0x08;
-            m_sweepShift	 = data & 0x07;
-            m_sweepWritten	 = true;
-            break;
+                m_sweepEnabled = data & 0x80;
+                m_sweepPeriod = ((data >> 4) & 0x07);
+                m_sweepNegative	 = data & 0x08;
+                m_sweepShift	 = data & 0x07;
+                m_sweepWritten	 = true;
+                break;
 
-        case 0x0002:
+            case 0x0002:
 
-            m_period = data | (m_period & 0x0700);
-            break;
+                m_period = data | (m_period & 0x0700);
+                break;
 
-        case 0x0003:
+            case 0x0003:
 
-            m_period = ((uint16_t)(data & 0x07) << 8) | (m_period & 0x00FF);
-            if(m_enabled) m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
-            m_envelopVolume = 0x0F;
-            break;
+                m_period = ((uint16_t)(data & 0x07) << 8) | (m_period & 0x00FF);
 
+                if(m_enabled && (!m_lengthUpdated || (m_lengthUpdated && m_lengthCounter == 0)))
+                    m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+
+                m_envelopVolume = 0x0F;
+                break;
         }
     }
 
+    
+
     void updateLengthCounter(void)
     {
-        if ((m_loop == false) && (m_lengthCounter > 0)) --m_lengthCounter;
+        m_lengthUpdated = true;
+        if (m_loop == false && m_lengthCounter > 0) --m_lengthCounter;
     }
 
     void updateSweep(int channel)
@@ -245,7 +254,7 @@ public:
     }
 
     void cycle() {
-        m_loop = m_newLoop;
+        m_lengthUpdated = false;
     }
 
 };
@@ -259,11 +268,12 @@ private:
     uint16_t m_lengthCounter;
     uint16_t m_period;
 
-    bool m_halt;
     bool m_loop;
-    bool m_newLoop;
+
     uint8_t m_linearLoad;
     uint16_t m_linearCounter;
+
+    bool m_lengthUpdated;
 
 public:
 
@@ -273,11 +283,11 @@ public:
         SERIALIZEDATA(s, m_lengthCounter);
         SERIALIZEDATA(s, m_period);
 
-        SERIALIZEDATA(s, m_halt);
         SERIALIZEDATA(s, m_loop);
-        SERIALIZEDATA(s, m_newLoop);
         SERIALIZEDATA(s, m_linearLoad);
         SERIALIZEDATA(s, m_linearCounter);
+
+        SERIALIZEDATA(s, m_lengthUpdated);
     }
 
     Triangle()
@@ -290,11 +300,12 @@ public:
         m_enabled = false;
         m_lengthCounter = 0;
         m_period = 1;
-
-        m_halt = false;
-        m_newLoop = m_loop = false;
+  
+        m_loop = false;
         m_linearLoad = 0;
         m_linearCounter = 0;
+
+        m_lengthUpdated = false;
     }
 
     void write(int addr, uint8_t data)
@@ -303,7 +314,7 @@ public:
         {
         case 0x0000:
             m_linearLoad = data & 0x7F;
-            m_newLoop = data & 0x80;
+            m_loop = data & 0x80;
             break;
         case 0x0001:
             break;
@@ -312,26 +323,27 @@ public:
             break;
         case 0x0003:
             m_period = ((data & 0x07) << 8) | (m_period & 0xFF);
-            if(m_enabled) m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
-            m_halt = true;
+
+            if(m_enabled)
+                m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+
             break;
         }
     }
 
     void updateLengthCounter(void)
     {
+        m_lengthUpdated = true;
         if ( !m_loop && m_lengthCounter > 0 ) m_lengthCounter--;
     }
 
     void updateLinearCounter(void)
     {
-        if(m_halt) m_linearCounter = m_linearLoad;
+        if(m_loop) m_linearCounter = m_linearLoad;
         else
         {
             if(m_linearCounter > 0) m_linearCounter--;
         }
-
-        if(!m_loop) m_halt = false;
     }
 
     bool isEnabled(void)
@@ -364,7 +376,7 @@ public:
     }
 
     void cycle() {
-        m_loop = m_newLoop;
+        m_lengthUpdated = false;
     }
 
 };
@@ -388,7 +400,6 @@ private:
     uint16_t m_period;
 
     bool m_loop;
-    bool m_newLoop;
 
     bool m_constantVolumeMode;
     uint8_t m_envelopVolume;
@@ -396,6 +407,8 @@ private:
     uint8_t m_envelopCounter;
 
     bool m_mode;
+
+    bool m_lengthUpdated;
 
 public:
 
@@ -406,13 +419,14 @@ public:
         SERIALIZEDATA(s, m_period);
 
         SERIALIZEDATA(s, m_loop);
-        SERIALIZEDATA(s, m_newLoop);
         SERIALIZEDATA(s, m_constantVolumeMode);
         SERIALIZEDATA(s, m_envelopVolume);
         SERIALIZEDATA(s, m_constantVolumeAndEnvelopPeriod);
         SERIALIZEDATA(s, m_envelopCounter);
 
         SERIALIZEDATA(s, m_mode);
+
+        SERIALIZEDATA(s, m_lengthUpdated);
     }
 
     Noise(Settings& settings) : m_settings(settings)
@@ -426,13 +440,15 @@ public:
         m_lengthCounter = 0;
         m_period = 1;
 
-        m_newLoop = m_loop = false;
+        m_loop = false;
         m_constantVolumeMode = false;
         m_envelopVolume = 0;
         m_constantVolumeAndEnvelopPeriod = 1;
         m_envelopCounter = 0;
 
         m_mode = false;
+
+        m_lengthUpdated = false;
     }
 
     void write(int addr, uint8_t data)
@@ -442,7 +458,7 @@ public:
         case 0x0000:
         {
             m_constantVolumeAndEnvelopPeriod = data&0x0F;
-            m_newLoop = data & 0x20;
+            m_loop = data & 0x20;
             m_constantVolumeMode = data & 0x10;
             break;
         }
@@ -462,7 +478,9 @@ public:
         }
         case 0x0003:
         {
-            if(m_enabled) m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+            if(m_enabled && (!m_lengthUpdated || (m_lengthUpdated && m_lengthCounter == 0)))
+                m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+
             m_envelopVolume = 0x0F;
             break;
         }
@@ -471,7 +489,8 @@ public:
 
     void updateLengthCounter(void)
     {
-        if ((m_loop == false) && (m_lengthCounter > 0)) --m_lengthCounter;
+        m_lengthUpdated = true;
+        if (m_loop == false && m_lengthCounter > 0) --m_lengthCounter;
     }
 
     void updateEnvelop()
@@ -527,7 +546,7 @@ public:
     }
 
     void cycle() {
-        m_loop = m_newLoop;
+        m_lengthUpdated = false;
     }
 
 };
@@ -566,8 +585,6 @@ private:
     bool m_directControlFlag;
 
     bool m_sampleBufferFilled;
-
-    bool m_silenceFlag;
 
     void readSample(bool reload)
     {
@@ -624,9 +641,7 @@ public:
 
         SERIALIZEDATA(s, m_interruptFlag);
 
-        SERIALIZEDATA(s, m_sampleBufferFilled);
-
-        SERIALIZEDATA(s, m_silenceFlag);
+        SERIALIZEDATA(s, m_sampleBufferFilled); 
 
     }
 
@@ -637,7 +652,6 @@ public:
 
     void init()
     {
-        m_silenceFlag = true;
 
         m_sampleBufferFilled = false;
 
@@ -767,18 +781,14 @@ public:
 
         if(--m_shiftCounter == 0) {
 
-            m_shiftCounter = 8;
+            m_shiftCounter = 8;        
 
-            m_silenceFlag = !m_sampleBufferFilled;
+            m_sampleBufferFilled = false;
 
-            if(!m_silenceFlag) {
-
-                m_sampleBufferFilled = false;
-
-                if(m_bytesRemaining > 0) {
-                    readSample(true);
-                }
+            if(m_bytesRemaining > 0) {
+                readSample(true);
             }
+            
         }
     }
 
@@ -790,8 +800,6 @@ public:
     void loadSampleBuffer(uint8_t data) {
 
         m_sampleBufferFilled = true;
-
-        m_silenceFlag = false;
 
         updateDeltaCounter(data);
 
@@ -932,9 +940,20 @@ public:
         return ret;
     }
 
+    bool writeFlag = false;
+    int writeAddr;
+    uint8_t writeData;
+
     void write(int addr, uint8_t data)
     {
+        if(addr < 0x17) {
+            writeFlag = true;
+            writeAddr = addr;
+            writeData = data;
+        }
+
         switch(addr) {
+            /*
         case 0x00 ... 0x03: m_square1.write(addr,data); break;
         case 0x04 ... 0x07: m_square2.write(addr&0x03,data); break;
         case 0x08 ... 0x0B: m_triangle.write(addr&0x03,data); break;
@@ -947,6 +966,7 @@ public:
             m_noise.setEnabled(data&0x08);
             m_sample.setEnabled(data&0x10);
             break;
+            */
         case 0x17:
             m_mode = data&0x80;
             m_interruptInhibitFlag = data&0x40;
@@ -966,6 +986,26 @@ public:
             if(m_interruptInhibitFlag) m_frameInterruptFlag = false;
             break;
 
+        }
+
+    }
+
+    void writeChannels(int addr, uint8_t data) {
+
+        switch(addr) {
+
+            case 0x00 ... 0x03: m_square1.write(addr,data); break;
+            case 0x04 ... 0x07: m_square2.write(addr&0x03,data); break;
+            case 0x08 ... 0x0B: m_triangle.write(addr&0x03,data); break;
+            case 0x0C ... 0x0F: m_noise.write(addr&0x03,data); break;
+            case 0x10 ... 0x13: m_sample.write(addr&0x03,data); break;
+            case 0x15:
+                m_square1.setEnabled(data&0x01);
+                m_square2.setEnabled(data&0x02);
+                m_triangle.setEnabled(data&0x04);
+                m_noise.setEnabled(data&0x08);
+                m_sample.setEnabled(data&0x10);
+                break;
         }
 
     }
@@ -1115,6 +1155,11 @@ public:
                     break;
                 }
             }
+        }        
+
+        if(writeFlag) {
+            writeFlag = false;
+            writeChannels(writeAddr, writeData);            
         }
 
         m_square1.cycle();
@@ -1123,7 +1168,7 @@ public:
         m_noise.cycle();
         m_sample.cycle();
 
-        m_jitter = !m_jitter;
+        m_jitter = !m_jitter; 
     }
 
 };
