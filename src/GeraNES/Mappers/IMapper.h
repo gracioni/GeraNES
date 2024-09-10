@@ -100,6 +100,7 @@ public:
     void init() {
         if(m_cartridgeData.numberOfCHRBanks<W8K>() == 0 || VRAMRequired()) {
             m_VRAM = new uint8_t[VRAMSize()];
+            memset(m_VRAM, 0, VRAMSize());
         }
     }
 
