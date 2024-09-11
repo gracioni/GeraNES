@@ -53,6 +53,11 @@ private:
 
     uint32_t m_frameCount;
 
+    //do not serialize bellow atributtes
+    bool m_saveStateFlag;
+    bool m_loadStateFlag;
+    bool m_runningLoop = false;
+
     struct Rewind
     {
         bool activeFlag = false;
@@ -314,6 +319,10 @@ public:
 
         m_frameCount = 0;
 
+        m_saveStateFlag = false;
+        m_loadStateFlag = false;
+        m_runningLoop = false;
+
         m_cpu.signalError.bind(&GeraNESEmu::onError, this);
 
         m_ppu.signalFrameStart.bind(&GeraNESEmu::onFrameStart, this);
@@ -400,7 +409,7 @@ public:
     GERANES_INLINE void write(int addr, uint8_t data)
     {
         busReadWrite<true>(addr,data);
-    }
+    }    
 
     template<bool waitForNewFrame>
     GERANES_INLINE bool _update(uint32_t dt) //miliseconds
@@ -420,6 +429,8 @@ public:
             loop = !m_newFrame;
         else
             loop = m_update_cycles >= 1000;
+
+        m_runningLoop = true;
 
         while(loop)
         {            
@@ -504,7 +515,7 @@ public:
                 loop = !m_newFrame;
             else
                 loop = m_update_cycles >= 1000;
-        }
+        }        
 
         if constexpr(waitForNewFrame) {
 
@@ -520,12 +531,22 @@ public:
             m_audioOutput.render(dt, !enableAudio); 
         }
 
-        if(m_newFrame){
-            m_newFrame = false;
-            return true;
+        bool ret = m_newFrame;
+        m_newFrame = false;
+
+        m_runningLoop = false;
+
+        if(m_saveStateFlag) {
+            _saveState();
+            m_saveStateFlag = false;
         }
 
-        return false;
+        if(m_loadStateFlag) {
+            _loadState();
+            m_loadStateFlag = false;
+        }
+
+        return ret;
     }
 
     GERANES_INLINE bool update(uint32_t dt) {
@@ -541,26 +562,41 @@ public:
         return m_ppu.getFramebuffer();
     }
 
-    void saveState()
+    void _saveState()
     {
         if(!m_cartridge.isValid()) return;
 
         Serialize s;
         serialization(s);
         s.saveToFile(saveStateFileName());
+        std::cout << "save m_saveStatePoint: " << (int)m_saveStatePoint << std::endl;
+    }    
+
+    void saveState() {
+        if(!m_runningLoop) _saveState();
+        else m_saveStateFlag = true;
     }
 
-    void loadState()
+    void _loadState()
     {
         if(!m_cartridge.isValid()) return;
 
         Deserialize d;
 
-        if(d.loadFromFile(saveStateFileName()))
+        if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
+            std::cout << "load m_saveStatePoint: " << (int)m_saveStatePoint << std::endl;
+        }
 
         resetRewindSystem();
     }
+
+    void loadState() {
+        if(!m_runningLoop) _loadState();
+        else m_loadStateFlag = true;
+    }
+
+    
 
     void loadStateFromMemory(const std::vector<uint8_t>& data)
     {
