@@ -1,7 +1,7 @@
 #ifndef SERIALIZATION_H
 #define SERIALIZATION_H
 
-#include <stdint.h>
+#include <cstdint>
 
 #include <vector>
 #include <fstream>

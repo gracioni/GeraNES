@@ -6,7 +6,7 @@
 #include "Cartridge.h"
 #include "CPU2A03.h"
 #include "PPU.h"
-#include "APU.h"
+#include "APU/APU.h"
 #include "Controller.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
@@ -301,7 +301,7 @@ public:
         m_cartridge(),
         m_cpu(*this),
         m_ppu(m_settings, m_cartridge),
-        m_apu(m_audioOutput,m_settings, *this),
+        m_apu(m_audioOutput,m_settings),
         m_dma(*this, m_apu.getSampleChannel(), m_cpu),
         m_controller1(),
         m_controller2()

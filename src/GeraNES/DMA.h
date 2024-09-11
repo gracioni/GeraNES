@@ -3,7 +3,7 @@
 
 #include "CPU2A03.h"
 #include "IBus.h"
-#include "APU.h"
+#include "APU/APU.h"
 
 //#include <cassert>
 
