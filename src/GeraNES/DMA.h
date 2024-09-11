@@ -217,12 +217,7 @@ public:
 
         m_dmcAddr = addr;
         m_dmcCounter = 1;
-
-    }
-
-    bool isRunning() {
-        return m_state != State::NONE;
-    }
+    }  
 
 };
 
