@@ -92,7 +92,7 @@ public:
         {
             m_mode = data&0x80;
 
-            if(m_settings.region() == Settings::NTSC)
+            if(m_settings.region() == Settings::Region::NTSC)
                 m_period = NTSC_NOISE_PERIOD_TABLE[data&0x0F];
             else
                 m_period = PAL_NOISE_PERIOD_TABLE[data&0x0F];

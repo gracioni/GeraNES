@@ -7,11 +7,11 @@
 class Settings {
 
 public:
-    enum Region { PAL, NTSC };
+    enum class Region { PAL, NTSC };
 
 private:
 
-    Region m_region = NTSC;
+    Region m_region = Region::NTSC;
     int m_overclockLines = 0;    
     bool m_disableSpriteLimit = false;
 
@@ -37,8 +37,8 @@ public:
     GERANES_INLINE int CPUClockHz() //Hz
     {
         switch(m_region) {
-        case NTSC: return 1789773;
-        case PAL: return 1662607;
+        case Region::NTSC: return 1789773;
+        case Region::PAL: return 1662607;
         }
 
         return 0;
@@ -46,7 +46,7 @@ public:
 
     GERANES_INLINE int PPULinesPerFrame()
     {
-        if(m_region == PAL) return 312;
+        if(m_region == Region::PAL) return 312;
         return 262;
     }
 

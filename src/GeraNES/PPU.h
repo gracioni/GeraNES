@@ -321,14 +321,14 @@ public:
     {
         switch(m_settings.region())
         {
-        case Settings::NTSC:
+        case Settings::Region::NTSC:
             FRAME_NUMBER_OF_LINES = 262;
             FRAME_VBLANK_START_LINE = 241;
             FRAME_VBLANK_END_LINE = 261;
             m_PALFlag = false;
             m_PALCounter = 0;
             break;
-        case Settings::PAL:
+        case Settings::Region::PAL:
             FRAME_NUMBER_OF_LINES = 312;
             FRAME_VBLANK_START_LINE = 241;
             FRAME_VBLANK_END_LINE = 311;

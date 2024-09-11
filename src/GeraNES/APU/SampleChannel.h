@@ -70,7 +70,7 @@ private:
 
     GERANES_INLINE uint16_t getPeriod() {
 
-        if(m_settings.region() == Settings::PAL)
+        if(m_settings.region() == Settings::Region::PAL)
             return PAL_DMC_PERIOD_TABLE[m_periodIndex];
 
         return NTSC_DMC_PERIOD_TABLE[m_periodIndex];

@@ -369,10 +369,10 @@ public:
 
             m_openBus = 0;
 
-            m_settings.setRegion(Settings::NTSC);
+            m_settings.setRegion(Settings::Region::NTSC);
 
             if(filename.find("(E)") != std::string::npos)
-                m_settings.setRegion(Settings::PAL);
+                m_settings.setRegion(Settings::Region::PAL);
 
             updateInternalTimingStuff();
 
@@ -671,7 +671,7 @@ public:
     }
 
     uint32_t getRegionFPS() {
-        if(m_settings.region() == Settings::PAL) return 50;
+        if(m_settings.region() == Settings::Region::PAL) return 50;
         return 60;
     }
 
