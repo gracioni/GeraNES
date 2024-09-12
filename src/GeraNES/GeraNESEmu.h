@@ -14,12 +14,12 @@
 
 #include "Serialization.h"
 
-#include "util/CircularBuffer.h"
 #include "signal/SigSlot.h"
 #include "Logger.h"
 
+#include "Rewind.h"
 
-class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase
+class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
 private:
 
@@ -56,71 +56,9 @@ private:
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
     bool m_loadStateFlag;
-    bool m_runningLoop = false;
+    bool m_runningLoop;
 
-    struct Rewind
-    {
-        bool activeFlag = false;
-        double timer = 0.0;
-        int FPSDivider = 1;
-        int FPSAuxCounter = 0;
-        CircularBuffer<std::vector<uint8_t>>* buffer = nullptr;
-
-        void setup(bool enabled, double maxTime, int _FPSDivider)
-        {   
-            FPSDivider = _FPSDivider;
-
-            if(buffer != nullptr) {
-                delete buffer;
-                buffer = nullptr;
-            }
-
-            if(enabled) buffer = new CircularBuffer<std::vector<uint8_t>>(static_cast<size_t>(60/FPSDivider * maxTime),CircularBuffer<std::vector<uint8_t>>::REPLACE);
-
-            activeFlag = false;
-            timer = 0.0;
-        }
-
-        void reset()
-        {
-            activeFlag = false;
-            timer = 0.0;
-            FPSAuxCounter = FPSDivider;
-            if(buffer != nullptr) buffer->clear();
-        }
-
-        //return true when sample a frame
-        bool update()
-        {
-            bool ret = false;
-
-            if( --FPSAuxCounter == 0 ) {
-                FPSAuxCounter = FPSDivider;
-                ret = true;
-            }
-
-            return ret;
-        }
-
-        void addState(const std::vector<uint8_t> data)
-        {
-            if(buffer != nullptr) buffer->write(data);
-        }
-
-        void shutdown()
-        {
-            FPSAuxCounter = FPSDivider;
-
-            if(buffer != nullptr) {
-                delete buffer;
-                buffer = nullptr;
-            }
-
-            activeFlag = false;
-            timer = 0.0;
-        }
-
-    } m_rewind;
+    Rewind m_rewind;
 
     template<bool writeFlag>
     auto busReadWrite(int addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
@@ -257,23 +195,7 @@ private:
         m_newFrame = true;
         ++m_frameCount;
 
-        if(m_rewind.buffer != nullptr && (!m_rewind.activeFlag || m_rewind.buffer->size() == 0) && m_rewind.update() ) {
-            Serialize s;
-            serialization(s);
-            m_rewind.addState(s.getData());
-        }
-
-        if(m_rewind.buffer != nullptr && m_rewind.activeFlag) {
-
-            if(m_rewind.buffer->size() > 1 && m_rewind.update()) {
-                //load state from memory
-                loadStateFromMemory(m_rewind.buffer->readBack());
-            }
-            else {
-                loadStateFromMemory(m_rewind.buffer->peakBack());
-            }
-
-        }
+        m_rewind.newFrame();
 
         signalFrameReady();
     }
@@ -309,7 +231,8 @@ public:
         m_apu(m_audioOutput,m_settings),
         m_dma(*this, m_apu.getSampleChannel(), m_cpu),
         m_controller1(),
-        m_controller2()
+        m_controller2(),
+        m_rewind(*this)
     {
         m_halt = false;        
 
@@ -332,7 +255,6 @@ public:
 
     ~GeraNESEmu()
     {
-        m_rewind.shutdown();
     }
 
     //maxTime - seconds
@@ -343,7 +265,7 @@ public:
 
     void setRewind(bool state)
     {
-        m_rewind.activeFlag = state;
+        m_rewind.setRewind(state);
     }
 
     void resetRewindSystem()
@@ -355,7 +277,7 @@ public:
     {
         m_cartridge.clear();
         m_ppu.clearFramebuffer();
-        m_rewind.shutdown();
+        m_rewind.destroy();
     }
 
     const std::string open(const std::string& filename)
@@ -488,14 +410,7 @@ public:
                         while(renderAudioCyclesAcc >= renderAudioCycles) {
                             renderAudioCyclesAcc -= renderAudioCycles;
 
-                            bool enableAudio = false;
-
-                            //dont render when holding 1 frame in rewind mode
-                            if(m_rewind.buffer == nullptr) enableAudio = true;
-                            else {
-                                if(!m_rewind.activeFlag) enableAudio = true;
-                                else if(m_rewind.buffer->size() > 1) enableAudio = true;
-                            }
+                            bool enableAudio = m_rewind.rewindLimit();
 
                             m_audioOutput.render(1, !enableAudio);                       
                         }
@@ -519,14 +434,7 @@ public:
 
         if constexpr(waitForNewFrame) {
 
-            bool enableAudio = false;
-
-            //dont render when holding 1 frame in rewind mode
-            if(m_rewind.buffer == nullptr) enableAudio = true;
-            else {
-                if(!m_rewind.activeFlag) enableAudio = true;
-                else if(m_rewind.buffer->size() > 1) enableAudio = true;
-            }
+            bool enableAudio = m_rewind.rewindLimit();
 
             m_audioOutput.render(dt, !enableAudio); 
         }
@@ -594,11 +502,9 @@ public:
     void loadState() {
         if(!m_runningLoop) _loadState();
         else m_loadStateFlag = true;
-    }
+    }    
 
-    
-
-    void loadStateFromMemory(const std::vector<uint8_t>& data)
+    void loadStateFromMemory(const std::vector<uint8_t>& data) override
     {
         auto old = m_update_cycles; //preserve this
 
@@ -643,9 +549,11 @@ public:
 
     void setRegion(Settings::Region value)
     {
-        m_settings.setRegion(value);
-
-        updateInternalTimingStuff();
+        if(value != m_settings.region()) {
+            m_settings.setRegion(value);
+            m_rewind.reset();
+            updateInternalTimingStuff();
+        }
     }
 
     Settings::Region region()
@@ -653,7 +561,7 @@ public:
         return m_settings.region();
     }
 
-    void serialization(SerializationBase& s)
+    void serialization(SerializationBase& s) override
     {
         m_cpu.serialization(s);
         m_cartridge.serialization(s);
@@ -703,12 +611,16 @@ public:
 
     bool isRewinding()
     {
-        return m_rewind.buffer != nullptr && m_rewind.activeFlag;
+        return m_rewind.isRewinding();
     }
 
     uint32_t getRegionFPS() {
         if(m_settings.region() == Settings::Region::PAL) return 50;
         return 60;
+    }
+
+    int getFPS() override {
+        return getRegionFPS();
     }
 
     uint32_t frameCount() {
