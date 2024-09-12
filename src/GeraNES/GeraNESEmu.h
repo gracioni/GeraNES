@@ -49,14 +49,13 @@ private:
 
     uint8_t m_openBus;
 
-    uint8_t m_saveStatePoint;
-
     uint32_t m_frameCount;
+
+    bool m_runningLoop;
 
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
-    bool m_loadStateFlag;
-    bool m_runningLoop;
+    bool m_loadStateFlag;    
 
     Rewind m_rewind;
 
@@ -194,9 +193,7 @@ private:
     {
         m_newFrame = true;
         ++m_frameCount;
-
-        m_rewind.newFrame();
-
+        
         signalFrameReady();
     }
 
@@ -310,10 +307,7 @@ public:
             m_ppu.init();
             m_cpu.init();
             m_apu.init();
-            m_dma.init();
-
-
-            m_saveStatePoint = 0;
+            m_dma.init();         
 
             Logger::instance().log(m_cartridge.debug());
 
@@ -331,8 +325,39 @@ public:
     GERANES_INLINE void write(int addr, uint8_t data)
     {
         busReadWrite<true>(addr,data);
-    }    
+    } 
 
+    GERANES_INLINE_HOT void cycle() {
+
+        //PPU   X---X---X---X---X---X---X---X---X---X---X-...
+        //CPU   --X-----------X-----------X-----------X---...
+        //CPU   --1-------2---1-------2---1-------2---1---...
+
+        m_ppu.ppuCycle();
+
+        m_cpu.begin();
+
+        if(!m_ppu.inOverclockLines()){
+            m_dma.cycle();
+            m_apu.cycle();
+            m_cartridge.cycle();
+        }
+
+        m_cpu.phi1();    
+    
+        m_ppu.ppuCycle();      
+    
+        m_ppu.ppuCycle();          
+
+        m_ppu.ppuCyclePAL();                    
+
+        if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
+
+    }
+
+    /**
+     * Return true on new frame
+     */
     template<bool waitForNewFrame>
     GERANES_INLINE bool _update(uint32_t dt) //miliseconds
     {
@@ -345,10 +370,12 @@ public:
 
         const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;
 
+        bool ret = false;
+
         bool loop = false;
 
         if constexpr(waitForNewFrame)
-            loop = !m_newFrame;
+            loop = true;
         else
             loop = m_update_cycles >= 1000;
 
@@ -356,70 +383,27 @@ public:
 
         while(loop)
         {            
-            
-            //PPU   X---X---X---X---X---X---X---X---X---X---X-...
-            //CPU   --X-----------X-----------X-----------X---...
-            //CPU   --1-------2---1-------2---1-------2---1---...
+            cycle();            
 
-            // in the rewind system, a new save state is queued in each frameReady signal.
-            // this can happen in any ppuCycle() call, so we need this for loop to track
-            // where continue the simulation after load a save state
-            // without this the save state system is not deterministic
-
-            for(;m_saveStatePoint < 4; ++m_saveStatePoint) {
-
-                switch(m_saveStatePoint) {
+            if constexpr(!waitForNewFrame) {
                 
-                case 0:
+                m_update_cycles -= 1000;
+                renderAudioCyclesAcc += 1000;  
 
-                    m_ppu.ppuCycle();
+                while(renderAudioCyclesAcc >= renderAudioCycles) {
+                    renderAudioCyclesAcc -= renderAudioCycles;
 
-                    m_cpu.begin();
+                    bool enableAudio = m_rewind.rewindLimit();
 
-                    if(!m_ppu.inOverclockLines()){
-                        m_dma.cycle();
-                        m_apu.cycle();
-                        m_cartridge.cycle();
-                    }
-
-                    m_cpu.phi1();
-
-                    break;
-
-                case 1:
-
-                    m_ppu.ppuCycle();
-                    break;
-
-                case 2:
-
-                    m_ppu.ppuCycle();
-                    break;
-
-                case 3:
-
-                    m_ppu.ppuCyclePAL();                    
-
-                    if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
-        
-                    if constexpr(!waitForNewFrame) {
-                        
-                        m_update_cycles -= 1000;
-                        renderAudioCyclesAcc += 1000;  
-
-                        while(renderAudioCyclesAcc >= renderAudioCycles) {
-                            renderAudioCyclesAcc -= renderAudioCycles;
-
-                            bool enableAudio = m_rewind.rewindLimit();
-
-                            m_audioOutput.render(1, !enableAudio);                       
-                        }
-                    }
-
-                    break;
+                    m_audioOutput.render(1, !enableAudio);                       
                 }
+            }                 
+
+            if(m_newFrame) {
+                m_rewind.newFrame();
+                ret = true;
+                m_newFrame = false;
             }
-            m_saveStatePoint = 0;
 
             if(m_halt) {
                 close();
@@ -427,9 +411,10 @@ public:
             }
 
             if constexpr(waitForNewFrame)
-                loop = !m_newFrame;
+                loop = !ret;
             else
                 loop = m_update_cycles >= 1000;
+
         }        
 
         if constexpr(waitForNewFrame) {
@@ -438,9 +423,6 @@ public:
 
             m_audioOutput.render(dt, !enableAudio); 
         }
-
-        bool ret = m_newFrame;
-        m_newFrame = false;
 
         m_runningLoop = false;
 
@@ -477,7 +459,6 @@ public:
         Serialize s;
         serialization(s);
         s.saveToFile(saveStateFileName());
-        std::cout << "save m_saveStatePoint: " << (int)m_saveStatePoint << std::endl;
     }    
 
     void saveState() {
@@ -493,7 +474,6 @@ public:
 
         if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
-            std::cout << "load m_saveStatePoint: " << (int)m_saveStatePoint << std::endl;
         }
 
         resetRewindSystem();
@@ -584,9 +564,9 @@ public:
         SERIALIZEDATA(s, m_4011WriteCounter);
         SERIALIZEDATA(s, m_newFrame);
 
-        SERIALIZEDATA(s, m_saveStatePoint);
-
         SERIALIZEDATA(s, m_frameCount);
+
+        SERIALIZEDATA(s, m_runningLoop);
     }
 
     void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
