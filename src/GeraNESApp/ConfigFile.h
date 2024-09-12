@@ -61,21 +61,25 @@ private:
     };
 
     const char* FILENAME = "settings.json";
-    const int MAX_RECENT_FILES = 10;
+    const int MAX_RECENT_FILES = 10;    
 
-    static std::unique_ptr<ConfigFile> _instance;
+    struct Data {
+        std::map<std::string, InputInfo> input;
+        std::vector<std::string> recentFiles;
+        std::string lastFolder;    
+        Improvements improvements;
+        Video video;
+        Audio audio;
 
-    std::map<std::string, InputInfo> input;
-    std::vector<std::string> recentFiles;
-    std::string lastFolder;    
-    Improvements improvements;
-    Video video;
-    Audio audio;
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, video, audio)
+    } m_data;
 
     //ConfigFile(const ConfigFile&) = delete;
-    ConfigFile& operator = (const ConfigFile&) = delete;
+    ConfigFile& operator = (const ConfigFile&) = delete;    
 
-    ConfigFile();  
+    ConfigFile() {
+        load();
+    }    
   
     void load() {
 
@@ -85,7 +89,7 @@ private:
 
         if(file.is_open()) {
             nlohmann::json data = nlohmann::json::parse(file);
-            data.get_to(*this);
+            data.get_to(m_data);
         }
 
         sanitizeDefaults();
@@ -93,7 +97,7 @@ private:
 
     void sanitizeDefaults() {
 
-        if(input.count("0") == 0) {
+        if(m_data.input.count("0") == 0) {
 
             InputInfo i;
 
@@ -109,10 +113,10 @@ private:
             i.loadState = "F6";
             i.rewind = "Backspace";
 
-            input.insert(std::make_pair("0", i));
+            m_data.input.insert(std::make_pair("0", i));
         }
 
-        if(input.count("1") == 0) {
+        if(m_data.input.count("1") == 0) {
 
             InputInfo i;
 
@@ -128,52 +132,39 @@ private:
             i.loadState = "";
             i.rewind = "";
 
-            input.insert(std::make_pair("1", i)); 
+            m_data.input.insert(std::make_pair("1", i)); 
         }      
          
-        if(lastFolder == "") lastFolder = fs::current_path().string();
+        if(m_data.lastFolder == "") m_data.lastFolder = fs::current_path().string();
     }
 
-public:
+public:    
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ConfigFile, input, recentFiles, lastFolder, improvements, video, audio)
+    static ConfigFile& instance() {
 
-    ~ConfigFile();
+        static std::unique_ptr<ConfigFile> _instance;
 
-    /*
-    void to_json(nlohmann::json& j, const ConfigFile& p)
-    {
-        j["inputInfo"] = p.inputInfo;
-        j["recentFiles"] =  p.recentFiles;
-    }
-
-    void from_json(const nlohmann::json& j, const ConfigFile& p)
-    {
-        p.cbor      = j.at("cbor").get< std::string >();
-        p.hex       = j.at("hex").get< std::string >();
-        p.roundtrip = j.at("roundtrip").get< bool >();
-        
-        // if we also allow "null" values, then we need to add an "is_string()"
-        // check
-        if (j.count("diagnostic") != 0)
-        {
-            p.diagnostic = j.at("diagnostic").get< std::string >();
+        if (!_instance) {
+            _instance.reset(new ConfigFile());
         }
+
+        return *_instance;
     }
-    */    
 
-    static ConfigFile& instance();    
-
+    ~ConfigFile() {
+        save();
+    }
+  
     void save() {
         Logger::instance().log("Saving settings...", Logger::INFO);
         std::ofstream file(FILENAME);
-        file << std::setw(4) << nlohmann::json(*this);
+        file << std::setw(4) << nlohmann::json(m_data);
     }    
 
     bool getInputInfo(int index, InputInfo& result) {
 
-        if(input.count(std::to_string(index))) {
-            result = input[std::to_string(index)];
+        if(m_data.input.count(std::to_string(index))) {
+            result = m_data.input[std::to_string(index)];
             return true;
         }
 
@@ -182,118 +173,118 @@ public:
 
     void setInputInfo(int index, const InputInfo& _if) {
 
-        if(input.count(std::to_string(index)) > 0)
-            input[std::to_string(index)] = _if;
+        if(m_data.input.count(std::to_string(index)) > 0)
+            m_data.input[std::to_string(index)] = _if;
         else
-            input.insert(std::make_pair(std::to_string(index), _if));
+            m_data.input.insert(std::make_pair(std::to_string(index), _if));
 
     }
 
     void addRecentFile(const std::string path) {
 
-        auto it = std::remove_if(recentFiles.begin(), recentFiles.end(),
+        auto it = std::remove_if(m_data.recentFiles.begin(), m_data.recentFiles.end(),
         [path](const std::string& str) { return str.find(path) != std::string::npos; } );
 
-        recentFiles.erase(it, recentFiles.end());
+        m_data.recentFiles.erase(it, m_data.recentFiles.end());
 
-        recentFiles.insert(recentFiles.begin(), path);
+        m_data.recentFiles.insert(m_data.recentFiles.begin(), path);
 
-        while(recentFiles.size() > 10) {
-            recentFiles.pop_back();
+        while(m_data.recentFiles.size() > 10) {
+            m_data.recentFiles.pop_back();
         }
     }
 
     const std::vector<std::string> getRecentFiles() {
-        return recentFiles;
+        return m_data.recentFiles;
     }
 
     void setLastFolder(const std::string& path) {
         fs::path p = path;
-        lastFolder = p.parent_path().string();
+        m_data.lastFolder = p.parent_path().string();
     }
 
     const std::string& getLastFolder() {
-        return lastFolder;
+        return m_data.lastFolder;
     }
 
     const std::string& getAudioDevice() {
-        return audio.audioDevice;
+        return m_data.audio.audioDevice;
     }
 
     void setAudioDevice(const std::string& name) {
-        audio.audioDevice = name;
+        m_data.audio.audioDevice = name;
     }
 
     void setDisableSpritesLimit(bool state) {
-        improvements.disableSpritesLimit = state;
+        m_data.improvements.disableSpritesLimit = state;
     }
 
     bool getDisableSpritesLimit() {
-        return improvements.disableSpritesLimit;
+        return m_data.improvements.disableSpritesLimit;
     }
 
     void setOverclock(bool state) {
-        improvements.overclock = state;
+        m_data.improvements.overclock = state;
     }
 
     bool getOverclock() {
-        return improvements.overclock;
+        return m_data.improvements.overclock;
     }
 
     void setMaxRewindTime(int seconds) {
-        improvements.maxRewindTime = seconds;
+        m_data.improvements.maxRewindTime = seconds;
     }
 
     int getMaxRewindTime() {
-        return improvements.maxRewindTime;
+        return m_data.improvements.maxRewindTime;
     }
 
     int getVSyncMode() {
-        return video.vsyncMode;
+        return m_data.video.vsyncMode;
     }
 
     void setVSyncMode(int mode) {
-        video.vsyncMode = mode;
+        m_data.video.vsyncMode = mode;
     }
 
     int getFilterMode() {
-        return video.filterMode;
+        return m_data.video.filterMode;
     }
 
     void setFilterMode(int mode) {
-        video.filterMode = mode;
+        m_data.video.filterMode = mode;
     }
 
     bool getHorizontalStretch() {
-        return video.horizontalStretch;
+        return m_data.video.horizontalStretch;
     }
 
     void setHorizontalStretch(bool state) {
-        video.horizontalStretch = state;
+        m_data.video.horizontalStretch = state;
     }
 
     bool getFullScreen() {
-        return video.fullScreen;
+        return m_data.video.fullScreen;
     }
 
     void setFullScreen(bool state) {
-        video.fullScreen = state;
+        m_data.video.fullScreen = state;
     }
 
     void setShaderName(const std::string& shader) {
-        video.shaderName = shader;
+        m_data.video.shaderName = shader;
     }
 
     const std::string& getShaderName() {
-        return video.shaderName;
+        return m_data.video.shaderName;
     }
 
     void setAudioVolume(float volume) {
-        audio.volume = volume;
+        m_data.audio.volume = volume;
     }
 
     float getAudioVolume() {
-        return audio.volume;
+        return m_data.audio.volume;
     }
 
     
