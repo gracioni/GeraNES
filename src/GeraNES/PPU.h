@@ -25,6 +25,11 @@ const unsigned int NES_PALETTE[64] = {
     0xFF78D8F8, 0xFF78F8D8, 0xFFB8F8B8, 0xFFD8F8B8, 0xFFFCFC00, 0xFFF8D8F8, 0xFF000000, 0xFF000000
 };
 
+const uint8_t POWER_UP_PALETTE[] = {
+    0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00, 0x04, 0x2C,
+    0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02, 0x00, 0x20, 0x2C, 0x08
+};
+
 class PPU
 {
 
@@ -218,7 +223,12 @@ private:
         if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
             m_cartridge.writeCustomNameTable(addrIndex&0x03,addr&0x3FF,data);
         }
-        else m_nameTable[m_cartridge.mirroring(addrIndex&0x03)][addr&0x3FF] = data;
+        else {
+            int index = m_cartridge.mirroring(addrIndex&0x03);
+            const int n = sizeof(m_nameTable) / sizeof(m_nameTable[0]);
+            assert(index < n);
+            m_nameTable[index][addr&0x3FF] = data;
+        }
     }
 
     //index 0-3
@@ -246,6 +256,8 @@ public:
 
         writePPUCTRL(0);
         writePPUMASK(0);
+
+        memcpy(m_palette, POWER_UP_PALETTE, sizeof(m_palette));
 
         //PPUSTATUS
         m_VBlankHasStarted = false;
@@ -287,13 +299,7 @@ public:
         clearFramebuffer();
 
         m_powerUpCounter = 0;
-
-        //test if cobra triangle hangs
-        //for(int i = 0; i < 341 * 260; i++) doCycle();
-        //m_interruptFlag = false;
-        //m_NMIDelay1Instruction = false;
-        //m_powerUpCounter = 29658 * 3;
-
+        
         FRAME_NUMBER_OF_LINES = 262;
         FRAME_VBLANK_START_LINE = 241;
         FRAME_VBLANK_END_LINE = 261;
@@ -310,6 +316,12 @@ public:
         m_overclockFrame = false;
 
         updateSettings();
+
+        //test if cobra triangle hangs
+        for(int i = 0; i < 341 * 260; i++) cycle();
+        //m_interruptFlag = false;
+        //m_NMIDelay1Instruction = false;
+        //m_powerUpCounter = 29658 * 3;
     }
 
     bool inOverclockLines()
