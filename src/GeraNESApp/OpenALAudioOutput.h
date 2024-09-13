@@ -121,14 +121,14 @@ public:
         m_device = alcOpenDevice(deviceName.empty() ? nullptr : deviceName.c_str());
         if (!m_device)
         {
-            Logger::instance().log("Failed to open OpenAL device", Logger::ERROR);
+            Logger::instance().log("Failed to open OpenAL device", Logger::Type::ERROR);
             return false;
         }
 
         m_context = alcCreateContext(m_device, nullptr);
         if (!alcMakeContextCurrent(m_context))
         {
-            Logger::instance().log("Failed to make OpenAL context current", Logger::ERROR);
+            Logger::instance().log("Failed to make OpenAL context current", Logger::Type::ERROR);
             return false;
         }
 
