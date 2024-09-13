@@ -220,10 +220,10 @@ private:
     //index 0-3
     GERANES_INLINE_HOT void writeNameTable(uint8_t addrIndex, uint16_t addr, uint8_t data)
     {
-        if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
+        /*if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
             m_cartridge.writeCustomNameTable(addrIndex&0x03,addr&0x3FF,data);
         }
-        else {
+        else */ {
             int index = m_cartridge.mirroring(addrIndex&0x03);
             m_nameTable[index][addr&0x3FF] = data;
         }

@@ -141,7 +141,7 @@ public:
 
         int index = addr >> 10; // addr/0x400
 
-        if(addr < 0x1000) {
+        if(index < 4) {
             if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable) return readCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr);
         }
         else {
@@ -161,10 +161,12 @@ public:
         int index = addr >> 10; // addr/0x400
 
         if(addr < 0x1000) {
-            if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable) return writeCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr,data);
+            if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable)
+                return writeCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr,data);
         }
         else {
-            if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return writeCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr,data);
+            if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable)
+                return writeCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr,data);
         }
     }
 
@@ -212,11 +214,11 @@ public:
     }
 
     uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
-    {
-        uint8_t bank = m_MirroringReg[index] & m_CHRREGMask;
+    {        
+        uint8_t bank = m_MirroringReg[index];
         return m_cartridgeData.readCHR<W1K>(bank,addr);
     }
-
+    
     MirroringType mirroringType(void) override
     {
         return IMapper::CUSTOM;
@@ -224,7 +226,8 @@ public:
 
     uint8_t customMirroring(uint8_t blockIndex) override
     {
-        return m_MirroringReg[blockIndex];
+        uint8_t value = m_MirroringReg[blockIndex];
+        return value < 0xE0 ? value : value&0x03;
     }
 
     bool getInterruptFlag(void) override
