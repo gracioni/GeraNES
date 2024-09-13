@@ -225,8 +225,6 @@ private:
         }
         else {
             int index = m_cartridge.mirroring(addrIndex&0x03);
-            const int n = sizeof(m_nameTable) / sizeof(m_nameTable[0]);
-            assert(index < n);
             m_nameTable[index][addr&0x3FF] = data;
         }
     }
@@ -235,7 +233,7 @@ private:
     GERANES_INLINE_HOT uint8_t readNameTable(uint8_t addrIndex, uint16_t addr)
     {
         if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
-            m_cartridge.readCustomNameTable(addrIndex&0x03,addr&0x3FF);
+            return m_cartridge.readCustomNameTable(addrIndex&0x03,addr&0x3FF);
         }
         return m_nameTable[m_cartridge.mirroring(addrIndex&0x03)][addr&0x3FF];
     }
