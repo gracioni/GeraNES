@@ -5,6 +5,7 @@
 #include "functions.h"
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
+#include "Logger.h"
 
 #include "Mappers/Dummymapper.h"
 
@@ -99,6 +100,9 @@ private:
         case 210: return new Mapper210(*m_nesCartridgeData);
 
         }
+
+        const std::string msg = std::string("Mapper not supported: ") + std::to_string(m_nesCartridgeData->mapperNumber());
+        Logger::instance().log(msg, Logger::Type::INFO);
 
         return &m_dummyMapper;
     }    

@@ -74,7 +74,7 @@ private:
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, video, audio)
     } m_data;
 
-    //ConfigFile(const ConfigFile&) = delete;
+    ConfigFile(const ConfigFile&) = delete;
     ConfigFile& operator = (const ConfigFile&) = delete;    
 
     ConfigFile() {
@@ -83,7 +83,7 @@ private:
   
     void load() {
 
-        Logger::instance().log("Loading settings...", Logger::INFO);
+        Logger::instance().log("Loading settings...", Logger::Type::INFO);
 
         std::ifstream file(FILENAME);
 
@@ -156,7 +156,7 @@ public:
     }
   
     void save() {
-        Logger::instance().log("Saving settings...", Logger::INFO);
+        Logger::instance().log("Saving settings...", Logger::Type::INFO);
         std::ofstream file(FILENAME);
         file << std::setw(4) << nlohmann::json(m_data);
     }    

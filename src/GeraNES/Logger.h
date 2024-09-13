@@ -11,11 +11,14 @@ private:
 
     Logger() {} //singleton
 
+    Logger(const Logger&) = delete;
+    Logger& operator = (const Logger&) = delete;
+
 public:
 
-    enum LogFlags {INFO = 1, DEBUG = 2, ERROR = 4};
+    enum class Type {INFO = 1, DEBUG = 2, ERROR = 4};
 
-    SigSlot::Signal<const std::string&, int> signalLog;
+    SigSlot::Signal<const std::string&, Type> signalLog;
 
     static Logger& instance()
     {
@@ -24,9 +27,9 @@ public:
         return instance;
     }
 
-    void log(const std::string& s, int flags = LogFlags::INFO)
+    void log(const std::string& s, Type type = Type::INFO)
     {
-        signalLog(s, flags);
+        signalLog(s, type);
     }
 
 };

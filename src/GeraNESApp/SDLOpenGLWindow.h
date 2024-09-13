@@ -80,21 +80,21 @@ public:
 
     bool create(const std::string& title, int x, int y, int w, int h, Uint32 flags) {
 
-        Logger::instance().log("Initializing SDL window...", Logger::INFO);
+        Logger::instance().log("Initializing SDL window...", Logger::Type::INFO);
 
         m_window = SDL_CreateWindow(title.c_str(), x, y, w, h, flags | SDL_WINDOW_OPENGL);
 
         if(m_window == NULL) {
-            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR);
+            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::Type::ERROR);
             return false;
         }          
         
-        Logger::instance().log("Initializing GL context..", Logger::INFO);
+        Logger::instance().log("Initializing GL context..", Logger::Type::INFO);
 
         m_context = SDL_GL_CreateContext(m_window);
 
         if(m_context == NULL) {
-            Logger::instance().log(std::string("SDL_GL_CreateContext error: ") + SDL_GetError(), Logger::ERROR);
+            Logger::instance().log(std::string("SDL_GL_CreateContext error: ") + SDL_GetError(), Logger::Type::ERROR);
             return false;
         }
 
@@ -264,7 +264,7 @@ public:
 
         SDL_DisplayMode mode;
         if(SDL_GetCurrentDisplayMode(0,&mode) != 0) {
-            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::ERROR);
+            Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::Type::ERROR);
         }
 
         return mode.refresh_rate;

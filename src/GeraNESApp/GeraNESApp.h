@@ -135,18 +135,11 @@ private:
         m_mvp = proj * glm::mat4(1.0f);
     }    
 
-    void onLog(const std::string& msg, int flags) {
+    void onLog(const std::string& msg, Logger::Type type) {
         std::ofstream file(LOG_FILE, std::ios_base::app);
         file << msg << std::endl;
         std::cout << msg << std::endl;
     }
-
-    /*
-    void onErrorLog(const std::string& msg, int flags) {
-        if(flags & Logger::ERROR2)
-            std::cout << msg << std::endl;
-    }
-    */
 
     void onFrameStart() { 
 
@@ -381,7 +374,7 @@ public:
             size_t written = fwrite(fileContent, sizeof(uint8_t), fileSize, file);
 
             if (written != fileSize) {
-                Logger::instance().log("Failed writing file in processFile call", Logger::ERROR);
+                Logger::instance().log("Failed writing file in processFile call", Logger::Type::ERROR);
             }
 
             fclose(file);
@@ -389,7 +382,7 @@ public:
             openFile(fileName);
 
         } else {
-            Logger::instance().log("Failed to open file for writing in processFile call", Logger::ERROR);
+            Logger::instance().log("Failed to open file for writing in processFile call", Logger::Type::ERROR);
         }
 
     }
@@ -439,7 +432,7 @@ public:
         }
         else 
         {
-            Logger::instance().log(NFD_GetError(), Logger::ERROR);
+            Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
         }
 
         NFD_Quit();
@@ -493,7 +486,7 @@ public:
         if(!loaded) {
 
             if(shaderName != "") {
-                Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::INFO);
+                Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::Type::INFO);
                 ConfigFile::instance().setShaderName("");
             }
             loadShader(""); //default
@@ -505,7 +498,7 @@ public:
         setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
-            Logger::instance().log("SDL_Init error", Logger::ERROR);
+            Logger::instance().log("SDL_Init error", Logger::Type::ERROR);
             return false;
         }
 
@@ -513,7 +506,7 @@ public:
         GLenum err = glewInit();
         if (GLEW_OK != err)
         {
-            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::ERROR);
+            Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::Type::ERROR);
             return false;
         }
         #endif    
@@ -618,13 +611,13 @@ public:
         m_shaderProgram.create();      
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())){
-            Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR);
+            Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::Type::ERROR);
             m_shaderProgram.destroy();
             return false;
         }
 
         if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())){
-            Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::ERROR);    
+            Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::Type::ERROR);    
             m_shaderProgram.destroy();
             return false;
         }
@@ -633,7 +626,7 @@ public:
         m_shaderProgram.bindAttributeLocation("TexCoord", 1);
 
         if(!m_shaderProgram.link()){
-            Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::ERROR);   
+            Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::Type::ERROR);   
             m_shaderProgram.destroy();
             return false;
         }

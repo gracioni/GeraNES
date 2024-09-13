@@ -62,7 +62,7 @@ public:
         auto audioDevices = getAudioList();
 
         for(auto d : audioDevices) {
-            Logger::instance().log(std::string("Audio device detected: ") + d, Logger::INFO);
+            Logger::instance().log(std::string("Audio device detected: ") + d, Logger::Type::INFO);
         }        
     }
 
@@ -104,7 +104,7 @@ public:
     {
         turnOff();
 
-        Logger::instance().log("Initializing audio...", Logger::INFO);
+        Logger::instance().log("Initializing audio...", Logger::Type::INFO);
 
         std::string _deviceName = deviceName;
 
@@ -113,7 +113,7 @@ public:
             char* name;
             SDL_AudioSpec dummySpec;
             if(SDL_GetDefaultAudioInfo(&name, &dummySpec, 0) != 0) {
-                Logger::instance().log("SDL_GetDefaultAudioInfo error", Logger::ERROR);
+                Logger::instance().log("SDL_GetDefaultAudioInfo error", Logger::Type::ERROR);
                 return false;
             }
             _deviceName = name;
@@ -134,7 +134,7 @@ public:
         SDL_AudioSpec preferedSpec;
 
         if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) {
-            Logger::instance().log("SDL_GetAudioDeviceSpec error", Logger::ERROR);
+            Logger::instance().log("SDL_GetAudioDeviceSpec error", Logger::Type::ERROR);
             return false;
         }
 
@@ -173,13 +173,13 @@ public:
 
         if(m_device == 0 || spec.format != obtained.format) {
             turnOff();
-            Logger::instance().log("Audio init error", Logger::ERROR);
+            Logger::instance().log("Audio init error", Logger::Type::ERROR);
             return false; 
         }
 
-        Logger::instance().log(std::string("Audio device: ") + _deviceName, Logger::INFO);
-        Logger::instance().log(std::string("Sample rate: ") + std::to_string(sampleRate), Logger::INFO); 
-        Logger::instance().log(std::string("Sample size: ") + std::to_string(sampleSize), Logger::INFO); 
+        Logger::instance().log(std::string("Audio device: ") + _deviceName, Logger::Type::INFO);
+        Logger::instance().log(std::string("Sample rate: ") + std::to_string(sampleRate), Logger::Type::INFO); 
+        Logger::instance().log(std::string("Sample size: ") + std::to_string(sampleSize), Logger::Type::INFO); 
 
         SDL_PauseAudioDevice(m_device, 0);
 
