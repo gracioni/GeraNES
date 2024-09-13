@@ -40,6 +40,7 @@
 
 #include "Mappers/Mapper118.h"
 #include "Mappers/Mapper119.h"
+#include "Mappers/Mapper210.h"
 
 #include "RomFile.h"
 
@@ -95,6 +96,7 @@ private:
 
         case 118: return new Mapper118(*m_nesCartridgeData);
         case 119: return new Mapper119(*m_nesCartridgeData);
+        case 210: return new Mapper210(*m_nesCartridgeData);
 
         }
 
@@ -264,12 +266,7 @@ public:
     GERANES_INLINE_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr)
     {
         return m_mapper->readCustomNameTable(index,addr);
-    }
-
-    GERANES_INLINE_HOT void writeCustomNameTable(uint8_t index, uint16_t addr, uint8_t data)
-    {
-        m_mapper->writeCustomNameTable(index,addr,data);
-    }
+    } 
 
     GERANES_INLINE bool isValid()
     {

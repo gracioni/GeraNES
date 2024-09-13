@@ -139,7 +139,6 @@ public:
     virtual bool getInterruptFlag(void) { return false; }
 
     virtual bool useCustomNameTable(uint8_t index) { return false; }
-    virtual void writeCustomNameTable(uint8_t index, uint16_t addr, uint8_t data) { }
     virtual uint8_t readCustomNameTable(uint8_t index, uint16_t addr) { return 0; }
 
     virtual void writeSRAM8k(int addr, uint8_t data)
