@@ -988,19 +988,52 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE uint8_t readOAMDATA(void)
     {
+        const int test = 0;
+
         uint8_t ret = m_primaryOAM[m_OAMAddr];
 
         if (m_backgroundEnabled || m_spritesEnabled)
         {
-           if (m_currentScanlineCycle < 64)
-              ret = 0xFF;
-           else if (m_currentScanlineCycle < 256)
-              ret = 0x00;
-           else if (m_currentScanlineCycle < 320) //Micro Machines relies on this
-              ret = 0xFF;
-           else //and this:
-               //ret = m_primaryOAM[m_spritesIndexInThisLine[0]]; //first byte of secondary oam
-               ret = 0x00;
+            if (m_currentScanlineCycle < 64+test)
+                ret = 0xFF;
+            else if (m_currentScanlineCycle < 256+test)
+                ret = 0xFF;
+            else if (m_currentScanlineCycle < 320+test) { //Micro Machines relies on this
+                //ret = 0xFF;
+                int s = m_currentScanlineCycle - (256+test);
+                int index = s/8;
+                int offset = s%8;                
+
+                if(index < m_spritesInThisLine) {
+
+                    const uint8_t* currentSprite = &m_primaryOAM[m_spritesIndexInThisLine[index] << 2];
+
+                    if(offset < 4) {
+                        ret = *(currentSprite+offset);
+                        //if(offset == 0) ret++; //sprite Y
+                    }
+                    else
+                        ret = *(currentSprite+3); //sprite X
+                }
+                else if(index == m_spritesInThisLine) {
+
+                    const uint8_t* currentSprite = &m_primaryOAM[63 << 2];
+
+                    if(offset == 0) {
+                        ret = *(currentSprite);
+                        //ret++; //sprite Y
+                    }
+                    else
+                        ret = 0xFF;
+                    
+                }
+                else {
+                    ret = 0xFF;
+                }
+
+            }
+            else //and this:
+                ret = m_primaryOAM[m_spritesIndexInThisLine[0] << 2]; //first byte of secondary oam
         }
 
 
