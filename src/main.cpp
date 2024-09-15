@@ -1,3 +1,5 @@
+#include <cstdlib>
+
 #include "GeraNESApp/GeraNESApp.h"
 
 int main(int argc, char* argv[]) {
@@ -8,4 +10,5 @@ int main(int argc, char* argv[]) {
 
     app.run();
 
+    return EXIT_SUCCESS;
 }
