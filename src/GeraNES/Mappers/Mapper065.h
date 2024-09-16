@@ -78,12 +78,12 @@ public:
         return m_cartridgeData.readCHR<W1K>(m_CHRReg[(addr >> 10)&0x07],addr);
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
     {
         return m_mirroring ? MirroringType::HORIZONTAL : MirroringType::VERTICAL;
     }
 
-    void cycle(void) override
+    void cycle() override
     {
         if(m_IRQEnable) {
 
@@ -96,7 +96,7 @@ public:
         }
     }
 
-    bool getInterruptFlag(void) override
+    bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }

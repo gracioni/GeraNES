@@ -93,7 +93,7 @@ public:
         m_currentPosition = 0.0;
     }    
 
-    virtual float get(void) = 0;
+    virtual float get() = 0;
 };
 
 /*

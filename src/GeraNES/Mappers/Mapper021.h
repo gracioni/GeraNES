@@ -162,7 +162,7 @@ public:
         return m_cartridgeData.readCHR<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
-    MirroringType mirroringType(void) override
+    MirroringType mirroringType() override
     {
         switch(m_mirroring) {
         case 0: return IMapper::VERTICAL;
@@ -174,12 +174,12 @@ public:
         return IMapper::FOUR_SCREEN;
     }
 
-    virtual bool getInterruptFlag(void) override
+    virtual bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
-    void cycle(void) override
+    void cycle() override
     {
         if(!m_IRQEnable) return;
 

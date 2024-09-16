@@ -43,22 +43,22 @@ public:
         m_error = "";
     }
 
-    GERANES_INLINE std::string error(void) override
+    GERANES_INLINE std::string error() override
     {
         return m_error;
     }
 
-    GERANES_INLINE int numberOfPRG16kBanks(void) override
+    GERANES_INLINE int numberOfPRG16kBanks() override
     {
         return m_romFile.data(4);
     }
 
-    GERANES_INLINE int numberOfCHR8kBanks(void) override
+    GERANES_INLINE int numberOfCHR8kBanks() override
     {
         return m_romFile.data(5);
     }
 
-    GERANES_INLINE int mirroringType(void) override
+    GERANES_INLINE int mirroringType() override
     {
         /*
         Byte 6
@@ -69,7 +69,7 @@ public:
         return m_romFile.data(6) & 0x01;
     }
 
-    GERANES_INLINE bool hasBatteryRAM8k(void) override
+    GERANES_INLINE bool hasBatteryRAM8k() override
     {
         /*
         Byte 6
@@ -79,7 +79,7 @@ public:
         return m_romFile.data(6) & 0x02;
     }
 
-    GERANES_INLINE bool hasTrainer(void) override
+    GERANES_INLINE bool hasTrainer() override
     {
         /*
         Byte 6
@@ -89,7 +89,7 @@ public:
         return m_romFile.data(6) & 0x04;
     }
 
-    GERANES_INLINE bool useFourScreenMirroring(void) override
+    GERANES_INLINE bool useFourScreenMirroring() override
     {
         /*
         Byte 6
@@ -99,7 +99,7 @@ public:
         return m_romFile.data(6) & 0x08;
     }
 
-    GERANES_INLINE int mapperNumber(void) override
+    GERANES_INLINE int mapperNumber() override
     {
         return ((m_romFile.data(6)&0xF0) >> 4) | (m_romFile.data(7)&0xF0);
     }
@@ -110,7 +110,7 @@ public:
     versions of the iNES format, assume 1 page of RAM when
     this is 0.
     */
-    GERANES_INLINE_HOT int numberOfRAMBanks(void) override
+    GERANES_INLINE_HOT int numberOfRAMBanks() override
     {
         int n = m_romFile.data(8);
         if(n == 0) n = 1;

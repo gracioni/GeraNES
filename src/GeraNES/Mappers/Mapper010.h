@@ -90,7 +90,7 @@ public:
         return ret;
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
     {
         if(m_mirrorMode) return IMapper::HORIZONTAL;
         return IMapper::VERTICAL;

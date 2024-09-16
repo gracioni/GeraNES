@@ -61,7 +61,7 @@ public:
         IMapper::writeCHR8k(addr,data);
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
     {
         if(m_mirroring) return MirroringType::HORIZONTAL;
         return MirroringType::VERTICAL;

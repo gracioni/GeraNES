@@ -20,32 +20,32 @@ public:
     ICartridgeData(RomFile& romFile) : m_romFile(romFile) {
     };
 
-    const RomFile& romFile(void) {
+    const RomFile& romFile() {
         return m_romFile;
     }
 
-    virtual std::string error(void) = 0;
+    virtual std::string error() = 0;
 
-    virtual int numberOfPRG16kBanks(void) = 0;
+    virtual int numberOfPRG16kBanks() = 0;
 
-    virtual int numberOfCHR8kBanks(void) = 0;
+    virtual int numberOfCHR8kBanks() = 0;
 
-    virtual int mirroringType(void) = 0;
+    virtual int mirroringType() = 0;
 
     /*
       Indicates the presence of battery-backed RAM at
       memory locations $6000-$7FFF.
     */
-    virtual bool hasBatteryRAM8k(void) = 0;
+    virtual bool hasBatteryRAM8k() = 0;
 
-    virtual bool hasTrainer(void) = 0;
+    virtual bool hasTrainer() = 0;
 
-    virtual bool useFourScreenMirroring(void) = 0;
+    virtual bool useFourScreenMirroring() = 0;
 
     //iNes mapper numbers as reference
-    virtual int mapperNumber(void) = 0;
+    virtual int mapperNumber() = 0;
 
-    virtual int numberOfRAMBanks(void) = 0;
+    virtual int numberOfRAMBanks() = 0;
 
     virtual uint8_t readTrainer(int addr) = 0;
 
@@ -53,7 +53,7 @@ public:
 
     virtual uint8_t readCHR(int addr) = 0;
 
-    GERANES_INLINE std::string debug(void)
+    GERANES_INLINE std::string debug()
     {
         std::stringstream aux;
 

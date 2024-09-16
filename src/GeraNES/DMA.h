@@ -78,7 +78,7 @@ public:
 
             if (!m_cpu.isOpcodeWriteCycle())
             {
-                m_cpu.sleep(1);
+                m_cpu.halt(1);
                 m_state = State::READ;      
             }
             break;
@@ -87,7 +87,7 @@ public:
 
             if (!m_cpu.isOpcodeWriteCycle() && (dmcReload || (!dmcReload && m_cpu.isOddCycle())))
             {
-                m_cpu.sleep(1);
+                m_cpu.halt(1);
                 m_state = State::DUMMY;
             }
             break;
@@ -95,7 +95,7 @@ public:
         case State::DUMMY:
 
             m_state = State::READ;
-            m_cpu.sleep(1);  
+            m_cpu.halt(1);  
 
             m_bus.read(m_cpu.bus_addr());
 
@@ -134,7 +134,7 @@ public:
                 m_bus.read(m_cpu.bus_addr());
             }
 
-            m_cpu.sleep(1);
+            m_cpu.halt(1);
 
             break;
 
@@ -175,7 +175,7 @@ public:
                     m_state = State::READ;
             }
 
-            m_cpu.sleep(1);
+            m_cpu.halt(1);
 
             break;
         

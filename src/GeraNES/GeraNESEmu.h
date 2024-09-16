@@ -579,7 +579,7 @@ public:
         m_controller2.setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
     }
 
-    PPU& getPPU(void)
+    PPU& getPPU()
     {
         return m_ppu;
     }

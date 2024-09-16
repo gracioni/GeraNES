@@ -14,7 +14,7 @@ public:
     {
     }
 
-    MirroringType mirroringType(void) override
+    MirroringType mirroringType() override
     {
          return IMapper::CUSTOM;
     }

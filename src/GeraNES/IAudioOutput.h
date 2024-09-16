@@ -7,7 +7,7 @@ class IAudioOutput
 {
     public:
 
-    virtual bool init(void) {return true;}
+    virtual bool init(){return true;}
     virtual void render(uint32_t dt, bool silenceFlag){}
     virtual void setSquare1Frequency(float /*f*/){}
     virtual void setSquare1DutyCycle(float /*d*/){}

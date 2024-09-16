@@ -40,7 +40,7 @@ public:
         return m_cartridgeData.readCHR<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
-    bool getInterruptFlag(void) override
+    bool getInterruptFlag() override
     {
         return false;
     }

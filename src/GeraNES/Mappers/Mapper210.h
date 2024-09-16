@@ -16,7 +16,7 @@ public:
         return false;
     }
     
-    MirroringType mirroringType(void) override
+    MirroringType mirroringType() override
     {
         return IMapper::mirroringType();
     }

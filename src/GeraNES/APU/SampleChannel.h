@@ -197,7 +197,7 @@ public:
         if(!m_sampleBufferFilled && m_bytesRemaining > 0) readSample(reload);
     }
 
-    bool getInterruptFlag(void)
+    bool getInterruptFlag()
     {
         return m_interruptFlag;
     }
@@ -251,7 +251,7 @@ public:
         }
     }
 
-    int getBytesRemaining(void)
+    int getBytesRemaining()
     {
         return m_bytesRemaining;
     }

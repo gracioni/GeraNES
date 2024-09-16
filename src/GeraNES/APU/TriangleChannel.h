@@ -76,13 +76,13 @@ public:
         }
     }
 
-    void updateLengthCounter(void)
+    void updateLengthCounter()
     {
         m_lengthUpdated = true;
         if ( !m_loop && m_lengthCounter > 0 ) m_lengthCounter--;
     }
 
-    void updateLinearCounter(void)
+    void updateLinearCounter()
     {
         if(m_loop) m_linearCounter = m_linearLoad;
         else
@@ -91,7 +91,7 @@ public:
         }
     }
 
-    bool isEnabled(void)
+    bool isEnabled()
     {
         return m_enabled && m_lengthCounter > 0 && m_linearCounter > 0 && m_period > 0;
     }
@@ -102,7 +102,7 @@ public:
         if(!status) m_lengthCounter = 0;
     }
 
-    uint8_t getVolume(void)
+    uint8_t getVolume()
     {
         if(isEnabled())
             return (m_enabled && m_lengthCounter > 0 && m_linearCounter > 0) ? 15 : 0;
@@ -110,12 +110,12 @@ public:
         return 0;
     }
 
-    uint16_t getPeriod(void)
+    uint16_t getPeriod()
     {
         return m_period;
     }
 
-    uint16_t getLengthCounter(void)
+    uint16_t getLengthCounter()
     {
         return m_lengthCounter;
     }

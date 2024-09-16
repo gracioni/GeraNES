@@ -423,7 +423,7 @@ public:
     }
 
 
-    GERANES_INLINE_HOT bool getInterruptFlag(void)
+    GERANES_INLINE_HOT bool getInterruptFlag()
     {        
         if(m_interruptFlag)
         {
@@ -517,17 +517,17 @@ yyy NN YYYYY XXXXX
 
 */
 
-    int getCursorX(void)
+    int getCursorX()
     {
         return m_debugCursorX;
     }
 
-    int getCursorY(void)
+    int getCursorY()
     {        
         return m_debugCursorY;
     }
 
-    GERANES_INLINE void evaluateSprites(void)
+    GERANES_INLINE void evaluateSprites()
     {
         m_spritesInThisLine = 0;
         m_testSprite0HitInThisLine = false;
@@ -555,7 +555,7 @@ yyy NN YYYYY XXXXX
     }
 
 
-    GERANES_INLINE_HOT void renderSpritesPixel(void)
+    GERANES_INLINE_HOT void renderSpritesPixel()
     {
         if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
         if(m_currentY == 0) return;
@@ -962,7 +962,7 @@ yyy NN YYYYY XXXXX
         m_colorEmphasis = data >> 5;
     }
 
-    GERANES_INLINE uint8_t readPPUSTATUS(void)
+    GERANES_INLINE uint8_t readPPUSTATUS()
     {
         uint8_t ret = 0x00;
 
@@ -986,7 +986,7 @@ yyy NN YYYYY XXXXX
         m_OAMAddr = data;
     }
 
-    GERANES_INLINE uint8_t readOAMDATA(void)
+    GERANES_INLINE uint8_t readOAMDATA()
     {
         const int test = 0;
 
@@ -1119,7 +1119,7 @@ yyy NNYY YYYX XXXX
         m_reg_w = !m_reg_w;
     }
 
-    GERANES_INLINE uint8_t readPPUDATA(void)
+    GERANES_INLINE uint8_t readPPUDATA()
     {
         uint8_t ret;
 

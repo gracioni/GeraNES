@@ -60,7 +60,7 @@ private:
     RomFile m_romFile;
 
     //iNes format mapper number as base reference
-    IMapper* CreateMapper(void)
+    IMapper* CreateMapper()
     {
         switch(m_nesCartridgeData->mapperNumber())
         {
@@ -122,7 +122,7 @@ public:
         if(m_nesCartridgeData != NULL) delete m_nesCartridgeData;
     }
 
-    void clear(void)
+    void clear()
     {
         if(m_mapper != &m_dummyMapper) delete m_mapper;
         if(m_nesCartridgeData != NULL) delete m_nesCartridgeData;
@@ -218,7 +218,7 @@ public:
         return m_mapper->read0x4000(addr,openBusData);
     }
 
-    GERANES_INLINE IMapper::MirroringType getMirroringType(void)
+    GERANES_INLINE IMapper::MirroringType getMirroringType()
     {
         return m_mapper->mirroringType();
     }
@@ -247,17 +247,17 @@ public:
         }
     }
 
-    GERANES_INLINE bool getInterruptFlag(void)
+    GERANES_INLINE bool getInterruptFlag()
     {
         return m_mapper->getInterruptFlag();
     }
 
-    GERANES_INLINE void tickMapper(void)
+    GERANES_INLINE void tickMapper()
     {
         m_mapper->tick();
     }
 
-    GERANES_INLINE void cycle(void)
+    GERANES_INLINE void cycle()
     {
         m_mapper->cycle();
     }

@@ -12,47 +12,47 @@ private:
 
 public:
 
-    GERANES_INLINE std::string error(void) override
+    GERANES_INLINE std::string error() override
     {
         return "";
     }
 
-    GERANES_INLINE int numberOfPRG16kBanks(void) override
+    GERANES_INLINE int numberOfPRG16kBanks() override
     {
         return false;
     }
 
-    GERANES_INLINE int numberOfCHR8kBanks(void) override
+    GERANES_INLINE int numberOfCHR8kBanks() override
     {
         return false;
     }
 
-    GERANES_INLINE int mirroringType(void) override
+    GERANES_INLINE int mirroringType() override
     {
         return 0;
     }
 
-    bool hasBatteryRAM8k(void) override
+    bool hasBatteryRAM8k() override
     {
         return false;
     }
 
-    GERANES_INLINE bool hasTrainer(void) override
+    GERANES_INLINE bool hasTrainer() override
     {
         return false;
     }
 
-    GERANES_INLINE bool useFourScreenMirroring(void) override
+    GERANES_INLINE bool useFourScreenMirroring() override
     {
         return true;
     }
 
-    GERANES_INLINE int mapperNumber(void) override
+    GERANES_INLINE int mapperNumber() override
     {
         return 0;
     }
 
-    GERANES_INLINE_HOT int numberOfRAMBanks(void) override
+    GERANES_INLINE_HOT int numberOfRAMBanks() override
     {
         return 0;
     }

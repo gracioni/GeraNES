@@ -116,7 +116,7 @@ public:
         return m_VRAM;
     }
 
-    virtual void reset(void) {}
+    virtual void reset(){}
     virtual void writePRG32k(int /*addr*/, uint8_t /*data*/) {}
     virtual uint8_t readPRG32k(int /*addr*/) { return 0; }
 
@@ -132,11 +132,11 @@ public:
     virtual void write0x4000(int /*addr*/, uint8_t /*data*/) {}
     virtual uint8_t read0x4000(int /*addr*/, uint8_t openBusData) { return openBusData; }
 
-    virtual void tick(void) {}
-    virtual void cycle(void) { } //cpu cycle
+    virtual void tick(){}
+    virtual void cycle(){ } //cpu cycle
 
 
-    virtual bool getInterruptFlag(void) { return false; }
+    virtual bool getInterruptFlag(){ return false; }
 
     virtual bool useCustomNameTable(uint8_t index) { return false; }
     virtual uint8_t readCustomNameTable(uint8_t index, uint16_t addr) { return 0; }
@@ -151,7 +151,7 @@ public:
         return m_SRAM[addr&0x1FFF];
     }
 
-    virtual MirroringType mirroringType(void)
+    virtual MirroringType mirroringType()
     {
         if(m_cartridgeData.useFourScreenMirroring() ) return IMapper::FOUR_SCREEN;
         else

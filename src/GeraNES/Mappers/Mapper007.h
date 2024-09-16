@@ -31,7 +31,7 @@ public:
         return m_cartridgeData.readPRG<W32K>(m_PRGReg,addr);
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
     {
         if(!m_mirroring) return IMapper::SINGLE_SCREEN_A;
         return IMapper::SINGLE_SCREEN_B;

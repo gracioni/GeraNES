@@ -53,7 +53,7 @@ public:
         m_sample.clearBuffer();   
     }
 
-    GERANES_INLINE_HOT float mix(void)
+    GERANES_INLINE_HOT float mix()
     {
         float ret = 0;
 

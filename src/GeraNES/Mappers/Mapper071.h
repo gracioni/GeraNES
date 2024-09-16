@@ -47,7 +47,7 @@ public:
         return 0;
     }
 
-    MirroringType mirroringType(void) override
+    MirroringType mirroringType() override
     {
         if(m_mirroring == 0xFF) return IMapper::mirroringType();
 

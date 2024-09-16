@@ -161,7 +161,7 @@ public:
         return m_cartridgeData.readCHR<W1K>(m_CHRREG[index],addr);
     }
 
-    GERANES_INLINE_HOT MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT MirroringType mirroringType() override
     {
         switch(m_mirroring){
         case 0: return MirroringType::VERTICAL;
@@ -173,7 +173,7 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
-    GERANES_INLINE_HOT void cycle(void) override
+    GERANES_INLINE_HOT void cycle() override
     {
         if(m_IRQCounterEnable) {
 
@@ -182,7 +182,7 @@ public:
         }
     }
 
-    GERANES_INLINE_HOT bool getInterruptFlag(void) override {
+    GERANES_INLINE_HOT bool getInterruptFlag() override {
         return m_interruptFlag;
     }
 

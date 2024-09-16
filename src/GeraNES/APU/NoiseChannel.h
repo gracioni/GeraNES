@@ -57,7 +57,7 @@ public:
         init();
     }
 
-    void init(void)
+    void init()
     {
         m_enabled = false;
         m_lengthCounter = 0;
@@ -110,7 +110,7 @@ public:
         }
     }
 
-    void updateLengthCounter(void)
+    void updateLengthCounter()
     {
         m_lengthUpdated = true;
         if (m_loop == false && m_lengthCounter > 0) --m_lengthCounter;
@@ -134,7 +134,7 @@ public:
         }
     }
 
-    bool isEnabled(void)
+    bool isEnabled()
     {
         return m_enabled == true && m_lengthCounter > 0 && m_period > 0;
     }
@@ -145,7 +145,7 @@ public:
         if(!status) m_lengthCounter = 0;
     }
 
-    uint8_t getVolume(void)
+    uint8_t getVolume()
     {
         if(isEnabled())
             return m_constantVolumeMode ? m_constantVolumeAndEnvelopPeriod : m_envelopVolume;
@@ -153,17 +153,17 @@ public:
         return 0;
     }
 
-    uint16_t getPeriod(void)
+    uint16_t getPeriod()
     {
         return m_period;
     }
 
-    uint16_t getLengthCounter(void)
+    uint16_t getLengthCounter()
     {
         return m_lengthCounter;
     }
 
-    bool getMode(void)
+    bool getMode()
     {
         return m_mode;
     }

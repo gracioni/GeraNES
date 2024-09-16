@@ -92,7 +92,7 @@ public:
         return 0;
     }
 
-    void cycle(void) override
+    void cycle() override
     {
         if(m_enableIRQ) {
             --m_IRQCounter;
@@ -100,12 +100,12 @@ public:
         }
     };
 
-    bool getInterruptFlag(void) override
+    bool getInterruptFlag() override
     {
         return m_IRQFlag;
     };
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
     {
         switch(m_mirroring)
         {

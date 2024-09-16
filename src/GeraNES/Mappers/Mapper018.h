@@ -136,7 +136,7 @@ public:
     }
 
 
-    GERANES_INLINE_HOT void cycle(void) override
+    GERANES_INLINE_HOT void cycle() override
     {
         if(m_IRQEnable) {
 
@@ -148,13 +148,13 @@ public:
         }
     }
 
-    GERANES_INLINE_HOT bool getInterruptFlag(void) override
+    GERANES_INLINE_HOT bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
 
-    GERANES_INLINE_HOT MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT MirroringType mirroringType() override
     {
         switch(m_mirroring){
         case 0: return MirroringType::HORIZONTAL;

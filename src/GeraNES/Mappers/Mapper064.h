@@ -226,25 +226,25 @@ public:
         return 0;
     } 
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType(void) override
+    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
     {
         if(m_cartridgeData.useFourScreenMirroring() ) return IMapper::FOUR_SCREEN;
         if(m_mirroring) return IMapper::HORIZONTAL;
         return IMapper::VERTICAL;
     }
 
-    bool getInterruptFlag(void) override
+    bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
-    void tick(void) override
+    void tick() override
     {
         if(m_irqMode == true) return;
         haha();
     }
 
-    void cycle(void) override
+    void cycle() override
     {
         if(m_delayToInterrupt > -1) {
             --m_delayToInterrupt;

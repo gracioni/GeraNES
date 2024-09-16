@@ -219,7 +219,7 @@ public:
         return m_cartridgeData.readCHR<W1K>(bank,addr);
     }
     
-    MirroringType mirroringType(void) override
+    MirroringType mirroringType() override
     {
         return IMapper::CUSTOM;
     }
@@ -230,12 +230,12 @@ public:
         return value < 0xE0 ? value : value&0x03;
     }
 
-    bool getInterruptFlag(void) override
+    bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
-    void cycle(void) override
+    void cycle() override
     {
         if(m_IRQEnable) {
             if( (m_IRQCounter&0x7FFF) == 0x7FFF) {

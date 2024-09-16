@@ -79,7 +79,7 @@ public:
         return m_sample;
     }
 
-    const std::string init(void)
+    const std::string init()
     {
 
 
@@ -108,7 +108,7 @@ public:
         return "";
     }
 
-    GERANES_INLINE_HOT bool getInterruptFlag(void)
+    GERANES_INLINE_HOT bool getInterruptFlag()
     {
         return m_frameInterruptFlag || m_sample.getInterruptFlag();
     }
@@ -202,7 +202,7 @@ public:
 
     }
 
-    void updateEnvelopsAndLinearCounters(void)
+    void updateEnvelopsAndLinearCounters()
     {
         m_square1.updateEnvelop();
         m_square2.updateEnvelop();
@@ -210,7 +210,7 @@ public:
         m_noise.updateEnvelop();
     }
 
-    void updateLengthCountersAndSweeps(void)
+    void updateLengthCountersAndSweeps()
     {
         m_square1.updateSweep(0);
         m_square1.updateLengthCounter();
