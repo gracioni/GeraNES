@@ -210,7 +210,7 @@ private:
         }
 
     const std::string saveStateFileName() {
-        return std::string(STATES_FOLDER) + m_cartridge.romFile().hash() + ".ss";
+        return std::string(STATES_FOLDER) + m_cartridge.romFile().fileCrc32() + ".ss";
     }
 
 public:
@@ -277,16 +277,16 @@ public:
         m_rewind.destroy();
     }
 
-    const std::string open(const std::string& filename)
+    bool open(const std::string& filename)
     {
-        std::string result;
+        bool result;
 
         m_ppu.clearFramebuffer();
       
 
         result = m_cartridge.open(filename);
 
-        if(result.empty()) { //no errors
+        if(result) { //no errors
 
             m_halt = false;
             m_4011WriteCounter = 0;

@@ -17,12 +17,12 @@ public:
         return "";
     }
 
-    GERANES_INLINE int numberOfPRG16kBanks() override
+    GERANES_INLINE int numberOfPrg16kBanks() override
     {
         return false;
     }
 
-    GERANES_INLINE int numberOfCHR8kBanks() override
+    GERANES_INLINE int numberOfChr8kBanks() override
     {
         return false;
     }
@@ -32,7 +32,7 @@ public:
         return 0;
     }
 
-    bool hasBatteryRAM8k() override
+    bool hasBatteryRam8k() override
     {
         return false;
     }
@@ -52,7 +52,7 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT int numberOfRAMBanks() override
+    GERANES_INLINE_HOT int numberOfRamBanks() override
     {
         return 0;
     }
@@ -62,12 +62,12 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG(int /*addr*/) override
+    GERANES_INLINE_HOT uint8_t readPrg(int /*addr*/) override
     {
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR(int /*addr*/) override
+    GERANES_INLINE_HOT uint8_t readChr(int /*addr*/) override
     {
         return 0;
     }

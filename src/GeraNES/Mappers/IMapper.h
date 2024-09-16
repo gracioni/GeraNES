@@ -38,12 +38,12 @@ private:
 
     std::string sramFile() {
         auto romFile = m_cartridgeData.romFile();
-        return std::string(SRAM_FOLDER) + romFile.hash() + ".sram";
+        return std::string(SRAM_FOLDER) + romFile.fileCrc32() + ".sram";
     }
 
     void loadSRAM()
     {
-        if(!m_cartridgeData.hasBatteryRAM8k()) return;
+        if(!m_cartridgeData.hasBatteryRam8k()) return;
 
         std::ifstream f(sramFile(), std::ios::binary);
 
@@ -69,7 +69,7 @@ private:
 
     void saveSRAM()
     {
-        if(!m_cartridgeData.hasBatteryRAM8k()) return;
+        if(!m_cartridgeData.hasBatteryRam8k()) return;
 
         std::string dir = fs::path(sramFile()).parent_path().string();
         if(!fs::exists(dir)) fs::create_directory(dir);
@@ -90,7 +90,7 @@ public:
 
     IMapper(ICartridgeData& cd) : m_cartridgeData(cd)
     {
-        if(m_cartridgeData.hasBatteryRAM8k()) {
+        if(m_cartridgeData.hasBatteryRam8k()) {
             loadSRAM();
         }
         else memset(m_SRAM, 0, sizeof(m_SRAM));        

@@ -60,8 +60,8 @@ public:
     {
         addr &= 0x7FFF;
 
-        if(addr < 0x4000) return m_cartridgeData.readPRG<W16K>(m_PRGReg,addr);
-        return m_cartridgeData.readPRG<W16K>(numberOfPRG16kBanks-1,addr);
+        if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(m_PRGReg,addr);
+        return m_cartridgeData.readPrg<W16K>(numberOfPRG16kBanks-1,addr);
     }
 
     GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
@@ -73,12 +73,12 @@ public:
         addr &= 0x1FFF;
 
         if(addr < 0x1000) {
-            if(!m_latch1) ret = m_cartridgeData.readCHR<W4K>(m_CHRReg0A, addr);
-            else ret = m_cartridgeData.readCHR<W4K>(m_CHRReg0B, addr);
+            if(!m_latch1) ret = m_cartridgeData.readChr<W4K>(m_CHRReg0A, addr);
+            else ret = m_cartridgeData.readChr<W4K>(m_CHRReg0B, addr);
         }
         else {
-            if(!m_latch2) ret = m_cartridgeData.readCHR<W4K>(m_CHRReg1A, addr);
-            else ret = m_cartridgeData.readCHR<W4K>(m_CHRReg1B, addr);
+            if(!m_latch2) ret = m_cartridgeData.readChr<W4K>(m_CHRReg1A, addr);
+            else ret = m_cartridgeData.readChr<W4K>(m_CHRReg1B, addr);
         }
 
         if(addr == 0x0FD8) m_latch1 = false;

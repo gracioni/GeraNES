@@ -6,6 +6,7 @@
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
 #include "Logger.h"
+#include "crc32.h"
 
 #include "Mappers/Dummymapper.h"
 
@@ -47,6 +48,8 @@
 
 #include "Serialization.h"
 
+#include "Db.h"
+
 class Cartridge
 {
 private:
@@ -59,10 +62,11 @@ private:
 
     RomFile m_romFile;
 
-    //iNes format mapper number as base reference
+    int m_mapperNumber;
+
     IMapper* CreateMapper()
     {
-        switch(m_nesCartridgeData->mapperNumber())
+        switch(m_mapperNumber)
         {
         case 0: return new Mapper000(*m_nesCartridgeData);
         case 1: return new Mapper001(*m_nesCartridgeData);
@@ -99,13 +103,42 @@ private:
         case 119: return new Mapper119(*m_nesCartridgeData);
         case 210: return new Mapper210(*m_nesCartridgeData);
 
-        }
-
-        const std::string msg = std::string("Mapper not supported: ") + std::to_string(m_nesCartridgeData->mapperNumber());
-        Logger::instance().log(msg, Logger::Type::INFO);
+        }         
 
         return &m_dummyMapper;
-    }    
+    }
+
+    uint32_t prgCrc32() {
+
+        int nBanks = m_nesCartridgeData->numberOfPrg16kBanks();
+        int prgSize = nBanks * 0x4000;
+
+        Crc32 crc;
+
+        for(int i = 0; i < nBanks; i++) {
+            for(int j = 0; j < 0x4000; j++) {
+                crc.add(m_nesCartridgeData->readPrg<0x4000>(i,j));
+            }
+        }
+
+        return crc.get();
+    }
+
+    uint32_t prgChrCrc32() {
+
+        Crc32 crc(prgCrc32());
+
+        int nChrBanks = m_nesCartridgeData->numberOfChr8kBanks();
+        int chrSize = nChrBanks * 0x2000;
+
+        for(int i = 0; i < nChrBanks; i++) {
+            for(int j = 0; j < 0x2000; j++) {
+                crc.add(m_nesCartridgeData->readChr<0x2000>(i,j));
+            }
+        }
+
+        return crc.get();
+    }
 
 public:
 
@@ -135,7 +168,7 @@ public:
         m_isValid = false;        
     }
 
-    const std::string open(const std::string& filename)
+    bool open(const std::string& filename)
     {
         clear();
 
@@ -143,7 +176,8 @@ public:
 
         if(m_romFile.error() != "") {
             clear();
-            return std::string("Couldn't open file '") + filename + "'";
+            Logger::instance().log(std::string("Couldn't open file '") + filename + "'", Logger::Type::ERROR);
+            return false;
         }
 
         //try open various file formats here, currently only iNes is supported
@@ -155,6 +189,26 @@ public:
             return "Invalid ROM";
         }
 
+        uint32_t prgCrc = prgCrc32();
+        uint32_t prgChrCrc = prgChrCrc32();
+
+        std::string prgCrcStr = Crc32::toString(prgCrc);
+        std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
+
+        Logger::instance().log(std::string("PRG crc32: ") + prgCrcStr, Logger::Type::INFO);
+        Logger::instance().log(std::string("PRG+CHR crc32: ") + prgChrCrcStr, Logger::Type::INFO);
+
+        Db::Data* dbData = Db::instance().find(prgChrCrcStr);
+
+        if(dbData != nullptr) {
+            Logger::instance().log("Register found in database", Logger::Type::INFO);
+            m_mapperNumber = atoi(dbData->Mapper.c_str());
+        }
+        else {
+            Logger::instance().log("Register not found in database", Logger::Type::INFO);
+            m_mapperNumber = m_nesCartridgeData->mapperNumber();
+        }
+
         //try other formats files here
 
         m_mapper = CreateMapper();
@@ -164,12 +218,14 @@ public:
 
             sprintf(num, "%d", m_nesCartridgeData->mapperNumber());
 
-            auto ret = std::string("Unsupported Mapper: (") + num + ")" +
+            auto msg = std::string("Mapper not supported: (") + num + ")" +
                 getMapperName(m_nesCartridgeData->mapperNumber());
+
+            Logger::instance().log(msg, Logger::Type::ERROR);
 
             clear();
 
-            return ret;
+            return false;
         }
         else m_mapper->init();
 

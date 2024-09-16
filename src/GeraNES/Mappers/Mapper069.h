@@ -144,10 +144,10 @@ public:
     GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>13) {
-        case 0: return m_cartridgeData.readPRG<W8K>(m_PRGREG[1],addr);
-        case 1: return m_cartridgeData.readPRG<W8K>(m_PRGREG[2],addr);
-        case 2: return m_cartridgeData.readPRG<W8K>(m_PRGREG[3],addr);
-        case 3: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+        case 0: return m_cartridgeData.readPrg<W8K>(m_PRGREG[1],addr);
+        case 1: return m_cartridgeData.readPrg<W8K>(m_PRGREG[2],addr);
+        case 2: return m_cartridgeData.readPrg<W8K>(m_PRGREG[3],addr);
+        case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
         }
 
         return 0;
@@ -158,7 +158,7 @@ public:
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
         int index = addr >> 10; // addr/0x400
-        return m_cartridgeData.readCHR<W1K>(m_CHRREG[index],addr);
+        return m_cartridgeData.readChr<W1K>(m_CHRREG[index],addr);
     }
 
     GERANES_INLINE_HOT MirroringType mirroringType() override
@@ -196,7 +196,7 @@ public:
         if(m_PRGRAMEnable && m_PRGRAMSelect)
             return readCHRRAM<W8K>(m_PRGREG[0],addr);
 
-        return m_cartridgeData.readPRG<W8K>(m_PRGREG[0],addr);
+        return m_cartridgeData.readPrg<W8K>(m_PRGREG[0],addr);
     }
 
     void serialization(SerializationBase& s) override

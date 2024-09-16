@@ -35,7 +35,7 @@ public:
 
     uint8_t readPRG32k(int addr) override
     {
-        return m_cartridgeData.readPRG<W32K>(m_PRGReg,addr);
+        return m_cartridgeData.readPrg<W32K>(m_PRGReg,addr);
     }
 
     uint8_t readCHR8k(int addr) override
@@ -44,8 +44,8 @@ public:
         else {
 
             switch(addr>>12){
-            case 0: return m_cartridgeData.readCHR<W4K>(m_CHRReg[0],addr);
-            case 1: return m_cartridgeData.readCHR<W4K>(m_CHRReg[1],addr);
+            case 0: return m_cartridgeData.readChr<W4K>(m_CHRReg[0],addr);
+            case 1: return m_cartridgeData.readChr<W4K>(m_CHRReg[1],addr);
             }
 
         }

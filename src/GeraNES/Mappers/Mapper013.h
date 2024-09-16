@@ -27,7 +27,7 @@ public:
 
     GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
     {
-        return m_cartridgeData.readPRG<W32K>(0,addr);
+        return m_cartridgeData.readPrg<W32K>(0,addr);
     }
 
     GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override

@@ -37,7 +37,7 @@ public:
 
         bank >>= 1; //VRC2a only
 
-        return m_cartridgeData.readCHR<W1K>(bank&m_CHRREGMask,addr); // addr/1024
+        return m_cartridgeData.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
     bool getInterruptFlag() override

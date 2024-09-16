@@ -66,19 +66,19 @@ public:
         if(!m_PRGMode)
         {
             switch(addr >> 13) { // addr/8k
-            case 0: return m_cartridgeData.readPRG<W8K>(m_PRGReg0,addr);
-            case 1: return m_cartridgeData.readPRG<W8K>(m_PRGReg1,addr);
-            case 2: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
-            case 3: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
+            case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
+            case 2: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
+            case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
             }
         }
         else
         {
             switch(addr >> 13) {
-            case 0: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
-            case 1: return m_cartridgeData.readPRG<W8K>(m_PRGReg1,addr);
-            case 2: return m_cartridgeData.readPRG<W8K>(m_PRGReg0,addr);
-            case 3: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
+            case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
+            case 2: return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
+            case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
             }
         }
 
@@ -152,26 +152,26 @@ public:
         {
             switch(addr >> 10) { // addr/1k
             case 0:
-            case 1: return m_cartridgeData.readCHR<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
+            case 1: return m_cartridgeData.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
             case 2:
-            case 3: return m_cartridgeData.readCHR<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
-            case 4: return m_cartridgeData.readCHR<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 5: return m_cartridgeData.readCHR<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 6: return m_cartridgeData.readCHR<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 7: return m_cartridgeData.readCHR<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+            case 3: return m_cartridgeData.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
+            case 4: return m_cartridgeData.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
+            case 5: return m_cartridgeData.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
+            case 6: return m_cartridgeData.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
+            case 7: return m_cartridgeData.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: return m_cartridgeData.readCHR<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 1: return m_cartridgeData.readCHR<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 2: return m_cartridgeData.readCHR<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 3: return m_cartridgeData.readCHR<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+            case 0: return m_cartridgeData.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
+            case 1: return m_cartridgeData.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
+            case 2: return m_cartridgeData.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
+            case 3: return m_cartridgeData.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
             case 4:
-            case 5: return m_cartridgeData.readCHR<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
+            case 5: return m_cartridgeData.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
             case 6:
-            case 7: return m_cartridgeData.readCHR<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
+            case 7: return m_cartridgeData.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
             }
 
         }

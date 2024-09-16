@@ -38,7 +38,7 @@ public:
         if(strncmp(aux, iNesBytes, size) != 0) return;
 
         m_PRGStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0);
-        m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + numberOfPRG16kBanks()*0x4000/*16KB*/;
+        m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + numberOfPrg16kBanks()*0x4000/*16KB*/;
 
         m_error = "";
     }
@@ -48,12 +48,12 @@ public:
         return m_error;
     }
 
-    GERANES_INLINE int numberOfPRG16kBanks() override
+    GERANES_INLINE int numberOfPrg16kBanks() override
     {
         return m_romFile.data(4);
     }
 
-    GERANES_INLINE int numberOfCHR8kBanks() override
+    GERANES_INLINE int numberOfChr8kBanks() override
     {
         return m_romFile.data(5);
     }
@@ -69,7 +69,7 @@ public:
         return m_romFile.data(6) & 0x01;
     }
 
-    GERANES_INLINE bool hasBatteryRAM8k() override
+    GERANES_INLINE bool hasBatteryRam8k() override
     {
         /*
         Byte 6
@@ -110,7 +110,7 @@ public:
     versions of the iNES format, assume 1 page of RAM when
     this is 0.
     */
-    GERANES_INLINE_HOT int numberOfRAMBanks() override
+    GERANES_INLINE_HOT int numberOfRamBanks() override
     {
         int n = m_romFile.data(8);
         if(n == 0) n = 1;
@@ -123,12 +123,12 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG(int addr) override
+    GERANES_INLINE_HOT uint8_t readPrg(int addr) override
     {
         return m_romFile.data(m_PRGStartIndex + addr);
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR(int addr) override
+    GERANES_INLINE_HOT uint8_t readChr(int addr) override
     {
         return m_romFile.data(m_CHRStartIndex + addr);
     }

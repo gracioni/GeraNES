@@ -16,14 +16,13 @@ private:
 
 public:
 
-    enum class Type {INFO = 1, DEBUG = 2, ERROR = 4};
+    enum class Type {INFO = 1, WARNING = 2, ERROR = 3, DEBUG = 4};
 
     SigSlot::Signal<const std::string&, Type> signalLog;
 
     static Logger& instance()
     {
         static Logger instance;
-
         return instance;
     }
 

@@ -281,8 +281,7 @@ public:
 
         Logger::instance().signalLog.bind(&GeraNESApp::onLog, this);
         //Logger::instance().signalLog.bind(GeraNESApp::onErrorLog, this);
-        m_emu.signalFrameStart.bind(&GeraNESApp::onFrameStart, this);
-    
+        m_emu.signalFrameStart.bind(&GeraNESApp::onFrameStart, this);    
 
         m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(&GeraNESApp::onCaptureEnd, this);

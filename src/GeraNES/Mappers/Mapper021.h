@@ -132,19 +132,19 @@ public:
         if(!m_PRGMode) {
 
             switch(addr>>13) { // addr/8192
-            case 0: return m_cartridgeData.readPRG<W8K>(m_PRGReg[0],addr);
-            case 1: return m_cartridgeData.readPRG<W8K>(m_PRGReg[1],addr);
-            case 2: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
-            case 3: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cartridgeData.readPrg<W8K>(m_PRGReg[0],addr);
+            case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg[1],addr);
+            case 2: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
+            case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
             }
         }
         else {
 
             switch(addr>>13) { // addr/8192
-            case 0: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
-            case 1: return m_cartridgeData.readPRG<W8K>(m_PRGReg[1],addr);
-            case 2: return m_cartridgeData.readPRG<W8K>(m_PRGReg[0],addr);
-            case 3: return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
+            case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg[1],addr);
+            case 2: return m_cartridgeData.readPrg<W8K>(m_PRGReg[0],addr);
+            case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
             }
 
         }
@@ -159,7 +159,7 @@ public:
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];
 
-        return m_cartridgeData.readCHR<W1K>(bank&m_CHRREGMask,addr); // addr/1024
+        return m_cartridgeData.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
     MirroringType mirroringType() override

@@ -6,7 +6,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "sha1/sha1.hpp"
+#include "crc32.h"
 
 #include "zip/zip.h"
 
@@ -19,7 +19,7 @@ private:
 
     std::string m_fullpath;
     std::string m_fileName;
-    std::string m_hash;
+    std::string m_fileHash;
     std::string m_error;
     std::vector<uint8_t> m_data;
 
@@ -77,6 +77,7 @@ public:
 
         if(zipEntries.size() > 0) {
             m_data = readZipFile(path, zipEntries[0]);
+            m_fileName = basename(zipEntries[0]);
         }
         else {
 
@@ -103,16 +104,19 @@ public:
                 m_error = "file not found";
                 return false;
             }
+
+            m_fileName = basename(path);
         }
 
         m_fullpath = path;
-        m_fileName = basename(path);
-        m_hash = SHA1::from_bytes((const char*)&m_data[0], m_data.size());
+
+        uint32_t crc = Crc32::calc((const char*)&m_data[0], m_data.size());     
+        m_fileHash = Crc32::toString(crc);
 
         return true;
     }
 
-    GERANES_INLINE std::string hash() const { return m_hash; }
+    GERANES_INLINE std::string fileCrc32() const { return m_fileHash; }
     GERANES_INLINE std::string fileName() const { return m_fileName; }
     GERANES_INLINE std::string fullPath() const { return m_fullpath; }
     GERANES_INLINE std::string error() const { return m_error; }
@@ -125,8 +129,8 @@ public:
 
         aux << "File name: "<< fileName() << std::endl;
         aux << "Full path: "<< fullPath() << std::endl;
-        aux << "Sha1: "<< hash() << std::endl;
-        aux << "Size: "<< size();
+        aux << "File crc32: "<< fileCrc32() << std::endl;
+        aux << "File Size: " << size() << " bytes";
 
         return aux.str();
     }

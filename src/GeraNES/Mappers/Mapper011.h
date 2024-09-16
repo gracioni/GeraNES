@@ -30,7 +30,7 @@ public:
     GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
     {
         addr &= 0x7FFF;
-        return m_cartridgeData.readPRG<W32K>(m_PRGBank, addr);
+        return m_cartridgeData.readPrg<W32K>(m_PRGBank, addr);
     }
 
     GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
@@ -38,7 +38,7 @@ public:
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
         addr &= 0x1FFF;
-        return m_cartridgeData.readCHR<W8K>(m_CHRBank,addr);
+        return m_cartridgeData.readChr<W8K>(m_CHRBank,addr);
     }
 
     void serialization(SerializationBase& s) override

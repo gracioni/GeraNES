@@ -64,24 +64,24 @@ public:
         if(!m_PRGMode)
         {
             if(addr >= 0x0000 && addr < 0x2000)
-                return m_cartridgeData.readPRG<W8K>(m_PRGReg0,addr);
+                return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
             else if(addr >= 0x2000 && addr < 0x4000)
-                return m_cartridgeData.readPRG<W8K>(m_PRGReg1,addr);
+                return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
             else if(addr >= 0x4000 && addr < 0x6000)
-                return m_cartridgeData.readPRG<W8K>(m_PRGReg2,addr);
+                return m_cartridgeData.readPrg<W8K>(m_PRGReg2,addr);
             else if(addr >= 0x6000 && addr < 0x8000)
-                return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+                return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
         }
         else
         {
             if(addr >= 0x0000 && addr < 0x2000)
-                return m_cartridgeData.readPRG<W8K>(m_PRGReg2,addr);
+                return m_cartridgeData.readPrg<W8K>(m_PRGReg2,addr);
             else if(addr >= 0x2000 && addr < 0x4000)
-                return m_cartridgeData.readPRG<W8K>(m_PRGReg0,addr);
+                return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
             else if(addr >= 0x4000 && addr < 0x6000)
-                return m_cartridgeData.readPRG<W8K>(m_PRGReg1,addr);
+                return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
             else if(addr >= 0x6000 && addr < 0x8000)
-                return m_cartridgeData.readPRG<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+                return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
         }
 
         return 0;
@@ -156,70 +156,70 @@ public:
             if(!m_CHRMode && !m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0800)
-                    return m_cartridgeData.readCHR<W2K>(m_CHRReg0>>1,addr);
+                    return m_cartridgeData.readChr<W2K>(m_CHRReg0>>1,addr);
                 else if(addr >= 0x0800 && addr < 0x1000)
-                    return m_cartridgeData.readCHR<W2K>(m_CHRReg1>>1,addr);
+                    return m_cartridgeData.readChr<W2K>(m_CHRReg1>>1,addr);
                 else if(addr >= 0x1000 && addr < 0x1400)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg2,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
                 else if(addr >= 0x1400 && addr < 0x1800)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg3,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
                 else if(addr >= 0x1800 && addr < 0x1C00)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg4,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
                 else if(addr >= 0x1C00 && addr < 0x2000)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg5,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
             }
             else if(!m_CHRMode && m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0400)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg0,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg0,addr);
                 if(addr >= 0x0400 && addr < 0x0800)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg6,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg6,addr);
                 else if(addr >= 0x0800 && addr < 0x0C00)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg1,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg1,addr);
                 else if(addr >= 0x0C00 && addr < 0x1000)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg7,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg7,addr);
                 else if(addr >= 0x1000 && addr < 0x1400)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg2,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
                 else if(addr >= 0x1400 && addr < 0x1800)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg3,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
                 else if(addr >= 0x1800 && addr < 0x1C00)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg4,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
                 else if(addr >= 0x1C00 && addr < 0x2000)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg5,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
             }
             else if(m_CHRMode && !m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0400)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg2,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
                 if(addr >= 0x0400 && addr < 0x0800)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg3,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
                 if(addr >= 0x0800 && addr < 0x0C00)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg4,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
                 if(addr >= 0x0C00 && addr < 0x1000)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg5,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
                 if(addr >= 0x1000 && addr < 0x1800)
-                    return m_cartridgeData.readCHR<W2K>(m_CHRReg0>>1,addr);
+                    return m_cartridgeData.readChr<W2K>(m_CHRReg0>>1,addr);
                 if(addr >= 0x1800 && addr < 0x2000)
-                    return m_cartridgeData.readCHR<W2K>(m_CHRReg1>>1,addr);
+                    return m_cartridgeData.readChr<W2K>(m_CHRReg1>>1,addr);
             }
             else if(m_CHRMode && m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0400)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg2,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
                 if(addr >= 0x0400 && addr < 0x0800)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg3,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
                 else if(addr >= 0x0800 && addr < 0x0C00)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg4,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
                 else if(addr >= 0x0C00 && addr < 0x1000)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg5,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
                 else if(addr >= 0x1000 && addr < 0x1400)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg0,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg0,addr);
                 else if(addr >= 0x1400 && addr < 0x1800)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg6,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg6,addr);
                 else if(addr >= 0x1800 && addr < 0x1C00)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg1,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg1,addr);
                 else if(addr >= 0x1C00 && addr < 0x2000)
-                    return m_cartridgeData.readCHR<W1K>(m_CHRReg7,addr);
+                    return m_cartridgeData.readChr<W1K>(m_CHRReg7,addr);
             }
         }
 

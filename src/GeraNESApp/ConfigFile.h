@@ -141,14 +141,8 @@ private:
 public:    
 
     static ConfigFile& instance() {
-
-        static std::unique_ptr<ConfigFile> _instance;
-
-        if (!_instance) {
-            _instance.reset(new ConfigFile());
-        }
-
-        return *_instance;
+        static ConfigFile _instance;
+        return _instance;
     }
 
     ~ConfigFile() {
