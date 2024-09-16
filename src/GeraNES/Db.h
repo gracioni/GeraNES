@@ -9,7 +9,7 @@
 #include <cassert>
 
 #include "Logger.h"
-#include "StringTrim.h"
+#include "util/StringTrim.h"
 
 class Db {
 

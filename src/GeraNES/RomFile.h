@@ -6,7 +6,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "crc32.h"
+#include "util/Crc32.h"
 
 #include "zip/zip.h"
 

@@ -6,7 +6,7 @@
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
 #include "Logger.h"
-#include "crc32.h"
+#include "util/Crc32.h"
 
 #include "Mappers/Dummymapper.h"
 
