@@ -202,7 +202,7 @@ public:
 
         if(dbData != nullptr) {
             Logger::instance().log("Register found in database", Logger::Type::INFO);
-            m_mapperNumber = atoi(dbData->Mapper.c_str());
+            m_mapperNumber = std::stoi(dbData->Mapper);
         }
         else {
             Logger::instance().log("Register not found in database", Logger::Type::INFO);
