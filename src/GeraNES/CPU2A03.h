@@ -378,7 +378,7 @@ public:
     {
         //getAddrImediate();
         _ADC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x69];
+        
         m_pc += 2;
     }
 
@@ -386,7 +386,7 @@ public:
     {
         //getAddrZeroPage();
         _ADC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x65];
+        
         m_pc += 2;
     }
 
@@ -394,7 +394,7 @@ public:
     {
         //getAddrZeroPageX();
         _ADC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x75];
+        
         m_pc += 2;
     }
 
@@ -402,7 +402,7 @@ public:
     {
         //getAddrAbsolute();
         _ADC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x6D];
+        
         m_pc += 3;
     }
 
@@ -411,7 +411,7 @@ public:
         //getAddrAbsoluteX();
         _ADC();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x7D];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -422,7 +422,7 @@ public:
         //getAddrAbsoluteY();
         _ADC();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x79];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -432,7 +432,7 @@ public:
     {
         //getAddrIndirectX();
         _ADC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x61];;
+        
         m_pc += 2;
     }
 
@@ -441,7 +441,7 @@ public:
         //getAddrIndirectY();
         _ADC();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x71];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 2;
@@ -458,7 +458,7 @@ public:
     {
         //getAddrImediate();
         _AND();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x29];
+        
         m_pc += 2;
     }
 
@@ -466,7 +466,7 @@ public:
     {
         //getAddrZeroPage();
         _AND();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x25];
+        
         m_pc += 2;
     }
 
@@ -474,7 +474,7 @@ public:
     {
         //getAddrZeroPageX();
         _AND();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x35];;
+        
         m_pc += 2;
     }
 
@@ -482,7 +482,7 @@ public:
     {
         //getAddrAbsolute();
         _AND();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x2D];
+        
         m_pc += 3;
     }
 
@@ -491,7 +491,7 @@ public:
         //getAddrAbsoluteX();
         _AND();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x3D];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -502,7 +502,7 @@ public:
         //getAddrAbsoluteY();
         _AND();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x39];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -512,7 +512,7 @@ public:
     {
         //getAddrIndirectX();
         _AND();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x21];
+        
         m_pc += 2;
     }
 
@@ -520,7 +520,7 @@ public:
     {
         //getAddrIndirectY();
         _AND();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x31];
+        
         if(m_pageCross) ++m_instructionCycles;
         m_pc += 2;
     }
@@ -546,7 +546,7 @@ public:
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x0A];
+        
         m_pc += 1;
     }
 
@@ -554,7 +554,7 @@ public:
     {
         //getAddrZeroPage();
         _ASL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x06];
+        
         m_pc += 2;
     }
 
@@ -562,7 +562,7 @@ public:
     {
         //getAddrZeroPageX();
         _ASL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x16];
+        
         m_pc += 2;
     }
 
@@ -570,7 +570,7 @@ public:
     {
         //getAddrAbsolute();
         _ASL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x0E];
+        
         m_pc += 3;
     }
 
@@ -578,7 +578,7 @@ public:
     {
         //getAddrAbsoluteX();
         _ASL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x1E];
+        
         m_pc += 3;
     }
 
@@ -588,7 +588,7 @@ public:
 
         m_pc += 2;
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x90];
+        
 
         if(!m_carryFlag)
         {
@@ -611,7 +611,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB0];
+        
 
         if(m_carryFlag)
         {
@@ -633,7 +633,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xF0];
+        
 
         if(m_zeroFlag)
         {
@@ -663,7 +663,7 @@ public:
     {
         //getAddrZeroPage();
         _BIT();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x24];
+        
         m_pc += 2;
     }
 
@@ -671,7 +671,7 @@ public:
     {
         //getAddrAbsolute();
         _BIT();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x2C];
+        
         m_pc += 3;
     }
 
@@ -680,7 +680,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x30];
+        
 
         if(m_negativeFlag)
         {
@@ -703,7 +703,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xD0];
+        
 
         if(!m_zeroFlag)
         {
@@ -725,7 +725,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x10];
+        
 
         if(!m_negativeFlag)
         {
@@ -764,7 +764,7 @@ public:
 
         m_irqSignal = false;
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x00];
+        
     }
 
     GERANES_INLINE_HOT void OP_50_BVC()
@@ -772,7 +772,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x50];
+        
 
         if(!m_overflowFlag)
         {
@@ -794,7 +794,7 @@ public:
         //getAddrRelative();
 
         m_pc += 2;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x70];
+        
 
         if(m_overflowFlag)
         {
@@ -815,28 +815,28 @@ public:
     {
         m_carryFlag = false;
         m_pc += 1;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x18];
+        
     }
 
     GERANES_INLINE_HOT void OP_D8_CLD()
     {
         m_decimalFlag = false;
         m_pc += 1;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xD8];
+        
     }
 
     GERANES_INLINE_HOT void OP_58_CLI()
     {
         m_intFlag = false;
         m_pc += 1;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x58];
+        
     }
 
     GERANES_INLINE_HOT void OP_B8_CLV()
     {
         m_overflowFlag = false;
         m_pc += 1;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB8];
+        
     }
 
     GERANES_INLINE_HOT void _CMP()
@@ -855,7 +855,7 @@ public:
     {
         //getAddrImediate();
         _CMP();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC9];
+        
         m_pc += 2;
     }
 
@@ -863,7 +863,7 @@ public:
     {
         //getAddrZeroPage();
         _CMP();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC5];
+        
         m_pc += 2;
     }
 
@@ -871,7 +871,7 @@ public:
     {
         //getAddrZeroPageX();
         _CMP();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xD5];
+        
         m_pc += 2;
     }
 
@@ -879,7 +879,7 @@ public:
     {
         //getAddrAbsolute();
         _CMP();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xCD];
+        
         m_pc += 3;
     }
 
@@ -888,7 +888,7 @@ public:
         //getAddrAbsoluteX();
         _CMP();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xDD];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -899,7 +899,7 @@ public:
         //getAddrAbsoluteY();
         _CMP();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xD9];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -909,7 +909,7 @@ public:
     {
         //getAddrIndirectX();
         _CMP();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC1];
+        
         m_pc += 2;
     }
 
@@ -918,7 +918,7 @@ public:
         //getAddrIndirectY();
         _CMP();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xD1];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 2;
@@ -940,7 +940,7 @@ public:
     {
         //getAddrImediate();
         _CPX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE0];
+        
         m_pc += 2;
     }
 
@@ -948,7 +948,7 @@ public:
     {
         //getAddrZeroPage();
         _CPX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE4];
+        
         m_pc += 2;
     }
 
@@ -956,7 +956,7 @@ public:
     {
         //getAddrAbsolute();
         _CPX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xEC];
+        
         m_pc += 3;
     }
 
@@ -976,7 +976,7 @@ public:
     {
         //getAddrImediate();
         _CPY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC0];
+        
         m_pc += 2;
     }
 
@@ -984,7 +984,7 @@ public:
     {
         //getAddrZeroPage();
         _CPY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC4];
+        
         m_pc += 2;
     }
 
@@ -992,7 +992,7 @@ public:
     {
         //getAddrAbsolute();
         _CPY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xCC];
+        
         m_pc += 3;
     }
 
@@ -1012,7 +1012,7 @@ public:
     {
         //getAddrZeroPage();
         _DEC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC6];
+        
         m_pc += 2;
     }
 
@@ -1020,7 +1020,7 @@ public:
     {
         //getAddrZeroPageX();
         _DEC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xD6];
+        
         m_pc += 2;
     }
 
@@ -1028,7 +1028,7 @@ public:
     {
         //getAddrAbsolute();
         _DEC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xCE];
+        
         m_pc += 3;
     }
 
@@ -1036,7 +1036,7 @@ public:
     {
         //getAddrAbsoluteX();
         _DEC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xDE];
+        
         m_pc += 3;
     }
 
@@ -1047,7 +1047,7 @@ public:
         m_negativeFlag = (m_x&0x80);
         m_zeroFlag = (m_x == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xCA];
+        
         m_pc += 1;
     }
 
@@ -1058,7 +1058,7 @@ public:
         m_negativeFlag = (m_y&0x80);
         m_zeroFlag = (m_y == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x88];
+        
         m_pc += 1;
     }
 
@@ -1074,7 +1074,7 @@ public:
     {
         //getAddrImediate();
         _EOR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x49];
+        
         m_pc += 2;
     }
 
@@ -1082,7 +1082,7 @@ public:
     {
         //getAddrZeroPage();
         _EOR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x45];
+        
         m_pc += 2;
     }
 
@@ -1090,7 +1090,7 @@ public:
     {
         //getAddrZeroPageX();
         _EOR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x55];
+        
         m_pc += 2;
     }
 
@@ -1098,7 +1098,7 @@ public:
     {
         //getAddrAbsolute();
         _EOR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x4D];
+        
         m_pc += 3;
     }
 
@@ -1107,7 +1107,7 @@ public:
         //getAddrAbsoluteX();
         _EOR();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x5D];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1118,7 +1118,7 @@ public:
         //getAddrAbsoluteY();
         _EOR();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x59];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1128,7 +1128,7 @@ public:
     {
         //getAddrIndirectX();
         _EOR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x41];
+        
         m_pc += 2;
     }
 
@@ -1137,7 +1137,7 @@ public:
         //getAddrIndirectY();
         _EOR();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x51];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 2;
@@ -1159,7 +1159,7 @@ public:
     {
         //getAddrZeroPage();
         _INC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE6];
+        
         m_pc += 2;
     }
 
@@ -1167,7 +1167,7 @@ public:
     {
         //getAddrZeroPageX();
         _INC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xF6];
+        
         m_pc += 2;
     }
 
@@ -1175,7 +1175,7 @@ public:
     {
         //getAddrAbsolute();
         _INC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xEE];
+        
         m_pc += 3;
     }
 
@@ -1183,7 +1183,7 @@ public:
     {
         //getAddrAbsoluteX();
         _INC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xFE];
+        
         m_pc += 3;
     }
 
@@ -1194,7 +1194,7 @@ public:
         m_negativeFlag = (m_x&0x80);
         m_zeroFlag = (m_x == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE8];
+        
         m_pc += 1;
     }
 
@@ -1205,7 +1205,7 @@ public:
         m_negativeFlag = (m_y&0x80);
         m_zeroFlag = (m_y == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xC8];
+        
         m_pc += 1;
     }
 
@@ -1213,14 +1213,14 @@ public:
     {
         //getAddrAbsolute();
         m_pc = m_addr;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x4C];
+        
     }
 
     GERANES_INLINE_HOT void OP_6C_JMP()
     {
         //getAddrIndirect();
         m_pc = m_addr;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x6C];
+        
     }
 
     GERANES_INLINE_HOT void OP_20_JSR()
@@ -1232,7 +1232,7 @@ public:
 
         m_pc = m_addr;
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x20];
+        
     }
 
     GERANES_INLINE_HOT void _LDA()
@@ -1246,7 +1246,7 @@ public:
     {
         //getAddrImediate();
         _LDA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA9];
+        
         m_pc += 2;
     }
 
@@ -1254,7 +1254,7 @@ public:
     {
         //getAddrZeroPage();
         _LDA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA5];
+        
         m_pc += 2;
     }
 
@@ -1262,7 +1262,7 @@ public:
     {
         //getAddrZeroPageX();
         _LDA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB5];
+        
         m_pc += 2;
     }
 
@@ -1270,7 +1270,7 @@ public:
     {
         //getAddrAbsolute();
         _LDA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xAD];
+        
         m_pc += 3;
     }
 
@@ -1279,7 +1279,7 @@ public:
         //getAddrAbsoluteX();
         _LDA();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xBD];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1290,7 +1290,7 @@ public:
         //getAddrAbsoluteY();
         _LDA();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB9];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1300,7 +1300,7 @@ public:
     {
         //getAddrIndirectX();
         _LDA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA1];
+        
         m_pc += 2;
     }
 
@@ -1309,7 +1309,7 @@ public:
         //getAddrIndirectY();
         _LDA();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB1];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 2;
@@ -1326,7 +1326,7 @@ public:
     {
         //getAddrImediate();
         _LDX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA2];
+        
         m_pc += 2;
     }
 
@@ -1334,7 +1334,7 @@ public:
     {
         //getAddrZeroPage();
         _LDX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA6];
+        
         m_pc += 2;
     }
 
@@ -1342,7 +1342,7 @@ public:
     {
         //getAddrZeroPageY();
         _LDX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB6];
+        
         m_pc += 2;
     }
 
@@ -1350,7 +1350,7 @@ public:
     {
         //getAddrAbsolute();
         _LDX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xAE];
+        
         m_pc += 3;
     }
 
@@ -1359,7 +1359,7 @@ public:
         //getAddrAbsoluteY();
         _LDX();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xBE];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1376,7 +1376,7 @@ public:
     {
         //getAddrImediate();
         _LDY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA0];
+        
         m_pc += 2;
     }
 
@@ -1384,7 +1384,7 @@ public:
     {
         //getAddrZeroPage();
         _LDY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA4];
+        
         m_pc += 2;
     }
 
@@ -1392,7 +1392,7 @@ public:
     {
         //getAddrZeroPageX();
         _LDY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xB4];
+        
         m_pc += 2;
     }
 
@@ -1400,7 +1400,7 @@ public:
     {
         //getAddrAbsolute();
         _LDY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xAC];
+        
         m_pc += 3;
     }
 
@@ -1409,7 +1409,7 @@ public:
         //getAddrAbsoluteX();
         _LDY();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xBC];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1431,7 +1431,7 @@ public:
         m_a >>= 1;
         m_negativeFlag = false;
         m_zeroFlag = (m_a == 0x00);
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x4A];
+        
         m_pc += 1;
     }
 
@@ -1439,7 +1439,7 @@ public:
     {
         //getAddrZeroPage();
         _LSR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x46];
+        
         m_pc += 2;
     }
 
@@ -1447,7 +1447,7 @@ public:
     {
         //getAddrZeroPageX();
         _LSR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x56];
+        
         m_pc += 2;
     }
 
@@ -1455,7 +1455,7 @@ public:
     {
         //getAddrAbsolute();
         _LSR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x4E];
+        
         m_pc += 3;
     }
 
@@ -1463,13 +1463,12 @@ public:
     {
         //getAddrAbsoluteX();
         _LSR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x5E];
+        
         m_pc += 3;
     }
 
     GERANES_INLINE_HOT void OP_XX_NOP()
     {
-        m_instructionCycles = 2;
         m_pc += 1;
     }
 
@@ -1484,7 +1483,7 @@ public:
     {
         //getAddrImediate();
         _ORA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x09];
+        
         m_pc += 2;
     }
 
@@ -1492,7 +1491,7 @@ public:
     {
         //getAddrZeroPage();
         _ORA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x05];
+        
         m_pc += 2;
     }
 
@@ -1500,7 +1499,7 @@ public:
     {
         //getAddrZeroPageX();
         _ORA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x15];
+        
         m_pc += 2;
     }
 
@@ -1508,7 +1507,7 @@ public:
     {
         //getAddrAbsolute();
         _ORA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x0D];
+        
         m_pc += 3;
     }
 
@@ -1517,7 +1516,7 @@ public:
         //getAddrAbsoluteX();
         _ORA();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x1D];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1528,7 +1527,7 @@ public:
         //getAddrAbsoluteY();
         _ORA();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x19];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1538,7 +1537,7 @@ public:
     {
         //getAddrIndirectX();
         _ORA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x01];
+        
         m_pc += 2;
     }
 
@@ -1547,7 +1546,7 @@ public:
         //getAddrIndirectY();
         _ORA();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x11];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 2;
@@ -1556,7 +1555,7 @@ public:
     GERANES_INLINE_HOT void OP_48_PHA()
     {
         push(m_a);
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x48];
+        
         m_pc += 1;
     }
 
@@ -1566,7 +1565,7 @@ public:
         m_unusedFlag = true;
 
         push(m_status);
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x08];
+        
         m_pc += 1;
     }
 
@@ -1575,14 +1574,14 @@ public:
         m_a = pull();
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x68];
+        
         m_pc += 1;
     }
 
     GERANES_INLINE_HOT void OP_28_PLP()
     {
         m_status = pull();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x28];
+        
         m_pc += 1;
     }
 
@@ -1613,7 +1612,7 @@ public:
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x2A];
+        
         m_pc += 1;
     }
 
@@ -1621,7 +1620,7 @@ public:
     {
         //getAddrZeroPage();
         _ROL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x26];
+        
         m_pc += 2;
     }
 
@@ -1629,7 +1628,7 @@ public:
     {
         //getAddrZeroPageX();
         _ROL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x36];
+        
         m_pc += 2;
     }
 
@@ -1637,7 +1636,7 @@ public:
     {
         //getAddrAbsolute();
         _ROL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x2E];
+        
         m_pc += 3;
     }
 
@@ -1645,7 +1644,7 @@ public:
     {
         //getAddrAbsoluteX();
         _ROL();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x3E];
+        
         m_pc += 3;
     }
 
@@ -1676,7 +1675,7 @@ public:
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x6A];
+        
         m_pc += 1;
     }
 
@@ -1684,7 +1683,7 @@ public:
     {
         //getAddrZeroPage();
         _ROR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x66];
+        
         m_pc += 2;
     }
 
@@ -1692,7 +1691,7 @@ public:
     {
         //getAddrZeroPageX();
         _ROR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x76];
+        
         m_pc += 2;
     }
 
@@ -1700,7 +1699,7 @@ public:
     {
         //getAddrAbsolute();
         _ROR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x6E];
+        
         m_pc += 3;
     }
 
@@ -1708,7 +1707,7 @@ public:
     {
         //getAddrAbsoluteX();
         _ROR();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x7E];
+        
         m_pc += 3;
     }
 
@@ -1720,7 +1719,7 @@ public:
         m_status = pull();
         m_pc = pull16();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x40];     
+        
     }
 
     GERANES_INLINE_HOT void OP_60_RTS()
@@ -1729,7 +1728,7 @@ public:
         m_bus.read(m_pc+1);
 
         m_pc = pull16();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x60];
+        
         m_pc += 1;
     }
 
@@ -1750,7 +1749,7 @@ public:
     {
         //getAddrImediate();
         _SBC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE9];
+        
         m_pc += 2;
     }
 
@@ -1758,7 +1757,7 @@ public:
     {
         //getAddrZeroPage();
         _SBC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE5];
+        
         m_pc += 2;
     }
 
@@ -1766,7 +1765,7 @@ public:
     {
         //getAddrZeroPageX();
         _SBC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xF5];
+        
         m_pc += 2;
     }
 
@@ -1774,7 +1773,7 @@ public:
     {
         //getAddrAbsolute();
         _SBC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xED];
+        
         m_pc += 3;
     }
 
@@ -1783,7 +1782,7 @@ public:
         //getAddrAbsoluteX();
         _SBC();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xFD];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1794,7 +1793,7 @@ public:
         //getAddrAbsoluteY();
         _SBC();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xF9];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 3;
@@ -1804,7 +1803,7 @@ public:
     {
         //getAddrIndirectX();
         _SBC();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xE1];
+        
         m_pc += 2;
     }
 
@@ -1813,7 +1812,7 @@ public:
         //getAddrIndirectY();
         _SBC();
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xF1];
+        
         if(m_pageCross) ++m_instructionCycles;
 
         m_pc += 2;
@@ -1822,21 +1821,21 @@ public:
     GERANES_INLINE_HOT void OP_38_SEC()
     {
         m_carryFlag = true;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x38];
+        
         m_pc += 1;
     }
 
     GERANES_INLINE_HOT void OP_F8_SED()
     {
         m_decimalFlag = true;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xF8];
+        
         m_pc += 1;
     }
 
     GERANES_INLINE_HOT void OP_78_SEI()
     {
         m_intFlag = true;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x78];
+        
         m_pc += 1;
     }
 
@@ -1849,7 +1848,7 @@ public:
     {
         //getAddrZeroPage();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x85];
+        
         m_pc += 2;
     }
 
@@ -1857,7 +1856,7 @@ public:
     {
         //getAddrZeroPageX();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x95];
+        
         m_pc += 2;
     }
 
@@ -1865,7 +1864,7 @@ public:
     {
         //getAddrAbsolute();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x8D];
+        
         m_pc += 3;
     }
 
@@ -1873,7 +1872,7 @@ public:
     {
         //getAddrAbsoluteX();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x9D];
+        
         m_pc += 3;
     }
 
@@ -1881,7 +1880,7 @@ public:
     {
         //getAddrAbsoluteY();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x99];
+        
         m_pc += 3;
     }
 
@@ -1889,7 +1888,7 @@ public:
     {
         //getAddrIndirectX();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x81];
+        
         m_pc += 2;
     }
 
@@ -1897,7 +1896,7 @@ public:
     {
         //getAddrIndirectY();
         _STA();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x91];
+        
         m_pc += 2;
     }
 
@@ -1910,7 +1909,7 @@ public:
     {
         //getAddrZeroPage();
         _STX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x86];
+        
         m_pc += 2;
     }
 
@@ -1918,7 +1917,7 @@ public:
     {
         //getAddrZeroPageY();
         _STX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x96];
+        
         m_pc += 2;
     }
 
@@ -1926,7 +1925,7 @@ public:
     {
         //getAddrAbsolute();
         _STX();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x8E];
+        
         m_pc += 3;
     }
 
@@ -1939,7 +1938,7 @@ public:
     {
         //getAddrZeroPage();
         _STY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x84];
+        
         m_pc += 2;
     }
 
@@ -1947,7 +1946,7 @@ public:
     {
         //getAddrZeroPageX();
         _STY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x94];
+        
         m_pc += 2;
     }
 
@@ -1955,7 +1954,7 @@ public:
     {
         //getAddrAbsolute();
         _STY();
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x8C];
+        
         m_pc += 3;
     }
 
@@ -1966,7 +1965,7 @@ public:
         m_negativeFlag = (m_x&0x80);
         m_zeroFlag = (m_x == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xAA];
+        
         m_pc += 1;
     }
 
@@ -1977,7 +1976,7 @@ public:
         m_negativeFlag = (m_y&0x80);
         m_zeroFlag = (m_y == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xA8];
+        
         m_pc += 1;
     }
 
@@ -1988,7 +1987,7 @@ public:
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x98];
+        
         m_pc += 1;
     }
 
@@ -1999,7 +1998,7 @@ public:
         m_negativeFlag = (m_x&0x80);
         m_zeroFlag = (m_x == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0xBA];
+        
         m_pc += 1;
     }
 
@@ -2010,14 +2009,14 @@ public:
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
 
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x8A];
+        
         m_pc += 1;
     }
 
     GERANES_INLINE_HOT void OP_9A_TXS()
     {
         m_sp = m_x;
-        m_instructionCycles = OPCODE_CYCLES_TABLE[0x9A];
+        
         m_pc += 1;
     }
 
@@ -2328,7 +2327,8 @@ public:
                         emulateInterruptSequence();
                     }
                     else {
-                        int expected = getOpcodeCyclesHint();                        
+                        m_instructionCycles = getOpcodeCyclesHint();
+                        int expected = m_instructionCycles;                      
                         emulateOpcode();
                         m_realExpectedDiff = m_instructionCycles - expected;
                     }
