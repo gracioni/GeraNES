@@ -30,14 +30,14 @@ public:
     {
         if(addr < 0x1000) addr &= 0x0FFF;
         else addr = (m_CHRReg * 0x1000) + (addr&0x0FFF);
-        return *(getVRAM()+addr);
+        return *(getChrRam()+addr);
     }
 
     GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(addr < 0x1000) addr &= 0x0FFF;
         else addr = (m_CHRReg * 0x1000) + (addr&0x0FFF);
-        *(getVRAM()+addr) = data;
+        *(getChrRam()+addr) = data;
     }
 
     void serialization(SerializationBase &s) override

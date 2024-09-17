@@ -21,7 +21,7 @@ public:
         addr = bank*WindowSize + (addr&(WindowSize-1));
         addr = addr&(W8K-1);
 
-        return getVRAM()[addr];
+        return getChrRam()[addr];
     }
 
     template<int WindowSize>
@@ -30,7 +30,7 @@ public:
         addr = bank*WindowSize + (addr&(WindowSize-1));
         addr = addr&(W8K-1);
 
-        getVRAM()[addr] = data;
+        getChrRam()[addr] = data;
     }
 
     GERANES_HOT uint8_t readChr(int addr) override

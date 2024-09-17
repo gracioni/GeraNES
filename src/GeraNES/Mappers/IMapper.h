@@ -105,7 +105,7 @@ public:
         }
     }
 
-    uint8_t* getVRAM() {
+    uint8_t* getChrRam() {
         return m_chrRam;
     }
 
