@@ -11,10 +11,10 @@ private:
     ICartridgeData* m_src;
     Db::Data* m_dbData;
 
-    int m_numberOfPrg16kBanks;
-    int m_numberOfChr8kBanks;
+    int m_prgSize;
+    int m_chrSize;
 
-    int m_numberOfRamBanks;
+    int m_ramSize;
 
     bool m_hasBattery;
     int m_saveRamSize;
@@ -28,11 +28,11 @@ public:
 
     DbOverwriteCartridgeData(ICartridgeData* src, Db::Data* dbData) : m_src(src), m_dbData(dbData), ICartridgeData(src->romFile()) {
                
-        m_numberOfPrg16kBanks = m_dbData->PrgRomSize > 0 ? m_dbData->PrgRomSize/16 : m_src->numberOfPrg16kBanks();
-        m_numberOfChr8kBanks = m_dbData->ChrRomSize > 0 ? m_dbData->ChrRomSize/8 : m_src->numberOfChr8kBanks();
-        m_numberOfRamBanks = m_dbData->WorkRamSize > 0 ? m_dbData->WorkRamSize/8 : m_src->numberOf8kRamBanks();
+        m_prgSize = m_dbData->PrgRomSize > 0 ? m_dbData->PrgRomSize*1024 : m_src->prgSize();
+        m_chrSize = m_dbData->ChrRomSize > 0 ? m_dbData->ChrRomSize*1024 : m_src->chrSize();
+        m_ramSize = m_dbData->WorkRamSize > 0 ? m_dbData->WorkRamSize*1024 : m_src->ramSize();
 
-        m_saveRamSize = m_dbData->SaveRamSize > 0 ? m_dbData->SaveRamSize*1024 : m_src->SaveRamSize();
+        m_saveRamSize = m_dbData->SaveRamSize > 0 ? m_dbData->SaveRamSize*1024 : m_src->saveRamSize();
 
         switch(m_dbData->HasBattery) {
             case Db::Battery::Yes: m_hasBattery = true; break;
@@ -70,14 +70,14 @@ public:
         return true;
     }
 
-    int numberOfPrg16kBanks() override
+    int prgSize() override
     {
-        return m_numberOfPrg16kBanks;
+        return m_prgSize;
     }
 
-    int numberOfChr8kBanks() override
+    int chrSize() override
     {
-        return m_numberOfChr8kBanks;
+        return m_chrSize;
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -90,7 +90,7 @@ public:
         return m_hasBattery;
     }
 
-    int SaveRamSize() override {
+    int saveRamSize() override {
         return m_saveRamSize;
     }    
 
@@ -104,9 +104,9 @@ public:
         return m_useFourScreenMirroring;
     }
 
-    int numberOf8kRamBanks() override
+    int ramSize() override
     {
-        return m_numberOfRamBanks;
+        return m_ramSize;
     }
 
     GERANES_HOT uint8_t readTrainer(int addr) override

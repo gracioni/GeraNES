@@ -40,7 +40,7 @@ public:
         if(strncmp(aux, iNesBytes, size) != 0) return;
 
         m_PRGStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0);
-        m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + numberOfPrg16kBanks()*0x4000/*16KB*/;
+        m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + prgSize();
 
         m_isValid = true;
     }
@@ -49,14 +49,14 @@ public:
         return m_isValid;
     }
 
-    int numberOfPrg16kBanks() override
+    int prgSize() override
     {
-        return m_romFile.data(4);
+        return m_romFile.data(4) * 0x4000;
     }
 
-    int numberOfChr8kBanks() override
+    int chrSize() override
     {
-        return m_romFile.data(5);
+        return m_romFile.data(5) * 0x2000;
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -111,11 +111,11 @@ public:
     versions of the iNES format, assume 1 page of RAM when
     this is 0.
     */
-    int numberOf8kRamBanks() override
+    int ramSize() override
     {
         int n = m_romFile.data(8);
         if(n == 0) n = 1;
-        return n;
+        return n * 0x2000;
     }
 
     GERANES_HOT uint8_t readTrainer(int addr) override
@@ -134,7 +134,7 @@ public:
         return m_romFile.data(m_CHRStartIndex + addr);
     }
 
-    int SaveRamSize() override {
+    int saveRamSize() override {
         return 0x2000; //default 8k
     }
 

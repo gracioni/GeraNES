@@ -109,15 +109,10 @@ private:
 
     uint32_t prgCrc32() {
 
-        int nBanks = m_nesCartridgeData->numberOfPrg16kBanks();
-        int prgSize = nBanks * 0x4000;
-
         Crc32 crc;
 
-        for(int i = 0; i < nBanks; i++) {
-            for(int j = 0; j < 0x4000; j++) {
-                crc.add(m_nesCartridgeData->readPrg<0x4000>(i,j));
-            }
+        for(int i = 0; i < m_nesCartridgeData->prgSize(); i++) {
+                crc.add(m_nesCartridgeData->readPrg(i));
         }
 
         return crc.get();
@@ -127,13 +122,8 @@ private:
 
         Crc32 crc(prgCrc32());
 
-        int nChrBanks = m_nesCartridgeData->numberOfChr8kBanks();
-        int chrSize = nChrBanks * 0x2000;
-
-        for(int i = 0; i < nChrBanks; i++) {
-            for(int j = 0; j < 0x2000; j++) {
-                crc.add(m_nesCartridgeData->readChr<0x2000>(i,j));
-            }
+        for(int i = 0; i < m_nesCartridgeData->chrSize(); i++) {
+            crc.add(m_nesCartridgeData->readChr(i));
         }
 
         return crc.get();

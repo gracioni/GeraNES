@@ -27,7 +27,7 @@ public:
     {
         memset(m_CHRBank, 0x00, 8);
 
-        m_PRGMask = calculateMask(m_cd.numberOfPrg16kBanks());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
         m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
     }
 

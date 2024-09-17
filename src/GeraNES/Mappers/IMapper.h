@@ -57,8 +57,8 @@ private:
 
             size_t size = end-begin;
 
-            if(size == m_cd.SaveRamSize())
-                f.read(reinterpret_cast<char*>(m_sRam), m_cd.SaveRamSize());
+            if(size == m_cd.saveRamSize())
+                f.read(reinterpret_cast<char*>(m_sRam), m_cd.saveRamSize());
 
             f.close();
 
@@ -76,7 +76,7 @@ private:
 
         std::ofstream f(sramFile(), std::ios::binary | std::ios::trunc);
         if(f.is_open()) {
-            f.write(reinterpret_cast<char*>(m_sRam), m_cd.SaveRamSize());
+            f.write(reinterpret_cast<char*>(m_sRam), m_cd.saveRamSize());
             f.close();
         }
     }
@@ -93,9 +93,9 @@ public:
     //we cant call virtual methods from constructor, so we need an init method
     void init() {
 
-        if(m_cd.SaveRamSize() > 0) {
-            m_sRam = new uint8_t[m_cd.SaveRamSize()];
-            memset(m_sRam, 0, m_cd.SaveRamSize());
+        if(m_cd.saveRamSize() > 0) {
+            m_sRam = new uint8_t[m_cd.saveRamSize()];
+            memset(m_sRam, 0, m_cd.saveRamSize());
             loadSRAM();
         }
 
@@ -145,13 +145,13 @@ public:
     virtual void writeSRAM8k(int addr, uint8_t data)
     {
         if(m_sRam != nullptr)
-            m_sRam[addr&(m_cd.SaveRamSize()-1)] = data;
+            m_sRam[addr&(m_cd.saveRamSize()-1)] = data;
     }
 
     virtual uint8_t readSRAM8k(int addr)
     {
         if(m_sRam != nullptr)
-            return m_sRam[addr&(m_cd.SaveRamSize()-1)];
+            return m_sRam[addr&(m_cd.saveRamSize()-1)];
     }
 
     virtual MirroringType mirroringType()
@@ -193,7 +193,7 @@ public:
 
     virtual void serialization(SerializationBase& s)
     {
-        s.array(m_sRam, 1, m_cd.SaveRamSize());
+        s.array(m_sRam, 1, m_cd.saveRamSize());
 
         bool hasVRAM = (m_vRam != NULL);
         SERIALIZEDATA(s, hasVRAM);

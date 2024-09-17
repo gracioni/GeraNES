@@ -16,14 +16,14 @@ public:
         return true;
     }
 
-    int numberOfPrg16kBanks() override
+    int prgSize() override
     {
-        return false;
+        return 0;
     }
 
-    int numberOfChr8kBanks() override
+    int chrSize() override
     {
-        return false;
+        return 0;
     }
 
     MirroringType mirroringType() override
@@ -51,7 +51,7 @@ public:
         return 0;
     }
 
-    int numberOf8kRamBanks() override
+    int ramSize() override
     {
         return 0;
     }
@@ -71,7 +71,7 @@ public:
         return 0;
     }
 
-    virtual int SaveRamSize() override {
+    virtual int saveRamSize() override {
         return 0;
     }
     
