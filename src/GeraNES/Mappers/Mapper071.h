@@ -21,10 +21,6 @@ public:
         m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
     }
 
-    virtual bool VRAMRequired() override {
-        return true;
-    }
-
     GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         //Fire Hawk only writes this register at the address $9000, and other games like Micro Machines and

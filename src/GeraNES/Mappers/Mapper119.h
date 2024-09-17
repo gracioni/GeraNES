@@ -15,10 +15,6 @@ public:
     {
     }
 
-    virtual bool VRAMRequired() override {
-        return true;
-    }
-
     template<int WindowSize>
     GERANES_INLINE uint8_t readCHRRAM(int bank, int addr)
     {

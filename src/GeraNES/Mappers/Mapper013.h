@@ -16,10 +16,6 @@ public:
     {
     }
 
-    virtual int VRAMSize() override {
-        return 0x4000;
-    }
-
     GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         m_CHRReg = (data&readPRG32k(addr))&0x03;

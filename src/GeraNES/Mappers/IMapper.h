@@ -99,18 +99,10 @@ public:
             loadSRAM();
         }
 
-        if(m_cd.numberOfCHRBanks<W8K>() == 0 || VRAMRequired()) {
-            m_vRam = new uint8_t[VRAMSize()];
-            memset(m_vRam, 0, VRAMSize());
+        if(m_cd.ramSize() > 0) {
+            m_vRam = new uint8_t[m_cd.ramSize()];
+            memset(m_vRam, 0, m_cd.ramSize());
         }
-    }
-
-    virtual bool VRAMRequired() {
-        return false;
-    }
-
-    virtual int VRAMSize() {
-        return 0x2000; //default 8k
     }
 
     uint8_t* getVRAM() {
@@ -122,11 +114,11 @@ public:
     virtual uint8_t readPRG32k(int /*addr*/) { return 0; }
 
     virtual void writeCHR8k(int addr, uint8_t data) {
-        if(m_vRam != nullptr)  m_vRam[addr&(VRAMSize()-1)] = data;
+        if(m_vRam != nullptr)  m_vRam[addr&(m_cd.ramSize()-1)] = data;
     }
 
     virtual uint8_t readCHR8k(int addr) {
-        if(m_vRam != nullptr) return m_vRam[addr&(VRAMSize()-1)];
+        if(m_vRam != nullptr) return m_vRam[addr&(m_cd.ramSize()-1)];
         return 0;
     }
 
@@ -198,7 +190,7 @@ public:
         bool hasVRAM = (m_vRam != NULL);
         SERIALIZEDATA(s, hasVRAM);
         if(hasVRAM) {
-            s.array(m_vRam, 1, VRAMSize());
+            s.array(m_vRam, 1, m_cd.ramSize());
         }
     }
 
