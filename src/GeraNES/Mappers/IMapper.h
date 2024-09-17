@@ -36,16 +36,16 @@ private:
 
     uint8_t* m_chrRam = nullptr;
 
-    std::string sramFile() {
+    std::string saveRamFile() {
         auto romFile = m_cd.romFile();
         return std::string(SRAM_FOLDER) + basename(romFile.fileName()) + ".sram";
     }
 
-    void loadSRAM()
+    void loadSaveRamFromFile()
     {
         if(!m_cd.hasBattery()) return;
 
-        std::ifstream f(sramFile(), std::ios::binary);
+        std::ifstream f(saveRamFile(), std::ios::binary);
 
         if(f.is_open()) {
 
@@ -67,14 +67,14 @@ private:
 
     }
 
-    void saveSRAM()
+    void writeSaveRamToFile()
     {
         if(!m_cd.hasBattery()) return;
 
-        std::string dir = fs::path(sramFile()).parent_path().string();
+        std::string dir = fs::path(saveRamFile()).parent_path().string();
         if(!fs::exists(dir)) fs::create_directory(dir);
 
-        std::ofstream f(sramFile(), std::ios::binary | std::ios::trunc);
+        std::ofstream f(saveRamFile(), std::ios::binary | std::ios::trunc);
         if(f.is_open()) {
             f.write(reinterpret_cast<char*>(m_sRam), m_cd.saveRamSize());
             f.close();
@@ -96,7 +96,7 @@ public:
         if(m_cd.saveRamSize() > 0) {
             m_sRam = new uint8_t[m_cd.saveRamSize()];
             memset(m_sRam, 0, m_cd.saveRamSize());
-            loadSRAM();
+            loadSaveRamFromFile();
         }
 
         if(m_cd.chrRamSize() > 0) {
@@ -161,7 +161,7 @@ public:
 
     virtual ~IMapper()
     {
-        saveSRAM();
+        writeSaveRamToFile();
 
         if(m_chrRam != nullptr) delete[] m_chrRam;
         if(m_sRam != nullptr) delete[] m_sRam;
