@@ -15,6 +15,25 @@ class Db {
 
 public:
 
+    enum class GameSystem
+    {
+        NesNtsc,
+        NesPal,
+        Famicom,
+        Dendy,
+        VsSystem,
+        Playchoice,
+        FDS,
+        FamicomNetworkSystem,
+        Unknown
+    };
+
+    enum class Battery {
+        Default,
+        Yes,
+        No
+    };
+
     enum class MirroringType {
         DEFAULT,
         HORIZONTAL,
@@ -28,6 +47,32 @@ public:
         DEFAULT,
         YES,
         NO
+    };
+
+    enum class VsSystemType
+    {
+        Default = 0,
+        RbiBaseballProtection = 1,
+        TkoBoxingProtection = 2,
+        SuperXeviousProtection = 3,
+        IceClimberProtection = 4,
+        VsDualSystem = 5,
+        RaidOnBungelingBayProtection = 6,
+    };
+
+    enum class PpuModel
+    {
+        Ppu2C02 = 0,
+        Ppu2C03 = 1,
+        Ppu2C04A = 2,
+        Ppu2C04B = 3,
+        Ppu2C04C = 4,
+        Ppu2C04D = 5,
+        Ppu2C05A = 6,
+        Ppu2C05B = 7,
+        Ppu2C05C = 8,
+        Ppu2C05D = 9,
+        Ppu2C05E = 10
     };
 
     struct DataRaw {
@@ -53,7 +98,7 @@ public:
 
     struct Data {
         std::string PrgChrCrc32;
-        std::string System;
+        GameSystem System;
         std::string Board;
         std::string PCB;
         std::string Chip;
@@ -63,14 +108,43 @@ public:
         std::string ChrRamSize;
         std::string WorkRamSize;
         std::string SaveRamSize;
-        std::string Battery;
+        Battery Battery;
         MirroringType Mirroring;
         std::string ControllerType;
         BusConflictType BusConflicts;
-        std::string SubMapper;
-        std::string VsSystemType;
-        std::string PpuModel;
+        int SubMapper;
+        VsSystemType VsSystemType;
+        PpuModel PpuModel;
     };
+
+    GameSystem getGameSystem(const std::string& str)
+    {
+        if(str == "NesNtsc") {
+            return GameSystem::NesNtsc;
+        } else if(str == "NesPal") {
+            return GameSystem::NesPal;
+        } else if(str == "Famicom") {
+            return GameSystem::Famicom;
+        } else if(str == "VsSystem") {
+            return GameSystem::VsSystem;
+        } else if(str == "Dendy") {
+            return GameSystem::Dendy;
+        } else if(str == "Playchoice") {
+            return GameSystem::Playchoice;
+        }
+        
+        return GameSystem::Unknown;
+    }
+
+    Battery getBattery(const std::string& str) {
+        
+        if(!str.empty()) {
+            if(str == "0") return Battery::No;
+            else if(str == "1") return Battery::No;
+        }
+
+        return Battery::Default;
+    }
 
     MirroringType getMirroringType(const std::string& str) {
 
@@ -91,10 +165,30 @@ public:
         return BusConflictType::DEFAULT;
     }
 
+    VsSystemType getVsSystemType(const std::string& str) {
+
+        if(!str.empty()) {
+            return static_cast<VsSystemType>(std::stoi(str));
+        }
+        
+        return VsSystemType::Default;
+    }
+
     int getMapper(const std::string& str) {
         
         if(!str.empty()) return std::stoi(str);
         return -1;
+    }
+
+    int getSubMapper(const std::string& str) {
+        
+        if(!str.empty()) return std::stoi(str);
+        return -1;
+    }
+
+    PpuModel getPpuModel(const std::string& str) {
+        if(!str.empty()) return static_cast<PpuModel>(std::stoi(str));
+        return PpuModel::Ppu2C02;
     }
 
 private:
@@ -200,7 +294,7 @@ private:
                 Data data;
 
                 data.PrgChrCrc32 = rawData.PrgChrCrc32;
-                data.System = rawData.System;
+                data.System = getGameSystem(rawData.System);
                 data.Board = rawData.Board;
                 data.PCB = rawData.PCB;
                 data.Chip = rawData.Chip;
@@ -210,13 +304,13 @@ private:
                 data.ChrRamSize = rawData.ChrRamSize;
                 data.WorkRamSize = rawData.WorkRamSize;
                 data.SaveRamSize = rawData.SaveRamSize;
-                data.Battery = rawData.Battery;
+                data.Battery = getBattery(rawData.Battery);
                 data.Mirroring = getMirroringType(rawData.Mirroring);
                 data.ControllerType = rawData.ControllerType;
                 data.BusConflicts = getBusConflictType(rawData.BusConflicts);
-                data.SubMapper = rawData.SubMapper;
-                data.VsSystemType = rawData.VsSystemType;
-                data.PpuModel = rawData.PpuModel;
+                data.SubMapper = getSubMapper(rawData.SubMapper);
+                data.VsSystemType = getVsSystemType(rawData.VsSystemType);
+                data.PpuModel = getPpuModel(rawData.PpuModel);
 
                 m_map.insert(std::make_pair(rawData.PrgChrCrc32, data));
             }

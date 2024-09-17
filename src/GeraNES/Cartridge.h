@@ -201,11 +201,11 @@ public:
         Db::Data* dbData = Db::instance().find(prgChrCrcStr);
 
         if(dbData != nullptr) {
-            Logger::instance().log("Register found in database", Logger::Type::INFO);
+            Logger::instance().log("[DB] ROM found in database", Logger::Type::INFO);
             m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, dbData);
         }
         else {
-            Logger::instance().log("Register not found in database", Logger::Type::INFO);
+            Logger::instance().log("[DB] ROM not found in database", Logger::Type::INFO);
         }
 
         //try other formats files here
