@@ -34,21 +34,21 @@ public:
         switch(m_mode) {
 
         case 0:
-            if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(m_PRGBank,addr);
-            return m_cartridgeData.readPrg<W16K>(m_PRGBank | 1,addr);
+            if(addr < 0x4000) return m_cd.readPrg<W16K>(m_PRGBank,addr);
+            return m_cd.readPrg<W16K>(m_PRGBank | 1,addr);
             break;
 
         case 1:
-            if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(m_PRGBank,addr);
-            return m_cartridgeData.readPrg<W16K>(m_PRGBank | 7,addr);
+            if(addr < 0x4000) return m_cd.readPrg<W16K>(m_PRGBank,addr);
+            return m_cd.readPrg<W16K>(m_PRGBank | 7,addr);
             break;
 
         case 2:
-            return m_cartridgeData.readPrg<W8K>((m_PRGBank << 1) | m_b,addr);
+            return m_cd.readPrg<W8K>((m_PRGBank << 1) | m_b,addr);
             break;
 
         case 3:
-            return m_cartridgeData.readPrg<W16K>(m_PRGBank,addr);
+            return m_cd.readPrg<W16K>(m_PRGBank,addr);
             break;
         }
 

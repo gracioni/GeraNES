@@ -43,6 +43,57 @@ public:
         FOUR_SCREEN
     };
 
+    enum class GameInputType
+    {
+        Unspecified = 0,
+        StandardControllers = 1,
+        FourScore = 2,
+        FourPlayerAdapter = 3,
+        VsSystem = 4,
+        VsSystemSwapped = 5,
+        VsSystemSwapAB = 6,
+        VsZapper = 7,
+        Zapper = 8,
+        TwoZappers = 9,
+        BandaiHypershot = 0x0A,
+        PowerPadSideA = 0x0B,
+        PowerPadSideB = 0x0C,
+        FamilyTrainerSideA = 0x0D,
+        FamilyTrainerSideB = 0x0E,
+        ArkanoidControllerNes = 0x0F,
+        ArkanoidControllerFamicom = 0x10,
+        DoubleArkanoidController = 0x11,
+        KonamiHyperShot = 0x12,
+        PachinkoController = 0x13,
+        ExcitingBoxing = 0x14,
+        JissenMahjong = 0x15,
+        PartyTap = 0x16,
+        OekaKidsTablet = 0x17,
+        BarcodeBattler = 0x18,
+        MiraclePiano = 0x19, //not supported yet
+        PokkunMoguraa = 0x1A, //not supported yet
+        TopRider = 0x1B, //not supported yet
+        DoubleFisted = 0x1C, //not supported yet
+        Famicom3dSystem = 0x1D, //not supported yet
+        DoremikkoKeyboard = 0x1E, //not supported yet
+        ROB = 0x1F, //not supported yet
+        FamicomDataRecorder = 0x20,
+        TurboFile = 0x21,
+        BattleBox = 0x22,
+        FamilyBasicKeyboard = 0x23,
+        Pec586Keyboard = 0x24, //not supported yet
+        Bit79Keyboard = 0x25, //not supported yet
+        SuborKeyboard = 0x26,
+        SuborKeyboardMouse1 = 0x27,
+        SuborKeyboardMouse2 = 0x28,
+        SnesMouse = 0x29,
+        GenericMulticart = 0x2A, //not supported yet
+        SnesControllers = 0x2B,
+        RacermateBicycle = 0x2C, //not supported yet
+        UForce = 0x2D, //not supported yet
+        LastEntry
+    };
+
     enum class BusConflictType {
         DEFAULT,
         YES,
@@ -87,35 +138,39 @@ public:
         std::string ChrRamSize;
         std::string WorkRamSize;
         std::string SaveRamSize;
-        std::string Battery;
+        std::string HasBattery;
         std::string Mirroring;
-        std::string ControllerType;
+        std::string InputType;
         std::string BusConflicts;
-        std::string SubMapper;
+        std::string SubMapperId;
         std::string VsSystemType;
-        std::string PpuModel;
+        std::string VsPpuModel;
     };
 
     struct Data {
-        std::string PrgChrCrc32;
+        uint32_t PrgChrCrc32;
         GameSystem System;
         std::string Board;
         std::string PCB;
         std::string Chip;
-        int Mapper;
-        std::string PrgRomSize;
-        std::string ChrRomSize;
-        std::string ChrRamSize;
-        std::string WorkRamSize;
-        std::string SaveRamSize;
-        Battery Battery;
+        int MapperId;
+        int PrgRomSize;
+        int ChrRomSize;
+        int ChrRamSize;
+        int WorkRamSize;
+        int SaveRamSize;
+        Battery HasBattery;
         MirroringType Mirroring;
-        std::string ControllerType;
+        GameInputType InputType;
         BusConflictType BusConflicts;
-        int SubMapper;
-        VsSystemType VsSystemType;
-        PpuModel PpuModel;
+        int SubmapperId;
+        VsSystemType VsType;
+        PpuModel VsPpuModel;
     };
+
+    uint32_t getCrc32(const std::string& str) {
+        return (uint32_t)std::stoll(str.c_str(), nullptr, 16);
+    }
 
     GameSystem getGameSystem(const std::string& str)
     {
@@ -140,7 +195,7 @@ public:
         
         if(!str.empty()) {
             if(str == "0") return Battery::No;
-            else if(str == "1") return Battery::No;
+            else if(str == "1") return Battery::Yes;
         }
 
         return Battery::Default;
@@ -155,6 +210,12 @@ public:
         else if(str == "1") return MirroringType::SINGLE_SCREEN_B;
 
         return MirroringType::DEFAULT;
+    }
+
+    GameInputType getInputType(const std::string& str) {
+
+        if(!str.empty()) return static_cast<GameInputType>(std::stoi(str));
+        return GameInputType::Unspecified;
     }
 
     BusConflictType getBusConflictType(const std::string& str) {
@@ -174,13 +235,7 @@ public:
         return VsSystemType::Default;
     }
 
-    int getMapper(const std::string& str) {
-        
-        if(!str.empty()) return std::stoi(str);
-        return -1;
-    }
-
-    int getSubMapper(const std::string& str) {
+    int getInt(const std::string& str) {
         
         if(!str.empty()) return std::stoi(str);
         return -1;
@@ -258,21 +313,21 @@ private:
                         case 9: rawData.ChrRamSize = trim(match[i]); break;
                         case 10: rawData.WorkRamSize = trim(match[i]); break;
                         case 11: rawData.SaveRamSize = trim(match[i]); break;
-                        case 12: rawData.Battery = trim(match[i]); break;
+                        case 12: rawData.HasBattery = trim(match[i]); break;
                         case 13: rawData.Mirroring = trim(match[i]); break;
-                        case 14: rawData.ControllerType = trim(match[i]); break;
+                        case 14: rawData.InputType = trim(match[i]); break;
                         case 15: rawData.BusConflicts = trim(match[i]); break;
-                        case 16: rawData.SubMapper = trim(match[i]); break;
+                        case 16: rawData.SubMapperId = trim(match[i]); break;
                         case 17: rawData.VsSystemType = trim(match[i]); break;
-                        case 18: rawData.PpuModel = trim(match[i]); break;
+                        case 18: rawData.VsPpuModel = trim(match[i]); break;
                         default:
                             assert(false); //should never occur
                             break;
                     }                    
                 }
 
-                if(!validate(rawData.Battery, {"", "0", "1"})) {
-                    std::string msg = "[DB] Invalid Battery value: '" + rawData.Battery + "' at line " + std::to_string(lineCounter);
+                if(!validate(rawData.HasBattery, {"", "0", "1"})) {
+                    std::string msg = "[DB] Invalid Battery value: '" + rawData.HasBattery + "' at line " + std::to_string(lineCounter);
                     Logger::instance().log(msg, Logger::Type::INFO);
                     continue;
                 } 
@@ -293,24 +348,24 @@ private:
 
                 Data data;
 
-                data.PrgChrCrc32 = rawData.PrgChrCrc32;
+                data.PrgChrCrc32 = getCrc32(rawData.PrgChrCrc32);
                 data.System = getGameSystem(rawData.System);
                 data.Board = rawData.Board;
                 data.PCB = rawData.PCB;
                 data.Chip = rawData.Chip;
-                data.Mapper = getMapper(rawData.Mapper);
-                data.PrgRomSize = rawData.PrgRomSize;
-                data.ChrRomSize = rawData.ChrRomSize;
-                data.ChrRamSize = rawData.ChrRamSize;
-                data.WorkRamSize = rawData.WorkRamSize;
-                data.SaveRamSize = rawData.SaveRamSize;
-                data.Battery = getBattery(rawData.Battery);
+                data.MapperId = getInt(rawData.Mapper);
+                data.PrgRomSize = getInt(rawData.PrgRomSize);
+                data.ChrRomSize = getInt(rawData.ChrRomSize);
+                data.ChrRamSize = getInt(rawData.ChrRamSize);
+                data.WorkRamSize = getInt(rawData.WorkRamSize);
+                data.SaveRamSize = getInt(rawData.SaveRamSize);
+                data.HasBattery = getBattery(rawData.HasBattery);
                 data.Mirroring = getMirroringType(rawData.Mirroring);
-                data.ControllerType = rawData.ControllerType;
+                data.InputType = getInputType(rawData.InputType);
                 data.BusConflicts = getBusConflictType(rawData.BusConflicts);
-                data.SubMapper = getSubMapper(rawData.SubMapper);
-                data.VsSystemType = getVsSystemType(rawData.VsSystemType);
-                data.PpuModel = getPpuModel(rawData.PpuModel);
+                data.SubmapperId = getInt(rawData.SubMapperId);
+                data.VsType = getVsSystemType(rawData.VsSystemType);
+                data.VsPpuModel = getPpuModel(rawData.VsPpuModel);
 
                 m_map.insert(std::make_pair(rawData.PrgChrCrc32, data));
             }

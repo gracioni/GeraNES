@@ -36,22 +36,23 @@ public:
       Indicates the presence of battery-backed RAM at
       memory locations $6000-$7FFF.
     */
-    virtual bool hasBatteryRam8k() = 0;
+    virtual bool hasBattery() = 0;
 
     virtual bool hasTrainer() = 0;
 
     virtual bool useFourScreenMirroring() = 0;
 
-    //iNes mapper numbers as reference
-    virtual int mapperNumber() = 0;
+    virtual int mapperId() = 0;
 
-    virtual int numberOfRamBanks() = 0;
+    virtual int numberOf8kRamBanks() = 0;
 
     virtual uint8_t readTrainer(int addr) = 0;
 
     virtual uint8_t readPrg(int addr) = 0;
 
     virtual uint8_t readChr(int addr) = 0;
+
+    virtual int SaveRamSize() = 0;
 
     GERANES_INLINE std::string debug()
     {
@@ -62,11 +63,11 @@ public:
         aux << "Number of PRG-ROM banks: " << numberOfPrg16kBanks() << std::endl;
         aux << "Number of CHR-ROM banks: " << numberOfChr8kBanks() << std::endl;
         aux << "Mirroring type: " << (int)mirroringType() << std::endl;
-        aux << "Has battery-backed RAM: " << hasBatteryRam8k() << std::endl;
+        aux << "Has battery-backed RAM: " << hasBattery() << std::endl;
         aux <<  "Has trainer: " << hasTrainer() << std::endl;
         aux << "Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
-        aux << "Number of 8KB RAM banks: " << numberOfRamBanks() << std::endl;
-        aux << "Mapper: " << mapperNumber() <<  " (" << getMapperName(mapperNumber()) << ")" << std::endl;
+        aux << "Number of 8KB RAM banks: " << numberOf8kRamBanks() << std::endl;
+        aux << "Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << std::endl;
 
 
 

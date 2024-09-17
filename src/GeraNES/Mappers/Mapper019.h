@@ -75,8 +75,8 @@ public:
 
     Mapper019(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGREGMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W8K>());
-        m_CHRREGMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W1K>());
+        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
+        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
 
         m_CHRRAM.reset(new uint8_t[0x2000]); //8k
     }
@@ -126,10 +126,10 @@ public:
     GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>13) { // addr/8192
-        case 0: return m_cartridgeData.readPrg<W8K>(m_PRGReg[0],addr);
-        case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg[1],addr);
-        case 2: return m_cartridgeData.readPrg<W8K>(m_PRGReg[2],addr);
-        case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+        case 0: return m_cd.readPrg<W8K>(m_PRGReg[0],addr);
+        case 1: return m_cd.readPrg<W8K>(m_PRGReg[1],addr);
+        case 2: return m_cd.readPrg<W8K>(m_PRGReg[2],addr);
+        case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
         }
 
         return 0;
@@ -137,7 +137,7 @@ public:
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
 
         int index = addr >> 10; // addr/0x400
 
@@ -148,12 +148,12 @@ public:
             if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return readCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr);
         }
 
-        return m_cartridgeData.readChr<W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
+        return m_cd.readChr<W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
     }
 
     GERANES_HOT void writeCHR8k(int addr, uint8_t data) override
     {
-        if(has8kVRAM()) {
+        if(hasVRAM()) {
             IMapper::writeCHR8k(addr, data);
             return;
          }
@@ -216,7 +216,7 @@ public:
     GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
     {        
         uint8_t bank = m_MirroringReg[index];
-        return m_cartridgeData.readChr<W1K>(bank,addr);
+        return m_cd.readChr<W1K>(bank,addr);
     }
     
     GERANES_HOT MirroringType mirroringType() override

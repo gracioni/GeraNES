@@ -17,7 +17,7 @@ public:
 
     Mapper007(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGRegMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W32K>());    
+        m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());    
     }
 
     GERANES_HOT void writePRG32k(int /*addr*/, uint8_t data) override
@@ -28,7 +28,7 @@ public:
 
     GERANES_HOT uint8_t readPRG32k(int addr) override
     {
-        return m_cartridgeData.readPrg<W32K>(m_PRGReg,addr);
+        return m_cd.readPrg<W32K>(m_PRGReg,addr);
     }
 
     GERANES_HOT MirroringType mirroringType() override

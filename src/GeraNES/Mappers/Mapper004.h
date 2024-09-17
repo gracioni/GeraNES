@@ -52,8 +52,8 @@ public:
 
     Mapper004(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W8K>());
-        m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W1K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
     }
 
     virtual ~Mapper004()
@@ -66,19 +66,19 @@ public:
         if(!m_PRGMode)
         {
             switch(addr >> 13) { // addr/8k
-            case 0: return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
-            case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
-            case 2: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
-            case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cd.readPrg<W8K>(m_PRGReg0,addr);
+            case 1: return m_cd.readPrg<W8K>(m_PRGReg1,addr);
+            case 2: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-2,addr);
+            case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
             }
         }
         else
         {
             switch(addr >> 13) {
-            case 0: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-2,addr);
-            case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
-            case 2: return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
-            case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-2,addr);
+            case 1: return m_cd.readPrg<W8K>(m_PRGReg1,addr);
+            case 2: return m_cd.readPrg<W8K>(m_PRGReg0,addr);
+            case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
             }
         }
 
@@ -146,32 +146,32 @@ public:
 
    GERANES_HOT virtual uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
 
         if(!m_CHRMode)
         {
             switch(addr >> 10) { // addr/1k
             case 0:
-            case 1: return m_cartridgeData.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
+            case 1: return m_cd.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
             case 2:
-            case 3: return m_cartridgeData.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
-            case 4: return m_cartridgeData.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 5: return m_cartridgeData.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 6: return m_cartridgeData.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 7: return m_cartridgeData.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+            case 3: return m_cd.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
+            case 4: return m_cd.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
+            case 5: return m_cd.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
+            case 6: return m_cd.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
+            case 7: return m_cd.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: return m_cartridgeData.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 1: return m_cartridgeData.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 2: return m_cartridgeData.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 3: return m_cartridgeData.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+            case 0: return m_cd.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
+            case 1: return m_cd.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
+            case 2: return m_cd.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
+            case 3: return m_cd.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
             case 4:
-            case 5: return m_cartridgeData.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
+            case 5: return m_cd.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
             case 6:
-            case 7: return m_cartridgeData.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
+            case 7: return m_cd.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
             }
 
         }
@@ -181,7 +181,7 @@ public:
 
     GERANES_HOT MirroringType mirroringType() override
     {
-        if(m_cartridgeData.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        if(m_cd.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
         if(m_mirroring) return MirroringType::HORIZONTAL;
         return MirroringType::VERTICAL;
     }

@@ -30,14 +30,14 @@ public:
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
 
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];
 
         bank >>= 1; //VRC2a only
 
-        return m_cartridgeData.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
+        return m_cd.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
     GERANES_HOT bool getInterruptFlag() override

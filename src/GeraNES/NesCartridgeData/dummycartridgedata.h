@@ -16,60 +16,65 @@ public:
         return true;
     }
 
-    GERANES_INLINE int numberOfPrg16kBanks() override
+    int numberOfPrg16kBanks() override
     {
         return false;
     }
 
-    GERANES_INLINE int numberOfChr8kBanks() override
+    int numberOfChr8kBanks() override
     {
         return false;
     }
 
-    GERANES_INLINE MirroringType mirroringType() override
+    MirroringType mirroringType() override
     {
         return MirroringType::HORIZONTAL;
     }
 
-    bool hasBatteryRam8k() override
+    bool hasBattery() override
     {
         return false;
     }
 
-    GERANES_INLINE bool hasTrainer() override
+    bool hasTrainer() override
     {
         return false;
     }
 
-    GERANES_INLINE bool useFourScreenMirroring() override
+    bool useFourScreenMirroring() override
     {
         return true;
     }
 
-    GERANES_INLINE int mapperNumber() override
+    int mapperId() override
     {
         return 0;
     }
 
-    GERANES_INLINE_HOT int numberOfRamBanks() override
+    int numberOf8kRamBanks() override
     {
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readTrainer(int /*addr*/) override
+    uint8_t readTrainer(int /*addr*/) override
     {
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readPrg(int /*addr*/) override
+    uint8_t readPrg(int /*addr*/) override
     {
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readChr(int /*addr*/) override
+    uint8_t readChr(int /*addr*/) override
     {
         return 0;
     }
+
+    virtual int SaveRamSize() override {
+        return 0;
+    }
+    
 
     static DummyCartridgeData& instance()
     {

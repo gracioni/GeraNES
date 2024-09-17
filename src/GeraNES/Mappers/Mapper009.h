@@ -27,10 +27,10 @@ public:
 
     Mapper009(ICartridgeData& cd) : IMapper(cd)
     {
-        numberOfPRG8kBanks  = m_cartridgeData.numberOfPRGBanks<W8K>();
+        numberOfPRG8kBanks  = m_cd.numberOfPRGBanks<W8K>();
 
         m_PRGRegMask = calculateMask(numberOfPRG8kBanks);
-        m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W4K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W4K>());
     }
 
     GERANES_HOT void writePRG32k(int addr, uint8_t data) override
@@ -59,28 +59,28 @@ public:
     {
         addr &= 0x7FFF;
 
-        if(addr < 0x2000) return m_cartridgeData.readPrg<W8K>(m_PRGReg,addr);
-        else if(addr < 0x4000) return m_cartridgeData.readPrg<W8K>(numberOfPRG8kBanks-3,addr);
-        else if(addr < 0x6000) return m_cartridgeData.readPrg<W8K>(numberOfPRG8kBanks-2,addr);
+        if(addr < 0x2000) return m_cd.readPrg<W8K>(m_PRGReg,addr);
+        else if(addr < 0x4000) return m_cd.readPrg<W8K>(numberOfPRG8kBanks-3,addr);
+        else if(addr < 0x6000) return m_cd.readPrg<W8K>(numberOfPRG8kBanks-2,addr);
 
-        return m_cartridgeData.readPrg<W8K>(numberOfPRG8kBanks-1,addr);
+        return m_cd.readPrg<W8K>(numberOfPRG8kBanks-1,addr);
     }
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
 
         uint8_t ret = 0;
 
         addr &= 0x1FFF;
 
         if(addr < 0x1000) {
-            if(!m_latch1) ret = m_cartridgeData.readChr<W4K>(m_CHRReg0A, addr);
-            else ret = m_cartridgeData.readChr<W4K>(m_CHRReg0B, addr);
+            if(!m_latch1) ret = m_cd.readChr<W4K>(m_CHRReg0A, addr);
+            else ret = m_cd.readChr<W4K>(m_CHRReg0B, addr);
         }
         else {
-            if(!m_latch2) ret = m_cartridgeData.readChr<W4K>(m_CHRReg1A, addr);
-            else ret = m_cartridgeData.readChr<W4K>(m_CHRReg1B, addr);
+            if(!m_latch2) ret = m_cd.readChr<W4K>(m_CHRReg1A, addr);
+            else ret = m_cd.readChr<W4K>(m_CHRReg1B, addr);
         }
 
         if(addr == 0x0FD8) m_latch1 = false;

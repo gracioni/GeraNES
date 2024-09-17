@@ -70,7 +70,7 @@ public:
         return static_cast<MirroringType>(m_romFile.data(6) & 0x01);
     }
 
-    bool hasBatteryRam8k() override
+    bool hasBattery() override
     {
         /*
         Byte 6
@@ -100,7 +100,7 @@ public:
         return m_romFile.data(6) & 0x08;
     }
 
-    int mapperNumber() override
+    int mapperId() override
     {
         return ((m_romFile.data(6)&0xF0) >> 4) | (m_romFile.data(7)&0xF0);
     }
@@ -111,7 +111,7 @@ public:
     versions of the iNES format, assume 1 page of RAM when
     this is 0.
     */
-    int numberOfRamBanks() override
+    int numberOf8kRamBanks() override
     {
         int n = m_romFile.data(8);
         if(n == 0) n = 1;
@@ -132,6 +132,10 @@ public:
     GERANES_HOT uint8_t readChr(int addr) override
     {
         return m_romFile.data(m_CHRStartIndex + addr);
+    }
+
+    int SaveRamSize() override {
+        return 0x2000; //default 8k
     }
 
 };

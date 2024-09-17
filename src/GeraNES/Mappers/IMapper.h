@@ -28,22 +28,22 @@ class IMapper
 
 protected:
 
-    ICartridgeData& m_cartridgeData;
+    ICartridgeData& m_cd;
 
 private:
 
-    uint8_t m_SRAM[0x2000]; //8k
+    uint8_t* m_sRam = nullptr;
 
-    uint8_t* m_VRAM = NULL;
+    uint8_t* m_vRam = nullptr;
 
     std::string sramFile() {
-        auto romFile = m_cartridgeData.romFile();
-        return std::string(SRAM_FOLDER) + romFile.fileCrc32() + ".sram";
+        auto romFile = m_cd.romFile();
+        return std::string(SRAM_FOLDER) + basename(romFile.fileName()) + ".sram";
     }
 
     void loadSRAM()
     {
-        if(!m_cartridgeData.hasBatteryRam8k()) return;
+        if(!m_cd.hasBattery()) return;
 
         std::ifstream f(sramFile(), std::ios::binary);
 
@@ -57,8 +57,8 @@ private:
 
             size_t size = end-begin;
 
-            if(size == sizeof(m_SRAM))
-                f.read(reinterpret_cast<char*>(&m_SRAM[0]),sizeof(m_SRAM));
+            if(size == m_cd.SaveRamSize())
+                f.read(reinterpret_cast<char*>(m_sRam), m_cd.SaveRamSize());
 
             f.close();
 
@@ -69,14 +69,14 @@ private:
 
     void saveSRAM()
     {
-        if(!m_cartridgeData.hasBatteryRam8k()) return;
+        if(!m_cd.hasBattery()) return;
 
         std::string dir = fs::path(sramFile()).parent_path().string();
         if(!fs::exists(dir)) fs::create_directory(dir);
 
         std::ofstream f(sramFile(), std::ios::binary | std::ios::trunc);
         if(f.is_open()) {
-            f.write(reinterpret_cast<char*>(&m_SRAM[0]), sizeof(m_SRAM));
+            f.write(reinterpret_cast<char*>(m_sRam), m_cd.SaveRamSize());
             f.close();
         }
     }
@@ -86,19 +86,22 @@ public:
     //window size
     enum { W1K = 0x400, W2K = 0x800, W4K = 0x1000, W8K = 0x2000, W16K = 0x4000, W32K = 0x8000 };
 
-    IMapper(ICartridgeData& cd) : m_cartridgeData(cd)
-    {
-        if(m_cartridgeData.hasBatteryRam8k()) {
-            loadSRAM();
-        }
-        else memset(m_SRAM, 0, sizeof(m_SRAM));        
+    IMapper(ICartridgeData& cd) : m_cd(cd)
+    {               
     }
 
     //we cant call virtual methods from constructor, so we need an init method
     void init() {
-        if(m_cartridgeData.numberOfCHRBanks<W8K>() == 0 || VRAMRequired()) {
-            m_VRAM = new uint8_t[VRAMSize()];
-            memset(m_VRAM, 0, VRAMSize());
+
+        if(m_cd.SaveRamSize() > 0) {
+            m_sRam = new uint8_t[m_cd.SaveRamSize()];
+            memset(m_sRam, 0, m_cd.SaveRamSize());
+            loadSRAM();
+        }
+
+        if(m_cd.numberOfCHRBanks<W8K>() == 0 || VRAMRequired()) {
+            m_vRam = new uint8_t[VRAMSize()];
+            memset(m_vRam, 0, VRAMSize());
         }
     }
 
@@ -111,7 +114,7 @@ public:
     }
 
     uint8_t* getVRAM() {
-        return m_VRAM;
+        return m_vRam;
     }
 
     virtual void reset(){}
@@ -119,11 +122,11 @@ public:
     virtual uint8_t readPRG32k(int /*addr*/) { return 0; }
 
     virtual void writeCHR8k(int addr, uint8_t data) {
-        if(m_VRAM != nullptr)  m_VRAM[addr&(VRAMSize()-1)] = data;
+        if(m_vRam != nullptr)  m_vRam[addr&(VRAMSize()-1)] = data;
     }
 
     virtual uint8_t readCHR8k(int addr) {
-        if(m_VRAM != nullptr) return m_VRAM[addr&(VRAMSize()-1)];
+        if(m_vRam != nullptr) return m_vRam[addr&(VRAMSize()-1)];
         return 0;
     }
 
@@ -141,19 +144,21 @@ public:
 
     virtual void writeSRAM8k(int addr, uint8_t data)
     {
-        m_SRAM[addr&0x1FFF] = data;
+        if(m_sRam != nullptr)
+            m_sRam[addr&(m_cd.SaveRamSize()-1)] = data;
     }
 
     virtual uint8_t readSRAM8k(int addr)
     {
-        return m_SRAM[addr&0x1FFF];
+        if(m_sRam != nullptr)
+            return m_sRam[addr&(m_cd.SaveRamSize()-1)];
     }
 
     virtual MirroringType mirroringType()
     {
-        if(m_cartridgeData.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        if(m_cd.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
         else {
-            return m_cartridgeData.mirroringType();
+            return m_cd.mirroringType();
         }
     }
 
@@ -166,7 +171,8 @@ public:
     {
         saveSRAM();
 
-        if(m_VRAM != nullptr) delete[] m_VRAM;
+        if(m_vRam != nullptr) delete[] m_vRam;
+        if(m_sRam != nullptr) delete[] m_sRam;
     }
 
     //helper function to generate bit mask
@@ -187,17 +193,17 @@ public:
 
     virtual void serialization(SerializationBase& s)
     {
-        s.array(m_SRAM, 1, 0x2000);
+        s.array(m_sRam, 1, m_cd.SaveRamSize());
 
-        bool hasVRAM = (m_VRAM != NULL);
+        bool hasVRAM = (m_vRam != NULL);
         SERIALIZEDATA(s, hasVRAM);
         if(hasVRAM) {
-            s.array(m_VRAM, 1, VRAMSize());
+            s.array(m_vRam, 1, VRAMSize());
         }
     }
 
-    GERANES_INLINE bool has8kVRAM() {
-        return m_VRAM != nullptr;
+    GERANES_INLINE bool hasVRAM() {
+        return m_vRam != nullptr;
     }
 
 

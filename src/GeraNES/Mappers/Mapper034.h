@@ -18,13 +18,13 @@ public:
 
     Mapper034(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W32K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());
 
-        m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W4K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W4K>());
     }
 
     GERANES_HOT bool isNINA() {
-        return !has8kVRAM();
+        return !hasVRAM();
     }
 
     GERANES_HOT void writePRG32k(int addr, uint8_t data) override
@@ -35,17 +35,17 @@ public:
 
     GERANES_HOT uint8_t readPRG32k(int addr) override
     {
-        return m_cartridgeData.readPrg<W32K>(m_PRGReg,addr);
+        return m_cd.readPrg<W32K>(m_PRGReg,addr);
     }
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
         else {
 
             switch(addr>>12){
-            case 0: return m_cartridgeData.readChr<W4K>(m_CHRReg[0],addr);
-            case 1: return m_cartridgeData.readChr<W4K>(m_CHRReg[1],addr);
+            case 0: return m_cd.readChr<W4K>(m_CHRReg[0],addr);
+            case 1: return m_cd.readChr<W4K>(m_CHRReg[1],addr);
             }
 
         }

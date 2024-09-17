@@ -55,8 +55,8 @@ public:
 
     Mapper064(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W8K>());
-        m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W1K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
     }
 
     GERANES_HOT uint8_t readPRG32k(int addr) override
@@ -64,24 +64,24 @@ public:
         if(!m_PRGMode)
         {
             if(addr >= 0x0000 && addr < 0x2000)
-                return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
+                return m_cd.readPrg<W8K>(m_PRGReg0,addr);
             else if(addr >= 0x2000 && addr < 0x4000)
-                return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
+                return m_cd.readPrg<W8K>(m_PRGReg1,addr);
             else if(addr >= 0x4000 && addr < 0x6000)
-                return m_cartridgeData.readPrg<W8K>(m_PRGReg2,addr);
+                return m_cd.readPrg<W8K>(m_PRGReg2,addr);
             else if(addr >= 0x6000 && addr < 0x8000)
-                return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+                return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
         }
         else
         {
             if(addr >= 0x0000 && addr < 0x2000)
-                return m_cartridgeData.readPrg<W8K>(m_PRGReg2,addr);
+                return m_cd.readPrg<W8K>(m_PRGReg2,addr);
             else if(addr >= 0x2000 && addr < 0x4000)
-                return m_cartridgeData.readPrg<W8K>(m_PRGReg0,addr);
+                return m_cd.readPrg<W8K>(m_PRGReg0,addr);
             else if(addr >= 0x4000 && addr < 0x6000)
-                return m_cartridgeData.readPrg<W8K>(m_PRGReg1,addr);
+                return m_cd.readPrg<W8K>(m_PRGReg1,addr);
             else if(addr >= 0x6000 && addr < 0x8000)
-                return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+                return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
         }
 
         return 0;
@@ -147,7 +147,7 @@ public:
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM())
+        if(hasVRAM())
         {
             return IMapper::readCHR8k(addr);
         }
@@ -156,70 +156,70 @@ public:
             if(!m_CHRMode && !m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0800)
-                    return m_cartridgeData.readChr<W2K>(m_CHRReg0>>1,addr);
+                    return m_cd.readChr<W2K>(m_CHRReg0>>1,addr);
                 else if(addr >= 0x0800 && addr < 0x1000)
-                    return m_cartridgeData.readChr<W2K>(m_CHRReg1>>1,addr);
+                    return m_cd.readChr<W2K>(m_CHRReg1>>1,addr);
                 else if(addr >= 0x1000 && addr < 0x1400)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg2,addr);
                 else if(addr >= 0x1400 && addr < 0x1800)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg3,addr);
                 else if(addr >= 0x1800 && addr < 0x1C00)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg4,addr);
                 else if(addr >= 0x1C00 && addr < 0x2000)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg5,addr);
             }
             else if(!m_CHRMode && m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0400)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg0,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg0,addr);
                 if(addr >= 0x0400 && addr < 0x0800)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg6,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg6,addr);
                 else if(addr >= 0x0800 && addr < 0x0C00)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg1,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg1,addr);
                 else if(addr >= 0x0C00 && addr < 0x1000)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg7,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg7,addr);
                 else if(addr >= 0x1000 && addr < 0x1400)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg2,addr);
                 else if(addr >= 0x1400 && addr < 0x1800)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg3,addr);
                 else if(addr >= 0x1800 && addr < 0x1C00)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg4,addr);
                 else if(addr >= 0x1C00 && addr < 0x2000)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg5,addr);
             }
             else if(m_CHRMode && !m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0400)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg2,addr);
                 if(addr >= 0x0400 && addr < 0x0800)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg3,addr);
                 if(addr >= 0x0800 && addr < 0x0C00)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg4,addr);
                 if(addr >= 0x0C00 && addr < 0x1000)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg5,addr);
                 if(addr >= 0x1000 && addr < 0x1800)
-                    return m_cartridgeData.readChr<W2K>(m_CHRReg0>>1,addr);
+                    return m_cd.readChr<W2K>(m_CHRReg0>>1,addr);
                 if(addr >= 0x1800 && addr < 0x2000)
-                    return m_cartridgeData.readChr<W2K>(m_CHRReg1>>1,addr);
+                    return m_cd.readChr<W2K>(m_CHRReg1>>1,addr);
             }
             else if(m_CHRMode && m_CHR1KMode)
             {
                 if(addr >= 0x0000 && addr < 0x0400)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg2,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg2,addr);
                 if(addr >= 0x0400 && addr < 0x0800)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg3,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg3,addr);
                 else if(addr >= 0x0800 && addr < 0x0C00)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg4,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg4,addr);
                 else if(addr >= 0x0C00 && addr < 0x1000)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg5,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg5,addr);
                 else if(addr >= 0x1000 && addr < 0x1400)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg0,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg0,addr);
                 else if(addr >= 0x1400 && addr < 0x1800)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg6,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg6,addr);
                 else if(addr >= 0x1800 && addr < 0x1C00)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg1,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg1,addr);
                 else if(addr >= 0x1C00 && addr < 0x2000)
-                    return m_cartridgeData.readChr<W1K>(m_CHRReg7,addr);
+                    return m_cd.readChr<W1K>(m_CHRReg7,addr);
             }
         }
 
@@ -228,7 +228,7 @@ public:
 
     GERANES_HOT MirroringType mirroringType() override
     {
-        if(m_cartridgeData.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        if(m_cd.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
         if(m_mirroring) return MirroringType::HORIZONTAL;
         return MirroringType::VERTICAL;
     }

@@ -65,7 +65,7 @@ private:
 
     IMapper* CreateMapper()
     {
-        switch(m_nesCartridgeData->mapperNumber())
+        switch(m_nesCartridgeData->mapperId())
         {
         case 0: return new Mapper000(*m_nesCartridgeData);
         case 1: return new Mapper001(*m_nesCartridgeData);
@@ -216,10 +216,10 @@ public:
         {
             char num[64];
 
-            sprintf(num, "%d", m_nesCartridgeData->mapperNumber());
+            sprintf(num, "%d", m_nesCartridgeData->mapperId());
 
             auto msg = std::string("Mapper not supported: (") + num + ")" +
-                getMapperName(m_nesCartridgeData->mapperNumber());
+                getMapperName(m_nesCartridgeData->mapperId());
 
             Logger::instance().log(msg, Logger::Type::ERROR);
 

@@ -23,8 +23,8 @@ public:
 
     Mapper001(ICartridgeData& cd) : IMapper(cd)
     { 
-        m_PRGMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W16K>());
-        m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W4K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W4K>());
 
     }
 
@@ -75,18 +75,18 @@ public:
         {
         case 0: //switch 32 KB at $8000, ignoring low bit of bank number
         case 1:
-            if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(m_prgBank>>1,addr);
-            return m_cartridgeData.readPrg<W16K>((m_prgBank>>1)+1,addr);
+            if(addr < 0x4000) return m_cd.readPrg<W16K>(m_prgBank>>1,addr);
+            return m_cd.readPrg<W16K>((m_prgBank>>1)+1,addr);
             break;
 
         case 2:  //fix first bank at $8000 and switch 16 KB bank at $C000
-            if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(0,addr);
-            return m_cartridgeData.readPrg<W16K>(m_prgBank&0x0F,addr);
+            if(addr < 0x4000) return m_cd.readPrg<W16K>(0,addr);
+            return m_cd.readPrg<W16K>(m_prgBank&0x0F,addr);
             break;
 
         case 3: //fix last bank at $C000 and switch 16 KB bank at $8000
-            if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(m_prgBank&0x0F,addr);
-            return m_cartridgeData.readPrg<W16K>(m_cartridgeData.numberOfPRGBanks<W16K>()-1,addr);
+            if(addr < 0x4000) return m_cd.readPrg<W16K>(m_prgBank&0x0F,addr);
+            return m_cd.readPrg<W16K>(m_cd.numberOfPRGBanks<W16K>()-1,addr);
             break;
         }
 
@@ -96,22 +96,22 @@ public:
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
         else
         {
             if( !(m_control&0x10) ) //switch 8 KB at a time - low bit ignored in 8 KB mode
             {
-                return m_cartridgeData.readChr<W8K>(m_chrBank0>>1,addr);
+                return m_cd.readChr<W8K>(m_chrBank0>>1,addr);
             }
             else //switch two separate 4 KB banks
             {
                 if(addr < 0x1000)
                 {
-                    return m_cartridgeData.readChr<W4K>(m_chrBank0,addr);
+                    return m_cd.readChr<W4K>(m_chrBank0,addr);
                 }
                 else
                 {
-                    return m_cartridgeData.readChr<W4K>(m_chrBank1,addr);
+                    return m_cd.readChr<W4K>(m_chrBank1,addr);
                 }
             }
         }

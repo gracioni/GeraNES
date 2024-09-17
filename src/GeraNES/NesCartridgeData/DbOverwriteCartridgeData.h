@@ -11,32 +11,59 @@ private:
     ICartridgeData* m_src;
     Db::Data* m_dbData;
 
+    int m_numberOfPrg16kBanks;
+    int m_numberOfChr8kBanks;
+
+    int m_numberOfRamBanks;
+
+    bool m_hasBattery;
+    int m_saveRamSize;
+
+    bool m_useFourScreenMirroring;
+
     MirroringType m_mirroringType;
-    int m_mapper;
+    int m_mapperId;
 
 public:
 
     DbOverwriteCartridgeData(ICartridgeData* src, Db::Data* dbData) : m_src(src), m_dbData(dbData), ICartridgeData(src->romFile()) {
                
+        m_numberOfPrg16kBanks = m_dbData->PrgRomSize > 0 ? m_dbData->PrgRomSize/16 : m_src->numberOfPrg16kBanks();
+        m_numberOfChr8kBanks = m_dbData->ChrRomSize > 0 ? m_dbData->ChrRomSize/8 : m_src->numberOfChr8kBanks();
+        m_numberOfRamBanks = m_dbData->WorkRamSize > 0 ? m_dbData->WorkRamSize/8 : m_src->numberOf8kRamBanks();
+
+        m_saveRamSize = m_dbData->SaveRamSize > 0 ? m_dbData->SaveRamSize*1024 : m_src->SaveRamSize();
+
+        switch(m_dbData->HasBattery) {
+            case Db::Battery::Yes: m_hasBattery = true; break;
+            case Db::Battery::No: m_hasBattery = false; break;
+            case Db::Battery::Default: m_hasBattery = m_src->hasBattery(); break;            
+        }
+
+        m_useFourScreenMirroring = m_src->useFourScreenMirroring();
+
         switch(m_dbData->Mirroring) {
             case Db::MirroringType::HORIZONTAL: m_mirroringType = MirroringType::HORIZONTAL; break;
             case Db::MirroringType::VERTICAL: m_mirroringType = MirroringType::VERTICAL; break;
-            case Db::MirroringType::FOUR_SCREEN: m_mirroringType = MirroringType::FOUR_SCREEN; break;
+            case Db::MirroringType::FOUR_SCREEN:
+                m_mirroringType = MirroringType::FOUR_SCREEN;
+                m_useFourScreenMirroring = true;
+                break;
             case Db::MirroringType::SINGLE_SCREEN_A: m_mirroringType = MirroringType::SINGLE_SCREEN_A; break;
             case Db::MirroringType::SINGLE_SCREEN_B: m_mirroringType = MirroringType::SINGLE_SCREEN_B; break;
             case Db::MirroringType::DEFAULT: m_mirroringType = m_mirroringType = m_src->mirroringType(); break;
         }
 
-        if(m_dbData->Mapper >=0) m_mapper = m_dbData->Mapper;
-        else  m_mapper = m_src->mapperNumber();
+        if(m_dbData->MapperId >=0) m_mapperId = m_dbData->MapperId;
+        else  m_mapperId = m_src->mapperId();
     }
 
     virtual ~DbOverwriteCartridgeData() {
         delete m_src;
     }
 
-    int mapperNumber() override {
-        return m_mapper;    
+    int mapperId() override {
+        return m_mapperId;    
     }
 
     bool valid() override {
@@ -45,12 +72,12 @@ public:
 
     int numberOfPrg16kBanks() override
     {
-        return m_src->numberOfPrg16kBanks();
+        return m_numberOfPrg16kBanks;
     }
 
     int numberOfChr8kBanks() override
     {
-        return m_src->numberOfChr8kBanks();
+        return m_numberOfChr8kBanks;
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -58,10 +85,14 @@ public:
         return m_mirroringType;
     }
 
-    bool hasBatteryRam8k() override
+    bool hasBattery() override
     {
-        return m_src->hasBatteryRam8k();
+        return m_hasBattery;
     }
+
+    int SaveRamSize() override {
+        return m_saveRamSize;
+    }    
 
     bool hasTrainer() override
     {
@@ -70,12 +101,12 @@ public:
 
     GERANES_HOT bool useFourScreenMirroring() override
     {
-        return m_src->useFourScreenMirroring();
+        return m_useFourScreenMirroring;
     }
 
-    int numberOfRamBanks() override
+    int numberOf8kRamBanks() override
     {
-        return m_src->numberOfRamBanks();
+        return m_numberOfRamBanks;
     }
 
     GERANES_HOT uint8_t readTrainer(int addr) override

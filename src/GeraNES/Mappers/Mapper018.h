@@ -56,8 +56,8 @@ public:
 
     Mapper018(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGREGMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W8K>());
-        m_CHRREGMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W1K>());
+        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
+        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
 
     }
 
@@ -117,19 +117,19 @@ public:
 
     GERANES_HOT uint8_t readCHR8k(int addr) override
     {
-        if(has8kVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readCHR8k(addr);
 
         int index = addr >> 10; // addr/0x400
-        return m_cartridgeData.readChr<W1K>(m_CHRReg[index],addr);
+        return m_cd.readChr<W1K>(m_CHRReg[index],addr);
     }
 
     GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>13) { // addr/8192
-        case 0: return m_cartridgeData.readPrg<W8K>(m_PRGReg[0],addr);
-        case 1: return m_cartridgeData.readPrg<W8K>(m_PRGReg[1],addr);
-        case 2: return m_cartridgeData.readPrg<W8K>(m_PRGReg[2],addr);
-        case 3: return m_cartridgeData.readPrg<W8K>(m_cartridgeData.numberOfPRGBanks<W8K>()-1,addr);
+        case 0: return m_cd.readPrg<W8K>(m_PRGReg[0],addr);
+        case 1: return m_cd.readPrg<W8K>(m_PRGReg[1],addr);
+        case 2: return m_cd.readPrg<W8K>(m_PRGReg[2],addr);
+        case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
         }
 
         return 0;

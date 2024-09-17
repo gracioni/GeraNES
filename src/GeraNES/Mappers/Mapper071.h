@@ -18,7 +18,7 @@ public:
 
     Mapper071(ICartridgeData& cd) : IMapper(cd)
     {
-        m_PRGRegMask = calculateMask(m_cartridgeData.numberOfPRGBanks<W16K>());
+        m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
     }
 
     virtual bool VRAMRequired() override {
@@ -40,8 +40,8 @@ public:
     GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>14) { //addr/16K
-            case 0: return m_cartridgeData.readPrg<W16K>(m_PRGReg,addr);
-            case 1: return m_cartridgeData.readPrg<W16K>(m_cartridgeData.numberOfPRGBanks<W16K>()-1,addr);
+            case 0: return m_cd.readPrg<W16K>(m_PRGReg,addr);
+            case 1: return m_cd.readPrg<W16K>(m_cd.numberOfPRGBanks<W16K>()-1,addr);
         }
 
         return 0;
