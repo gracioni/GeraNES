@@ -119,17 +119,17 @@ public:
         return 0;
     }
 
-    GERANES_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         switch(m_control&0x03)
         {
-        case 0: return IMapper::SINGLE_SCREEN_A; break;
-        case 1: return IMapper::SINGLE_SCREEN_B; break;
-        case 2: return IMapper::VERTICAL; break;
-        case 3: return IMapper::HORIZONTAL; break;
+        case 0: return MirroringType::SINGLE_SCREEN_A; break;
+        case 1: return MirroringType::SINGLE_SCREEN_B; break;
+        case 2: return MirroringType::VERTICAL; break;
+        case 3: return MirroringType::HORIZONTAL; break;
         }
 
-        return IMapper::FOUR_SCREEN;
+        return MirroringType::FOUR_SCREEN;
     }
 
     void serialization(SerializationBase &s) override

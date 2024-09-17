@@ -78,7 +78,7 @@ public:
         return m_cartridgeData.readChr<W1K>(m_CHRReg[(addr >> 10)&0x07],addr);
     }
 
-    GERANES_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         return m_mirroring ? MirroringType::HORIZONTAL : MirroringType::VERTICAL;
     }

@@ -92,10 +92,10 @@ public:
         return ret;
     }
 
-    GERANES_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
-        if(m_mirrorMode) return IMapper::HORIZONTAL;
-        return IMapper::VERTICAL;
+        if(m_mirrorMode) return MirroringType::HORIZONTAL;
+        return MirroringType::VERTICAL;
     }
 
     void serialization(SerializationBase& s) override

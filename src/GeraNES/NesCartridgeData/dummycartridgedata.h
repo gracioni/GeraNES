@@ -26,9 +26,9 @@ public:
         return false;
     }
 
-    GERANES_INLINE int mirroringType() override
+    GERANES_INLINE MirroringType mirroringType() override
     {
-        return 0;
+        return MirroringType::HORIZONTAL;
     }
 
     bool hasBatteryRam8k() override

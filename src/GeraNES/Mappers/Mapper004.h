@@ -179,11 +179,11 @@ public:
         return 0;
     }
 
-    GERANES_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
-        if(m_cartridgeData.useFourScreenMirroring() ) return IMapper::FOUR_SCREEN;
-        if(m_mirroring) return IMapper::HORIZONTAL;
-        return IMapper::VERTICAL;
+        if(m_cartridgeData.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        if(m_mirroring) return MirroringType::HORIZONTAL;
+        return MirroringType::VERTICAL;
     }
 
     bool getInterruptFlag() override

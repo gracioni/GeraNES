@@ -16,7 +16,7 @@ public:
 
     GERANES_HOT MirroringType mirroringType() override
     {
-         return IMapper::CUSTOM;
+         return MirroringType::CUSTOM;
     }
 
     GERANES_HOT uint8_t customMirroring(uint8_t index) override

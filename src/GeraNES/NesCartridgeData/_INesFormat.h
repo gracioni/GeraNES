@@ -59,7 +59,7 @@ public:
         return m_romFile.data(5);
     }
 
-    GERANES_HOT int mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         /*
         Byte 6
@@ -67,7 +67,7 @@ public:
         where 0 indicates horizontal mirroring, 1 indicates
         vertical mirroring.
         */
-        return m_romFile.data(6) & 0x01;
+        return static_cast<MirroringType>(m_romFile.data(6) & 0x01);
     }
 
     bool hasBatteryRam8k() override

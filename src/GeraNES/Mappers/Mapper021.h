@@ -165,13 +165,13 @@ public:
     GERANES_HOT MirroringType mirroringType() override
     {
         switch(m_mirroring) {
-        case 0: return IMapper::VERTICAL;
-        case 1: return IMapper::HORIZONTAL;
-        case 2: return IMapper::SINGLE_SCREEN_A;
-        case 3: return IMapper::SINGLE_SCREEN_B;
+        case 0: return MirroringType::VERTICAL;
+        case 1: return MirroringType::HORIZONTAL;
+        case 2: return MirroringType::SINGLE_SCREEN_A;
+        case 3: return MirroringType::SINGLE_SCREEN_B;
         }
 
-        return IMapper::FOUR_SCREEN;
+        return MirroringType::FOUR_SCREEN;
     }
 
     GERANES_HOT virtual bool getInterruptFlag() override

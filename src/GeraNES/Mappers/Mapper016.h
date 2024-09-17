@@ -105,17 +105,17 @@ public:
         return m_IRQFlag;
     };
 
-    GERANES_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         switch(m_mirroring)
         {
-        case 0: return IMapper::VERTICAL; break;
-        case 1: return IMapper::HORIZONTAL; break;
-        case 2: return IMapper::SINGLE_SCREEN_A; break;
-        case 3: return IMapper::SINGLE_SCREEN_B; break;
+        case 0: return MirroringType::VERTICAL; break;
+        case 1: return MirroringType::HORIZONTAL; break;
+        case 2: return MirroringType::SINGLE_SCREEN_A; break;
+        case 3: return MirroringType::SINGLE_SCREEN_B; break;
         }
 
-        return IMapper::FOUR_SCREEN;
+        return MirroringType::FOUR_SCREEN;
     }
 
 

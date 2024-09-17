@@ -81,9 +81,7 @@ private:
         }
     }
 
-public:
-
-    enum MirroringType { HORIZONTAL, VERTICAL, SINGLE_SCREEN_A, SINGLE_SCREEN_B, FOUR_SCREEN, CUSTOM };
+public:    
 
     //window size
     enum { W1K = 0x400, W2K = 0x800, W4K = 0x1000, W8K = 0x2000, W16K = 0x4000, W32K = 0x8000 };
@@ -153,11 +151,9 @@ public:
 
     virtual MirroringType mirroringType()
     {
-        if(m_cartridgeData.useFourScreenMirroring() ) return IMapper::FOUR_SCREEN;
-        else
-        {
-            if(m_cartridgeData.mirroringType() == 0) return IMapper::HORIZONTAL;
-            else return IMapper::VERTICAL;
+        if(m_cartridgeData.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        else {
+            return m_cartridgeData.mirroringType();
         }
     }
 

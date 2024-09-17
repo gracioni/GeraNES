@@ -31,10 +31,10 @@ public:
         return m_cartridgeData.readPrg<W32K>(m_PRGReg,addr);
     }
 
-    GERANES_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
-        if(!m_mirroring) return IMapper::SINGLE_SCREEN_A;
-        return IMapper::SINGLE_SCREEN_B;
+        if(!m_mirroring) return MirroringType::SINGLE_SCREEN_A;
+        return MirroringType::SINGLE_SCREEN_B;
     }
 
     void serialization(SerializationBase& s) override

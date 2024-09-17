@@ -273,7 +273,7 @@ public:
         return m_mapper->read0x4000(addr,openBusData);
     }
 
-    GERANES_INLINE IMapper::MirroringType getMirroringType()
+    GERANES_INLINE MirroringType getMirroringType()
     {
         return m_mapper->mirroringType();
     }
@@ -287,15 +287,15 @@ public:
 
         switch(m_mapper->mirroringType()){
 
-        case IMapper::HORIZONTAL:
+        case MirroringType::HORIZONTAL:
             return HORIZONTAL_MIRROR[blockIndex];
-        case IMapper::VERTICAL:
+        case MirroringType::VERTICAL:
             return VERTICAL_MIRROR[blockIndex];
-        case IMapper::SINGLE_SCREEN_A:
+        case MirroringType::SINGLE_SCREEN_A:
             return 0;
-        case IMapper::SINGLE_SCREEN_B:
+        case MirroringType::SINGLE_SCREEN_B:
             return 1;
-        case IMapper::FOUR_SCREEN:
+        case MirroringType::FOUR_SCREEN:
             return FOUR_SCREEN_MIRROR[blockIndex];
         default: //CUSTOM
             return m_mapper->customMirroring(blockIndex);

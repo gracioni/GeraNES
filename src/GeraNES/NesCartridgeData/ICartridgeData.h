@@ -30,7 +30,7 @@ public:
 
     virtual int numberOfChr8kBanks() = 0;
 
-    virtual int mirroringType() = 0;
+    virtual MirroringType mirroringType() = 0;
 
     /*
       Indicates the presence of battery-backed RAM at
@@ -61,7 +61,7 @@ public:
 
         aux << "Number of PRG-ROM banks: " << numberOfPrg16kBanks() << std::endl;
         aux << "Number of CHR-ROM banks: " << numberOfChr8kBanks() << std::endl;
-        aux << "Mirroring type: " << mirroringType() << std::endl;
+        aux << "Mirroring type: " << (int)mirroringType() << std::endl;
         aux << "Has battery-backed RAM: " << hasBatteryRam8k() << std::endl;
         aux <<  "Has trainer: " << hasTrainer() << std::endl;
         aux << "Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
