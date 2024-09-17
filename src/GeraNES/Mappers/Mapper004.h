@@ -61,7 +61,7 @@ public:
 
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         if(!m_PRGMode)
         {
@@ -85,7 +85,7 @@ public:
         return 0;
     }
 
-    virtual void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT virtual void writePRG32k(int addr, uint8_t data) override
     {
         addr &= 0xF001;
 
@@ -144,7 +144,7 @@ public:
     }
 
 
-    virtual uint8_t readCHR8k(int addr) override
+   GERANES_HOT virtual uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
@@ -179,7 +179,7 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT IMapper::MirroringType mirroringType() override
     {
         if(m_cartridgeData.useFourScreenMirroring() ) return IMapper::FOUR_SCREEN;
         if(m_mirroring) return IMapper::HORIZONTAL;

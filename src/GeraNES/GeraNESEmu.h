@@ -317,12 +317,12 @@ public:
         return result;
     }
 
-    GERANES_INLINE uint8_t read(int addr) override
+    GERANES_HOT uint8_t read(int addr) override
     {
         return busReadWrite<false>(addr);
     }
 
-    GERANES_INLINE void write(int addr, uint8_t data) override
+    GERANES_HOT void write(int addr, uint8_t data) override
     {
         busReadWrite<true>(addr,data);
     } 

@@ -25,19 +25,19 @@ public:
         m_CHRReg = (data&readPRG32k(addr))&0x03;
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         return m_cartridgeData.readPrg<W32K>(0,addr);
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(addr < 0x1000) addr &= 0x0FFF;
         else addr = (m_CHRReg * 0x1000) + (addr&0x0FFF);
         return *(getVRAM()+addr);
     }
 
-    GERANES_INLINE_HOT void writeCHR8k(int addr, uint8_t data) override
+    GERANES_HOT void writeCHR8k(int addr, uint8_t data) override
     {
         if(addr < 0x1000) addr &= 0x0FFF;
         else addr = (m_CHRReg * 0x1000) + (addr&0x0FFF);

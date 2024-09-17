@@ -123,7 +123,7 @@ public:
 
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>13) { // addr/8192
         case 0: return m_cartridgeData.readPrg<W8K>(m_PRGReg[0],addr);
@@ -135,7 +135,7 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
@@ -151,7 +151,7 @@ public:
         return m_cartridgeData.readChr<W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
     }
 
-    void writeCHR8k(int addr, uint8_t data) override
+    GERANES_HOT void writeCHR8k(int addr, uint8_t data) override
     {
         if(has8kVRAM()) {
             IMapper::writeCHR8k(addr, data);
@@ -170,7 +170,7 @@ public:
         }
     }
 
-    void write0x4000(int addr, uint8_t data) override
+    GERANES_HOT void write0x4000(int addr, uint8_t data) override
     {
         switch(addr) {
         case 0x0000: break;
@@ -191,7 +191,7 @@ public:
         }
     }
 
-    uint8_t read0x4000(int addr, uint8_t openBusData) override
+    GERANES_HOT uint8_t read0x4000(int addr, uint8_t openBusData) override
     {
         switch(addr) {
         case 0x0000: return openBusData;
@@ -208,34 +208,34 @@ public:
         return openBusData;
     }
 
-    bool useCustomNameTable(uint8_t index) override
+    GERANES_HOT bool useCustomNameTable(uint8_t index) override
     {
         return m_MirroringReg[index] < 0xE0;
     }
 
-    uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
+    GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
     {        
         uint8_t bank = m_MirroringReg[index];
         return m_cartridgeData.readChr<W1K>(bank,addr);
     }
     
-    MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         return IMapper::CUSTOM;
     }
 
-    uint8_t customMirroring(uint8_t blockIndex) override
+    GERANES_HOT uint8_t customMirroring(uint8_t blockIndex) override
     {
         uint8_t value = m_MirroringReg[blockIndex];
         return value < 0xE0 ? value : value&0x03;
     }
 
-    bool getInterruptFlag() override
+    GERANES_HOT bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
-    void cycle() override
+    GERANES_HOT void cycle() override
     {
         if(m_IRQEnable) {
             if( (m_IRQCounter&0x7FFF) == 0x7FFF) {

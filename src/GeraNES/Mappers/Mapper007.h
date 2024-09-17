@@ -26,12 +26,12 @@ public:
         m_PRGReg = data&m_PRGRegMask;
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         return m_cartridgeData.readPrg<W32K>(m_PRGReg,addr);
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT IMapper::MirroringType mirroringType() override
     {
         if(!m_mirroring) return IMapper::SINGLE_SCREEN_A;
         return IMapper::SINGLE_SCREEN_B;

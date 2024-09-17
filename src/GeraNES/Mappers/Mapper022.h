@@ -18,7 +18,7 @@ public:
 
     }
 
-    void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         //A1 A0 - $x000, $x002, $x001, $x003
 
@@ -28,7 +28,7 @@ public:
         m_PRGMode = false; // VRC2 has 1 mode only
     }
 
-    uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
@@ -40,7 +40,7 @@ public:
         return m_cartridgeData.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
-    bool getInterruptFlag() override
+    GERANES_HOT bool getInterruptFlag() override
     {
         return false;
     }

@@ -23,22 +23,22 @@ public:
         m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W4K>());
     }
 
-    bool isNINA() {
+    GERANES_HOT bool isNINA() {
         return !has8kVRAM();
     }
 
-    void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         if(!isNINA()) m_PRGReg = data & m_PRGMask;
         else IMapper::writePRG32k(addr,data);
     }
 
-    uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         return m_cartridgeData.readPrg<W32K>(m_PRGReg,addr);
     }
 
-    uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
         else {
@@ -53,7 +53,7 @@ public:
         return 0;
     }
 
-    void writeSRAM8k(int addr, uint8_t data) override
+    GERANES_HOT void writeSRAM8k(int addr, uint8_t data) override
     {
         if(isNINA()){
             switch(addr){

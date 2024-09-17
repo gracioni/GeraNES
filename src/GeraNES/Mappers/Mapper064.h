@@ -59,7 +59,7 @@ public:
         m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W1K>());
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         if(!m_PRGMode)
         {
@@ -87,7 +87,7 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         addr &= 0xE001;
 
@@ -145,7 +145,7 @@ public:
     }
 
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM())
         {
@@ -226,25 +226,25 @@ public:
         return 0;
     } 
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT IMapper::MirroringType mirroringType() override
     {
         if(m_cartridgeData.useFourScreenMirroring() ) return IMapper::FOUR_SCREEN;
         if(m_mirroring) return IMapper::HORIZONTAL;
         return IMapper::VERTICAL;
     }
 
-    bool getInterruptFlag() override
+    GERANES_HOT bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
-    void tick() override
+    GERANES_HOT void tick() override
     {
         if(m_irqMode == true) return;
         haha();
     }
 
-    void cycle() override
+    GERANES_HOT void cycle() override
     {
         if(m_delayToInterrupt > -1) {
             --m_delayToInterrupt;

@@ -12,9 +12,8 @@ private:
 
 public:
 
-    GERANES_INLINE std::string error() override
-    {
-        return "";
+    bool valid() override {
+        return true;
     }
 
     GERANES_INLINE int numberOfPrg16kBanks() override

@@ -116,7 +116,7 @@ public:
         m_CHRREGMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W1K>());
     }
 
-    virtual void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT virtual void writePRG32k(int addr, uint8_t data) override
     {
 
         // VRC4c -> 0xF00C
@@ -127,7 +127,7 @@ public:
 
     }
 
-    uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         if(!m_PRGMode) {
 
@@ -152,7 +152,7 @@ public:
         return 0;
     }
 
-    virtual uint8_t readCHR8k(int addr) override
+    GERANES_HOT virtual uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
@@ -162,7 +162,7 @@ public:
         return m_cartridgeData.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
-    MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         switch(m_mirroring) {
         case 0: return IMapper::VERTICAL;
@@ -174,12 +174,12 @@ public:
         return IMapper::FOUR_SCREEN;
     }
 
-    virtual bool getInterruptFlag() override
+    GERANES_HOT virtual bool getInterruptFlag() override
     {
         return m_interruptFlag;
     }
 
-    void cycle() override
+    GERANES_HOT void cycle() override
     {
         if(!m_IRQEnable) return;
 

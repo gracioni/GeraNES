@@ -55,7 +55,7 @@ public:
         }
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         addr &= 0x7FFF;
 
@@ -66,7 +66,7 @@ public:
         return m_cartridgeData.readPrg<W8K>(numberOfPRG8kBanks-1,addr);
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
@@ -92,7 +92,7 @@ public:
         return ret;
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT IMapper::MirroringType mirroringType() override
     {
         if(m_mirrorMode) return IMapper::HORIZONTAL;
         return IMapper::VERTICAL;

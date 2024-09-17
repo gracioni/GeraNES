@@ -16,7 +16,7 @@ public:
 
     }
 
-    void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         //VRC6b:    A1, A0    $x000, $x002, $x001, $x003
 

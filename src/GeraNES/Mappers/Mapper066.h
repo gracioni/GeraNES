@@ -26,12 +26,12 @@ public:
         m_CHRREG = (data&0x0F)&m_CHRREGMask;
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         return m_cartridgeData.readPrg<W32K>(m_PRGREG,addr);
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 

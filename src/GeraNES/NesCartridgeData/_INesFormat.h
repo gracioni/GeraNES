@@ -16,18 +16,20 @@ class _INesFormat : public ICartridgeData
 {
 private:
 
-    std::string m_error;
-
     size_t m_PRGStartIndex;
-    size_t m_CHRStartIndex; 
+    size_t m_CHRStartIndex;
+
+    bool m_isValid;
 
 public:
 
     _INesFormat(RomFile& romFile) : ICartridgeData(romFile)
     {
-        m_error = "invalid iNes file";
+        m_isValid = false;
 
-        if(m_romFile.size() < 4) return;
+        if(m_romFile.size() < 4) {
+            return;
+        }
 
         const char iNesBytes[] = "NES\x1A";
         size_t size = strlen(iNesBytes);
@@ -40,25 +42,24 @@ public:
         m_PRGStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0);
         m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + numberOfPrg16kBanks()*0x4000/*16KB*/;
 
-        m_error = "";
+        m_isValid = true;
     }
 
-    GERANES_INLINE std::string error() override
-    {
-        return m_error;
+    bool valid() override {
+        return m_isValid;
     }
 
-    GERANES_INLINE int numberOfPrg16kBanks() override
+    int numberOfPrg16kBanks() override
     {
         return m_romFile.data(4);
     }
 
-    GERANES_INLINE int numberOfChr8kBanks() override
+    int numberOfChr8kBanks() override
     {
         return m_romFile.data(5);
     }
 
-    GERANES_INLINE int mirroringType() override
+    GERANES_HOT int mirroringType() override
     {
         /*
         Byte 6
@@ -69,7 +70,7 @@ public:
         return m_romFile.data(6) & 0x01;
     }
 
-    GERANES_INLINE bool hasBatteryRam8k() override
+    bool hasBatteryRam8k() override
     {
         /*
         Byte 6
@@ -79,7 +80,7 @@ public:
         return m_romFile.data(6) & 0x02;
     }
 
-    GERANES_INLINE bool hasTrainer() override
+    bool hasTrainer() override
     {
         /*
         Byte 6
@@ -89,7 +90,7 @@ public:
         return m_romFile.data(6) & 0x04;
     }
 
-    GERANES_INLINE bool useFourScreenMirroring() override
+    GERANES_HOT bool useFourScreenMirroring() override
     {
         /*
         Byte 6
@@ -99,7 +100,7 @@ public:
         return m_romFile.data(6) & 0x08;
     }
 
-    GERANES_INLINE int mapperNumber() override
+    int mapperNumber() override
     {
         return ((m_romFile.data(6)&0xF0) >> 4) | (m_romFile.data(7)&0xF0);
     }
@@ -110,25 +111,25 @@ public:
     versions of the iNES format, assume 1 page of RAM when
     this is 0.
     */
-    GERANES_INLINE_HOT int numberOfRamBanks() override
+    int numberOfRamBanks() override
     {
         int n = m_romFile.data(8);
         if(n == 0) n = 1;
         return n;
     }
 
-    GERANES_INLINE_HOT uint8_t readTrainer(int addr) override
+    GERANES_HOT uint8_t readTrainer(int addr) override
     {
         if(hasTrainer()) return m_romFile.data(INES_HEADER_SIZE + addr);
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readPrg(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         return m_romFile.data(m_PRGStartIndex + addr);
     }
 
-    GERANES_INLINE_HOT uint8_t readChr(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
         return m_romFile.data(m_CHRStartIndex + addr);
     }

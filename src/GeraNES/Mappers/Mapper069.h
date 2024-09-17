@@ -141,7 +141,7 @@ public:
 
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>13) {
         case 0: return m_cartridgeData.readPrg<W8K>(m_PRGREG[1],addr);
@@ -153,7 +153,7 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 
@@ -161,7 +161,7 @@ public:
         return m_cartridgeData.readChr<W1K>(m_CHRREG[index],addr);
     }
 
-    GERANES_INLINE_HOT MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         switch(m_mirroring){
         case 0: return MirroringType::VERTICAL;
@@ -173,7 +173,7 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
-    GERANES_INLINE_HOT void cycle() override
+    GERANES_HOT void cycle() override
     {
         if(m_IRQCounterEnable) {
 
@@ -182,16 +182,16 @@ public:
         }
     }
 
-    GERANES_INLINE_HOT bool getInterruptFlag() override {
+    GERANES_HOT bool getInterruptFlag() override {
         return m_interruptFlag;
     }
 
-    GERANES_INLINE_HOT void writeSRAM8k(int addr, uint8_t data) override
+    GERANES_HOT void writeSRAM8k(int addr, uint8_t data) override
     {
         if(m_PRGRAMEnable && m_PRGRAMSelect) writeCHRRAM<W8K>(m_PRGREG[0], addr, data);
     }
 
-    GERANES_INLINE_HOT uint8_t readSRAM8k(int addr) override
+    GERANES_HOT uint8_t readSRAM8k(int addr) override
     {
         if(m_PRGRAMEnable && m_PRGRAMSelect)
             return readCHRRAM<W8K>(m_PRGREG[0],addr);

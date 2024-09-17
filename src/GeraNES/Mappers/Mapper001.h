@@ -119,7 +119,7 @@ public:
         return 0;
     }
 
-    GERANES_INLINE_HOT IMapper::MirroringType mirroringType() override
+    GERANES_HOT IMapper::MirroringType mirroringType() override
     {
         switch(m_control&0x03)
         {

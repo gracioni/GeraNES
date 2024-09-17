@@ -21,19 +21,19 @@ public:
         m_CHRMask = calculateMask(m_cartridgeData.numberOfCHRBanks<W8K>());
     }
 
-    GERANES_INLINE_HOT void writePRG32k(int /*addr*/, uint8_t data) override
+    GERANES_HOT void writePRG32k(int /*addr*/, uint8_t data) override
     {
         m_PRGBank = (data&0x03)&m_PRGMask;
         m_CHRBank = ((data&0xF0)>>4)&m_CHRMask;
     };
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         addr &= 0x7FFF;
         return m_cartridgeData.readPrg<W32K>(m_PRGBank, addr);
     }
 
-    GERANES_INLINE_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readCHR8k(int addr) override
     {
         if(has8kVRAM()) return IMapper::readCHR8k(addr);
 

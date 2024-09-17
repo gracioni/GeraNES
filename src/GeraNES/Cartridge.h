@@ -5,6 +5,7 @@
 #include "functions.h"
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
+#include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "Logger.h"
 #include "util/Crc32.h"
 
@@ -62,11 +63,9 @@ private:
 
     RomFile m_romFile;
 
-    int m_mapperNumber;
-
     IMapper* CreateMapper()
     {
-        switch(m_mapperNumber)
+        switch(m_nesCartridgeData->mapperNumber())
         {
         case 0: return new Mapper000(*m_nesCartridgeData);
         case 1: return new Mapper001(*m_nesCartridgeData);
@@ -183,10 +182,11 @@ public:
         //try open various file formats here, currently only iNes is supported
         m_nesCartridgeData = new _INesFormat(m_romFile);
 
-        if(m_nesCartridgeData->error() != "")
+        if(!m_nesCartridgeData->valid())
         {
             clear();
-            return "Invalid ROM";
+            Logger::instance().log("Invalid ROM", Logger::Type::ERROR);
+            return false;
         }
 
         uint32_t prgCrc = prgCrc32();
@@ -202,11 +202,10 @@ public:
 
         if(dbData != nullptr) {
             Logger::instance().log("Register found in database", Logger::Type::INFO);
-            m_mapperNumber = std::stoi(dbData->Mapper);
+            m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, dbData);
         }
         else {
             Logger::instance().log("Register not found in database", Logger::Type::INFO);
-            m_mapperNumber = m_nesCartridgeData->mapperNumber();
         }
 
         //try other formats files here

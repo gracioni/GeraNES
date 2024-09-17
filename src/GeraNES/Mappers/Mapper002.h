@@ -16,13 +16,13 @@ public:
     {
     }
 
-    GERANES_INLINE_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         if(addr < 0x4000) return m_cartridgeData.readPrg<W16K>(m_selectedBank,addr);
         return m_cartridgeData.readPrg<W16K>(m_cartridgeData.numberOfPRGBanks<W16K>()-1,addr);
     }
 
-    GERANES_INLINE_HOT void writePRG32k(int /*addr*/, uint8_t data) override
+    GERANES_HOT void writePRG32k(int /*addr*/, uint8_t data) override
     {
         m_selectedBank = data;
     };

@@ -20,11 +20,11 @@ public:
     ICartridgeData(RomFile& romFile) : m_romFile(romFile) {
     };
 
-    const RomFile& romFile() {
+    RomFile& romFile() {
         return m_romFile;
     }
 
-    virtual std::string error() = 0;
+    virtual bool valid() = 0;
 
     virtual int numberOfPrg16kBanks() = 0;
 

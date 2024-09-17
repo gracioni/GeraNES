@@ -14,12 +14,12 @@ public:
     {
     }
 
-    MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
          return IMapper::CUSTOM;
     }
 
-    uint8_t customMirroring(uint8_t index) override
+    GERANES_HOT uint8_t customMirroring(uint8_t index) override
     {
         if(m_CHRMode) {
 

@@ -25,7 +25,7 @@ public:
         return true;
     }
 
-    void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
     {
         //Fire Hawk only writes this register at the address $9000, and other games like Micro Machines and
         //Ultimate Stuntman write $00 to $8000 on startup.
@@ -37,7 +37,7 @@ public:
         else m_PRGReg = data & m_PRGRegMask;
     }
 
-    uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPRG32k(int addr) override
     {
         switch(addr>>14) { //addr/16K
             case 0: return m_cartridgeData.readPrg<W16K>(m_PRGReg,addr);
@@ -47,7 +47,7 @@ public:
         return 0;
     }
 
-    MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         if(m_mirroring == 0xFF) return IMapper::mirroringType();
 

@@ -11,12 +11,12 @@ public:
     {
     }
 
-    bool useCustomNameTable(uint8_t index) override
+    GERANES_HOT bool useCustomNameTable(uint8_t index) override
     {
         return false;
     }
     
-    MirroringType mirroringType() override
+    GERANES_HOT MirroringType mirroringType() override
     {
         return IMapper::mirroringType();
     }
