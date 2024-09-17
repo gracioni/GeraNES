@@ -33,7 +33,6 @@ public:
 
     virtual ~DbOverwriteCartridgeData() {
         delete m_src;
-        delete m_dbData;
     }
 
     int mapperNumber() override {

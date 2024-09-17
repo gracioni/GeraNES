@@ -189,6 +189,8 @@ public:
             return false;
         }
 
+        // try other formats files here
+
         uint32_t prgCrc = prgCrc32();
         uint32_t prgChrCrc = prgChrCrc32();
 
@@ -208,9 +210,8 @@ public:
             Logger::instance().log("[DB] ROM not found in database", Logger::Type::INFO);
         }
 
-        //try other formats files here
-
         m_mapper = CreateMapper();
+
         if(m_mapper == &m_dummyMapper)
         {
             char num[64];
@@ -230,7 +231,7 @@ public:
 
         m_isValid = true;
 
-        return "";
+        return true;
     }
 
     GERANES_INLINE void writePRG32k(int addr, uint8_t data)
