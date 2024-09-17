@@ -81,7 +81,7 @@ public:
         m_CHRRAM.reset(new uint8_t[0x2000]); //8k
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         switch(addr) {
 
@@ -123,7 +123,7 @@ public:
 
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>13) { // addr/8192
         case 0: return m_cd.readPrg<W8K>(m_PRGReg[0],addr);
@@ -135,9 +135,9 @@ public:
         return 0;
     }
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
 
@@ -151,10 +151,10 @@ public:
         return m_cd.readChr<W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
     }
 
-    GERANES_HOT void writeCHR8k(int addr, uint8_t data) override
+    GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(hasVRAM()) {
-            IMapper::writeCHR8k(addr, data);
+            IMapper::writeChr(addr, data);
             return;
          }
 

@@ -21,7 +21,7 @@ public:
     {
     } 
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         m_mode = addr & 0x03;
         m_mirroring = data & 0x40;
@@ -29,7 +29,7 @@ public:
         m_b = (data & 0x80) ? 1 : 0;
     };
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(m_mode) {
 
@@ -55,10 +55,10 @@ public:
         return 0;
     }
 
-    GERANES_HOT void writeCHR8k(int addr, uint8_t data) override
+    GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(m_mode == 0 || m_mode == 3) return; //write protected
-        IMapper::writeCHR8k(addr,data);
+        IMapper::writeChr(addr,data);
     }
 
     GERANES_HOT MirroringType mirroringType() override

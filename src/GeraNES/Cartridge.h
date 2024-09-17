@@ -226,32 +226,32 @@ public:
 
     GERANES_INLINE void writePRG32k(int addr, uint8_t data)
     {
-        m_mapper->writePRG32k(addr,data);
+        m_mapper->writePrg(addr,data);
     }
 
     GERANES_INLINE uint8_t readPRG32k(int addr)
     {
-        return m_mapper->readPRG32k(addr);
+        return m_mapper->readPrg(addr);
     }
 
     GERANES_INLINE void writeSRAM8k(int addr, uint8_t data)
     {
-        m_mapper->writeSRAM8k(addr,data);
+        m_mapper->writeSaveRam(addr,data);
     }
 
     GERANES_INLINE uint8_t readSRAM8k(int addr)
     {
-        return m_mapper->readSRAM8k(addr);
+        return m_mapper->readSaveRam(addr);
     }
 
     GERANES_INLINE void writeCHR8k(int addr, uint8_t data)
     {
-        m_mapper->writeCHR8k(addr,data);
+        m_mapper->writeChr(addr,data);
     }
 
     GERANES_INLINE uint8_t readCHR8k(int addr)
     {
-        return m_mapper->readCHR8k(addr);
+        return m_mapper->readChr(addr);
     }
 
     GERANES_INLINE void write0x4000(int addr, uint8_t data)

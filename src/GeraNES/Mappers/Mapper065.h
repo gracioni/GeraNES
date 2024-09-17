@@ -39,7 +39,7 @@ public:
         m_PRGReg2 &= m_PRGMask;
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         switch(addr>>12)
         {
@@ -62,7 +62,7 @@ public:
         }
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         if(addr < 0x2000) return m_cd.readPrg<W8K>(m_PRGReg0,addr);
         else if(addr < 0x4000) return m_cd.readPrg<W8K>(m_PRGReg1,addr);
@@ -71,9 +71,9 @@ public:
         return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
     }
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
 
         return m_cd.readChr<W1K>(m_CHRReg[(addr >> 10)&0x07],addr);
     }

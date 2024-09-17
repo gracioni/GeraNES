@@ -20,13 +20,13 @@ public:
         m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());    
     }
 
-    GERANES_HOT void writePRG32k(int /*addr*/, uint8_t data) override
+    GERANES_HOT void writePrg(int /*addr*/, uint8_t data) override
     {
         m_mirroring = data&0x10;
         m_PRGReg = data&m_PRGRegMask;
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         return m_cd.readPrg<W32K>(m_PRGReg,addr);
     }

@@ -27,20 +27,20 @@ public:
         return !hasVRAM();
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         if(!isNINA()) m_PRGReg = data & m_PRGMask;
-        else IMapper::writePRG32k(addr,data);
+        else IMapper::writePrg(addr,data);
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         return m_cd.readPrg<W32K>(m_PRGReg,addr);
     }
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
         else {
 
             switch(addr>>12){
@@ -53,7 +53,7 @@ public:
         return 0;
     }
 
-    GERANES_HOT void writeSRAM8k(int addr, uint8_t data) override
+    GERANES_HOT void writeSaveRam(int addr, uint8_t data) override
     {
         if(isNINA()){
             switch(addr){
@@ -63,7 +63,7 @@ public:
             }
         }
 
-        IMapper::writeSRAM8k(addr,data);
+        IMapper::writeSaveRam(addr,data);
     }
 
     void serialization(SerializationBase& s) override

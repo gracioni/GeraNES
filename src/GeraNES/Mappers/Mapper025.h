@@ -13,7 +13,7 @@ public:
     {
     }
 
-    GERANES_HOT virtual void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT virtual void writePrg(int addr, uint8_t data) override
     {
 
         // VRC4b:    A1, A0    $x000, $x002, $x001, $x003

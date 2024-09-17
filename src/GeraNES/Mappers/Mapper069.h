@@ -90,7 +90,7 @@ public:
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         //Command Register ($8000-$9FFF)
         //Parameter Register ($A000-$BFFF)
@@ -141,7 +141,7 @@ public:
 
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>13) {
         case 0: return m_cd.readPrg<W8K>(m_PRGREG[1],addr);
@@ -153,9 +153,9 @@ public:
         return 0;
     }
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
         return m_cd.readChr<W1K>(m_CHRREG[index],addr);
@@ -186,12 +186,12 @@ public:
         return m_interruptFlag;
     }
 
-    GERANES_HOT void writeSRAM8k(int addr, uint8_t data) override
+    GERANES_HOT void writeSaveRam(int addr, uint8_t data) override
     {
         if(m_PRGRAMEnable && m_PRGRAMSelect) writeCHRRAM<W8K>(m_PRGREG[0], addr, data);
     }
 
-    GERANES_HOT uint8_t readSRAM8k(int addr) override
+    GERANES_HOT uint8_t readSaveRam(int addr) override
     {
         if(m_PRGRAMEnable && m_PRGRAMSelect)
             return readCHRRAM<W8K>(m_PRGREG[0],addr);

@@ -116,7 +116,7 @@ public:
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
     }
 
-    GERANES_HOT virtual void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT virtual void writePrg(int addr, uint8_t data) override
     {
 
         // VRC4c -> 0xF00C
@@ -127,7 +127,7 @@ public:
 
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         if(!m_PRGMode) {
 
@@ -152,9 +152,9 @@ public:
         return 0;
     }
 
-    GERANES_HOT virtual uint8_t readCHR8k(int addr) override
+    GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
 
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];

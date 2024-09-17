@@ -21,7 +21,7 @@ public:
         m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         //Fire Hawk only writes this register at the address $9000, and other games like Micro Machines and
         //Ultimate Stuntman write $00 to $8000 on startup.
@@ -33,7 +33,7 @@ public:
         else m_PRGReg = data & m_PRGRegMask;
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>14) { //addr/16K
             case 0: return m_cd.readPrg<W16K>(m_PRGReg,addr);
@@ -54,17 +54,6 @@ public:
 
         return MirroringType::FOUR_SCREEN;
     }
-
-    /*
-    void writeSRAM8k(int addr, uint8_t data) override
-    {
-    }
-
-    virtual uint8_t readSRAM8k(int addr) override
-    {
-        return 0;
-    }
-    */
 
     void serialization(SerializationBase& s) override
     {

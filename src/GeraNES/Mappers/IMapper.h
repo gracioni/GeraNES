@@ -110,14 +110,14 @@ public:
     }
 
     virtual void reset(){}
-    virtual void writePRG32k(int /*addr*/, uint8_t /*data*/) {}
-    virtual uint8_t readPRG32k(int /*addr*/) { return 0; }
+    virtual void writePrg(int /*addr*/, uint8_t /*data*/) {}
+    virtual uint8_t readPrg(int /*addr*/) { return 0; }
 
-    virtual void writeCHR8k(int addr, uint8_t data) {
+    virtual void writeChr(int addr, uint8_t data) {
         if(m_vRam != nullptr)  m_vRam[addr&(m_cd.ramSize()-1)] = data;
     }
 
-    virtual uint8_t readCHR8k(int addr) {
+    virtual uint8_t readChr(int addr) {
         if(m_vRam != nullptr) return m_vRam[addr&(m_cd.ramSize()-1)];
         return 0;
     }
@@ -134,13 +134,13 @@ public:
     virtual bool useCustomNameTable(uint8_t index) { return false; }
     virtual uint8_t readCustomNameTable(uint8_t index, uint16_t addr) { return 0; }
 
-    virtual void writeSRAM8k(int addr, uint8_t data)
+    virtual void writeSaveRam(int addr, uint8_t data)
     {
         if(m_sRam != nullptr)
             m_sRam[addr&(m_cd.saveRamSize()-1)] = data;
     }
 
-    virtual uint8_t readSRAM8k(int addr)
+    virtual uint8_t readSaveRam(int addr)
     {
         if(m_sRam != nullptr)
             return m_sRam[addr&(m_cd.saveRamSize()-1)];

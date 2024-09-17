@@ -28,7 +28,7 @@ public:
 
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         if(data&0x80)
         {
@@ -69,7 +69,7 @@ public:
         }
     }
 
-    GERANES_HOT uint8_t readPRG32k(int addr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch( (m_control&0x0C)>>2 )
         {
@@ -94,9 +94,9 @@ public:
     }
 
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
         else
         {
             if( !(m_control&0x10) ) //switch 8 KB at a time - low bit ignored in 8 KB mode

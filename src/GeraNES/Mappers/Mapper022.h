@@ -18,7 +18,7 @@ public:
 
     }
 
-    GERANES_HOT void writePRG32k(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         //A1 A0 - $x000, $x002, $x001, $x003
 
@@ -28,9 +28,9 @@ public:
         m_PRGMode = false; // VRC2 has 1 mode only
     }
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readCHR8k(addr);
+        if(hasVRAM()) return IMapper::readChr(addr);
 
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];

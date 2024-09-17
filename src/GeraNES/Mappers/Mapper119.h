@@ -33,7 +33,7 @@ public:
         getVRAM()[addr] = data;
     }
 
-    GERANES_HOT uint8_t readCHR8k(int addr) override
+    GERANES_HOT uint8_t readChr(int addr) override
     {
 
         if(!m_CHRMode)
@@ -95,7 +95,7 @@ public:
         return 0;
     }
 
-    GERANES_HOT void writeCHR8k(int addr, uint8_t data) override
+    GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(!m_CHRMode)
         {
