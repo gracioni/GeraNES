@@ -210,7 +210,6 @@ private:
         }
 
     const std::string saveStateFileName() {
-        //return std::string(STATES_FOLDER) + m_cartridge.romFile().fileCrc32() + ".ss";
         return std::string(STATES_FOLDER) + basename(m_cartridge.romFile().fileName()) + ".s";
     }
 

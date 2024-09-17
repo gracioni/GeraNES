@@ -61,10 +61,7 @@ private:
                 f.read(reinterpret_cast<char*>(m_sRam), m_cd.saveRamSize());
 
             f.close();
-
-
         }
-
     }
 
     void writeSaveRamToFile()
@@ -90,7 +87,7 @@ public:
     {               
     }
 
-    //we cant call virtual methods from constructor, so we need an init method
+    // we cant call virtual methods from constructor, so we need an init method
     void init() {
 
         if(m_cd.saveRamSize() > 0) {
@@ -110,7 +107,9 @@ public:
     }
 
     virtual void reset(){}
+
     virtual void writePrg(int /*addr*/, uint8_t /*data*/) {}
+    
     virtual uint8_t readPrg(int /*addr*/) { return 0; }
 
     virtual void writeChr(int addr, uint8_t data) {
@@ -123,15 +122,17 @@ public:
     }
 
     virtual void write0x4000(int /*addr*/, uint8_t /*data*/) {}
+
     virtual uint8_t read0x4000(int /*addr*/, uint8_t openBusData) { return openBusData; }
 
     virtual void tick(){}
-    virtual void cycle(){ } //cpu cycle
 
+    virtual void cycle(){ } //cpu cycle
 
     virtual bool getInterruptFlag(){ return false; }
 
     virtual bool useCustomNameTable(uint8_t index) { return false; }
+
     virtual uint8_t readCustomNameTable(uint8_t index, uint16_t addr) { return 0; }
 
     virtual void writeSaveRam(int addr, uint8_t data)
