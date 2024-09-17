@@ -105,6 +105,11 @@ public:
         return ((m_romFile.data(6)&0xF0) >> 4) | (m_romFile.data(7)&0xF0);
     }
 
+    int subMapperId() override
+    {
+        return 0;
+    }
+
     /*
     Byte 8
     Number of 8 KB RAM banks. For compatibility with previous

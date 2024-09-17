@@ -26,6 +26,8 @@ private:
     MirroringType m_mirroringType;
     int m_mapperId;
 
+    int m_subMapperId;
+
 public:
 
     DbOverwriteCartridgeData(ICartridgeData* src, Db::Data* dbData) : m_src(src), m_dbData(dbData), ICartridgeData(src->romFile()) {
@@ -57,8 +59,9 @@ public:
             case Db::MirroringType::DEFAULT: m_mirroringType = m_mirroringType = m_src->mirroringType(); break;
         }
 
-        if(m_dbData->MapperId >=0) m_mapperId = m_dbData->MapperId;
-        else  m_mapperId = m_src->mapperId();
+        m_mapperId = m_dbData->MapperId >=0 ? m_dbData->MapperId : m_src->mapperId();
+
+        m_subMapperId = m_dbData->SubmapperId >=0 ? m_dbData->SubmapperId : m_src->subMapperId();
     }
 
     virtual ~DbOverwriteCartridgeData() {
@@ -67,6 +70,10 @@ public:
 
     int mapperId() override {
         return m_mapperId;    
+    }
+
+    int subMapperId() override {
+        return m_subMapperId;    
     }
 
     bool valid() override {

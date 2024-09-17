@@ -51,6 +51,11 @@ public:
         return 0;
     }
 
+    int subMapperId() override
+    {
+        return 0;
+    }
+
     int ramSize() override
     {
         return 0;

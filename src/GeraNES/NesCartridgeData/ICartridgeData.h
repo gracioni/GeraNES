@@ -44,6 +44,8 @@ public:
 
     virtual int mapperId() = 0;
 
+    virtual int subMapperId() = 0;
+
     virtual int ramSize() = 0;
 
     virtual int chrRamSize() = 0;   
