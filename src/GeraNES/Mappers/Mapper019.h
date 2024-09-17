@@ -14,8 +14,6 @@ class Mapper019 : public IMapper
 
 private:
 
-    std::unique_ptr<uint8_t[]> m_CHRRAM; //8k
-
     uint8_t m_PRGREGMask = 0;
     uint8_t m_CHRREGMask = 0;
 
@@ -36,17 +34,17 @@ private:
     uint8_t m_soundRAM[SOUND_RAM_SIZE];
 
     template<int WindowSize>
-    GERANES_INLINE uint8_t readCHRRAM(int bank, int addr)
+    GERANES_INLINE uint8_t readChrRam(int bank, int addr)
     {
         addr = bank*WindowSize + (addr&(WindowSize-1));
-        return m_CHRRAM[addr];
+        return getChrRam()[addr];
     }
 
     template<int WindowSize>
-    GERANES_INLINE void writeCHRRAM(int bank, int addr, uint8_t data)
+    GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data)
     {
         addr = bank*WindowSize + (addr&(WindowSize-1));
-        m_CHRRAM[addr] = data;
+        getChrRam()[addr] = data;
     }
 
     GERANES_INLINE void writeSoundRAM(uint8_t data)
@@ -77,8 +75,6 @@ public:
     {
         m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
-
-        m_CHRRAM.reset(new uint8_t[0x2000]); //8k
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -142,10 +138,10 @@ public:
         int index = addr >> 10; // addr/0x400
 
         if(index < 4) {
-            if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable) return readCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr);
+            if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable) return readChrRam<W1K>(m_CHRReg[index]-0xE0,addr);
         }
         else {
-            if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return readCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr);
+            if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return readChrRam<W1K>(m_CHRReg[index]-0xE0,addr);
         }
 
         return m_cd.readChr<W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
@@ -162,11 +158,11 @@ public:
 
         if(addr < 0x1000) {
             if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable)
-                return writeCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr,data);
+                return writeChrRam<W1K>(m_CHRReg[index]-0xE0,addr,data);
         }
         else {
             if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable)
-                return writeCHRRAM<W1K>(m_CHRReg[index]-0xE0,addr,data);
+                return writeChrRam<W1K>(m_CHRReg[index]-0xE0,addr,data);
         }
     }
 
@@ -250,8 +246,6 @@ public:
     void serialization(SerializationBase& s) override
     {
         IMapper::serialization(s);
-
-        s.array(m_CHRRAM.get(),1,0x2000); //8k
 
         SERIALIZEDATA(s, m_PRGREGMask);
         SERIALIZEDATA(s, m_CHRREGMask);
