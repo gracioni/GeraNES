@@ -34,7 +34,7 @@ private:
 
     uint8_t* m_sRam = nullptr;
 
-    uint8_t* m_vRam = nullptr;
+    uint8_t* m_chrRam = nullptr;
 
     std::string sramFile() {
         auto romFile = m_cd.romFile();
@@ -99,14 +99,14 @@ public:
             loadSRAM();
         }
 
-        if(m_cd.ramSize() > 0) {
-            m_vRam = new uint8_t[m_cd.ramSize()];
-            memset(m_vRam, 0, m_cd.ramSize());
+        if(m_cd.chrRamSize() > 0) {
+            m_chrRam = new uint8_t[m_cd.chrRamSize()];
+            memset(m_chrRam, 0, m_cd.chrRamSize());
         }
     }
 
     uint8_t* getVRAM() {
-        return m_vRam;
+        return m_chrRam;
     }
 
     virtual void reset(){}
@@ -114,11 +114,11 @@ public:
     virtual uint8_t readPrg(int /*addr*/) { return 0; }
 
     virtual void writeChr(int addr, uint8_t data) {
-        if(m_vRam != nullptr)  m_vRam[addr&(m_cd.ramSize()-1)] = data;
+        if(m_chrRam != nullptr)  m_chrRam[addr&(m_cd.chrRamSize()-1)] = data;
     }
 
     virtual uint8_t readChr(int addr) {
-        if(m_vRam != nullptr) return m_vRam[addr&(m_cd.ramSize()-1)];
+        if(m_chrRam != nullptr) return m_chrRam[addr&(m_cd.chrRamSize()-1)];
         return 0;
     }
 
@@ -163,7 +163,7 @@ public:
     {
         saveSRAM();
 
-        if(m_vRam != nullptr) delete[] m_vRam;
+        if(m_chrRam != nullptr) delete[] m_chrRam;
         if(m_sRam != nullptr) delete[] m_sRam;
     }
 
@@ -187,15 +187,15 @@ public:
     {
         s.array(m_sRam, 1, m_cd.saveRamSize());
 
-        bool hasVRAM = (m_vRam != NULL);
-        SERIALIZEDATA(s, hasVRAM);
-        if(hasVRAM) {
-            s.array(m_vRam, 1, m_cd.ramSize());
+        bool hasChrRam = (m_chrRam != NULL);
+        SERIALIZEDATA(s, hasChrRam);
+        if(hasChrRam) {
+            s.array(m_chrRam, 1, m_cd.chrRamSize());
         }
     }
 
-    GERANES_INLINE bool hasVRAM() {
-        return m_vRam != nullptr;
+    GERANES_INLINE bool hasChrRam() {
+        return m_chrRam != nullptr;
     }
 
 

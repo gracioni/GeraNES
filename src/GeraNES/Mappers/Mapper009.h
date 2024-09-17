@@ -68,7 +68,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readChr(addr);
+        if(hasChrRam()) return IMapper::readChr(addr);
 
         uint8_t ret = 0;
 

@@ -24,7 +24,7 @@ public:
     }
 
     GERANES_HOT bool isNINA() {
-        return !hasVRAM();
+        return !hasChrRam();
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -40,7 +40,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readChr(addr);
+        if(hasChrRam()) return IMapper::readChr(addr);
         else {
 
             switch(addr>>12){

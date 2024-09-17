@@ -46,6 +46,8 @@ public:
 
     virtual int ramSize() = 0;
 
+    virtual int chrRamSize() = 0;   
+
     virtual uint8_t readTrainer(int addr) = 0;
 
     virtual uint8_t readPrg(int addr) = 0;

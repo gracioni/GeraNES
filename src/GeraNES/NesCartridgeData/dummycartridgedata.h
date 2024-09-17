@@ -71,11 +71,14 @@ public:
         return 0;
     }
 
-    virtual int saveRamSize() override {
+    int saveRamSize() override {
         return 0;
     }
-    
 
+    int chrRamSize() override {
+        return 0;
+    }   
+    
     static DummyCartridgeData& instance()
     {
         static DummyCartridgeData ret;

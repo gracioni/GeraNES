@@ -145,7 +145,7 @@ public:
 
     GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readChr(addr);
+        if(hasChrRam()) return IMapper::readChr(addr);
 
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];

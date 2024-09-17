@@ -118,6 +118,11 @@ public:
         return n * 0x2000;
     }
 
+    int chrRamSize() override
+    {
+        return 0;
+    }
+
     GERANES_HOT uint8_t readTrainer(int addr) override
     {
         if(hasTrainer()) return m_romFile.data(INES_HEADER_SIZE + addr);

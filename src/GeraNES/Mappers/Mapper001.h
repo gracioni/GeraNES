@@ -96,7 +96,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasVRAM()) return IMapper::readChr(addr);
+        if(hasChrRam()) return IMapper::readChr(addr);
         else
         {
             if( !(m_control&0x10) ) //switch 8 KB at a time - low bit ignored in 8 KB mode

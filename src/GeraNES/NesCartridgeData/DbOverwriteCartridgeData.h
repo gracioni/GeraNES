@@ -19,6 +19,8 @@ private:
     bool m_hasBattery;
     int m_saveRamSize;
 
+    int m_chrRamSize;
+
     bool m_useFourScreenMirroring;
 
     MirroringType m_mirroringType;
@@ -31,6 +33,7 @@ public:
         m_prgSize = m_dbData->PrgRomSize > 0 ? m_dbData->PrgRomSize*1024 : m_src->prgSize();
         m_chrSize = m_dbData->ChrRomSize > 0 ? m_dbData->ChrRomSize*1024 : m_src->chrSize();
         m_ramSize = m_dbData->WorkRamSize > 0 ? m_dbData->WorkRamSize*1024 : m_src->ramSize();
+        m_chrRamSize = m_dbData->ChrRamSize > 0 ? m_dbData->ChrRamSize*1024 : m_src->chrRamSize();
 
         m_saveRamSize = m_dbData->SaveRamSize > 0 ? m_dbData->SaveRamSize*1024 : m_src->saveRamSize();
 
@@ -92,7 +95,11 @@ public:
 
     int saveRamSize() override {
         return m_saveRamSize;
-    }    
+    }
+
+    int chrRamSize() override {
+        return m_chrRamSize;
+    }
 
     bool hasTrainer() override
     {
