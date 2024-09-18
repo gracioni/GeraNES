@@ -7,7 +7,7 @@ class DummyCartridgeData : public ICartridgeData
 {
 private:
 
-    DummyCartridgeData() : ICartridgeData(RomFile::emptyRomFile) {
+    DummyCartridgeData() : ICartridgeData(RomFile::emptyRomFile()) {
     }
 
 public:

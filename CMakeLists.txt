@@ -224,7 +224,7 @@ else()
     set(OPENGL_LIBRARY "GL")
 endif()
 
-set(CPP_FILES src/main.cpp src/GeraNES/RomFile.cpp src/sha1/sha1.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/GeraNESApp/SDLUtil.cpp)
+set(CPP_FILES src/main.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/GeraNESApp/SDLUtil.cpp)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
     set(CPP_FILES ${CPP_FILES} src/GeraNESApp/EmscriptenProcessFile.cpp src/GeraNESApp/EmscriptenFileDialog.cpp)

@@ -70,7 +70,10 @@ private:
 
 public:
 
-    static RomFile emptyRomFile;
+    static RomFile& emptyRomFile() {
+        static RomFile emptyRomFile;
+        return emptyRomFile;
+    }
 
     bool open(const std::string& path) {
 
