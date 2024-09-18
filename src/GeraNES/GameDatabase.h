@@ -1,5 +1,5 @@
-#ifndef DB_H
-#define DB_H
+#ifndef GAME_DATABASE_H
+#define GAME_DATABASE_H
 
 #include <string>
 #include <map>
@@ -11,11 +11,11 @@
 #include "Logger.h"
 #include "util/StringTrim.h"
 
-class Db {
+class GameDatabase {
 
 public:
 
-    enum class GameSystem
+    enum class System
     {
         NesNtsc,
         NesPal,
@@ -43,7 +43,7 @@ public:
         FOUR_SCREEN
     };
 
-    enum class GameInputType
+    enum class InputType
     {
         Unspecified = 0,
         StandardControllers = 1,
@@ -126,7 +126,7 @@ public:
         Ppu2C05E = 10
     };
 
-    struct DataRaw {
+    struct RawItem {
         std::string PrgChrCrc32;
         std::string System;
         std::string Board;
@@ -147,9 +147,9 @@ public:
         std::string VsPpuModel;
     };
 
-    struct Data {
+    struct Item {
         uint32_t PrgChrCrc32;
-        GameSystem System;
+        System System;
         std::string Board;
         std::string PCB;
         std::string Chip;
@@ -161,7 +161,7 @@ public:
         int SaveRamSize;
         Battery HasBattery;
         MirroringType Mirroring;
-        GameInputType InputType;
+        InputType InputType;
         BusConflictType BusConflicts;
         int SubmapperId;
         VsSystemType VsType;
@@ -172,23 +172,23 @@ public:
         return (uint32_t)std::stoll(str.c_str(), nullptr, 16);
     }
 
-    GameSystem getGameSystem(const std::string& str)
+    System getGameSystem(const std::string& str)
     {
         if(str == "NesNtsc") {
-            return GameSystem::NesNtsc;
+            return System::NesNtsc;
         } else if(str == "NesPal") {
-            return GameSystem::NesPal;
+            return System::NesPal;
         } else if(str == "Famicom") {
-            return GameSystem::Famicom;
+            return System::Famicom;
         } else if(str == "VsSystem") {
-            return GameSystem::VsSystem;
+            return System::VsSystem;
         } else if(str == "Dendy") {
-            return GameSystem::Dendy;
+            return System::Dendy;
         } else if(str == "Playchoice") {
-            return GameSystem::Playchoice;
+            return System::Playchoice;
         }
         
-        return GameSystem::Unknown;
+        return System::Unknown;
     }
 
     Battery getBattery(const std::string& str) {
@@ -212,10 +212,10 @@ public:
         return MirroringType::DEFAULT;
     }
 
-    GameInputType getInputType(const std::string& str) {
+    InputType getInputType(const std::string& str) {
 
-        if(!str.empty()) return static_cast<GameInputType>(std::stoi(str));
-        return GameInputType::Unspecified;
+        if(!str.empty()) return static_cast<InputType>(std::stoi(str));
+        return InputType::Unspecified;
     }
 
     BusConflictType getBusConflictType(const std::string& str) {
@@ -248,12 +248,12 @@ public:
 
 private:
 
-    std::map<std::string, Data> m_map;
+    std::map<std::string, Item> m_map;
 
-    Db(const Db&) = delete;
-    Db& operator = (const Db&) = delete;    
+    GameDatabase(const GameDatabase&) = delete;
+    GameDatabase& operator = (const GameDatabase&) = delete;    
 
-    Db() {
+    GameDatabase() {
         load();
     }
 
@@ -296,7 +296,7 @@ private:
 
             if (std::regex_match(line, match, pattern)) {
 
-                DataRaw rawData;
+                RawItem rawData;
 
                 for(size_t i = 1; i < match.size(); ++i) {
 
@@ -346,7 +346,7 @@ private:
                     continue;
                 }
 
-                Data data;
+                Item data;
 
                 data.PrgChrCrc32 = getCrc32(rawData.PrgChrCrc32);
                 data.System = getGameSystem(rawData.System);
@@ -379,12 +379,12 @@ private:
 
 public:    
 
-    static Db& instance() {
-        static Db _instance;
+    static GameDatabase& instance() {
+        static GameDatabase _instance;
         return _instance;
     }
 
-    Data* find(const std::string crc) {
+    Item* find(const std::string crc) {
 
         auto it = m_map.find(crc);
 

@@ -2,14 +2,14 @@
 #define DB_OVERWRITE_CARTRIDGE_DATA_H
 
 #include "ICartridgeData.h"
-#include "GeraNES/Db.h"
+#include "GeraNES/GameDatabase.h"
 
 class DbOverwriteCartridgeData : public ICartridgeData {
 
 private:
 
     ICartridgeData* m_src;
-    Db::Data* m_dbData;
+    GameDatabase::Item* m_dbData;
 
     int m_prgSize;
     int m_chrSize;
@@ -30,7 +30,7 @@ private:
 
 public:
 
-    DbOverwriteCartridgeData(ICartridgeData* src, Db::Data* dbData) : m_src(src), m_dbData(dbData), ICartridgeData(src->romFile()) {
+    DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* dbData) : m_src(src), m_dbData(dbData), ICartridgeData(src->romFile()) {
                
         m_prgSize = m_dbData->PrgRomSize > 0 ? m_dbData->PrgRomSize*1024 : m_src->prgSize();
         m_chrSize = m_dbData->ChrRomSize > 0 ? m_dbData->ChrRomSize*1024 : m_src->chrSize();
@@ -40,23 +40,33 @@ public:
         m_saveRamSize = m_dbData->SaveRamSize > 0 ? m_dbData->SaveRamSize*1024 : m_src->saveRamSize();
 
         switch(m_dbData->HasBattery) {
-            case Db::Battery::Yes: m_hasBattery = true; break;
-            case Db::Battery::No: m_hasBattery = false; break;
-            case Db::Battery::Default: m_hasBattery = m_src->hasBattery(); break;            
+            case GameDatabase::Battery::Yes: m_hasBattery = true; break;
+            case GameDatabase::Battery::No: m_hasBattery = false; break;
+            case GameDatabase::Battery::Default: m_hasBattery = m_src->hasBattery(); break;            
         }
 
         m_useFourScreenMirroring = m_src->useFourScreenMirroring();
 
         switch(m_dbData->Mirroring) {
-            case Db::MirroringType::HORIZONTAL: m_mirroringType = MirroringType::HORIZONTAL; break;
-            case Db::MirroringType::VERTICAL: m_mirroringType = MirroringType::VERTICAL; break;
-            case Db::MirroringType::FOUR_SCREEN:
+            case GameDatabase::MirroringType::HORIZONTAL:
+                m_mirroringType = MirroringType::HORIZONTAL;
+                break;
+            case GameDatabase::MirroringType::VERTICAL:
+                m_mirroringType = MirroringType::VERTICAL;
+                break;
+            case GameDatabase::MirroringType::FOUR_SCREEN:
                 m_mirroringType = MirroringType::FOUR_SCREEN;
                 m_useFourScreenMirroring = true;
                 break;
-            case Db::MirroringType::SINGLE_SCREEN_A: m_mirroringType = MirroringType::SINGLE_SCREEN_A; break;
-            case Db::MirroringType::SINGLE_SCREEN_B: m_mirroringType = MirroringType::SINGLE_SCREEN_B; break;
-            case Db::MirroringType::DEFAULT: m_mirroringType = m_mirroringType = m_src->mirroringType(); break;
+            case GameDatabase::MirroringType::SINGLE_SCREEN_A:
+                m_mirroringType = MirroringType::SINGLE_SCREEN_A;
+                break;
+            case GameDatabase::MirroringType::SINGLE_SCREEN_B:
+                m_mirroringType = MirroringType::SINGLE_SCREEN_B;
+                break;
+            case GameDatabase::MirroringType::DEFAULT:
+                m_mirroringType = m_src->mirroringType();
+                break;
         }
 
         m_mapperId = m_dbData->MapperId >=0 ? m_dbData->MapperId : m_src->mapperId();

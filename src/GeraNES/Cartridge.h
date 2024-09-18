@@ -49,7 +49,7 @@
 
 #include "Serialization.h"
 
-#include "Db.h"
+#include "GameDatabase.h"
 
 class Cartridge
 {
@@ -190,7 +190,7 @@ public:
         Logger::instance().log(std::string("PRG crc32: ") + prgCrcStr, Logger::Type::INFO);
         Logger::instance().log(std::string("PRG+CHR crc32: ") + prgChrCrcStr, Logger::Type::INFO);
 
-        Db::Data* dbData = Db::instance().find(prgChrCrcStr);
+        GameDatabase::Item* dbData = GameDatabase::instance().find(prgChrCrcStr);
 
         if(dbData != nullptr) {
             Logger::instance().log("[DB] ROM found in database", Logger::Type::INFO);
