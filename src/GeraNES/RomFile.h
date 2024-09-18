@@ -12,6 +12,7 @@
 
 #include "defines.h"
 #include "functions.h"
+#include "Logger.h"
 
 class RomFile {
 
@@ -110,7 +111,9 @@ public:
 
         m_fullpath = path;
 
-        m_crc32 = Crc32::calc((const char*)&m_data[0], m_data.size());  
+        m_crc32 = Crc32::calc((const char*)&m_data[0], m_data.size());
+
+        log();
 
         return true;
     }
@@ -122,16 +125,16 @@ public:
     GERANES_INLINE uint8_t  data(size_t addr) const { return m_data[addr]; }
     GERANES_INLINE size_t size() const { return m_data.size(); }
 
-    std::string debug() {
+    void log() {
 
         std::stringstream aux;
 
-        aux << "File name: "<< fileName() << std::endl;
-        aux << "Full path: "<< fullPath() << std::endl;
-        aux << "File crc32: "<< Crc32::toString(fileCrc32()) << std::endl;
-        aux << "File Size: " << size() << " bytes";
+        aux << "[ROM] File name: "<< fileName() << std::endl;
+        aux << "[ROM] Full path: "<< fullPath() << std::endl;        
+        aux << "[ROM] File Size: " << size() << " bytes" << std::endl; 
+        aux << "[ROM] File CRC32: "<< Crc32::toString(fileCrc32());
 
-        return aux.str();
+        Logger::instance().log(aux.str(), Logger::Type::INFO);
     }
 
 };

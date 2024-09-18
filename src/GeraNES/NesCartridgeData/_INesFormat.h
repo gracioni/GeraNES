@@ -12,6 +12,8 @@
 #include <string>
 #include <cstring>
 
+#include "GeraNES/Logger.h"
+
 class _INesFormat : public ICartridgeData
 {
 private:
@@ -43,6 +45,8 @@ public:
         m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + prgSize();
 
         m_isValid = true;
+
+        log("iNES");
     }
 
     bool valid() override {
@@ -146,7 +150,7 @@ public:
 
     int saveRamSize() override {
         return 0x2000; //default 8k
-    }
+    }    
 
 };
 

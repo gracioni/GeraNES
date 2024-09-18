@@ -164,17 +164,15 @@ public:
         std::string prgCrcStr = Crc32::toString(prgCrc);
         std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
 
-        Logger::instance().log(std::string("PRG crc32: ") + prgCrcStr, Logger::Type::INFO);
-        Logger::instance().log(std::string("PRG+CHR crc32: ") + prgChrCrcStr, Logger::Type::INFO);
-
         GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);        
 
         if(item != nullptr) {
-            Logger::instance().log("[DB] ROM found in database", Logger::Type::INFO);
+            Logger::instance().log("ROM found in database\nUsing DB header", Logger::Type::INFO);
             m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, item);
+            m_nesCartridgeData->log("DB");
         }
         else {
-            Logger::instance().log("[DB] ROM not found in database", Logger::Type::INFO);
+            Logger::instance().log("ROM not found in database\nUsing default header", Logger::Type::INFO);
         }
 
         m_mapper = CreateMapper();
@@ -323,18 +321,6 @@ public:
         SERIALIZEDATA(s, m_isValid);
         m_mapper->serialization(s);
     }
-
-    std::string debug()
-    {
-        std::string ret;
-
-        if(m_nesCartridgeData != NULL) {
-            ret += m_nesCartridgeData->debug();
-        }
-
-        return ret;
-    }
-
 
 };
 

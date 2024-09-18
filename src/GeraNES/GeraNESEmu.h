@@ -279,12 +279,9 @@ public:
 
     bool open(const std::string& filename)
     {
-        bool result;
+        m_ppu.clearFramebuffer();      
 
-        m_ppu.clearFramebuffer();
-      
-
-        result = m_cartridge.open(filename);
+        bool result = m_cartridge.open(filename);
 
         if(result) { //no errors
 
@@ -308,8 +305,6 @@ public:
             m_cpu.init();
             m_apu.init();
             m_dma.init();         
-
-            Logger::instance().log(m_cartridge.debug());
 
             resetRewindSystem();
         }

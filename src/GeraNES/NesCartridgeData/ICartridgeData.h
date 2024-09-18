@@ -57,27 +57,7 @@ public:
 
     virtual uint8_t readChr(int addr) = 0;
 
-    virtual int saveRamSize() = 0;
-
-    GERANES_INLINE std::string debug()
-    {
-        std::stringstream aux;
-
-        aux << m_romFile.debug() << std::endl;
-
-        aux << "PRG-ROM size: " << prgSize() << std::endl;
-        aux << "CHR-ROM size: " << chrSize() << std::endl;
-        aux << "Mirroring type: " << (int)mirroringType() << std::endl;
-        aux << "Has battery: " << hasBattery() << std::endl;
-        aux <<  "Has trainer: " << hasTrainer() << std::endl;
-        aux << "Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
-        aux << "RAM size: " << ramSize() << std::endl;
-        aux << "Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << std::endl;
-
-
-
-        return aux.str();
-    }
+    virtual int saveRamSize() = 0;    
 
     virtual ~ICartridgeData() {}
 
@@ -125,6 +105,24 @@ public:
         }
 
         return crc.get();
+    }
+
+    void log(const std::string& type)
+    {
+        std::stringstream aux;
+
+        aux << "[" << type << "] PRG-ROM size: " << prgSize() << " bytes" << std::endl;
+        aux << "[" << type << "] CHR-ROM size: " << chrSize() << " bytes" << std::endl;
+        aux << "[" << type << "] Mirroring type: " << (int)mirroringType() << std::endl;
+        aux << "[" << type << "] Has battery: " << hasBattery() << std::endl;
+        aux << "[" << type << "] Has trainer: " << hasTrainer() << std::endl;
+        aux << "[" << type << "] Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
+        aux << "[" << type << "] RAM size: " << ramSize() << " bytes" << std::endl;
+        aux << "[" << type << "] Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << std::endl;
+        aux << "[" << type << "] PRG CRC32: " << Crc32::toString(prgCrc32()) << std::endl;
+        aux << "[" << type << "] PRG+CHR CRC32: " << Crc32::toString(prgChrCrc32());
+
+        Logger::instance().log(aux.str(), Logger::Type::INFO);
     }
 
 };

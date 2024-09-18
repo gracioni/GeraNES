@@ -270,13 +270,15 @@ private:
     }
 
     void load() {
+        
+        Logger::instance().log(std::string("[DB] Loading database"), Logger::Type::INFO);
 
         const std::string filename = "db.txt";
 
         std::ifstream file(filename);
 
         if (!file.is_open()) {
-            Logger::instance().log(std::string("Database: ") + filename + " not found", Logger::Type::WARNING);
+            Logger::instance().log(std::string("[DB] Database: ") + filename + " not found", Logger::Type::INFO);
             return;
         }
 
@@ -374,7 +376,7 @@ private:
             }
         }
 
-        Logger::instance().log(std::to_string(m_map.size()) + " titles loaded", Logger::Type::INFO);
+        Logger::instance().log(std::string("[DB] ") + std::to_string(m_map.size()) + " items loaded", Logger::Type::INFO);
 
         file.close();
     }
