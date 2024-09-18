@@ -221,7 +221,7 @@ private:
     GERANES_INLINE_HOT void writeNameTable(uint8_t addrIndex, uint16_t addr, uint8_t data)
     {
         int index = m_cartridge.mirroring(addrIndex&0x03);
-        m_nameTable[index][addr&0x3FF] = data;
+        m_nameTable[index&3][addr&0x3FF] = data;
     }
 
     //index 0-3
@@ -232,7 +232,7 @@ private:
         }
 
         int index = m_cartridge.mirroring(addrIndex&0x03);
-        return m_nameTable[index][addr&0x3FF];
+        return m_nameTable[index&3][addr&0x3FF];
     }
 
 public:
