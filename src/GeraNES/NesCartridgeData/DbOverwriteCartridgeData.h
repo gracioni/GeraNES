@@ -9,7 +9,7 @@ class DbOverwriteCartridgeData : public ICartridgeData {
 private:
 
     ICartridgeData* m_src;
-    GameDatabase::Item* m_dbData;
+    GameDatabase::Item* m_item;
 
     int m_prgSize;
     int m_chrSize;
@@ -30,16 +30,16 @@ private:
 
 public:
 
-    DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* dbData) : m_src(src), m_dbData(dbData), ICartridgeData(src->romFile()) {
+    DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* item) : m_src(src), m_item(item), ICartridgeData(src->romFile()) {
                
-        m_prgSize = m_dbData->PrgRomSize > 0 ? m_dbData->PrgRomSize*1024 : m_src->prgSize();
-        m_chrSize = m_dbData->ChrRomSize > 0 ? m_dbData->ChrRomSize*1024 : m_src->chrSize();
-        m_ramSize = m_dbData->WorkRamSize > 0 ? m_dbData->WorkRamSize*1024 : m_src->ramSize();
-        m_chrRamSize = m_dbData->ChrRamSize > 0 ? m_dbData->ChrRamSize*1024 : m_src->chrRamSize();
+        m_prgSize = m_item->PrgRomSize > 0 ? m_item->PrgRomSize*1024 : m_src->prgSize();
+        m_chrSize = m_item->ChrRomSize > 0 ? m_item->ChrRomSize*1024 : m_src->chrSize();
+        m_ramSize = m_item->WorkRamSize > 0 ? m_item->WorkRamSize*1024 : m_src->ramSize();
+        m_chrRamSize = m_item->ChrRamSize > 0 ? m_item->ChrRamSize*1024 : m_src->chrRamSize();
 
-        m_saveRamSize = m_dbData->SaveRamSize > 0 ? m_dbData->SaveRamSize*1024 : m_src->saveRamSize();
+        m_saveRamSize = m_item->SaveRamSize > 0 ? m_item->SaveRamSize*1024 : m_src->saveRamSize();
 
-        switch(m_dbData->HasBattery) {
+        switch(m_item->HasBattery) {
             case GameDatabase::Battery::Yes: m_hasBattery = true; break;
             case GameDatabase::Battery::No: m_hasBattery = false; break;
             case GameDatabase::Battery::Default: m_hasBattery = m_src->hasBattery(); break;            
@@ -47,7 +47,7 @@ public:
 
         m_useFourScreenMirroring = m_src->useFourScreenMirroring();
 
-        switch(m_dbData->Mirroring) {
+        switch(m_item->Mirroring) {
             case GameDatabase::MirroringType::HORIZONTAL:
                 m_mirroringType = MirroringType::HORIZONTAL;
                 break;
@@ -69,9 +69,9 @@ public:
                 break;
         }
 
-        m_mapperId = m_dbData->MapperId >=0 ? m_dbData->MapperId : m_src->mapperId();
+        m_mapperId = m_item->MapperId >=0 ? m_item->MapperId : m_src->mapperId();
 
-        m_subMapperId = m_dbData->SubmapperId >=0 ? m_dbData->SubmapperId : m_src->subMapperId();
+        m_subMapperId = m_item->SubmapperId >=0 ? m_item->SubmapperId : m_src->subMapperId();
     }
 
     virtual ~DbOverwriteCartridgeData() {

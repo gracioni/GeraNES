@@ -7,7 +7,6 @@
 #include "NesCartridgeData/_INesFormat.h"
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "Logger.h"
-#include "util/Crc32.h"
 
 #include "Mappers/Dummymapper.h"
 
@@ -105,29 +104,7 @@ private:
         }         
 
         return &m_dummyMapper;
-    }
-
-    uint32_t prgCrc32() {
-
-        Crc32 crc;
-
-        for(int i = 0; i < m_nesCartridgeData->prgSize(); i++) {
-                crc.add(m_nesCartridgeData->readPrg(i));
-        }
-
-        return crc.get();
-    }
-
-    uint32_t prgChrCrc32() {
-
-        Crc32 crc(prgCrc32());
-
-        for(int i = 0; i < m_nesCartridgeData->chrSize(); i++) {
-            crc.add(m_nesCartridgeData->readChr(i));
-        }
-
-        return crc.get();
-    }
+    }    
 
 public:
 
@@ -181,8 +158,8 @@ public:
 
         // try other formats files here
 
-        uint32_t prgCrc = prgCrc32();
-        uint32_t prgChrCrc = prgChrCrc32();
+        uint32_t prgCrc = m_nesCartridgeData->prgCrc32();
+        uint32_t prgChrCrc = m_nesCartridgeData->prgChrCrc32();
 
         std::string prgCrcStr = Crc32::toString(prgCrc);
         std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
@@ -190,11 +167,11 @@ public:
         Logger::instance().log(std::string("PRG crc32: ") + prgCrcStr, Logger::Type::INFO);
         Logger::instance().log(std::string("PRG+CHR crc32: ") + prgChrCrcStr, Logger::Type::INFO);
 
-        GameDatabase::Item* dbData = GameDatabase::instance().find(prgChrCrcStr);
+        GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);        
 
-        if(dbData != nullptr) {
+        if(item != nullptr) {
             Logger::instance().log("[DB] ROM found in database", Logger::Type::INFO);
-            m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, dbData);
+            m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, item);
         }
         else {
             Logger::instance().log("[DB] ROM not found in database", Logger::Type::INFO);
@@ -222,6 +199,20 @@ public:
         m_isValid = true;
 
         return true;
+    }
+
+    static std::vector<std::string> listFiles(const fs::path& directory) {
+
+        std::vector<std::string> filePaths;
+
+        for (const auto& entry : fs::recursive_directory_iterator(directory)) {
+            // Verifica se é um arquivo (não um diretório)
+            if (fs::is_regular_file(entry.status())) {
+                filePaths.push_back(entry.path().string());
+            }
+        }
+
+        return filePaths;
     }
 
     GERANES_INLINE void writePRG32k(int addr, uint8_t data)

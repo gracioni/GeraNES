@@ -8,6 +8,9 @@
 #include <map>
 #include <cassert>
 
+#include <functional>
+#include <vector>
+
 #include "Logger.h"
 #include "util/StringTrim.h"
 
@@ -384,7 +387,7 @@ public:
         return _instance;
     }
 
-    Item* find(const std::string crc) {
+    Item* findByCrc(const std::string crc) {
 
         auto it = m_map.find(crc);
 
@@ -393,7 +396,18 @@ public:
         }
 
         return nullptr;
-    }    
+    }
+
+    std::vector<Item*> find(const std::function<bool(Item& item)>& condition) {
+
+        std::vector<Item*> ret;
+
+        for(auto& pair : m_map) {
+            if(condition(pair.second)) ret.push_back(&pair.second);
+        }
+
+        return ret;
+    }
 
 };
 

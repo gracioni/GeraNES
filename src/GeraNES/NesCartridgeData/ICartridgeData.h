@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "GeraNES/RomFile.h"
+#include "GeraNES/util/Crc32.h"
 
 class ICartridgeData
 {
@@ -102,6 +103,28 @@ public:
     GERANES_INLINE uint32_t numberOfCHRBanks()
     {
         return chrSize()/WindowSize;
+    }
+
+    uint32_t prgCrc32() {
+
+        Crc32 crc;
+
+        for(int i = 0; i < prgSize(); i++) {
+            crc.add(readPrg(i));
+        }
+
+        return crc.get();
+    }
+
+    uint32_t prgChrCrc32() {
+
+        Crc32 crc(prgCrc32());
+
+        for(int i = 0; i < chrSize(); i++) {
+            crc.add(readChr(i));
+        }
+
+        return crc.get();
     }
 
 };

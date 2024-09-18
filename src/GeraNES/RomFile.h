@@ -19,7 +19,7 @@ private:
 
     std::string m_fullpath;
     std::string m_fileName;
-    std::string m_fileHash;
+    uint32_t m_crc32;
     std::string m_error;
     std::vector<uint8_t> m_data;
 
@@ -110,13 +110,12 @@ public:
 
         m_fullpath = path;
 
-        uint32_t crc = Crc32::calc((const char*)&m_data[0], m_data.size());     
-        m_fileHash = Crc32::toString(crc);
+        m_crc32 = Crc32::calc((const char*)&m_data[0], m_data.size());  
 
         return true;
     }
 
-    GERANES_INLINE std::string fileCrc32() const { return m_fileHash; }
+    GERANES_INLINE uint32_t fileCrc32() const { return m_crc32; }
     GERANES_INLINE std::string fileName() const { return m_fileName; }
     GERANES_INLINE std::string fullPath() const { return m_fullpath; }
     GERANES_INLINE std::string error() const { return m_error; }
@@ -129,7 +128,7 @@ public:
 
         aux << "File name: "<< fileName() << std::endl;
         aux << "Full path: "<< fullPath() << std::endl;
-        aux << "File crc32: "<< fileCrc32() << std::endl;
+        aux << "File crc32: "<< Crc32::toString(fileCrc32()) << std::endl;
         aux << "File Size: " << size() << " bytes";
 
         return aux.str();
