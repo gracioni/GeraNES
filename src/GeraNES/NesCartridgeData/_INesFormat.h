@@ -129,7 +129,7 @@ public:
 
     int chrRamSize() override
     {
-        return 0;
+        return 0x2000; //default 8k
     }
 
     GERANES_HOT uint8_t readTrainer(int addr) override
