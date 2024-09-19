@@ -36,7 +36,6 @@ public:
         m_chrSize = m_item->ChrRomSize > 0 ? m_item->ChrRomSize*1024 : m_src->chrSize();
         m_ramSize = m_item->WorkRamSize > 0 ? m_item->WorkRamSize*1024 : m_src->ramSize();
         m_chrRamSize = m_item->ChrRamSize > 0 ? m_item->ChrRamSize*1024 : m_src->chrRamSize();
-
         m_saveRamSize = m_item->SaveRamSize > 0 ? m_item->SaveRamSize*1024 : m_src->saveRamSize();
 
         switch(m_item->HasBattery) {
