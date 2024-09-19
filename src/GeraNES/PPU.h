@@ -70,7 +70,6 @@ private:
     bool m_sprite0HitDelayed;
 
     //sprites evaluate variables
-    uint8_t m_spritesIndexInThisLine[64];
     uint8_t m_spritesInThisLine;
     bool m_testSprite0HitInThisLine;
 
@@ -95,6 +94,8 @@ private:
     uint8_t m_palette[0x20]; //32 Bytes
 
     uint8_t m_primaryOAM[0x100]; //256 bytes
+
+    uint8_t m_secondaryOAM[0x100]; //256 bytes / 32 bytes on real hardware
 
     //write/read internal regs
     uint16_t m_reg_v;
@@ -544,9 +545,14 @@ yyy NN YYYYY XXXXX
             }
 
             if( (m_currentY >= spriteY) && (m_currentY < (spriteY+(m_spriteSize8x16?16:8)))  ){
-                m_spritesIndexInThisLine[m_spritesInThisLine++] = i;
+
+                std::memcpy(&m_secondaryOAM[4*m_spritesInThisLine], &m_primaryOAM[4*i], 4);
 
                 if(i == 0) m_testSprite0HitInThisLine = true;
+
+                m_spritesInThisLine++;
+
+                if(m_spritesInThisLine >= 9 && !m_settings.spriteLimitDisabled()) break; //sprite limit
             }
         }
 
@@ -568,8 +574,7 @@ yyy NN YYYYY XXXXX
 
         for(int i = 0; i < m_spritesInThisLine; i++)
         {
-            //const uint8_t* currentSprite = &m_primaryOAM[4*m_spritesIndexInThisLine[i]];
-            const uint8_t* currentSprite = &m_primaryOAM[m_spritesIndexInThisLine[i] << 2];
+            const uint8_t* currentSprite = &m_secondaryOAM[i << 2];
 
             const int& spriteY = (int)(*currentSprite++)+1; //0
             const uint8_t& spriteIndexInPatternTable = *currentSprite++; //1
@@ -1006,7 +1011,7 @@ yyy NN YYYYY XXXXX
 
                 if(index < m_spritesInThisLine) {
 
-                    const uint8_t* currentSprite = &m_primaryOAM[m_spritesIndexInThisLine[index] << 2];
+                    const uint8_t* currentSprite = &m_secondaryOAM[index << 2];
 
                     if(offset < 4) {
                         ret = *(currentSprite+offset);
@@ -1033,7 +1038,8 @@ yyy NN YYYYY XXXXX
 
             }
             else //and this:
-                ret = m_primaryOAM[m_spritesIndexInThisLine[0] << 2]; //first byte of secondary oam
+                ret = m_secondaryOAM[0]; //first byte of secondary oam
+                
         }
 
 
@@ -1327,9 +1333,8 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_VBlankHasStarted);
         SERIALIZEDATA(s, m_sprite0Hit);
         SERIALIZEDATA(s, m_sprite0HitDelayed);
-        SERIALIZEDATA(s, m_spriteOverflow);
-        
-        s.array(m_spritesIndexInThisLine,1,64);
+        SERIALIZEDATA(s, m_spriteOverflow);       
+
         SERIALIZEDATA(s, m_spritesInThisLine);
         SERIALIZEDATA(s, m_testSprite0HitInThisLine);
 
@@ -1341,10 +1346,11 @@ yyy NNYY YYYX XXXX
 
         SERIALIZEDATA(s, m_oddFrameFlag);
 
-        s.array(m_nameTable[0], 4, 0x400); //4 pages
+        s.array(reinterpret_cast<uint8_t*>(m_nameTable), 1, sizeof(m_nameTable)); //4 pages
 
-        s.array(m_palette, 1, 0x20);
-        s.array(m_primaryOAM, 1, 0x100);
+        s.array(m_palette, 1, sizeof(m_palette));
+        s.array(m_primaryOAM, 1, sizeof(m_primaryOAM));
+        s.array(m_secondaryOAM, 1, sizeof(m_secondaryOAM));
 
         SERIALIZEDATA(s, m_reg_v);
         SERIALIZEDATA(s, m_reg_x);
