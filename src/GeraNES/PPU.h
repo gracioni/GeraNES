@@ -632,7 +632,7 @@ yyy NN YYYYY XXXXX
 							    m_sprite0Added = true;
 							}
 
-                            //Note: Using "(_secondaryOamAddr & 0x03) == 0" instead of "_spriteAddrL == 0" is required
+                            //Note: Using "(m_secondaryOamAddr & 0x03) == 0" instead of "m_oamAddrM == 0" is required
 							//to replicate a hardware bug noticed in oam_flicker_test_reenable when disabling & re-enabling
 							//rendering on a single scanline
 							if((m_secondaryOamAddr & 0x03) == 0) {
