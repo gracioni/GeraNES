@@ -62,6 +62,8 @@ private:
     bool m_spritesEnabled;
     uint8_t m_colorEmphasis;
 
+    bool m_renderingEnabled = false;
+
     //PPUSTATUS
     bool m_VBlankHasStarted;
     bool m_sprite0Hit;
@@ -917,11 +919,8 @@ yyy NN YYYYY XXXXX
                 
                 switch(m_cycle) {
 
-                // by the docs, it should be at 256, but this seems to be the correct time to incVY,
-                // it fix the freezes of battletoads at lvl 2
-                case 254: incrementVY(); break;
+                case 256: incrementVY(); break;
 
-                //case 256: evaluateSprites(); break;
                 case 257: copyVX(); break;
                 //A12 rises on the 5th cycle of every 8 fetch cycles (4, 12, 20, 28, etc for BG fetches
                 //if BG uses $1xxx.... 260,268, etc for Sprite fetches when they use $1xxx)
@@ -966,12 +965,22 @@ yyy NN YYYYY XXXXX
 
             m_lastPPUSTATUSReadCycle = -1;
 
+            m_cycle = 0;
+
             if(++m_scanline == FRAME_NUMBER_OF_LINES) {
-                m_scanline = 0;      
+                m_scanline = 0;
+
+                // if(m_oddFrameFlag && m_backgroundEnabled) {
+                //     onScanlineChanged();
+                //     m_cycle++;                    
+                // }
+                // m_oddFrameFlag = !m_oddFrameFlag;   
             }
 
-            m_cycle = 0;
+            
         }
+
+        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
 
     }
 
@@ -1160,7 +1169,7 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE uint8_t readOAMDATA()
     {
-        const int delay = 0;
+        const int delay = 1;
 
         uint8_t ret = m_primaryOam[m_oamAddr];
 
@@ -1178,7 +1187,8 @@ yyy NN YYYYY XXXXX
     }
 
     GERANES_INLINE bool isRenderingEnabled() {
-        return m_spritesEnabled || m_backgroundEnabled;
+        //return m_spritesEnabled || m_backgroundEnabled;
+        return m_renderingEnabled;
     }    
 
     GERANES_INLINE void writeOAMDATA(uint8_t data)
