@@ -74,7 +74,18 @@ private:
     bool m_testSprite0HitInThisLine;
 
     //OAM read/write address
-    uint8_t m_OAMAddr;
+    uint8_t m_oamAddr;
+    uint8_t m_oamCopyBuffer;
+    bool m_oamCopyDone;
+
+    uint8_t m_secondaryOamAddr;
+    bool m_spriteInRange;
+
+    uint8_t m_oamM; //oam[m][n]
+    uint8_t m_oamN;
+
+    int m_overflowBugCounter;
+    bool m_sprite0Added;
 
     //Rendering position
     int m_currentY;
@@ -85,17 +96,16 @@ private:
     bool m_oddFrameFlag;
 
     /*
-    NES has nametables 0 and 1 in the console, 2 and 3 are in
-    cartridge when four screen mirroring is used
-    they are here for simplification
+    The NES has nametables 0 and 1 in the console, while nametables 2 and 3 are in the cartridge
+    when four-screen mirroring is used. They are declared here for simplification.
     */
     uint8_t m_nameTable[4][0x400]; //4x 1KB
 
     uint8_t m_palette[0x20]; //32 Bytes
 
-    uint8_t m_primaryOAM[0x100]; //256 bytes
+    uint8_t m_primaryOam[0x100]; //256 bytes
 
-    uint8_t m_secondaryOAM[0x20]; //32 bytes
+    uint8_t m_secondaryOam[0x20]; //32 bytes
 
     uint8_t m_spritesIndexesInThisLine[64];
 
@@ -123,8 +133,6 @@ private:
     uint8_t m_openBus;
     uint8_t m_openBusTimer[8]; //1 timer for each bit, decay 1 time per frame
 
-    uint32_t m_powerUpCounter;
-
     //settings variables
     int FRAME_NUMBER_OF_LINES;
     int FRAME_VBLANK_START_LINE;
@@ -139,8 +147,6 @@ private:
     bool m_renderLine;
 
     bool m_overclockFrame;
-
-
 
     void initOpenBus()
     {
@@ -265,7 +271,7 @@ public:
         m_spritesInThisLine = 0;
         m_testSprite0HitInThisLine = false;
 
-        m_OAMAddr = 0;
+        m_oamAddr = 0;
         m_dataLatch = 0;
         m_lastWrite = 0;
 
@@ -295,8 +301,6 @@ public:
         m_lastPPUSTATUSReadCycle = -1;
 
         clearFramebuffer();
-
-        m_powerUpCounter = 0;
         
         FRAME_NUMBER_OF_LINES = 262;
         FRAME_VBLANK_START_LINE = 241;
@@ -315,11 +319,36 @@ public:
 
         updateSettings();
 
-        //test if cobra triangle hangs
-        for(int i = 0; i < 341 * 260; i++) cycle();
-        //m_interruptFlag = false;
-        //m_NMIDelay1Instruction = false;
-        //m_powerUpCounter = 29658 * 3;
+        for(int i = 0; i < 341 * 260; i++) cycle(); //need this for read2004.nes
+       
+        /* read2004.nes output
+        FF FF FF FF AA AA 01 01 10 10
+        01 01 00 00 00 00 20 20 01 01
+        01 01 00 00 30 30 01 01 02 02
+        00 00 40 40 02 02 03 03 00 00
+        50 50 02 02 04 04 00 00 60 60
+        02 02 05 05 00 00 70 70 03 03
+        06 06 00 00 80 80 03 03 07 07
+        05 01 A0 01 41 01 0B 01 05 01
+        E0 01 81 01 0F 01 05 01 F3 01
+        00 01 12 01 05 01 F5 01 05 01
+        05 01 05 01 05 01 05 01 05 01
+        06 01 06 01 06 01 06 01 06 01
+        06 01 06 01 06 01 07 01 07 01
+        07 01 08 01 09 01 0A 01 0A 01
+        0B 01 0C 01 0D 01 0E 01 0F 01
+        0F 01 0F 01 0F 01 0F 01 0F 01
+        0F 01 0F 01 0F 01 0F 01 0F 01
+        0F 01 0F 01 0F 01 0F 01 0F 01
+        0F 01 0F 01 10 01 AA 01 01 01
+        00 01 00 01 00 01 01 10 01 00
+        00 00 00 00 00 20 01 01 01 01
+        01 01 00 30 01 02 02 02 02 02
+        00 40 02 03 03 03 03 03 00 50
+        02 04 04 04 04 04 00 60 02 05
+        05 05 05 05 00 70 03 06 06 06
+        06 06 00 00 00 00
+        */
     }
 
     bool inOverclockLines()
@@ -452,7 +481,7 @@ public:
         uint8_t value;
 
         //if reg v is pointing to the palette
-        if(!m_backgroundEnabled && !m_spritesEnabled && isOnPaletteAddr()) {
+        if(!isRenderingEnabled() && isOnPaletteAddr()) {
             value  = readPPUMemory(m_reg_v)&0x3F;
         }
         else {
@@ -530,24 +559,11 @@ yyy NN YYYYY XXXXX
         return m_debugCursorY;
     }
 
-    uint8_t m_oamCopyBuffer = 0;
-    bool done = false;
-
-    uint8_t secondaryAddr = 0;
-    bool spriteInRange = false;
-
-    uint8_t _spriteAddrH = 0; //oam[m][n]
-    uint8_t _spriteAddrL = 0;
-
-    int _overflowBugCounter = 0;
-
-    bool sprite0Added = false;
-
     GERANES_INLINE_HOT void evaluateSprites()
     {       
         if(m_cycle < 65) {
             m_oamCopyBuffer = 0xFF;
-            m_secondaryOAM[(m_cycle-1) >> 1] = 0xFF;
+            m_secondaryOam[(m_cycle-1) >> 1] = 0xFF;
         }
         else if(m_cycle == 256) {
 
@@ -556,7 +572,7 @@ yyy NN YYYYY XXXXX
             for(int i = 0; i < 64; i++){
 
                 //const int& spriteY = (int)m_primaryOAM[4*i] + 1;
-                const int& spriteY = (int)m_primaryOAM[i << 2] + 1;
+                const int& spriteY = (int)m_primaryOam[i << 2] + 1;
 
                 if( (m_currentY >= spriteY) && (m_currentY < (spriteY+(m_spriteSize8x16?16:8))) ) {  
                     m_spritesIndexesInThisLine[m_spritesInThisLine++] = i << 2;
@@ -565,116 +581,117 @@ yyy NN YYYYY XXXXX
 
             //----------------------------------------
             
-            m_testSprite0HitInThisLine = sprite0Added;
+            m_testSprite0HitInThisLine = m_sprite0Added;
         }
         else {
 
-            if(m_cycle == 65) {
-                done = false;
-                secondaryAddr = 0;
-                spriteInRange = false;
-                _spriteAddrH = (m_OAMAddr >> 2) & 0x3F;
-                _spriteAddrL = m_OAMAddr & 0x03;
+            if(m_cycle == 65) { //initialization
+                m_oamCopyDone = false;
+                m_secondaryOamAddr = 0;
+                m_spriteInRange = false;
+                m_oamM = (m_oamAddr >> 2) & 0x3F;
+                m_oamN = m_oamAddr & 0x03;
 
-                sprite0Added = false;
-                _overflowBugCounter = 0;
+
+                m_sprite0Added = false;
+                m_overflowBugCounter = 0;
             }
 
             if(m_cycle & 1) { //odd cycle
-                m_oamCopyBuffer = m_primaryOAM[m_OAMAddr&0xFF];
+                m_oamCopyBuffer = m_primaryOam[m_oamAddr&0xFF];
             }
             else {                
 
-                if(done) {
+                if(m_oamCopyDone) {
 
-                    _spriteAddrH = (_spriteAddrH + 1) & 0x3F;
+                    m_oamM = (m_oamM + 1) & 0x3F;
 
-                    if(secondaryAddr >= sizeof(m_secondaryOAM)) {
+                    if(m_secondaryOamAddr >= sizeof(m_secondaryOam)) {
                         //"As seen above, a side effect of the OAM write disable signal is to turn writes to the secondary OAM into reads from it."
-                        m_oamCopyBuffer = m_secondaryOAM[secondaryAddr & 0x1F];
+                        m_oamCopyBuffer = m_secondaryOam[m_secondaryOamAddr & 0x1F];
                     }
                 }
                 else {
 
-                    if(!spriteInRange && m_scanline >= m_oamCopyBuffer && m_scanline < m_oamCopyBuffer + (m_spriteSize8x16 ? 16 : 8)) {
-                        spriteInRange = true;
+                    if(!m_spriteInRange && m_scanline >= m_oamCopyBuffer && m_scanline < m_oamCopyBuffer + (m_spriteSize8x16 ? 16 : 8)) {
+                        m_spriteInRange = true;
                     }                    
 
-                    if(secondaryAddr < sizeof(m_secondaryOAM)) {
+                    if(m_secondaryOamAddr < sizeof(m_secondaryOam)) {
 
-                        m_secondaryOAM[secondaryAddr] = m_oamCopyBuffer;
+                        m_secondaryOam[m_secondaryOamAddr] = m_oamCopyBuffer;
 
-                        if(spriteInRange) {
+                        if(m_spriteInRange) {
                             
-                            _spriteAddrL++;
-                            secondaryAddr++;
+                            m_oamN++;
+                            m_secondaryOamAddr++;
 
-                            if(_spriteAddrH == 0) {
-							    sprite0Added = true;
+                            if(m_oamM == 0) {
+							    m_sprite0Added = true;
 							}
 
                             //Note: Using "(_secondaryOamAddr & 0x03) == 0" instead of "_spriteAddrL == 0" is required
 							//to replicate a hardware bug noticed in oam_flicker_test_reenable when disabling & re-enabling
 							//rendering on a single scanline
-							if((secondaryAddr & 0x03) == 0) {
+							if((m_secondaryOamAddr & 0x03) == 0) {
 								//Done copying all 4 bytes
-								spriteInRange = false;
-								_spriteAddrL = 0;
+								m_spriteInRange = false;
+								m_oamN = 0;
 
-								_spriteAddrH = (_spriteAddrH + 1) & 0x3F;
-								if(_spriteAddrH == 0) {
-									done = true;
+								m_oamM = (m_oamM + 1) & 0x3F;
+								if(m_oamM == 0) {
+									m_oamCopyDone = true;
 								}
 							}
                         }
                         else {
 
                             //Nothing to copy, skip to next sprite
-							_spriteAddrH = (_spriteAddrH + 1) & 0x3F;
-							if(_spriteAddrH == 0) {
-								done = true;
+							m_oamM = (m_oamM + 1) & 0x3F;
+							if(m_oamM == 0) {
+								m_oamCopyDone = true;
 							}
                         }
                     }
                     else { //secondary is full
 
-                        m_oamCopyBuffer = m_secondaryOAM[secondaryAddr & 0x1F];
+                        m_oamCopyBuffer = m_secondaryOam[m_secondaryOamAddr & 0x1F];
 
                         //8 sprites have been found, check next sprite for overflow + emulate PPU bug
-						if(spriteInRange) {
+						if(m_spriteInRange) {
 							//Sprite is visible, consider this to be an overflow
 							m_spriteOverflow= true;
-							_spriteAddrL = (_spriteAddrL + 1);
-							if(_spriteAddrL == 4) {
-								_spriteAddrH = (_spriteAddrH + 1) & 0x3F;
-								_spriteAddrL = 0;
+							m_oamN = (m_oamN + 1);
+							if(m_oamN == 4) {
+								m_oamM = (m_oamM + 1) & 0x3F;
+								m_oamN = 0;
 							}
 
-							if(_overflowBugCounter == 0) {
-								_overflowBugCounter = 3;
-							} else if(_overflowBugCounter > 0) {
-								_overflowBugCounter--;
-								if(_overflowBugCounter == 0) {
+							if(m_overflowBugCounter == 0) {
+								m_overflowBugCounter = 3;
+							} else if(m_overflowBugCounter > 0) {
+								m_overflowBugCounter--;
+								if(m_overflowBugCounter == 0) {
 									//"After it finishes "fetching" this sprite(and setting the overflow flag), it realigns back at the beginning of this line and then continues here on the next sprite"
-									done = true;
-									_spriteAddrL = 0;
+									m_oamCopyDone = true;
+									m_oamN = 0;
 								}
 							}
 
 						} else {
 							//Sprite isn't on this scanline, trigger sprite evaluation bug - increment both H & L at the same time
-							_spriteAddrH = (_spriteAddrH + 1) & 0x3F;
-							_spriteAddrL = (_spriteAddrL + 1) & 0x03;
+							m_oamM = (m_oamM + 1) & 0x3F;
+							m_oamN = (m_oamN + 1) & 0x03;
 
-							if(_spriteAddrH == 0) {
-								done = true;
+							if(m_oamM == 0) {
+								m_oamCopyDone = true;
 							}
 						}
 
                     }
                 }                
 
-                m_OAMAddr = (_spriteAddrL & 0x03) | (_spriteAddrH << 2);
+                m_oamAddr = (m_oamN & 0x03) | (m_oamM << 2);
             }
         }    
 
@@ -693,7 +710,7 @@ yyy NN YYYYY XXXXX
 
         for(int i = 0; i < m_spritesInThisLine; i++)
         {
-            const uint8_t* currentSprite = &m_primaryOAM[m_spritesIndexesInThisLine[i]];
+            const uint8_t* currentSprite = &m_primaryOam[m_spritesIndexesInThisLine[i]];
 
             const int& spriteY = (int)(*currentSprite++)+1; //0
             const uint8_t& spriteIndexInPatternTable = *currentSprite++; //1
@@ -850,9 +867,6 @@ yyy NN YYYYY XXXXX
             }
         }
 
-
-        //if(m_powerUpCounter > 0) m_powerUpCounter--;
-
         if(m_sprite0Hit) m_sprite0HitDelayed = true;
 
         if(m_renderLine) {
@@ -866,19 +880,21 @@ yyy NN YYYYY XXXXX
                 renderPixel();
             }
 
+            
+
             if(m_visibleLine && renderingEnabled) {
 
-                //if(!isRenderingEnabled()) return;
-
-                //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
-			    if(m_cycle >= 257 && m_cycle <= 320)
-                    m_OAMAddr = 0;
-
                 if(m_cycle == 321) {
-                    m_oamCopyBuffer = m_secondaryOAM[0];
+                    m_oamCopyBuffer = m_secondaryOam[0];
                 }
 
                 if(visibleCycle) evaluateSprites();
+            }
+
+            if(renderingEnabled) {
+                //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
+			    if(m_cycle >= 257 && m_cycle <= 320)
+                    m_oamAddr = 0;
             }
 
             
@@ -1074,8 +1090,6 @@ yyy NN YYYYY XXXXX
     
     GERANES_INLINE void writePPUCTRL(uint8_t data)
     {
-        //if(m_powerUpCounter != 0) return;
-
         //put base nametable address in bits 10 and 11 of reg_t
         m_reg_t &= 0xF3FF;
         m_reg_t |= ((static_cast<uint16_t>(data & 0x03)) << 10);
@@ -1093,8 +1107,6 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE void writePPUMASK(uint8_t data)
     {
-        //if(m_powerUpCounter != 0) return;
-
         m_monochromeDisplay = (data&0x01) ? true : false;
         m_showBackgroundLeftmost8Pixels = (data&0x02) ? true : false;
         m_showSpritesLeftmost8Pixels = (data&0x04) ? true : false;
@@ -1124,14 +1136,14 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE void writeOAMADDR(uint8_t data)
     {
-        m_OAMAddr = data;
+        m_oamAddr = data;
     }
 
     // GERANES_INLINE uint8_t readOAMDATA() {
 
     //     uint8_t ret = m_primaryOAM[m_OAMAddr];
 
-    //     if (isRenderingEnabled())
+    //     if (m_cycle > 0 && m_scanline < 240 && isRenderingEnabled())
     //     {
     //         if (m_cycle < 65)
     //             ret = 0xFF;
@@ -1148,102 +1160,20 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE uint8_t readOAMDATA()
     {
-        uint8_t ret;
+        uint8_t ret = m_primaryOam[m_oamAddr];
 
-        const int x = 1;
-
-        if(m_scanline < 240 && isRenderingEnabled()) {
-            if(m_cycle >= (256+x) && m_cycle < (320+x)) {
-                uint8_t step = ((m_cycle - (256+x)) % 8) > 3 ? 3 : ((m_cycle - (256+x)) % 8);
-                uint8_t oamAddr = (m_cycle - (256+x)) / 8 * 4 + step;
-                ret = m_secondaryOAM[oamAddr];
+        if (/*m_cycle > 0 &&*/ m_scanline < 240 && isRenderingEnabled()) {
+            if(m_cycle >= 257 && m_cycle <= 320) {
+                uint8_t step = ((m_cycle - 257) % 8) > 3 ? 3 : ((m_cycle - 257) % 8);
+                uint8_t addr = (m_cycle - 257) / 8 * 4 + step;
+                ret = m_secondaryOam[addr];
             } else {
                 ret = m_oamCopyBuffer;
             }
-        } else {
-            ret = m_primaryOAM[m_OAMAddr];
         }
-        //m_openBus = 0x00;
 
-        return ret;	
-
+        return ret;
     }
-
-    // GERANES_INLINE uint8_t readOAMDATA()
-    // {
-    //     uint8_t ret = m_primaryOAM[m_OAMAddr&0xFF];
-
-    //     if (m_backgroundEnabled || m_spritesEnabled) {
-    //         if(m_cycle >= 257 && m_cycle <= 320) {
-    //             uint8_t step = ((m_cycle - 257) % 8) > 3 ? 3 : ((m_cycle - 257) % 8);
-    //             uint8_t oamAddr = (m_cycle - 257) / 8 * 4 + step;
-    //             ret = m_secondaryOAM[oamAddr];
-    //         } else {
-    //             ret = m_oamCopyBuffer;
-    //         }
-    //     }
-
-    //     return ret;
-    // }
-
-    
-    // GERANES_INLINE uint8_t readOAMDATA()
-    // {
-    //     const int test = 0;
-
-    //     uint8_t ret = m_primaryOAM[m_OAMAddr&0xFF];
-
-    //     if (m_backgroundEnabled || m_spritesEnabled)
-    //     {
-    //         if (m_cycle < 64+test)
-    //             ret = m_oamCopyBuffer;
-    //         else if (m_cycle < 256+test)
-    //             ret = m_oamCopyBuffer;
-    //         else if (m_cycle < 320+test) { //Micro Machines relies on this
-    //             //ret = 0xFF;
-    //             int s = m_cycle - (256+test);
-    //             int index = s/8;
-    //             int offset = s%8;                
-
-    //             if(index < m_spritesInThisLine) {
-
-    //                 const uint8_t* currentSprite = &m_secondaryOAM[index << 2];
-
-    //                 if(offset < 4) {
-    //                     ret = *(currentSprite+offset);
-    //                     //if(offset == 0) ret++; //sprite Y
-    //                 }
-    //                 else
-    //                     ret = *(currentSprite+3); //sprite X
-    //             }
-    //             else if(index == m_spritesInThisLine) {
-
-    //                 const uint8_t* currentSprite = &m_primaryOAM[63 << 2];
-
-    //                 if(offset == 0) {
-    //                     ret = *(currentSprite);
-    //                     //ret++; //sprite Y
-    //                 }
-    //                 else
-    //                     ret = 0xFF;
-                    
-    //             }
-    //             else {
-    //                 ret = 0xFF;
-    //             }
-
-    //         }
-    //         else //and this:
-    //             ret = m_secondaryOAM[0]; //first byte of secondary oam
-                
-    //     }
-
-    //     //Third sprite bytes should be masked with $e3 on read
-    //     if( (m_OAMAddr&0x03) == 2) ret &= 0xE3;
-
-    //     //Address should not increment on $2004 read
-    //     return ret;
-    // }
 
     GERANES_INLINE bool isRenderingEnabled() {
         return m_spritesEnabled || m_backgroundEnabled;
@@ -1252,24 +1182,22 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE void writeOAMDATA(uint8_t data)
     {
         if(m_scanline >= 240 || !isRenderingEnabled()) {
-            if((m_OAMAddr & 0x03) == 0x02) {
+            if((m_oamAddr & 0x03) == 0x02) {
                 //"The three unimplemented bits of each sprite's byte 2 do not exist in the PPU and always read back as 0 on PPU revisions that allow reading PPU OAM through OAMDATA ($2004)"
                 data &= 0xE3;
             }
-            m_primaryOAM[m_OAMAddr] = data;
-            m_OAMAddr++;
+            m_primaryOam[m_oamAddr] = data;
+            m_oamAddr++;
         } else {
             //"Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0-239, provided either sprite or background rendering is enabled) do not modify values in OAM, 
             //but do perform a glitchy increment of OAMADDR, bumping only the high 6 bits"
-            m_OAMAddr += 4;
+            m_oamAddr = ((m_oamAddr + 1) & 0xFC) | (m_oamAddr & 0x3);
         }
     
     }
 
     GERANES_INLINE void writePPUSCROLL(uint8_t data)
     {
-        //if(m_powerUpCounter != 0) return;
-
         if(!m_reg_w)
         {
             m_reg_t &= 0xFFE0;
@@ -1311,8 +1239,6 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE void writePPUADDR(uint8_t data)
     {
-        //if(m_powerUpCounter != 0) return;
-
         if(!m_reg_w)
         {
             m_reg_t = (m_reg_t & 0x80FF) | ((static_cast<uint16_t>(data&0x3F))  << 8);
@@ -1350,7 +1276,7 @@ yyy NNYY YYYX XXXX
             m_dataLatch = readPPUMemory(m_reg_v);            
         }
 
-        if( (m_spritesEnabled || m_backgroundEnabled) && m_scanline < 240) //rendering
+        if(isRenderingEnabled() && m_scanline < 240) //rendering
         {
             if(m_VRAMAddressIncrement == 1) {
                 incrementVY();
@@ -1375,7 +1301,7 @@ yyy NNYY YYYX XXXX
         m_lastWrite = data;
         writePPUMemory(m_reg_v,data);
 
-        if( (m_spritesEnabled || m_backgroundEnabled) && m_scanline < 240) //rendering
+        if( isRenderingEnabled() && m_scanline < 240) //rendering
         {
             if(m_VRAMAddressIncrement == 1) {
                 incrementVY();
@@ -1546,7 +1472,16 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_spritesInThisLine);
         SERIALIZEDATA(s, m_testSprite0HitInThisLine);
 
-        SERIALIZEDATA(s, m_OAMAddr);
+        SERIALIZEDATA(s, m_oamAddr);
+        SERIALIZEDATA(s, m_oamCopyBuffer);
+        SERIALIZEDATA(s, m_oamCopyDone);
+        SERIALIZEDATA(s, m_secondaryOamAddr);
+        SERIALIZEDATA(s, m_spriteInRange);
+        SERIALIZEDATA(s, m_oamM);
+        SERIALIZEDATA(s, m_oamN);
+        SERIALIZEDATA(s, m_overflowBugCounter);
+        SERIALIZEDATA(s, m_sprite0Added);
+
         SERIALIZEDATA(s, m_currentY);
         SERIALIZEDATA(s, m_currentX);
 
@@ -1557,8 +1492,8 @@ yyy NNYY YYYX XXXX
         s.array(reinterpret_cast<uint8_t*>(m_nameTable), 1, sizeof(m_nameTable)); //4 pages
 
         s.array(m_palette, 1, sizeof(m_palette));
-        s.array(m_primaryOAM, 1, sizeof(m_primaryOAM));
-        s.array(m_secondaryOAM, 1, sizeof(m_secondaryOAM));
+        s.array(m_primaryOam, 1, sizeof(m_primaryOam));
+        s.array(m_secondaryOam, 1, sizeof(m_secondaryOam));
 
         SERIALIZEDATA(s, m_reg_v);
         SERIALIZEDATA(s, m_reg_x);
@@ -1578,8 +1513,6 @@ yyy NNYY YYYX XXXX
 
         SERIALIZEDATA(s, m_openBus);
         s.array(m_openBusTimer, 1, 8);
-
-        SERIALIZEDATA(s, m_powerUpCounter);
 
         SERIALIZEDATA(s, FRAME_NUMBER_OF_LINES);
         SERIALIZEDATA(s, FRAME_VBLANK_START_LINE);
