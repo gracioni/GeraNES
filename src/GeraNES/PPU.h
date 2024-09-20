@@ -81,8 +81,8 @@ private:
     uint8_t m_secondaryOamAddr;
     bool m_spriteInRange;
 
-    uint8_t m_oamAddrM; //oam[m][n]
-    uint8_t m_oamAddrN;
+    uint8_t m_oamAddrN; //oam[N][M]
+    uint8_t m_oamAddrM;
 
     int m_overflowBugCounter;
     bool m_sprite0Added;
@@ -589,8 +589,8 @@ yyy NN YYYYY XXXXX
                 m_oamCopyDone = false;
                 m_secondaryOamAddr = 0;
                 m_spriteInRange = false;
-                m_oamAddrM = (m_oamAddr >> 2) & 0x3F;
-                m_oamAddrN = m_oamAddr & 0x03;
+                m_oamAddrN = (m_oamAddr >> 2) & 0x3F;
+                m_oamAddrM = m_oamAddr & 0x03;
 
 
                 m_sprite0Added = false;
@@ -604,7 +604,7 @@ yyy NN YYYYY XXXXX
 
                 if(m_oamCopyDone) {
 
-                    m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
+                    m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
 
                     if(m_secondaryOamAddr >= sizeof(m_secondaryOam)) {
                         //"As seen above, a side effect of the OAM write disable signal is to turn writes to the secondary OAM into reads from it."
@@ -623,10 +623,10 @@ yyy NN YYYYY XXXXX
 
                         if(m_spriteInRange) {
                             
-                            m_oamAddrN++;
+                            m_oamAddrM++;
                             m_secondaryOamAddr++;
 
-                            if(m_oamAddrM == 0) {
+                            if(m_oamAddrN == 0) {
 							    m_sprite0Added = true;
 							}
 
@@ -636,10 +636,10 @@ yyy NN YYYYY XXXXX
 							if((m_secondaryOamAddr & 0x03) == 0) {
 								//Done copying all 4 bytes
 								m_spriteInRange = false;
-								m_oamAddrN = 0;
+								m_oamAddrM = 0;
 
-								m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
-								if(m_oamAddrM == 0) {
+								m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
+								if(m_oamAddrN == 0) {
 									m_oamCopyDone = true;
 								}
 							}
@@ -647,8 +647,8 @@ yyy NN YYYYY XXXXX
                         else {
 
                             //Nothing to copy, skip to next sprite
-							m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
-							if(m_oamAddrM == 0) {
+							m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
+							if(m_oamAddrN == 0) {
 								m_oamCopyDone = true;
 							}
                         }
@@ -661,10 +661,10 @@ yyy NN YYYYY XXXXX
 						if(m_spriteInRange) {
 							//Sprite is visible, consider this to be an overflow
 							m_spriteOverflow= true;
-							m_oamAddrN = (m_oamAddrN + 1);
-							if(m_oamAddrN == 4) {
-								m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
-								m_oamAddrN = 0;
+							m_oamAddrM = (m_oamAddrM + 1);
+							if(m_oamAddrM == 4) {
+								m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
+								m_oamAddrM = 0;
 							}
 
 							if(m_overflowBugCounter == 0) {
@@ -674,16 +674,16 @@ yyy NN YYYYY XXXXX
 								if(m_overflowBugCounter == 0) {
 									//"After it finishes "fetching" this sprite(and setting the overflow flag), it realigns back at the beginning of this line and then continues here on the next sprite"
 									m_oamCopyDone = true;
-									m_oamAddrN = 0;
+									m_oamAddrM = 0;
 								}
 							}
 
 						} else {
 							//Sprite isn't on this scanline, trigger sprite evaluation bug - increment both H & L at the same time
-							m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
-							m_oamAddrN = (m_oamAddrN + 1) & 0x03;
+							m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
+							m_oamAddrM = (m_oamAddrM + 1) & 0x03;
 
-							if(m_oamAddrM == 0) {
+							if(m_oamAddrN == 0) {
 								m_oamCopyDone = true;
 							}
 						}
@@ -691,7 +691,7 @@ yyy NN YYYYY XXXXX
                     }
                 }                
 
-                m_oamAddr = (m_oamAddrN & 0x03) | (m_oamAddrM << 2);
+                m_oamAddr = (m_oamAddrM & 0x03) | (m_oamAddrN << 2);
             }
         }    
 
@@ -919,7 +919,7 @@ yyy NN YYYYY XXXXX
 
                 // by the docs, it should be at 256, but this seems to be the correct time to incVY,
                 // it fix the freezes of battletoads at lvl 2
-                case 251: incrementVY(); break;
+                case 254: incrementVY(); break;
 
                 //case 256: evaluateSprites(); break;
                 case 257: copyVX(); break;
@@ -1160,12 +1160,14 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE uint8_t readOAMDATA()
     {
+        const int delay = 0;
+
         uint8_t ret = m_primaryOam[m_oamAddr];
 
         if (/*m_cycle > 0 &&*/ m_scanline < 240 && isRenderingEnabled()) {
-            if(m_cycle >= 257 && m_cycle <= 320) {
-                uint8_t step = ((m_cycle - 257) % 8) > 3 ? 3 : ((m_cycle - 257) % 8);
-                uint8_t addr = (m_cycle - 257) / 8 * 4 + step;
+            if(m_cycle >= (257+delay) && m_cycle <= (320+delay)) {
+                uint8_t step = ((m_cycle - (257+delay)) % 8) > 3 ? 3 : ((m_cycle - (257+delay)) % 8);
+                uint8_t addr = (m_cycle - (257+delay)) / 8 * 4 + step;
                 ret = m_secondaryOam[addr];
             } else {
                 ret = m_oamCopyBuffer;
@@ -1477,8 +1479,8 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_oamCopyDone);
         SERIALIZEDATA(s, m_secondaryOamAddr);
         SERIALIZEDATA(s, m_spriteInRange);
-        SERIALIZEDATA(s, m_oamAddrM);
         SERIALIZEDATA(s, m_oamAddrN);
+        SERIALIZEDATA(s, m_oamAddrM);
         SERIALIZEDATA(s, m_overflowBugCounter);
         SERIALIZEDATA(s, m_sprite0Added);
 
