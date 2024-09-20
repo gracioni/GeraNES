@@ -81,8 +81,8 @@ private:
     uint8_t m_secondaryOamAddr;
     bool m_spriteInRange;
 
-    uint8_t m_oamM; //oam[m][n]
-    uint8_t m_oamN;
+    uint8_t m_oamAddrM; //oam[m][n]
+    uint8_t m_oamAddrN;
 
     int m_overflowBugCounter;
     bool m_sprite0Added;
@@ -589,8 +589,8 @@ yyy NN YYYYY XXXXX
                 m_oamCopyDone = false;
                 m_secondaryOamAddr = 0;
                 m_spriteInRange = false;
-                m_oamM = (m_oamAddr >> 2) & 0x3F;
-                m_oamN = m_oamAddr & 0x03;
+                m_oamAddrM = (m_oamAddr >> 2) & 0x3F;
+                m_oamAddrN = m_oamAddr & 0x03;
 
 
                 m_sprite0Added = false;
@@ -604,7 +604,7 @@ yyy NN YYYYY XXXXX
 
                 if(m_oamCopyDone) {
 
-                    m_oamM = (m_oamM + 1) & 0x3F;
+                    m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
 
                     if(m_secondaryOamAddr >= sizeof(m_secondaryOam)) {
                         //"As seen above, a side effect of the OAM write disable signal is to turn writes to the secondary OAM into reads from it."
@@ -623,10 +623,10 @@ yyy NN YYYYY XXXXX
 
                         if(m_spriteInRange) {
                             
-                            m_oamN++;
+                            m_oamAddrN++;
                             m_secondaryOamAddr++;
 
-                            if(m_oamM == 0) {
+                            if(m_oamAddrM == 0) {
 							    m_sprite0Added = true;
 							}
 
@@ -636,10 +636,10 @@ yyy NN YYYYY XXXXX
 							if((m_secondaryOamAddr & 0x03) == 0) {
 								//Done copying all 4 bytes
 								m_spriteInRange = false;
-								m_oamN = 0;
+								m_oamAddrN = 0;
 
-								m_oamM = (m_oamM + 1) & 0x3F;
-								if(m_oamM == 0) {
+								m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
+								if(m_oamAddrM == 0) {
 									m_oamCopyDone = true;
 								}
 							}
@@ -647,8 +647,8 @@ yyy NN YYYYY XXXXX
                         else {
 
                             //Nothing to copy, skip to next sprite
-							m_oamM = (m_oamM + 1) & 0x3F;
-							if(m_oamM == 0) {
+							m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
+							if(m_oamAddrM == 0) {
 								m_oamCopyDone = true;
 							}
                         }
@@ -661,10 +661,10 @@ yyy NN YYYYY XXXXX
 						if(m_spriteInRange) {
 							//Sprite is visible, consider this to be an overflow
 							m_spriteOverflow= true;
-							m_oamN = (m_oamN + 1);
-							if(m_oamN == 4) {
-								m_oamM = (m_oamM + 1) & 0x3F;
-								m_oamN = 0;
+							m_oamAddrN = (m_oamAddrN + 1);
+							if(m_oamAddrN == 4) {
+								m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
+								m_oamAddrN = 0;
 							}
 
 							if(m_overflowBugCounter == 0) {
@@ -674,16 +674,16 @@ yyy NN YYYYY XXXXX
 								if(m_overflowBugCounter == 0) {
 									//"After it finishes "fetching" this sprite(and setting the overflow flag), it realigns back at the beginning of this line and then continues here on the next sprite"
 									m_oamCopyDone = true;
-									m_oamN = 0;
+									m_oamAddrN = 0;
 								}
 							}
 
 						} else {
 							//Sprite isn't on this scanline, trigger sprite evaluation bug - increment both H & L at the same time
-							m_oamM = (m_oamM + 1) & 0x3F;
-							m_oamN = (m_oamN + 1) & 0x03;
+							m_oamAddrM = (m_oamAddrM + 1) & 0x3F;
+							m_oamAddrN = (m_oamAddrN + 1) & 0x03;
 
-							if(m_oamM == 0) {
+							if(m_oamAddrM == 0) {
 								m_oamCopyDone = true;
 							}
 						}
@@ -691,7 +691,7 @@ yyy NN YYYYY XXXXX
                     }
                 }                
 
-                m_oamAddr = (m_oamN & 0x03) | (m_oamM << 2);
+                m_oamAddr = (m_oamAddrN & 0x03) | (m_oamAddrM << 2);
             }
         }    
 
@@ -1477,8 +1477,8 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_oamCopyDone);
         SERIALIZEDATA(s, m_secondaryOamAddr);
         SERIALIZEDATA(s, m_spriteInRange);
-        SERIALIZEDATA(s, m_oamM);
-        SERIALIZEDATA(s, m_oamN);
+        SERIALIZEDATA(s, m_oamAddrM);
+        SERIALIZEDATA(s, m_oamAddrN);
         SERIALIZEDATA(s, m_overflowBugCounter);
         SERIALIZEDATA(s, m_sprite0Added);
 
