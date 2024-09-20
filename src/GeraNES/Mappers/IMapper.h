@@ -145,6 +145,8 @@ public:
     {
         if(m_sRam != nullptr)
             return m_sRam[addr&(m_cd.saveRamSize()-1)];
+
+        return 0;
     }
 
     virtual MirroringType mirroringType()

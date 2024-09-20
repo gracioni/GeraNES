@@ -8,7 +8,7 @@
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "Logger.h"
 
-#include "Mappers/Dummymapper.h"
+#include "Mappers/DummyMapper.h"
 
 #include "Mappers/IMapper.h"
 #include "Mappers/Mapper000.h"
