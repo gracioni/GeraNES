@@ -710,6 +710,33 @@ yyy NN YYYYY XXXXX
         int paletteIndex = 0;
         bool isPixelBehind = false;
 
+        bool spritesAsMask = false;
+
+        if(m_settings.spriteLimitDisabled() && m_spritesInThisLine >= 8) {
+            
+            // Detecting masking effects
+            // Games will place 8 consecutive sprites with the same Y coordinate and same tile number.
+            // If you see this, then that is a sign that the game is using a masking effect,
+            // and the 8-sprite limit should be enforced for that area.
+
+            const uint8_t* firstSprite = &m_primaryOam[m_spritesIndexesInThisLine[0]];
+            const uint8_t& sy = *firstSprite; //0
+            const uint8_t& si = *(firstSprite+1); //1
+
+            int i = 1;
+
+            //test if all sprites have the same y and x
+            for(; i < 8; i++) {
+                const uint8_t* other = &m_primaryOam[m_spritesIndexesInThisLine[i]];
+                const uint8_t& osy = *other; //0
+                const uint8_t& osi = *(other+1); //1
+
+                if(sy != osy && si != osi) break;
+            }
+
+            spritesAsMask = i == 8;
+        }
+
         for(int i = 0; i < m_spritesInThisLine; i++)
         {
             const uint8_t* currentSprite = &m_primaryOam[m_spritesIndexesInThisLine[i]];
@@ -719,7 +746,7 @@ yyy NN YYYYY XXXXX
             const uint8_t& spriteAttrib = *currentSprite++; //2
             const int& spriteX = *currentSprite; //3
 
-            if(i >= 8 && !m_settings.spriteLimitDisabled()) break; //sprite limit
+            if(i >= 8 && (!m_settings.spriteLimitDisabled() || spritesAsMask)) break;
 
             //if( !(m_currentX >= spriteX && m_currentX < spriteX+8) ) continue;
             if( m_currentX < spriteX || m_currentX >= spriteX+8) continue;
