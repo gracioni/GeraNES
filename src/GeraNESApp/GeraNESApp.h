@@ -1057,17 +1057,17 @@ public:
 
                 if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
                     
-                    bool disableSpritesLimit = ConfigFile::instance().getDisableSpritesLimit();
+                    bool disableSpritesLimit = m_emu.spriteLimitDisabled();
                     if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
-                        m_emu.disableSpriteLimit(!ConfigFile::instance().getDisableSpritesLimit());
-                        ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
+                        m_emu.disableSpriteLimit(disableSpritesLimit);                        
                     }
+                    ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
 
                     bool overclock = m_emu.overclocked();                     
                     if(ImGui::Checkbox("Overclock", &overclock)) {                   
-                        m_emu.enableOverclock(!ConfigFile::instance().getOverclock());
-                        ConfigFile::instance().setOverclock(m_emu.overclocked());
+                        m_emu.enableOverclock(overclock);                        
                     }
+                    ConfigFile::instance().setOverclock(m_emu.overclocked());
 
                     ImGui::SetNextItemWidth(100);
 
