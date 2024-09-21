@@ -719,7 +719,7 @@ yyy NN YYYYY XXXXX
             const uint8_t& spriteAttrib = *currentSprite++; //2
             const int& spriteX = *currentSprite; //3
 
-            if(i >= 9 && !m_settings.spriteLimitDisabled()) break; //sprite limit
+            if(i >= 8 && !m_settings.spriteLimitDisabled()) break; //sprite limit
 
             //if( !(m_currentX >= spriteX && m_currentX < spriteX+8) ) continue;
             if( m_currentX < spriteX || m_currentX >= spriteX+8) continue;
