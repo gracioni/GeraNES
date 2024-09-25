@@ -238,7 +238,7 @@ public:
         return m_interruptFlag;
     }
 
-    GERANES_HOT void tick() override
+    void setA12State(bool state, int ppuCycle) override
     {
         if(m_irqMode == true) return;
         haha();

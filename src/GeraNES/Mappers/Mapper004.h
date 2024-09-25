@@ -36,17 +36,16 @@ private:
     bool m_writeProtectWRAM = false;
 
     uint8_t m_reloadValue = 0;
-    uint8_t m_scanlinesCounter = 0;
+    uint8_t m_irqCounter = 0;
     bool m_enableInterrupt = false;
 
-    bool m_reloadScanlineCounterFlag = false;
+    bool m_irqClearFlag = false;
 
     bool m_interruptFlag = false;
 
-    bool m_coolFlag = false; //hack flag to enable the interrupt only when a new reload value is set
-                           //without this, the menu in the megaman3 last boss is glitched
-                           //because improper interrupts happen
-                           //however, some mmc3 tests fail :(
+    bool m_a12LastState = false;
+
+    int m_fallingEdgeCycle = 0;
 
 public:
 
@@ -92,15 +91,12 @@ public:
         switch(addr)
         {
         case 0x0000:
-        case 0x1000:
             m_CHRMode = data & 0x80;
             m_PRGMode = data & 0x40;
             m_addrReg = data & 0x07;            
 
             break;
         case 0x0001:
-        case 0x1001:
-
             switch(m_addrReg)
             {
             case 0: m_CHRReg[0] = data; break;
@@ -114,30 +110,24 @@ public:
             }
             break;
         case 0x2000:
-        case 0x3000:
             m_mirroring = data & 0x01;
             break;
         case 0x2001:
-        case 0x3001:
             m_enableWRAM = data & 0x80;
             m_writeProtectWRAM = data & 0x40;
             break;
-        case 0x4000:
-        case 0x5000:
+        case 0x4000: // 0xC000
             m_reloadValue = data;
-            m_coolFlag = true;
+            break;           
+        case 0x4001: // 0xC001
+            m_irqClearFlag = true;
+            m_irqCounter = 0;
             break;
-        case 0x4001:
-        case 0x5001:
-            m_reloadScanlineCounterFlag = true;
-            break;
-        case 0x6000:
-        case 0x7000:
+        case 0x6000: // 0xE000
             m_interruptFlag = false;
             m_enableInterrupt = false;
             break;
         case 0x6001:
-        case 0x7001:
             m_enableInterrupt = true;
             break;
         }
@@ -189,30 +179,47 @@ public:
     bool getInterruptFlag() override
     {
         return m_interruptFlag;
-    }
+    }    
 
-    void tick() override
+    void setA12State(bool state, int ppuCycle) override
     {
-        //should reload and set irq every clock when reloadValue == 0 (MMC3-C)
-        if(m_reloadValue == 0 && m_scanlinesCounter == 0){
-            m_scanlinesCounter = m_reloadValue;
-            if(m_enableInterrupt) m_interruptFlag = true;
-        }
+        if(!m_a12LastState && state) {
 
-        if(m_reloadScanlineCounterFlag || m_scanlinesCounter == 0) {
-            m_scanlinesCounter = m_reloadValue;
-            m_reloadScanlineCounterFlag = false;            
-        }
-        else if(m_scanlinesCounter > 0) m_scanlinesCounter--;
+            int diff = ppuCycle - m_fallingEdgeCycle;
+            if(diff < 0) diff += 341;            
 
-        if(m_scanlinesCounter == 0 && m_enableInterrupt) {
-
-            if(m_coolFlag){
-                m_interruptFlag = true;
-                m_coolFlag = false;
+            if(diff > 12) {
+                count();
             }
-
         }
+        else if(m_a12LastState && !state) {
+            m_fallingEdgeCycle = ppuCycle;
+        }   
+
+        m_a12LastState = state;      
+    } 
+
+    void count() {
+
+        uint8_t count = m_irqCounter;
+
+        if(m_irqCounter == 0 || m_irqClearFlag) {
+            m_irqCounter = m_reloadValue;
+        } else {
+            m_irqCounter--;
+        }
+
+        if(false /*ForceMmc3RevAIrqs()*/) {
+            //MMC3 Revision A behavior
+            if((count > 0 || m_irqClearFlag) && m_irqCounter == 0 && m_enableInterrupt) {
+                m_interruptFlag = true;
+            }
+        } else {
+            if(m_irqCounter == 0 && m_enableInterrupt) {
+                m_interruptFlag = true;
+            }
+        }
+        m_irqClearFlag = false;
     }
 
     virtual void serialization(SerializationBase& s) override
@@ -238,11 +245,13 @@ public:
         SERIALIZEDATA(s, m_enableWRAM);
         SERIALIZEDATA(s, m_writeProtectWRAM);
         SERIALIZEDATA(s, m_reloadValue);
-        SERIALIZEDATA(s, m_scanlinesCounter);
+        SERIALIZEDATA(s, m_irqCounter);
         SERIALIZEDATA(s, m_enableInterrupt);
-        SERIALIZEDATA(s, m_reloadScanlineCounterFlag);
+        SERIALIZEDATA(s, m_irqClearFlag);
         SERIALIZEDATA(s, m_interruptFlag);
-        SERIALIZEDATA(s, m_coolFlag);
+        
+        SERIALIZEDATA(s, m_a12LastState);    
+        SERIALIZEDATA(s, m_fallingEdgeCycle);
     }
 
 };

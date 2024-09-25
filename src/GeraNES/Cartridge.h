@@ -287,9 +287,9 @@ public:
         return m_mapper->getInterruptFlag();
     }
 
-    GERANES_INLINE void tickMapper()
+    GERANES_INLINE void setA12State(bool state, int ppuCycle)
     {
-        m_mapper->tick();
+        m_mapper->setA12State(state, ppuCycle);
     }
 
     GERANES_INLINE void cycle()

@@ -62,7 +62,7 @@ private:
     bool m_spritesEnabled;
     uint8_t m_colorEmphasis;
 
-    bool m_renderingEnabled = false;
+    bool m_renderingEnabled;
 
     //PPUSTATUS
     bool m_VBlankHasStarted;
@@ -183,7 +183,7 @@ private:
     template<bool writeFlag>
     GERANES_HOT auto readWritePPUMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
-        addr &= 0x3FFF; //mirror 0x0000-0x3FFF when addr >= 0x4000
+        addr &= 0x3FFF; //mirror 0x0000-0x3FFF when addr >= 0x4000        
 
         if(addr < 0x2000)
         {
@@ -264,6 +264,8 @@ public:
         writePPUMASK(0);
 
         memcpy(m_palette, POWER_UP_PALETTE, sizeof(m_palette));
+
+        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
 
         //PPUSTATUS
         m_VBlankHasStarted = false;
@@ -922,8 +924,10 @@ yyy NN YYYYY XXXXX
 
             if(renderingEnabled) {
                 //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
-			    if(m_cycle >= 257 && m_cycle <= 320)
+			    if(m_cycle >= 257 && m_cycle <= 320) {
                     m_oamAddr = 0;
+                    fetchSprites();
+                }
             }
 
             
@@ -933,25 +937,17 @@ yyy NN YYYYY XXXXX
                 if(fetchCycle) {
                     m_tileData <<= 4;
                     switch(m_cycle%8){
-                    case 1: fetchNameTableByte(); break;
-                    case 3: fetchAttributeTableByte(); break;
-                    case 5: fetchLowTileByte(); break;
-                    case 7: fetchHighTileByte(); break;
-                    case 0:
-                        storeTileData();
-                        incrementVX();
-                        break;
+                        case 1:fetchNameTableByte(); break;
+                        case 3: fetchAttributeTableByte(); break;
+                        case 5: fetchLowTileByte(); break;
+                        case 7: fetchHighTileByte(); break;
+                        case 0: storeTileData(); incrementVX(); break;
                     }
                 }
                 
                 switch(m_cycle) {
-
-                case 256: incrementVY(); break;
-
-                case 257: copyVX(); break;
-                //A12 rises on the 5th cycle of every 8 fetch cycles (4, 12, 20, 28, etc for BG fetches
-                //if BG uses $1xxx.... 260,268, etc for Sprite fetches when they use $1xxx)
-                case 268: m_cartridge.tickMapper(); break;
+                    case 256: incrementVY(); break;
+                    case 257: copyVX(); break;
                 }
             }
 
@@ -1007,8 +1003,38 @@ yyy NN YYYYY XXXXX
             
         }
 
-        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
+        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled; 
+    }
 
+    void fetchSprites() {
+
+        int fetchCycle = (m_cycle - 257) % 8;  
+
+        if (fetchCycle == 0) {
+
+            bool state;
+
+            if(m_spriteSize8x16) {
+
+                int currentSprite = (m_cycle - 257) / 8;
+                uint8_t tile = m_secondaryOam[(currentSprite << 2) + 1];
+
+                //low bit say if the sprite is in 0x1000 ou 0x0000 pattern table
+                state = tile & 1;
+
+                if((m_cycle - 257) % 16 == 8) { //second half of 8x16 sprite
+                    state = !state;
+                }
+            }
+            else
+                state = m_sprite8x8PatternTableAddress;
+
+            m_cartridge.setA12State(state, m_cycle);
+        }
+        else if(fetchCycle == 4) {
+            m_cartridge.setA12State(false, m_cycle);
+        }       
+        
     }
 
     //name tables
@@ -1286,11 +1312,9 @@ yyy NNYY YYYX XXXX
         {
             m_reg_t = (m_reg_t & 0xFF00) | (static_cast<uint16_t>(data));
 
-            //m_reg_t will be m_reg_v
-            if(m_reg_t < 0x2000 && (m_reg_t&0x1000) && !(m_reg_v&0x1000)  ) //A12 rise
-                m_cartridge.tickMapper();
-
             m_reg_v = m_reg_t;
+
+            m_cartridge.setA12State(m_reg_v&0x1000, m_cycle);
 
             calculateDebugCursor();
         }
@@ -1325,10 +1349,9 @@ yyy NNYY YYYX XXXX
         }
         else m_reg_v+=m_VRAMAddressIncrement;
 
-        m_reg_v &= 0x7FFF; //wrap 0x3FFF? burai fighter test = 0x7FFF
+        m_reg_v &= 0x7FFF;
 
-        if(m_reg_v < 0x2000 && (m_reg_v&0x1000) && !(oldV&0x1000) ) //A12 rise
-            m_cartridge.tickMapper();
+        m_cartridge.setA12State(m_reg_v&0x1000, m_cycle);
 
         return ret;
     }
@@ -1352,8 +1375,7 @@ yyy NNYY YYYX XXXX
 
         m_reg_v &= 0x7FFF; //wrap
 
-        if(m_reg_v < 0x2000 && (m_reg_v&0x1000) && !(oldV&0x1000) ) //A12 rise
-            m_cartridge.tickMapper();
+        m_cartridge.setA12State(m_reg_v&0x1000, m_cycle);
     }
 
     GERANES_INLINE void fillFramebuffer(uint32_t color)
@@ -1433,6 +1455,7 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE void fetchNameTableByte() {
         m_nameTableByte = readPPUMemory(0x2000 | (m_reg_v & 0x0FFF));
+        m_cartridge.setA12State(false, m_cycle);
     }
 
     GERANES_INLINE void fetchAttributeTableByte() {
@@ -1440,6 +1463,7 @@ yyy NNYY YYYX XXXX
         int address = 0x23C0 | (m_reg_v & 0x0C00) | ((m_reg_v >> 4) & 0x38) | ((m_reg_v >> 2) & 0x07);
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
         m_attributeTableByte = ((readPPUMemory(address) >> shift) & 3) << 2;
+        m_cartridge.setA12State(false, m_cycle);
     }
 
     GERANES_INLINE void fetchLowTileByte() {
@@ -1448,6 +1472,8 @@ yyy NNYY YYYX XXXX
         int tile = m_nameTableByte;
         int address = table + (tile << 4) + fineY;
         m_lowTileByte = readPPUMemory(address);
+        m_cartridge.setA12State(table, m_cycle);
+        
     }
 
     GERANES_INLINE void fetchHighTileByte() {
@@ -1456,6 +1482,7 @@ yyy NNYY YYYX XXXX
         int tile = m_nameTableByte;
         int address = table + (tile << 4) + fineY;
         m_highTileByte = readPPUMemory(address + 8);
+        m_cartridge.setA12State(table, m_cycle);
     }
 
     GERANES_INLINE void storeTileData() {
