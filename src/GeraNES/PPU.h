@@ -35,6 +35,13 @@ class PPU
 
 private:
 
+    struct Sprite {
+        uint8_t y;
+        uint8_t indexInPatternTable;
+        uint8_t attrib;
+        uint8_t x;
+    };
+
     Settings& m_settings;
     Cartridge& m_cartridge;
 
@@ -703,7 +710,7 @@ yyy NN YYYYY XXXXX
             }
         }    
 
-    }
+    }    
 
     GERANES_INLINE_HOT void renderSpritesPixel()
     {
@@ -725,19 +732,17 @@ yyy NN YYYYY XXXXX
             // If you see this, then that is a sign that the game is using a masking effect,
             // and the 8-sprite limit should be enforced for that area.
 
-            const uint8_t* firstSprite = &m_primaryOam[m_spritesIndexesInThisLine[0]];
-            const uint8_t& sy = *firstSprite; //0
-            const uint8_t& si = *(firstSprite+1); //1
+            const Sprite* first = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[0]];
+ 
 
             int i = 1;
 
             //test if all sprites have the same y and x
             for(; i < 8; i++) {
-                const uint8_t* other = &m_primaryOam[m_spritesIndexesInThisLine[i]];
-                const uint8_t& osy = *other; //0
-                const uint8_t& osi = *(other+1); //1
+                const Sprite* other = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
 
-                if(sy != osy && si != osi) break;
+
+                if(first->y != other->y && first->indexInPatternTable != other->indexInPatternTable) break;
             }
 
             spritesAsMask = i == 8;
@@ -745,12 +750,12 @@ yyy NN YYYYY XXXXX
 
         for(int i = 0; i < m_spritesInThisLine; i++)
         {
-            const uint8_t* currentSprite = &m_primaryOam[m_spritesIndexesInThisLine[i]];
+            const Sprite* sprite = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
 
-            const int& spriteY = (int)(*currentSprite++)+1; //0
-            const uint8_t& spriteIndexInPatternTable = *currentSprite++; //1
-            const uint8_t& spriteAttrib = *currentSprite++; //2
-            const int& spriteX = *currentSprite; //3
+            const int& spriteY = sprite->y+1;
+            const uint8_t& spriteIndexInPatternTable = sprite->indexInPatternTable;
+            const uint8_t& spriteAttrib = sprite->attrib;
+            const int& spriteX = sprite->x;
 
             if(i >= 8 && (!m_settings.spriteLimitDisabled() || spritesAsMask)) break;
 
@@ -933,16 +938,7 @@ yyy NN YYYYY XXXXX
                     fetchSprites();
                 }
             }
-
-            // if(renderingEnabled) {
-            //     //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
-			//     if(m_cycle >= 257+3 && m_cycle <= 320+3) {
-            //         fetchSprites<257+3>();
-            //     }
-            // }
-
             
-
             if(renderingEnabled) {
          
                 if(fetchCycle) {
