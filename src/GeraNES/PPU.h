@@ -792,7 +792,7 @@ yyy NN YYYYY XXXXX
                 else
                     spriteXToDraw = spriteX - m_currentX + 7;
 
-                int index = 0;
+                int index;
 
                 if(spriteLineToDraw < 8) //top sprite
                 {
@@ -955,7 +955,7 @@ yyy NN YYYYY XXXXX
                 switch(m_cycle) {
                     case 254: incrementVY(); break; //256
                     case 257: copyVX(); break;
-                    //case 262: m_cartridge.setA12State(m_sprite8x8PatternTableAddress, ppuCycleCounter); break;
+                    //case 258: m_cartridge.setA12State(m_sprite8x8PatternTableAddress, ppuCycleCounter); break;
                 }
             }
 
@@ -1020,9 +1020,13 @@ yyy NN YYYYY XXXXX
     template<int startCycle = 257>
     void fetchSprites() {
 
+        // m_cartridge.setA12State(true, ppuCycleCounter, m_cycle);
+        // if(m_cycle == 320) m_cartridge.setA12State(false, ppuCycleCounter, m_cycle);
+        // return;
+
         int fetchCycle = (m_cycle - startCycle) % 8;  
 
-        if (fetchCycle == 0 || fetchCycle == 4) {
+        if (fetchCycle == 0) {
 
             bool state;
 
@@ -1036,8 +1040,6 @@ yyy NN YYYYY XXXXX
             }
             else
                 state = m_sprite8x8PatternTableAddress;
-
-            if(fetchCycle == 4) state = !state;
 
             m_cartridge.setA12State(state, ppuCycleCounter);
         }              
@@ -1303,7 +1305,6 @@ yyy NNYY YYYX XXXX
             m_reg_v = m_reg_t;
 
             m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
-            //std::cout << m_cycle << ":" << (bool)(m_reg_v&0x1000) << std::endl;
 
             calculateDebugCursor();
         }

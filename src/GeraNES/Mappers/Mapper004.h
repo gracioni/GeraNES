@@ -185,14 +185,13 @@ public:
         return m_interruptFlag;
     }
 
-    void setA12State(bool state, uint64_t ppuCycle) override
-    {
+    void setA12State(bool state, uint64_t ppuCycle) override   {
+  
         if(!m_a12LastState && state) {
 
             uint64_t diff = ppuCycle - m_fallingEdgeCycle;       
 
-            if(diff > 12) {
-                //std::cout << ppuCycle << std::endl;
+            if(diff >= 12) {
                 count();
             }
         }
