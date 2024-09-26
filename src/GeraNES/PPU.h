@@ -150,6 +150,8 @@ private:
 
     bool m_overclockFrame;
 
+    uint32_t ppuCycleCounter;
+
     void initOpenBus()
     {
         m_openBus = 0;
@@ -319,7 +321,7 @@ public:
         m_visibleLine = false;
         m_renderLine = false;
 
-        m_overclockFrame = false;
+        m_overclockFrame = false;        
 
         updateSettings();
 
@@ -353,6 +355,8 @@ public:
         05 05 05 05 00 70 03 06 06 06
         06 06 00 00 00 00
         */
+
+       ppuCycleCounter = 0;
     }
 
     bool inOverclockLines()
@@ -884,7 +888,7 @@ yyy NN YYYYY XXXXX
     }
 
     GERANES_HOT void ppuCycle()
-    {
+    {        
         if(m_cycle == 0) onScanlineChanged();
 
         if(!m_interruptFlag) {
@@ -930,30 +934,39 @@ yyy NN YYYYY XXXXX
                 }
             }
 
+            // if(renderingEnabled) {
+            //     //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
+			//     if(m_cycle >= 257+3 && m_cycle <= 320+3) {
+            //         fetchSprites<257+3>();
+            //     }
+            // }
+
             
 
             if(renderingEnabled) {
-
+         
                 if(fetchCycle) {
                     m_tileData <<= 4;
                     switch(m_cycle%8){
-                        case 1:fetchNameTableByte(); break;
+                        case 1: fetchNameTableByte(); break;                        
                         case 3: fetchAttributeTableByte(); break;
                         case 5: fetchLowTileByte(); break;
                         case 7: fetchHighTileByte(); break;
-                        case 0: storeTileData(); incrementVX(); break;
+                        case 0: storeTileData(); incrementVX(); break; 
                     }
                 }
                 
                 switch(m_cycle) {
-                    case 256: incrementVY(); break;
+                    case 254: incrementVY(); break; //256
                     case 257: copyVX(); break;
+                    //case 262: m_cartridge.setA12State(m_sprite8x8PatternTableAddress, ppuCycleCounter); break;
                 }
             }
 
             if(m_preLine) {
 
-                if(m_cycle == 304) { //280 to 304 copy each tick
+                //if(m_cycle == 304) { //280 to 304 copy each tick
+                if(m_cycle >= 280 && m_cycle <= 304) { //280 to 304 copy each tick
                     if(renderingEnabled) copyVY();
                 }
                 else if(m_cycle == VBLANK_CYCLE){
@@ -1003,37 +1016,35 @@ yyy NN YYYYY XXXXX
             
         }
 
-        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled; 
+        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
+
+        ppuCycleCounter++;
     }
 
+    template<int startCycle = 257>
     void fetchSprites() {
 
-        int fetchCycle = (m_cycle - 257) % 8;  
+        int fetchCycle = (m_cycle - startCycle) % 8;  
 
-        if (fetchCycle == 0) {
+        if (fetchCycle == 0 || fetchCycle == 4) {
 
             bool state;
 
             if(m_spriteSize8x16) {
 
-                int currentSprite = (m_cycle - 257) / 8;
+                int currentSprite = (m_cycle - startCycle) / 8;
                 uint8_t tile = m_secondaryOam[(currentSprite << 2) + 1];
 
                 //low bit say if the sprite is in 0x1000 ou 0x0000 pattern table
-                state = tile & 1;
-
-                if((m_cycle - 257) % 16 == 8) { //second half of 8x16 sprite
-                    state = !state;
-                }
+                state = tile & 1;  
             }
             else
                 state = m_sprite8x8PatternTableAddress;
 
-            m_cartridge.setA12State(state, m_cycle);
-        }
-        else if(fetchCycle == 4) {
-            m_cartridge.setA12State(false, m_cycle);
-        }       
+            if(fetchCycle == 4) state = !state;
+
+            m_cartridge.setA12State(state, ppuCycleCounter);
+        }              
         
     }
 
@@ -1199,26 +1210,7 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE void writeOAMADDR(uint8_t data)
     {
         m_oamAddr = data;
-    }
-
-    // GERANES_INLINE uint8_t readOAMDATA() {
-
-    //     uint8_t ret = m_primaryOAM[m_OAMAddr];
-
-    //     if (m_cycle > 0 && m_scanline < 240 && isRenderingEnabled())
-    //     {
-    //         if (m_cycle < 65)
-    //             ret = 0xFF;
-    //         else if (m_cycle < 257)
-    //             ret = 0x00;
-    //         else if (m_cycle < 321)
-    //             ret = 0xFF;
-    //         else
-    //             ret = m_secondaryOAM[0];
-    //     }
-
-    //     return ret;
-    // }
+    }    
 
     GERANES_INLINE uint8_t readOAMDATA()
     {
@@ -1226,7 +1218,7 @@ yyy NN YYYYY XXXXX
 
         uint8_t ret = m_primaryOam[m_oamAddr];
 
-        if (/*m_cycle > 0 &&*/ m_scanline < 240 && isRenderingEnabled()) {
+        if (m_scanline < 240 && isRenderingEnabled()) {
             if(m_cycle >= (257+delay) && m_cycle <= (320+delay)) {
                 uint8_t step = ((m_cycle - (257+delay)) % 8) > 3 ? 3 : ((m_cycle - (257+delay)) % 8);
                 uint8_t addr = (m_cycle - (257+delay)) / 8 * 4 + step;
@@ -1300,7 +1292,7 @@ yyy NN YYYYY XXXXX
 +++----------------- fine Y scroll
 
 yyy NNYY YYYX XXXX
-*/
+*/    
 
     GERANES_INLINE void writePPUADDR(uint8_t data)
     {
@@ -1314,7 +1306,8 @@ yyy NNYY YYYX XXXX
 
             m_reg_v = m_reg_t;
 
-            m_cartridge.setA12State(m_reg_v&0x1000, m_cycle);
+            m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
+            //std::cout << m_cycle << ":" << (bool)(m_reg_v&0x1000) << std::endl;
 
             calculateDebugCursor();
         }
@@ -1351,7 +1344,7 @@ yyy NNYY YYYX XXXX
 
         m_reg_v &= 0x7FFF;
 
-        m_cartridge.setA12State(m_reg_v&0x1000, m_cycle);
+        m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
 
         return ret;
     }
@@ -1375,7 +1368,7 @@ yyy NNYY YYYX XXXX
 
         m_reg_v &= 0x7FFF; //wrap
 
-        m_cartridge.setA12State(m_reg_v&0x1000, m_cycle);
+        m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
     }
 
     GERANES_INLINE void fillFramebuffer(uint32_t color)
@@ -1454,8 +1447,9 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void fetchNameTableByte() {
-        m_nameTableByte = readPPUMemory(0x2000 | (m_reg_v & 0x0FFF));
-        m_cartridge.setA12State(false, m_cycle);
+        int address = 0x2000 | (m_reg_v & 0x0FFF);
+        m_nameTableByte = readPPUMemory(address);
+        m_cartridge.setA12State(false, ppuCycleCounter);
     }
 
     GERANES_INLINE void fetchAttributeTableByte() {
@@ -1463,7 +1457,7 @@ yyy NNYY YYYX XXXX
         int address = 0x23C0 | (m_reg_v & 0x0C00) | ((m_reg_v >> 4) & 0x38) | ((m_reg_v >> 2) & 0x07);
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
         m_attributeTableByte = ((readPPUMemory(address) >> shift) & 3) << 2;
-        m_cartridge.setA12State(false, m_cycle);
+        m_cartridge.setA12State(false, ppuCycleCounter);
     }
 
     GERANES_INLINE void fetchLowTileByte() {
@@ -1471,9 +1465,8 @@ yyy NNYY YYYX XXXX
         int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
         int tile = m_nameTableByte;
         int address = table + (tile << 4) + fineY;
-        m_lowTileByte = readPPUMemory(address);
-        m_cartridge.setA12State(table, m_cycle);
-        
+        m_lowTileByte = readPPUMemory(address);   
+        m_cartridge.setA12State(m_backgroundPatternTableAddress, ppuCycleCounter);          
     }
 
     GERANES_INLINE void fetchHighTileByte() {
@@ -1482,7 +1475,7 @@ yyy NNYY YYYX XXXX
         int tile = m_nameTableByte;
         int address = table + (tile << 4) + fineY;
         m_highTileByte = readPPUMemory(address + 8);
-        m_cartridge.setA12State(table, m_cycle);
+        m_cartridge.setA12State(m_backgroundPatternTableAddress, ppuCycleCounter);
     }
 
     GERANES_INLINE void storeTileData() {
@@ -1586,11 +1579,11 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_PALFlag);
         SERIALIZEDATA(s, m_PALCounter);
         SERIALIZEDATA(s, m_inOverclockLines);
-        SERIALIZEDATA(s,m_preLine);
-        SERIALIZEDATA(s,m_visibleLine);
-        SERIALIZEDATA(s,m_renderLine);
+        SERIALIZEDATA(s, m_preLine);
+        SERIALIZEDATA(s, m_visibleLine);
+        SERIALIZEDATA(s, m_renderLine);
 
-        SERIALIZEDATA(s,m_overclockFrame);
+        SERIALIZEDATA(s, ppuCycleCounter);
     }
 
 };

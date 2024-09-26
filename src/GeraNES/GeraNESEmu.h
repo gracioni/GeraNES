@@ -344,10 +344,9 @@ public:
     
         m_ppu.ppuCycle();          
 
-        m_ppu.ppuCyclePAL();                    
-
         if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
 
+        m_ppu.ppuCyclePAL(); 
     }
 
     /**

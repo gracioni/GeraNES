@@ -45,7 +45,9 @@ private:
 
     bool m_a12LastState = false;
 
-    int m_fallingEdgeCycle = 0;
+    uint64_t m_fallingEdgeCycle = 0;
+
+    bool m_mmc3RevAIrqs = false;
 
 public:
 
@@ -53,6 +55,8 @@ public:
     {
         m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+
+        m_mmc3RevAIrqs = cd.chip().substr(0, 5).compare("MMC3A") == 0;        
     }
 
     virtual ~Mapper004()
@@ -179,16 +183,16 @@ public:
     bool getInterruptFlag() override
     {
         return m_interruptFlag;
-    }    
+    }
 
-    void setA12State(bool state, int ppuCycle) override
+    void setA12State(bool state, uint64_t ppuCycle) override
     {
         if(!m_a12LastState && state) {
 
-            int diff = ppuCycle - m_fallingEdgeCycle;
-            if(diff < 0) diff += 341;            
+            uint64_t diff = ppuCycle - m_fallingEdgeCycle;       
 
             if(diff > 12) {
+                //std::cout << ppuCycle << std::endl;
                 count();
             }
         }
@@ -209,7 +213,8 @@ public:
             m_irqCounter--;
         }
 
-        if(false /*ForceMmc3RevAIrqs()*/) {
+        if(m_mmc3RevAIrqs) {
+
             //MMC3 Revision A behavior
             if((count > 0 || m_irqClearFlag) && m_irqCounter == 0 && m_enableInterrupt) {
                 m_interruptFlag = true;

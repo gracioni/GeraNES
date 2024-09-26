@@ -57,7 +57,9 @@ public:
 
     virtual uint8_t readChr(int addr) = 0;
 
-    virtual int saveRamSize() = 0;    
+    virtual int saveRamSize() = 0;
+
+    virtual std::string chip() = 0; 
 
     virtual ~ICartridgeData() {}
 

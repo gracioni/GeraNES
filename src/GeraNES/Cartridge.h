@@ -60,6 +60,10 @@ private:
 
     bool m_isValid;
 
+    bool m_interrupt;
+
+    int m_interruptDelay;
+
     RomFile m_romFile;
 
     IMapper* CreateMapper()
@@ -196,6 +200,10 @@ public:
 
         m_isValid = true;
 
+        m_interrupt = false;
+        
+        m_interruptDelay = 0;
+
         return true;
     }
 
@@ -280,11 +288,12 @@ public:
         default: //CUSTOM
             return m_mapper->customMirroring(blockIndex);
         }
-    }
+    }    
 
     GERANES_INLINE bool getInterruptFlag()
     {
-        return m_mapper->getInterruptFlag();
+        //return m_mapper->getInterruptFlag();
+        return m_interrupt && m_interruptDelay >= 1;
     }
 
     GERANES_INLINE void setA12State(bool state, int ppuCycle)
@@ -294,6 +303,14 @@ public:
 
     GERANES_INLINE void cycle()
     {
+        if(m_interrupt && m_interruptDelay < 1) m_interruptDelay++; 
+
+        m_interrupt = m_mapper->getInterruptFlag();
+
+        if(!m_interrupt) m_interruptDelay = 0;
+
+        
+
         m_mapper->cycle();
     }
 
@@ -319,6 +336,9 @@ public:
     void serialization(SerializationBase& s)
     {
         SERIALIZEDATA(s, m_isValid);
+        SERIALIZEDATA(s, m_interrupt);
+        SERIALIZEDATA(s, m_interruptDelay);
+
         m_mapper->serialization(s);
     }
 

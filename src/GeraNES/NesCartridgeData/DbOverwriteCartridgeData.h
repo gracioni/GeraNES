@@ -28,6 +28,8 @@ private:
 
     int m_subMapperId;
 
+    std::string m_chip;
+
 public:
 
     DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* item) : m_src(src), m_item(item), ICartridgeData(src->romFile()) {
@@ -71,6 +73,8 @@ public:
         m_mapperId = m_item->MapperId >=0 ? m_item->MapperId : m_src->mapperId();
 
         m_subMapperId = m_item->SubmapperId >=0 ? m_item->SubmapperId : m_src->subMapperId();
+
+        m_chip = !m_item->Chip.empty() ? m_item->Chip : m_src->chip();
     }
 
     virtual ~DbOverwriteCartridgeData() {
@@ -145,6 +149,10 @@ public:
     GERANES_HOT uint8_t readChr(int addr) override
     {
         return m_src->readChr(addr);
+    }
+
+    std::string chip() override {
+        return m_chip;
     }
 
 };

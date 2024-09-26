@@ -150,7 +150,11 @@ public:
 
     int saveRamSize() override {
         return 0x2000; //default 8k
-    }    
+    }
+
+    std::string chip() override {
+        return "";
+    }
 
 };
 

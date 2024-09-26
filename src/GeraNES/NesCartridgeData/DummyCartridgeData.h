@@ -82,7 +82,11 @@ public:
 
     int chrRamSize() override {
         return 0;
-    }   
+    }
+
+    std::string chip() override {
+        return "";
+    }
     
     static DummyCartridgeData& instance()
     {

@@ -34,22 +34,23 @@ private:
     bool m_mirroring = false; //0=Vert 1=Horz Ignored when 4-screen
 
     uint8_t m_reloadValue = 0;
-    uint8_t m_scanlinesCounter = 0;
+    uint8_t m_irqCounter = 0;
     bool m_enableInterrupt = false;
 
     bool m_irqMode = false; //false = scanline A12 / true = cycle mode
-    bool m_reloadScanlineCounterFlag = false;
+    bool m_reloadFlag = false;
 
     bool m_interruptFlag = false;
 
-    int m_cycleDivider = 0;
-
-    bool m_coolFlag = false; //hack flag to enable the interrupt only when a new reload value is set
-                           //without this, the menu in the megaman3 last boss is glitched
-                           //because improper interrupts happen
-                           //however, some mmc3 tests fail :(
+    int m_cycleCounter = 0;
 
     int m_delayToInterrupt = -1; //small delay to activate the interrupt flag
+
+    bool m_forceCount = false;
+
+    bool m_a12LastState = false;
+
+    uint64_t m_fallingEdgeCycle = 0;
 
 public:
 
@@ -125,16 +126,26 @@ public:
 
         case 0x4000:
             m_reloadValue = data;
-            m_coolFlag = true;
             break;
 
         case 0x4001:
-            m_reloadScanlineCounterFlag = true;
+
+            if(m_irqMode && ((data & 0x01) == 0x00)) {
+                //"To be clear, after the write in the reg $C001, are needed more than four CPU clock cycles
+                //before the switch takes place, allowing another clock of irq running the reload." -FHorse
+				//Fixes Skull & Crossbones
+                m_forceCount = true;
+            }
+            m_reloadFlag = true;
             m_irqMode = data & 0x01;
+
+            if(m_irqMode) m_cycleCounter = 0;
+
             break;
 
         case 0x6000:
-            m_interruptFlag = false; m_delayToInterrupt = -1;
+            m_interruptFlag = false;
+            m_delayToInterrupt = -1;
             m_enableInterrupt = false;
             break;
 
@@ -238,11 +249,22 @@ public:
         return m_interruptFlag;
     }
 
-    void setA12State(bool state, int ppuCycle) override
+    void setA12State(bool state, uint64_t ppuCycle) override
     {
-        if(m_irqMode == true) return;
-        haha();
-    }
+        if(!m_a12LastState && state) {
+
+            uint64_t diff = ppuCycle - m_fallingEdgeCycle;       
+
+            if(diff > 12) {
+                if(!m_irqMode) count();                
+            }
+        }
+        else if(m_a12LastState && !state) {
+            m_fallingEdgeCycle = ppuCycle;
+        }   
+
+        m_a12LastState = state;      
+    } 
 
     GERANES_HOT void cycle() override
     {
@@ -253,42 +275,36 @@ public:
                 m_interruptFlag = true;
         }
 
+        if(m_irqMode || m_forceCount) {
 
-        if(m_irqMode == false) return;
+            m_cycleCounter = (m_cycleCounter + 1) & 0x03;
 
-        ++m_cycleDivider;
-
-        if(m_cycleDivider == 3) {
-            m_cycleDivider = 0;
-            haha();
+            if(m_cycleCounter == 0) {
+                count();
+                m_forceCount = false;
+            }
         }
     }
 
-    void haha()
+    void count()
     {
-        //should reload and set irq every clock when reloadValue == 0 (like MMC3-C)
-        if(m_reloadValue == 0 && m_scanlinesCounter == 0){
-            m_scanlinesCounter = m_reloadValue;
-            if(m_enableInterrupt) m_delayToInterrupt = 2;
-        }
+        if(m_reloadFlag) {
+			//Fixes Hard Drivin'
+			if(m_reloadValue <= 1) {
+				m_irqCounter = m_reloadValue + 1;
+			} else {
+				m_irqCounter = m_reloadValue + 2;
+			}
 
+			m_reloadFlag = false;
+		} else if(m_irqCounter == 0) {
+			m_irqCounter = m_reloadValue + 1;
+		}
 
-        if(m_reloadScanlineCounterFlag || m_scanlinesCounter == 0) {
-            m_scanlinesCounter = m_reloadValue;
-            m_reloadScanlineCounterFlag = false;
-            m_cycleDivider = 0;
-            //coolFlag = true;
-        }
-        else if(m_scanlinesCounter > 0) m_scanlinesCounter--;
-
-        if(m_scanlinesCounter == 0 && m_enableInterrupt) {
-
-            if(m_coolFlag){
-                m_delayToInterrupt = 2;
-                m_coolFlag = false;
-            }
-
-        }
+		m_irqCounter--;
+		if(m_irqCounter == 0 && m_enableInterrupt) {
+			m_delayToInterrupt = 2; 
+		}
     }
 
     void serialization(SerializationBase& s) override
@@ -316,13 +332,18 @@ public:
 
         SERIALIZEDATA(s, m_mirroring);
         SERIALIZEDATA(s, m_reloadValue);
-        SERIALIZEDATA(s, m_scanlinesCounter);
+        SERIALIZEDATA(s, m_irqCounter);
         SERIALIZEDATA(s, m_enableInterrupt);
 
         SERIALIZEDATA(s, m_irqMode);
-        SERIALIZEDATA(s, m_reloadScanlineCounterFlag);
+        SERIALIZEDATA(s, m_reloadFlag);
         SERIALIZEDATA(s, m_interruptFlag);
-        SERIALIZEDATA(s, m_coolFlag);
+
+        SERIALIZEDATA(s, m_forceCount);
+
+        SERIALIZEDATA(s, m_a12LastState);
+
+        SERIALIZEDATA(s, m_fallingEdgeCycle);
     }
 
 };
