@@ -42,15 +42,15 @@ private:
 
     bool m_interruptFlag = false;
 
-    int m_cycleCounter = 0;
+    int m_cycleDivider = 0;
 
-    int m_delayToInterrupt = -1; //small delay to activate the interrupt flag
+    int m_delayToInterrupt = 0;
 
     bool m_forceCount = false;
 
     bool m_a12LastState = false;
 
-    uint64_t m_fallingEdgeCycle = 0;
+    uint8_t m_cycleCounter = 0;
 
 public:
 
@@ -139,13 +139,13 @@ public:
             m_reloadFlag = true;
             m_irqMode = data & 0x01;
 
-            if(m_irqMode) m_cycleCounter = 0;
+            if(m_irqMode) m_cycleDivider = 0;
 
             break;
 
         case 0x6000:
             m_interruptFlag = false;
-            m_delayToInterrupt = -1;
+            m_delayToInterrupt = 0;
             m_enableInterrupt = false;
             break;
 
@@ -246,21 +246,19 @@ public:
 
     GERANES_HOT bool getInterruptFlag() override
     {
-        return m_interruptFlag;
+        return m_interruptFlag && m_delayToInterrupt == 0;
     }
 
-    void setA12State(bool state, uint64_t ppuCycle) override
+    void setA12State(bool state) override
     {
-        if(!m_a12LastState && state) {
+        if(!m_a12LastState && state) {    
 
-            uint64_t diff = ppuCycle - m_fallingEdgeCycle;       
-
-            if(diff > 12) {
-                if(!m_irqMode) count();                
+            if(m_cycleCounter > 3) {
+                if(!m_irqMode) count(2);                
             }
         }
         else if(m_a12LastState && !state) {
-            m_fallingEdgeCycle = ppuCycle;
+            m_cycleCounter = 0;
         }   
 
         m_a12LastState = state;      
@@ -268,25 +266,25 @@ public:
 
     GERANES_HOT void cycle() override
     {
-        if(m_delayToInterrupt > -1) {
-            --m_delayToInterrupt;
+        if((uint8_t)(m_cycleCounter+1) != 0)
+            m_cycleCounter++;
 
-            if(m_delayToInterrupt == 0)
-                m_interruptFlag = true;
+        if(m_delayToInterrupt > 0) {
+            --m_delayToInterrupt;
         }
 
         if(m_irqMode || m_forceCount) {
 
-            m_cycleCounter = (m_cycleCounter + 1) & 0x03;
+            m_cycleDivider = (m_cycleDivider + 1) & 0x03;
 
-            if(m_cycleCounter == 0) {
-                count();
+            if(m_cycleDivider == 0) {
+                count(1);
                 m_forceCount = false;
             }
         }
     }
 
-    void count()
+    void count(int delayToInterrupt)
     {
         if(m_reloadFlag) {
 			//Fixes Hard Drivin'
@@ -303,7 +301,8 @@ public:
 
 		m_irqCounter--;
 		if(m_irqCounter == 0 && m_enableInterrupt) {
-			m_delayToInterrupt = 2; 
+			m_delayToInterrupt = delayToInterrupt;
+            m_interruptFlag = true;
 		}
     }
 
@@ -342,8 +341,7 @@ public:
         SERIALIZEDATA(s, m_forceCount);
 
         SERIALIZEDATA(s, m_a12LastState);
-
-        SERIALIZEDATA(s, m_fallingEdgeCycle);
+        SERIALIZEDATA(s, m_cycleCounter);
     }
 
 };

@@ -76,8 +76,6 @@ private:
     bool m_sprite0Hit;
     bool m_spriteOverflow;
 
-    bool m_sprite0HitDelayed;
-
     //sprites evaluate variables
     uint8_t m_spritesInThisLine;
     bool m_testSprite0HitInThisLine;
@@ -131,8 +129,8 @@ private:
     int m_debugCursorY = 0;
 
     // background temporary variables
-    uint8_t m_nameTableByte;
-    uint8_t m_attributeTableByte;
+    uint16_t m_tileAddr;
+    uint8_t m_paletteOffset;
     uint8_t m_lowTileByte;
     uint8_t m_highTileByte;
     uint64_t m_tileData;
@@ -157,7 +155,17 @@ private:
 
     bool m_overclockFrame;
 
-    uint32_t ppuCycleCounter;
+    int m_ignoreVideoRamReadCycles;
+    bool m_needUpdateState;
+    bool m_needIncVideoRam;
+
+    bool m_prevRenderingEnabled;
+
+    int m_update_reg_v_delay;
+    uint16_t m_update_reg_v_value;
+
+    uint16_t m_busAddress;
+    int m_updateA12Delay;
 
     void initOpenBus()
     {
@@ -189,9 +197,12 @@ private:
         }
     }
 
-    template<bool writeFlag>
+    template<bool writeFlag, bool changeA12>
     GERANES_HOT auto readWritePPUMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
+        if constexpr (changeA12)
+            setBusAddress(addr);
+
         addr &= 0x3FFF; //mirror 0x0000-0x3FFF when addr >= 0x4000        
 
         if(addr < 0x2000)
@@ -229,12 +240,22 @@ private:
 
     GERANES_INLINE uint8_t readPPUMemory(int addr)
     {
-        return readWritePPUMemory<false>(addr);
+        return readWritePPUMemory<false, true>(addr);
     }
 
     GERANES_INLINE void writePPUMemory(int addr, uint8_t data)
     {
-        readWritePPUMemory<true>(addr,data);
+        readWritePPUMemory<true, true>(addr,data);
+    }
+
+    GERANES_INLINE uint8_t fakeReadPPUMemory(int addr)
+    {
+        return readWritePPUMemory<false, false>(addr);
+    }
+
+    GERANES_INLINE void fakeWritePPUMemory(int addr, uint8_t data)
+    {
+        readWritePPUMemory<true, false>(addr,data);
     }
 
     //index 0-3
@@ -254,6 +275,13 @@ private:
         int index = m_cartridge.mirroring(addrIndex&0x03);
         return m_nameTable[index&3][addr&0x3FF];
     }
+
+    GERANES_INLINE void setBusAddress(uint16_t addr) {
+        m_busAddress = addr;
+        m_updateA12Delay = 2;
+        m_needUpdateState = true;        
+    }
+
 
 public:
 
@@ -275,10 +303,11 @@ public:
         memcpy(m_palette, POWER_UP_PALETTE, sizeof(m_palette));
 
         m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
+        m_prevRenderingEnabled = m_renderingEnabled;
 
         //PPUSTATUS
         m_VBlankHasStarted = false;
-        m_sprite0HitDelayed = m_sprite0Hit = false;
+        m_sprite0Hit = false;
         m_spriteOverflow = false;
 
         m_spritesInThisLine = 0;
@@ -305,8 +334,8 @@ public:
 
         m_interruptFlag = false;
 
-        m_nameTableByte = 0;
-        m_attributeTableByte = 0;
+        m_tileAddr = 0;
+        m_paletteOffset = 0;
         m_lowTileByte = 0;
         m_highTileByte = 0;
         m_tileData = 0;
@@ -328,7 +357,19 @@ public:
         m_visibleLine = false;
         m_renderLine = false;
 
-        m_overclockFrame = false;        
+        m_overclockFrame = false;
+
+        m_ignoreVideoRamReadCycles = 0;
+        m_needUpdateState = false;
+        m_needIncVideoRam = false;
+
+        m_tileAddr = 0;
+
+        m_update_reg_v_delay = 0;
+        m_update_reg_v_value = 0;
+
+        m_busAddress = 0;
+        m_updateA12Delay = 0;
 
         updateSettings();
 
@@ -363,7 +404,6 @@ public:
         06 06 00 00 00 00
         */
 
-       ppuCycleCounter = 0;
     }
 
     bool inOverclockLines()
@@ -497,7 +537,7 @@ public:
 
         //if reg v is pointing to the palette
         if(!isRenderingEnabled() && isOnPaletteAddr()) {
-            value  = readPPUMemory(m_reg_v)&0x3F;
+            value  = fakeReadPPUMemory(m_reg_v)&0x3F;
         }
         else {
             if( (m_currentPixelColorIndex&0x03) == 0) m_currentPixelColorIndex = 0;
@@ -870,14 +910,32 @@ yyy NN YYYYY XXXXX
         m_visibleLine = m_scanline < 240;
         m_renderLine = m_preLine || m_visibleLine;
 
-        if(m_scanline == 0) {
-            updateSettings();
+        if(m_scanline < 240) {
 
-            if(m_settings.overclockLines() > 0) {
-                m_overclockFrame = true;
+            if(m_scanline == 0) {
+                updateSettings();
+
+                if(m_settings.overclockLines() > 0) {
+                    m_overclockFrame = true;
+                }
+
+                signalFrameStart();
             }
 
-            signalFrameStart();
+            if(m_prevRenderingEnabled) {
+                if(m_scanline > 0 || (!m_oddFrameFlag || m_settings.region() != Settings::Region::NTSC /*|| GetPpuModel() != PpuModel::Ppu2C02)*/)) {
+                    //Set bus address to the tile address calculated from the unused NT fetches at the end of the previous scanline
+                    //This doesn't happen on scanline 0 if the last dot of the previous frame was skipped
+                    setBusAddress(m_tileAddr);
+			    }
+            }
+            
+
+        }
+        else if(m_scanline == 240) {
+            //At the start of vblank, the bus address is set back to VideoRamAddr.
+            //According to Visual NES, this occurs on scanline 240, cycle 1, but is done here on cycle 0 for performance reasons
+            setBusAddress(m_reg_v&0x3FFF);
         }
         else if(m_scanline == 241){
             decayOpenBus();
@@ -907,14 +965,12 @@ yyy NN YYYYY XXXXX
             }
         }
 
-        if(m_sprite0Hit) m_sprite0HitDelayed = true;
-
         if(m_renderLine) {
 
-            bool renderingEnabled = isRenderingEnabled();
             bool preFetchCycle = m_cycle >= 321 && m_cycle <= 336;
+            bool spriteFetchCycles = m_cycle >= 257 && m_cycle <= 320;
             bool visibleCycle = m_cycle >= 1 && m_cycle <= 256;
-            bool fetchCycle = preFetchCycle || visibleCycle;
+            bool bgFetchCycles = preFetchCycle || visibleCycle;
 
             if(m_visibleLine && visibleCycle) {
                 renderPixel();
@@ -922,26 +978,18 @@ yyy NN YYYYY XXXXX
 
             
 
-            if(m_visibleLine && renderingEnabled) {
+            if(m_visibleLine && isRenderingEnabled()) {
 
                 if(m_cycle == 321) {
                     m_oamCopyBuffer = m_secondaryOam[0];
                 }
 
                 if(visibleCycle) evaluateSprites();
-            }
-
-            if(renderingEnabled) {
-                //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
-			    if(m_cycle >= 257 && m_cycle <= 320) {
-                    m_oamAddr = 0;
-                    fetchSprites();
-                }
-            }
+            }            
             
-            if(renderingEnabled) {
+            if(m_prevRenderingEnabled) {
          
-                if(fetchCycle) {
+                if(bgFetchCycles) {
                     m_tileData <<= 4;
                     switch(m_cycle%8){
                         case 1: fetchNameTableByte(); break;                        
@@ -953,28 +1001,38 @@ yyy NN YYYYY XXXXX
                 }
                 
                 switch(m_cycle) {
-                    case 254: incrementVY(); break; //256
+                    case 256: incrementVY(); break; //256 //battletoads 2nd level freezes
                     case 257: copyVX(); break;
-                    //case 258: m_cartridge.setA12State(m_sprite8x8PatternTableAddress, ppuCycleCounter); break;
+                }
+            }
+
+            if(isRenderingEnabled()) {
+                //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
+			    if(spriteFetchCycles) {
+                    m_oamAddr = 0;
+                    fetchSprites();
                 }
             }
 
             if(m_preLine) {
 
-                //if(m_cycle == 304) { //280 to 304 copy each tick
                 if(m_cycle >= 280 && m_cycle <= 304) { //280 to 304 copy each tick
-                    if(renderingEnabled) copyVY();
+                    if(m_prevRenderingEnabled) copyVY();
                 }
                 else if(m_cycle == VBLANK_CYCLE){
                     m_spriteOverflow = false;
-                    m_sprite0HitDelayed = m_sprite0Hit = false;
+                    m_sprite0Hit = false;
                     m_VBlankHasStarted = false;
                 }
 
-                else if(m_cycle == 337+VBLANK_CYCLE)
+                else if(m_cycle == 339 && m_settings.region() == Settings::Region::NTSC /*&& GetPpuModel() == PpuModel::Ppu2C02*/) //only NTSC has skip cycle in odd frames
                 {
-                    if(m_oddFrameFlag && m_backgroundEnabled) m_cycle++;
+                    if(m_oddFrameFlag && isRenderingEnabled()) m_cycle++;
                     m_oddFrameFlag = !m_oddFrameFlag;
+                }
+
+                if(m_cycle == 337 || m_cycle == 339) {
+                    fetchNameTableByte();  //unused NT fetch
                 }
 
             }
@@ -1010,40 +1068,39 @@ yyy NN YYYYY XXXXX
             }
 
             
-        }
+        }        
 
-        m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
-
-        ppuCycleCounter++;
+        if(m_needUpdateState) updateState();
     }
 
     template<int startCycle = 257>
     void fetchSprites() {
 
-        // m_cartridge.setA12State(true, ppuCycleCounter, m_cycle);
-        // if(m_cycle == 320) m_cartridge.setA12State(false, ppuCycleCounter, m_cycle);
-        // return;
+        int fetchCycle = (m_cycle - startCycle) % 8;   
 
-        int fetchCycle = (m_cycle - startCycle) % 8;  
+        switch(fetchCycle) {
+            case 0: readPPUMemory(getNameTableAddr()); break;
+            case 2: readPPUMemory(getAttributeTableAddr()); break;
+            case 4: {         
 
-        if (fetchCycle == 0) {
+                bool state;
 
-            bool state;
+                int spriteIndex = (m_cycle - startCycle) / 8;
+                Sprite* sprite = (Sprite*)&m_secondaryOam[spriteIndex << 2];
 
-            if(m_spriteSize8x16) {
+                uint8_t tile = sprite->indexInPatternTable;
+               
+                if(m_spriteSize8x16) {
+                    state = tile & 1;
+                }
+                else state = m_sprite8x8PatternTableAddress;
 
-                int currentSprite = (m_cycle - startCycle) / 8;
-                uint8_t tile = m_secondaryOam[(currentSprite << 2) + 1];
+                setBusAddress(m_busAddress | (state ? 0x1000 : 0));            
 
-                //low bit say if the sprite is in 0x1000 ou 0x0000 pattern table
-                state = tile & 1;  
+                break;
             }
-            else
-                state = m_sprite8x8PatternTableAddress;
-
-            m_cartridge.setA12State(state, ppuCycleCounter);
-        }              
-        
+        }
+   
     }
 
     //name tables
@@ -1055,16 +1112,16 @@ yyy NN YYYYY XXXXX
         if(y < 30) //table 0 or 1
         {
             //0x2000 + y*32 + x
-            if(x < 32) return readPPUMemory(0x2000 + (y << 5) + x); //name table 0
+            if(x < 32) return fakeReadPPUMemory(0x2000 + (y << 5) + x); //name table 0
             //0x2400 + y*32 + (x-32)
-            else return readPPUMemory(0x2400 + (y << 5) + (x-32)); //name table 1
+            else return fakeReadPPUMemory(0x2400 + (y << 5) + (x-32)); //name table 1
         }
         else //table 2 or 3
         {
             //0x2800 + (y-30)*32 + x
-            if(x < 32) return readPPUMemory(0x2800 + ((y-30) << 5) + x); //name table 2
+            if(x < 32) return fakeReadPPUMemory(0x2800 + ((y-30) << 5) + x); //name table 2
             //0x2C00 + (y-30)*32 + (x-32)
-            else return readPPUMemory(0x2C00 + ((y-30) << 5) + (x-32)); //name table 3
+            else return fakeReadPPUMemory(0x2C00 + ((y-30) << 5) + (x-32)); //name table 3
         }
     }
 
@@ -1088,7 +1145,7 @@ yyy NN YYYYY XXXXX
         y %= 240;
 
         //uint8_t highBitsColor = readPPUMemory(baseNameTableAddress+0x03C0 + (y/32)*8 + (x/32) );
-        uint8_t highBitsColor = readPPUMemory(baseNameTableAddress+0x03C0 + (y >> 2) + (x >> 5) );
+        uint8_t highBitsColor = fakeReadPPUMemory(baseNameTableAddress+0x03C0 + (y >> 2) + (x >> 5) );
 
         //highBitsColor >>= 4*((y/16)%2) + 2*((x/16)%2);
         highBitsColor >>= ( ((y>>4)%2) << 2 ) + ( ((x >> 4)%2) << 1 );
@@ -1117,11 +1174,11 @@ yyy NN YYYYY XXXXX
     {
         uint8_t colorIndex = 0;
 
-        //if(readPPUMemory(tileIndex*16 + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
-        if(readPPUMemory((tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
+        //if(fakeReadPPUMemory(tileIndex*16 + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
+        if(fakeReadPPUMemory((tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
 
-        //if(readPPUMemory(8 + tileIndex*16 + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
-        if(readPPUMemory(8 + (tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
+        //if(fakeReadPPUMemory(8 + tileIndex*16 + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
+        if(fakeReadPPUMemory(8 + (tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
 
         return colorIndex;
     }
@@ -1138,8 +1195,16 @@ yyy NN YYYYY XXXXX
         uint32_t g = (color&0xFF00) >> 8;
         uint32_t b = (color&0xFF0000) >> 16;
 
-        if(m_colorEmphasis&0x01) r += 0x30;
-        if(m_colorEmphasis&0x02) g += 0x30;
+        if(m_settings.region() == Settings::Region::NTSC) {
+            if(m_colorEmphasis&0x01) r += 0x30;
+            if(m_colorEmphasis&0x02) g += 0x30;
+        }
+        else {
+            //"Note that on the Dendy and PAL NES, the green and red bits swap meaning."
+            if(m_colorEmphasis&0x02) r += 0x30;
+            if(m_colorEmphasis&0x01) g += 0x30;
+        }
+        
         if(m_colorEmphasis&0x04) b += 0x30;
 
         if(r > 0xFF) r = 0xFF;
@@ -1183,7 +1248,11 @@ yyy NN YYYYY XXXXX
         m_showSpritesLeftmost8Pixels = (data&0x04) ? true : false;
         m_backgroundEnabled = (data&0x08) ? true : false;
         m_spritesEnabled = (data&0x10) ? true : false;
-        m_colorEmphasis = data >> 5;
+        m_colorEmphasis = data >> 5;        
+
+        if(m_renderingEnabled != (m_backgroundEnabled || m_spritesEnabled)) {
+		    m_needUpdateState = true;
+	    }
     }
 
     GERANES_INLINE uint8_t readPPUSTATUS()
@@ -1194,7 +1263,7 @@ yyy NN YYYYY XXXXX
 
         if(m_VBlankHasStarted) ret |= 0x80;
 
-        if(m_sprite0HitDelayed) ret |= 0x40;
+        if(m_sprite0Hit) ret |= 0x40;
         if(m_spriteOverflow) ret |= 0x20;
 
         m_VBlankHasStarted = false;
@@ -1212,11 +1281,11 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE uint8_t readOAMDATA()
     {
-        const int delay = 1;
+        const int delay = 1; //read2004.nes
 
         uint8_t ret = m_primaryOam[m_oamAddr];
 
-        if (m_scanline < 240 && isRenderingEnabled()) {
+        if (m_renderLine && isRenderingEnabled()) {
             if(m_cycle >= (257+delay) && m_cycle <= (320+delay)) {
                 uint8_t step = ((m_cycle - (257+delay)) % 8) > 3 ? 3 : ((m_cycle - (257+delay)) % 8);
                 uint8_t addr = (m_cycle - (257+delay)) / 8 * 4 + step;
@@ -1236,7 +1305,7 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE void writeOAMDATA(uint8_t data)
     {
-        if(m_scanline >= 240 || !isRenderingEnabled()) {
+        if((!m_renderLine && (m_settings.region() != Settings::Region::PAL || m_renderLine)) || !isRenderingEnabled()) {
             if((m_oamAddr & 0x03) == 0x02) {
                 //"The three unimplemented bits of each sprite's byte 2 do not exist in the PPU and always read back as 0 on PPU revisions that allow reading PPU OAM through OAMDATA ($2004)"
                 data &= 0xE3;
@@ -1302,9 +1371,9 @@ yyy NNYY YYYX XXXX
         {
             m_reg_t = (m_reg_t & 0xFF00) | (static_cast<uint16_t>(data));
 
-            m_reg_v = m_reg_t;
-
-            m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
+            m_needUpdateState = true;
+            m_update_reg_v_delay = 3;
+            m_update_reg_v_value = m_reg_t;
 
             calculateDebugCursor();
         }
@@ -1314,58 +1383,147 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE uint8_t readPPUDATA()
     {
-        uint8_t ret;
+        uint8_t ret = m_dataLatch;
 
-        uint16_t oldV = m_reg_v;
+        if(m_ignoreVideoRamReadCycles == 0) {
 
-        if(m_reg_v >= 0x3F00)
-        {
-            ret = readPPUMemory(m_reg_v);
-            m_dataLatch = readPPUMemory(m_reg_v&0x2FFF);            
+            m_ignoreVideoRamReadCycles = 6;
+
+            m_dataLatch = readPPUMemory(m_reg_v&0x3FFF);
+
+            m_needUpdateState = true;
+            m_needIncVideoRam = true;        
         }
-        else
-        {
-            ret = m_dataLatch;
-            m_dataLatch = readPPUMemory(m_reg_v);            
-        }
-
-        if(isRenderingEnabled() && m_scanline < 240) //rendering
-        {
-            if(m_VRAMAddressIncrement == 1) {
-                incrementVY();
-            }
-            else incrementVX();
-
-        }
-        else m_reg_v+=m_VRAMAddressIncrement;
-
-        m_reg_v &= 0x7FFF;
-
-        m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
 
         return ret;
     }
 
+    void incVideoRamAddr() {
+
+        if( !m_renderLine || !isRenderingEnabled()) {
+
+            m_reg_v+=m_VRAMAddressIncrement;
+            m_reg_v &= 0x7FFF;
+
+            //Trigger memory read when setting the vram address - needed by MMC3 IRQ counter
+            //"Should be clocked when A12 changes to 1 via $2007 read/write"
+            setBusAddress(m_reg_v & 0x3FFF);
+        
+        } else {
+            //"During rendering (on the pre-render line and the visible lines 0-239, provided either background or sprite rendering is enabled), "
+            //it will update v in an odd way, triggering a coarse X increment and a Y increment simultaneously"
+            incrementVX();
+            incrementVY();
+        }
+    }
+
+    GERANES_HOT void updateState() {
+
+        m_needUpdateState = false;
+
+        //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
+        if(m_prevRenderingEnabled != m_renderingEnabled) {
+
+            m_prevRenderingEnabled = m_renderingEnabled;
+
+            if(m_renderLine) {
+
+                if(m_prevRenderingEnabled) {
+                    //Rendering was just enabled, perform oam corruption if any is pending
+                    //ProcessOamCorruption();
+    
+
+                } else if(!m_prevRenderingEnabled) {
+                    //Rendering was just disabled by a write to $2001, check for oam row corruption glitch
+                    //SetOamCorruptionFlags();
+
+                    //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
+                    setBusAddress(m_reg_v & 0x3FFF);
+                    
+                    if(m_cycle >= 65 && m_cycle <= 256) {
+                        //Disabling rendering during OAM evaluation will trigger a glitch causing the current address to be incremented by 1
+                        //The increment can be "delayed" by 1 PPU cycle depending on whether or not rendering is disabled on an even/odd cycle
+                        //e.g, if rendering is disabled on an even cycle, the following PPU cycle will increment the address by 5 (instead of 4)
+                        //     if rendering is disabled on an odd cycle, the increment will wait until the next odd cycle (at which point it will be incremented by 1)
+                        //In practice, there is no way to see the difference, so we just increment by 1 at the end of the next cycle after rendering was disabled
+                        m_oamAddr++;
+
+                        //Also corrupt H/L to replicate a bug found in oam_flicker_test_reenable when rendering is disabled around scanlines 128-136
+                        //Reenabling the causes the OAM evaluation to restart misaligned, and ends up generating a single sprite that's offset by 1
+                        //such that it's Y=tile index, index = attributes, attributes = x, and X = the next sprite's Y value
+                        m_oamAddrN = (m_oamAddr >> 2) & 0x3F;
+                        m_oamAddrM = m_oamAddr & 0x03;
+                        
+                    }
+                }
+            }
+        }
+
+        if(m_renderingEnabled != (m_backgroundEnabled || m_spritesEnabled)) {
+            m_renderingEnabled = m_backgroundEnabled || m_spritesEnabled;
+            m_needUpdateState = true;
+        }
+
+
+        if(m_update_reg_v_delay > 0) {
+            m_update_reg_v_delay--;
+            if(m_update_reg_v_delay == 0) {
+                if(m_renderLine && isRenderingEnabled()) {
+                    //When a $2006 address update lands on the Y or X increment, the written value is bugged and is ANDed with the incremented value
+                    if(m_cycle == 257) {
+                        m_reg_v &= m_update_reg_v_value;
+                    } else if(m_cycle > 0 && (m_cycle & 0x07) == 0 && (m_cycle <= 256 || m_cycle > 320)) {
+                        m_reg_v = (m_update_reg_v_value & ~0x41F) | (m_reg_v & m_update_reg_v_value & 0x41F);
+                    } else {
+                        m_reg_v = m_update_reg_v_value;
+                    }
+                } else {
+                    m_reg_v = m_update_reg_v_value;
+                }
+
+                //The glitches updates corrupt both V and T, so set the new value of V back into T
+                m_reg_t = m_reg_v;
+
+                if( !m_renderLine || !isRenderingEnabled()) {
+                    //Only set the VRAM address on the bus if the PPU is not rendering
+                    //More info here: https://forums.nesdev.com/viewtopic.php?p=132145#p132145
+                    //Trigger bus address change when setting the vram address - needed by MMC3 IRQ counter
+                    //"4) Should be clocked when A12 changes to 1 via $2006 write"
+                    setBusAddress(m_reg_v & 0x3FFF);
+                }
+
+            } else {
+                m_needUpdateState = true;
+            }
+        }
+
+        if(m_needIncVideoRam) {
+            m_needIncVideoRam = false;
+            incVideoRamAddr();
+        }
+
+        if(m_ignoreVideoRamReadCycles > 0) {
+            --m_ignoreVideoRamReadCycles;
+            m_needUpdateState = true;
+        }
+
+        if(m_updateA12Delay > 0) {
+            --m_updateA12Delay;
+
+            if(m_updateA12Delay == 0)
+                m_cartridge.setA12State(m_busAddress&0x1000);
+            else m_needUpdateState = true;
+        }
+
+    }
+
     GERANES_INLINE void writePPUDATA(uint8_t data)
     {
-        uint16_t oldV = m_reg_v;
-
         m_lastWrite = data;
         writePPUMemory(m_reg_v,data);
 
-        if( isRenderingEnabled() && m_scanline < 240) //rendering
-        {
-            if(m_VRAMAddressIncrement == 1) {
-                incrementVY();
-            }
-            else incrementVX();
-
-        }
-        else m_reg_v+=m_VRAMAddressIncrement;
-
-        m_reg_v &= 0x7FFF; //wrap
-
-        m_cartridge.setA12State(m_reg_v&0x1000, ppuCycleCounter);
+        m_needUpdateState = true;
+        m_needIncVideoRam = true; 
     }
 
     GERANES_INLINE void fillFramebuffer(uint32_t color)
@@ -1400,6 +1558,7 @@ yyy NNYY YYYX XXXX
             // increment coarse X
             m_reg_v++;
         }
+ 
     }
 
     GERANES_INLINE void incrementVY()
@@ -1443,36 +1602,39 @@ yyy NNYY YYYX XXXX
         m_reg_v = (m_reg_v & 0x841F) | (m_reg_t & 0x7BE0);
     }
 
+    GERANES_INLINE uint16_t getNameTableAddr() {
+        uint16_t address = 0x2000 | (m_reg_v & 0x0FFF);
+        return address;
+    }
+
     GERANES_INLINE void fetchNameTableByte() {
-        int address = 0x2000 | (m_reg_v & 0x0FFF);
-        m_nameTableByte = readPPUMemory(address);
-        m_cartridge.setA12State(false, ppuCycleCounter);
+        uint16_t address = getNameTableAddr();
+        uint8_t tileIndex = readPPUMemory(address);
+
+        int fineY = (m_reg_v >> 12) & 7;
+        int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
+
+        m_tileAddr = table + (tileIndex << 4) + fineY;
+    }
+
+    GERANES_INLINE uint16_t getAttributeTableAddr() {
+        uint16_t address = 0x23C0 | (m_reg_v & 0x0C00) | ((m_reg_v >> 4) & 0x38) | ((m_reg_v >> 2) & 0x07);
+        return address;
     }
 
     GERANES_INLINE void fetchAttributeTableByte() {
 
-        int address = 0x23C0 | (m_reg_v & 0x0C00) | ((m_reg_v >> 4) & 0x38) | ((m_reg_v >> 2) & 0x07);
+        int address = getAttributeTableAddr();
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
-        m_attributeTableByte = ((readPPUMemory(address) >> shift) & 3) << 2;
-        m_cartridge.setA12State(false, ppuCycleCounter);
+        m_paletteOffset = ((readPPUMemory(address) >> shift) & 3) << 2;
     }
 
     GERANES_INLINE void fetchLowTileByte() {
-        int fineY = (m_reg_v >> 12) & 7;
-        int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
-        int tile = m_nameTableByte;
-        int address = table + (tile << 4) + fineY;
-        m_lowTileByte = readPPUMemory(address);   
-        m_cartridge.setA12State(m_backgroundPatternTableAddress, ppuCycleCounter);          
+        m_lowTileByte = readPPUMemory(m_tileAddr);        
     }
 
     GERANES_INLINE void fetchHighTileByte() {
-        int fineY = (m_reg_v >> 12) & 7;
-        int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
-        int tile = m_nameTableByte;
-        int address = table + (tile << 4) + fineY;
-        m_highTileByte = readPPUMemory(address + 8);
-        m_cartridge.setA12State(m_backgroundPatternTableAddress, ppuCycleCounter);
+        m_highTileByte = readPPUMemory(m_tileAddr + 8);        
     }
 
     GERANES_INLINE void storeTileData() {
@@ -1483,7 +1645,7 @@ yyy NNYY YYYX XXXX
             m_lowTileByte <<= 1;
             m_highTileByte <<= 1;
             data <<= 4;
-            data |= uint32_t(m_attributeTableByte | p1 | p2);
+            data |= uint32_t(m_paletteOffset | p1 | p2);
         }
         m_tileData |= data;
     }
@@ -1522,7 +1684,6 @@ yyy NNYY YYYX XXXX
 
         SERIALIZEDATA(s, m_VBlankHasStarted);
         SERIALIZEDATA(s, m_sprite0Hit);
-        SERIALIZEDATA(s, m_sprite0HitDelayed);
         SERIALIZEDATA(s, m_spriteOverflow);       
 
         SERIALIZEDATA(s, m_spritesInThisLine);
@@ -1559,8 +1720,8 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_dataLatch);
         SERIALIZEDATA(s, m_lastWrite);        
 
-        SERIALIZEDATA(s, m_nameTableByte);
-        SERIALIZEDATA(s, m_attributeTableByte);
+        SERIALIZEDATA(s, m_tileAddr);
+        SERIALIZEDATA(s, m_paletteOffset);
         SERIALIZEDATA(s, m_lowTileByte);
         SERIALIZEDATA(s, m_highTileByte);
         SERIALIZEDATA(s, m_tileData);
@@ -1580,7 +1741,17 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_visibleLine);
         SERIALIZEDATA(s, m_renderLine);
 
-        SERIALIZEDATA(s, ppuCycleCounter);
+        SERIALIZEDATA(s, m_ignoreVideoRamReadCycles);
+        SERIALIZEDATA(s, m_needUpdateState);
+        SERIALIZEDATA(s, m_needIncVideoRam);
+
+        SERIALIZEDATA(s, m_prevRenderingEnabled);
+
+        SERIALIZEDATA(s, m_update_reg_v_delay);
+        SERIALIZEDATA(s, m_update_reg_v_value);
+
+        SERIALIZEDATA(s, m_busAddress);
+        SERIALIZEDATA(s, m_updateA12Delay);
     }
 
 };

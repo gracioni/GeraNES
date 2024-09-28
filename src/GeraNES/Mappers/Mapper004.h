@@ -20,8 +20,6 @@ protected:
 
     uint8_t m_CHRMask = 0; //1k banks maks
 
-private:
-
     bool m_PRGMode = false;
 
     uint8_t m_PRGReg0 = 0;
@@ -43,9 +41,9 @@ private:
 
     bool m_interruptFlag = false;
 
-    bool m_a12LastState = false;
+    bool m_a12LastState = true;
 
-    uint64_t m_fallingEdgeCycle = 0;
+    uint8_t m_cycleCounter = 0;
 
     bool m_mmc3RevAIrqs = false;
 
@@ -88,7 +86,7 @@ public:
         return 0;
     }
 
-    GERANES_HOT virtual void writePrg(int addr, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         addr &= 0xF001;
 
@@ -185,22 +183,48 @@ public:
         return m_interruptFlag;
     }
 
-    void setA12State(bool state, uint64_t ppuCycle) override   {
+    void setA12State(bool state) override {
+
+        //std::cout << ppuCycle << ":" << state << std::endl;
   
-        if(!m_a12LastState && state) {
+        if(!m_a12LastState && state) {    
 
-            uint64_t diff = ppuCycle - m_fallingEdgeCycle;       
-
-            if(diff >= 12) {
+            if(m_cycleCounter > 3) {
                 count();
+                //std::cout << ppuCycle << ":" << "aqui" << std::endl;
             }
         }
         else if(m_a12LastState && !state) {
-            m_fallingEdgeCycle = ppuCycle;
+            m_cycleCounter = 0;
         }   
 
         m_a12LastState = state;      
-    } 
+    }
+
+    void cycle() override {
+
+        if((uint8_t)(m_cycleCounter+1) != 0)
+            m_cycleCounter++;
+    }
+
+    
+    // bool isA12RisingEdge(bool state)
+	// {
+	// 	if(state) {
+	// 		bool isRisingEdge = m_fallingEdgeCycle > 0 && (ppuCycle - m_fallingEdgeCycle) > 12;
+	// 		m_fallingEdgeCycle = 0;
+	// 		return isRisingEdge;
+	// 	} else if(m_fallingEdgeCycle == 0) {
+	// 		m_fallingEdgeCycle = ppuCycle;
+	// 	}
+	// 	return false;
+	// }
+
+    // void setA12State(bool state, uint64_t ppuCycle) override   {
+  
+    //     if(isA12RisingEdge(state, ppuCycle)) count();   
+    // }
+    
 
     void count() {
 
@@ -255,7 +279,7 @@ public:
         SERIALIZEDATA(s, m_interruptFlag);
         
         SERIALIZEDATA(s, m_a12LastState);    
-        SERIALIZEDATA(s, m_fallingEdgeCycle);
+        SERIALIZEDATA(s, m_cycleCounter);
     }
 
 };

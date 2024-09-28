@@ -125,7 +125,7 @@ public:
 
     virtual uint8_t read0x4000(int /*addr*/, uint8_t openBusData) { return openBusData; }
 
-    virtual void setA12State(bool /*state*/, uint64_t /*ppuCycle*/){}
+    virtual void setA12State(bool /*state*/){}
 
     virtual void cycle(){ } //cpu cycle
 

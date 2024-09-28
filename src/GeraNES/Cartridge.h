@@ -15,7 +15,11 @@
 #include "Mappers/Mapper001.h"
 #include "Mappers/Mapper002.h"
 #include "Mappers/Mapper003.h"
+
 #include "Mappers/Mapper004.h"
+#include "Mappers/Mapper004_3.h"
+
+
 #include "Mappers/Mapper007.h"
 #include "Mappers/Mapper009.h"
 #include "Mappers/Mapper010.h"
@@ -60,10 +64,6 @@ private:
 
     bool m_isValid;
 
-    bool m_interrupt;
-
-    int m_interruptDelay;
-
     RomFile m_romFile;
 
     IMapper* CreateMapper()
@@ -74,7 +74,14 @@ private:
         case 1: return new Mapper001(*m_nesCartridgeData);
         case 2: return new Mapper002(*m_nesCartridgeData);
         case 3: return new Mapper003(*m_nesCartridgeData);
-        case 4: return new Mapper004(*m_nesCartridgeData);
+        case 4: {
+            
+            if(m_nesCartridgeData->subMapperId() == 3 ) {
+                return new Mapper004_3(*m_nesCartridgeData);
+            }             
+
+            return new Mapper004(*m_nesCartridgeData);
+        }
 
         case 7: return new Mapper007(*m_nesCartridgeData);
 
@@ -200,10 +207,6 @@ public:
 
         m_isValid = true;
 
-        m_interrupt = false;
-        
-        m_interruptDelay = 0;
-
         return true;
     }
 
@@ -292,27 +295,19 @@ public:
 
     GERANES_INLINE bool getInterruptFlag()
     {
-        //return m_mapper->getInterruptFlag();
-        return m_interrupt && m_interruptDelay >= 1;
+        return m_mapper->getInterruptFlag();
+        //return m_interrupt && m_interruptDelay == 0;
     }
 
-    GERANES_INLINE void setA12State(bool state, int ppuCycle)
+    GERANES_INLINE void setA12State(bool state)
     {
-        m_mapper->setA12State(state, ppuCycle);
+        m_mapper->setA12State(state);
     }
 
     GERANES_INLINE void cycle()
-    {
-        if(m_interrupt && m_interruptDelay < 1) m_interruptDelay++; 
-
-        m_interrupt = m_mapper->getInterruptFlag();
-
-        if(!m_interrupt) m_interruptDelay = 0;
-
-        
-
+    {    
         m_mapper->cycle();
-    }
+    }    
 
     GERANES_INLINE_HOT bool useCustomNameTable(uint8_t index)
     {
@@ -336,9 +331,6 @@ public:
     void serialization(SerializationBase& s)
     {
         SERIALIZEDATA(s, m_isValid);
-        SERIALIZEDATA(s, m_interrupt);
-        SERIALIZEDATA(s, m_interruptDelay);
-
         m_mapper->serialization(s);
     }
 
