@@ -184,14 +184,11 @@ public:
     }
 
     void setA12State(bool state) override {
-
-        //std::cout << ppuCycle << ":" << state << std::endl;
   
         if(!m_a12LastState && state) {    
 
             if(m_cycleCounter > 3) {
                 count();
-                //std::cout << ppuCycle << ":" << "aqui" << std::endl;
             }
         }
         else if(m_a12LastState && !state) {
@@ -205,27 +202,8 @@ public:
 
         if((uint8_t)(m_cycleCounter+1) != 0)
             m_cycleCounter++;
-    }
-
+    }   
     
-    // bool isA12RisingEdge(bool state)
-	// {
-	// 	if(state) {
-	// 		bool isRisingEdge = m_fallingEdgeCycle > 0 && (ppuCycle - m_fallingEdgeCycle) > 12;
-	// 		m_fallingEdgeCycle = 0;
-	// 		return isRisingEdge;
-	// 	} else if(m_fallingEdgeCycle == 0) {
-	// 		m_fallingEdgeCycle = ppuCycle;
-	// 	}
-	// 	return false;
-	// }
-
-    // void setA12State(bool state, uint64_t ppuCycle) override   {
-  
-    //     if(isA12RisingEdge(state, ppuCycle)) count();   
-    // }
-    
-
     void count() {
 
         uint8_t count = m_irqCounter;
