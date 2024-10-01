@@ -294,10 +294,24 @@ public:
 
             m_openBus = 0;
 
-            m_settings.setRegion(Settings::Region::NTSC);
+            switch(m_cartridge.system()) {
 
-            if(filename.find("(E)") != std::string::npos)
-                m_settings.setRegion(Settings::Region::PAL);
+                case GameDatabase::System::NesPal:
+                    m_settings.setRegion(Settings::Region::PAL);
+                    break;
+
+                case GameDatabase::System::NesNtsc:
+                    m_settings.setRegion(Settings::Region::NTSC);
+                    break;
+
+                case GameDatabase::System::Dendy:
+                    m_settings.setRegion(Settings::Region::DENDY);
+                    break;
+
+                default:
+                    m_settings.setRegion(Settings::Region::NTSC);
+
+            }  
 
             updateInternalTimingStuff();
 
@@ -589,8 +603,21 @@ public:
     }
 
     uint32_t getRegionFPS() {
-        if(m_settings.region() == Settings::Region::PAL) return 50;
-        return 60;
+
+        switch(m_settings.region()) {
+
+            case Settings::Region::NTSC:
+                return 60;
+
+            case Settings::Region::PAL:
+                return 50;
+
+            case Settings::Region::DENDY:
+                return 59;
+
+            default:
+                return 60;
+        }
     }
 
     int getFPS() override {

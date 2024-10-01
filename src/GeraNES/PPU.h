@@ -159,7 +159,7 @@ private:
     bool m_needUpdateState;
     bool m_needIncVideoRam;
 
-    bool m_prevRenderingEnabled;
+    bool m_prevCycleRenderingEnabled;
 
     int m_update_reg_v_delay;
     uint16_t m_update_reg_v_value;
@@ -197,10 +197,10 @@ private:
         }
     }
 
-    template<bool writeFlag, bool changeA12>
-    GERANES_HOT auto readWritePPUMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
+    template<bool writeFlag, bool affectsTheBus>
+    GERANES_HOT auto readWritePpuMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
-        if constexpr (changeA12)
+        if constexpr (affectsTheBus)
             setBusAddress(addr);
 
         addr &= 0x3FFF; //mirror 0x0000-0x3FFF when addr >= 0x4000        
@@ -238,24 +238,24 @@ private:
             return 0;
     }
 
-    GERANES_INLINE uint8_t readPPUMemory(int addr)
+    GERANES_INLINE uint8_t readPpuMemory(int addr)
     {
-        return readWritePPUMemory<false, true>(addr);
+        return readWritePpuMemory<false, true>(addr);
     }
 
-    GERANES_INLINE void writePPUMemory(int addr, uint8_t data)
+    GERANES_INLINE void writePpuMemory(int addr, uint8_t data)
     {
-        readWritePPUMemory<true, true>(addr,data);
+        readWritePpuMemory<true, true>(addr,data);
     }
 
-    GERANES_INLINE uint8_t fakeReadPPUMemory(int addr)
+    GERANES_INLINE uint8_t fakeReadPpuMemory(int addr)
     {
-        return readWritePPUMemory<false, false>(addr);
+        return readWritePpuMemory<false, false>(addr);
     }
 
-    GERANES_INLINE void fakeWritePPUMemory(int addr, uint8_t data)
+    GERANES_INLINE void fakeWritePpuMemory(int addr, uint8_t data)
     {
-        readWritePPUMemory<true, false>(addr,data);
+        readWritePpuMemory<true, false>(addr,data);
     }
 
     //index 0-3
@@ -303,7 +303,7 @@ public:
         memcpy(m_palette, POWER_UP_PALETTE, sizeof(m_palette));
 
         m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
-        m_prevRenderingEnabled = m_renderingEnabled;
+        m_prevCycleRenderingEnabled = m_renderingEnabled;
 
         //PPUSTATUS
         m_VBlankHasStarted = false;
@@ -371,7 +371,7 @@ public:
         m_busAddress = 0;
         m_updateA12Delay = 0;
 
-        updateSettings();
+        updateSettings();        
 
         for(int i = 0; i < 16; i++) cycle(); //need this for read2004.nes
        
@@ -412,23 +412,32 @@ public:
     }
 
     void updateSettings()
-    {
+    {        
         switch(m_settings.region())
         {
-        case Settings::Region::NTSC:
-            FRAME_NUMBER_OF_LINES = 262;
-            FRAME_VBLANK_START_LINE = 241;
-            FRAME_VBLANK_END_LINE = 261;
-            m_PALFlag = false;
-            m_PALCounter = 0;
-            break;
-        case Settings::Region::PAL:
-            FRAME_NUMBER_OF_LINES = 312;
-            FRAME_VBLANK_START_LINE = 241;
-            FRAME_VBLANK_END_LINE = 311;
-            m_PALFlag = true;
-            m_PALCounter = 5;
-            break;
+            case Settings::Region::NTSC:                
+                FRAME_VBLANK_START_LINE = 241;
+                FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+20;
+                FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+1;
+                m_PALFlag = false;
+                m_PALCounter = 0;              
+                break;
+                
+            case Settings::Region::PAL:                
+                FRAME_VBLANK_START_LINE = 241;
+                FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+70;
+                FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+1;
+                m_PALFlag = true;
+                m_PALCounter = 0;
+                break;
+
+            case Settings::Region::DENDY:
+                FRAME_VBLANK_START_LINE = 241;
+                FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+20;
+                FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+51;
+                m_PALFlag = false;
+                m_PALCounter = 0; 
+                break;
         }
     }
 
@@ -537,7 +546,7 @@ public:
 
         //if reg v is pointing to the palette
         if(!isRenderingEnabled() && isOnPaletteAddr()) {
-            value  = fakeReadPPUMemory(m_reg_v)&0x3F;
+            value  = fakeReadPpuMemory(m_reg_v)&0x3F;
         }
         else {
             if( (m_currentPixelColorIndex&0x03) == 0) m_currentPixelColorIndex = 0;
@@ -889,7 +898,10 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE void ppuCyclePAL()
     {
         if(m_PALFlag) { //3.2 ppu cycles / cpu cycle
-            if(--m_PALCounter == 0){
+
+            if(m_PALCounter > 0) --m_PALCounter;
+
+            if(m_PALCounter == 0){
                 m_PALCounter = 5;
                 ppuCycle();
             }
@@ -913,6 +925,7 @@ yyy NN YYYYY XXXXX
         if(m_scanline < 240) {
 
             if(m_scanline == 0) {
+
                 updateSettings();
 
                 if(m_settings.overclockLines() > 0) {
@@ -922,7 +935,7 @@ yyy NN YYYYY XXXXX
                 signalFrameStart();
             }
 
-            if(m_prevRenderingEnabled) {
+            if(m_prevCycleRenderingEnabled) {
                 if(m_scanline > 0 || (!m_oddFrameFlag || m_settings.region() != Settings::Region::NTSC /*|| GetPpuModel() != PpuModel::Ppu2C02)*/)) {
                     //Set bus address to the tile address calculated from the unused NT fetches at the end of the previous scanline
                     //This doesn't happen on scanline 0 if the last dot of the previous frame was skipped
@@ -974,9 +987,7 @@ yyy NN YYYYY XXXXX
 
             if(m_visibleLine && visibleCycle) {
                 renderPixel();
-            }
-
-            
+            }            
 
             if(m_visibleLine && isRenderingEnabled()) {
 
@@ -987,7 +998,7 @@ yyy NN YYYYY XXXXX
                 if(visibleCycle) evaluateSprites();
             }            
             
-            if(m_prevRenderingEnabled) {
+            if(m_prevCycleRenderingEnabled) {
          
                 if(bgFetchCycles) {
                     m_tileData <<= 4;
@@ -1017,7 +1028,7 @@ yyy NN YYYYY XXXXX
             if(m_preLine) {
 
                 if(m_cycle >= 280 && m_cycle <= 304) { //280 to 304 copy each tick
-                    if(m_prevRenderingEnabled) copyVY();
+                    if(m_prevCycleRenderingEnabled) copyVY();
                 }
                 else if(m_cycle == VBLANK_CYCLE){
                     m_spriteOverflow = false;
@@ -1073,14 +1084,16 @@ yyy NN YYYYY XXXXX
         if(m_needUpdateState) updateState();
     }
 
-    template<int startCycle = 257>
     void fetchSprites() {
+
+        const int startCycle = 257;
 
         int fetchCycle = (m_cycle - startCycle) % 8;   
 
         switch(fetchCycle) {
-            case 0: readPPUMemory(getNameTableAddr()); break;
-            case 2: readPPUMemory(getAttributeTableAddr()); break;
+
+            case 0: readPpuMemory(getNameTableAddr()); break;
+            case 2: readPpuMemory(getAttributeTableAddr()); break;
             case 4: {         
 
                 bool state;
@@ -1095,7 +1108,7 @@ yyy NN YYYYY XXXXX
                 }
                 else state = m_sprite8x8PatternTableAddress;
 
-                setBusAddress(m_busAddress | (state ? 0x1000 : 0));            
+                setBusAddress(m_busAddress | (state ? 0x1000 : 0)); // approximate relevant behavior         
 
                 break;
             }
@@ -1112,16 +1125,16 @@ yyy NN YYYYY XXXXX
         if(y < 30) //table 0 or 1
         {
             //0x2000 + y*32 + x
-            if(x < 32) return fakeReadPPUMemory(0x2000 + (y << 5) + x); //name table 0
+            if(x < 32) return fakeReadPpuMemory(0x2000 + (y << 5) + x); //name table 0
             //0x2400 + y*32 + (x-32)
-            else return fakeReadPPUMemory(0x2400 + (y << 5) + (x-32)); //name table 1
+            else return fakeReadPpuMemory(0x2400 + (y << 5) + (x-32)); //name table 1
         }
         else //table 2 or 3
         {
             //0x2800 + (y-30)*32 + x
-            if(x < 32) return fakeReadPPUMemory(0x2800 + ((y-30) << 5) + x); //name table 2
+            if(x < 32) return fakeReadPpuMemory(0x2800 + ((y-30) << 5) + x); //name table 2
             //0x2C00 + (y-30)*32 + (x-32)
-            else return fakeReadPPUMemory(0x2C00 + ((y-30) << 5) + (x-32)); //name table 3
+            else return fakeReadPpuMemory(0x2C00 + ((y-30) << 5) + (x-32)); //name table 3
         }
     }
 
@@ -1145,7 +1158,7 @@ yyy NN YYYYY XXXXX
         y %= 240;
 
         //uint8_t highBitsColor = readPPUMemory(baseNameTableAddress+0x03C0 + (y/32)*8 + (x/32) );
-        uint8_t highBitsColor = fakeReadPPUMemory(baseNameTableAddress+0x03C0 + (y >> 2) + (x >> 5) );
+        uint8_t highBitsColor = fakeReadPpuMemory(baseNameTableAddress+0x03C0 + (y >> 2) + (x >> 5) );
 
         //highBitsColor >>= 4*((y/16)%2) + 2*((x/16)%2);
         highBitsColor >>= ( ((y>>4)%2) << 2 ) + ( ((x >> 4)%2) << 1 );
@@ -1175,10 +1188,10 @@ yyy NN YYYYY XXXXX
         uint8_t colorIndex = 0;
 
         //if(fakeReadPPUMemory(tileIndex*16 + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
-        if(fakeReadPPUMemory((tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
+        if(fakeReadPpuMemory((tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex = 0x01; //plane 1
 
         //if(fakeReadPPUMemory(8 + tileIndex*16 + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
-        if(fakeReadPPUMemory(8 + (tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
+        if(fakeReadPpuMemory(8 + (tileIndex << 4) + pixelY) & (0x80>>pixelX)) colorIndex |= 0x02; //plane 2
 
         return colorIndex;
     }
@@ -1389,7 +1402,7 @@ yyy NNYY YYYX XXXX
 
             m_ignoreVideoRamReadCycles = 6;
 
-            m_dataLatch = readPPUMemory(m_reg_v&0x3FFF);
+            m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
 
             m_needUpdateState = true;
             m_needIncVideoRam = true;        
@@ -1421,21 +1434,22 @@ yyy NNYY YYYX XXXX
 
         m_needUpdateState = false;
 
-        //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
-        if(m_prevRenderingEnabled != m_renderingEnabled) {
+        if(m_updateA12Delay > 0) {
+            --m_updateA12Delay;
 
-            m_prevRenderingEnabled = m_renderingEnabled;
+            if(m_updateA12Delay == 0)
+                m_cartridge.setA12State(m_busAddress&0x1000);
+            else m_needUpdateState = true;
+        }
+
+        //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
+        if(m_prevCycleRenderingEnabled != m_renderingEnabled) {
+
+            m_prevCycleRenderingEnabled = m_renderingEnabled;
 
             if(m_renderLine) {
 
-                if(m_prevRenderingEnabled) {
-                    //Rendering was just enabled, perform oam corruption if any is pending
-                    //ProcessOamCorruption();
-    
-
-                } else if(!m_prevRenderingEnabled) {
-                    //Rendering was just disabled by a write to $2001, check for oam row corruption glitch
-                    //SetOamCorruptionFlags();
+                 if(!m_prevCycleRenderingEnabled) {    
 
                     //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
                     setBusAddress(m_reg_v & 0x3FFF);
@@ -1505,22 +1519,14 @@ yyy NNYY YYYX XXXX
         if(m_ignoreVideoRamReadCycles > 0) {
             --m_ignoreVideoRamReadCycles;
             m_needUpdateState = true;
-        }
-
-        if(m_updateA12Delay > 0) {
-            --m_updateA12Delay;
-
-            if(m_updateA12Delay == 0)
-                m_cartridge.setA12State(m_busAddress&0x1000);
-            else m_needUpdateState = true;
-        }
+        }        
 
     }
 
     GERANES_INLINE void writePPUDATA(uint8_t data)
     {
         m_lastWrite = data;
-        writePPUMemory(m_reg_v,data);
+        writePpuMemory(m_reg_v,data);
 
         m_needUpdateState = true;
         m_needIncVideoRam = true; 
@@ -1609,7 +1615,7 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE void fetchNameTableByte() {
         uint16_t address = getNameTableAddr();
-        uint8_t tileIndex = readPPUMemory(address);
+        uint8_t tileIndex = readPpuMemory(address);
 
         int fineY = (m_reg_v >> 12) & 7;
         int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
@@ -1626,15 +1632,15 @@ yyy NNYY YYYX XXXX
 
         int address = getAttributeTableAddr();
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
-        m_paletteOffset = ((readPPUMemory(address) >> shift) & 3) << 2;
+        m_paletteOffset = ((readPpuMemory(address) >> shift) & 3) << 2;
     }
 
     GERANES_INLINE void fetchLowTileByte() {
-        m_lowTileByte = readPPUMemory(m_tileAddr);        
+        m_lowTileByte = readPpuMemory(m_tileAddr);        
     }
 
     GERANES_INLINE void fetchHighTileByte() {
-        m_highTileByte = readPPUMemory(m_tileAddr + 8);        
+        m_highTileByte = readPpuMemory(m_tileAddr + 8);        
     }
 
     GERANES_INLINE void storeTileData() {
@@ -1745,7 +1751,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_needUpdateState);
         SERIALIZEDATA(s, m_needIncVideoRam);
 
-        SERIALIZEDATA(s, m_prevRenderingEnabled);
+        SERIALIZEDATA(s, m_prevCycleRenderingEnabled);
 
         SERIALIZEDATA(s, m_update_reg_v_delay);
         SERIALIZEDATA(s, m_update_reg_v_value);

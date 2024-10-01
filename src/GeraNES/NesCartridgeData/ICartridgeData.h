@@ -10,6 +10,8 @@
 #include "GeraNES/RomFile.h"
 #include "GeraNES/util/Crc32.h"
 
+#include "GeraNES/GameDatabase.h"
+
 class ICartridgeData
 {
 protected:
@@ -61,6 +63,8 @@ public:
 
     virtual std::string chip() = 0; 
 
+    virtual GameDatabase::System system() = 0;
+
     virtual ~ICartridgeData() {}
 
     template<int WindowSize>
@@ -107,7 +111,7 @@ public:
         }
 
         return crc.get();
-    }
+    }    
 
     void log(const std::string& type)
     {

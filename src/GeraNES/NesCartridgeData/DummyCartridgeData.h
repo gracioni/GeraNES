@@ -87,6 +87,10 @@ public:
     std::string chip() override {
         return "";
     }
+
+    GameDatabase::System system() override {
+        return GameDatabase::System::NesNtsc;
+    }
     
     static DummyCartridgeData& instance()
     {

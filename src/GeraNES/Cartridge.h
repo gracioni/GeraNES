@@ -317,7 +317,12 @@ public:
     GERANES_INLINE_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr)
     {
         return m_mapper->readCustomNameTable(index,addr);
-    } 
+    }
+
+    GERANES_INLINE GameDatabase::System system()
+    {
+        return m_nesCartridgeData->system();
+    }
 
     GERANES_INLINE bool isValid()
     {

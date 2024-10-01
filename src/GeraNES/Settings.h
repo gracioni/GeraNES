@@ -7,7 +7,7 @@
 class Settings {
 
 public:
-    enum class Region { PAL, NTSC };
+    enum class Region { PAL, NTSC, DENDY };
 
 private:
 
@@ -37,8 +37,9 @@ public:
     GERANES_INLINE int CPUClockHz() //Hz
     {
         switch(m_region) {
-        case Region::NTSC: return 1789773;
-        case Region::PAL: return 1662607;
+            case Region::NTSC: return 1789773;
+            case Region::PAL: return 1662607;
+            case Region::DENDY: return 1773448;
         }
 
         return 0;
@@ -46,8 +47,20 @@ public:
 
     GERANES_INLINE int PPULinesPerFrame()
     {
-        if(m_region == Region::PAL) return 312;
-        return 262;
+        switch(m_region) {
+
+            case Region::NTSC:
+                return 262;
+
+            case Region::PAL:
+                return 312;
+
+            case Region::DENDY:
+                return 59;
+
+            default:
+                return 262;
+        }
     }
 
     GERANES_INLINE int overclockLines()

@@ -156,6 +156,14 @@ public:
         return "";
     }
 
+    GameDatabase::System system() override {
+
+        if(m_romFile.fileName().find("(E)") != std::string::npos)
+            return GameDatabase::System::NesPal;
+
+        return GameDatabase::System::NesNtsc;
+    }
+
 };
 
 #endif

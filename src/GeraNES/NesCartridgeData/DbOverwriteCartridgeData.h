@@ -30,6 +30,8 @@ private:
 
     std::string m_chip;
 
+    GameDatabase::System m_system;
+
 public:
 
     DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* item) : m_src(src), m_item(item), ICartridgeData(src->romFile()) {
@@ -75,6 +77,8 @@ public:
         m_subMapperId = m_item->SubmapperId >=0 ? m_item->SubmapperId : m_src->subMapperId();
 
         m_chip = !m_item->Chip.empty() ? m_item->Chip : m_src->chip();
+
+        m_system = m_item->System != GameDatabase::System::Unknown ? m_item->System : m_src->system();
     }
 
     virtual ~DbOverwriteCartridgeData() {
@@ -153,6 +157,10 @@ public:
 
     std::string chip() override {
         return m_chip;
+    }
+
+    GameDatabase::System system() override {
+        return m_system;
     }
 
 };
