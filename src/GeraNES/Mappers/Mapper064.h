@@ -4,7 +4,7 @@
 #include "IMapper.h"
 
 //Tengen RAMBO-1
-//games: Klax, Skull and Crossbones, Shinobi
+//games: Klax, Skull and Crossbones, Shinobi, Hard Drivin, Rolling Thunder
 
 class Mapper064 : public IMapper
 {
@@ -45,8 +45,6 @@ private:
     int m_cycleDivider = 0;
 
     int m_delayToInterrupt = 0;
-
-    bool m_forceCount = false;
 
     bool m_a12LastState = false;
 
@@ -130,27 +128,23 @@ public:
 
         case 0x4001:
 
-            if(m_irqMode && ((data & 0x01) == 0x00)) {
-                //"To be clear, after the write in the reg $C001, are needed more than four CPU clock cycles
-                //before the switch takes place, allowing another clock of irq running the reload." -FHorse
-				//Fixes Skull & Crossbones
-                m_forceCount = true;
-            }
             m_reloadFlag = true;
             m_irqMode = data & 0x01;
-
-            if(m_irqMode) m_cycleDivider = 0;
+ 
+            if(m_irqMode) m_cycleDivider = 0; 
 
             break;
 
         case 0x6000:
-            m_interruptFlag = false;
-            m_delayToInterrupt = 0;
             m_enableInterrupt = false;
+            m_interruptFlag = false;
+            m_delayToInterrupt = 0;            
             break;
 
         case 0x6001:
             m_enableInterrupt = true;
+            m_interruptFlag = false;
+            m_delayToInterrupt = 0; 
             break;
         }
     }
@@ -271,39 +265,44 @@ public:
 
         if(m_delayToInterrupt > 0) {
             --m_delayToInterrupt;
-        }
+        }        
 
-        if(m_irqMode || m_forceCount) {
+        if(m_irqMode) {
 
             m_cycleDivider = (m_cycleDivider + 1) & 0x03;
 
             if(m_cycleDivider == 0) {
-                count(1);
-                m_forceCount = false;
+                count(2);
             }
         }
     }
 
     void count(int delayToInterrupt)
     {
-        if(m_reloadFlag) {
-			//Fixes Hard Drivin'
-			if(m_reloadValue <= 1) {
-				m_irqCounter = m_reloadValue + 1;
-			} else {
-				m_irqCounter = m_reloadValue + 2;
-			}
+        if (m_reloadFlag)
+        {
+            m_reloadFlag = false;
 
-			m_reloadFlag = false;
-		} else if(m_irqCounter == 0) {
-			m_irqCounter = m_reloadValue + 1;
-		}
+            m_irqCounter = m_reloadValue;
 
-		m_irqCounter--;
-		if(m_irqCounter == 0 && m_enableInterrupt) {
-			m_delayToInterrupt = delayToInterrupt;
+            if(m_reloadValue != 0) m_irqCounter |= 1;
+
+            if (m_irqMode) m_irqCounter |= 2;
+        }
+        else if (m_irqCounter == 0)
+        {
+            m_irqCounter = m_reloadValue;
+        }
+        else
+        {
+            m_irqCounter--; 
+        }
+
+        if(m_irqCounter == 0 && m_enableInterrupt) {
+            m_delayToInterrupt = delayToInterrupt;
             m_interruptFlag = true;
-		}
+        }
+
     }
 
     void serialization(SerializationBase& s) override
@@ -337,8 +336,6 @@ public:
         SERIALIZEDATA(s, m_irqMode);
         SERIALIZEDATA(s, m_reloadFlag);
         SERIALIZEDATA(s, m_interruptFlag);
-
-        SERIALIZEDATA(s, m_forceCount);
 
         SERIALIZEDATA(s, m_a12LastState);
         SERIALIZEDATA(s, m_cycleCounter);

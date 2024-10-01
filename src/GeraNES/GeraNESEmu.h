@@ -348,8 +348,7 @@ public:
 
         if(!m_ppu.inOverclockLines()){
             m_dma.cycle();
-            m_apu.cycle();
-            m_cartridge.cycle();
+            m_apu.cycle();            
         }
 
         m_cpu.phi1();    
@@ -358,7 +357,10 @@ public:
     
         m_ppu.ppuCycle();          
 
-        if(!m_ppu.inOverclockLines()) m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
+        if(!m_ppu.inOverclockLines()) {
+            m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
+            m_cartridge.cycle();
+        }
 
         m_ppu.ppuCyclePAL(); 
     }

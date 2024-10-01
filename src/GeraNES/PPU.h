@@ -1441,13 +1441,7 @@ yyy NNYY YYYX XXXX
 
         m_needUpdateState = false;
 
-        if(m_updateA12Delay > 0) {
-            --m_updateA12Delay;
-
-            if(m_updateA12Delay == 0)
-                m_cartridge.setA12State(m_busAddress&0x1000);
-            else m_needUpdateState = true;
-        }
+        
 
         //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
         if(m_prevCycleRenderingEnabled != m_renderingEnabled) {
@@ -1459,7 +1453,7 @@ yyy NNYY YYYX XXXX
                  if(!m_prevCycleRenderingEnabled) {    
 
                     //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
-                    setBusAddress(m_reg_v & 0x3FFF);
+                    //setBusAddress(m_reg_v & 0x3FFF); //break hard drivin
                     
                     if(m_cycle >= 65 && m_cycle <= 256) {
                         //Disabling rendering during OAM evaluation will trigger a glitch causing the current address to be incremented by 1
@@ -1526,7 +1520,15 @@ yyy NNYY YYYX XXXX
         if(m_ignoreVideoRamReadCycles > 0) {
             --m_ignoreVideoRamReadCycles;
             m_needUpdateState = true;
-        }        
+        }
+
+        if(m_updateA12Delay > 0) {
+            --m_updateA12Delay;
+
+            if(m_updateA12Delay == 0)
+                m_cartridge.setA12State(m_busAddress&0x1000);
+            else m_needUpdateState = true;
+        }    
 
     }
 
