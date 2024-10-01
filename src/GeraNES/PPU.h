@@ -1385,7 +1385,7 @@ yyy NNYY YYYX XXXX
             m_reg_t = (m_reg_t & 0xFF00) | (static_cast<uint16_t>(data));
 
             m_needUpdateState = true;
-            m_update_reg_v_delay = 3;
+            m_update_reg_v_delay = 1;
             m_update_reg_v_value = m_reg_t;
 
             calculateDebugCursor();
@@ -1396,13 +1396,20 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE uint8_t readPPUDATA()
     {
-        uint8_t ret = m_dataLatch;
+        uint8_t ret;
 
         if(m_ignoreVideoRamReadCycles == 0) {
 
-            m_ignoreVideoRamReadCycles = 6;
-
-            m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
+            m_ignoreVideoRamReadCycles = 6;          
+            
+            if(isOnPaletteAddr()) {
+                ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
+                m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
+            }     
+            else {
+                ret = m_dataLatch;
+                m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
+            }     
 
             m_needUpdateState = true;
             m_needIncVideoRam = true;        
@@ -1526,7 +1533,13 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE void writePPUDATA(uint8_t data)
     {
         m_lastWrite = data;
-        writePpuMemory(m_reg_v,data);
+
+        if(isOnPaletteAddr()) {
+            fakeWritePpuMemory(m_reg_v, data); //palette
+        }
+        else {
+            writePpuMemory(m_reg_v,data);
+        }
 
         m_needUpdateState = true;
         m_needIncVideoRam = true; 
