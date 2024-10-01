@@ -1385,7 +1385,7 @@ yyy NNYY YYYX XXXX
             m_reg_t = (m_reg_t & 0xFF00) | (static_cast<uint16_t>(data));
 
             m_needUpdateState = true;
-            m_update_reg_v_delay = 1;
+            m_update_reg_v_delay = 2;
             m_update_reg_v_value = m_reg_t;
 
             calculateDebugCursor();
