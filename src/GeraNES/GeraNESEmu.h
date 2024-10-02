@@ -160,13 +160,13 @@ private:
 
         case 6:
         case 7:
-            if constexpr(writeFlag) m_cartridge.writeSRAM8k(addr&0x1FFF, data);
-            else data = m_cartridge.readSRAM8k(addr&0x1FFF);
+            if constexpr(writeFlag) m_cartridge.writeSaveRam(addr&0x1FFF, data);
+            else data = m_cartridge.readSaveRam(addr&0x1FFF);
             break;
 
         default: // >= 8
-            if constexpr(writeFlag) m_cartridge.writePRG32k(addr&0x7FFF, data);
-            else data = m_cartridge.readPRG32k(addr&0x7FFF);
+            if constexpr(writeFlag) m_cartridge.writePrg(addr&0x7FFF, data);
+            else data = m_cartridge.readPrg(addr&0x7FFF);
             break;
 
         }

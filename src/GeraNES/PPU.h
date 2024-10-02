@@ -207,8 +207,8 @@ private:
 
         if(addr < 0x2000)
         {
-            if constexpr(writeFlag) m_cartridge.writeCHR8k(addr,data);
-            else return m_cartridge.readCHR8k(addr);
+            if constexpr(writeFlag) m_cartridge.writeChr(addr,data);
+            else return m_cartridge.readChr(addr);
         }
 
         else if(addr < 0x3F00)

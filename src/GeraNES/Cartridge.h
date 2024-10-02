@@ -224,32 +224,32 @@ public:
         return filePaths;
     }
 
-    GERANES_INLINE void writePRG32k(int addr, uint8_t data)
+    GERANES_INLINE void writePrg(int addr, uint8_t data)
     {
         m_mapper->writePrg(addr,data);
     }
 
-    GERANES_INLINE uint8_t readPRG32k(int addr)
+    GERANES_INLINE uint8_t readPrg(int addr)
     {
         return m_mapper->readPrg(addr);
     }
 
-    GERANES_INLINE void writeSRAM8k(int addr, uint8_t data)
+    GERANES_INLINE void writeSaveRam(int addr, uint8_t data)
     {
         m_mapper->writeSaveRam(addr,data);
     }
 
-    GERANES_INLINE uint8_t readSRAM8k(int addr)
+    GERANES_INLINE uint8_t readSaveRam(int addr)
     {
         return m_mapper->readSaveRam(addr);
     }
 
-    GERANES_INLINE void writeCHR8k(int addr, uint8_t data)
+    GERANES_INLINE void writeChr(int addr, uint8_t data)
     {
         m_mapper->writeChr(addr,data);
     }
 
-    GERANES_INLINE uint8_t readCHR8k(int addr)
+    GERANES_INLINE uint8_t readChr(int addr)
     {
         return m_mapper->readChr(addr);
     }
@@ -278,25 +278,24 @@ public:
 
         switch(m_mapper->mirroringType()){
 
-        case MirroringType::HORIZONTAL:
-            return HORIZONTAL_MIRROR[blockIndex];
-        case MirroringType::VERTICAL:
-            return VERTICAL_MIRROR[blockIndex];
-        case MirroringType::SINGLE_SCREEN_A:
-            return 0;
-        case MirroringType::SINGLE_SCREEN_B:
-            return 1;
-        case MirroringType::FOUR_SCREEN:
-            return FOUR_SCREEN_MIRROR[blockIndex];
-        default: //CUSTOM
-            return m_mapper->customMirroring(blockIndex);
+            case MirroringType::HORIZONTAL:
+                return HORIZONTAL_MIRROR[blockIndex];
+            case MirroringType::VERTICAL:
+                return VERTICAL_MIRROR[blockIndex];
+            case MirroringType::SINGLE_SCREEN_A:
+                return 0;
+            case MirroringType::SINGLE_SCREEN_B:
+                return 1;
+            case MirroringType::FOUR_SCREEN:
+                return FOUR_SCREEN_MIRROR[blockIndex];
+            default: //CUSTOM
+                return m_mapper->customMirroring(blockIndex);
         }
     }    
 
     GERANES_INLINE bool getInterruptFlag()
     {
         return m_mapper->getInterruptFlag();
-        //return m_interrupt && m_interruptDelay == 0;
     }
 
     GERANES_INLINE void setA12State(bool state)
