@@ -569,7 +569,6 @@ public:
     {
         if(!m_showBackgroundLeftmost8Pixels && m_currentX <8) return;
 
-        //int data = fetchTileData() >> ((7 - m_reg_x) * 4);
         int data = fetchTileData() >> ((7 - m_reg_x) << 2);
 
         m_currentPixelColorIndex = uint8_t(data & 0x0F);
@@ -631,11 +630,10 @@ yyy NN YYYYY XXXXX
         }
         else if(m_cycle == 256) {
 
-            m_spritesInThisLine = 0;
+            m_spritesInThisLine = 0; //emulator way of do this, not the real ppu behavior
 
-            for(int i = 0; i < 64; i++){
-
-                //const int& spriteY = (int)m_primaryOAM[4*i] + 1;
+            for(int i = 0; i < 64; i++) {
+  
                 const int& spriteY = (int)m_primaryOam[i << 2] + 1;
 
                 if( (m_currentY >= spriteY) && (m_currentY < (spriteY+(m_spriteSize8x16?16:8))) ) {  
@@ -643,7 +641,7 @@ yyy NN YYYYY XXXXX
                 }
             }
 
-            //----------------------------------------
+            //-----------------------------------------------------------------------------
             
             m_testSprite0HitInThisLine = m_sprite0Added;
         }
@@ -1001,8 +999,10 @@ yyy NN YYYYY XXXXX
             if(m_prevCycleRenderingEnabled) {
          
                 if(bgFetchCycles) {
+
                     m_tileData <<= 4;
-                    switch(m_cycle%8){
+
+                    switch(m_cycle%8) {
                         case 1: fetchNameTableByte(); break;                        
                         case 3: fetchAttributeTableByte(); break;
                         case 5: fetchLowTileByte(); break;
@@ -1012,7 +1012,7 @@ yyy NN YYYYY XXXXX
                 }
                 
                 switch(m_cycle) {
-                    case 256: incrementVY(); break; //256 //battletoads 2nd level freezes
+                    case 256: incrementVY(); break;
                     case 257: copyVX(); break;
                 }
             }
@@ -1069,15 +1069,8 @@ yyy NN YYYYY XXXXX
             m_cycle = 0;
 
             if(++m_scanline == FRAME_NUMBER_OF_LINES) {
-                m_scanline = 0;
-
-                // if(m_oddFrameFlag && m_backgroundEnabled) {
-                //     onScanlineChanged();
-                //     m_cycle++;                    
-                // }
-                // m_oddFrameFlag = !m_oddFrameFlag;   
+                m_scanline = 0;          
             }
-
             
         }        
 
@@ -1439,9 +1432,7 @@ yyy NNYY YYYX XXXX
 
     GERANES_HOT void updateState() {
 
-        m_needUpdateState = false;
-
-        
+        m_needUpdateState = false;        
 
         //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
         if(m_prevCycleRenderingEnabled != m_renderingEnabled) {
@@ -1527,7 +1518,8 @@ yyy NNYY YYYX XXXX
 
             if(m_updateA12Delay == 0)
                 m_cartridge.setA12State(m_busAddress&0x1000);
-            else m_needUpdateState = true;
+            else
+                m_needUpdateState = true;
         }    
 
     }
