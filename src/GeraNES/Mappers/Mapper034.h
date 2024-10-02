@@ -1,10 +1,10 @@
 #ifndef MAPPER034_H
 #define MAPPER034_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //BxROM or NINA-001, 2 incompatible mappers
-class Mapper034 : public IMapper
+class Mapper034 : public BaseMapper
 {
 private:
 
@@ -16,7 +16,7 @@ private:
 
 public:
 
-    Mapper034(ICartridgeData& cd) : IMapper(cd)
+    Mapper034(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());
 
@@ -30,7 +30,7 @@ public:
     GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
         if(!isNINA()) m_PRGReg = data & m_PRGMask;
-        else IMapper::writePrg(addr,data);
+        else BaseMapper::writePrg(addr,data);
     }
 
     GERANES_HOT uint8_t readPrg(int addr) override
@@ -40,7 +40,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
         else {
 
             switch(addr>>12){
@@ -63,12 +63,12 @@ public:
             }
         }
 
-        IMapper::writeSaveRam(addr,data);
+        BaseMapper::writeSaveRam(addr,data);
     }
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);    
+        BaseMapper::serialization(s);    
 
         SERIALIZEDATA(s, m_PRGMask);
         SERIALIZEDATA(s, m_PRGReg);

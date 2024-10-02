@@ -1,10 +1,10 @@
 #ifndef MAPPER009_H
 #define MAPPER009_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //MMC2 PxROM
-class Mapper009 : public IMapper
+class Mapper009 : public BaseMapper
 {
 private:
 
@@ -25,7 +25,7 @@ private:
 
 public:
 
-    Mapper009(ICartridgeData& cd) : IMapper(cd)
+    Mapper009(ICartridgeData& cd) : BaseMapper(cd)
     {
         numberOfPRG8kBanks  = m_cd.numberOfPRGBanks<W8K>();
 
@@ -68,7 +68,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         uint8_t ret = 0;
 
@@ -100,7 +100,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGRegMask);
         SERIALIZEDATA(s, m_CHRMask);

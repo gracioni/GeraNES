@@ -5,11 +5,11 @@
 
 #include <memory>
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 #define SOUND_RAM_SIZE 128
 
-class Mapper019 : public IMapper
+class Mapper019 : public BaseMapper
 {
 
 private:
@@ -71,7 +71,7 @@ private:
 
 public:
 
-    Mapper019(ICartridgeData& cd) : IMapper(cd)
+    Mapper019(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
@@ -133,7 +133,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
 
@@ -150,7 +150,7 @@ public:
     GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(hasChrRam()) {
-            IMapper::writeChr(addr, data);
+            BaseMapper::writeChr(addr, data);
             return;
          }
 
@@ -245,7 +245,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGREGMask);
         SERIALIZEDATA(s, m_CHRREGMask);

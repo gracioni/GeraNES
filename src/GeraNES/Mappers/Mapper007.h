@@ -1,10 +1,10 @@
 #ifndef MAPPER007_H
 #define MAPPER007_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //NROM
-class Mapper007 : public IMapper
+class Mapper007 : public BaseMapper
 {
 private:
 
@@ -15,7 +15,7 @@ private:
 
 public:
 
-    Mapper007(ICartridgeData& cd) : IMapper(cd)
+    Mapper007(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());    
     }
@@ -39,7 +39,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGReg);
         SERIALIZEDATA(s, m_PRGRegMask);

@@ -1,5 +1,5 @@
-#ifndef INCLUDE_IMAPPER
-#define INCLUDE_IMAPPER
+#ifndef INCLUDE_BASE_MAPPER
+#define INCLUDE_BASE_MAPPER
 
 #include <memory>
 #include <fstream>
@@ -23,12 +23,22 @@
 #endif
 
 
-class IMapper
+class BaseMapper
 {
 
 protected:
 
     ICartridgeData& m_cd;
+
+    template<int WindowSize>
+    GERANES_INLINE uint8_t readChrRam(int bank, int addr) {
+        return m_chrRam[bank*WindowSize + (addr&(WindowSize-1))];
+    }
+
+    template<int WindowSize>
+    GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data) {
+        m_chrRam[bank*WindowSize + (addr&(WindowSize-1))] = data;
+    }
 
 private:
 
@@ -83,7 +93,7 @@ public:
     //window size
     enum { W1K = 0x400, W2K = 0x800, W4K = 0x1000, W8K = 0x2000, W16K = 0x4000, W32K = 0x8000 };
 
-    IMapper(ICartridgeData& cd) : m_cd(cd)
+    BaseMapper(ICartridgeData& cd) : m_cd(cd)
     {               
     }
 
@@ -113,11 +123,11 @@ public:
     virtual uint8_t readPrg(int /*addr*/) { return 0; }
 
     virtual void writeChr(int addr, uint8_t data) {
-        if(m_chrRam != nullptr)  m_chrRam[addr&(m_cd.chrRamSize()-1)] = data;
+        if(hasChrRam()) writeChrRam<W8K>(0, addr, data);
     }
 
     virtual uint8_t readChr(int addr) {
-        if(m_chrRam != nullptr) return m_chrRam[addr&(m_cd.chrRamSize()-1)];
+        if(hasChrRam()) return readChrRam<W8K>(0, addr);
         return 0;
     }
 
@@ -162,7 +172,7 @@ public:
         return 0;
     }
 
-    virtual ~IMapper()
+    virtual ~BaseMapper()
     {
         writeSaveRamToFile();
 
@@ -198,7 +208,7 @@ public:
     }
 
     GERANES_INLINE bool hasChrRam() {
-        return m_chrRam != nullptr;
+        return m_cd.chrRamSize() > 0;
     }
 
 

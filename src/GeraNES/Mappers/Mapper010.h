@@ -1,11 +1,11 @@
 #ifndef MAPPER010_H
 #define MAPPER010_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //MMC4
 
-class Mapper010 : public IMapper
+class Mapper010 : public BaseMapper
 {
 private:
 
@@ -26,7 +26,7 @@ private:
 
 public:
 
-    Mapper010(ICartridgeData& cd) : IMapper(cd)
+    Mapper010(ICartridgeData& cd) : BaseMapper(cd)
     {
         numberOfPRG16kBanks  = m_cd.numberOfPRGBanks<W16K>();
 
@@ -66,7 +66,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         uint8_t ret = 0;
 
@@ -98,7 +98,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGRegMask);
         SERIALIZEDATA(s, m_CHRMask);

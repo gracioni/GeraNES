@@ -1,12 +1,12 @@
 #ifndef MAPPER064_H
 #define MAPPER064_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //Tengen RAMBO-1
 //games: Klax, Skull and Crossbones, Shinobi, Hard Drivin, Rolling Thunder
 
-class Mapper064 : public IMapper
+class Mapper064 : public BaseMapper
 {
 private:
 
@@ -52,7 +52,7 @@ private:
 
 public:
 
-    Mapper064(ICartridgeData& cd) : IMapper(cd)
+    Mapper064(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
@@ -154,7 +154,7 @@ public:
     {
         if(hasChrRam())
         {
-            return IMapper::readChr(addr);
+            return BaseMapper::readChr(addr);
         }
         else
         {
@@ -307,7 +307,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_CHRMode);
         SERIALIZEDATA(s, m_PRGMode);

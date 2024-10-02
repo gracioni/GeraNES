@@ -1,10 +1,10 @@
 #ifndef MAPPER003_H
 #define MAPPER003_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //CNROM
-class Mapper003 : public IMapper
+class Mapper003 : public BaseMapper
 {
 private:
 
@@ -13,7 +13,7 @@ private:
 
 public:
 
-    Mapper003(ICartridgeData& cd) : IMapper(cd)
+    Mapper003(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W8K>());
     }
@@ -31,14 +31,14 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         return m_cd.readChr<W8K>(m_CHRREG,addr);
     }
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_CHRREG);
         SERIALIZEDATA(s, m_CHRREGMask);

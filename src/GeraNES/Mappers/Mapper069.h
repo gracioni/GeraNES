@@ -3,11 +3,11 @@
 
 #include <memory>
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //Sunsoft FME-7 5A and 5B
 
-class Mapper069 : public IMapper
+class Mapper069 : public BaseMapper
 {
 private:
 
@@ -83,7 +83,7 @@ private:
 
 public:
 
-    Mapper069(ICartridgeData& cd) : IMapper(cd), m_PRGRAM()
+    Mapper069(ICartridgeData& cd) : BaseMapper(cd), m_PRGRAM()
     {
         m_PRGRAM.reset(new uint8_t[m_currentRAMSize]);
         m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
@@ -155,7 +155,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
         return m_cd.readChr<W1K>(m_CHRREG[index],addr);
@@ -201,7 +201,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGREGMask);
         SERIALIZEDATA(s, m_CHRREGMask);

@@ -1,11 +1,11 @@
 #ifndef MAPPER001_H
 #define MAPPER001_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //MMC1
 //SxROM
-class Mapper001 : public IMapper
+class Mapper001 : public BaseMapper
 {
 private:
 
@@ -21,7 +21,7 @@ private:
 
 public:
 
-    Mapper001(ICartridgeData& cd) : IMapper(cd)
+    Mapper001(ICartridgeData& cd) : BaseMapper(cd)
     { 
         m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
         m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W4K>());
@@ -96,7 +96,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
         else
         {
             if( !(m_control&0x10) ) //switch 8 KB at a time - low bit ignored in 8 KB mode
@@ -134,7 +134,7 @@ public:
 
     void serialization(SerializationBase &s) override
     {
-        IMapper::serialization(s); 
+        BaseMapper::serialization(s); 
 
         SERIALIZEDATA(s, m_shiftCounter);
         SERIALIZEDATA(s, m_shiftRegister);

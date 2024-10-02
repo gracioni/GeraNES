@@ -1,13 +1,13 @@
 #ifndef MAPPER024_H
 #define MAPPER024_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //TODO: sound expansion
 
 
 //VRC6a
-class Mapper024 : public IMapper
+class Mapper024 : public BaseMapper
 {
 
 private:
@@ -116,7 +116,7 @@ protected:
 
 public:
 
-    Mapper024(ICartridgeData& cd) : IMapper(cd)
+    Mapper024(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
@@ -145,7 +145,7 @@ public:
 
     GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];
@@ -199,7 +199,7 @@ public:
 
     virtual void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGREGMask);
         SERIALIZEDATA(s, m_CHRREGMask);

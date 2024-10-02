@@ -10,7 +10,7 @@
 
 #include "Mappers/DummyMapper.h"
 
-#include "Mappers/IMapper.h"
+#include "Mappers/BaseMapper.h"
 #include "Mappers/Mapper000.h"
 #include "Mappers/Mapper001.h"
 #include "Mappers/Mapper002.h"
@@ -58,7 +58,7 @@ class Cartridge
 {
 private:
 
-    IMapper* m_mapper;
+    BaseMapper* m_mapper;
     ICartridgeData* m_nesCartridgeData;
     DummyMapper m_dummyMapper;
 
@@ -66,7 +66,7 @@ private:
 
     RomFile m_romFile;
 
-    IMapper* CreateMapper()
+    BaseMapper* CreateMapper()
     {
         switch(m_nesCartridgeData->mapperId())
         {

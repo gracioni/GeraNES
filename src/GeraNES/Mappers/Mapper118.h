@@ -1,7 +1,7 @@
 #ifndef MAPPER118_H
 #define MAPPER118_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 #include "Mapper004.h"
 
 //modified mmc3
@@ -21,23 +21,23 @@ public:
 
     GERANES_HOT uint8_t customMirroring(uint8_t index) override
     {
-        if(m_CHRMode) {
+        if(m_chrMode) {
 
             switch(index) {
-            case 0: return m_CHRReg[2] >> 7;
-            case 1: return m_CHRReg[3] >> 7;
-            case 2: return m_CHRReg[4] >> 7;
-            case 3: return m_CHRReg[5] >> 7;
+            case 0: return m_chrReg[2] >> 7;
+            case 1: return m_chrReg[3] >> 7;
+            case 2: return m_chrReg[4] >> 7;
+            case 3: return m_chrReg[5] >> 7;
             }
 
         }
         else {
 
             switch(index) {
-            case 0: return m_CHRReg[0] >> 7;
-            case 1: return m_CHRReg[0] >> 7;
-            case 2: return m_CHRReg[1] >> 7;
-            case 3: return m_CHRReg[1] >> 7;
+            case 0: return m_chrReg[0] >> 7;
+            case 1: return m_chrReg[0] >> 7;
+            case 2: return m_chrReg[1] >> 7;
+            case 3: return m_chrReg[1] >> 7;
             }
 
         }

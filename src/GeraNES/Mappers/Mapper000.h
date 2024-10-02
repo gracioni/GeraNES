@@ -1,15 +1,15 @@
 #ifndef MAPPER000_H
 #define MAPPER000_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //NROM
-class Mapper000 : public IMapper
+class Mapper000 : public BaseMapper
 {
 
 public:
 
-    Mapper000(ICartridgeData& cd) : IMapper(cd)
+    Mapper000(ICartridgeData& cd) : BaseMapper(cd)
     {
     }
 
@@ -25,14 +25,14 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         return m_cd.readChr<W8K>(0,addr);
     }   
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);       
+        BaseMapper::serialization(s);       
     }
 
 };

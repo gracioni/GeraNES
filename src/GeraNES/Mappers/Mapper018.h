@@ -1,9 +1,9 @@
 #ifndef MAPPER018_H
 #define MAPPER018_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
-class Mapper018 : public IMapper
+class Mapper018 : public BaseMapper
 {
 
 private:
@@ -54,7 +54,7 @@ private:
 
 public:
 
-    Mapper018(ICartridgeData& cd) : IMapper(cd)
+    Mapper018(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
@@ -117,7 +117,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
         return m_cd.readChr<W1K>(m_CHRReg[index],addr);
@@ -168,7 +168,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGREGMask);
         SERIALIZEDATA(s, m_CHRREGMask);

@@ -1,16 +1,16 @@
 #ifndef DUMMYMAPPER_H
 #define DUMMYMAPPER_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 #include "GeraNES/NesCartridgeData/ICartridgeData.h"
 #include "GeraNES/NesCartridgeData/DummyCartridgeData.h"
 
-class DummyMapper : public IMapper
+class DummyMapper : public BaseMapper
 {
 
 public:
 
-    DummyMapper() : IMapper(DummyCartridgeData::instance())
+    DummyMapper() : BaseMapper(DummyCartridgeData::instance())
     {
     }
 

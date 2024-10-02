@@ -1,13 +1,13 @@
 #ifndef MAPPER016_H
 #define MAPPER016_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //bandai
 
 //TODO: need work
 
-class Mapper016 : public IMapper
+class Mapper016 : public BaseMapper
 {
 private:
 
@@ -23,7 +23,7 @@ private:
 
 public:
 
-    Mapper016(ICartridgeData& cd) : IMapper(cd)
+    Mapper016(ICartridgeData& cd) : BaseMapper(cd)
     {
         memset(m_CHRBank, 0x00, 8);
 
@@ -85,7 +85,7 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         addr &= 0x1FFF;
         return m_cd.readChr<W1K>(m_CHRBank[(addr/0x0400)&0x07], addr);

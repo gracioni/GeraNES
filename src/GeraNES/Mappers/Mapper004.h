@@ -1,31 +1,31 @@
 #ifndef MAPPER004_H
 #define MAPPER004_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //MMC3
 //TxROM
 //(MMC6)
 //(HxROM)
-class Mapper004 : public IMapper
+class Mapper004 : public BaseMapper
 {
 
 protected:
 
     uint8_t m_addrReg = 0;
-    bool m_CHRMode = false;
+    bool m_chrMode = false;
 
-    uint8_t m_CHRReg[6] = {0};
+    uint8_t m_chrReg[6] = {0};
 
 
-    uint8_t m_CHRMask = 0; //1k banks maks
+    uint8_t m_chrMask = 0;
 
-    bool m_PRGMode = false;
+    bool m_prgMode = false;
 
-    uint8_t m_PRGReg0 = 0;
-    uint8_t m_PRGReg1 = 0;
+    uint8_t m_prgReg0 = 0;
+    uint8_t m_prgReg1 = 0;
 
-    uint8_t m_PRGMask = 0; //8k banks mask
+    uint8_t m_prgMask = 0; //8k banks mask
 
 
     bool m_mirroring = false; //0=Vert 1=Horz Ignored when 4-screen
@@ -47,12 +47,29 @@ protected:
 
     bool m_mmc3RevAIrqs = false;
 
+    template<int WindowSize>
+    GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
+        if(hasChrRam()) return readChrRam<WindowSize>(bank, addr);
+        return m_cd.readChr<WindowSize>(bank, addr);
+    }
+
+    template<int WindowSize>
+    GERANES_INLINE void writeChrBank(int bank, int addr, uint8_t data) {
+        writeChrRam<WindowSize>(bank, addr, data);
+    }
+
 public:
 
-    Mapper004(ICartridgeData& cd) : IMapper(cd)
+    Mapper004(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+        m_prgMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
+
+        if(hasChrRam()) {
+            m_chrMask = calculateMask(cd.chrRamSize()/0x400);
+        }
+        else {
+            m_chrMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+        }
 
         m_mmc3RevAIrqs = cd.chip().substr(0, 5).compare("MMC3A") == 0;        
     }
@@ -64,11 +81,11 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        if(!m_PRGMode)
+        if(!m_prgMode)
         {
             switch(addr >> 13) { // addr/8k
-            case 0: return m_cd.readPrg<W8K>(m_PRGReg0,addr);
-            case 1: return m_cd.readPrg<W8K>(m_PRGReg1,addr);
+            case 0: return m_cd.readPrg<W8K>(m_prgReg0,addr);
+            case 1: return m_cd.readPrg<W8K>(m_prgReg1,addr);
             case 2: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-2,addr);
             case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
             }
@@ -77,8 +94,8 @@ public:
         {
             switch(addr >> 13) {
             case 0: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-2,addr);
-            case 1: return m_cd.readPrg<W8K>(m_PRGReg1,addr);
-            case 2: return m_cd.readPrg<W8K>(m_PRGReg0,addr);
+            case 1: return m_cd.readPrg<W8K>(m_prgReg1,addr);
+            case 2: return m_cd.readPrg<W8K>(m_prgReg0,addr);
             case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
             }
         }
@@ -93,22 +110,22 @@ public:
         switch(addr)
         {
         case 0x0000:
-            m_CHRMode = data & 0x80;
-            m_PRGMode = data & 0x40;
+            m_chrMode = data & 0x80;
+            m_prgMode = data & 0x40;
             m_addrReg = data & 0x07;            
 
             break;
         case 0x0001:
             switch(m_addrReg)
             {
-            case 0: m_CHRReg[0] = data; break;
-            case 1: m_CHRReg[1] = data; break;
-            case 2: m_CHRReg[2] = data; break;
-            case 3: m_CHRReg[3] = data; break;
-            case 4: m_CHRReg[4] = data; break;
-            case 5: m_CHRReg[5] = data; break;
-            case 6: m_PRGReg0 = data&m_PRGMask; break;
-            case 7: m_PRGReg1 = data&m_PRGMask; break;
+            case 0: m_chrReg[0] = data; break;
+            case 1: m_chrReg[1] = data; break;
+            case 2: m_chrReg[2] = data; break;
+            case 3: m_chrReg[3] = data; break;
+            case 4: m_chrReg[4] = data; break;
+            case 5: m_chrReg[5] = data; break;
+            case 6: m_prgReg0 = data&m_prgMask; break;
+            case 7: m_prgReg1 = data&m_prgMask; break;
             }
             break;
         case 0x2000:
@@ -133,42 +150,76 @@ public:
             m_enableInterrupt = true;
             break;
         }
-    }
+    }    
 
-
-   GERANES_HOT virtual uint8_t readChr(int addr) override
+    GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
-
-        if(!m_CHRMode)
+        if(!m_chrMode)
         {
             switch(addr >> 10) { // addr/1k
-            case 0:
-            case 1: return m_cd.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
-            case 2:
-            case 3: return m_cd.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
-            case 4: return m_cd.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 5: return m_cd.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 6: return m_cd.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 7: return m_cd.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+                case 0:
+                case 1: return readChrBank<W2K>((m_chrReg[0]&m_chrMask)>>1, addr);
+                case 2:
+                case 3: return readChrBank<W2K>((m_chrReg[1]&m_chrMask)>>1, addr);
+                case 4: return readChrBank<W1K>(m_chrReg[2]&m_chrMask, addr);
+                case 5: return readChrBank<W1K>(m_chrReg[3]&m_chrMask, addr);
+                case 6: return readChrBank<W1K>(m_chrReg[4]&m_chrMask, addr);
+                case 7: return readChrBank<W1K>(m_chrReg[5]&m_chrMask, addr);
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: return m_cd.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 1: return m_cd.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 2: return m_cd.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 3: return m_cd.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
-            case 4:
-            case 5: return m_cd.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
-            case 6:
-            case 7: return m_cd.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
+                case 0: return readChrBank<W1K>(m_chrReg[2]&m_chrMask, addr);
+                case 1: return readChrBank<W1K>(m_chrReg[3]&m_chrMask, addr);
+                case 2: return readChrBank<W1K>(m_chrReg[4]&m_chrMask, addr);
+                case 3: return readChrBank<W1K>(m_chrReg[5]&m_chrMask, addr);
+                case 4:
+                case 5: return readChrBank<W2K>((m_chrReg[0]&m_chrMask)>>1, addr);
+                case 6:
+                case 7: return readChrBank<W2K>((m_chrReg[1]&m_chrMask)>>1, addr);
             }
 
         }
 
         return 0;
+    }
+
+    GERANES_HOT virtual void writeChr(int addr, uint8_t data) override
+    {
+        if(!hasChrRam()) return;
+
+        // writeChrRam<W8K>(0, addr, data);
+        // return;
+
+        if(!m_chrMode)
+        {
+            switch(addr >> 10) { // addr/1k
+                case 0:
+                case 1: writeChrBank<W2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
+                case 2:
+                case 3: writeChrBank<W2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
+                case 4: writeChrBank<W1K>(m_chrReg[2]&m_chrMask, addr, data); break;
+                case 5: writeChrBank<W1K>(m_chrReg[3]&m_chrMask, addr, data); break;
+                case 6: writeChrBank<W1K>(m_chrReg[4]&m_chrMask, addr, data); break;
+                case 7: writeChrBank<W1K>(m_chrReg[5]&m_chrMask, addr, data); break;
+            }
+        }
+        else
+        {
+            switch(addr>>10) {
+                case 0: writeChrBank<W1K>(m_chrReg[2]&m_chrMask, addr, data); break;
+                case 1: writeChrBank<W1K>(m_chrReg[3]&m_chrMask, addr, data); break;
+                case 2: writeChrBank<W1K>(m_chrReg[4]&m_chrMask, addr, data); break;
+                case 3: writeChrBank<W1K>(m_chrReg[5]&m_chrMask, addr, data); break;
+                case 4:
+                case 5: writeChrBank<W2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
+                case 6:
+                case 7: writeChrBank<W2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
+            }
+
+        }
+
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -230,22 +281,22 @@ public:
 
     virtual void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
-        SERIALIZEDATA(s, m_CHRMode);
-        SERIALIZEDATA(s, m_PRGMode);
+        SERIALIZEDATA(s, m_chrMode);
+        SERIALIZEDATA(s, m_prgMode);
         SERIALIZEDATA(s, m_addrReg);
-        SERIALIZEDATA(s, m_CHRReg[0]);
-        SERIALIZEDATA(s, m_CHRReg[1]);
-        SERIALIZEDATA(s, m_CHRReg[2]);
-        SERIALIZEDATA(s, m_CHRReg[3]);
-        SERIALIZEDATA(s, m_CHRReg[4]);
-        SERIALIZEDATA(s, m_CHRReg[5]);
-        SERIALIZEDATA(s, m_PRGReg0);
-        SERIALIZEDATA(s, m_PRGReg1);
+        SERIALIZEDATA(s, m_chrReg[0]);
+        SERIALIZEDATA(s, m_chrReg[1]);
+        SERIALIZEDATA(s, m_chrReg[2]);
+        SERIALIZEDATA(s, m_chrReg[3]);
+        SERIALIZEDATA(s, m_chrReg[4]);
+        SERIALIZEDATA(s, m_chrReg[5]);
+        SERIALIZEDATA(s, m_prgReg0);
+        SERIALIZEDATA(s, m_prgReg1);
 
-        SERIALIZEDATA(s, m_PRGMask);
-        SERIALIZEDATA(s, m_CHRMask);
+        SERIALIZEDATA(s, m_prgMask);
+        SERIALIZEDATA(s, m_chrMask);
 
         SERIALIZEDATA(s, m_mirroring);
         SERIALIZEDATA(s, m_enableWRAM);

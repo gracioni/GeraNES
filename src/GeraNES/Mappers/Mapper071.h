@@ -1,11 +1,11 @@
 #ifndef MAPPER071_H
 #define MAPPER071_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //alguns jogos nao funcionam com o overclock ativado
 
-class Mapper071 : public IMapper
+class Mapper071 : public BaseMapper
 {
 private:
 
@@ -16,7 +16,7 @@ private:
 
 public:
 
-    Mapper071(ICartridgeData& cd) : IMapper(cd)
+    Mapper071(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
     }
@@ -45,7 +45,7 @@ public:
 
     GERANES_HOT MirroringType mirroringType() override
     {
-        if(m_mirroring == 0xFF) return IMapper::mirroringType();
+        if(m_mirroring == 0xFF) return BaseMapper::mirroringType();
 
         switch(m_mirroring) {
         case 0: return MirroringType::SINGLE_SCREEN_A;
@@ -57,7 +57,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGRegMask);
         SERIALIZEDATA(s, m_PRGReg);

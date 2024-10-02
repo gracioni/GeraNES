@@ -1,11 +1,11 @@
 #ifndef MAPPER021_H
 #define MAPPER021_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 
 //VRC4a VRC4c
-class Mapper021 : public IMapper
+class Mapper021 : public BaseMapper
 {
 
 private:
@@ -110,7 +110,7 @@ protected:
 
 public:
 
-    Mapper021(ICartridgeData& cd) : IMapper(cd)
+    Mapper021(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
         m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
@@ -154,7 +154,7 @@ public:
 
     GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return IMapper::readChr(addr);
+        if(hasChrRam()) return BaseMapper::readChr(addr);
 
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];
@@ -208,7 +208,7 @@ public:
 
     virtual void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
 
         SERIALIZEDATA(s, m_PRGREGMask);
         SERIALIZEDATA(s, m_CHRREGMask);

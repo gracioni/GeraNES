@@ -1,9 +1,9 @@
 #ifndef MAPPER013_H
 #define MAPPER013_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
-class Mapper013 : public IMapper
+class Mapper013 : public BaseMapper
 {
 
 private:
@@ -12,7 +12,7 @@ private:
 
 public:
 
-    Mapper013(ICartridgeData& cd) : IMapper(cd)
+    Mapper013(ICartridgeData& cd) : BaseMapper(cd)
     {
     }
 
@@ -42,7 +42,7 @@ public:
 
     void serialization(SerializationBase &s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
         SERIALIZEDATA(s, m_CHRReg);     
     }
 

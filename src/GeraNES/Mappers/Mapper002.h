@@ -1,10 +1,10 @@
 #ifndef MAPPER002_H
 #define MAPPER002_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //UxROM
-class Mapper002 : public IMapper
+class Mapper002 : public BaseMapper
 {
 private:
 
@@ -12,7 +12,7 @@ private:
 
 public:
 
-    Mapper002(ICartridgeData& cd) : IMapper(cd)
+    Mapper002(ICartridgeData& cd) : BaseMapper(cd)
     {
     }
 
@@ -29,7 +29,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
         SERIALIZEDATA(s, m_selectedBank);
     }
 

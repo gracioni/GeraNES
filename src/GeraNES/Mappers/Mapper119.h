@@ -36,58 +36,58 @@ public:
     GERANES_HOT uint8_t readChr(int addr) override
     {
 
-        if(!m_CHRMode)
+        if(!m_chrMode)
         {
             switch(addr>>10) {
             case 0:
-            case 1: if(m_CHRReg[0]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr); break;
+            case 1: if(m_chrReg[0]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr); break;
             case 2:
-            case 3: if(m_CHRReg[1]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr); break;
-            case 4: if(m_CHRReg[2]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[2]&m_CHRMask,addr); break;
-            case 5: if(m_CHRReg[3]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[3]&m_CHRMask,addr); break;
-            case 6: if(m_CHRReg[4]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[4]&m_CHRMask,addr); break;
-            case 7: if(m_CHRReg[5]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[5]&m_CHRMask,addr); break;
+            case 3: if(m_chrReg[1]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr); break;
+            case 4: if(m_chrReg[2]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[2]&m_chrMask,addr); break;
+            case 5: if(m_chrReg[3]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[3]&m_chrMask,addr); break;
+            case 6: if(m_chrReg[4]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[4]&m_chrMask,addr); break;
+            case 7: if(m_chrReg[5]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[5]&m_chrMask,addr); break;
             }
 
         }
         else
         {
             switch(addr>>10) {
-            case 0: if(m_CHRReg[2]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[2]&m_CHRMask,addr); break;
-            case 1: if(m_CHRReg[3]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[3]&m_CHRMask,addr); break;
-            case 2: if(m_CHRReg[4]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[4]&m_CHRMask,addr); break;
-            case 3: if(m_CHRReg[5]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_CHRReg[5]&m_CHRMask,addr); break;
+            case 0: if(m_chrReg[2]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[2]&m_chrMask,addr); break;
+            case 1: if(m_chrReg[3]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[3]&m_chrMask,addr); break;
+            case 2: if(m_chrReg[4]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[4]&m_chrMask,addr); break;
+            case 3: if(m_chrReg[5]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[5]&m_chrMask,addr); break;
             case 4:
-            case 5: if(m_CHRReg[0]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr); break;
+            case 5: if(m_chrReg[0]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr); break;
             case 6:
-            case 7: if(m_CHRReg[1]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr); break;
+            case 7: if(m_chrReg[1]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr); break;
             }
         }
 
-        if(!m_CHRMode)
+        if(!m_chrMode)
         {
             switch(addr >> 10) { // addr/1k
             case 0:
-            case 1: return m_cd.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
+            case 1: return m_cd.readChr<W2K>((m_chrReg[0]&m_chrMask)>>1,addr);
             case 2:
-            case 3: return m_cd.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
-            case 4: return m_cd.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 5: return m_cd.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 6: return m_cd.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 7: return m_cd.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+            case 3: return m_cd.readChr<W2K>((m_chrReg[1]&m_chrMask)>>1,addr);
+            case 4: return m_cd.readChr<W1K>(m_chrReg[2]&m_chrMask,addr);
+            case 5: return m_cd.readChr<W1K>(m_chrReg[3]&m_chrMask,addr);
+            case 6: return m_cd.readChr<W1K>(m_chrReg[4]&m_chrMask,addr);
+            case 7: return m_cd.readChr<W1K>(m_chrReg[5]&m_chrMask,addr);
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: return m_cd.readChr<W1K>(m_CHRReg[2]&m_CHRMask,addr);
-            case 1: return m_cd.readChr<W1K>(m_CHRReg[3]&m_CHRMask,addr);
-            case 2: return m_cd.readChr<W1K>(m_CHRReg[4]&m_CHRMask,addr);
-            case 3: return m_cd.readChr<W1K>(m_CHRReg[5]&m_CHRMask,addr);
+            case 0: return m_cd.readChr<W1K>(m_chrReg[2]&m_chrMask,addr);
+            case 1: return m_cd.readChr<W1K>(m_chrReg[3]&m_chrMask,addr);
+            case 2: return m_cd.readChr<W1K>(m_chrReg[4]&m_chrMask,addr);
+            case 3: return m_cd.readChr<W1K>(m_chrReg[5]&m_chrMask,addr);
             case 4:
-            case 5: return m_cd.readChr<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr);
+            case 5: return m_cd.readChr<W2K>((m_chrReg[0]&m_chrMask)>>1,addr);
             case 6:
-            case 7: return m_cd.readChr<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr);
+            case 7: return m_cd.readChr<W2K>((m_chrReg[1]&m_chrMask)>>1,addr);
             }
 
         }
@@ -97,30 +97,30 @@ public:
 
     GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
-        if(!m_CHRMode)
+        if(!m_chrMode)
         {
             switch(addr>>10) {
             case 0:
-            case 1: if(m_CHRReg[0]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr,data); break;
+            case 1: if(m_chrReg[0]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr,data); break;
             case 2:
-            case 3: if(m_CHRReg[1]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr,data); break;
-            case 4: if(m_CHRReg[2]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[2]&m_CHRMask,addr,data); break;
-            case 5: if(m_CHRReg[3]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[3]&m_CHRMask,addr,data); break;
-            case 6: if(m_CHRReg[4]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[4]&m_CHRMask,addr,data); break;
-            case 7: if(m_CHRReg[5]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[5]&m_CHRMask,addr,data); break;
+            case 3: if(m_chrReg[1]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr,data); break;
+            case 4: if(m_chrReg[2]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[2]&m_chrMask,addr,data); break;
+            case 5: if(m_chrReg[3]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[3]&m_chrMask,addr,data); break;
+            case 6: if(m_chrReg[4]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[4]&m_chrMask,addr,data); break;
+            case 7: if(m_chrReg[5]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[5]&m_chrMask,addr,data); break;
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: if(m_CHRReg[2]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[2]&m_CHRMask,addr,data); break;
-            case 1: if(m_CHRReg[3]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[3]&m_CHRMask,addr,data); break;
-            case 2: if(m_CHRReg[4]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[4]&m_CHRMask,addr,data); break;
-            case 3: if(m_CHRReg[5]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_CHRReg[5]&m_CHRMask,addr,data); break;
+            case 0: if(m_chrReg[2]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[2]&m_chrMask,addr,data); break;
+            case 1: if(m_chrReg[3]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[3]&m_chrMask,addr,data); break;
+            case 2: if(m_chrReg[4]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[4]&m_chrMask,addr,data); break;
+            case 3: if(m_chrReg[5]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[5]&m_chrMask,addr,data); break;
             case 4:
-            case 5: if(m_CHRReg[0]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_CHRReg[0]&m_CHRMask)>>1,addr,data); break;
+            case 5: if(m_chrReg[0]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr,data); break;
             case 6:
-            case 7: if(m_CHRReg[1]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_CHRReg[1]&m_CHRMask)>>1,addr,data); break;
+            case 7: if(m_chrReg[1]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr,data); break;
             }
         }
     }

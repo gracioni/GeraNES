@@ -1,11 +1,11 @@
 #ifndef MAPPER015_H
 #define MAPPER015_H
 
-#include "IMapper.h"
+#include "BaseMapper.h"
 
 //game: 100-in-1 Contra Function 16
 
-class Mapper015 : public IMapper
+class Mapper015 : public BaseMapper
 {
 
 private:
@@ -17,7 +17,7 @@ private:
 
 public:
 
-    Mapper015(ICartridgeData& cd) : IMapper(cd)
+    Mapper015(ICartridgeData& cd) : BaseMapper(cd)
     {
     } 
 
@@ -58,7 +58,7 @@ public:
     GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(m_mode == 0 || m_mode == 3) return; //write protected
-        IMapper::writeChr(addr,data);
+        BaseMapper::writeChr(addr,data);
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -69,7 +69,7 @@ public:
 
     void serialization(SerializationBase& s) override
     {
-        IMapper::serialization(s);
+        BaseMapper::serialization(s);
         SERIALIZEDATA(s, m_mode);
         SERIALIZEDATA(s, m_mirroring);
         SERIALIZEDATA(s, m_PRGBank);

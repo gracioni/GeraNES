@@ -18,7 +18,7 @@ public:
     
     GERANES_HOT MirroringType mirroringType() override
     {
-        return IMapper::mirroringType();
+        return BaseMapper::mirroringType();
     }
 
 };
