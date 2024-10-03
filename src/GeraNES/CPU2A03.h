@@ -213,8 +213,9 @@ private:
 
     GERANES_INLINE_HOT uint16_t pull16()
     {
-        uint8_t low = pull();
-        uint8_t high = pull();
+        const uint8_t low = pull();
+        const uint8_t high = pull();
+
         return MAKE16(low,high);
     }
 
@@ -224,22 +225,28 @@ private:
 
     GERANES_INLINE_HOT void getAddrImediate()
     {
-        m_addr = m_pc+1;
+        m_addr = m_pc++;
     }
 
     GERANES_INLINE_HOT void getAddrAbsolute()
     {
-        m_addr = MAKE16(m_bus.read(m_pc+1),m_bus.read(m_pc+2));
+        const uint8_t low = m_bus.read(m_pc++);
+        const uint8_t high = m_bus.read(m_pc++);
+
+        m_addr = MAKE16(low, high);
     }
 
     GERANES_INLINE_HOT void getAddrZeroPage()
     {
-        m_addr = m_bus.read(m_pc+1);
+        m_addr = m_bus.read(m_pc++);
     }
 
     GERANES_INLINE_HOT void getAddrAbsoluteX(bool dummyRead = true)
     {
-        m_addr = MAKE16(m_bus.read(m_pc+1),m_bus.read(m_pc+2)); 
+        const uint8_t low = m_bus.read(m_pc++);
+        const uint8_t high = m_bus.read(m_pc++);
+
+        m_addr = MAKE16(low, high); 
 
         m_pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
 
@@ -252,7 +259,10 @@ private:
 
     GERANES_INLINE_HOT void getAddrAbsoluteY(bool dummyRead = true)
     {
-        m_addr = MAKE16(m_bus.read(m_pc+1),m_bus.read(m_pc+2));
+        const uint8_t low = m_bus.read(m_pc++);
+        const uint8_t high = m_bus.read(m_pc++);
+
+        m_addr = MAKE16(low, high);
 
         m_pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
@@ -263,31 +273,32 @@ private:
 
     GERANES_INLINE_HOT void getAddrZeroPageX()
     {
-        m_addr = (uint8_t)(m_bus.read(m_pc+1) + m_x);
+        m_addr = (uint8_t)(m_bus.read(m_pc++) + m_x);
     }
 
 
     GERANES_INLINE_HOT void getAddrZeroPageY()
     {
-        m_addr = (uint8_t)(m_bus.read(m_pc+1) + m_y);
+        m_addr = (uint8_t)(m_bus.read(m_pc++) + m_y);
     }
 
     GERANES_INLINE_HOT void getAddrIndirect()
     {
-        uint8_t low = m_bus.read(m_pc+1);
-        uint8_t high = m_bus.read(m_pc+2);
+        const uint8_t low = m_bus.read(m_pc++);
+        const uint8_t high = m_bus.read(m_pc++);
+
         m_addr = MAKE16(m_bus.read(MAKE16(low,high)),m_bus.read(MAKE16(low+1,high)));
     }
 
     GERANES_INLINE_HOT void getAddrIndirectX()
     {
-        uint8_t temp = m_bus.read(m_pc+1) + m_x;
+        uint8_t temp = m_bus.read(m_pc++) + m_x;
         m_addr = MAKE16(m_bus.read(temp),m_bus.read( (uint8_t)(temp+1) ));
     }
 
     GERANES_INLINE_HOT void getAddrIndirectY(bool dummyRead = true)
     {
-        uint8_t temp = m_bus.read(m_pc+1);
+        uint8_t temp = m_bus.read(m_pc++);
         m_addr = MAKE16(m_bus.read(temp),m_bus.read( (uint8_t)(temp+1) ));
 
         m_pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
@@ -301,7 +312,7 @@ private:
 
     GERANES_INLINE_HOT void getAddrRelative()
     {
-        m_addr = m_pc+1;
+        m_addr = m_pc++;
     }
 
     GERANES_INLINE_HOT void _phi1() {
@@ -366,36 +377,33 @@ public:
     {
         unsigned int temp = (unsigned int)m_a + m_bus.read(m_addr) + (m_carryFlag?1:0);
 
-        m_carryFlag = temp>0xFF;
-        m_zeroFlag = ((temp&0xFF) == 0x00);
-        m_negativeFlag = (temp&0x80);
+        m_carryFlag = temp>0xFF;        
         m_overflowFlag = ( !((m_a ^ m_bus.read(m_addr)) & 0x80) && ((m_a ^ temp) & 0x80) );
 
         m_a = (uint8_t)temp;
+
+        m_zeroFlag = m_a == 0x00;
+        m_negativeFlag = m_a&0x80;
     }
 
     GERANES_INLINE_HOT void OP_69_ADC()
     {
         //getAddrImediate();
-        _ADC();
-        
-        m_pc += 2;
-    }
+        _ADC();       
+     }
 
     GERANES_INLINE_HOT void OP_65_ADC()
     {
         //getAddrZeroPage();
-        _ADC();
-        
-        m_pc += 2;
+        _ADC();   
+ 
     }
 
     GERANES_INLINE_HOT void OP_75_ADC()
     {
         //getAddrZeroPageX();
-        _ADC();
-        
-        m_pc += 2;
+        _ADC();        
+      
     }
 
     GERANES_INLINE_HOT void OP_6D_ADC()
@@ -403,7 +411,7 @@ public:
         //getAddrAbsolute();
         _ADC();
         
-        m_pc += 3;
+
     }
 
     GERANES_INLINE_HOT void OP_7D_ADC()
@@ -414,7 +422,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_79_ADC()
@@ -425,7 +433,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_61_ADC()
@@ -433,7 +441,7 @@ public:
         //getAddrIndirectX();
         _ADC();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_71_ADC()
@@ -444,7 +452,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void _AND()
@@ -459,7 +467,7 @@ public:
         //getAddrImediate();
         _AND();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_25_AND()
@@ -467,7 +475,7 @@ public:
         //getAddrZeroPage();
         _AND();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_35_AND()
@@ -475,7 +483,7 @@ public:
         //getAddrZeroPageX();
         _AND();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_2D_AND()
@@ -483,7 +491,7 @@ public:
         //getAddrAbsolute();
         _AND();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_3D_AND()
@@ -494,7 +502,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_39_AND()
@@ -505,7 +513,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_21_AND()
@@ -513,7 +521,7 @@ public:
         //getAddrIndirectX();
         _AND();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_31_AND()
@@ -522,7 +530,7 @@ public:
         _AND();
         
         if(m_pageCross) ++m_instructionCycles;
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void _ASL()
@@ -547,15 +555,38 @@ public:
         m_zeroFlag = (m_a == 0x00);
 
         
-        m_pc += 1;
+        
+    }
+
+    GERANES_INLINE_HOT void _AAC()
+	{
+        uint8_t temp = m_bus.read(m_addr);
+        m_a &= temp;
+
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0x00);
+
+        m_carryFlag = m_negativeFlag;
+        
+	}
+
+    GERANES_INLINE_HOT void OP_0B_AAC()
+    {
+        _AAC();        
+        
     }
 
     GERANES_INLINE_HOT void OP_06_ASL()
     {
         //getAddrZeroPage();
-        _ASL();
+        _ASL();        
         
-        m_pc += 2;
+    }
+
+    GERANES_INLINE_HOT void OP_07_SLO()
+    {
+        U_SLO();
+        
     }
 
     GERANES_INLINE_HOT void OP_16_ASL()
@@ -563,7 +594,15 @@ public:
         //getAddrZeroPageX();
         _ASL();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_17_SLO()
+    {
+        //getAddrZeroPageX();
+        U_SLO();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_0E_ASL()
@@ -571,7 +610,7 @@ public:
         //getAddrAbsolute();
         _ASL();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_1E_ASL()
@@ -579,14 +618,41 @@ public:
         //getAddrAbsoluteX();
         _ASL();
         
-        m_pc += 3;
+        
+    }
+
+    GERANES_INLINE_HOT void U_SLO()
+    {
+        //ASL & ORA
+
+        uint8_t temp = m_bus.read(m_addr);
+        m_bus.write(m_addr, temp); //dummy write
+
+        m_carryFlag = (temp&0x80);
+
+        temp <<= 1;        
+        
+        m_a = m_a | temp;
+
+        m_zeroFlag = (m_a == 0x00);
+        m_negativeFlag = (m_a&0x80);
+
+        m_bus.write(m_addr, temp);
+    }
+
+    GERANES_INLINE_HOT void OP_1F_SLO()
+    {
+ 
+        U_SLO();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_90_BCC()
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
 
         
 
@@ -610,7 +676,7 @@ public:
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(m_carryFlag)
@@ -632,7 +698,7 @@ public:
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(m_zeroFlag)
@@ -664,7 +730,7 @@ public:
         //getAddrZeroPage();
         _BIT();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_2C_BIT()
@@ -672,14 +738,14 @@ public:
         //getAddrAbsolute();
         _BIT();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_30_BMI()
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(m_negativeFlag)
@@ -702,7 +768,7 @@ public:
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(!m_zeroFlag)
@@ -724,7 +790,7 @@ public:
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(!m_negativeFlag)
@@ -746,10 +812,9 @@ public:
     GERANES_INLINE_HOT void OP_00_BRK()
     {
         //dummy read the next opcode
-        m_bus.read(m_pc+1);
+        m_bus.read(m_pc);
 
-        m_pc += 2;
-        push16(m_pc);
+        push16(m_pc+1);
         m_brkFlag = true;
         m_unusedFlag = true;
         push(m_status);
@@ -771,7 +836,7 @@ public:
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(!m_overflowFlag)
@@ -793,7 +858,7 @@ public:
     {
         //getAddrRelative();
 
-        m_pc += 2;
+        
         
 
         if(m_overflowFlag)
@@ -814,28 +879,28 @@ public:
     GERANES_INLINE_HOT void OP_18_CLC()
     {
         m_carryFlag = false;
-        m_pc += 1;
+        
         
     }
 
     GERANES_INLINE_HOT void OP_D8_CLD()
     {
         m_decimalFlag = false;
-        m_pc += 1;
+        
         
     }
 
     GERANES_INLINE_HOT void OP_58_CLI()
     {
         m_intFlag = false;
-        m_pc += 1;
+        
         
     }
 
     GERANES_INLINE_HOT void OP_B8_CLV()
     {
         m_overflowFlag = false;
-        m_pc += 1;
+        
         
     }
 
@@ -856,7 +921,7 @@ public:
         //getAddrImediate();
         _CMP();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_C5_CMP()
@@ -864,7 +929,7 @@ public:
         //getAddrZeroPage();
         _CMP();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_D5_CMP()
@@ -872,7 +937,7 @@ public:
         //getAddrZeroPageX();
         _CMP();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_CD_CMP()
@@ -880,7 +945,7 @@ public:
         //getAddrAbsolute();
         _CMP();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_DD_CMP()
@@ -891,7 +956,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_D9_CMP()
@@ -902,7 +967,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_C1_CMP()
@@ -910,7 +975,15 @@ public:
         //getAddrIndirectX();
         _CMP();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_C3_DCP()
+    {
+        //getAddrIndirectX();
+        U_DCP();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_D1_CMP()
@@ -921,7 +994,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void _CPX()
@@ -941,7 +1014,7 @@ public:
         //getAddrImediate();
         _CPX();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_E4_CPX()
@@ -949,7 +1022,7 @@ public:
         //getAddrZeroPage();
         _CPX();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_EC_CPX()
@@ -957,7 +1030,7 @@ public:
         //getAddrAbsolute();
         _CPX();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void _CPY()
@@ -977,7 +1050,7 @@ public:
         //getAddrImediate();
         _CPY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_C4_CPY()
@@ -985,7 +1058,7 @@ public:
         //getAddrZeroPage();
         _CPY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_CC_CPY()
@@ -993,7 +1066,7 @@ public:
         //getAddrAbsolute();
         _CPY();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void _DEC()
@@ -1011,9 +1084,14 @@ public:
     GERANES_INLINE_HOT void OP_C6_DEC()
     {
         //getAddrZeroPage();
-        _DEC();
+        _DEC();        
         
-        m_pc += 2;
+    }
+
+    GERANES_INLINE_HOT void OP_C7_DCP()
+    {
+        U_DCP();        
+        
     }
 
     GERANES_INLINE_HOT void OP_D6_DEC()
@@ -1021,7 +1099,32 @@ public:
         //getAddrZeroPageX();
         _DEC();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void U_DCP()
+	{
+		//DEC & CMP
+
+        //DEC
+		uint8_t temp = m_bus.read(m_addr);
+        m_bus.write(m_addr, temp); //dummy write
+		temp--;
+
+        m_bus.write(m_addr, temp);
+		
+        //CMP
+        m_carryFlag = (m_a>=temp);
+        temp = m_a - temp;
+        m_zeroFlag = (temp==0);
+        m_negativeFlag = (temp&0x80);		
+	}
+
+    GERANES_INLINE_HOT void OP_D7_DCP()
+    {
+        U_DCP();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_CE_DEC()
@@ -1029,7 +1132,7 @@ public:
         //getAddrAbsolute();
         _DEC();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_DE_DEC()
@@ -1037,7 +1140,7 @@ public:
         //getAddrAbsoluteX();
         _DEC();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_CA_DEX()
@@ -1046,9 +1149,27 @@ public:
 
         m_negativeFlag = (m_x&0x80);
         m_zeroFlag = (m_x == 0x00);
-
         
-        m_pc += 1;
+        
+    }
+
+    void _AXS()
+	{
+		//CMP & DEX
+		uint8_t temp = m_bus.read(m_addr);
+		uint8_t value = (m_a & m_x) - temp;
+		
+		m_carryFlag = (m_a & m_x) >= temp;
+
+        m_x = value;
+        m_negativeFlag = (m_x&0x80);
+        m_zeroFlag = (m_x == 0x00);
+	}
+
+    GERANES_INLINE_HOT void OP_CB_AXS()
+    {
+        _AXS();
+        
     }
 
     GERANES_INLINE_HOT void OP_88_DEY()
@@ -1059,7 +1180,7 @@ public:
         m_zeroFlag = (m_y == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void _EOR()
@@ -1075,7 +1196,7 @@ public:
         //getAddrImediate();
         _EOR();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_45_EOR()
@@ -1083,7 +1204,7 @@ public:
         //getAddrZeroPage();
         _EOR();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_55_EOR()
@@ -1091,7 +1212,7 @@ public:
         //getAddrZeroPageX();
         _EOR();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_4D_EOR()
@@ -1099,7 +1220,7 @@ public:
         //getAddrAbsolute();
         _EOR();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_5D_EOR()
@@ -1110,7 +1231,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_59_EOR()
@@ -1121,7 +1242,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_41_EOR()
@@ -1129,7 +1250,7 @@ public:
         //getAddrIndirectX();
         _EOR();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_51_EOR()
@@ -1140,7 +1261,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT  void _INC()
@@ -1160,7 +1281,13 @@ public:
         //getAddrZeroPage();
         _INC();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_E7_ISB()
+    {
+        U_ISB();        
+        
     }
 
     GERANES_INLINE_HOT void OP_F6_INC()
@@ -1168,7 +1295,7 @@ public:
         //getAddrZeroPageX();
         _INC();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_EE_INC()
@@ -1176,7 +1303,7 @@ public:
         //getAddrAbsolute();
         _INC();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_FE_INC()
@@ -1184,7 +1311,36 @@ public:
         //getAddrAbsoluteX();
         _INC();
         
-        m_pc += 3;
+        
+    }   
+
+    GERANES_INLINE_HOT void U_ISB()
+    {
+        //INC & SBC
+        uint8_t temp = m_bus.read(m_addr);
+        temp++;
+
+        //ADC
+        unsigned int result = (unsigned int)m_a + (temp ^ 0xFF) + (m_carryFlag?1:0);        
+        m_carryFlag = result>0xFF;        
+        m_overflowFlag = ( !((m_a ^ (temp ^ 0xFF)) & 0x80) && ((m_a ^ result) & 0x80) );
+
+        m_a = (uint8_t)result;
+
+        m_zeroFlag = m_a == 0x00;
+        m_negativeFlag = result&0x80;
+
+        m_bus.write(m_addr, temp);      
+    }
+
+    GERANES_INLINE_HOT void OP_FF_ISB()
+    {
+        //AbsXW
+
+        
+        U_ISB();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_E8_INX()
@@ -1195,7 +1351,7 @@ public:
         m_zeroFlag = (m_x == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_C8_INY()
@@ -1206,7 +1362,7 @@ public:
         m_zeroFlag = (m_y == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_4C_JMP()
@@ -1227,8 +1383,8 @@ public:
     {
         //getAddrAbsolute();
 
-        m_pc += 2;
-        push16(m_pc);
+
+        push16(m_pc-1);
 
         m_pc = m_addr;
 
@@ -1247,7 +1403,7 @@ public:
         //getAddrImediate();
         _LDA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_A5_LDA()
@@ -1255,7 +1411,7 @@ public:
         //getAddrZeroPage();
         _LDA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_B5_LDA()
@@ -1263,7 +1419,7 @@ public:
         //getAddrZeroPageX();
         _LDA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_AD_LDA()
@@ -1271,7 +1427,7 @@ public:
         //getAddrAbsolute();
         _LDA();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_BD_LDA()
@@ -1282,7 +1438,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_B9_LDA()
@@ -1293,7 +1449,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_A1_LDA()
@@ -1301,7 +1457,7 @@ public:
         //getAddrIndirectX();
         _LDA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_B1_LDA()
@@ -1312,7 +1468,24 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void U_LAX()
+	{
+		//LDA & LDX
+		m_a = m_bus.read(m_addr);
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0);
+
+		m_x = m_a;
+	}
+
+    GERANES_INLINE_HOT void OP_B3_LAX()
+    {
+        U_LAX();        
+
+        
     }
 
     GERANES_INLINE_HOT void _LDX()
@@ -1327,15 +1500,19 @@ public:
         //getAddrImediate();
         _LDX();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_A6_LDX()
     {
-        //getAddrZeroPage();
-        _LDX();
+        _LDX();        
         
-        m_pc += 2;
+    }
+
+    GERANES_INLINE_HOT void OP_A7_LAX()
+    {
+        U_LAX();        
+        
     }
 
     GERANES_INLINE_HOT void OP_B6_LDX()
@@ -1343,7 +1520,7 @@ public:
         //getAddrZeroPageY();
         _LDX();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_AE_LDX()
@@ -1351,7 +1528,7 @@ public:
         //getAddrAbsolute();
         _LDX();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_BE_LDX()
@@ -1362,7 +1539,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void _LDY()
@@ -1377,7 +1554,7 @@ public:
         //getAddrImediate();
         _LDY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_A4_LDY()
@@ -1385,7 +1562,7 @@ public:
         //getAddrZeroPage();
         _LDY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_B4_LDY()
@@ -1393,7 +1570,7 @@ public:
         //getAddrZeroPageX();
         _LDY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_AC_LDY()
@@ -1401,7 +1578,7 @@ public:
         //getAddrAbsolute();
         _LDY();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_BC_LDY()
@@ -1412,7 +1589,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void _LSR()
@@ -1432,7 +1609,26 @@ public:
         m_negativeFlag = false;
         m_zeroFlag = (m_a == 0x00);
         
-        m_pc += 1;
+        
+    }
+
+    GERANES_INLINE_HOT void _ASR()
+	{
+        uint8_t temp = m_bus.read(m_addr);
+
+        m_a &= temp;
+
+		m_carryFlag = m_a & 0x01;
+
+        m_a >>= 1;
+
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0x00);		
+	}
+
+    GERANES_INLINE_HOT void U_ASR() {
+        _ASR();
+        
     }
 
     GERANES_INLINE_HOT void OP_46_LSR()
@@ -1440,7 +1636,29 @@ public:
         //getAddrZeroPage();
         _LSR();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void U_SRE()
+	{
+		//ROL & AND
+		uint8_t temp = m_bus.read(m_addr);
+		m_bus.write(m_addr, temp); //dummy write
+
+        m_carryFlag = (temp&0x01);
+        temp >>= 1;              
+
+        m_a ^= temp;
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0x00); 
+
+		m_bus.write(m_addr, temp);
+	}
+
+    GERANES_INLINE_HOT void OP_47_SRE()
+    {
+        U_SRE();
+        
     }
 
     GERANES_INLINE_HOT void OP_56_LSR()
@@ -1448,7 +1666,7 @@ public:
         //getAddrZeroPageX();
         _LSR();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_4E_LSR()
@@ -1456,7 +1674,7 @@ public:
         //getAddrAbsolute();
         _LSR();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_5E_LSR()
@@ -1464,12 +1682,17 @@ public:
         //getAddrAbsoluteX();
         _LSR();
         
-        m_pc += 3;
+        
     }
 
-    GERANES_INLINE_HOT void OP_XX_NOP()
+    GERANES_INLINE_HOT void NOP()
     {
-        m_pc += 1;
+
+    }
+
+    GERANES_INLINE_HOT void U_DOP()
+    {
+        
     }
 
     GERANES_INLINE_HOT void _ORA()
@@ -1484,7 +1707,7 @@ public:
         //getAddrImediate();
         _ORA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_05_ORA()
@@ -1492,7 +1715,7 @@ public:
         //getAddrZeroPage();
         _ORA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_15_ORA()
@@ -1500,7 +1723,7 @@ public:
         //getAddrZeroPageX();
         _ORA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_0D_ORA()
@@ -1508,7 +1731,7 @@ public:
         //getAddrAbsolute();
         _ORA();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_1D_ORA()
@@ -1519,7 +1742,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_19_ORA()
@@ -1530,7 +1753,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_01_ORA()
@@ -1538,7 +1761,7 @@ public:
         //getAddrIndirectX();
         _ORA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_11_ORA()
@@ -1549,14 +1772,14 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_48_PHA()
     {
         push(m_a);
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_08_PHP()
@@ -1566,7 +1789,7 @@ public:
 
         push(m_status);
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_68_PLA()
@@ -1575,14 +1798,14 @@ public:
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_28_PLP()
     {
         m_status = pull();
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void _ROL()
@@ -1613,7 +1836,12 @@ public:
         m_zeroFlag = (m_a == 0x00);
 
         
-        m_pc += 1;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_2B_AAC() {
+        _AAC();
+        
     }
 
     GERANES_INLINE_HOT void OP_26_ROL()
@@ -1621,7 +1849,13 @@ public:
         //getAddrZeroPage();
         _ROL();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_27_RLA()
+    {
+        U_RLA();        
+        
     }
 
     GERANES_INLINE_HOT void OP_36_ROL()
@@ -1629,7 +1863,37 @@ public:
         //getAddrZeroPageX();
         _ROL();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void U_RLA()
+	{
+		//LSR & EOR
+
+		uint8_t temp = m_bus.read(m_addr);
+        m_bus.write(m_addr, temp); //dummy write
+
+        //ROL
+		bool outputCarry = temp&0x80;
+
+        temp <<= 1;
+        if(m_carryFlag) temp |= 0x01;
+
+        m_carryFlag = outputCarry;        
+
+		m_a &= temp;
+
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0x00);
+
+		m_bus.write(m_addr, temp);
+	}
+
+    GERANES_INLINE_HOT void OP_37_RLA()
+    {
+        U_RLA();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_2E_ROL()
@@ -1637,7 +1901,7 @@ public:
         //getAddrAbsolute();
         _ROL();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_3E_ROL()
@@ -1645,7 +1909,7 @@ public:
         //getAddrAbsoluteX();
         _ROL();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void _ROR()
@@ -1674,9 +1938,24 @@ public:
         m_carryFlag = (outputCarry);
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
-
         
-        m_pc += 1;
+        
+    }
+
+    void U_ARR()
+	{
+        uint8_t temp = m_bus.read(m_addr);
+
+        m_a = ((m_a & temp) >> 1) | (m_carryFlag ? 0x80 : 0x00);
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0x00);
+        m_carryFlag = m_a & 0x40;
+        m_overflowFlag = (m_carryFlag ? 0x01 : 0x00) ^ ((m_a >> 5) & 0x01);
+	}
+
+    GERANES_INLINE_HOT void OP_6B_ARR() {
+        U_ARR();
+        
     }
 
     GERANES_INLINE_HOT void OP_66_ROR()
@@ -1684,7 +1963,13 @@ public:
         //getAddrZeroPage();
         _ROR();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_67_RRA()
+    {
+        U_RRA();        
+        
     }
 
     GERANES_INLINE_HOT void OP_76_ROR()
@@ -1692,7 +1977,7 @@ public:
         //getAddrZeroPageX();
         _ROR();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_6E_ROR()
@@ -1700,7 +1985,43 @@ public:
         //getAddrAbsolute();
         _ROR();
         
-        m_pc += 3;
+        
+    }
+
+    GERANES_INLINE_HOT void U_RRA()
+    {
+        //ROR & ADC
+
+        //ROR
+        uint8_t temp = m_bus.read(m_addr);
+        m_bus.write(m_addr, temp); //dummy write
+
+        bool outputCarry = temp&0x01;
+
+        temp >>= 1;
+        if(m_carryFlag) temp |= 0x80;
+
+        m_carryFlag = outputCarry;
+
+        //ADC
+        unsigned int result = (unsigned int)m_a + temp + (m_carryFlag?1:0);
+        m_carryFlag = result>0xFF;        
+        m_overflowFlag = ( !((m_a ^ temp) & 0x80) && ((m_a ^ result) & 0x80) );
+        
+        m_a = (uint8_t)result;
+
+        m_zeroFlag = m_a==0x00;
+        m_negativeFlag = m_a&0x80;     
+
+        m_bus.write(m_addr, temp);
+    }
+
+    GERANES_INLINE_HOT void OP_6F_RRA()
+    {
+
+        U_RRA();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_7E_ROR()
@@ -1708,13 +2029,13 @@ public:
         //getAddrAbsoluteX();
         _ROR();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_40_RTI()
     {
         //dummy read the next opcode
-        m_bus.read(m_pc+1);
+        m_bus.read(m_pc);
 
         m_status = pull();
         m_pc = pull16();
@@ -1725,11 +2046,11 @@ public:
     GERANES_INLINE_HOT void OP_60_RTS()
     {
         //dummy read the next opcode
-        m_bus.read(m_pc+1);
+        m_bus.read(m_pc);
 
-        m_pc = pull16();
+        m_pc = pull16()+1;
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void _SBC()
@@ -1750,7 +2071,7 @@ public:
         //getAddrImediate();
         _SBC();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_E5_SBC()
@@ -1758,7 +2079,15 @@ public:
         //getAddrZeroPage();
         _SBC();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_EB_SBC()
+    {
+        //getAddrZeroPage();
+        _SBC();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_F5_SBC()
@@ -1766,7 +2095,7 @@ public:
         //getAddrZeroPageX();
         _SBC();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_ED_SBC()
@@ -1774,7 +2103,7 @@ public:
         //getAddrAbsolute();
         _SBC();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_FD_SBC()
@@ -1785,7 +2114,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_F9_SBC()
@@ -1796,7 +2125,7 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_E1_SBC()
@@ -1804,7 +2133,15 @@ public:
         //getAddrIndirectX();
         _SBC();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_E3_ISB()
+    {
+        //getAddrIndirectX();
+        U_ISB();
+        
+        
     }
 
     GERANES_INLINE_HOT void OP_F1_SBC()
@@ -1815,28 +2152,33 @@ public:
         
         if(m_pageCross) ++m_instructionCycles;
 
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void U_HLT()
+    {
+        //do nothing
     }
 
     GERANES_INLINE_HOT void OP_38_SEC()
     {
         m_carryFlag = true;
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_F8_SED()
     {
         m_decimalFlag = true;
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_78_SEI()
     {
         m_intFlag = true;
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void _STA()
@@ -1849,7 +2191,7 @@ public:
         //getAddrZeroPage();
         _STA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_95_STA()
@@ -1857,7 +2199,7 @@ public:
         //getAddrZeroPageX();
         _STA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_8D_STA()
@@ -1865,7 +2207,7 @@ public:
         //getAddrAbsolute();
         _STA();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_9D_STA()
@@ -1873,7 +2215,7 @@ public:
         //getAddrAbsoluteX();
         _STA();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_99_STA()
@@ -1881,7 +2223,7 @@ public:
         //getAddrAbsoluteY();
         _STA();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_81_STA()
@@ -1889,7 +2231,7 @@ public:
         //getAddrIndirectX();
         _STA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_91_STA()
@@ -1897,7 +2239,7 @@ public:
         //getAddrIndirectY();
         _STA();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void _STX()
@@ -1910,7 +2252,13 @@ public:
         //getAddrZeroPage();
         _STX();
         
-        m_pc += 2;
+        
+    }
+
+    GERANES_INLINE_HOT void OP_87_SAX()
+    {
+        U_SAX();        
+        
     }
 
     GERANES_INLINE_HOT void OP_96_STX()
@@ -1918,7 +2266,7 @@ public:
         //getAddrZeroPageY();
         _STX();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_8E_STX()
@@ -1926,7 +2274,20 @@ public:
         //getAddrAbsolute();
         _STX();
         
-        m_pc += 3;
+        
+    }
+
+    GERANES_INLINE_HOT void U_SAX()
+	{
+		//STA & STX
+        m_bus.write(m_addr, m_a & m_x);
+	}
+
+    GERANES_INLINE_HOT void OP_8F_SAX()
+    {
+        U_SAX();
+        
+        
     }
 
     GERANES_INLINE_HOT void _STY()
@@ -1939,7 +2300,7 @@ public:
         //getAddrZeroPage();
         _STY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_94_STY()
@@ -1947,7 +2308,7 @@ public:
         //getAddrZeroPageX();
         _STY();
         
-        m_pc += 2;
+        
     }
 
     GERANES_INLINE_HOT void OP_8C_STY()
@@ -1955,7 +2316,7 @@ public:
         //getAddrAbsolute();
         _STY();
         
-        m_pc += 3;
+        
     }
 
     GERANES_INLINE_HOT void OP_AA_TAX()
@@ -1966,7 +2327,23 @@ public:
         m_zeroFlag = (m_x == 0x00);
 
         
-        m_pc += 1;
+    }
+
+    GERANES_INLINE_HOT void _ATX()
+	{
+		//LDA & TAX
+		uint8_t temp = m_bus.read(m_addr);
+		m_a = temp; //LDA
+		m_x = m_a; //TAX
+		
+        //m_a flags
+        m_negativeFlag = (m_a&0x80);
+        m_zeroFlag = (m_a == 0);
+	}
+
+    GERANES_INLINE_HOT void OP_AB_ATX() {
+        _ATX();
+        
     }
 
     GERANES_INLINE_HOT void OP_A8_TAY()
@@ -1977,7 +2354,7 @@ public:
         m_zeroFlag = (m_y == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_98_TYA()
@@ -1988,7 +2365,7 @@ public:
         m_zeroFlag = (m_a == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_BA_TSX()
@@ -1999,7 +2376,7 @@ public:
         m_zeroFlag = (m_x == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_8A_TXA()
@@ -2010,14 +2387,47 @@ public:
         m_zeroFlag = (m_a == 0x00);
 
         
-        m_pc += 1;
+        
     }
 
     GERANES_INLINE_HOT void OP_9A_TXS()
     {
-        m_sp = m_x;
-        
-        m_pc += 1;
+        m_sp = m_x;       
+    }
+
+    GERANES_INLINE_HOT void U_AXA()
+    {		
+		//"This opcode stores the result of A AND X AND the high byte of the target address of the operand +1 in memory."	
+		//This may not be the actual behavior, but the read/write operations are needed for proper cycle counting
+		m_bus.write(m_addr, ((m_addr >> 8) + 1) & m_a & m_x);       
+    }
+
+    GERANES_INLINE_HOT void U_TAS()
+	{
+		//"AND X register with accumulator and store result in stack
+		//pointer, then AND stack pointer with the high byte of the
+		//target address of the argument + 1. Store result in memory."
+		m_sp = m_x & m_a;
+        m_bus.write(m_addr, m_sp & ((m_addr >> 8) + 1));
+	}
+
+    GERANES_INLINE_HOT void U_SYA() {
+
+        const uint8_t addrHigh = m_addr >> 8;
+		const uint8_t addrLow = m_addr & 0xFF;
+		const uint8_t value = m_y & (addrHigh + 1);
+		
+		//From here: http://forums.nesdev.com/viewtopic.php?f=3&t=3831&start=30
+		//Unsure if this is accurate or not
+		//"the target address for e.g. SYA becomes ((y & (addr_high + 1)) << 8) | addr_low instead of the normal ((addr_high + 1) << 8) | addr_low"
+        m_bus.write(((m_y & (addrHigh + 1)) << 8) | addrLow, value);
+    }
+
+    GERANES_INLINE_HOT void U_SXA() {
+        const uint8_t addrHigh = m_addr >> 8;
+		const uint8_t addrLow = m_addr & 0xFF;
+		const uint8_t value = m_x & (addrHigh + 1);
+        m_bus.write(((m_x & (addrHigh + 1)) << 8) | addrLow, value);
     }
 
     GERANES_INLINE_HOT bool checkInterrupts()
@@ -2117,161 +2527,261 @@ public:
         {
         case 0x00: OP_00_BRK(); break;
         case 0x01: OP_01_ORA(); break;
+        case 0x02: U_HLT(); break;
+        case 0x03: U_SLO(); break;
+        case 0x04: U_DOP(); break; //unofficial
         case 0x05: OP_05_ORA(); break;
         case 0x06: OP_06_ASL(); break;
+        case 0x07: OP_07_SLO(); break; //unofficial
         case 0x08: OP_08_PHP(); break;
         case 0x09: OP_09_ORA(); break;
-        case 0x0a: OP_0A_ASL(); break;
+        case 0x0A: OP_0A_ASL(); break;
+        case 0x0B: OP_0B_AAC(); break; //unofficial
+        case 0x0C: U_DOP(); break; //unofficial
         case 0x0D: OP_0D_ORA(); break;
         case 0x0E: OP_0E_ASL(); break;
+        case 0x0F: U_SLO();      break; //unofficial
         case 0x10: OP_10_BPL(); break;
         case 0x11: OP_11_ORA(); break;
+        case 0x12: U_HLT(); break;
+        case 0x13: U_SLO(); break;
+        case 0x14: U_DOP(); break; //unofficial
         case 0x15: OP_15_ORA(); break;
         case 0x16: OP_16_ASL(); break;
+        case 0x17: OP_17_SLO(); break; //unofficial
         case 0x18: OP_18_CLC(); break;
         case 0x19: OP_19_ORA(); break;
+        case 0x1A: NOP(); break;
+        case 0x1B: U_SLO(); break;
+        case 0x1C: U_DOP(); break;
         case 0x1D: OP_1D_ORA(); break;
         case 0x1E: OP_1E_ASL(); break;
+        case 0x1F: OP_1F_SLO(); break;
         case 0x20: OP_20_JSR(); break;
         case 0x21: OP_21_AND(); break;
+        case 0x22: U_HLT(); break;
+        case 0x23: U_RLA(); break;
         case 0x24: OP_24_BIT(); break;
         case 0x25: OP_25_AND(); break;
         case 0x26: OP_26_ROL(); break;
+        case 0x27: OP_27_RLA(); break; //unofficial
         case 0x28: OP_28_PLP(); break;
         case 0x29: OP_29_AND(); break;
         case 0x2A: OP_2A_ROL(); break;
+        case 0x2B: OP_2B_AAC(); break; //unofficial
         case 0x2C: OP_2C_BIT(); break;
         case 0x2D: OP_2D_AND(); break;
         case 0x2E: OP_2E_ROL(); break;
+        case 0x2F: U_RLA();      break; //unofficial
         case 0x30: OP_30_BMI(); break;
         case 0x31: OP_31_AND(); break;
-        case 0x32: OP_XX_NOP(); break;
-        case 0x33: OP_XX_NOP(); break;
-        case 0x34: OP_XX_NOP(); break;
+        case 0x32: NOP(); break;
+        case 0x33: U_RLA(); break;
+        case 0x34: U_DOP(); break; //unofficial
         case 0x35: OP_35_AND(); break;
         case 0x36: OP_36_ROL(); break;
+        case 0x37: OP_37_RLA(); break; //unofficial
         case 0x38: OP_38_SEC(); break;
         case 0x39: OP_39_AND(); break;
+        case 0x3A: NOP(); break;
+        case 0x3B: U_RLA(); break;
+        case 0x3C: U_DOP(); break;
         case 0x3D: OP_3D_AND(); break;
         case 0x3E: OP_3E_ROL(); break;
+        case 0x3F: U_RLA(); break;
         case 0x40: OP_40_RTI(); break;
         case 0x41: OP_41_EOR(); break;
+        case 0x42: U_HLT(); break;
+        case 0x43: U_SRE(); break;
+        case 0x44: U_DOP();  break; //unofficial
         case 0x45: OP_45_EOR(); break;
         case 0x46: OP_46_LSR(); break;
+        case 0x47: U_SRE();  break;
         case 0x48: OP_48_PHA(); break;
         case 0x49: OP_49_EOR(); break;
         case 0x4A: OP_4A_LSR(); break;
+        case 0x4B: U_ASR();  break;
         case 0x4C: OP_4C_JMP(); break;
         case 0x4D: OP_4D_EOR(); break;
+        case 0x4F: U_SRE();  break;
         case 0x4E: OP_4E_LSR(); break;
         case 0x50: OP_50_BVC(); break;
         case 0x51: OP_51_EOR(); break;
+        case 0x52: U_HLT(); break;
+        case 0x53: U_SRE(); break;
+        case 0x54: U_DOP();  break;
         case 0x55: OP_55_EOR(); break;
         case 0x56: OP_56_LSR(); break;
+        case 0x57: U_SRE();  break;
         case 0x58: OP_58_CLI(); break;
         case 0x59: OP_59_EOR(); break;
+        case 0x5A: NOP(); break;
+        case 0x5B: U_SRE(); break;
+        case 0x5C: U_DOP(); break;
         case 0x5D: OP_5D_EOR(); break;
         case 0x5E: OP_5E_LSR(); break;
+        case 0x5F: U_SRE(); break;
         case 0x60: OP_60_RTS(); break;
         case 0x61: OP_61_ADC(); break;
+        case 0x62: U_HLT(); break;
+        case 0x63: U_RRA(); break;
+        case 0x64: U_DOP(); break; //unofficial
         case 0x65: OP_65_ADC(); break;
         case 0x66: OP_66_ROR(); break;
+        case 0x67: OP_67_RRA(); break; //unofficial
         case 0x68: OP_68_PLA(); break;
         case 0x69: OP_69_ADC(); break;
         case 0x6A: OP_6A_ROR(); break;
+        case 0x6B: U_ARR(); break; //unofficial
         case 0x6C: OP_6C_JMP(); break;
         case 0x6D: OP_6D_ADC(); break;
         case 0x6E: OP_6E_ROR(); break;
+        case 0x6F: OP_6F_RRA(); break;
         case 0x70: OP_70_BVS(); break;
         case 0x71: OP_71_ADC(); break;
+        case 0x72: U_HLT(); break;
+        case 0x73: U_RRA(); break;
+        case 0x74: U_DOP(); break; //unofficial
         case 0x75: OP_75_ADC(); break;
         case 0x76: OP_76_ROR(); break;
+        case 0x77: U_RRA(); break; //unofficial
         case 0x78: OP_78_SEI(); break;
         case 0x79: OP_79_ADC(); break;
+        case 0x7A: NOP(); break;
+        case 0x7B: U_RRA(); break;
+        case 0x7C: U_DOP(); break;
         case 0x7D: OP_7D_ADC(); break;
         case 0x7E: OP_7E_ROR(); break;
+        case 0x7F: U_RRA(); break;
+        case 0x80: U_DOP(); break; //unofficial
         case 0x81: OP_81_STA(); break;
+        case 0x82: U_DOP(); break; //unofficial
+        case 0x83: U_SAX(); break;
         case 0x84: OP_84_STY(); break;
         case 0x85: OP_85_STA(); break;
         case 0x86: OP_86_STX(); break;
+        case 0x87: OP_87_SAX(); break; //unofficial
         case 0x88: OP_88_DEY(); break;
+        case 0x89: U_DOP(); break; //unofficial
         case 0x8A: OP_8A_TXA(); break;
         case 0x8C: OP_8C_STY(); break;
         case 0x8D: OP_8D_STA(); break;
         case 0x8E: OP_8E_STX(); break;
+        case 0x8F: OP_8F_SAX(); break; //unofficial
         case 0x90: OP_90_BCC(); break;
         case 0x91: OP_91_STA(); break;
+        case 0x92: U_HLT(); break;
+        case 0x93: U_AXA(); break;
         case 0x94: OP_94_STY(); break;
         case 0x95: OP_95_STA(); break;
         case 0x96: OP_96_STX(); break;
+        case 0x97: U_SAX();      break; //unofficial
         case 0x98: OP_98_TYA(); break;
         case 0x99: OP_99_STA(); break;
         case 0x9A: OP_9A_TXS(); break;
+        case 0x9B: U_TAS(); break;
+        case 0x9C: U_SYA(); break;
+        case 0x9E: U_SXA(); break;
         case 0x9D: OP_9D_STA(); break;
+        case 0x9F: U_AXA(); break;
         case 0xA0: OP_A0_LDY(); break;
         case 0xA1: OP_A1_LDA(); break;
         case 0xA2: OP_A2_LDX(); break;
+        case 0xA3: U_LAX(); break;
         case 0xA4: OP_A4_LDY(); break;
         case 0xA5: OP_A5_LDA(); break;
         case 0xA6: OP_A6_LDX(); break;
+        case 0xA7: OP_A7_LAX(); break; //unofficial
         case 0xA8: OP_A8_TAY(); break;
         case 0xA9: OP_A9_LDA(); break;
         case 0xAA: OP_AA_TAX(); break;
+        case 0xAB: OP_AB_ATX(); break; //unofficial
         case 0xAC: OP_AC_LDY(); break;
         case 0xAD: OP_AD_LDA(); break;
         case 0xAE: OP_AE_LDX(); break;
+        case 0xAF: U_LAX();  break;
         case 0xB0: OP_B0_BCS(); break;
         case 0xB1: OP_B1_LDA(); break;
+        case 0xB2: U_HLT(); break;
+        case 0xB3: OP_B3_LAX(); break;
         case 0xB4: OP_B4_LDY(); break;
         case 0xB5: OP_B5_LDA(); break;
         case 0xB6: OP_B6_LDX(); break;
+        case 0xB7: U_LAX();      break; //unofficial
         case 0xB8: OP_B8_CLV(); break;
         case 0xB9: OP_B9_LDA(); break;
         case 0xBA: OP_BA_TSX(); break;
         case 0xBC: OP_BC_LDY(); break;
         case 0xBD: OP_BD_LDA(); break;
         case 0xBE: OP_BE_LDX(); break;
+        case 0xBF: U_LAX(); break;
         case 0xC0: OP_C0_CPY(); break;
         case 0xC1: OP_C1_CMP(); break;
+        case 0xC2: U_DOP(); break; //unofficial
+        case 0xC3: OP_C3_DCP(); break; //unofficial
         case 0xC4: OP_C4_CPY(); break;
         case 0xC5: OP_C5_CMP(); break;
         case 0xC6: OP_C6_DEC(); break;
+        case 0xC7: OP_C7_DCP(); break; //unofficial
         case 0xC8: OP_C8_INY(); break;
         case 0xC9: OP_C9_CMP(); break;
         case 0xCA: OP_CA_DEX(); break;
+        case 0xCB: OP_CB_AXS(); break; //unofficial
         case 0xCC: OP_CC_CPY(); break;
         case 0xCD: OP_CD_CMP(); break;
         case 0xCE: OP_CE_DEC(); break;
+        case 0xCF: U_DCP();     break;
         case 0xD0: OP_D0_BNE(); break;
         case 0xD1: OP_D1_CMP(); break;
+        case 0xD2: U_HLT(); break;
+        case 0xD3: U_DCP(); break;
+        case 0xD4: U_DOP(); break; //unofficial
         case 0xD5: OP_D5_CMP(); break;
         case 0xD6: OP_D6_DEC(); break;
+        case 0xD7: OP_D7_DCP(); break;
         case 0xD8: OP_D8_CLD(); break;
         case 0xD9: OP_D9_CMP(); break;
+        case 0xDA: NOP(); break;
+        case 0xDB: U_DCP(); break;
+        case 0xDC: U_DOP(); break;
         case 0xDD: OP_DD_CMP(); break;
         case 0xDE: OP_DE_DEC(); break;
+        case 0xDF: U_DCP(); break;
         case 0xE0: OP_E0_CPX(); break;
         case 0xE1: OP_E1_SBC(); break;
+        case 0xE2: U_DOP(); break; //unofficial
+        case 0xE3: U_ISB(); break; //unofficial
         case 0xE4: OP_E4_CPX(); break;
         case 0xE5: OP_E5_SBC(); break;
         case 0xE6: OP_E6_INC(); break;
+        case 0xE7: U_ISB(); break; //unofficial
         case 0xE8: OP_E8_INX(); break;
         case 0xE9: OP_E9_SBC(); break;
-        case 0xEA: OP_XX_NOP(); break;
+        case 0xEA: NOP(); break;
+        case 0xEB: OP_EB_SBC(); break;
         case 0xEC: OP_EC_CPX(); break;
         case 0xED: OP_ED_SBC(); break;
+        case 0xEF: U_ISB(); break;
         case 0xEE: OP_EE_INC(); break;
         case 0xF0: OP_F0_BEQ(); break;
         case 0xF1: OP_F1_SBC(); break;
+        case 0xF2: U_HLT(); break; //unofficial
+        case 0xF3: U_ISB(); break;
+        case 0xF4: U_DOP(); break; //unofficial
         case 0xF5: OP_F5_SBC(); break;
         case 0xF6: OP_F6_INC(); break;
+        case 0xF7: U_ISB();      break; //unofficial
         case 0xF8: OP_F8_SED(); break;
         case 0xF9: OP_F9_SBC(); break;
+        case 0xFA: NOP(); break;
+        case 0xFB: U_ISB(); break;
+        case 0xFC: U_DOP(); break;
         case 0xFD: OP_FD_SBC(); break;
         case 0xFE: OP_FE_INC(); break;
+        case 0xFF: OP_FF_ISB(); break;
         default:
         {
-            OP_XX_NOP();
+            NOP();
             char aux[64];
             sprintf(aux, "Invalid opcode: 0x%02X", m_opcode);
             signalError(aux);
@@ -2301,7 +2811,7 @@ public:
                 m_poolIntsAtCycle = NO_POOL;
             }
             else {
-                m_opcode = m_bus.read(m_pc);
+                m_opcode = m_bus.read(m_pc++);
                 m_waitCyclesToEmulate = getOpcodeCyclesHint();
                 m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
                 fetchOperand();
