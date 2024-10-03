@@ -7,7 +7,7 @@
 
 #include "signal/SigSlot.h"
 
-const uint8_t NO_POOL = 0xFF;
+const uint8_t DO_NOT_POOL_INTS = 0xFF;
 const uint8_t BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE = 3;
 
 static const uint8_t OPCODE_CYCLES_TABLE[256] =
@@ -40,7 +40,7 @@ static const uint8_t OPCODE_CYCLES_TABLE[256] =
 // but I think this is wrong
 static const uint8_t OPCODE_INT_POOL_CYCLE_TABLE[256] =
 {
-/*0x00*/ NO_POOL,5,1,7,2,2,4,4,2,1,1,1,3,3,5,5,
+/*0x00*/ DO_NOT_POOL_INTS,5,1,7,2,2,4,4,2,1,1,1,3,3,5,5,
 /*0x10*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
 /*0x20*/ 5,5,1,7,2,2,4,4,0,1,1,1,3,3,5,5,
 /*0x30*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
@@ -141,7 +141,6 @@ private:
     };
 
     unsigned int m_cyclesCounter;
-    unsigned int m_instructionCycles;
     uint8_t m_opcode;
     uint16_t m_addr;
     bool m_pageCross;
@@ -162,7 +161,7 @@ private:
     bool m_InstructionOrInterruptFlag; //false = instruction cycles, true = interrupt sequence
     int m_haltCycles;
 
-    int m_realEstimateddDiff;
+    int m_extraCycles;
 
     int m_currentInstructionCycle;
 
@@ -322,7 +321,6 @@ public:
         m_sp = 0xFD;
         m_status = 0x24;
 
-        m_instructionCycles = 0;
         m_cyclesCounter = 0;
 
         m_addr = 0;
@@ -347,7 +345,7 @@ public:
         m_waitCyclesToEmulate = 0;
         m_InstructionOrInterruptFlag = false;
         m_haltCycles = 0;
-        m_realEstimateddDiff = 0;
+        m_extraCycles = 0;
 
         m_currentInstructionCycle = 0;
         m_interruptCause = InterruptCause::NMI;
@@ -434,11 +432,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }     
 
@@ -452,11 +450,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
     }
@@ -469,11 +467,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
     }
@@ -495,11 +493,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
 
@@ -513,11 +511,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
     }
@@ -530,11 +528,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
 
@@ -571,11 +569,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
     }
@@ -588,11 +586,11 @@ public:
             m_pc += (int8_t)m_bus.read(m_addr);
 
             if( (temp ^ m_pc) & 0xFF00 ) {
-                m_instructionCycles += 2;
+                m_extraCycles = 2;
                 m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
             }
             else {
-                m_instructionCycles += 1;
+                m_extraCycles = 1;
             }
         }
     }
@@ -1502,7 +1500,7 @@ public:
 
     GERANES_INLINE_HOT void begin() {
 
-        if(m_waitCyclesToEmulate == 0 && m_realEstimateddDiff == 0) {
+        if(m_waitCyclesToEmulate == 0 && m_extraCycles == 0) {
 
             m_currentInstructionCycle = 0;
             m_nmiAtInstructionCycle = 0;            
@@ -1513,7 +1511,7 @@ public:
                 m_opcode = 0x00; //BRK
                 m_waitCyclesToEmulate = 7; //interrupt sequence
                 m_nextSequence = false;
-                m_poolIntsAtCycle = NO_POOL;
+                m_poolIntsAtCycle = DO_NOT_POOL_INTS;
             }
             else {
                 m_opcode = m_bus.read(m_pc++);
@@ -1532,8 +1530,8 @@ public:
 
             _phi1();
 
-            if(m_realEstimateddDiff > 0) {
-                m_realEstimateddDiff--;
+            if(m_extraCycles > 0) {
+                m_extraCycles--;
             }
             else {
 
@@ -1542,11 +1540,8 @@ public:
                     if(m_InstructionOrInterruptFlag){
                         emulateInterruptSequence();
                     }
-                    else {
-                        m_instructionCycles = getOpcodeCyclesHint();
-                        int estimatedCycles = m_instructionCycles;                      
-                        emulateOpcode();
-                        m_realEstimateddDiff = m_instructionCycles - estimatedCycles;
+                    else {                                            
+                        emulateOpcode();                        
                     }
 
                 }
@@ -1603,11 +1598,6 @@ public:
         return m_cyclesCounter%2 != 0;
     }
 
-    GERANES_INLINE size_t cycleNumber() {
-        return m_cyclesCounter;
-    }
-
-
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
     }
@@ -1620,7 +1610,6 @@ public:
         SERIALIZEDATA(s, m_a);
         SERIALIZEDATA(s, m_x);
         SERIALIZEDATA(s, m_y);
-        SERIALIZEDATA(s, m_instructionCycles);
         SERIALIZEDATA(s, m_cyclesCounter);
         SERIALIZEDATA(s, m_opcode);
         SERIALIZEDATA(s, m_addr);
@@ -1632,7 +1621,7 @@ public:
         SERIALIZEDATA(s, m_waitCyclesToEmulate);
         SERIALIZEDATA(s, m_InstructionOrInterruptFlag);
         SERIALIZEDATA(s, m_haltCycles);
-        SERIALIZEDATA(s, m_realEstimateddDiff);
+        SERIALIZEDATA(s, m_extraCycles);
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interruptCause);
 
