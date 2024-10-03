@@ -58,25 +58,6 @@ static const uint8_t OPCODE_INT_POOL_CYCLE_TABLE[256] =
 /*0xF0*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
 };
 
-static const uint8_t OPCODE_SIZE_TABLE[256] = {
-/*0x00*/	1,2,0,0,0,2,2,0,1,2,1,0,0,3,3,0,
-/*0x10*/	2,2,0,0,0,2,2,0,1,3,0,0,0,3,3,0,
-/*0x20*/	3,2,0,0,2,2,2,0,1,2,1,0,3,3,3,0,
-/*0x30*/	2,2,0,0,0,2,2,0,1,3,0,0,0,3,3,0,
-/*0x40*/	1,2,0,0,0,2,2,0,1,2,1,0,3,3,3,0,
-/*0x50*/	2,2,0,0,0,2,2,0,1,3,0,0,0,3,3,0,
-/*0x60*/	1,2,0,0,0,2,2,0,1,2,1,0,3,3,3,0,
-/*0x70*/	2,2,0,0,0,2,2,0,1,3,0,0,0,3,3,0,
-/*0x80*/	0,2,0,0,2,2,2,0,1,0,1,0,3,3,3,0,
-/*0x90*/	2,2,0,0,2,2,2,0,1,3,1,0,0,3,0,0,
-/*0xA0*/	2,2,2,0,2,2,2,0,1,2,1,0,3,3,3,0,
-/*0xB0*/	2,2,0,0,2,2,2,0,1,3,1,0,3,3,3,0,
-/*0xC0*/	2,2,0,0,2,2,2,0,1,2,1,0,3,3,3,0,
-/*0xD0*/	2,2,0,0,0,2,2,0,1,3,0,0,0,3,3,0,
-/*0xE0*/	2,2,0,0,2,2,2,0,1,2,1,0,3,3,3,0,
-/*0xF0*/	2,2,0,0,0,2,2,0,1,3,0,0,0,3,3,0
-};
-
 static const uint8_t OPCODE_WRITE_CYCLES_TABLE[256] =
 {
 /*0x00*/ 0x1C, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
@@ -181,7 +162,7 @@ private:
     bool m_InstructionOrInterruptFlag; //false = instruction cycles, true = interrupt sequence
     int m_haltCycles;
 
-    int m_realExpectedDiff;
+    int m_realEstimateddDiff;
 
     int m_currentInstructionCycle;
 
@@ -366,7 +347,7 @@ public:
         m_waitCyclesToEmulate = 0;
         m_InstructionOrInterruptFlag = false;
         m_haltCycles = 0;
-        m_realExpectedDiff = 0;
+        m_realEstimateddDiff = 0;
 
         m_currentInstructionCycle = 0;
         m_interruptCause = InterruptCause::NMI;
@@ -386,23 +367,11 @@ public:
         m_negativeFlag = m_a&0x80;
     }
 
-    GERANES_INLINE_HOT void ADC_pg()
-    {
-        ADC();
-        if(m_pageCross) ++m_instructionCycles;
-    }
-
     GERANES_INLINE_HOT void AND()
     {
         m_a &= m_bus.read(m_addr);
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
-    }
-
-    GERANES_INLINE_HOT void AND_pc()
-    {
-        AND();
-        if(m_pageCross) ++m_instructionCycles;
     }
 
     GERANES_INLINE_HOT void ASL()
@@ -660,12 +629,6 @@ public:
         m_negativeFlag = (temp&0x80);
     }
 
-    GERANES_INLINE_HOT void CMP_pc()
-    {
-        CMP();
-        if(m_pageCross) ++m_instructionCycles;
-    }
-
     GERANES_INLINE_HOT void CPX()
     {
         uint8_t temp = m_bus.read(m_addr);
@@ -754,12 +717,6 @@ public:
         m_zeroFlag = (m_a == 0x00);
     }
 
-    GERANES_INLINE_HOT void EOR_pc()
-    {
-        EOR();        
-        if(m_pageCross) ++m_instructionCycles;
-    }
-
     GERANES_INLINE_HOT  void INC()
     {
         uint8_t temp = m_bus.read(m_addr);
@@ -823,12 +780,6 @@ public:
         m_zeroFlag = (m_a == 0);
     }
 
-    GERANES_INLINE_HOT void LDA_pc()
-    {
-        LDA();        
-        if(m_pageCross) ++m_instructionCycles;        
-    }
-
     GERANES_INLINE_HOT void U_LAX()
 	{
 		//LDA & LDX
@@ -846,23 +797,11 @@ public:
         m_zeroFlag = (m_x == 0);
     }
 
-    GERANES_INLINE_HOT void LDX_pc()
-    {
-        LDX();
-        if(m_pageCross) ++m_instructionCycles;
-    }
-
     GERANES_INLINE_HOT void LDY()
     {
         m_y = m_bus.read(m_addr);
         m_negativeFlag = (m_y&0x80);
         m_zeroFlag = (m_y == 0);
-    }
-
-    GERANES_INLINE_HOT void LDY_pc()
-    {
-        LDY();
-        if(m_pageCross) ++m_instructionCycles;
     }
 
     GERANES_INLINE_HOT void LSR()
@@ -926,12 +865,6 @@ public:
         m_a |= m_bus.read(m_addr);
         m_negativeFlag = (m_a&0x80);
         m_zeroFlag = (m_a == 0x00);
-    }
-
-    GERANES_INLINE_HOT void ORA_pc()
-    {
-        ORA();        
-        if(m_pageCross) ++m_instructionCycles;
     }
 
     GERANES_INLINE_HOT void PHA()
@@ -1102,15 +1035,8 @@ public:
         m_zeroFlag = (m_a == 0x00);
     }
 
-    GERANES_INLINE_HOT void SBC_pc()
-    {
-        SBC();        
-        if(m_pageCross) ++m_instructionCycles;        
-    }
-
     GERANES_INLINE_HOT void U_HLT()
     {
-        //do nothing
     }
 
     GERANES_INLINE_HOT void SEC()
@@ -1236,6 +1162,9 @@ public:
         m_bus.write(((m_x & (addrHigh + 1)) << 8) | addrLow, value);
     }
 
+    GERANES_INLINE_HOT void U_UNK() {
+    }
+
     GERANES_INLINE_HOT bool checkInterrupts()
     {
         if( (m_nmiSignal) || (m_irqSignal && m_intFlag == false))
@@ -1281,29 +1210,6 @@ public:
         }
     }
 
-    int debug = 0;
-
-    void debugState()
-    {
-        printf("\n");
-        printf("%04X ", m_pc);
-
-        int opsize = OPCODE_SIZE_TABLE[m_opcode];
-
-        for(int i = 0; i < opsize; i++) {
-            printf("%02X ", m_bus.read(m_pc+i) );
-        }
-
-        printf("\t\t");
-
-
-        printf("a: %02X ", m_a);
-        printf("x: %02X ", m_x);
-        printf("y: %02X ", m_y);
-        printf("p: %02X ", m_status);
-        printf("sp: %02X ", m_sp);
-    }
-
     GERANES_INLINE_HOT void fetchOperand()
     {
         switch(addrMode[m_opcode]) {
@@ -1331,282 +1237,275 @@ public:
     {
         switch(m_opcode)
         {
-        case 0x00: BRK(); break;
-        case 0x01: ORA(); break;
-        case 0x02: U_HLT(); break;
-        case 0x03: U_SLO(); break;
-        case 0x04: U_DOP(); break;
-        case 0x05: ORA(); break;
-        case 0x06: ASL(); break;
-        case 0x07: U_SLO(); break;
-        case 0x08: PHP(); break;
-        case 0x09: ORA(); break;
-        case 0x0A: ASL_implied(); break;
-        case 0x0B: AAC(); break;
-        case 0x0C: U_DOP(); break;
-        case 0x0D: ORA(); break;
-        case 0x0E: ASL(); break;
-        case 0x0F: U_SLO(); break;
-        case 0x10: BPL(); break;
-        case 0x11: ORA_pc(); break;
-        case 0x12: U_HLT(); break;
-        case 0x13: U_SLO(); break;
-        case 0x14: U_DOP(); break;
-        case 0x15: ORA(); break;
-        case 0x16: ASL(); break;
-        case 0x17: U_SLO(); break;
-        case 0x18: CLC(); break;
-        case 0x19: ORA_pc(); break;
-        case 0x1A: NOP(); break;
-        case 0x1B: U_SLO(); break;
-        case 0x1C: U_DOP(); break;
-        case 0x1D: ORA_pc(); break;
-        case 0x1E: ASL(); break;
-        case 0x1F: U_SLO(); break;
-        case 0x20: JSR(); break;
-        case 0x21: AND(); break;
-        case 0x22: U_HLT(); break;
-        case 0x23: U_RLA(); break;
-        case 0x24: BIT(); break;
-        case 0x25: AND(); break;
-        case 0x26: ROL(); break;
-        case 0x27: U_RLA(); break;
-        case 0x28: PLP(); break;
-        case 0x29: AND(); break;
-        case 0x2A: ROL_implied(); break;
-        case 0x2B: AAC(); break;
-        case 0x2C: BIT(); break;
-        case 0x2D: AND(); break;
-        case 0x2E: ROL(); break;
-        case 0x2F: U_RLA(); break;
-        case 0x30: BMI(); break;
-        case 0x31: AND_pc(); break;
-        case 0x32: NOP(); break;
-        case 0x33: U_RLA(); break;
-        case 0x34: U_DOP(); break;
-        case 0x35: AND(); break;
-        case 0x36: ROL(); break;
-        case 0x37: U_RLA(); break;
-        case 0x38: SEC(); break;
-        case 0x39: AND_pc(); break;
-        case 0x3A: NOP(); break;
-        case 0x3B: U_RLA(); break;
-        case 0x3C: U_DOP(); break;
-        case 0x3D: AND_pc(); break;
-        case 0x3E: ROL(); break;
-        case 0x3F: U_RLA(); break;
-        case 0x40: RTI(); break;
-        case 0x41: EOR(); break;
-        case 0x42: U_HLT(); break;
-        case 0x43: U_SRE(); break;
-        case 0x44: U_DOP();  break;
-        case 0x45: EOR(); break;
-        case 0x46: LSR(); break;
-        case 0x47: U_SRE();  break;
-        case 0x48: PHA(); break;
-        case 0x49: EOR(); break;
-        case 0x4A: LSR_implied(); break;
-        case 0x4B: U_ASR();  break;
-        case 0x4C: JMP(); break;
-        case 0x4D: EOR(); break;
-        case 0x4F: U_SRE();  break;
-        case 0x4E: LSR(); break;
-        case 0x50: BVC(); break;
-        case 0x51: EOR_pc(); break;
-        case 0x52: U_HLT(); break;
-        case 0x53: U_SRE(); break;
-        case 0x54: U_DOP();  break;
-        case 0x55: EOR(); break;
-        case 0x56: LSR(); break;
-        case 0x57: U_SRE();  break;
-        case 0x58: CLI(); break;
-        case 0x59: EOR_pc(); break;
-        case 0x5A: NOP(); break;
-        case 0x5B: U_SRE(); break;
-        case 0x5C: U_DOP(); break;
-        case 0x5D: EOR_pc(); break;
-        case 0x5E: LSR(); break;
-        case 0x5F: U_SRE(); break;
-        case 0x60: RTS(); break;
-        case 0x61: ADC(); break;
-        case 0x62: U_HLT(); break;
-        case 0x63: U_RRA(); break;
-        case 0x64: U_DOP(); break;
-        case 0x65: ADC(); break;
-        case 0x66: ROR(); break;
-        case 0x67: U_RRA(); break;
-        case 0x68: PLA(); break;
-        case 0x69: ADC(); break;
-        case 0x6A: ROR_implied(); break;
-        case 0x6B: U_ARR(); break;
-        case 0x6C: JMP(); break;
-        case 0x6D: ADC(); break;
-        case 0x6E: ROR(); break;
-        case 0x6F: U_RRA(); break;
-        case 0x70: BVS(); break;
-        case 0x71: ADC_pg(); break;
-        case 0x72: U_HLT(); break;
-        case 0x73: U_RRA(); break;
-        case 0x74: U_DOP(); break;
-        case 0x75: ADC(); break;
-        case 0x76: ROR(); break;
-        case 0x77: U_RRA(); break;
-        case 0x78: SEI(); break;
-        case 0x79: ADC_pg(); break;
-        case 0x7A: NOP(); break;
-        case 0x7B: U_RRA(); break;
-        case 0x7C: U_DOP(); break;
-        case 0x7D: ADC_pg(); break;
-        case 0x7E: ROR(); break;
-        case 0x7F: U_RRA(); break;
-        case 0x80: U_DOP(); break;
-        case 0x81: STA(); break;
-        case 0x82: U_DOP(); break;
-        case 0x83: U_SAX(); break;
-        case 0x84: STY(); break;
-        case 0x85: STA(); break;
-        case 0x86: STX(); break;
-        case 0x87: U_SAX(); break;
-        case 0x88: DEY(); break;
-        case 0x89: U_DOP(); break;
-        case 0x8A: TXA(); break;
-        case 0x8C: STY(); break;
-        case 0x8D: STA(); break;
-        case 0x8E: STX(); break;
-        case 0x8F: U_SAX(); break;
-        case 0x90: BCC(); break;
-        case 0x91: STA(); break;
-        case 0x92: U_HLT(); break;
-        case 0x93: U_AXA(); break;
-        case 0x94: STY(); break;
-        case 0x95: STA(); break;
-        case 0x96: STX(); break;
-        case 0x97: U_SAX(); break;
-        case 0x98: TYA(); break;
-        case 0x99: STA(); break;
-        case 0x9A: TXS(); break;
-        case 0x9B: U_TAS(); break;
-        case 0x9C: U_SYA(); break;
-        case 0x9E: U_SXA(); break;
-        case 0x9D: STA(); break;
-        case 0x9F: U_AXA(); break;
-        case 0xA0: LDY(); break;
-        case 0xA1: LDA(); break;
-        case 0xA2: LDX(); break;
-        case 0xA3: U_LAX(); break;
-        case 0xA4: LDY(); break;
-        case 0xA5: LDA(); break;
-        case 0xA6: LDX(); break;
-        case 0xA7: U_LAX(); break;
-        case 0xA8: TAY(); break;
-        case 0xA9: LDA(); break;
-        case 0xAA: TAX(); break;
-        case 0xAB: U_ATX(); break;
-        case 0xAC: LDY(); break;
-        case 0xAD: LDA(); break;
-        case 0xAE: LDX(); break;
-        case 0xAF: U_LAX();  break;
-        case 0xB0: BCS(); break;
-        case 0xB1: LDA_pc(); break;
-        case 0xB2: U_HLT(); break;
-        case 0xB3: U_LAX(); break;
-        case 0xB4: LDY(); break;
-        case 0xB6: LDX(); break;
-        case 0xB5: LDA(); break;
-        case 0xB7: U_LAX(); break;
-        case 0xB8: CLV(); break;
-        case 0xB9: LDA_pc(); break;
-        case 0xBA: TSX(); break;
-        case 0xBC: LDY_pc(); break;
-        case 0xBD: LDA_pc(); break;
-        case 0xBE: LDX_pc(); break;
-        case 0xBF: U_LAX(); break;
-        case 0xC0: CPY(); break;
-        case 0xC1: CMP(); break;
-        case 0xC2: U_DOP(); break;
-        case 0xC3: U_DCP(); break;
-        case 0xC4: CPY(); break;
-        case 0xC5: CMP(); break;
-        case 0xC6: DEC(); break;
-        case 0xC7: U_DCP(); break;
-        case 0xC8: INY(); break;
-        case 0xC9: CMP(); break;
-        case 0xCA: DEX(); break;
-        case 0xCB: U_AXS(); break;
-        case 0xCC: CPY(); break;
-        case 0xCD: CMP(); break;
-        case 0xCE: DEC(); break;
-        case 0xCF: U_DCP(); break;
-        case 0xD0: BNE(); break;
-        case 0xD1: CMP_pc(); break;
-        case 0xD2: U_HLT(); break;
-        case 0xD3: U_DCP(); break;
-        case 0xD4: U_DOP(); break;
-        case 0xD5: CMP(); break;
-        case 0xD6: DEC(); break;
-        case 0xD7: U_DCP(); break;
-        case 0xD8: CLD(); break;
-        case 0xD9: CMP_pc(); break;
-        case 0xDA: NOP(); break;
-        case 0xDB: U_DCP(); break;
-        case 0xDC: U_DOP(); break;
-        case 0xDD: CMP_pc(); break;
-        case 0xDE: DEC(); break;
-        case 0xDF: U_DCP(); break;
-        case 0xE0: CPX(); break;
-        case 0xE1: SBC(); break;
-        case 0xE2: U_DOP(); break;
-        case 0xE3: U_ISB(); break;
-        case 0xE4: CPX(); break;
-        case 0xE5: SBC(); break;
-        case 0xE6: INC(); break;
-        case 0xE7: U_ISB(); break;
-        case 0xE8: INX(); break;
-        case 0xE9: SBC(); break;
-        case 0xEA: NOP(); break;
-        case 0xEB: SBC(); break;
-        case 0xEC: CPX(); break;
-        case 0xED: SBC(); break;
-        case 0xEF: U_ISB(); break;
-        case 0xEE: INC(); break;
-        case 0xF0: BEQ(); break;
-        case 0xF1: SBC_pc(); break;
-        case 0xF2: U_HLT(); break;
-        case 0xF3: U_ISB(); break;
-        case 0xF4: U_DOP(); break;
-        case 0xF5: SBC(); break;
-        case 0xF6: INC(); break;
-        case 0xF7: U_ISB(); break;
-        case 0xF8: SED(); break;
-        case 0xF9: SBC_pc(); break;
-        case 0xFA: NOP(); break;
-        case 0xFB: U_ISB(); break;
-        case 0xFC: U_DOP(); break;
-        case 0xFD: SBC_pc(); break;
-        case 0xFE: INC(); break;
-        case 0xFF: U_ISB(); break;
-        default:
-        {
-            NOP();
-            char aux[64];
-            sprintf(aux, "Invalid opcode: 0x%02X", m_opcode);
-            signalError(aux);
-            break;
-        }
+            case 0x00: BRK(); break;
+            case 0x01: ORA(); break;
+            case 0x02: U_HLT(); break;
+            case 0x03: U_SLO(); break;
+            case 0x04: U_DOP(); break;
+            case 0x05: ORA(); break;
+            case 0x06: ASL(); break;
+            case 0x07: U_SLO(); break;
+            case 0x08: PHP(); break;
+            case 0x09: ORA(); break;
+            case 0x0A: ASL_implied(); break;
+            case 0x0B: AAC(); break;
+            case 0x0C: U_DOP(); break;
+            case 0x0D: ORA(); break;
+            case 0x0E: ASL(); break;
+            case 0x0F: U_SLO(); break;
+            case 0x10: BPL(); break;
+            case 0x11: ORA(); break;
+            case 0x12: U_HLT(); break;
+            case 0x13: U_SLO(); break;
+            case 0x14: U_DOP(); break;
+            case 0x15: ORA(); break;
+            case 0x16: ASL(); break;
+            case 0x17: U_SLO(); break;
+            case 0x18: CLC(); break;
+            case 0x19: ORA(); break;
+            case 0x1A: NOP(); break;
+            case 0x1B: U_SLO(); break;
+            case 0x1C: U_DOP(); break;
+            case 0x1D: ORA(); break;
+            case 0x1E: ASL(); break;
+            case 0x1F: U_SLO(); break;
+            case 0x20: JSR(); break;
+            case 0x21: AND(); break;
+            case 0x22: U_HLT(); break;
+            case 0x23: U_RLA(); break;
+            case 0x24: BIT(); break;
+            case 0x25: AND(); break;
+            case 0x26: ROL(); break;
+            case 0x27: U_RLA(); break;
+            case 0x28: PLP(); break;
+            case 0x29: AND(); break;
+            case 0x2A: ROL_implied(); break;
+            case 0x2B: AAC(); break;
+            case 0x2C: BIT(); break;
+            case 0x2D: AND(); break;
+            case 0x2E: ROL(); break;
+            case 0x2F: U_RLA(); break;
+            case 0x30: BMI(); break;
+            case 0x31: AND(); break;
+            case 0x32: NOP(); break;
+            case 0x33: U_RLA(); break;
+            case 0x34: U_DOP(); break;
+            case 0x35: AND(); break;
+            case 0x36: ROL(); break;
+            case 0x37: U_RLA(); break;
+            case 0x38: SEC(); break;
+            case 0x39: AND(); break;
+            case 0x3A: NOP(); break;
+            case 0x3B: U_RLA(); break;
+            case 0x3C: U_DOP(); break;
+            case 0x3D: AND(); break;
+            case 0x3E: ROL(); break;
+            case 0x3F: U_RLA(); break;
+            case 0x40: RTI(); break;
+            case 0x41: EOR(); break;
+            case 0x42: U_HLT(); break;
+            case 0x43: U_SRE(); break;
+            case 0x44: U_DOP();  break;
+            case 0x45: EOR(); break;
+            case 0x46: LSR(); break;
+            case 0x47: U_SRE();  break;
+            case 0x48: PHA(); break;
+            case 0x49: EOR(); break;
+            case 0x4A: LSR_implied(); break;
+            case 0x4B: U_ASR();  break;
+            case 0x4C: JMP(); break;
+            case 0x4D: EOR(); break;
+            case 0x4E: LSR(); break;
+            case 0x4F: U_SRE();  break;        
+            case 0x50: BVC(); break;
+            case 0x51: EOR(); break;
+            case 0x52: U_HLT(); break;
+            case 0x53: U_SRE(); break;
+            case 0x54: U_DOP();  break;
+            case 0x55: EOR(); break;
+            case 0x56: LSR(); break;
+            case 0x57: U_SRE();  break;
+            case 0x58: CLI(); break;
+            case 0x59: EOR(); break;
+            case 0x5A: NOP(); break;
+            case 0x5B: U_SRE(); break;
+            case 0x5C: U_DOP(); break;
+            case 0x5D: EOR(); break;
+            case 0x5E: LSR(); break;
+            case 0x5F: U_SRE(); break;
+            case 0x60: RTS(); break;
+            case 0x61: ADC(); break;
+            case 0x62: U_HLT(); break;
+            case 0x63: U_RRA(); break;
+            case 0x64: U_DOP(); break;
+            case 0x65: ADC(); break;
+            case 0x66: ROR(); break;
+            case 0x67: U_RRA(); break;
+            case 0x68: PLA(); break;
+            case 0x69: ADC(); break;
+            case 0x6A: ROR_implied(); break;
+            case 0x6B: U_ARR(); break;
+            case 0x6C: JMP(); break;
+            case 0x6D: ADC(); break;
+            case 0x6E: ROR(); break;
+            case 0x6F: U_RRA(); break;
+            case 0x70: BVS(); break;
+            case 0x71: ADC(); break;
+            case 0x72: U_HLT(); break;
+            case 0x73: U_RRA(); break;
+            case 0x74: U_DOP(); break;
+            case 0x75: ADC(); break;
+            case 0x76: ROR(); break;
+            case 0x77: U_RRA(); break;
+            case 0x78: SEI(); break;
+            case 0x79: ADC(); break;
+            case 0x7A: NOP(); break;
+            case 0x7B: U_RRA(); break;
+            case 0x7C: U_DOP(); break;
+            case 0x7D: ADC(); break;
+            case 0x7E: ROR(); break;
+            case 0x7F: U_RRA(); break;
+            case 0x80: U_DOP(); break;
+            case 0x81: STA(); break;
+            case 0x82: U_DOP(); break;
+            case 0x83: U_SAX(); break;
+            case 0x84: STY(); break;
+            case 0x85: STA(); break;
+            case 0x86: STX(); break;
+            case 0x87: U_SAX(); break;
+            case 0x88: DEY(); break;
+            case 0x89: U_DOP(); break;
+            case 0x8A: TXA(); break;
+            case 0x8B: U_UNK(); break;
+            case 0x8C: STY(); break;
+            case 0x8D: STA(); break;
+            case 0x8E: STX(); break;
+            case 0x8F: U_SAX(); break;
+            case 0x90: BCC(); break;
+            case 0x91: STA(); break;
+            case 0x92: U_HLT(); break;
+            case 0x93: U_AXA(); break;
+            case 0x94: STY(); break;
+            case 0x95: STA(); break;
+            case 0x96: STX(); break;
+            case 0x97: U_SAX(); break;
+            case 0x98: TYA(); break;
+            case 0x99: STA(); break;
+            case 0x9A: TXS(); break;
+            case 0x9B: U_TAS(); break;
+            case 0x9C: U_SYA(); break;
+            case 0x9E: U_SXA(); break;
+            case 0x9D: STA(); break;
+            case 0x9F: U_AXA(); break;
+            case 0xA0: LDY(); break;
+            case 0xA1: LDA(); break;
+            case 0xA2: LDX(); break;
+            case 0xA3: U_LAX(); break;
+            case 0xA4: LDY(); break;
+            case 0xA5: LDA(); break;
+            case 0xA6: LDX(); break;
+            case 0xA7: U_LAX(); break;
+            case 0xA8: TAY(); break;
+            case 0xA9: LDA(); break;
+            case 0xAA: TAX(); break;
+            case 0xAB: U_ATX(); break;
+            case 0xAC: LDY(); break;
+            case 0xAD: LDA(); break;
+            case 0xAE: LDX(); break;
+            case 0xAF: U_LAX();  break;
+            case 0xB0: BCS(); break;
+            case 0xB1: LDA(); break;
+            case 0xB2: U_HLT(); break;
+            case 0xB3: U_LAX(); break;
+            case 0xB4: LDY(); break;
+            case 0xB6: LDX(); break;
+            case 0xB5: LDA(); break;
+            case 0xB7: U_LAX(); break;
+            case 0xB8: CLV(); break;
+            case 0xB9: LDA(); break;
+            case 0xBA: TSX(); break;
+            case 0xBC: LDY(); break;
+            case 0xBD: LDA(); break;
+            case 0xBE: LDX(); break;
+            case 0xBF: U_LAX(); break;
+            case 0xC0: CPY(); break;
+            case 0xC1: CMP(); break;
+            case 0xC2: U_DOP(); break;
+            case 0xC3: U_DCP(); break;
+            case 0xC4: CPY(); break;
+            case 0xC5: CMP(); break;
+            case 0xC6: DEC(); break;
+            case 0xC7: U_DCP(); break;
+            case 0xC8: INY(); break;
+            case 0xC9: CMP(); break;
+            case 0xCA: DEX(); break;
+            case 0xCB: U_AXS(); break;
+            case 0xCC: CPY(); break;
+            case 0xCD: CMP(); break;
+            case 0xCE: DEC(); break;
+            case 0xCF: U_DCP(); break;
+            case 0xD0: BNE(); break;
+            case 0xD1: CMP(); break;
+            case 0xD2: U_HLT(); break;
+            case 0xD3: U_DCP(); break;
+            case 0xD4: U_DOP(); break;
+            case 0xD5: CMP(); break;
+            case 0xD6: DEC(); break;
+            case 0xD7: U_DCP(); break;
+            case 0xD8: CLD(); break;
+            case 0xD9: CMP(); break;
+            case 0xDA: NOP(); break;
+            case 0xDB: U_DCP(); break;
+            case 0xDC: U_DOP(); break;
+            case 0xDD: CMP(); break;
+            case 0xDE: DEC(); break;
+            case 0xDF: U_DCP(); break;
+            case 0xE0: CPX(); break;
+            case 0xE1: SBC(); break;
+            case 0xE2: U_DOP(); break;
+            case 0xE3: U_ISB(); break;
+            case 0xE4: CPX(); break;
+            case 0xE5: SBC(); break;
+            case 0xE6: INC(); break;
+            case 0xE7: U_ISB(); break;
+            case 0xE8: INX(); break;
+            case 0xE9: SBC(); break;
+            case 0xEA: NOP(); break;
+            case 0xEB: SBC(); break;
+            case 0xEC: CPX(); break;
+            case 0xED: SBC(); break;
+            case 0xEF: U_ISB(); break;
+            case 0xEE: INC(); break;
+            case 0xF0: BEQ(); break;
+            case 0xF1: SBC(); break;
+            case 0xF2: U_HLT(); break;
+            case 0xF3: U_ISB(); break;
+            case 0xF4: U_DOP(); break;
+            case 0xF5: SBC(); break;
+            case 0xF6: INC(); break;
+            case 0xF7: U_ISB(); break;
+            case 0xF8: SED(); break;
+            case 0xF9: SBC(); break;
+            case 0xFA: NOP(); break;
+            case 0xFB: U_ISB(); break;
+            case 0xFC: U_DOP(); break;
+            case 0xFD: SBC(); break;
+            case 0xFE: INC(); break;
+            case 0xFF: U_ISB(); break;
         };
     }
 
     GERANES_INLINE int getOpcodeCyclesHint()
     {
-        return OPCODE_CYCLES_TABLE[m_opcode];
+        return OPCODE_CYCLES_TABLE[m_opcode] + (m_pageCross ? 1 : 0);
     }
 
     GERANES_INLINE_HOT void begin() {
 
-        if(m_waitCyclesToEmulate == 0 && m_realExpectedDiff == 0) {
+        if(m_waitCyclesToEmulate == 0 && m_realEstimateddDiff == 0) {
 
             m_currentInstructionCycle = 0;
-            m_nmiAtInstructionCycle = 0;
+            m_nmiAtInstructionCycle = 0;            
 
             m_InstructionOrInterruptFlag  = m_nextSequence;
 
@@ -1618,9 +1517,10 @@ public:
             }
             else {
                 m_opcode = m_bus.read(m_pc++);
+                m_pageCross = false;
+                fetchOperand();                
                 m_waitCyclesToEmulate = getOpcodeCyclesHint();
-                m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
-                fetchOperand();
+                m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];                
             }
         }
 
@@ -1632,8 +1532,8 @@ public:
 
             _phi1();
 
-            if(m_realExpectedDiff > 0) {
-                m_realExpectedDiff--;
+            if(m_realEstimateddDiff > 0) {
+                m_realEstimateddDiff--;
             }
             else {
 
@@ -1644,9 +1544,9 @@ public:
                     }
                     else {
                         m_instructionCycles = getOpcodeCyclesHint();
-                        int expected = m_instructionCycles;                      
+                        int estimatedCycles = m_instructionCycles;                      
                         emulateOpcode();
-                        m_realExpectedDiff = m_instructionCycles - expected;
+                        m_realEstimateddDiff = m_instructionCycles - estimatedCycles;
                     }
 
                 }
@@ -1732,7 +1632,7 @@ public:
         SERIALIZEDATA(s, m_waitCyclesToEmulate);
         SERIALIZEDATA(s, m_InstructionOrInterruptFlag);
         SERIALIZEDATA(s, m_haltCycles);
-        SERIALIZEDATA(s, m_realExpectedDiff);
+        SERIALIZEDATA(s, m_realEstimateddDiff);
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interruptCause);
 
