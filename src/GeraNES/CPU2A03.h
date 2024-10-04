@@ -30,6 +30,27 @@ static const uint8_t OPCODE_CYCLES_TABLE[256] =
 /*0xF0*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
 };
 
+static const uint8_t OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[256] =
+{
+//       0 1 2 3 4 5 6 7 8 9 A B C D E F
+/*0x00*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0x10*/ 0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,
+/*0x20*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0x30*/ 0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,
+/*0x40*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0x50*/ 0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,
+/*0x60*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0x70*/ 0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,
+/*0x80*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0x90*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0xA0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0xB0*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,1,0,
+/*0xC0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0xD0*/ 0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,
+/*0xE0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+/*0xF0*/ 0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,
+};
+
 
 
 // BRK (NO_POOL)
@@ -237,7 +258,7 @@ private:
         //dummy read
         if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
 
-        if(pageCross) m_waitCyclesToEmulate++;
+        if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
 
         m_addr += m_x;
     }
@@ -253,7 +274,7 @@ private:
 
         if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
-        if(pageCross) m_waitCyclesToEmulate++;
+        if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
 
         m_addr += m_y;
     }
@@ -293,7 +314,7 @@ private:
         //dummy read
         if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
-        if(pageCross) m_waitCyclesToEmulate++;
+        if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
 
         m_addr += m_y;
     }
