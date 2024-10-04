@@ -198,6 +198,11 @@ private:
         return MAKE16(low,high);
     }
 
+    GERANES_INLINE_HOT void updateZeroAndNegativeFlags(const uint8_t& value) {
+        m_negativeFlag = value&0x80;
+        m_zeroFlag = value==0x00;
+    }
+
     GERANES_INLINE_HOT void dummyRead() {
         m_bus.read(m_pc);
     }
@@ -363,15 +368,13 @@ public:
 
         m_a = (uint8_t)temp;
 
-        m_zeroFlag = m_a == 0x00;
-        m_negativeFlag = m_a&0x80;
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void AND()
     {
         m_a &= m_bus.read(m_addr);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void ASL()
@@ -382,8 +385,7 @@ public:
 
         temp <<= 1;
 
-        m_negativeFlag = (temp&0x80);
-        m_zeroFlag = (temp == 0x00);
+        updateZeroAndNegativeFlags(temp);
 
         m_bus.write(m_addr, temp);
     }
@@ -392,8 +394,7 @@ public:
     {
         m_carryFlag = (m_a&0x80);
         m_a <<= 1;
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);        
+        updateZeroAndNegativeFlags(m_a);       
     }
 
     GERANES_INLINE_HOT void AAC()
@@ -401,8 +402,7 @@ public:
         uint8_t temp = m_bus.read(m_addr);
         m_a &= temp;
 
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
 
         m_carryFlag = m_negativeFlag;        
 	}
@@ -420,8 +420,7 @@ public:
         
         m_a = m_a | temp;
 
-        m_zeroFlag = (m_a == 0x00);
-        m_negativeFlag = (m_a&0x80);
+        updateZeroAndNegativeFlags(m_a);
 
         m_bus.write(m_addr, temp);
     }
@@ -482,9 +481,9 @@ public:
     {
         uint8_t temp = m_bus.read(m_addr);
 
-        m_zeroFlag = ( (m_a&temp) == 0x00);
-        m_negativeFlag = (temp&0x80);
-        m_overflowFlag = (temp&0x40);
+        m_zeroFlag = (m_a&temp) == 0x00;
+        m_negativeFlag = temp&0x80;
+        m_overflowFlag = temp&0x40;
     }
 
     GERANES_INLINE_HOT void BMI()
@@ -625,8 +624,7 @@ public:
 
         temp = m_a - temp;
 
-        m_zeroFlag = (temp==0);
-        m_negativeFlag = (temp&0x80);
+        updateZeroAndNegativeFlags(temp);
     }
 
     GERANES_INLINE_HOT void CPX()
@@ -637,8 +635,7 @@ public:
 
         temp = m_x - temp;
 
-        m_zeroFlag = (temp==0);
-        m_negativeFlag = (temp&0x80);
+        updateZeroAndNegativeFlags(temp);
     }
 
     GERANES_INLINE_HOT void CPY()
@@ -649,8 +646,7 @@ public:
 
         temp = m_y - temp;
 
-        m_zeroFlag = (temp==0);
-        m_negativeFlag = (temp&0x80);
+        updateZeroAndNegativeFlags(temp);
     }
 
     GERANES_INLINE_HOT void DEC()
@@ -659,8 +655,7 @@ public:
 
         temp--;
 
-        m_negativeFlag = (temp&0x80);
-        m_zeroFlag = (temp == 0x00);
+        updateZeroAndNegativeFlags(temp);
 
         m_bus.write(m_addr,temp);
     }
@@ -679,15 +674,13 @@ public:
         //CMP
         m_carryFlag = (m_a>=temp);
         temp = m_a - temp;
-        m_zeroFlag = (temp==0);
-        m_negativeFlag = (temp&0x80);		
+        updateZeroAndNegativeFlags(temp);		
 	}
 
     GERANES_INLINE_HOT void DEX()
     {
         m_x--;
-        m_negativeFlag = m_x&0x80;
-        m_zeroFlag = m_x==0x00;        
+        updateZeroAndNegativeFlags(m_x);        
     }
 
     void U_AXS()
@@ -699,22 +692,19 @@ public:
 		m_carryFlag = (m_a & m_x) >= temp;
 
         m_x = value;
-        m_negativeFlag = m_x&0x80;
-        m_zeroFlag = m_x==0x00;
+        updateZeroAndNegativeFlags(m_x);
 	}
 
     GERANES_INLINE_HOT void DEY()
     {
         m_y--;
-        m_negativeFlag = m_y&0x80;
-        m_zeroFlag = m_y==0x00;    
+        updateZeroAndNegativeFlags(m_y);    
     }
 
     GERANES_INLINE_HOT void EOR()
     {
         m_a ^= m_bus.read(m_addr);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT  void INC()
@@ -723,8 +713,7 @@ public:
 
         temp++;
 
-        m_negativeFlag = (temp&0x80);
-        m_zeroFlag = (temp == 0x00);
+        updateZeroAndNegativeFlags(temp);
 
         m_bus.write(m_addr,temp);
     } 
@@ -742,8 +731,7 @@ public:
 
         m_a = (uint8_t)result;
 
-        m_zeroFlag = m_a == 0x00;
-        m_negativeFlag = result&0x80;
+        updateZeroAndNegativeFlags(m_a);
 
         m_bus.write(m_addr, temp);      
     }
@@ -751,15 +739,13 @@ public:
     GERANES_INLINE_HOT void INX()
     {
         m_x++;
-        m_negativeFlag = (m_x&0x80);
-        m_zeroFlag = (m_x == 0x00);        
+        updateZeroAndNegativeFlags(m_x);        
     }
 
     GERANES_INLINE_HOT void INY()
     {
         m_y++;
-        m_negativeFlag = (m_y&0x80);
-        m_zeroFlag = (m_y == 0x00);                
+        updateZeroAndNegativeFlags(m_y);                
     }
 
     GERANES_INLINE_HOT void JMP()
@@ -776,32 +762,27 @@ public:
     GERANES_INLINE_HOT void LDA()
     {
         m_a = m_bus.read(m_addr);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0);
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void U_LAX()
 	{
 		//LDA & LDX
 		m_a = m_bus.read(m_addr);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0);
-
+        updateZeroAndNegativeFlags(m_a);
 		m_x = m_a;
 	}
 
     GERANES_INLINE_HOT void LDX()
     {
         m_x = m_bus.read(m_addr);
-        m_negativeFlag = (m_x&0x80);
-        m_zeroFlag = (m_x == 0);
+        updateZeroAndNegativeFlags(m_x);
     }
 
     GERANES_INLINE_HOT void LDY()
     {
         m_y = m_bus.read(m_addr);
-        m_negativeFlag = (m_y&0x80);
-        m_zeroFlag = (m_y == 0);
+        updateZeroAndNegativeFlags(m_y);
     }
 
     GERANES_INLINE_HOT void LSR()
@@ -809,8 +790,7 @@ public:
         uint8_t temp = m_bus.read(m_addr);
         m_carryFlag = (temp&0x01);
         temp >>= 1;
-        m_negativeFlag = false;
-        m_zeroFlag = (temp == 0x00);
+        updateZeroAndNegativeFlags(temp);
         m_bus.write(m_addr, temp);
     }
 
@@ -818,8 +798,7 @@ public:
     {
         m_carryFlag = (m_a&0x01);
         m_a >>= 1;
-        m_negativeFlag = false;
-        m_zeroFlag = (m_a == 0x00);       
+        updateZeroAndNegativeFlags(m_a);       
     }
 
     GERANES_INLINE_HOT void U_ASR()
@@ -832,8 +811,7 @@ public:
 
         m_a >>= 1;
 
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);		
+        updateZeroAndNegativeFlags(m_a);		
 	}
 
     GERANES_INLINE_HOT void U_SRE()
@@ -846,8 +824,7 @@ public:
         temp >>= 1;              
 
         m_a ^= temp;
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00); 
+        updateZeroAndNegativeFlags(m_a); 
 
 		m_bus.write(m_addr, temp);
 	}
@@ -863,8 +840,7 @@ public:
     GERANES_INLINE_HOT void ORA()
     {
         m_a |= m_bus.read(m_addr);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void PHA()
@@ -882,8 +858,7 @@ public:
     GERANES_INLINE_HOT void PLA()
     {
         m_a = pull();
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);        
+        updateZeroAndNegativeFlags(m_a);       
     }
 
     GERANES_INLINE_HOT void PLP()
@@ -900,9 +875,8 @@ public:
         temp <<= 1;
         if(m_carryFlag) temp |= 0x01;
 
-        m_carryFlag = (outputCarry);
-        m_negativeFlag = (temp&0x80);
-        m_zeroFlag = (temp == 0x00);
+        m_carryFlag = outputCarry;
+        updateZeroAndNegativeFlags(temp);
 
         m_bus.write(m_addr,temp);
     }
@@ -914,9 +888,8 @@ public:
         m_a <<= 1;
         if(m_carryFlag) m_a |= 0x01;
 
-        m_carryFlag = (outputCarry);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);        
+        m_carryFlag = outputCarry;
+        updateZeroAndNegativeFlags(m_a);        
     }
 
     GERANES_INLINE_HOT void U_RLA()
@@ -936,8 +909,7 @@ public:
 
 		m_a &= temp;
 
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
 
 		m_bus.write(m_addr, temp);
 	}
@@ -951,9 +923,8 @@ public:
         temp >>= 1;
         if(m_carryFlag) temp |= 0x80;
 
-        m_carryFlag = (outputCarry);
-        m_negativeFlag = (temp&0x80);
-        m_zeroFlag = (temp == 0x00);
+        m_carryFlag = outputCarry;
+        updateZeroAndNegativeFlags(temp);
 
         m_bus.write(m_addr,temp);
     }
@@ -965,9 +936,8 @@ public:
         m_a >>= 1;
         if(m_carryFlag) m_a |= 0x80;
 
-        m_carryFlag = (outputCarry);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);       
+        m_carryFlag = outputCarry;
+        updateZeroAndNegativeFlags(m_a);       
     }
 
     void U_ARR()
@@ -975,8 +945,7 @@ public:
         uint8_t temp = m_bus.read(m_addr);
 
         m_a = ((m_a & temp) >> 1) | (m_carryFlag ? 0x80 : 0x00);
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
         m_carryFlag = m_a & 0x40;
         m_overflowFlag = (m_carryFlag ? 0x01 : 0x00) ^ ((m_a >> 5) & 0x01);
 	}
@@ -1003,8 +972,7 @@ public:
         
         m_a = (uint8_t)result;
 
-        m_zeroFlag = m_a==0x00;
-        m_negativeFlag = m_a&0x80;     
+        updateZeroAndNegativeFlags(m_a);     
 
         m_bus.write(m_addr, temp);
     }
@@ -1031,8 +999,7 @@ public:
 
         m_a = temp&0xFF;
 
-        m_negativeFlag = (m_a&0x80);
-        m_zeroFlag = (m_a == 0x00);
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void U_HLT()
@@ -1078,8 +1045,7 @@ public:
     GERANES_INLINE_HOT void TAX()
     {
         m_x = m_a;
-        m_negativeFlag = m_x&0x80;
-        m_zeroFlag = m_x==0x00;        
+        updateZeroAndNegativeFlags(m_x);        
     }
 
     GERANES_INLINE_HOT void U_ATX()
@@ -1087,39 +1053,33 @@ public:
 		//LDA & TAX
 		uint8_t temp = m_bus.read(m_addr);
 		m_a = temp; //LDA
-		m_x = m_a; //TAX
-		
-        //m_a flags
-        m_negativeFlag = m_a&0x80;
-        m_zeroFlag = m_a==0;
+		m_x = m_a; //TAX		
+
+        updateZeroAndNegativeFlags(m_a);
 	}
 
     GERANES_INLINE_HOT void TAY()
     {
         m_y = m_a;
-        m_negativeFlag = m_y&0x80;
-        m_zeroFlag = m_y==0x00;       
+        updateZeroAndNegativeFlags(m_y);       
     }
 
     GERANES_INLINE_HOT void TYA()
     {
         m_a = m_y;
-        m_negativeFlag = m_a&0x80;
-        m_zeroFlag = m_a==0x00;
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void TSX()
     {
         m_x = m_sp;
-        m_negativeFlag = m_x&0x80;
-        m_zeroFlag = m_x==0x00;        
+        updateZeroAndNegativeFlags(m_x);        
     }
 
     GERANES_INLINE_HOT void TXA()
     {
         m_a = m_x;
-        m_negativeFlag = m_a&0x80;
-        m_zeroFlag = m_a==0x00;
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void TXS()
