@@ -143,7 +143,6 @@ private:
     unsigned int m_cyclesCounter;
     uint8_t m_opcode;
     uint16_t m_addr;
-    bool m_pageCross;
 
     bool m_nmiSignal;
     bool m_irqSignal;
@@ -228,11 +227,12 @@ private:
 
         m_addr = MAKE16(low, high); 
 
-        m_pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
+        bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
 
         //dummy read
-        if(m_pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
+        if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
 
+        if(pageCross) m_waitCyclesToEmulate++;
 
         m_addr += m_x;
     }
@@ -244,9 +244,11 @@ private:
 
         m_addr = MAKE16(low, high);
 
-        m_pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+        bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
-        if(m_pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+
+        if(pageCross) m_waitCyclesToEmulate++;
 
         m_addr += m_y;
     }
@@ -281,11 +283,12 @@ private:
         uint8_t temp = m_bus.read(m_pc++);
         m_addr = MAKE16(m_bus.read(temp),m_bus.read( (uint8_t)(temp+1) ));
 
-        m_pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+        bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
         //dummy read
-        if(m_pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
+        if(pageCross) m_waitCyclesToEmulate++;
 
         m_addr += m_y;
     }
@@ -324,7 +327,6 @@ public:
         m_cyclesCounter = 0;
 
         m_addr = 0;
-        m_pageCross = false;
         m_opcode = 0;
 
         m_a = 0;
@@ -1493,11 +1495,6 @@ public:
         };
     }
 
-    GERANES_INLINE int getOpcodeCyclesHint()
-    {
-        return OPCODE_CYCLES_TABLE[m_opcode] + (m_pageCross ? 1 : 0);
-    }
-
     GERANES_INLINE_HOT void begin() {
 
         if(m_waitCyclesToEmulate == 0 && m_extraCycles == 0) {
@@ -1515,10 +1512,9 @@ public:
             }
             else {
                 m_opcode = m_bus.read(m_pc++);
-                m_pageCross = false;
-                fetchOperand();                
-                m_waitCyclesToEmulate = getOpcodeCyclesHint();
-                m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];                
+                m_waitCyclesToEmulate = OPCODE_CYCLES_TABLE[m_opcode];                          
+                m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
+                fetchOperand();               
             }
         }
 
@@ -1613,7 +1609,6 @@ public:
         SERIALIZEDATA(s, m_cyclesCounter);
         SERIALIZEDATA(s, m_opcode);
         SERIALIZEDATA(s, m_addr);
-        SERIALIZEDATA(s, m_pageCross);
         SERIALIZEDATA(s, m_nmiSignal);
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
