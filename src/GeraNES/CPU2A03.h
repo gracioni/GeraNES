@@ -401,6 +401,7 @@ public:
     GERANES_INLINE_HOT void ASL()
     {
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write
 
         m_carryFlag = value & 0x80;
 
@@ -673,6 +674,7 @@ public:
     GERANES_INLINE_HOT void DEC()
     {
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write
 
         value--;
 
@@ -731,6 +733,7 @@ public:
     GERANES_INLINE_HOT  void INC()
     {
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write
 
         value++;
 
@@ -743,6 +746,7 @@ public:
     {
         //INC & SBC
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write        
         value++;
 
         //ADC
@@ -809,6 +813,7 @@ public:
     GERANES_INLINE_HOT void LSR()
     {
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write        
         m_carryFlag = value & 0x01;
         value >>= 1;
         updateZeroAndNegativeFlags(value);
@@ -890,6 +895,7 @@ public:
     GERANES_INLINE_HOT void ROL()
     {
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write
 
         bool outputCarry = value & 0x80;
 
@@ -938,6 +944,7 @@ public:
     GERANES_INLINE_HOT void ROR()
     {
         uint8_t value = m_bus.read(m_addr);
+        m_bus.write(m_addr, value); //dummy write
 
         bool outputCarry = value & 0x01;
 
