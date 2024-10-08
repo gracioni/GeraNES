@@ -1613,7 +1613,7 @@ public:
         SERIALIZEDATA(s, m_nextSequence);
     }
 
-    uint16_t bus_addr() {  
+    uint16_t busAddr() {  
         return m_currentInstructionCycle > 2 ? m_addr : 0;
     }
 
