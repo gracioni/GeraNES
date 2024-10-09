@@ -445,26 +445,33 @@ public:
     template<bool writeFlag>
     GERANES_INLINE_HOT uint8_t readWrite(int addr, uint8_t data)
     {
-        if(!writeFlag) data = m_openBus;
-        uint8_t openBusMask = writeFlag ? 0xFF : 0x00;
+        uint8_t openBusMask;
 
+        if constexpr(!writeFlag) {
+            data = m_openBus;
+            openBusMask = 0x00;
+        }
+        else {
+            openBusMask = 0xFF;
+        }
+        
         addr &= 0x2007;
 
         switch(addr)
         {
         case 0x2000: //acess: write only
         {
-            if(writeFlag) writePPUCTRL(data);
+            if constexpr(writeFlag) writePPUCTRL(data);
             break;
         }
         case 0x2001: //acess: write only
         {
-            if(writeFlag) writePPUMASK(data);
+            if constexpr(writeFlag) writePPUMASK(data);
             break;
         }
         case 0x2002: //acess: read only
         {
-            if(!writeFlag) {
+            if constexpr(!writeFlag) {
                 data = readPPUSTATUS();
 
                 data &= ~0x1F;
@@ -475,30 +482,36 @@ public:
         }
         case 0x2003: //acess: write only
         {
-            if(writeFlag) writeOAMADDR(data);
+            if constexpr(writeFlag) writeOAMADDR(data);
             break;
         }
         case 0x2004: //acess: read and write
         {
-            if(writeFlag) writeOAMDATA(data);
+            if constexpr(writeFlag) writeOAMDATA(data);
             else data = readOAMDATA();
             break;
         }
         case 0x2005: //acess: write twice
         {
-            if(writeFlag) writePPUSCROLL(data);
+            if constexpr(writeFlag) writePPUSCROLL(data);
             break;
         }
         case 0x2006: //acess: write twice
         {
-            if(writeFlag) writePPUADDR(data);
+            if constexpr(writeFlag) writePPUADDR(data);
             break;
         }
         case 0x2007: //acess: read and write
         {
-            if(writeFlag) writePPUDATA(data);
+            if constexpr(writeFlag) writePPUDATA(data);
             else {
-                data = readPPUDATA();
+
+                if(m_ignoreVideoRamReadCycles > 0) {
+                    openBusMask = 0xFF;
+                }
+                else {
+                    data = readPPUDATA();
+                }
 
                 if(isOnPaletteAddr()) {
                     data &= 0x3F; //the 2 high bits are open and they should be from decay value
@@ -1391,22 +1404,20 @@ yyy NNYY YYYX XXXX
     {
         uint8_t ret;
 
-        if(m_ignoreVideoRamReadCycles == 0) {
+        m_ignoreVideoRamReadCycles = 6;          
+        
+        if(isOnPaletteAddr()) {
+            ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
+            m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
+        }     
+        else {
+            ret = m_dataLatch;
+            m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
+        }     
 
-            m_ignoreVideoRamReadCycles = 6;          
-            
-            if(isOnPaletteAddr()) {
-                ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
-                m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
-            }     
-            else {
-                ret = m_dataLatch;
-                m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
-            }     
-
-            m_needUpdateState = true;
-            m_needIncVideoRam = true;        
-        }
+        m_needUpdateState = true;
+        m_needIncVideoRam = true;        
+        
 
         return ret;
     }
@@ -1470,7 +1481,6 @@ yyy NNYY YYYX XXXX
             m_needUpdateState = true;
         }
 
-
         if(m_update_reg_v_delay > 0) {
             m_update_reg_v_delay--;
             if(m_update_reg_v_delay == 0) {
@@ -1503,6 +1513,9 @@ yyy NNYY YYYX XXXX
             }
         }
 
+        //Delay vram address increment by 1 ppu cycle after a read/write to 2007
+		//This allows the full_palette tests to properly display single-pixel glitches 
+		//that display the "wrong" color on the screen until the increment occurs (matches hardware)
         if(m_needIncVideoRam) {
             m_needIncVideoRam = false;
             incVideoRamAddr();
@@ -1510,7 +1523,10 @@ yyy NNYY YYYX XXXX
 
         if(m_ignoreVideoRamReadCycles > 0) {
             --m_ignoreVideoRamReadCycles;
-            m_needUpdateState = true;
+
+            if(m_ignoreVideoRamReadCycles > 0) {
+                m_needUpdateState = true;
+            }
         }
 
         if(m_updateA12Delay > 0) {
