@@ -300,8 +300,10 @@ private:
 
     GERANES_INLINE_HOT void getAddrIndirectX()
     {
-        uint8_t value = m_bus.read(m_pc++) + m_x;
-        m_addr = MAKE16(m_bus.read(value),m_bus.read( (uint8_t)(value+1) ));
+        uint8_t value = m_bus.read(m_pc++);
+        m_bus.read(value); //dummy read
+        value += m_x;
+        m_addr = MAKE16(m_bus.read(value),m_bus.read( (uint8_t)(value+1) )); 
     }
 
     GERANES_INLINE_HOT void getAddrIndirectY(bool dummyRead = true)
