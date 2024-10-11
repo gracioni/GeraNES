@@ -373,7 +373,7 @@ public:
 
         updateSettings();        
 
-        for(int i = 0; i < 16; i++) cycle(); //need this for read2004.nes
+        for(int i = 0; i < 15; i++) cycle(); //need this for read2004.nes
        
         /* read2004.nes output
         FF FF FF FF AA AA 01 01 10 10

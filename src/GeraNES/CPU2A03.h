@@ -5,10 +5,19 @@
 #include "IBus.h"
 #include "Serialization.h"
 
+#include "Console.h"
+#include "PPU.h"
+#include "APU/APU.h"
+#include "Cartridge.h"
+
+class DMA;
+
 #include "signal/SigSlot.h"
 
 const uint8_t DO_NOT_POOL_INTS = 0xFF;
 const uint8_t BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE = 3;
+
+#ifdef UNUSED_TABLES
 
 static const uint8_t OPCODE_CYCLES_TABLE[256] =
 {
@@ -50,25 +59,23 @@ static const uint8_t OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[256] =
 /*0xE0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 /*0xF0*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
 };
-
-
+#endif
 
 // BRK (NO_POOL)
-// CLI(0x58) SEI(0x78) PLP(0x28) in cycle 0
+// CLI(0x58) SEI(0x78) PLP(0x28) in cycle 1
 // some references (https://www.nesdev.org/wiki/CPU_interrupts) says that branch instructions
-// 0x90 0xB0 0xF0 0x30 0xD0 0x10 0x50 0x70 are polled in cycle 0
-// and all 2 cycles instructions are polled in cycle 0
-// but I think this is wrong
+// 0x90 0xB0 0xF0 0x30 0xD0 0x10 0x50 0x70 are polled in cycle 1
+// and all 2 cycles instructions are polled in cycle 1
 static const uint8_t OPCODE_INT_POOL_CYCLE_TABLE[256] =
 {
 /*0x00*/ DO_NOT_POOL_INTS,5,1,7,2,2,4,4,2,1,1,1,3,3,5,5,
 /*0x10*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
-/*0x20*/ 5,5,1,7,2,2,4,4,0,1,1,1,3,3,5,5,
+/*0x20*/ 5,5,1,7,2,2,4,4,1,1,1,1,3,3,5,5,
 /*0x30*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
 /*0x40*/ 5,5,1,7,2,2,4,4,2,1,1,1,2,3,5,5,
-/*0x50*/ 1,4,1,7,3,3,5,5,0,3,1,6,3,3,6,6,
+/*0x50*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
 /*0x60*/ 5,5,1,7,2,2,4,4,3,1,1,1,4,3,5,5,
-/*0x70*/ 1,4,1,7,3,3,5,5,0,3,1,6,3,3,6,6,
+/*0x70*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
 /*0x80*/ 1,5,1,5,2,2,2,2,1,1,1,1,3,3,3,3,
 /*0x90*/ 1,5,1,5,3,3,3,3,1,4,1,4,4,4,4,4,
 /*0xA0*/ 1,5,1,5,2,2,2,2,1,1,1,1,3,3,3,3,
@@ -81,16 +88,16 @@ static const uint8_t OPCODE_INT_POOL_CYCLE_TABLE[256] =
 
 static const uint8_t OPCODE_WRITE_CYCLES_TABLE[256] =
 {
-/*0x00*/ 0x1C, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
+/*0x00*/ 0x3C, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
 /*0x10*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
-/*0x20*/ 0x1C, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
+/*0x20*/ 0x30, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
 /*0x30*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
 /*0x40*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
 /*0x50*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
 /*0x60*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
 /*0x70*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
 /*0x80*/ 0x00, 0x20, 0x00, 0x20, 0x04, 0x04, 0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x08, 0x08,
-/*0x90*/ 0x00, 0x20, 0x00, 0x00, 0x08, 0x08, 0x08, 0x08, 0x00, 0x10, 0x00, 0x00, 0x10, 0x10, 0x10, 0x00,
+/*0x90*/ 0x00, 0x20, 0x00, 0x20, 0x08, 0x08, 0x08, 0x08, 0x00, 0x10, 0x00, 0x10, 0x10, 0x10, 0x10, 0x10,
 /*0xA0*/ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 /*0xB0*/ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 /*0xC0*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
@@ -140,6 +147,7 @@ private:
     const uint16_t BRK_VECTOR = 0xFFFE;
 
     Ibus& m_bus;
+    Console& m_console;
 
     uint16_t m_pc;
     uint8_t m_sp;
@@ -177,7 +185,6 @@ private:
 
     enum class InterruptCause {NMI, IRQ} m_interruptCause;
 
-    int m_waitCyclesToEmulate;
     bool m_InstructionOrInterruptFlag; //false = instruction cycles, true = interrupt sequence
     int m_haltCycles;
 
@@ -195,14 +202,14 @@ private:
 
     GERANES_INLINE_HOT void push(uint8_t data)
     {
-        m_bus.write(0x0100 + m_sp, data);
+        writeMemory(0x0100 + m_sp, data);
         m_sp--;
     }
 
     GERANES_INLINE_HOT uint8_t pull()
     {
         m_sp++;
-        return m_bus.read(0x0100 + m_sp);
+        return readMemory(0x0100 + m_sp);
     }
 
     GERANES_INLINE_HOT void push16(uint16_t data)
@@ -225,7 +232,7 @@ private:
     }
 
     GERANES_INLINE_HOT void dummyRead() {
-        m_bus.read(m_pc);
+        readMemory(m_pc);
     }
 
     GERANES_INLINE_HOT void getAddrImediate()
@@ -235,94 +242,99 @@ private:
 
     GERANES_INLINE_HOT void getAddrAbsolute()
     {
-        const uint8_t low = m_bus.read(m_pc++);
-        const uint8_t high = m_bus.read(m_pc++);
+        const uint8_t low = readMemory(m_pc++);
+        const uint8_t high = readMemory(m_pc++);
 
         m_addr = MAKE16(low, high);
     }
 
     GERANES_INLINE_HOT void getAddrZeroPage()
     {
-        m_addr = m_bus.read(m_pc++);
+        m_addr = readMemory(m_pc++);
     }
 
     GERANES_INLINE_HOT void getAddrAbsoluteX(bool dummyRead = true)
     {
-        const uint8_t low = m_bus.read(m_pc++);
-        const uint8_t high = m_bus.read(m_pc++);
+        const uint8_t low = readMemory(m_pc++);
+        const uint8_t high = readMemory(m_pc++);
 
         m_addr = MAKE16(low, high); 
 
         bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
 
         //dummy read
-        if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
+        if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
 
-        if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
+        //if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
 
         m_addr += m_x;
     }
 
     GERANES_INLINE_HOT void getAddrAbsoluteY(bool dummyRead = true)
     {
-        const uint8_t low = m_bus.read(m_pc++);
-        const uint8_t high = m_bus.read(m_pc++);
+        const uint8_t low = readMemory(m_pc++);
+        const uint8_t high = readMemory(m_pc++);
 
         m_addr = MAKE16(low, high);
 
         bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
-        if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
-        if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
-
+        //if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
+        
         m_addr += m_y;
     }
 
     GERANES_INLINE_HOT void getAddrZeroPageX()
     {
-        m_addr = (uint8_t)(m_bus.read(m_pc++) + m_x);
+        m_addr = readMemory(m_pc++);
+        readMemory(m_addr); //dummy read
+        m_addr = (uint8_t)(m_addr+m_x);
     }
 
 
     GERANES_INLINE_HOT void getAddrZeroPageY()
     {
-        m_addr = (uint8_t)(m_bus.read(m_pc++) + m_y);
+        m_addr = readMemory(m_pc++);
+        readMemory(m_addr); //dummy read
+        m_addr = (uint8_t)(m_addr+m_y);
     }
 
     GERANES_INLINE_HOT void getAddrIndirect()
     {
-        const uint8_t low = m_bus.read(m_pc++);
-        const uint8_t high = m_bus.read(m_pc++);
+        const uint8_t low = readMemory(m_pc++);
+        const uint8_t high = readMemory(m_pc++);
 
-        m_addr = MAKE16(m_bus.read(MAKE16(low,high)),m_bus.read(MAKE16(low+1,high)));
+        m_addr = MAKE16(readMemory(MAKE16(low,high)),readMemory(MAKE16(low+1,high)));
     }
 
     GERANES_INLINE_HOT void getAddrIndirectX()
     {
-        uint8_t value = m_bus.read(m_pc++);
-        m_bus.read(value); //dummy read
+        uint8_t value = readMemory(m_pc++);
+        readMemory(value); //dummy read
         value += m_x;
-        m_addr = MAKE16(m_bus.read(value),m_bus.read( (uint8_t)(value+1) )); 
+        m_addr = MAKE16(readMemory(value),readMemory( (uint8_t)(value+1) )); 
     }
 
     GERANES_INLINE_HOT void getAddrIndirectY(bool dummyRead = true)
     {
-        uint8_t value = m_bus.read(m_pc++);
-        m_addr = MAKE16(m_bus.read(value),m_bus.read( (uint8_t)(value+1) ));
+        uint8_t value = readMemory(m_pc++);
+        m_addr = MAKE16(readMemory(value),readMemory( (uint8_t)(value+1) ));
 
         bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
         //dummy read
-        if(pageCross || dummyRead) m_bus.read( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
 
-        if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
+        //if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
 
         m_addr += m_y;
     }
 
     GERANES_INLINE_HOT void getAddrRelative()
     {
+        readMemory(m_pc);
         m_addr = m_pc++;
     }
 
@@ -342,12 +354,12 @@ public:
 
     SigSlot::Signal<const std::string&> signalError;
 
-    CPU2A03(Ibus& bus) : m_bus(bus)   {
+    CPU2A03(Ibus& bus, Console& console) : m_bus(bus), m_console(console)   {
     }
 
     void init()
     {
-        m_pc = MAKE16(m_bus.read(0xFFFC),m_bus.read(0xFFFD)); //reset vector
+        m_pc = MAKE16(readMemory(0xFFFC),readMemory(0xFFFD)); //reset vector
 
         m_sp = 0xFD;
         m_status = 0x24;
@@ -372,7 +384,6 @@ public:
         m_nextSequence = false;
         m_poolIntsAtCycle = -1;
 
-        m_waitCyclesToEmulate = 0;
         m_InstructionOrInterruptFlag = false;
         m_haltCycles = 0;
         m_extraCycles = 0;
@@ -384,26 +395,28 @@ public:
 
     GERANES_INLINE_HOT void ADC()
     {
-        unsigned int value = (unsigned int)m_a + m_bus.read(m_addr) + (m_carryFlag?1:0);
+        uint8_t value = readMemory(m_addr);
 
-        m_carryFlag = value>0xFF;        
-        m_overflowFlag = ( !((m_a ^ m_bus.read(m_addr)) & 0x80) && ((m_a ^ value) & 0x80) );
+        unsigned int result = (unsigned int)m_a + value + (m_carryFlag?1:0);
 
-        m_a = (uint8_t)value;
+        m_carryFlag = result>0xFF;        
+        m_overflowFlag = ( !((m_a ^ value) & 0x80) && ((m_a ^ result) & 0x80) );
+
+        m_a = (uint8_t)result;
 
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void AND()
     {
-        m_a &= m_bus.read(m_addr);
+        m_a &= readMemory(m_addr);
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void ASL()
     {
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         m_carryFlag = value & 0x80;
 
@@ -411,11 +424,12 @@ public:
 
         updateZeroAndNegativeFlags(value);
 
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
     }
 
     GERANES_INLINE_HOT void ASL_implied()
     {
+        dummyRead();
         m_carryFlag = (m_a&0x80);
         m_a <<= 1;
         updateZeroAndNegativeFlags(m_a);       
@@ -423,7 +437,7 @@ public:
 
     GERANES_INLINE_HOT void AAC()
 	{
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
         m_a &= value;
 
         updateZeroAndNegativeFlags(m_a);
@@ -435,8 +449,8 @@ public:
     {
         //ASL & ORA
 
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         m_carryFlag = value & 0x80;
 
@@ -446,64 +460,43 @@ public:
 
         updateZeroAndNegativeFlags(m_a);
 
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
+    }
+
+    GERANES_INLINE_HOT void branch(bool condition) {
+
+        if(condition)
+        {
+            uint16_t value = m_pc;
+            m_pc += (int8_t)readMemory(m_addr);
+
+            if( (value ^ m_pc) & 0xFF00 ) {                
+                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
+                dummyRead();
+            }
+            
+        }   
+
     }
 
     GERANES_INLINE_HOT void BCC()
     {
-        if(!m_carryFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }     
-
+        branch(!m_carryFlag);   
     }
 
     GERANES_INLINE_HOT void BCS()
     {
-        if(m_carryFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
+        branch(m_carryFlag); 
     }
 
     GERANES_INLINE_HOT void BEQ()
     {
-        if(m_zeroFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
+        branch(m_zeroFlag);
     }
 
     GERANES_INLINE_HOT void BIT()
     {
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
 
         m_zeroFlag = (m_a & value) == 0x00;
         m_negativeFlag = value & 0x80;
@@ -512,61 +505,22 @@ public:
 
     GERANES_INLINE_HOT void BMI()
     {
-        if(m_negativeFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
-
+        branch(m_negativeFlag);
     }
 
     GERANES_INLINE_HOT void BNE()
     {
-        if(!m_zeroFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
+        branch(!m_zeroFlag);
     }
 
     GERANES_INLINE_HOT void BPL()
     {
-        if(!m_negativeFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
-
+        branch(!m_negativeFlag);
     }
 
     GERANES_INLINE_HOT void BRK()
     {
-        //dummy read the next opcode
-        m_bus.read(m_pc);
+        dummyRead();
 
         push16(m_pc+1);
         m_brkFlag = true;
@@ -575,11 +529,11 @@ public:
         m_intFlag = true;
 
         if(m_nmiSignal && m_nmiAtInstructionCycle < 5){
-            m_pc = MAKE16(m_bus.read(NMI_VECTOR),m_bus.read(NMI_VECTOR+1));
+            m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
             m_nmiSignal = false;
         }
         else
-            m_pc = MAKE16(m_bus.read(BRK_VECTOR), m_bus.read(BRK_VECTOR+1));
+            m_pc = MAKE16(readMemory(BRK_VECTOR), readMemory(BRK_VECTOR+1));
 
         m_irqSignal = false;
 
@@ -588,61 +542,41 @@ public:
 
     GERANES_INLINE_HOT void BVC()
     {
-        if(!m_overflowFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
+        branch(!m_overflowFlag);
     }
 
     GERANES_INLINE_HOT void BVS()
     {
-        if(m_overflowFlag)
-        {
-            uint16_t value = m_pc;
-            m_pc += (int8_t)m_bus.read(m_addr);
-
-            if( (value ^ m_pc) & 0xFF00 ) {
-                m_extraCycles = 2;
-                m_poolIntsAtCycle = BRANCH_TAKEN_PAGECROSS_POLL_INTS_AT_CYCLE;
-            }
-            else {
-                m_extraCycles = 1;
-            }
-        }
+        branch(m_overflowFlag);
     }
 
     GERANES_INLINE_HOT void CLC()
     {
+        dummyRead();
         m_carryFlag = false;       
     }
 
     GERANES_INLINE_HOT void CLD()
     {
+        dummyRead();
         m_decimalFlag = false;        
     }
 
     GERANES_INLINE_HOT void CLI()
     {
+        dummyRead();
         m_intFlag = false; 
     }
 
     GERANES_INLINE_HOT void CLV()
     {
+        dummyRead();
         m_overflowFlag = false;
     }
 
     GERANES_INLINE_HOT void CMP()
     {
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
 
         m_carryFlag = m_a >= value;
 
@@ -653,7 +587,7 @@ public:
 
     GERANES_INLINE_HOT void CPX()
     {
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
 
         m_carryFlag = m_x >= value;
 
@@ -664,7 +598,7 @@ public:
 
     GERANES_INLINE_HOT void CPY()
     {
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
 
         m_carryFlag = m_y >= value;
 
@@ -675,14 +609,14 @@ public:
 
     GERANES_INLINE_HOT void DEC()
     {
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         value--;
 
         updateZeroAndNegativeFlags(value);
 
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
     }
 
     GERANES_INLINE_HOT void U_DCP()
@@ -690,11 +624,11 @@ public:
 		//DEC & CMP
 
         //DEC
-		uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+		uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 		value--;
 
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
 		
         //CMP
         m_carryFlag = m_a >= value;
@@ -704,6 +638,7 @@ public:
 
     GERANES_INLINE_HOT void DEX()
     {
+        dummyRead();
         m_x--;
         updateZeroAndNegativeFlags(m_x);        
     }
@@ -711,7 +646,7 @@ public:
     void U_AXS()
 	{
 		//CMP & DEX
-		uint8_t value = m_bus.read(m_addr);
+		uint8_t value = readMemory(m_addr);
 		uint8_t result = (m_a & m_x) - value;
 		
 		m_carryFlag = (m_a & m_x) >= value;
@@ -722,33 +657,34 @@ public:
 
     GERANES_INLINE_HOT void DEY()
     {
+        dummyRead();
         m_y--;
         updateZeroAndNegativeFlags(m_y);    
     }
 
     GERANES_INLINE_HOT void EOR()
     {
-        m_a ^= m_bus.read(m_addr);
+        m_a ^= readMemory(m_addr);
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT  void INC()
     {
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         value++;
 
         updateZeroAndNegativeFlags(value);
 
-        m_bus.write(m_addr,value);
+        writeMemory(m_addr,value);
     } 
 
     GERANES_INLINE_HOT void U_ISB()
     {
         //INC & SBC
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write        
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write        
         value++;
 
         //ADC
@@ -760,17 +696,19 @@ public:
 
         updateZeroAndNegativeFlags(m_a);
 
-        m_bus.write(m_addr, value);      
+        writeMemory(m_addr, value);      
     }
 
     GERANES_INLINE_HOT void INX()
     {
+        dummyRead();
         m_x++;
         updateZeroAndNegativeFlags(m_x);        
     }
 
     GERANES_INLINE_HOT void INY()
     {
+        dummyRead();
         m_y++;
         updateZeroAndNegativeFlags(m_y);                
     }
@@ -782,48 +720,50 @@ public:
 
     GERANES_INLINE_HOT void JSR()
     {
+        dummyRead();
         push16(m_pc-1);
         m_pc = m_addr;
     }
 
     GERANES_INLINE_HOT void LDA()
     {
-        m_a = m_bus.read(m_addr);
+        m_a = readMemory(m_addr);
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void U_LAX()
 	{
 		//LDA & LDX
-		m_a = m_bus.read(m_addr);
+		m_a = readMemory(m_addr);
         updateZeroAndNegativeFlags(m_a);
 		m_x = m_a;
 	}
 
     GERANES_INLINE_HOT void LDX()
     {
-        m_x = m_bus.read(m_addr);
+        m_x = readMemory(m_addr);
         updateZeroAndNegativeFlags(m_x);
     }
 
     GERANES_INLINE_HOT void LDY()
     {
-        m_y = m_bus.read(m_addr);
+        m_y = readMemory(m_addr);
         updateZeroAndNegativeFlags(m_y);
     }
 
     GERANES_INLINE_HOT void LSR()
     {
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write        
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write        
         m_carryFlag = value & 0x01;
         value >>= 1;
         updateZeroAndNegativeFlags(value);
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
     }
 
     GERANES_INLINE_HOT void LSR_implied()
     {
+        dummyRead();
         m_carryFlag = m_a & 0x01;
         m_a >>= 1;
         updateZeroAndNegativeFlags(m_a);       
@@ -831,7 +771,7 @@ public:
 
     GERANES_INLINE_HOT void U_ASR()
 	{
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
 
         m_a &= value;
 
@@ -845,8 +785,8 @@ public:
     GERANES_INLINE_HOT void U_SRE()
 	{
 		//ROL & AND
-		uint8_t value = m_bus.read(m_addr);
-		m_bus.write(m_addr, value); //dummy write
+		uint8_t value = readMemory(m_addr);
+		writeMemory(m_addr, value); //dummy write
 
         m_carryFlag = value & 0x01;
         value >>= 1;              
@@ -854,30 +794,34 @@ public:
         m_a ^= value;
         updateZeroAndNegativeFlags(m_a); 
 
-		m_bus.write(m_addr, value);
+		writeMemory(m_addr, value);
 	}
 
     GERANES_INLINE_HOT void NOP()
     {
+        readMemory(m_addr);
     }
 
     GERANES_INLINE_HOT void U_DOP()
-    {        
+    {
+        readMemory(m_addr);     
     }
 
     GERANES_INLINE_HOT void ORA()
     {
-        m_a |= m_bus.read(m_addr);
+        m_a |= readMemory(m_addr);
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void PHA()
     {
+        dummyRead();
         push(m_a);       
     }
 
     GERANES_INLINE_HOT void PHP()
     {
+        dummyRead();
         m_brkFlag = true;
         m_unusedFlag = true;
         push(m_status);        
@@ -885,19 +829,23 @@ public:
 
     GERANES_INLINE_HOT void PLA()
     {
+        dummyRead();
+        dummyRead(); //GERA REMOVER timing erro
         m_a = pull();
         updateZeroAndNegativeFlags(m_a);       
     }
 
     GERANES_INLINE_HOT void PLP()
     {
+        dummyRead();
+        dummyRead();
         m_status = pull();        
     }
 
     GERANES_INLINE_HOT void ROL()
     {
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         bool outputCarry = value & 0x80;
 
@@ -907,11 +855,13 @@ public:
         m_carryFlag = outputCarry;
         updateZeroAndNegativeFlags(value);
 
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
     }
 
     GERANES_INLINE_HOT void ROL_implied()
     {
+        dummyRead();
+
         bool outputCarry = m_a&0x80;
 
         m_a <<= 1;
@@ -925,8 +875,8 @@ public:
 	{
 		//LSR & EOR
 
-		uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+		uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         //ROL
 		bool outputCarry = value & 0x80;
@@ -940,13 +890,13 @@ public:
 
         updateZeroAndNegativeFlags(m_a);
 
-		m_bus.write(m_addr, value);
+		writeMemory(m_addr, value);
 	}
 
     GERANES_INLINE_HOT void ROR()
     {
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         bool outputCarry = value & 0x01;
 
@@ -956,11 +906,13 @@ public:
         m_carryFlag = outputCarry;
         updateZeroAndNegativeFlags(value);
 
-        m_bus.write(m_addr,value);
+        writeMemory(m_addr,value);
     }
 
     GERANES_INLINE_HOT void ROR_implied()
     {
+        dummyRead();
+
         bool outputCarry = m_a&0x01;
 
         m_a >>= 1;
@@ -972,7 +924,7 @@ public:
 
     void U_ARR()
 	{
-        uint8_t value = m_bus.read(m_addr);
+        uint8_t value = readMemory(m_addr);
 
         m_a = ((m_a & value) >> 1) | (m_carryFlag ? 0x80 : 0x00);
         updateZeroAndNegativeFlags(m_a);
@@ -985,8 +937,8 @@ public:
         //ROR & ADC
 
         //ROR
-        uint8_t value = m_bus.read(m_addr);
-        m_bus.write(m_addr, value); //dummy write
+        uint8_t value = readMemory(m_addr);
+        writeMemory(m_addr, value); //dummy write
 
         bool outputCarry = value & 0x01;
 
@@ -1004,30 +956,35 @@ public:
 
         updateZeroAndNegativeFlags(m_a);     
 
-        m_bus.write(m_addr, value);
+        writeMemory(m_addr, value);
     }
 
     GERANES_INLINE_HOT void RTI()
     {        
-        m_bus.read(m_pc); //dummy read the next opcode
+        dummyRead();
+        dummyRead();
         m_status = pull();
         m_pc = pull16();
     }
 
     GERANES_INLINE_HOT void RTS()
-    {        
-        m_bus.read(m_pc); //dummy read the next opcode
+    {       
+        dummyRead(); 
+        dummyRead();
+        dummyRead();
         m_pc = pull16()+1;        
     }
 
     GERANES_INLINE_HOT void SBC()
     {
-        unsigned int value = (unsigned int)m_a - m_bus.read(m_addr) - (m_carryFlag?0:1);
+        uint8_t value = readMemory(m_addr);
 
-        m_carryFlag = (value < 0x100);
-        m_overflowFlag = (((m_a ^ value) & 0x80) && ((m_a ^ m_bus.read(m_addr)) & 0x80));
+        unsigned int result = (unsigned int)m_a - value - (m_carryFlag?0:1);
 
-        m_a = value & 0xFF;
+        m_carryFlag = (result < 0x100);
+        m_overflowFlag = (((m_a ^ result) & 0x80) && ((m_a ^ value) & 0x80));
+
+        m_a = result & 0xFF;
 
         updateZeroAndNegativeFlags(m_a);
     }
@@ -1038,42 +995,46 @@ public:
 
     GERANES_INLINE_HOT void SEC()
     {
+        dummyRead();
         m_carryFlag = true;       
     }
 
     GERANES_INLINE_HOT void SED()
     {
+        dummyRead();
         m_decimalFlag = true;        
     }
 
     GERANES_INLINE_HOT void SEI()
     {
+        dummyRead();
         m_intFlag = true;        
     }
 
     GERANES_INLINE_HOT void STA()
     {
-        m_bus.write(m_addr, m_a);
+        writeMemory(m_addr, m_a);
     }
 
     GERANES_INLINE_HOT void STX()
     {
-        m_bus.write(m_addr, m_x);
+        writeMemory(m_addr, m_x);
     }
 
     GERANES_INLINE_HOT void U_SAX()
 	{
 		//STA & STX
-        m_bus.write(m_addr, m_a & m_x);
+        writeMemory(m_addr, m_a & m_x);
 	}
 
     GERANES_INLINE_HOT void STY()
     {
-        m_bus.write(m_addr, m_y);
+        writeMemory(m_addr, m_y);
     }
 
     GERANES_INLINE_HOT void TAX()
     {
+        dummyRead();
         m_x = m_a;
         updateZeroAndNegativeFlags(m_x);        
     }
@@ -1081,7 +1042,7 @@ public:
     GERANES_INLINE_HOT void U_ATX()
 	{
 		//LDA & TAX
-		uint8_t value = m_bus.read(m_addr);
+		uint8_t value = readMemory(m_addr);
 		m_a = value; //LDA
 		m_x = m_a; //TAX		
 
@@ -1090,30 +1051,35 @@ public:
 
     GERANES_INLINE_HOT void TAY()
     {
+        dummyRead();
         m_y = m_a;
         updateZeroAndNegativeFlags(m_y);       
     }
 
     GERANES_INLINE_HOT void TYA()
     {
+        dummyRead();
         m_a = m_y;
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void TSX()
     {
+        dummyRead();
         m_x = m_sp;
         updateZeroAndNegativeFlags(m_x);        
     }
 
     GERANES_INLINE_HOT void TXA()
     {
+        dummyRead();
         m_a = m_x;
         updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void TXS()
     {
+        dummyRead();
         m_sp = m_x;       
     }
 
@@ -1121,7 +1087,7 @@ public:
     {		
 		//"This opcode stores the result of A AND X AND the high byte of the target address of the operand +1 in memory."	
 		//This may not be the actual behavior, but the read/write operations are needed for proper cycle counting
-		m_bus.write(m_addr, ((m_addr >> 8) + 1) & m_a & m_x);       
+		writeMemory(m_addr, ((m_addr >> 8) + 1) & m_a & m_x);       
     }
 
     GERANES_INLINE_HOT void U_TAS()
@@ -1130,7 +1096,7 @@ public:
 		//pointer, then AND stack pointer with the high byte of the
 		//target address of the argument + 1. Store result in memory."
 		m_sp = m_x & m_a;
-        m_bus.write(m_addr, m_sp & ((m_addr >> 8) + 1));
+        writeMemory(m_addr, m_sp & ((m_addr >> 8) + 1));
 	}
 
     GERANES_INLINE_HOT void U_SYA() {
@@ -1142,17 +1108,27 @@ public:
 		//From here: http://forums.nesdev.com/viewtopic.php?f=3&t=3831&start=30
 		//Unsure if this is accurate or not
 		//"the target address for e.g. SYA becomes ((y & (addr_high + 1)) << 8) | addr_low instead of the normal ((addr_high + 1) << 8) | addr_low"
-        m_bus.write(((m_y & (addrHigh + 1)) << 8) | addrLow, value);
+        writeMemory(((m_y & (addrHigh + 1)) << 8) | addrLow, value);
     }
 
     GERANES_INLINE_HOT void U_SXA() {
         const uint8_t addrHigh = m_addr >> 8;
 		const uint8_t addrLow = m_addr & 0xFF;
 		const uint8_t value = m_x & (addrHigh + 1);
-        m_bus.write(((m_x & (addrHigh + 1)) << 8) | addrLow, value);
+        writeMemory(((m_x & (addrHigh + 1)) << 8) | addrLow, value);
+    }
+
+    GERANES_INLINE_HOT void U_LAS() {
+		//"AND memory with stack pointer, transfer result to accumulator, X register and stack pointer."
+		uint8_t value = readMemory(m_addr);
+		m_a = value & m_sp;
+		m_x = m_a;
+		m_sp = m_a;
+        updateZeroAndNegativeFlags(m_a);
     }
 
     GERANES_INLINE_HOT void U_UNK() {
+        dummyRead();
     }
 
     GERANES_INLINE_HOT bool checkInterrupts()
@@ -1178,6 +1154,7 @@ public:
 
     GERANES_INLINE_HOT void emulateInterruptSequence()
     {
+        dummyRead();
         push16(m_pc);
         m_brkFlag = false;
         m_unusedFlag = true;
@@ -1185,16 +1162,16 @@ public:
         m_intFlag = true;   
 
         if(m_interruptCause == InterruptCause::NMI) {
-            m_pc = MAKE16(m_bus.read(NMI_VECTOR),m_bus.read(NMI_VECTOR+1));
+            m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
         }
         else {
 
             if(m_nmiSignal && m_nmiAtInstructionCycle < 5) {
-                m_pc = MAKE16(m_bus.read(NMI_VECTOR),m_bus.read(NMI_VECTOR+1));
+                m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
 
             }
             else {
-                m_pc = MAKE16(m_bus.read(IRQ_VECTOR), m_bus.read(IRQ_VECTOR+1));
+                m_pc = MAKE16(readMemory(IRQ_VECTOR), readMemory(IRQ_VECTOR+1));
             }
 
         }
@@ -1204,7 +1181,7 @@ public:
     {
         switch(addrMode[m_opcode]) {
             case AddrMode::Acc:
-            case AddrMode::Imp: dummyRead(); break;
+            case AddrMode::Imp: m_addr = 0; break;
             case AddrMode::Imm: getAddrImediate(); break;
             case AddrMode::Rel: getAddrRelative(); break;
             case AddrMode::Zero: getAddrZeroPage(); break;
@@ -1414,6 +1391,7 @@ public:
             case 0xB8: CLV(); break;
             case 0xB9: LDA(); break;
             case 0xBA: TSX(); break;
+            case 0xBB: U_LAS(); break;
             case 0xBC: LDY(); break;
             case 0xBD: LDA(); break;
             case 0xBE: LDX(); break;
@@ -1485,89 +1463,30 @@ public:
         };
     }
 
-    GERANES_INLINE_HOT void begin() {
-
-        if(m_waitCyclesToEmulate == 0 && m_extraCycles == 0) {
-
-            m_currentInstructionCycle = 0;
-            m_nmiAtInstructionCycle = 0;            
-
-            m_InstructionOrInterruptFlag  = m_nextSequence;
-
-            if(m_InstructionOrInterruptFlag) {
-                m_opcode = 0x00; //BRK
-                m_waitCyclesToEmulate = 7; //interrupt sequence
-                m_nextSequence = false;
-                m_poolIntsAtCycle = DO_NOT_POOL_INTS;
-            }
-            else {
-                m_opcode = m_bus.read(m_pc++);
-                m_waitCyclesToEmulate = OPCODE_CYCLES_TABLE[m_opcode];                          
-                m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
-                fetchOperand();               
-            }
-        }
-
-    }
-
-    GERANES_INLINE_HOT void phi1()
-    {
-        if(!isHalted()) {
-
-            _phi1();
-
-            if(m_extraCycles > 0) {
-                m_extraCycles--;
-            }
-            else {
-
-                if(--m_waitCyclesToEmulate == 0) {
-
-                    if(m_InstructionOrInterruptFlag){
-                        emulateInterruptSequence();
-                    }
-                    else {                                            
-                        emulateOpcode();                        
-                    }
-
-                }
-
-            }
-
-        }        
-    }
-
     GERANES_INLINE void phi2(bool nmiState, bool irqState) {
-
-        if(!isHalted()) {
-
-            if(m_poolIntsAtCycle == m_currentInstructionCycle) {
-                m_nextSequence = checkInterrupts();
-            }
-
-            switch(m_nmiStep) {
-
-                case NmiStep::WAITING_LOW:
-                    if(!nmiState) m_nmiStep = NmiStep::WAITING_HIGH;
-                    break;
-
-                case NmiStep::WAITING_HIGH:
-                    if(nmiState) m_nmiStep = NmiStep::OK;
-                    break;
-
-                case NmiStep::OK:
-                    assert(false); //should never occur
-                    break;
-            }
-
-            m_irqStep = irqState;
-
-            m_currentInstructionCycle++;
+        
+        if(m_poolIntsAtCycle == m_currentInstructionCycle) {
+            m_nextSequence = checkInterrupts();
         }
 
-        m_cyclesCounter++;
+        switch(m_nmiStep) {
 
-        if(m_haltCycles > 0) --m_haltCycles;
+            case NmiStep::WAITING_LOW:
+                if(!nmiState) m_nmiStep = NmiStep::WAITING_HIGH;
+                break;
+
+            case NmiStep::WAITING_HIGH:
+                if(nmiState) m_nmiStep = NmiStep::OK;
+                break;
+
+            case NmiStep::OK:
+                assert(false); //should never occur
+                break;
+        }
+
+        m_irqStep = irqState;
+
+        m_currentInstructionCycle++; 
     }
 
 
@@ -1577,7 +1496,7 @@ public:
     }
 
     GERANES_INLINE bool isOpcodeWriteCycle(int offset = 0) {
-        return ((OPCODE_WRITE_CYCLES_TABLE[m_opcode] >> (m_currentInstructionCycle+offset)) & 0x01) != 0;
+       return ((OPCODE_WRITE_CYCLES_TABLE[m_opcode] >> (m_currentInstructionCycle+offset)) & 0x01) != 0;
     }
 
     GERANES_INLINE bool isOddCycle() {
@@ -1587,6 +1506,67 @@ public:
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
     }
+
+    int m_runCount = 0;
+    
+    GERANES_INLINE_HOT int run() {
+
+        m_runCount = 0;
+        m_currentInstructionCycle = 0; 
+        m_nmiAtInstructionCycle = 0;           
+        m_InstructionOrInterruptFlag = m_nextSequence;
+        m_addr = 0;
+
+        if(m_InstructionOrInterruptFlag) {
+            m_opcode = 0x00; //BRK
+            dummyRead();        
+            m_nextSequence = false;
+            m_poolIntsAtCycle = DO_NOT_POOL_INTS;
+            emulateInterruptSequence();
+        }
+        else {
+            m_opcode = readMemory(m_pc++);                       
+            m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
+            fetchOperand();
+            emulateOpcode();           
+        }
+
+        return m_runCount;
+    }
+
+    GERANES_INLINE_HOT uint8_t readMemory(uint16_t addr) {
+
+        beginCycle();
+
+        while(m_haltCycles > 0) {     
+            endCycle();
+            m_haltCycles--;
+            beginCycle();
+        }
+
+        uint8_t ret =  m_bus.read(addr);
+        
+        endCycle();        
+        
+        return ret;
+    }
+
+    GERANES_INLINE_HOT void writeMemory(uint16_t addr, uint8_t value) {
+
+        beginCycle();
+
+        assert(!isHalted());
+
+        assert(isOpcodeWriteCycle());
+
+        m_bus.write(addr, value);   
+        
+        endCycle();
+    }
+
+    void beginCycle();
+
+    void endCycle();  
 
     void serialization(SerializationBase& s)
     {
@@ -1603,7 +1583,6 @@ public:
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
         SERIALIZEDATA(s, m_irqStep);
-        SERIALIZEDATA(s, m_waitCyclesToEmulate);
         SERIALIZEDATA(s, m_InstructionOrInterruptFlag);
         SERIALIZEDATA(s, m_haltCycles);
         SERIALIZEDATA(s, m_extraCycles);
@@ -1616,11 +1595,56 @@ public:
     }
 
     uint16_t busAddr() {  
-        return m_currentInstructionCycle > 2 ? m_addr : 0;
+        return m_addr;
     }
 
 
 };
+
+#include "DMA.h"
+
+GERANES_INLINE_HOT void CPU2A03::beginCycle() {
+
+    //PPU   X---X---X---X---X---X---X---X---X---X---X-...
+    //CPU   --X-----------X-----------X-----------X---...
+    //CPU   --1-------2---1-------2---1-------2---1---...
+
+    if(!m_console.ppu().inOverclockLines()){              
+        m_console.dma().cycle();
+        m_console.apu().cycle();                           
+    }
+   
+}
+
+GERANES_INLINE_HOT void CPU2A03::endCycle() {
+
+    if(!isHalted()) _phi1();    
+
+    m_console.ppu().ppuCycle();      
+
+    m_console.ppu().ppuCycle();          
+
+    if(!m_console.ppu().inOverclockLines()) {
+        
+        if(!isHalted()) {
+            phi2(
+                m_console.ppu().getInterruptFlag(),
+                m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
+            );
+        }        
+        
+        m_console.cartridge().cycle();
+    }
+       
+
+    m_console.ppu().ppuCyclePAL(); 
+
+    m_console.ppu().ppuCycle();
+
+    m_runCount++;
+
+    m_cyclesCounter++;
+}
 
 
 

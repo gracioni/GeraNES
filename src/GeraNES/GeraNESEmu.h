@@ -11,6 +11,7 @@
 #include "Settings.h"
 #include "IAudioOutput.h"
 #include "DMA.h"
+#include "Console.h"
 
 #include "Serialization.h"
 
@@ -35,6 +36,7 @@ private:
     uint8_t m_ram[0x800]; //2K
     Controller m_controller1;
     Controller m_controller2;
+    Console m_console;
 
     uint32_t m_update_cycles;
 
@@ -42,6 +44,8 @@ private:
     bool m_newFrame;
 
     bool m_halt;
+
+    int m_cpuCyclesAcc;
 
     uint32_t m_cyclesPerSecond;
 
@@ -220,28 +224,19 @@ public:
     SigSlot::Signal<> signalFrameReady;
 
     GeraNESEmu(IAudioOutput& audioOutput = DummyAudioOutput::instance()) :
-        m_settings(),
-        m_audioOutput(audioOutput),
-        m_cartridge(),
-        m_cpu(*this),
-        m_ppu(m_settings, m_cartridge),
-        m_apu(m_audioOutput,m_settings),
-        m_dma(*this, m_apu.getSampleChannel(), m_cpu),
-        m_controller1(),
-        m_controller2(),
-        m_rewind(*this)
+    m_settings(),
+    m_audioOutput(audioOutput),
+    m_cartridge(),
+    m_cpu(*this, m_console),
+    m_ppu(m_settings, m_cartridge),
+    m_apu(m_audioOutput,m_settings),
+    m_dma(*this, m_apu.getSampleChannel(), m_cpu),
+    m_controller1(),
+    m_controller2(),
+    m_rewind(*this),
+    m_console(m_cpu, m_ppu, m_dma, m_apu, m_cartridge)
     {
-        m_halt = false;        
-
-        m_update_cycles = 0;
-
-        renderAudioCyclesAcc = 0;
-
-        m_frameCount = 0;
-
-        m_saveStateFlag = false;
-        m_loadStateFlag = false;
-        m_runningLoop = false;
+        init();
 
         m_cpu.signalError.bind(&GeraNESEmu::onError, this);
 
@@ -252,6 +247,26 @@ public:
 
     ~GeraNESEmu()
     {
+    }
+
+    void init() {
+
+        m_halt = false;        
+
+        m_update_cycles = 0;
+
+        m_cpuCyclesAcc = 1;
+        renderAudioCyclesAcc = 0;
+
+        m_frameCount = 0;
+
+        m_saveStateFlag = false;
+        m_loadStateFlag = false;
+        m_runningLoop = false;
+
+        m_openBus = 0;
+
+        memset(m_ram, 0, sizeof(m_ram));            
     }
 
     //maxTime - seconds
@@ -285,14 +300,7 @@ public:
 
         if(result) { //no errors
 
-            m_halt = false;
-            m_4011WriteCounter = 0;
-            m_newFrame = false;
-            m_frameCount = 0;
-
-            memset(m_ram, 0, sizeof(m_ram));
-
-            m_openBus = 0;
+            init();            
 
             switch(m_cartridge.system()) {
 
@@ -334,36 +342,7 @@ public:
     GERANES_HOT void write(int addr, uint8_t data) override
     {
         busReadWrite<true>(addr,data);
-    } 
-
-    GERANES_INLINE_HOT void cycle() {
-
-        //PPU   X---X---X---X---X---X---X---X---X---X---X-...
-        //CPU   --X-----------X-----------X-----------X---...
-        //CPU   --1-------2---1-------2---1-------2---1---...
-
-        m_ppu.ppuCycle();
-
-        m_cpu.begin();
-
-        if(!m_ppu.inOverclockLines()){
-            m_dma.cycle();
-            m_apu.cycle();            
-        }
-
-        m_cpu.phi1();    
-    
-        m_ppu.ppuCycle();      
-    
-        m_ppu.ppuCycle();          
-
-        if(!m_ppu.inOverclockLines()) {
-            m_cpu.phi2(m_ppu.getInterruptFlag(), m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag());
-            m_cartridge.cycle();
-        }
-
-        m_ppu.ppuCyclePAL(); 
-    }
+    }    
 
     /**
      * Return true on new frame
@@ -392,8 +371,10 @@ public:
         m_runningLoop = true;
 
         while(loop)
-        {            
-            cycle();            
+        {           
+            if(--m_cpuCyclesAcc) {
+                m_cpuCyclesAcc = m_cpu.run();
+            }          
 
             if constexpr(!waitForNewFrame) {
                 
@@ -563,6 +544,7 @@ public:
         m_settings.serialization(s);
         m_dma.serialization(s);
 
+        SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
         SERIALIZEDATA(s, renderAudioCyclesAcc);

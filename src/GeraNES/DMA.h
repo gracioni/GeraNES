@@ -1,11 +1,10 @@
 #ifndef DMA_H
 #define DMA_H
 
-#include "CPU2A03.h"
 #include "IBus.h"
 #include "APU/APU.h"
 
-//#include <cassert>
+class CPU2A03;
 
 class DMA {
 
@@ -65,126 +64,7 @@ public:
         dmcReload = false;
     }
 
-    void cycle()
-    {
-
-        if (m_state == State::NONE)
-            return;
-
-        switch (m_state)
-        {
-
-        case State::START_OAM:
-
-            if (!m_cpu.isOpcodeWriteCycle())
-            {
-                m_cpu.halt(1);
-                m_state = State::READ;      
-            }
-            break;
-
-        case State::START_DMC:   
-
-            if (!m_cpu.isOpcodeWriteCycle() && (dmcReload || (!dmcReload && m_cpu.isOddCycle())))
-            {
-                m_cpu.halt(1);
-                m_state = State::DUMMY;
-            }
-            break;
-
-        case State::DUMMY:
-
-            m_state = State::READ;
-            m_cpu.halt(1);  
-
-            m_bus.read(m_cpu.busAddr());
-
-            break;
-
-        case State::READ:
-
-            if(m_cpu.isOddCycle()) // align test
-            {
-                if (m_dmcCounter > 0 && m_dmcSkip == DmcSkip::NONE) // dmc dma has priority over oam dma
-                {
-                    m_data = m_bus.read(m_dmcAddr);
-
-                    m_sampleChannel.loadSampleBuffer(m_data);
-
-                    --m_dmcCounter;
-
-                    if (m_dmcCounter == 0 && m_oamCounter == 0) {
-                        m_state = State::NONE;
-                    }
-                    else
-                        m_state = State::READ;
-                }
-                else if (m_oamCounter > 0)
-                {
-
-                    m_data = m_bus.read(m_oamAddr++);
-                    --m_oamCounter;
-
-                    m_state = State::WRITE;
-                }
-                else
-                    m_state = State::NONE;
-            }
-            else {
-                m_bus.read(m_cpu.busAddr());
-            }
-
-            m_cpu.halt(1);
-
-            break;
-
-        case State::WRITE:
-
-            // assert (m_cpu.isOddCycle() == false );
-
-            m_bus.write(0x2004, m_data);
-            
-            --m_oamCounter;
-
-            if (m_dmcCounter == 0 && m_oamCounter == 0)
-            {
-                assert(m_dmcSkip == DmcSkip::NONE);
-
-                m_state = State::NONE;
-            }
-            else
-            {
-
-                if (m_oamCounter == 0 && m_dmcSkip != DmcSkip::NONE)
-                {
-                    assert(m_dmcCounter > 0);
-
-                    if (m_dmcSkip == DmcSkip::SECOND_TO_LAST_PUT)
-                    {
-                        m_state = State::READ;
-                    }
-                    else if (m_dmcSkip == DmcSkip::LAST_PUT)
-                    {
-                        m_state = State::START_DMC;
-                        dmcReload = false;              
-                    }
-
-                    m_dmcSkip = DmcSkip::NONE;
-                }
-                else
-                    m_state = State::READ;
-            }
-
-            m_cpu.halt(1);
-
-            break;
-        
-        default:
-            break;
-
-        }
-        
-    }
+    void cycle();
 
     void OAMRequest(uint16_t addr) {
 
@@ -192,9 +72,7 @@ public:
             m_state = State::START_OAM;
         }
         m_oamAddr = addr;
-        m_oamCounter = 512;
-
-        
+        m_oamCounter = 512;        
     }
 
     void dmcRequest(uint16_t addr, bool reload) { 
@@ -212,7 +90,6 @@ public:
             else if(m_oamCounter <= 4) {
                 m_dmcSkip = DmcSkip::SECOND_TO_LAST_PUT;
             }
-
         }       
 
         m_dmcAddr = addr;
@@ -220,5 +97,129 @@ public:
     }  
 
 };
+
+#include "CPU2A03.h"
+
+GERANES_INLINE_HOT void DMA::cycle()
+{
+
+    if (m_state == State::NONE)
+        return;
+
+    switch (m_state)
+    {
+
+    case State::START_OAM:
+
+        if (!m_cpu.isOpcodeWriteCycle())
+        {
+            m_cpu.halt(1);
+            m_state = State::READ;      
+        }
+        break;
+
+    case State::START_DMC:   
+
+        if (!m_cpu.isOpcodeWriteCycle() && (dmcReload || (!dmcReload && m_cpu.isOddCycle())))
+        {
+            m_cpu.halt(1);
+            m_state = State::DUMMY;
+        }
+        break;
+
+    case State::DUMMY:
+
+        m_state = State::READ;
+        m_cpu.halt(1);  
+
+        m_bus.read(m_cpu.busAddr());
+
+        break;
+
+    case State::READ:
+
+        if(m_cpu.isOddCycle()) // align test
+        {
+            if (m_dmcCounter > 0 && m_dmcSkip == DmcSkip::NONE) // dmc dma has priority over oam dma
+            {
+                m_data = m_bus.read(m_dmcAddr);
+
+                m_sampleChannel.loadSampleBuffer(m_data);
+
+                --m_dmcCounter;
+
+                if (m_dmcCounter == 0 && m_oamCounter == 0) {
+                    m_state = State::NONE;
+                }
+                else
+                    m_state = State::READ;
+            }
+            else if (m_oamCounter > 0)
+            {
+
+                m_data = m_bus.read(m_oamAddr++);
+                --m_oamCounter;
+
+                m_state = State::WRITE;
+            }
+            else
+                m_state = State::NONE;
+        }
+        else {
+            m_bus.read(m_cpu.busAddr());
+        }
+
+        m_cpu.halt(1);
+
+        break;
+
+    case State::WRITE:
+
+        // assert (m_cpu.isOddCycle() == false );
+
+        m_bus.write(0x2004, m_data);
+        
+        --m_oamCounter;
+
+        if (m_dmcCounter == 0 && m_oamCounter == 0)
+        {
+            assert(m_dmcSkip == DmcSkip::NONE);
+
+            m_state = State::NONE;
+        }
+        else
+        {
+
+            if (m_oamCounter == 0 && m_dmcSkip != DmcSkip::NONE)
+            {
+                assert(m_dmcCounter > 0);
+
+                if (m_dmcSkip == DmcSkip::SECOND_TO_LAST_PUT)
+                {
+                    m_state = State::READ;
+                }
+                else if (m_dmcSkip == DmcSkip::LAST_PUT)
+                {
+                    m_state = State::START_DMC;
+                    dmcReload = false;              
+                }
+
+                m_dmcSkip = DmcSkip::NONE;
+            }
+            else
+                m_state = State::READ;
+        }
+
+        m_cpu.halt(1);
+
+        break;
+    
+    default:
+        break;
+
+    }
+    
+}
+
 
 #endif // DMA_H
