@@ -1391,9 +1391,9 @@ yyy NNYY YYYX XXXX
             m_reg_t = (m_reg_t & 0xFF00) | (static_cast<uint16_t>(data));
 
             m_needUpdateState = true;
-            m_update_reg_v_delay = 2;
+            m_update_reg_v_delay = 3;
             m_update_reg_v_value = m_reg_t;
-
+            
             calculateDebugCursor();
         }
 
@@ -1484,21 +1484,8 @@ yyy NNYY YYYX XXXX
         if(m_update_reg_v_delay > 0) {
             m_update_reg_v_delay--;
             if(m_update_reg_v_delay == 0) {
-                if(m_renderLine && isRenderingEnabled()) {
-                    //When a $2006 address update lands on the Y or X increment, the written value is bugged and is ANDed with the incremented value
-                    if(m_cycle == 257) {
-                        m_reg_v &= m_update_reg_v_value;
-                    } else if(m_cycle > 0 && (m_cycle & 0x07) == 0 && (m_cycle <= 256 || m_cycle > 320)) {
-                        m_reg_v = (m_update_reg_v_value & ~0x41F) | (m_reg_v & m_update_reg_v_value & 0x41F);
-                    } else {
-                        m_reg_v = m_update_reg_v_value;
-                    }
-                } else {
-                    m_reg_v = m_update_reg_v_value;
-                }
-
-                //The glitches updates corrupt both V and T, so set the new value of V back into T
-                m_reg_t = m_reg_v;
+   
+                m_reg_v = m_update_reg_v_value;
 
                 if( !m_renderLine || !isRenderingEnabled()) {
                     //Only set the VRAM address on the bus if the PPU is not rendering
@@ -1552,7 +1539,7 @@ yyy NNYY YYYX XXXX
         }
 
         m_needUpdateState = true;
-        m_needIncVideoRam = true; 
+        m_needIncVideoRam = true;
     }
 
     GERANES_INLINE void fillFramebuffer(uint32_t color)
