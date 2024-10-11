@@ -372,7 +372,7 @@ public:
 
         while(loop)
         {           
-            if(--m_cpuCyclesAcc) {
+            if(--m_cpuCyclesAcc == 0) {
                 m_cpuCyclesAcc = m_cpu.run();
             }          
 
