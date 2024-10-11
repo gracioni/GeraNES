@@ -192,7 +192,6 @@ private:
 
     int m_currentInstructionCycle;
 
-    bool m_nextSequence;
     uint8_t m_poolIntsAtCycle;
 
     int m_runCount;
@@ -382,8 +381,6 @@ public:
         m_irqStep = false;
 
         m_nmiAtInstructionCycle = 0;
-
-        m_nextSequence = false;
         m_poolIntsAtCycle = -1;
 
         m_InstructionOrInterruptFlag = false;
@@ -1470,7 +1467,7 @@ public:
     GERANES_INLINE void phi2(bool nmiState, bool irqState) {
         
         if(m_poolIntsAtCycle == m_currentInstructionCycle) {
-            m_nextSequence = checkInterrupts();
+            m_InstructionOrInterruptFlag = checkInterrupts();
         }
 
         switch(m_nmiStep) {
@@ -1516,13 +1513,12 @@ public:
         m_runCount = 0;
         m_currentInstructionCycle = 0; 
         m_nmiAtInstructionCycle = 0;           
-        m_InstructionOrInterruptFlag = m_nextSequence;
         m_addr = 0;
 
         if(m_InstructionOrInterruptFlag) {
             m_opcode = 0x00; //BRK
             dummyRead();        
-            m_nextSequence = false;
+            m_InstructionOrInterruptFlag = false;
             m_poolIntsAtCycle = DO_NOT_POOL_INTS;
             emulateInterruptSequence();
         }
@@ -1593,7 +1589,6 @@ public:
 
         SERIALIZEDATA(s, m_nmiAtInstructionCycle);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
-        SERIALIZEDATA(s, m_nextSequence);
 
         SERIALIZEDATA(s, m_runCount);
     }
