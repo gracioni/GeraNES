@@ -100,7 +100,7 @@ public:
 
 #include "CPU2A03.h"
 
-GERANES_INLINE_HOT void DMA::cycle()
+inline void DMA::cycle()
 {
 
     if (m_state == State::NONE)

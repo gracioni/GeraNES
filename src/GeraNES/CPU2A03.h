@@ -1603,7 +1603,7 @@ public:
 
 #include "DMA.h"
 
-GERANES_INLINE_HOT void CPU2A03::beginCycle() {
+inline void CPU2A03::beginCycle() {
 
     //PPU   X---X---X---X---X---X---X---X---X---X---X-...
     //CPU   --X-----------X-----------X-----------X---...
@@ -1616,7 +1616,7 @@ GERANES_INLINE_HOT void CPU2A03::beginCycle() {
    
 }
 
-GERANES_INLINE_HOT void CPU2A03::endCycle() {
+inline void CPU2A03::endCycle() {
 
     if(!isHalted()) _phi1();    
 
