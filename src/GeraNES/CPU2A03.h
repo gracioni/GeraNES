@@ -195,6 +195,8 @@ private:
     bool m_nextSequence;
     uint8_t m_poolIntsAtCycle;
 
+    int m_runCount;
+
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
     {
         return ((uint16_t)low) | (((uint16_t)high)<<8);
@@ -387,6 +389,8 @@ public:
         m_InstructionOrInterruptFlag = false;
         m_haltCycles = 0;
         m_extraCycles = 0;
+
+        m_runCount = 0;
 
         m_currentInstructionCycle = 0;
         m_interruptCause = InterruptCause::NMI;
@@ -1505,9 +1509,7 @@ public:
 
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
-    }
-
-    int m_runCount = 0;
+    }    
     
     GERANES_INLINE_HOT int run() {
 
@@ -1592,6 +1594,8 @@ public:
         SERIALIZEDATA(s, m_nmiAtInstructionCycle);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
         SERIALIZEDATA(s, m_nextSequence);
+
+        SERIALIZEDATA(s, m_runCount);
     }
 
     uint16_t busAddr() {  
