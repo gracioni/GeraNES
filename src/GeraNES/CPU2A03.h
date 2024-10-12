@@ -1507,7 +1507,7 @@ public:
 
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
-    }    
+    }   
     
     GERANES_INLINE_HOT int run() {
 
@@ -1616,31 +1616,33 @@ inline void CPU2A03::beginCycle() {
 
 inline void CPU2A03::endCycle() {
 
-    if(!isHalted()) phi1();    
+
+    if(!isHalted()) phi1();
 
     m_console.ppu().ppuCycle();      
 
-    m_console.ppu().ppuCycle();          
+    m_console.ppu().ppuCycle();
 
-    if(!m_console.ppu().inOverclockLines()) {
-        
-        if(!isHalted()) {
-            phi2(
-                m_console.ppu().getInterruptFlag(),
-                m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
-            );
-        }        
-        
+    if(!isHalted()) {
+        phi2(
+            m_console.ppu().getInterruptFlag(),
+            m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
+        );
+    }        
+
+    if(!m_console.ppu().inOverclockLines()) {       
         m_console.cartridge().cycle();
     }       
 
     m_console.ppu().ppuCyclePAL(); 
 
-    m_console.ppu().ppuCycle();
+    m_console.ppu().ppuCycle();    
 
     m_runCount++;
 
-    m_cyclesCounter++;
+    if(!m_console.ppu().inOverclockLines()) {
+        m_cyclesCounter++;
+    }
 }
 
 
