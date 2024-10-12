@@ -225,7 +225,7 @@ private:
         return MAKE16(low,high);
     }
 
-    GERANES_INLINE_HOT void updateZeroAndNegativeFlags(const uint8_t& value) {
+    GERANES_INLINE_HOT void updateZeroAndNegativeFlags(uint8_t value) {
         m_negativeFlag = value&0x80;
         m_zeroFlag = value==0x00;
     }
@@ -259,7 +259,7 @@ private:
 
         m_addr = MAKE16(low, high); 
 
-        bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
+        const bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
 
         //dummy read
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
@@ -274,7 +274,7 @@ private:
 
         m_addr = MAKE16(low, high);
 
-        bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+        const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
         
@@ -301,7 +301,10 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
-        m_addr = MAKE16(readMemory(MAKE16(low,high)),readMemory(MAKE16(low+1,high)));
+        const uint8_t iLow = readMemory(MAKE16(low,high));
+        const uint8_t iHigh = readMemory(MAKE16(low+1,high));
+
+        m_addr = MAKE16(iLow, iHigh);
     }
 
     GERANES_INLINE_HOT void getAddrIndirectX()
@@ -309,15 +312,23 @@ private:
         uint8_t value = readMemory(m_pc++);
         readMemory(value); //dummy read
         value += m_x;
-        m_addr = MAKE16(readMemory(value),readMemory( (uint8_t)(value+1) )); 
+
+        const uint8_t iLow = readMemory(value);
+        const uint8_t iHigh = readMemory((uint8_t)(value+1));
+
+        m_addr = MAKE16(iLow, iHigh); 
     }
 
     GERANES_INLINE_HOT void getAddrIndirectY(bool dummyRead = true)
     {
-        uint8_t value = readMemory(m_pc++);
-        m_addr = MAKE16(readMemory(value),readMemory( (uint8_t)(value+1) ));
+        const uint8_t value = readMemory(m_pc++);
 
-        bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+        const uint8_t low = readMemory(value);
+        const uint8_t high = readMemory((uint8_t)(value+1));
+
+        m_addr = MAKE16(low, high);
+
+        const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
         //dummy read
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
@@ -351,7 +362,10 @@ public:
 
     void init()
     {
-        m_pc = MAKE16(readMemory(0xFFFC),readMemory(0xFFFD)); //reset vector
+        const uint8_t low = readMemory(0xFFFC);
+        const uint8_t high = readMemory(0xFFFD);
+
+        m_pc = MAKE16(low, high); //reset vector
 
         m_sp = 0xFD;
         m_status = 0x24;
@@ -386,7 +400,7 @@ public:
 
     GERANES_INLINE_HOT void ADC()
     {
-        uint8_t value = readMemory(m_addr);
+        const uint8_t value = readMemory(m_addr);
 
         unsigned int result = (unsigned int)m_a + value + (m_carryFlag?1:0);
 
@@ -428,7 +442,7 @@ public:
 
     GERANES_INLINE_HOT void AAC()
 	{
-        uint8_t value = readMemory(m_addr);
+        const uint8_t value = readMemory(m_addr);
         m_a &= value;
 
         updateZeroAndNegativeFlags(m_a);
@@ -458,7 +472,7 @@ public:
 
         if(condition)
         {
-            uint16_t value = m_pc;
+            const uint16_t value = m_pc;
             m_pc += (int8_t)readMemory(m_addr);
 
             if( (value ^ m_pc) & 0xFF00 ) {                
@@ -487,7 +501,7 @@ public:
 
     GERANES_INLINE_HOT void BIT()
     {
-        uint8_t value = readMemory(m_addr);
+        const uint8_t value = readMemory(m_addr);
 
         m_zeroFlag = (m_a & value) == 0x00;
         m_negativeFlag = value & 0x80;
@@ -520,10 +534,15 @@ public:
         m_intFlag = true;
 
         if(m_nmiSignal){
-            m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
+            const uint8_t low = readMemory(NMI_VECTOR);
+            const uint8_t high = readMemory(NMI_VECTOR+1);
+            m_pc = MAKE16(low, high);
         }
-        else
-            m_pc = MAKE16(readMemory(BRK_VECTOR), readMemory(BRK_VECTOR+1));
+        else {
+            const uint8_t low = readMemory(BRK_VECTOR);
+            const uint8_t high = readMemory(BRK_VECTOR+1);
+            m_pc = MAKE16(low, high);
+        }
       
     }
 
@@ -633,7 +652,7 @@ public:
     void U_AXS()
 	{
 		//CMP & DEX
-		uint8_t value = readMemory(m_addr);
+		const uint8_t value = readMemory(m_addr);
 		uint8_t result = (m_a & m_x) - value;
 		
 		m_carryFlag = (m_a & m_x) >= value;
@@ -758,7 +777,7 @@ public:
 
     GERANES_INLINE_HOT void U_ASR()
 	{
-        uint8_t value = readMemory(m_addr);
+        const uint8_t value = readMemory(m_addr);
 
         m_a &= value;
 
@@ -911,7 +930,7 @@ public:
 
     void U_ARR()
 	{
-        uint8_t value = readMemory(m_addr);
+        const uint8_t value = readMemory(m_addr);
 
         m_a = ((m_a & value) >> 1) | (m_carryFlag ? 0x80 : 0x00);
         updateZeroAndNegativeFlags(m_a);
@@ -964,9 +983,9 @@ public:
 
     GERANES_INLINE_HOT void SBC()
     {
-        uint8_t value = readMemory(m_addr);
+        const uint8_t value = readMemory(m_addr);
 
-        unsigned int result = (unsigned int)m_a - value - (m_carryFlag?0:1);
+        const unsigned int result = (unsigned int)m_a - value - (m_carryFlag?0:1);
 
         m_carryFlag = (result < 0x100);
         m_overflowFlag = (((m_a ^ result) & 0x80) && ((m_a ^ value) & 0x80));
@@ -1029,7 +1048,7 @@ public:
     GERANES_INLINE_HOT void U_ATX()
 	{
 		//LDA & TAX
-		uint8_t value = readMemory(m_addr);
+		const uint8_t value = readMemory(m_addr);
 		m_a = value; //LDA
 		m_x = m_a; //TAX		
 
@@ -1107,7 +1126,7 @@ public:
 
     GERANES_INLINE_HOT void U_LAS() {
 		//"AND memory with stack pointer, transfer result to accumulator, X register and stack pointer."
-		uint8_t value = readMemory(m_addr);
+		const uint8_t value = readMemory(m_addr);
 		m_a = value & m_sp;
 		m_x = m_a;
 		m_sp = m_a;
@@ -1148,10 +1167,14 @@ public:
         m_intFlag = true;   
 
         if(m_interruptCause == InterruptCause::NMI || m_nmiSignal) {
-            m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
+            const uint8_t low = readMemory(NMI_VECTOR);
+            const uint8_t high = readMemory(NMI_VECTOR+1);
+            m_pc = MAKE16(low, high);
         }
         else {
-            m_pc = MAKE16(readMemory(IRQ_VECTOR), readMemory(IRQ_VECTOR+1));
+            const uint8_t low = readMemory(IRQ_VECTOR);
+            const uint8_t high = readMemory(IRQ_VECTOR+1);
+            m_pc = MAKE16(low, high);
         }
         
     }
