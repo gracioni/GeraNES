@@ -527,14 +527,10 @@ public:
 
         if(m_nmiSignal){
             m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
-            m_nmiSignal = false;
         }
         else
             m_pc = MAKE16(readMemory(BRK_VECTOR), readMemory(BRK_VECTOR+1));
-
-        m_irqSignal = false;
-
-        
+      
     }
 
     GERANES_INLINE_HOT void BVC()
@@ -1158,20 +1154,13 @@ public:
         push(m_status);
         m_intFlag = true;   
 
-        if(m_interruptCause == InterruptCause::NMI) {
+        if(m_interruptCause == InterruptCause::NMI || m_nmiSignal) {
             m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
         }
         else {
-
-            if(m_nmiSignal) {
-                m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
-
-            }
-            else {
-                m_pc = MAKE16(readMemory(IRQ_VECTOR), readMemory(IRQ_VECTOR+1));
-            }
-
+            m_pc = MAKE16(readMemory(IRQ_VECTOR), readMemory(IRQ_VECTOR+1));
         }
+        
     }
 
     GERANES_INLINE_HOT void fetchOperand()
@@ -1627,8 +1616,7 @@ inline void CPU2A03::endCycle() {
         }        
         
         m_console.cartridge().cycle();
-    }
-       
+    }       
 
     m_console.ppu().ppuCyclePAL(); 
 
