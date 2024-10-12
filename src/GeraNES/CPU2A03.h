@@ -181,8 +181,6 @@ private:
     NmiStep m_nmiStep;
     bool m_irqStep;
 
-    int m_nmiAtInstructionCycle; //the instruction cycle the NMI request flag was set
-
     enum class InterruptCause {NMI, IRQ} m_interruptCause;
 
     bool m_InstructionOrInterruptFlag; //false = instruction cycles, true = interrupt sequence
@@ -339,12 +337,11 @@ private:
         m_addr = m_pc++;
     }
 
-    GERANES_INLINE_HOT void _phi1() {
+    GERANES_INLINE_HOT void phi1() {
 
         if(m_nmiStep == NmiStep::OK) {
             m_nmiSignal = true;
             m_nmiStep = NmiStep::WAITING_LOW;
-            m_nmiAtInstructionCycle = m_currentInstructionCycle;
         }
 
         m_irqSignal = m_irqStep;
@@ -380,7 +377,6 @@ public:
         m_nmiStep = NmiStep::WAITING_LOW;
         m_irqStep = false;
 
-        m_nmiAtInstructionCycle = 0;
         m_poolIntsAtCycle = -1;
 
         m_InstructionOrInterruptFlag = false;
@@ -529,7 +525,7 @@ public:
         push(m_status);
         m_intFlag = true;
 
-        if(m_nmiSignal && m_nmiAtInstructionCycle < 5){
+        if(m_nmiSignal){
             m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
             m_nmiSignal = false;
         }
@@ -1167,7 +1163,7 @@ public:
         }
         else {
 
-            if(m_nmiSignal && m_nmiAtInstructionCycle < 5) {
+            if(m_nmiSignal) {
                 m_pc = MAKE16(readMemory(NMI_VECTOR),readMemory(NMI_VECTOR+1));
 
             }
@@ -1511,8 +1507,7 @@ public:
     GERANES_INLINE_HOT int run() {
 
         m_runCount = 0;
-        m_currentInstructionCycle = 0; 
-        m_nmiAtInstructionCycle = 0;           
+        m_currentInstructionCycle = 0;        
         m_addr = 0;
 
         if(m_InstructionOrInterruptFlag) {
@@ -1587,7 +1582,6 @@ public:
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interruptCause);
 
-        SERIALIZEDATA(s, m_nmiAtInstructionCycle);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
 
         SERIALIZEDATA(s, m_runCount);
@@ -1617,7 +1611,7 @@ inline void CPU2A03::beginCycle() {
 
 inline void CPU2A03::endCycle() {
 
-    if(!isHalted()) _phi1();    
+    if(!isHalted()) phi1();    
 
     m_console.ppu().ppuCycle();      
 
