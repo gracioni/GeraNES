@@ -264,8 +264,6 @@ private:
         //dummy read
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
 
-        //if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
-
         m_addr += m_x;
     }
 
@@ -279,8 +277,6 @@ private:
         bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
 
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
-
-        //if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
         
         m_addr += m_y;
     }
@@ -325,8 +321,6 @@ private:
 
         //dummy read
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
-
-        //if(pageCross && OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[m_opcode]) m_waitCyclesToEmulate++;
 
         m_addr += m_y;
     }
@@ -1131,7 +1125,6 @@ public:
             if(m_nmiSignal) {
                 m_nmiSignal = false;
                 m_interruptCause = InterruptCause::NMI;
-
             }
             else {
                 m_interruptCause = InterruptCause::IRQ;
