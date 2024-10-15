@@ -1468,7 +1468,7 @@ public:
     GERANES_INLINE void phi2(bool nmiState, bool irqState) {
         
         if(m_poolIntsAtCycle == m_currentInstructionCycle) {
-            m_InstructionOrInterruptFlag = checkInterrupts();
+            m_InstructionOrInterruptFlag |= checkInterrupts();
         }
 
         switch(m_nmiStep) {
@@ -1516,9 +1516,9 @@ public:
         m_addr = 0;
 
         if(m_InstructionOrInterruptFlag) {
+            m_InstructionOrInterruptFlag = false;
             m_opcode = 0x00; //BRK
             dummyRead();        
-            m_InstructionOrInterruptFlag = false;
             m_poolIntsAtCycle = DO_NOT_POOL_INTS;
             emulateInterruptSequence();
         }
