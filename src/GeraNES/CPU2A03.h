@@ -181,9 +181,8 @@ private:
     NmiStep m_nmiStep;
     bool m_irqStep;
 
-    enum class InterruptCause {NMI, IRQ} m_interruptCause;
+    enum class Interrupt {NONE, NMI, IRQ} m_interrupt;
 
-    bool m_InstructionOrInterruptFlag; //false = instruction cycles, true = interrupt sequence
     int m_haltCycles;
 
     int m_extraCycles;
@@ -390,7 +389,6 @@ public:
 
         m_poolIntsAtCycle = -1;
 
-        m_InstructionOrInterruptFlag = false;
         m_haltCycles = 0;
         m_extraCycles = 0;
 
@@ -398,7 +396,7 @@ public:
         m_writeCycle = false;
 
         m_currentInstructionCycle = 0;
-        m_interruptCause = InterruptCause::NMI;
+        m_interrupt = Interrupt::NONE;
 
     }    
 
@@ -1145,24 +1143,20 @@ public:
         dummyRead();
     }
 
-    GERANES_INLINE_HOT bool checkInterrupts()
+    GERANES_INLINE_HOT void checkInterrupts()
     {
         if( (m_nmiSignal) || (m_irqSignal && m_intFlag == false))
         {
             if(m_nmiSignal) {
                 m_nmiSignal = false;
-                m_interruptCause = InterruptCause::NMI;
+                m_interrupt = Interrupt::NMI;
             }
             else {
-                m_interruptCause = InterruptCause::IRQ;
+                m_interrupt = Interrupt::IRQ;
             }
 
-            m_irqSignal = false;
-
-            return true;
-        }
-
-        return false;
+            m_irqSignal = false;   
+        }    
     }
 
     GERANES_INLINE_HOT void emulateInterruptSequence()
@@ -1174,7 +1168,7 @@ public:
         push(m_status);
         m_intFlag = true;   
 
-        if(m_interruptCause == InterruptCause::NMI || m_nmiSignal) {
+        if(m_interrupt == Interrupt::NMI || m_nmiSignal) {
             const uint8_t low = readMemory(NMI_VECTOR);
             const uint8_t high = readMemory(NMI_VECTOR+1);
             m_pc = MAKE16(low, high);
@@ -1476,7 +1470,7 @@ public:
     GERANES_INLINE void phi2(bool nmiState, bool irqState) {
         
         if(m_poolIntsAtCycle == m_currentInstructionCycle) {
-            m_InstructionOrInterruptFlag |= checkInterrupts();
+            checkInterrupts();
         }
 
         switch(m_nmiStep) {
@@ -1524,12 +1518,12 @@ public:
         m_currentInstructionCycle = 0;        
         m_addr = 0;
 
-        if(m_InstructionOrInterruptFlag) {
-            m_InstructionOrInterruptFlag = false;
+        if(m_interrupt != Interrupt::NONE) {
             m_poolIntsAtCycle = DO_NOT_POOL_INTS;
             m_opcode = 0x00; //BRK
             dummyRead();            
             emulateInterruptSequence();
+            m_interrupt = Interrupt::NONE;
         }
         else {
             m_opcode = readMemory(m_pc++);                       
@@ -1594,11 +1588,10 @@ public:
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
         SERIALIZEDATA(s, m_irqStep);
-        SERIALIZEDATA(s, m_InstructionOrInterruptFlag);
         SERIALIZEDATA(s, m_haltCycles);
         SERIALIZEDATA(s, m_extraCycles);
         SERIALIZEDATA(s, m_currentInstructionCycle);
-        SERIALIZEDATA(s, m_interruptCause);
+        SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
     }
 
