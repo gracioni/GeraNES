@@ -38,7 +38,7 @@ private:
     Controller m_controller2;
     Console m_console;
 
-    uint32_t m_update_cycles;
+    uint32_t m_updateCyclesAcc;
 
     uint32_t m_4011WriteCounter;
     bool m_newFrame;
@@ -49,7 +49,7 @@ private:
 
     uint32_t m_cyclesPerSecond;
 
-    uint32_t renderAudioCyclesAcc;
+    uint32_t m_audioRenderCyclesAcc;
 
     uint8_t m_openBus;
 
@@ -60,6 +60,7 @@ private:
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
     bool m_loadStateFlag;    
+    int m_audioRenderDtAcc;;
 
     Rewind m_rewind;
 
@@ -91,7 +92,7 @@ private:
                     if(addr == 0x4011){
                         if(++m_4011WriteCounter == MAX_4011_WRITES_TO_DISABLE_OVERCLOCK && m_ppu.isOverclockFrame()) {
                             m_ppu.setOverclockFrame(false);
-                            updateInternalTimingStuff();                            
+                            updateCyclesPerSecond();                            
                          }
                     }
                 }
@@ -189,7 +190,7 @@ private:
     void onFrameStart()
     {
         m_4011WriteCounter = 0;
-        updateInternalTimingStuff();
+        updateCyclesPerSecond();
         signalFrameStart();
     }
 
@@ -205,7 +206,7 @@ private:
         m_dma.dmcRequest(addr, reload);
     }
 
-    void updateInternalTimingStuff()
+    void updateCyclesPerSecond()
     {
         if(m_ppu.isOverclockFrame())
             m_cyclesPerSecond = m_settings.CPUClockHz() * (1 + m_settings.overclockLines()/m_settings.PPULinesPerFrame());
@@ -253,16 +254,17 @@ public:
 
         m_halt = false;        
 
-        m_update_cycles = 0;
+        m_updateCyclesAcc = 0;
 
         m_cpuCyclesAcc = 1;
-        renderAudioCyclesAcc = 0;
+        m_audioRenderCyclesAcc = 0;
 
         m_frameCount = 0;
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
         m_runningLoop = false;
+        m_audioRenderDtAcc = 0;
 
         m_openBus = 0;
 
@@ -321,7 +323,7 @@ public:
 
             }  
 
-            updateInternalTimingStuff();
+            updateCyclesPerSecond();
 
             m_ppu.init();
             m_cpu.init();
@@ -342,7 +344,7 @@ public:
     GERANES_HOT void write(int addr, uint8_t data) override
     {
         busReadWrite<true>(addr,data);
-    }    
+    }        
 
     /**
      * Return true on new frame
@@ -350,14 +352,16 @@ public:
     template<bool waitForNewFrame>
     GERANES_INLINE bool _update(uint32_t dt) //miliseconds
     {
+        const int AUDIO_RENDER_TIME_STEP = 1; //ms
+
         if(!m_cartridge.isValid()) return false;
 
         dt = std::min(dt, (uint32_t)1000/10);  //0.1s
 
         if constexpr(!waitForNewFrame)
-            m_update_cycles += m_cyclesPerSecond  * dt;    
+            m_updateCyclesAcc += m_cyclesPerSecond  * dt;    
 
-        const uint32_t renderAudioCycles = m_cyclesPerSecond * 1;
+        const uint32_t audioRenderCycles = m_cyclesPerSecond * AUDIO_RENDER_TIME_STEP;
 
         bool ret = false;
 
@@ -366,33 +370,36 @@ public:
         if constexpr(waitForNewFrame)
             loop = true;
         else
-            loop = m_update_cycles >= 1000;
+            loop = m_updateCyclesAcc >= 1000;
 
         m_runningLoop = true;
+
+        
 
         while(loop)
         {           
             if(--m_cpuCyclesAcc == 0) {
-                
+
                 m_cpuCyclesAcc = m_cpu.run();
 
                 if constexpr(waitForNewFrame) {
-                    renderAudioCyclesAcc += m_cpuCyclesAcc * 1000;
+                    // renders a little less audio time to compensate for inaccuracies in monitor frequency,
+                    // the remainder will be rendered at the end of the loop
+                    m_audioRenderCyclesAcc += m_cpuCyclesAcc * (AUDIO_RENDER_TIME_STEP*(1000 - 10));
                 }
             }          
 
             if constexpr(!waitForNewFrame) {                
-                m_update_cycles -= 1000;
-                renderAudioCyclesAcc += 1000;        
+                m_updateCyclesAcc -= 1000;
+                m_audioRenderCyclesAcc += AUDIO_RENDER_TIME_STEP*1000;
             }
 
-            while(renderAudioCyclesAcc >= renderAudioCycles) {
-                renderAudioCyclesAcc -= renderAudioCycles;
-
+            while(m_audioRenderCyclesAcc >= audioRenderCycles) {
+                m_audioRenderCyclesAcc -= audioRenderCycles;
                 bool enableAudio = m_rewind.rewindLimit();
-
-                m_audioOutput.render(1, !enableAudio);                       
-            }          
+                m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
+                m_audioRenderDtAcc += AUDIO_RENDER_TIME_STEP;                     
+            }    
 
             if(m_newFrame) {
                 m_rewind.newFrame();
@@ -408,9 +415,21 @@ public:
             if constexpr(waitForNewFrame)
                 loop = !ret;
             else
-                loop = m_update_cycles >= 1000;
+                loop = m_updateCyclesAcc >= 1000;
 
+        }        
+
+        if constexpr(waitForNewFrame) {
+
+            m_audioRenderDtAcc -= dt;
+
+            while(m_audioRenderDtAcc < 0) {
+                bool enableAudio = m_rewind.rewindLimit();
+                m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
+                m_audioRenderDtAcc++;
+            }
         }
+        else m_audioRenderDtAcc = 0;
 
         m_runningLoop = false;
 
@@ -474,13 +493,13 @@ public:
 
     void loadStateFromMemory(const std::vector<uint8_t>& data) override
     {
-        auto old = m_update_cycles; //preserve this
+        auto old = m_updateCyclesAcc; //preserve this
 
         Deserialize d;
         d.setData(data);
         serialization(d);
 
-        m_update_cycles = old;
+        m_updateCyclesAcc = old;
     }
 
     /*
@@ -502,7 +521,7 @@ public:
     void enableOverclock(bool state)
     {
         m_settings.setOverclockLines(state ? m_settings.PPULinesPerFrame() : 0);
-        updateInternalTimingStuff();
+        updateCyclesPerSecond();
     }
 
     void disableSpriteLimit(bool state)
@@ -520,7 +539,7 @@ public:
         if(value != m_settings.region()) {
             m_settings.setRegion(value);
             m_rewind.reset();
-            updateInternalTimingStuff();
+            updateCyclesPerSecond();
         }
     }
 
@@ -544,7 +563,7 @@ public:
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
-        SERIALIZEDATA(s, renderAudioCyclesAcc);
+        SERIALIZEDATA(s, m_audioRenderCyclesAcc);
 
         SERIALIZEDATA(s, m_openBus);
 
