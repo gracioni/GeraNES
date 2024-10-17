@@ -373,22 +373,26 @@ public:
         while(loop)
         {           
             if(--m_cpuCyclesAcc == 0) {
+                
                 m_cpuCyclesAcc = m_cpu.run();
+
+                if constexpr(waitForNewFrame) {
+                    renderAudioCyclesAcc += m_cpuCyclesAcc * 1000;
+                }
             }          
 
-            if constexpr(!waitForNewFrame) {
-                
+            if constexpr(!waitForNewFrame) {                
                 m_update_cycles -= 1000;
-                renderAudioCyclesAcc += 1000;  
+                renderAudioCyclesAcc += 1000;        
+            }
 
-                while(renderAudioCyclesAcc >= renderAudioCycles) {
-                    renderAudioCyclesAcc -= renderAudioCycles;
+            while(renderAudioCyclesAcc >= renderAudioCycles) {
+                renderAudioCyclesAcc -= renderAudioCycles;
 
-                    bool enableAudio = m_rewind.rewindLimit();
+                bool enableAudio = m_rewind.rewindLimit();
 
-                    m_audioOutput.render(1, !enableAudio);                       
-                }
-            }                 
+                m_audioOutput.render(1, !enableAudio);                       
+            }          
 
             if(m_newFrame) {
                 m_rewind.newFrame();
@@ -406,13 +410,6 @@ public:
             else
                 loop = m_update_cycles >= 1000;
 
-        }        
-
-        if constexpr(waitForNewFrame) {
-
-            bool enableAudio = m_rewind.rewindLimit();
-
-            m_audioOutput.render(dt, !enableAudio); 
         }
 
         m_runningLoop = false;
