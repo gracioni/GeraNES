@@ -169,52 +169,31 @@ class NoiseWave : public IWave
 {
 private:
 
-    bool m_flag;
     bool m_metallic;
     uint16_t m_shift; //15 bits
-    float m_rand;
-    float m_lastRand;
 
 public:
 
     void init(int sampleRate) override
     {
         IWave::init(sampleRate);
-
-        m_flag = true;
         m_metallic = false;
         m_shift = 1; //15 bits
-        m_rand = 0.0;
-        m_lastRand = 0.0;
     }
 
     GERANES_INLINE_HOT float get() override
     {
-
-        if(m_flag)
-        {
+        if(update()) {
+            
             //https://wiki.nesdev.com/w/index.php/APU_Noise
 
-            bool bit = m_metallic ? (m_shift&0x40) : (m_shift&0x02);
-            bool feedback = (m_shift&1) ^ bit;
+            bool feedback = (m_shift&1) ^ (m_metallic ? (m_shift>>6)&1 : (m_shift>>1)&1);
             m_shift >>= 1;
             if(feedback) m_shift |= 0x4000;
 
-            m_rand = (static_cast<float>(m_shift)-0x3FFF)/0x7FFF * 2;
-
-            m_flag = false;
+            //m_rand = (static_cast<float>(m_shift)-0x3FFF)/0x7FFF * 2;
+            m_value = m_shift&1 ? m_volume : 0;
         }
-
-        m_value = cosineInterpolate(m_lastRand, m_rand, m_currentPosition/m_period);
-
-        m_value *= m_volume;
-
-        if(update()) {
-            m_flag = true;
-            if(m_metallic) m_period *= 2;
-            m_lastRand = m_rand;
-        }
-
 
         return m_value;
     }
