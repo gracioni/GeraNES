@@ -239,7 +239,8 @@ public:
 
         m_audioOutput.setSquare1Frequency( CPUClock/16.0/(m_square1.getPeriod()+1) );
 
-        m_audioOutput.setSquare1Volume( (float)m_square1.getVolume()/15.0 );
+        //m_audioOutput.setSquare1Volume( (float)m_square1.getVolume()/15.0 );
+        m_audioOutput.setSquare1Volume( 0);
 
         switch(m_square2.getDuty())
         {
@@ -250,14 +251,24 @@ public:
         }
 
         m_audioOutput.setSquare2Frequency( CPUClock/16.0/(m_square2.getPeriod()+1) );
-        m_audioOutput.setSquare2Volume( (float)m_square2.getVolume()/15.0 );
+         //m_audioOutput.setSquare2Volume( (float)m_square2.getVolume()/15.0 );
+        m_audioOutput.setSquare2Volume( 0 );
 
         m_audioOutput.setTriangleFrequency( (CPUClock/16.0/2.0)/(m_triangle.getPeriod()+1) );
-        m_audioOutput.setTriangleVolume( (float)m_triangle.getVolume()/15.0 );
+         m_audioOutput.setTriangleVolume( (float)m_triangle.getVolume()/15.0 );
+        //m_audioOutput.setTriangleVolume( 0 );
 
 
-        m_audioOutput.setNoiseFrequency( 2*CPUClock/(m_noise.getPeriod()+1) );
-        m_audioOutput.setNoiseVolume( (float)m_noise.getVolume()/15.0 );
+    //     const uint16_t NTSC_NOISE_PERIOD_TABLE[16] = {
+    //     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
+    // };
+
+    // 1789773 Hz
+
+
+        m_audioOutput.setNoiseFrequency( CPUClock/(m_noise.getPeriod()) );
+        //m_audioOutput.setNoiseVolume( (float)m_noise.getVolume()/15.0 );
+        m_audioOutput.setNoiseVolume( 0);
         m_audioOutput.setNoiseMetallic( m_noise.getMode() );
     }
 
@@ -356,7 +367,7 @@ public:
 
         m_square1.cycle();
         m_square2.cycle();
-        m_triangle.cycle();
+      
         m_noise.cycle();
         m_sample.cycle();
 

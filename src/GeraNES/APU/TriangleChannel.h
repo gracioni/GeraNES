@@ -18,7 +18,7 @@ private:
     uint8_t m_linearLoad;
     uint16_t m_linearCounter;
 
-    bool m_lengthUpdated;
+    bool m_linearReloadFlag;
 
 public:
 
@@ -31,8 +31,7 @@ public:
         SERIALIZEDATA(s, m_loop);
         SERIALIZEDATA(s, m_linearLoad);
         SERIALIZEDATA(s, m_linearCounter);
-
-        SERIALIZEDATA(s, m_lengthUpdated);
+        SERIALIZEDATA(s, m_linearReloadFlag);
     }
 
     TriangleChannel()
@@ -50,7 +49,7 @@ public:
         m_linearLoad = 0;
         m_linearCounter = 0;
 
-        m_lengthUpdated = false;
+        m_linearReloadFlag = false;
     }
 
     void write(int addr, uint8_t data)
@@ -67,27 +66,29 @@ public:
             m_period = data | (m_period & 0x0700);
             break;
         case 0x0003:
-            m_period = ((data & 0x07) << 8) | (m_period & 0xFF);
-
-            if(m_enabled)
-                m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
-
+            m_period = ((data & 0x07) << 8) | (m_period & 0xFF);    
+            m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+            m_linearReloadFlag = true;
             break;
         }
     }
 
     void updateLengthCounter()
     {
-        m_lengthUpdated = true;
         if ( !m_loop && m_lengthCounter > 0 ) m_lengthCounter--;
     }
 
     void updateLinearCounter()
     {
-        if(m_loop) m_linearCounter = m_linearLoad;
-        else
-        {
-            if(m_linearCounter > 0) m_linearCounter--;
+        if(m_linearReloadFlag) {
+            m_linearCounter = m_linearLoad;
+        }
+        else if(m_linearCounter > 0) {
+            m_linearCounter--;
+        }
+
+        if(!m_loop) {
+            m_linearReloadFlag = false;
         }
     }
 
@@ -104,10 +105,7 @@ public:
 
     uint8_t getVolume()
     {
-        if(isEnabled())
-            return (m_enabled && m_lengthCounter > 0 && m_linearCounter > 0) ? 15 : 0;
-
-        return 0;
+        return isEnabled() ? 15 : 0;
     }
 
     uint16_t getPeriod()
@@ -120,9 +118,6 @@ public:
         return m_lengthCounter;
     }
 
-    void cycle() {
-        m_lengthUpdated = false;
-    }
 
 };
 
