@@ -57,22 +57,22 @@ public:
     {
         float ret = 0;
 
-        const float sum = 0.5+0.5+0.5+1.0+1.5+1.5;
+        const float sum = 0.5f+0.5f+0.5f+1.0f+1.5f+1.5f;
 
         //empirical values 
-        ret += 0.5/sum*m_pulseWave1.get();
-        ret += 0.5/sum*m_pulseWave2.get();
-        ret += 0.5/sum*m_triangleWave.get();
-        ret += 1.0/sum*m_noise.get();
-        ret += 1.5/sum*m_sample.get();
-        ret += 1.5/sum*m_sampleDirect.get();
+        ret += 0.5f/sum*m_pulseWave1.get();
+        ret += 0.5f/sum*m_pulseWave2.get();
+        ret += 0.5f/sum*m_triangleWave.get();
+        ret += 1.0f/sum*m_noise.get();
+        ret += 1.5f/sum*m_sample.get();
+        ret += 1.5f/sum*m_sampleDirect.get();
 
         ret = m_hpFilter1.apply(ret);
         ret = m_hpFilter2.apply(ret);
         ret = m_lpFilter.apply(ret);
 
-        if(ret > 0.999) ret = 0.9999;
-        else if(ret < -0.999) ret = -0.9999;
+        if(ret > 0.999f) ret = 0.999f;
+        else if(ret < -0.999f) ret = -0.999f;
 
         return ret;
     }  
@@ -135,6 +135,7 @@ public:
     void setSampleVolume(float v) override
     {
         m_sample.setVolume(v);
+        m_sampleDirect.setVolume(v);
     }
 
     void setSampleFrequency(float f) override

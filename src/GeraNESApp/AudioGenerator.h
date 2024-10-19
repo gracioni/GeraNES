@@ -45,17 +45,18 @@ public:
     }
 
     //return true when parameter can be changed (zero crossing)
-    GERANES_INLINE_HOT bool update()
-    {
-        bool ret = false;
-
+    GERANES_INLINE_HOT int update()
+    {       
         m_currentPosition += m_inverseSampleRate;
 
+        int ret = m_currentPosition/m_period;
+
         if(m_currentPosition >= m_period)
-        {
-            m_currentPosition = fmod(m_currentPosition, m_period);
+        {            
             m_volume = m_nextVolume;
             m_period = m_nextPeriod;
+
+            m_currentPosition = fmod(m_currentPosition, m_period);
 
             if(m_volume < 0.01)
             {
@@ -63,9 +64,10 @@ public:
                 m_volume = 0.0;
             }
 
-            ret = true;
+            //return 1;
         }
 
+        //return 0;
         return ret;
     }
 
@@ -183,17 +185,25 @@ public:
 
     GERANES_INLINE_HOT float get() override
     {
-        if(update()) {
-            
-            //https://wiki.nesdev.com/w/index.php/APU_Noise
+        int counter = update();
 
-            bool feedback = (m_shift&1) ^ (m_metallic ? (m_shift>>6)&1 : (m_shift>>1)&1);
-            m_shift >>= 1;
-            if(feedback) m_shift |= 0x4000;
+        int total = counter;
 
-            //m_rand = (static_cast<float>(m_shift)-0x3FFF)/0x7FFF * 2;
-            m_value = m_shift&1 ? m_volume : 0;
-        }
+        if(counter > 0) {
+
+            m_value = 0;
+
+            while(counter-- > 0) {
+                
+                //https://wiki.nesdev.com/w/index.php/APU_Noise
+
+                bool feedback = (m_shift&1) ^ (m_metallic ? (m_shift>>6)&1 : (m_shift>>1)&1);
+                m_shift >>= 1;
+                if(feedback) m_shift |= 0x4000;
+
+                m_value += (m_shift&1 ? m_volume/total : 0);
+            }      
+        }        
 
         return m_value;
     }
@@ -210,8 +220,6 @@ class SampleWave : public IWave
 private:
 
     CircularBuffer<float> m_buffer;
-
-    bool m_flag;
     float m_sample;
     float m_lastSample;
 
@@ -223,39 +231,35 @@ public:
 
     void init(int sampleRate) override
     {
-        IWave::init(sampleRate);
-
-        m_flag = true;
-        m_sample = 0.0;
-        m_lastSample = 0.0;
-
+        IWave::init(sampleRate); 
+        m_sample = 0;
+        m_lastSample = 0;
         clearBuffer();
     }
 
     GERANES_INLINE_HOT float get() override
     {
-        if(m_flag)
-        {
-            if(!m_buffer.empty()){
-                while(!m_buffer.empty()){
-                    m_sample = m_buffer.read();
-                    if(m_currentPosition >= m_period) m_currentPosition -= m_period;
-                    else break;
-                }
+        int counter = update();
+
+        int total = counter;
+
+        if(counter > 0) {
+
+            m_lastSample = m_sample;
+            m_sample = 0;
+
+            while(counter-- > 0)
+            {
+                if(!m_buffer.empty()){
+                    m_sample += m_buffer.read()/total;
+                } 
             }
 
-            m_flag = false;
+            m_sample *= m_volume;
         }
 
         m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
         m_value *= m_volume;
-
-        if(update())
-        {
-            m_flag = true;
-            m_lastSample = m_sample;
-        }
-
 
         return m_value;
     }
@@ -269,7 +273,8 @@ public:
     {
         m_buffer.clear();
         m_currentPosition = 0;
-        m_flag = true;
+        m_sample = 0;
+        m_lastSample = 0;
     }
 
 };
@@ -283,30 +288,30 @@ private:
 
     CircularBuffer<SampleDirectInfo> m_buffer;
 
-    bool m_flag;
     float m_value;
+    float m_volume;
+    float m_currentPosition;
+    float m_inverseSampleRate;
 
     float m_sample;
     float m_lastSample;
-    float m_volume = 4.0;
-    float m_currentPosition;
-
-    float m_inverseSampleRate;
 
     SampleDirectInfo m_current;
 
 
-    GERANES_INLINE_HOT bool update()
+    GERANES_INLINE_HOT int update()
     {
+        int ret = 0;
+
         m_currentPosition += m_inverseSampleRate;
 
-        if(m_currentPosition >= m_current.first)
+        while(m_currentPosition >= m_current.first)
         {
             m_currentPosition -= m_current.first;
-            return true;
+            ret++;
         }
 
-        return false;
+        return ret;
     }
 
 public:
@@ -319,14 +324,13 @@ public:
     GERANES_INLINE void init(int sampleRate)
     {
         m_inverseSampleRate = 1.0/sampleRate;
-
-        m_flag = true;
+  
         m_value = 0.0;
-
-        m_sample = 0.0;
-        m_lastSample = 0.0;
-        m_volume = 4.0;
+        m_volume = 0.0;
         m_currentPosition = 0.0;
+
+        m_sample = 0;
+        m_lastSample = 0;
 
         m_current = SampleDirectInfo(0.001, 0);
 
@@ -342,31 +346,38 @@ public:
     {
         m_buffer.clear();
         m_currentPosition = 0.0;
-        m_flag = true;
+        m_sample = 0;
+        m_lastSample = 0;
+    }
+
+    GERANES_INLINE void setVolume(float volume)
+    {
+        m_volume = volume * 2.5f; //empirical
     }
 
     GERANES_INLINE_HOT float get()
-    {
-        if(m_flag){
+    {      
+        int counter = update();
 
-            while(!m_buffer.empty()) {
-                m_current = m_buffer.read();
-                if(m_currentPosition >= m_current.first) m_currentPosition -= m_current.first;
-                else break;
-            }
-            m_sample = m_current.second;
+        int total = counter;
 
-            m_flag = false;
+        if(counter > 0) {
+
+            m_lastSample = m_sample;
+            m_sample = 0;
+
+            while(counter-- > 0)
+            {
+                if(!m_buffer.empty()) {
+                    m_current = m_buffer.read();
+                }
+                
+                m_sample += m_current.second/total;            
+            }            
         }
 
         m_value = cosineInterpolate(m_lastSample,m_sample, m_currentPosition/m_current.first);
         m_value *= m_volume;
-
-        if(update())
-        {
-            m_lastSample = m_sample;
-            m_flag = true;
-        }
 
         return m_value;
     }
