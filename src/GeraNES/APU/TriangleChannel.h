@@ -66,9 +66,15 @@ public:
             m_period = data | (m_period & 0x0700);
             break;
         case 0x0003:
-            m_period = ((data & 0x07) << 8) | (m_period & 0xFF);    
-            m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+        
+            m_period = ((data & 0x07) << 8) | (m_period & 0xFF);
+
+            if(m_enabled) {
+                m_lengthCounter = LENGTH_TABLE[(data & 0xF8) >> 3];
+            }
+
             m_linearReloadFlag = true;
+
             break;
         }
     }
