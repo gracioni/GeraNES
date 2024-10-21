@@ -174,6 +174,9 @@ private:
     bool m_metallic;
     uint16_t m_shift; //15 bits
 
+    float m_sample;
+    float m_lastSample;
+
 public:
 
     void init(int sampleRate) override
@@ -181,6 +184,8 @@ public:
         IWave::init(sampleRate);
         m_metallic = false;
         m_shift = 1; //15 bits
+        m_sample = 0;
+        m_lastSample = 0;
     }
 
     GERANES_INLINE_HOT float get() override
@@ -191,7 +196,8 @@ public:
 
         if(counter > 0) {
 
-            m_value = 0;
+            m_lastSample = m_sample;
+            m_sample = 0;
 
             while(counter-- > 0) {
                 
@@ -201,9 +207,19 @@ public:
                 m_shift >>= 1;
                 if(feedback) m_shift |= 0x4000;
 
-                m_value += (m_shift&1 ? m_volume/total : 0);
-            }      
+                m_sample += (m_shift&1 ? 1 : 0);
+            }
+
+            m_sample /= total;    
         }        
+
+        // if(total > 1)
+            m_value = m_sample;            
+        // else
+        //     m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
+            
+
+        m_value *= m_volume;    
 
         return m_value;
     }
@@ -254,11 +270,14 @@ public:
                     m_sample += m_buffer.read()/total;
                 } 
             }
-
-            m_sample *= m_volume;
         }
 
-        m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
+        if(total > 1)
+            m_value = m_sample;
+        else
+            m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
+
+        
         m_value *= m_volume;
 
         return m_value;
@@ -376,7 +395,11 @@ public:
             }            
         }
 
-        m_value = cosineInterpolate(m_lastSample,m_sample, m_currentPosition/m_current.first);
+        if(total > 1)
+            m_value = m_sample;            
+        else
+            m_value = cosineInterpolate(m_lastSample,m_sample, m_currentPosition/m_current.first);
+            
         m_value *= m_volume;
 
         return m_value;
