@@ -213,11 +213,7 @@ public:
             m_sample /= total;    
         }        
 
-        // if(total > 1)
-            m_value = m_sample;            
-        // else
-        //     m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
-            
+        m_value = m_sample;       
 
         m_value *= m_volume;    
 
@@ -256,28 +252,35 @@ public:
     GERANES_INLINE_HOT float get() override
     {
         int counter = update();
-
         int total = counter;
 
-        if(counter > 0) {
+        float newSample = 0.0f;
+        float lastSample = m_sample;
+        int reads = 0;
+
+        if (counter > 0) {
+
+            while (counter-- > 0) {
+                if (!m_buffer.empty()) {
+                    newSample += m_buffer.read();
+                    ++reads;
+                } else {
+                    break;
+                }
+            }
+
+            if (reads > 0) {
+                newSample /= static_cast<float>(reads);
+            } else {
+                newSample = m_sample;
+            }
 
             m_lastSample = m_sample;
-            m_sample = 0;
-
-            while(counter-- > 0)
-            {
-                if(!m_buffer.empty()){
-                    m_sample += m_buffer.read()/total;
-                } 
-            }
+            m_sample = newSample;
         }
 
-        if(total > 1)
-            m_value = m_sample;
-        else
-            m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
+        m_value = cosineInterpolate(m_lastSample, m_sample, m_currentPosition/m_period);
 
-        
         m_value *= m_volume;
 
         return m_value;
