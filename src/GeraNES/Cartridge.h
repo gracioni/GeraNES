@@ -151,9 +151,9 @@ public:
 
         m_romFile.open(filename);
 
-        if(m_romFile.error() != "") {
+        if(m_romFile.error() != "") {            
+            Logger::instance().log(std::string("Error processing file '") + filename + "': " + m_romFile.error(), Logger::Type::ERROR);
             clear();
-            Logger::instance().log(std::string("Couldn't open file '") + filename + "'", Logger::Type::ERROR);
             return false;
         }
 

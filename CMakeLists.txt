@@ -119,7 +119,8 @@ file(GLOB IMGUI_GLOB
     ${IMGUI_PATH}/backends/imgui_impl_sdl2.cpp
     ${IMGUI_PATH}/backends/imgui_impl_opengl3.h
     ${IMGUI_PATH}/backends/imgui_impl_opengl3.cpp
-    ${IMGUI_PATH}/backends/imgui_impl_opengl3_loader.cpp)
+    ${IMGUI_PATH}/backends/imgui_impl_opengl3_loader.cpp
+)
 add_library("imgui" STATIC ${IMGUI_GLOB})
 
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH})
@@ -173,7 +174,6 @@ FetchContent_Declare(
         glm
         GIT_REPOSITORY https://github.com/g-truc/glm.git
         GIT_TAG 1.0.2
-
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )
@@ -186,7 +186,6 @@ FetchContent_Declare(
         json
         GIT_REPOSITORY https://github.com/nlohmann/json
         GIT_TAG v3.12.0
-
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )
@@ -195,8 +194,30 @@ set(BUILD_SHARED_LIBS FALSE)
 
 FetchContent_MakeAvailable(json)
 
+FetchContent_Declare(
+    flips
+    GIT_REPOSITORY https://github.com/Alcaro/Flips.git
+    GIT_TAG        master
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS TRUE
+)
+FetchContent_MakeAvailable(flips)
 
+INCLUDE_DIRECTORIES(PUBLIC ${flips_SOURCE_DIR})
 
+set(FLIPS_PATH ${flips_SOURCE_DIR})
+file(GLOB FLIPS_GLOB
+    ${FLIPS_PATH}/libips.h
+    ${FLIPS_PATH}/libips.cpp
+    ${FLIPS_PATH}/libbps.h
+    ${FLIPS_PATH}/libbps.cpp
+    ${FLIPS_PATH}/libups.h
+    ${FLIPS_PATH}/libups.cpp
+    ${FLIPS_PATH}/crc32.h
+    ${FLIPS_PATH}/crc32.cpp
+)
+
+add_library("flips" STATIC ${FLIPS_GLOB})
 
 INCLUDE_DIRECTORIES(src)
 
@@ -235,7 +256,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 endif()
 
 #SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype
-set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui glm nlohmann_json::nlohmann_json resources ${OPENGL_LIBRARY})
+set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
     set(LIBS ${LIBS} libglew_static nfd stdc++fs)

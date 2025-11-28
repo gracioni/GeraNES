@@ -440,7 +440,7 @@ public:
         NFD_Init();     
 
         nfdchar_t *outPath;
-        nfdfilteritem_t filterItem[] = { { "iNes Files", "nes,zip" } };
+        nfdfilteritem_t filterItem[] = { { "iNes", "nes,zip" }, "Patch", "ips,ups,bps" };
         nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), (ConfigFile::instance().getLastFolder()).c_str());
         if (result == NFD_OKAY)
         {

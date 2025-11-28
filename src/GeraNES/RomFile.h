@@ -14,9 +14,28 @@
 #include "functions.h"
 #include "Logger.h"
 
+#if __GNUC__
+    #if __GNUC__ >= 8 || defined(__EMSCRIPTEN__)
+        #include <filesystem>
+        namespace fs = std::filesystem;
+    #else
+        #include <experimental/filesystem>
+        namespace fs = std::experimental::filesystem;
+    #endif
+#else
+    #include <filesystem>
+    namespace fs = std::filesystem;
+#endif
+
+#include "libips.h"
+#include "libups.h"
+#include "libbps.h"
+
 class RomFile {
 
 private:
+
+    enum class Patch {NONE, IPS, UPS, BPS};
 
     std::string m_fullpath;
     std::string m_fileName;
@@ -68,6 +87,20 @@ private:
         return ret;
     }
 
+    bool isPatchFile(const std::string& path) {
+        std::vector<std::string> patches = {".ips", ".ups", ".bps"};
+        std::string ext = fs::path(path).extension().string();
+        return std::find(patches.begin(), patches.end(), ext) != patches.end();
+    }
+
+    Patch getPatchType(const std::string& path) {
+        std::string ext = fs::path(path).extension().string();
+        if(ext == ".ips") return Patch::IPS;
+        if(ext == ".bps") return Patch::BPS;
+        if(ext == ".ups") return Patch::UPS;
+        return Patch::NONE;
+    }
+
 public:
 
     static RomFile& emptyRomFile() {
@@ -77,6 +110,9 @@ public:
 
     bool open(const std::string& path) {
 
+        std::string realRomPath = path;
+        bool isPatch = isPatchFile(path);
+
         auto zipEntries = getZpFileEntries(path);
 
         if(zipEntries.size() > 0) {
@@ -85,7 +121,16 @@ public:
         }
         else {
 
-            std::ifstream f(path.c_str(), std::ios::binary);
+            if(isPatch) {
+                std::string ext = fs::path(path).extension().string();
+                const std::string from = ext;
+                const std::string to = ".nes";
+                size_t pos = realRomPath.rfind(from);
+                if (pos != std::string::npos)
+                    realRomPath.replace(pos, from.size(), to);
+            }
+
+            std::ifstream f(realRomPath.c_str(), std::ios::binary);
 
             if(f.is_open())
             {
@@ -109,10 +154,14 @@ public:
                 return false;
             }
 
-            m_fileName = basename(path);
+            m_fileName = basename(realRomPath);
         }
 
-        m_fullpath = path;
+        m_fullpath = realRomPath;
+
+        if(isPatch) {
+            if(!applyPatch(path)) return false;
+        }
 
         m_crc32 = Crc32::calc((const char*)&m_data[0], m_data.size());
 
@@ -127,6 +176,89 @@ public:
     GERANES_INLINE std::string error() const { return m_error; }
     GERANES_INLINE uint8_t  data(size_t addr) const { return m_data[addr]; }
     GERANES_INLINE size_t size() const { return m_data.size(); }
+
+    bool applyPatch(const std::string patchFilePath) {
+  
+        std::ifstream f(patchFilePath.c_str(), std::ios::binary);
+
+        std::vector<uint8_t> patchData;                
+
+        if(f.is_open())
+        {
+            std::streampos begin,end;
+            begin = f.tellg();
+            f.seekg (0, std::ios::end);
+            end = f.tellg();
+            f.seekg (0, std::ios::beg);
+
+            int size = end - begin;
+
+            patchData.clear();
+            patchData.resize(size);
+
+            f.read((char*)&patchData[0],size);
+
+            f.close();
+        }
+            
+        mem original = {m_data.data(), m_data.size()};
+        mem patch = {patchData.data(), patchData.size()};
+        mem out;
+
+        switch(getPatchType(patchFilePath)) {
+            case Patch::IPS: {               
+                auto result = ips_apply(patch, original, &out);
+                if(result == ips_ok) {
+                    m_data.clear();
+                    m_data.resize(out.len);
+                    memcpy(m_data.data(), out.ptr, out.len);
+                    ips_free(out);
+                }                
+                else {
+                    ips_free(out);
+                    m_error = "invalid ips patch file";
+                    return false;
+                }
+                break;
+            }
+            case Patch::UPS: {               
+                auto result = ups_apply(patch, original, &out);
+                if(result == ups_ok) {
+                    m_data.clear();
+                    m_data.resize(out.len);
+                    memcpy(m_data.data(), out.ptr, out.len);
+                    ups_free(out);
+                }                
+                else {
+                    ups_free(out);
+                    m_error = "invalid ups patch file";
+                    return false;
+                }
+                break;
+            }
+            case Patch::BPS: {               
+                   
+                auto result = bps_apply(patch, original, &out, nullptr, false);
+                if(result == bps_ok) {
+                    m_data.clear();
+                    m_data.resize(out.len);
+                    memcpy(m_data.data(), out.ptr, out.len);
+                    bps_free(out);
+                }                
+                else {
+                    bps_free(out);
+                    m_error = "invalid bps patch file";
+                    return false;
+                }
+                break;
+            }
+            default:
+                m_error = "invalid patch file";
+                return false;
+        }
+        
+        return true;
+    }
 
     void log() {
 
