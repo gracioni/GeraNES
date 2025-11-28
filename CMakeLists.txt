@@ -25,12 +25,16 @@ Set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(
         SDL2
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG release-2.30.6
+        GIT_TAG release-2.32.10
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )
 
-set(BUILD_SHARED_LIBS FALSE)
+set(SDL_VULKAN OFF)
+set(SDL_TEST OFF)
+set(SDL_STATIC ON)
+set(SDL_SHARED OFF)
+set(SDL_RENDER_D3D OFF)
 
 FetchContent_MakeAvailable(SDL2)
 
@@ -87,7 +91,7 @@ INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
 FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG v1.91.0
+        GIT_TAG v1.92.5
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )
@@ -129,7 +133,7 @@ else()
     FetchContent_Declare(
             nfd
             GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
-            GIT_TAG v1.0.2
+            GIT_TAG v1.2.1
             GIT_SHALLOW TRUE
             GIT_PROGRESS TRUE
     )
@@ -168,7 +172,7 @@ endif()
 FetchContent_Declare(
         glm
         GIT_REPOSITORY https://github.com/g-truc/glm.git
-        GIT_TAG 0.9.9.8
+        GIT_TAG 1.0.2
 
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
@@ -181,7 +185,7 @@ FetchContent_MakeAvailable(glm)
 FetchContent_Declare(
         json
         GIT_REPOSITORY https://github.com/nlohmann/json
-        GIT_TAG v3.11.2
+        GIT_TAG v3.12.0
 
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
