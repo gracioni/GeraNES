@@ -531,25 +531,7 @@ public:
 
     GERANES_INLINE_HOT void BRK()
     {
-        dummyRead();
-
-        push16(m_pc+1);
-        m_brkFlag = true;
-        m_unusedFlag = true;
-        push(m_status);
-        m_intFlag = true;
-
-        if(m_nmiSignal){
-            const uint8_t low = readMemory(NMI_VECTOR);
-            const uint8_t high = readMemory(NMI_VECTOR+1);
-            m_pc = MAKE16(low, high);
-        }
-        else {
-            const uint8_t low = readMemory(BRK_VECTOR);
-            const uint8_t high = readMemory(BRK_VECTOR+1);
-            m_pc = MAKE16(low, high);
-        }
-      
+        emulateInterruptSequence(true);      
     }
 
     GERANES_INLINE_HOT void BVC()
@@ -1159,11 +1141,11 @@ public:
         }    
     }
 
-    GERANES_INLINE_HOT void emulateInterruptSequence()
+    GERANES_INLINE_HOT void emulateInterruptSequence(bool isBrk = false)
     {
         dummyRead();
-        push16(m_pc);
-        m_brkFlag = false;
+        push16(isBrk ? m_pc+1 : m_pc);
+        m_brkFlag = isBrk;
         m_unusedFlag = true;
         push(m_status);
         m_intFlag = true;   
@@ -1177,8 +1159,7 @@ public:
             const uint8_t low = readMemory(IRQ_VECTOR);
             const uint8_t high = readMemory(IRQ_VECTOR+1);
             m_pc = MAKE16(low, high);
-        }
-        
+        }        
     }
 
     GERANES_INLINE_HOT void fetchOperand()
