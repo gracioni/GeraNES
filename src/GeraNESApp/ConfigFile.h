@@ -60,6 +60,13 @@ private:
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice, volume)
     };
 
+    struct Debug {
+
+        bool showFps = false;
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps)
+    };
+
     const char* FILENAME = "settings.json";
     const int MAX_RECENT_FILES = 10;    
 
@@ -70,8 +77,9 @@ private:
         Improvements improvements;
         Video video;
         Audio audio;
+        Debug debug;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, video, audio)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, video, audio, debug)
     } m_data;
 
     ConfigFile(const ConfigFile&) = delete;
@@ -188,6 +196,10 @@ public:
         }
     }
 
+    void setShowFps(bool state) {
+        m_data.debug.showFps = state;
+    }
+
     const std::vector<std::string> getRecentFiles() {
         return m_data.recentFiles;
     }
@@ -279,6 +291,10 @@ public:
 
     float getAudioVolume() {
         return m_data.audio.volume;
+    }
+
+    bool getShowFps() {
+        return m_data.debug.showFps;
     }
 
     

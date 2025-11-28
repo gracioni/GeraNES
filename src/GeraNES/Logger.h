@@ -26,9 +26,23 @@ public:
         return instance;
     }
 
-    void log(const std::string& s, Type type = Type::INFO)
+    void log(std::string_view s, Type type = Type::INFO)
     {
-        signalLog(s, type);
+        size_t start = 0;
+
+        while (true)
+        {
+            size_t end = s.find('\n', start);
+
+            if (end == std::string::npos)
+            {
+                signalLog(std::string(s.substr(start)), type);
+                break;
+            }
+
+            signalLog(std::string(s.substr(start, end - start)), type);
+            start = end + 1;
+        }
     }
 
 };

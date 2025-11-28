@@ -113,20 +113,20 @@ public:
         return crc.get();
     }    
 
-    void log(const std::string& type)
+    void log(const std::string& prefix)
     {
         std::stringstream aux;
 
-        aux << "[" << type << "] PRG-ROM size: " << prgSize() << " bytes" << std::endl;
-        aux << "[" << type << "] CHR-ROM size: " << chrSize() << " bytes" << std::endl;
-        aux << "[" << type << "] Mirroring type: " << (int)mirroringType() << std::endl;
-        aux << "[" << type << "] Has battery: " << hasBattery() << std::endl;
-        aux << "[" << type << "] Has trainer: " << hasTrainer() << std::endl;
-        aux << "[" << type << "] Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
-        aux << "[" << type << "] RAM size: " << ramSize() << " bytes" << std::endl;
-        aux << "[" << type << "] Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << std::endl;
-        aux << "[" << type << "] PRG CRC32: " << Crc32::toString(prgCrc32()) << std::endl;
-        aux << "[" << type << "] PRG+CHR CRC32: " << Crc32::toString(prgChrCrc32());
+        aux << prefix << " PRG-ROM size: " << prgSize() << " bytes" << std::endl;
+        aux << prefix << " CHR-ROM size: " << chrSize() << " bytes" << std::endl;
+        aux << prefix << " Mirroring type: " << (int)mirroringType() << std::endl;
+        aux << prefix << " Has battery: " << hasBattery() << std::endl;
+        aux << prefix << " Has trainer: " << hasTrainer() << std::endl;
+        aux << prefix << " Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
+        aux << prefix << " RAM size: " << ramSize() << " bytes" << std::endl;
+        aux << prefix << " Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << std::endl;
+        aux << prefix << " PRG CRC32: " << Crc32::toString(prgCrc32()) << std::endl;
+        aux << prefix << " PRG+CHR CRC32: " << Crc32::toString(prgChrCrc32());
 
         Logger::instance().log(aux.str(), Logger::Type::INFO);
     }

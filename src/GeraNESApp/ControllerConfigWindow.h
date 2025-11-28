@@ -196,7 +196,7 @@ public:
             
         }  
 
-        ImGui::SetNextWindowSize(ImVec2(340, 0));
+        ImGui::SetNextWindowSize(ImVec2(360, 0));
     
         if(ImGui::Begin((m_label + " - Input Config").c_str(), &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
 

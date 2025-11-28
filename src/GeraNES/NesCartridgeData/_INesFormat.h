@@ -46,7 +46,7 @@ public:
 
         m_isValid = true;
 
-        log("iNES");
+        log("(iNES)");
     }
 
     bool valid() override {

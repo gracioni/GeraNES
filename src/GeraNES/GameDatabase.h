@@ -271,14 +271,14 @@ private:
 
     void load() {
         
-        Logger::instance().log(std::string("[DB] Loading database"), Logger::Type::INFO);
+        Logger::instance().log(std::string("(DB) Loading database"), Logger::Type::INFO);
 
         const std::string filename = "db.txt";
 
         std::ifstream file(filename);
 
         if (!file.is_open()) {
-            Logger::instance().log(std::string("[DB] Database: ") + filename + " not found", Logger::Type::INFO);
+            Logger::instance().log(std::string("(DB) Database: ") + filename + " not found", Logger::Type::INFO);
             return;
         }
 
@@ -332,21 +332,21 @@ private:
                 }
 
                 if(!validate(rawData.HasBattery, {"", "0", "1"})) {
-                    std::string msg = "[DB] Invalid Battery value: '" + rawData.HasBattery + "' at line " + std::to_string(lineCounter);
+                    std::string msg = "(DB) Invalid Battery value: '" + rawData.HasBattery + "' at line " + std::to_string(lineCounter);
                     Logger::instance().log(msg, Logger::Type::INFO);
                     continue;
                 } 
 
                 /*
                 if(!validate(rawData.ControllerType, {"", "0", "1"})) {
-                    std::string msg = "[DB] Invalid ControllerType value: '" + rawData.ControllerType + "' at line " + std::to_string(lineCounter);
+                    std::string msg = "(DB) Invalid ControllerType value: '" + rawData.ControllerType + "' at line " + std::to_string(lineCounter);
                     Logger::instance().log(msg, Logger::Type::INFO);
                     continue;
                 }
                 */
 
                 if(!validate(rawData.Mirroring, {"", "h", "v", "4", "1"})) {
-                    std::string msg = "[DB] Invalid Mirroring value: '" + rawData.Mirroring + "' at line " + std::to_string(lineCounter);
+                    std::string msg = "(DB) Invalid Mirroring value: '" + rawData.Mirroring + "' at line " + std::to_string(lineCounter);
                     Logger::instance().log(msg, Logger::Type::INFO);
                     continue;
                 }
@@ -376,7 +376,7 @@ private:
             }
         }
 
-        Logger::instance().log(std::string("[DB] ") + std::to_string(m_map.size()) + " items loaded", Logger::Type::INFO);
+        Logger::instance().log(std::string("(DB) ") + std::to_string(m_map.size()) + " items loaded", Logger::Type::INFO);
 
         file.close();
     }

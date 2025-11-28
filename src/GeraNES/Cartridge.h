@@ -180,7 +180,7 @@ public:
         if(item != nullptr) {
             Logger::instance().log("ROM found in database\nUsing DB header", Logger::Type::INFO);
             m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, item);
-            m_nesCartridgeData->log("DB");
+            m_nesCartridgeData->log("(DB)");
         }
         else {
             Logger::instance().log("ROM not found in database\nUsing default header", Logger::Type::INFO);

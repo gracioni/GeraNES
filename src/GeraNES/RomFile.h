@@ -132,10 +132,10 @@ public:
 
         std::stringstream aux;
 
-        aux << "[ROM] File name: "<< fileName() << std::endl;
-        aux << "[ROM] Full path: "<< fullPath() << std::endl;        
-        aux << "[ROM] File Size: " << size() << " bytes" << std::endl; 
-        aux << "[ROM] File CRC32: "<< Crc32::toString(fileCrc32());
+        aux << "(ROM) File name: "<< fileName() << std::endl;
+        aux << "(ROM) Full path: "<< fullPath() << std::endl;        
+        aux << "(ROM) File Size: " << size() << " bytes" << std::endl; 
+        aux << "(ROM) File CRC32: "<< Crc32::toString(fileCrc32());
 
         Logger::instance().log(aux.str(), Logger::Type::INFO);
     }

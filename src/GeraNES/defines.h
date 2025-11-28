@@ -18,7 +18,7 @@
 #include "stdint.h"
 
 #define GERANES_NAME "GeraNES"
-#define GERANES_VERSION "1.5.5"
+#define GERANES_VERSION "1.5.6"
 
 #define STATES_FOLDER "states/"
 

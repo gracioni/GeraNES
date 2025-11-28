@@ -89,7 +89,7 @@ public:
             return false;
         }          
         
-        Logger::instance().log("Initializing GL context..", Logger::Type::INFO);
+        Logger::instance().log("Initializing GL context...", Logger::Type::INFO);
 
         m_context = SDL_GL_CreateContext(m_window);
 

@@ -6,22 +6,12 @@
 //#include <GL/glu.h>
 #include <iostream>
 
-#if __GNUC__
-    #if __GNUC__ >= 8 || defined(__EMSCRIPTEN__)
-        #include <filesystem>
-        namespace fs = std::filesystem;
-    #else
-        #include <experimental/filesystem>
-        namespace fs = std::experimental::filesystem;
-    #endif
-#else
-    #include <filesystem>
-    namespace fs = std::filesystem;
-#endif
+#include "filesystem_include.h"
 
 #include "CppGL/GLHeaders.h"
 
 #include "imgui_include.h"
+#include "imgui_util.h"
 
 #include "ControllerConfigWindow.h"
 #include "ShortcutManager.h"
@@ -70,6 +60,7 @@
 #include "signal/SigSlot.h"
 
 #include "cmrc/cmrc.hpp"
+#include "const_util.h"
 
 CMRC_DECLARE(resources);
 
@@ -114,9 +105,21 @@ private:
     enum FilterMode {NEAREST, BILINEAR};
     FilterMode m_filterMode = NEAREST;
 
+    bool m_showImprovementsWindow = false;
+    bool m_showAboutWindow = false;
+
     bool m_showMenuBar = true;
 
+    std::string m_errorMessage = "";
+    bool m_showErrorWindow = false;
+
     ShortcutManager m_shortcuts;
+
+    int m_menuBarHeight = 0;
+
+    std::vector<char> m_logBuf = {'\0'};
+    std::string m_log = "";
+    bool m_showLogWindow = false;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};
@@ -139,6 +142,30 @@ private:
         std::ofstream file(LOG_FILE, std::ios_base::app);
         file << msg << std::endl;
         std::cout << msg << std::endl;
+
+        if(type == Logger::Type::ERROR) {
+            m_errorMessage = msg;
+            m_showErrorWindow = true;
+        }
+
+        std::string msgType = "";
+
+        switch(type) {
+            case Logger::Type::INFO: msgType = "[Info] "; break;
+            case Logger::Type::WARNING: msgType = "[Warning] "; break;
+            case Logger::Type::ERROR: msgType = "[Error] "; break;
+            case Logger::Type::DEBUG: msgType = "[Debug] "; break;
+        }
+
+        m_log += msgType + msg + "\n";
+        
+        size_t needed = m_log.size() + 1;
+        if (m_logBuf.capacity() < needed) {
+            m_logBuf.reserve( std::max(needed, m_logBuf.capacity() * 2) );
+        }
+
+        m_logBuf.resize(needed);
+        memcpy(m_logBuf.data(), m_log.c_str(), needed);        
     }
 
     void onFrameStart() { 
@@ -191,11 +218,7 @@ private:
         ConfigFile::instance().setLastFolder(path);
         m_emu.open(path);
         const std::string filename = fs::path(path).filename().string();
-        setTitle((std::string("GeraNES (") + filename + ")").c_str());
-
-        #ifndef __EMSCRIPTEN__
-        m_showMenuBar = false;
-        #endif      
+        setTitle((std::string("GeraNES (") + filename + ")").c_str());    
     }
 
     struct InputPoint {
@@ -280,7 +303,6 @@ public:
         file.close();
 
         Logger::instance().signalLog.bind(&GeraNESApp::onLog, this);
-        //Logger::instance().signalLog.bind(GeraNESApp::onErrorLog, this);
         m_emu.signalFrameStart.bind(&GeraNESApp::onFrameStart, this);    
 
         m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
@@ -560,8 +582,6 @@ public:
 
         m_vao.release();
 
-        //m_texture = loadTextureFromFile("teste.png");
-
         glGenTextures(1, &m_texture);
         glBindTexture(GL_TEXTURE_2D, m_texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -575,6 +595,18 @@ public:
         updateMVP();
 
         m_touch = std::make_unique<TouchControls>(m_controller1, width(), height());
+
+        // ImGuiIO& io = ImGui::GetIO();
+        // io.Fonts->Clear();  // limpa qualquer fonte existente
+
+        // ImFontConfig cfg;
+        // cfg.SizePixels = 18.0f;
+
+        // // default font
+        // io.Fonts->AddFontDefault(&cfg);
+
+        // // rebuild
+        // io.Fonts->Build();
 
         return true;
     }
@@ -641,68 +673,70 @@ public:
 
         std::vector<GLfloat> data;
 
+        SDL_Rect clientArea = { 0, m_menuBarHeight, width(), std::max(0, height() - m_menuBarHeight) };
+
         if( width()/256.0 >= height()/(240.0-2*m_clipHeightValue))
         {
-            GLfloat screenWidth = m_horizontalStretch ? width() : 256.0/(240.0-2*m_clipHeightValue) * height();
-            GLfloat offsetX = (width() - screenWidth)/2.0;
+            GLfloat drawWidth = m_horizontalStretch ? clientArea.w : 256.0/(240.0-2*m_clipHeightValue) * clientArea.h;
+            GLfloat offsetX = (clientArea.w - drawWidth)/2.0;
 
             //glVertex2f(offsetX,0);]
-            data.push_back(offsetX);
-            data.push_back(0);
+            data.push_back(clientArea.x+offsetX);
+            data.push_back(clientArea.y);
             //glTexCoord2f(0.0,m_clipHeightValue/256.0 ); //top left
             data.push_back(0.0);
             data.push_back(m_clipHeightValue/256.0);
 
             //glVertex2f(offsetX,height());
-            data.push_back(offsetX);
-            data.push_back(height());
+            data.push_back(clientArea.x+offsetX);
+            data.push_back(clientArea.y+clientArea.h);
             //glTexCoord2f(0.0,240.0/256.0 - m_clipHeightValue/256.0 ); //bottom left
             data.push_back(0.0);
             data.push_back(240.0/256.0 - m_clipHeightValue/256.0);
 
             //glVertex2f(offsetX+screenWidth,0);
-            data.push_back(offsetX+screenWidth);
-            data.push_back(0);
+            data.push_back(clientArea.x+offsetX+drawWidth);
+            data.push_back(clientArea.y);
             //glTexCoord2f(1.0, m_clipHeightValue/256.0 ); //top right
             data.push_back(1.0);
             data.push_back(m_clipHeightValue/256.0);
 
             //glVertex2f(offsetX+screenWidth,height());
-            data.push_back(offsetX+screenWidth);
-            data.push_back(height());
+            data.push_back(clientArea.x+offsetX+drawWidth);
+            data.push_back(clientArea.y+clientArea.h);
             //glTexCoord2f(1.0,240.0/256.0 - m_clipHeightValue/256.0 ); //bottom right
             data.push_back(1.0);
             data.push_back(240.0/256.0 - m_clipHeightValue/256.0);
         }
         else
         {
-            GLfloat screenHeight = (240.0-2*m_clipHeightValue)/256.0 * width();
-            GLfloat offsetY = (height() - screenHeight)/2.0;
+            GLfloat drawHeight = (240.0-2*m_clipHeightValue)/256.0 * clientArea.w;
+            GLfloat offsetY = (clientArea.h - drawHeight)/2.0;
 
             //glVertex2f(0,offsetY);
-            data.push_back(0);
-            data.push_back(offsetY);
+            data.push_back(clientArea.x);
+            data.push_back(clientArea.y+offsetY);
             //glTexCoord2f(0.0, m_clipHeightValue/256.0 ); //top left
             data.push_back(0.0);
             data.push_back(m_clipHeightValue/256.0);
 
             //glVertex2f(0,offsetY+screenHeight);
-            data.push_back(0);
-            data.push_back(offsetY+screenHeight);
+            data.push_back(clientArea.x);
+            data.push_back(clientArea.y+offsetY+drawHeight);
             //glTexCoord2f(0.0,240.0/256.0 - m_clipHeightValue/256.0 ); //bottom left
             data.push_back(0.0);
             data.push_back(240.0/256.0 - m_clipHeightValue/256.0);
 
             //glVertex2f(width(),offsetY);
-            data.push_back(width());
-            data.push_back(offsetY);
+            data.push_back(clientArea.x+clientArea.w);
+            data.push_back(clientArea.y+offsetY);
             //glTexCoord2f(1.0,0.0 + m_clipHeightValue/256.0 ); //top right
             data.push_back(1.0);
             data.push_back(0.0 + m_clipHeightValue/256.0);
 
             //glVertex2f(width(),offsetY+screenHeight);
-            data.push_back(width());
-            data.push_back(offsetY+screenHeight);
+            data.push_back(clientArea.x+clientArea.w);
+            data.push_back(clientArea.y+offsetY+drawHeight);
             //glTexCoord2f(1.0,240.0/256.0 - m_clipHeightValue/256.0 ); //bottom right
             data.push_back(1.0);
             data.push_back(240.0/256.0 - m_clipHeightValue/256.0);
@@ -778,11 +812,12 @@ public:
  
         m_fpsTimer += dt;        
 
-        if(m_fpsTimer >= 1000)
+        while(m_fpsTimer >= 1000)
         {
-            m_fps = m_frameCounter;
+            int cycles = m_fpsTimer / 1000;
+            m_fps = m_frameCounter / cycles;
             m_frameCounter = 0;
-            m_fpsTimer = 0;
+            m_fpsTimer %= 1000; 
         }
 
         if(m_vsyncMode == OFF || displayFrameRate != m_emu.getRegionFPS()) {          
@@ -800,10 +835,7 @@ public:
     {
         glBindTexture(GL_TEXTURE_2D, m_texture);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240-2*m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_emu.getFramebuffer()+m_clipHeightValue*256);
-    }  
-
-    bool m_showImprovementsWindow = false;
-    bool m_showAboutWindow = false;
+    }    
 
     void menuBar() {
 
@@ -997,6 +1029,22 @@ public:
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Debug"))
+            {
+                bool showFps = ConfigFile::instance().getShowFps();
+
+                if (ImGui::MenuItem("Show FPS", nullptr, &showFps))
+                {
+                    ConfigFile::instance().setShowFps(showFps);                
+                }   
+
+                if (ImGui::MenuItem("Log"))
+                {
+                    m_showLogWindow = true;    
+                }   
+                ImGui::EndMenu();
+            }
+
             if (ImGui::MenuItem("About"))
             {
                 m_showAboutWindow = true;              
@@ -1004,6 +1052,8 @@ public:
 
             ImGui::EndMainMenuBar();
         }
+
+        m_menuBarHeight = ImGui::GetFrameHeight();
     }
 
     virtual void paintGL()  override {
@@ -1045,106 +1095,187 @@ public:
 
         //ImGui::ShowDemoWindow();
 
-        if(m_showMenuBar) {
-            
-            menuBar();       
+        showGui(); 
 
-            m_controllerConfigWindow.update();
+        showOverlay();
 
-            if(m_showImprovementsWindow) { 
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());       
+    }
 
-                ImGui::SetNextWindowSize(ImVec2(270, 0));   
+    void showGui()
+    {
+        float lastMenuBarHeight = m_menuBarHeight;
 
-                if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
-                    
-                    bool disableSpritesLimit = m_emu.spriteLimitDisabled();
-                    if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
-                        m_emu.disableSpriteLimit(disableSpritesLimit);                        
-                    }
-                    ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
+        if(m_showMenuBar) menuBar();
+        else  m_menuBarHeight = 0;
+        
+        if(lastMenuBarHeight != m_menuBarHeight) updateBuffers(); 
+ 
+        m_controllerConfigWindow.update();
 
-                    bool overclock = m_emu.overclocked();                     
-                    if(ImGui::Checkbox("Overclock", &overclock)) {                   
-                        m_emu.enableOverclock(overclock);                        
-                    }
-                    ConfigFile::instance().setOverclock(m_emu.overclocked());
+        if(m_showImprovementsWindow) {
 
-                    ImGui::SetNextItemWidth(100);
+            ImGui::SetNextWindowSize(ImVec2(320, 0));   
 
-                    int value = ConfigFile::instance().getMaxRewindTime();               
-                    if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
-                        value = std::max(0,value);                       
-                        ConfigFile::instance().setMaxRewindTime(value);
-                        m_emu.setupRewindSystem(value > 0, value);
-                    }
-                }                     
+            if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
                 
-                ImGui::End();
-            }
-
-            if(m_showAboutWindow) {
-
-                ImGui::SetNextWindowSize(ImVec2(270, 0));         
-
-                if (ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
-                    
-                    float windowWidth = ImGui::GetContentRegionAvail().x;                   
-          
-                    std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;           
-
-                    float textWidth = ImGui::CalcTextSize(txt.c_str()).x;
-                    ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
-                    ImGui::Text("%s", txt.c_str());
-
-                    txt = "Racionisoft 2015 - 2024";
-
-                    textWidth = ImGui::CalcTextSize(txt.c_str()).x;
-                    ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
-                    ImGui::Text("%s", txt.c_str());
-
-                    ImGui::NewLine();
-
-                    txt = "geraldoracioni@gmail.com";
-
-                    textWidth = ImGui::CalcTextSize(txt.c_str()).x;
-                    ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
-                    ImGui::Text("%s", txt.c_str());              
+                bool disableSpritesLimit = m_emu.spriteLimitDisabled();
+                if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
+                    m_emu.disableSpriteLimit(disableSpritesLimit);                        
                 }
+                ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
 
-                ImGui::End();
-            }            
+                bool overclock = m_emu.overclocked();                     
+                if(ImGui::Checkbox("Overclock", &overclock)) {                   
+                    m_emu.enableOverclock(overclock);                        
+                }
+                ConfigFile::instance().setOverclock(m_emu.overclocked());
 
+                ImGui::SetNextItemWidth(100);
+
+                int value = ConfigFile::instance().getMaxRewindTime();               
+                if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
+                    value = std::max(0,value);                       
+                    ConfigFile::instance().setMaxRewindTime(value);
+                    m_emu.setupRewindSystem(value > 0, value);
+                }
+            }                     
+            
+            ImGui::End();
         }
 
+        if(m_showAboutWindow) {
+
+            ImGui::SetNextWindowSize(ImVec2(320, 0));         
+
+            if (ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
         
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui::SetNextWindowSize(io.DisplaySize);
-        ImGui::SetNextWindowBgAlpha(0.0f);
+                std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;
+                
+                TextCenteredWrapped(txt);
 
-        ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoTitleBar |
-                                   ImGuiWindowFlags_NoResize |
-                                   ImGuiWindowFlags_NoMove |
-                                   ImGuiWindowFlags_NoScrollbar |
-                                   ImGuiWindowFlags_NoSavedSettings |
-                                   ImGuiWindowFlags_NoInputs |
-                                   ImGuiWindowFlags_NoBackground | 
-                                   ImGuiWindowFlags_NoDecoration;
+                txt = std::string("Racionisoft 2015 - ") + std::to_string(compileTimeYear());
 
+                ImGui::NewLine();
 
+                TextCenteredWrapped(txt);    
+
+                ImGui::NewLine();
+                ImGui::NewLine();
+
+                txt = "geraldoracioni@gmail.com";
+
+                TextCenteredWrapped(txt);           
+            }
+
+            ImGui::End();
+        }
         
-        ImGui::Begin("Transparent Fullscreen Window", nullptr, windowFlags);
-    
-        ImGui::End();     
+        if(m_showErrorWindow) {
 
-        //ImDrawList* drawList = ImGui::GetForegroundDrawList();
-        //drawList->AddText(ImVec2(width()-80,60), 0xFFFFFFFF, (std::to_string(m_fps) + " FPS").c_str());
-  
-        ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        
+            ImGui::SetNextWindowSize(ImVec2(320, 0));
 
+            bool lastState = m_showErrorWindow;
+
+            if (ImGui::Begin("Error", &m_showErrorWindow, ImGuiWindowFlags_Modal))
+            {
+                float windowWidth = ImGui::GetContentRegionAvail().x;
+
+                TextCenteredWrapped(m_errorMessage.c_str());
+
+                ImGui::Spacing();
+                ImGui::Spacing();            
+                
+                const char* btnLabel = "OK";
+
+                // Tamanho do botão
+                ImVec2 btnSize = ImGui::CalcTextSize(btnLabel);
+                btnSize.x += ImGui::GetStyle().FramePadding.x * 2.0f;
+                btnSize.y += ImGui::GetStyle().FramePadding.y * 2.0f;
+
+                // Calcular posição X centralizada
+                float posX = (windowWidth - btnSize.x) * 0.5f;
+
+                ImGui::SetCursorPosX(posX);
+
+                if (ImGui::Button(btnLabel, btnSize))
+                {
+                    m_showErrorWindow = false; // fecha janela
+                }
+            }
+            ImGui::End();
+
+            if(lastState && !m_showErrorWindow) m_showErrorWindow = false; 
+        }
+
+        if(m_showLogWindow) {
+
+            ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Once);
+
+            if (ImGui::Begin("Log", &m_showLogWindow))
+            {
+                //ImGui::BeginChild("Text", ImVec2(0, 400), true, ImGuiWindowFlags_HorizontalScrollbar);
+
+                //ImGui::TextUnformatted(m_log.c_str());
+
+                
+
+                ImGui::InputTextMultiline("MyMultilineInput", m_logBuf.data(), m_logBuf.size(),
+                        ImVec2(-1, 400), ImGuiInputTextFlags_ReadOnly);
+
+                if (!(ImGui::IsItemActive() || ImGui::IsItemEdited()))
+                {
+                    ImGuiContext& g = *GImGui;
+                    const char* child_window_name = NULL;
+                    ImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g.CurrentWindow->Name, "MyMultilineInput", ImGui::GetID("MyMultilineInput"));
+                    ImGuiWindow* child_window = ImGui::FindWindowByName(child_window_name);
+
+                    if (child_window)
+                    {
+                        ImGui::SetScrollY(child_window, child_window->ScrollMax.y);
+                    }
+                }      
+                
+
+                ImGui::Spacing();
+
+                const char* btnLabel = "Clear";
+                ImVec2 btnTextSize = ImGui::CalcTextSize(btnLabel);
+                ImVec2 btnSize = ImVec2(btnTextSize.x + ImGui::GetStyle().FramePadding.x * 2.0f,
+                                        btnTextSize.y + ImGui::GetStyle().FramePadding.y * 2.0f);
+
+                float windowWidth = ImGui::GetContentRegionAvail().x;
+                float posX = (windowWidth - btnSize.x) * 0.5f;
+                ImGui::SetCursorPosX(posX);
+
+                if (ImGui::Button(btnLabel, btnSize))
+                {
+                    m_log.clear();
+                    m_logBuf.clear();
+                    m_logBuf.push_back('\0');
+                }
+            }
+
+            ImGui::End();
+        }
     }
+
+    void showOverlay()
+    {
+        if(ConfigFile::instance().getShowFps()) {
+
+            const int fontSize = 32;            
+
+            std::string fpsText = std::to_string(m_fps);
+            ImVec2 fpsTextSize = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
+        
+            const ImVec2 pos = ImVec2(width()- fpsTextSize.x - 32, 40);
+
+            ImDrawList* drawList = ImGui::GetForegroundDrawList();
+            DrawTextOutlined(drawList, nullptr, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
+        }
+    }   
  
 };
 
