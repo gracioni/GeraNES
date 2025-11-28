@@ -150,7 +150,7 @@ public:
                 f.close();
             }
             else {
-                m_error = "file not found";
+                m_error = std::string("file '") + realRomPath + "' not found";
                 return false;
             }
 
