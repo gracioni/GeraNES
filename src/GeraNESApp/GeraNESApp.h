@@ -221,79 +221,6 @@ private:
         setTitle((std::string("GeraNES (") + filename + ")").c_str());    
     }
 
-    struct InputPoint {
-        SDL_FingerID id;  // ID do toque (ou 0 para mouse)
-        float x, y;       // Posição
-        bool active;      // Se o ponto está ativo
-    };
-
-    std::vector<InputPoint> inputPoints;
-
-    void handleFingerEvent(const SDL_TouchFingerEvent& e, bool isDown) {
-
-        if (isDown) {
-            inputPoints.push_back({e.fingerId, e.x, e.y, true});
-            std::cout << "Finger down at (" << e.x << ", " << e.y << ") with ID: " << e.fingerId << std::endl;
-        } else {
-            for (auto& point : inputPoints) {
-                if (point.id == e.fingerId) {
-                    point.active = false;
-                    std::cout << "Finger up at (" << e.x << ", " << e.y << ") with ID: " << e.fingerId << std::endl;
-
-                    break;
-                }
-            }
-        }
-    }
-
-    void handleMouseEvent(const SDL_MouseButtonEvent& e, bool isDown) {
-
-        float x = e.x / (float)SDL_GetWindowSurface(SDL_GetWindowFromID(e.windowID))->w;
-        float y = e.y / (float)SDL_GetWindowSurface(SDL_GetWindowFromID(e.windowID))->h;
-
-        if (isDown) {
-            inputPoints.push_back({0, x, y, true});
-            std::cout << "Mouse down at (" << x << ", " << y << ")" << std::endl;
-        } else {
-            for (auto& point : inputPoints) {
-                if (point.id == 0) { // Mouse event
-                    point.active = false;
-                    std::cout << "Mouse up at (" << x << ", " << y << ")" << std::endl;
-                    break;
-                }
-            }
-        }
-    }
-
-    void processoMouseAndTouchInput(SDL_Event& event) {
-
-        switch (event.type) {
-            case SDL_FINGERDOWN:
-                handleFingerEvent(event.tfinger, true);
-                break;
-            case SDL_FINGERMOTION:
-                // Você pode adicionar código aqui para detectar o movimento do toque, se necessário
-                break;
-            case SDL_FINGERUP:
-                handleFingerEvent(event.tfinger, false);
-                break;
-            case SDL_MOUSEBUTTONDOWN:
-                handleMouseEvent(event.button, true);
-                break;
-            case SDL_MOUSEBUTTONUP:
-                handleMouseEvent(event.button, false);
-                break; 
-        }
-
-        // Clear inactive touches
-        inputPoints.erase(
-            std::remove_if(inputPoints.begin(), inputPoints.end(),
-            [](const InputPoint& p) { return !p.active; }),
-            inputPoints.end()
-        );
-
-    }
-
 public:
 
     GeraNESApp() : m_emu(audioOutput) {
@@ -785,8 +712,6 @@ public:
         }
 
         m_touch->onEvent(event);
-
-        //processoMouseAndTouchInput(event);
 
         return SDLOpenGLWindow::onEvent(event);
     }
