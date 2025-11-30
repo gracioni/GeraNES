@@ -2,7 +2,7 @@
 #define INCLUDE_INESCARTRIDGEDATA
 
 #include "GeraNES/defines.h"
-#include "GeraNES/functions.h"
+#include "GeraNES/util/MapperUtil.h"
 #include <string>
 #include <sstream>
 #include <vector>

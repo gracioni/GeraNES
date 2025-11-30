@@ -2,7 +2,7 @@
 #define CARTRIDGE_H
 
 #include "defines.h"
-#include "functions.h"
+#include "util/MapperUtil.h"
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"

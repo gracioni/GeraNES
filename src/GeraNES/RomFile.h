@@ -11,8 +11,9 @@
 #include "zip/zip.h"
 
 #include "defines.h"
-#include "functions.h"
+#include "util/MapperUtil.h"
 #include "Logger.h"
+#include "util/FileUtil.h"
 
 #if __GNUC__
     #if __GNUC__ >= 8 || defined(__EMSCRIPTEN__)
@@ -130,26 +131,7 @@ public:
                     realRomPath.replace(pos, from.size(), to);
             }
 
-            std::ifstream f(realRomPath.c_str(), std::ios::binary);
-
-            if(f.is_open())
-            {
-                std::streampos begin,end;
-                begin = f.tellg();
-                f.seekg (0, std::ios::end);
-                end = f.tellg();
-                f.seekg (0, std::ios::beg);
-
-                int size = end - begin;
-
-                m_data.clear();
-                m_data.resize(size);
-
-                f.read((char*)&m_data[0],size);
-
-                f.close();
-            }
-            else {
+            if(!readBinaryFile(realRomPath, m_data)) {
                 m_error = std::string("file '") + realRomPath + "' not found";
                 return false;
             }
@@ -177,30 +159,15 @@ public:
     GERANES_INLINE uint8_t  data(size_t addr) const { return m_data[addr]; }
     GERANES_INLINE size_t size() const { return m_data.size(); }
 
-    bool applyPatch(const std::string patchFilePath) {
-  
-        std::ifstream f(patchFilePath.c_str(), std::ios::binary);
+    bool applyPatch(const std::string patchFilePath) { 
 
-        std::vector<uint8_t> patchData;                
+        std::vector<uint8_t> patchData;
 
-        if(f.is_open())
-        {
-            std::streampos begin,end;
-            begin = f.tellg();
-            f.seekg (0, std::ios::end);
-            end = f.tellg();
-            f.seekg (0, std::ios::beg);
-
-            int size = end - begin;
-
-            patchData.clear();
-            patchData.resize(size);
-
-            f.read((char*)&patchData[0],size);
-
-            f.close();
-        }
-            
+        if(!readBinaryFile(patchFilePath, patchData)) {
+            m_error = std::string("file '") + patchFilePath + "' not found";
+            return false;
+        }    
+                   
         mem original = {m_data.data(), m_data.size()};
         mem patch = {patchData.data(), patchData.size()};
         mem out;
