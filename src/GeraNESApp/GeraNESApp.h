@@ -681,21 +681,29 @@ public:
 
         ImGui_ImplSDL2_ProcessEvent(&event);
 
+        ImGuiIO &io = ImGui::GetIO();
+
+        bool imGuiWantsMouse = io.WantCaptureMouse;
+        bool imGuiWantsKeyboard = io.WantCaptureKeyboard;
+
         switch(event.type) {
 
-            case SDL_KEYDOWN: { 
+            case SDL_KEYDOWN: {
 
-                    std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
+                if(imGuiWantsKeyboard) break;
 
-                    if(event.key.keysym.mod & KMOD_ALT) keyName = "Alt+" + keyName;
+                std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
 
-                    m_shortcuts.invokeShortcut(keyName);
+                if(event.key.keysym.mod & KMOD_ALT) keyName = "Alt+" + keyName;
 
-                    if(keyName == "Escape" && m_emuInputEnabled) {
-                        m_showMenuBar = !m_showMenuBar;
-                    }
+                m_shortcuts.invokeShortcut(keyName);
+
+                if(keyName == "Escape" && m_emuInputEnabled) {
+                    m_showMenuBar = !m_showMenuBar;
                 }
+
                 break;
+            }                
 
             case SDL_WINDOWEVENT:
 
@@ -711,7 +719,7 @@ public:
                 
         }
 
-        m_touch->onEvent(event);
+        if(!imGuiWantsMouse) m_touch->onEvent(event);
 
         return SDLOpenGLWindow::onEvent(event);
     }

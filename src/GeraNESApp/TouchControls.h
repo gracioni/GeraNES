@@ -57,9 +57,9 @@ public:
 
     void onEvent(SDL_Event& ev) {
 
-        float digitalPadThreshold = 16;
+        const float digitalPadThreshold = 16;
 
-        bool emulateTouch = false;
+        const bool emulateTouch = false;
 
         int index = 0;
         bool evtDown = false;
