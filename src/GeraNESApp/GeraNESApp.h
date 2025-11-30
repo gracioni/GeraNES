@@ -121,6 +121,13 @@ private:
     std::string m_log = "";
     bool m_showLogWindow = false;
 
+    Uint64 m_mainLoopLastTime = 0;
+
+    // FPS vars    
+    Uint64 m_fpsTimer = 0;
+    int m_fps = 0;
+    int m_frameCounter = 0;
+
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};
 
@@ -722,14 +729,7 @@ public:
         if(!imGuiWantsMouse) m_touch->onEvent(event);
 
         return SDLOpenGLWindow::onEvent(event);
-    }
-
-
-
-    Uint64 m_lastTime = 0;
-    Uint64 m_fpsTimer = 0;
-    int m_fps = 0;
-    int m_frameCounter = 0;
+    }    
 
     void mainLoop()
     {
@@ -737,15 +737,15 @@ public:
 
         Uint64 tempTime = SDL_GetTicks64();
 
-        Uint64 dt = tempTime - m_lastTime;
+        Uint64 dt = tempTime - m_mainLoopLastTime;
 
         if(dt == 0) return;
 
-        m_lastTime = tempTime;
+        m_mainLoopLastTime = tempTime;
  
         m_fpsTimer += dt;        
 
-        while(m_fpsTimer >= 1000)
+        if(m_fpsTimer >= 1000)
         {
             int cycles = m_fpsTimer / 1000;
             m_fps = m_frameCounter / cycles;
@@ -909,8 +909,6 @@ public:
                     }
                 }
 
-//#ifndef __EMSCRIPTEN__          
-  
                 sc = m_shortcuts.get("fullscreen");
                 if( sc != nullptr) {
 
@@ -919,7 +917,6 @@ public:
                         sc->action();                        
                     }
                 }
-//#endif
 
                 ImGui::EndMenu();
             }
@@ -1122,12 +1119,12 @@ public:
                 
                 const char* btnLabel = "OK";
 
-                // Tamanho do botão
+                // Button size
                 ImVec2 btnSize = ImGui::CalcTextSize(btnLabel);
                 btnSize.x += ImGui::GetStyle().FramePadding.x * 2.0f;
                 btnSize.y += ImGui::GetStyle().FramePadding.y * 2.0f;
 
-                // Calcular posição X centralizada
+                //Calculate center x
                 float posX = (windowWidth - btnSize.x) * 0.5f;
 
                 ImGui::SetCursorPosX(posX);
@@ -1148,12 +1145,6 @@ public:
 
             if (ImGui::Begin("Log", &m_showLogWindow))
             {
-                //ImGui::BeginChild("Text", ImVec2(0, 400), true, ImGuiWindowFlags_HorizontalScrollbar);
-
-                //ImGui::TextUnformatted(m_log.c_str());
-
-                
-
                 ImGui::InputTextMultiline("MyMultilineInput", m_logBuf.data(), m_logBuf.size(),
                         ImVec2(-1, 400), ImGuiInputTextFlags_ReadOnly);
 
@@ -1168,8 +1159,7 @@ public:
                     {
                         ImGui::SetScrollY(child_window, child_window->ScrollMax.y);
                     }
-                }      
-                
+                }
 
                 ImGui::Spacing();
 
