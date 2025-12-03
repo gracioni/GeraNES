@@ -194,16 +194,19 @@ set(BUILD_SHARED_LIBS FALSE)
 
 FetchContent_MakeAvailable(json)
 
-set(BUILD_TESTING OFF CACHE BOOL "Disable tests" FORCE)
-
 FetchContent_Declare(
   yoga
   GIT_REPOSITORY https://github.com/facebook/yoga.git
-  GIT_TAG v3.2.1           # <- troque pela tag/commit que quiser
+  GIT_TAG v3.2.1
   GIT_SHALLOW TRUE
 )
 
-# baixa e adiciona como subdiretório
+set(BUILD_FUZZ_TESTS OFF CACHE BOOL "Disable fuzz tests for yoga" FORCE)
+set(gmock_build_tests OFF CACHE BOOL "Disable gmock tests" FORCE)
+set(gtest_build_tests OFF CACHE BOOL "Disable gtest tests" FORCE)
+set(gtest_build_samples OFF CACHE BOOL "Disable gtest samples" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "Do not install gtest" FORCE)
+
 FetchContent_MakeAvailable(yoga)
 
 FetchContent_Declare(
