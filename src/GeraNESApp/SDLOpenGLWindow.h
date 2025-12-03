@@ -270,7 +270,27 @@ public:
         return mode.refresh_rate;
     }
 
-    
+    glm::vec2 GetWindowDPI()
+    {
+        const float baseDpi = 96.0f;
+
+        int winW, winH;
+        SDL_GetWindowSize(m_window, &winW, &winH);
+
+        int drawW, drawH;
+        SDL_GL_GetDrawableSize(m_window, &drawW, &drawH);
+ 
+        if (winW == 0 || winH == 0)
+            return glm::vec2(baseDpi, baseDpi);
+
+        float scaleX = (float)drawW / (float)winW;
+        float scaleY = (float)drawH / (float)winH;
+
+        float dpiX = scaleX * baseDpi;
+        float dpiY = scaleY * baseDpi;
+
+        return glm::vec2(dpiX, dpiY);
+    }  
 
 };
 

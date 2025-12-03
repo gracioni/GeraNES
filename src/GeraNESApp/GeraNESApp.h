@@ -6,7 +6,8 @@
 //#include <GL/glu.h>
 #include <iostream>
 
-#include "filesystem_include.h"
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include "CppGL/GLHeaders.h"
 
@@ -53,8 +54,6 @@
 #include "GeraNESApp/InputInfo.h"
 #include "GeraNESApp/ConfigFile.h"
 
-#include "TouchControls.h"
-
 #include "GeraNES/util/CircularBuffer.h"
 
 #include "signal/SigSlot.h"
@@ -63,6 +62,8 @@
 #include "const_util.h"
 
 CMRC_DECLARE(resources);
+
+#include "TouchControls.h"
 
 const std::string LOG_FILE = "log.txt";
 
@@ -528,7 +529,7 @@ public:
 
         updateMVP();
 
-        m_touch = std::make_unique<TouchControls>(m_controller1, width(), height());
+        m_touch = std::make_unique<TouchControls>(m_controller1, width(), height(), GetWindowDPI());
 
         // ImGuiIO& io = ImGui::GetIO();
         // io.Fonts->Clear();  // limpa qualquer fonte existente
@@ -682,6 +683,8 @@ public:
         else m_vbo.write(0,&data[0], data.size()*sizeof(GLfloat));
         m_vbo.release();
 
+        if(m_touch) m_touch->setTopMargin(m_menuBarHeight);
+
     }
 
     virtual bool onEvent(SDL_Event& event) override {
@@ -707,6 +710,7 @@ public:
 
                 if(keyName == "Escape" && m_emuInputEnabled) {
                     m_showMenuBar = !m_showMenuBar;
+                    m_updateObjectsFlag = true;
                 }
 
                 break;
@@ -1048,7 +1052,7 @@ public:
 
             ImGui::SetNextWindowSize(ImVec2(320, 0));   
 
-            if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+            if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_NoResize)) {
                 
                 bool disableSpritesLimit = m_emu.spriteLimitDisabled();
                 if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
@@ -1079,7 +1083,7 @@ public:
 
             ImGui::SetNextWindowSize(ImVec2(320, 0));         
 
-            if (ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+            if (ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_NoResize)) {
         
                 std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;
                 
@@ -1108,7 +1112,7 @@ public:
 
             bool lastState = m_showErrorWindow;
 
-            if (ImGui::Begin("Error", &m_showErrorWindow, ImGuiWindowFlags_Modal))
+            if (ImGui::Begin("Error", &m_showErrorWindow))
             {
                 float windowWidth = ImGui::GetContentRegionAvail().x;
 
@@ -1197,6 +1201,8 @@ public:
 
             ImDrawList* drawList = ImGui::GetForegroundDrawList();
             DrawTextOutlined(drawList, nullptr, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
+
+            m_touch->draw(drawList);
         }
     }   
  

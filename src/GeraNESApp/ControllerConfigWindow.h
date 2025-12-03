@@ -11,6 +11,7 @@
 
 #include "GeraNESApp/InputInfo.h"
 #include "GeraNESApp/InputManager.h"
+#include "GeraNESApp/yoga_raii.hpp"
 
 class ControllerConfigWindow {
 
@@ -198,7 +199,7 @@ public:
 
         ImGui::SetNextWindowSize(ImVec2(360, 0));
     
-        if(ImGui::Begin((m_label + " - Input Config").c_str(), &m_show, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize)) {
+        if(ImGui::Begin((m_label + " - Input Config").c_str(), &m_show)) {
 
             if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
 

@@ -1,0 +1,87 @@
+{
+    "id": "root",
+    "style": {
+        "width": "0",
+        "height": "0"
+    },
+    "children": [
+        {
+            "id": "main",
+            "style": {
+                "width": "100%",
+                "height": "100%",
+                "marginTop": "0",                
+                "flexDirection": "column",
+                "justifyContent": "flex-start"
+            },
+            "children": [
+                {
+                    "id": "top",
+                    "style": {
+                        "width": "100%",
+                        "height": "20%",
+                        "flexDirection": "row-reverse"
+                    },
+                    "children": [
+                        {
+                            "id": "rewind",
+                            "style": {
+                                "width": "30%",
+                                "height": "100%"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "bottom",
+                    "style": {
+                        "width": "100%",
+                        "height": "80%",
+                        "flexDirection": "row"
+                    },
+                    "children": [
+                        {
+                            "id": "digital-pad",
+                            "style": {
+                                "flexBasis": "30%",
+                                "flexGrow": 0
+                            }
+                        },
+                        {
+                            "id": "select",
+                            "style": {
+                                "flexBasis": "0",
+                                "flexGrow": 1,
+                                "height": "100%"
+                            }
+                        },
+                        {
+                            "id": "start",
+                            "style": {
+                                "flexBasis": "0",
+                                "flexGrow": 1,
+                                "height": "100%"
+                            }
+                        },
+                        {
+                            "id": "b",
+                            "style": {
+                                "flexBasis": "0",
+                                "flexGrow": 1,
+                                "height": "100%"
+                            }
+                        },
+                        {
+                            "id": "a",
+                            "style": {
+                                "flexBasis": "0",
+                                "flexGrow": 1,
+                                "height": "100%"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

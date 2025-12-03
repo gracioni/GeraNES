@@ -194,6 +194,18 @@ set(BUILD_SHARED_LIBS FALSE)
 
 FetchContent_MakeAvailable(json)
 
+set(BUILD_TESTING OFF CACHE BOOL "Disable tests" FORCE)
+
+FetchContent_Declare(
+  yoga
+  GIT_REPOSITORY https://github.com/facebook/yoga.git
+  GIT_TAG v3.2.1           # <- troque pela tag/commit que quiser
+  GIT_SHALLOW TRUE
+)
+
+# baixa e adiciona como subdiretório
+FetchContent_MakeAvailable(yoga)
+
 FetchContent_Declare(
     flips
     GIT_REPOSITORY https://github.com/Alcaro/Flips.git
@@ -222,10 +234,10 @@ add_library("flips" STATIC ${FLIPS_GLOB})
 INCLUDE_DIRECTORIES(src)
 
 # Gets the list of files in the resources folder
-file(GLOB_RECURSE RECURSOS_LISTA "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+file(GLOB_RECURSE RESOURCES_LIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 
 # Add the resource files using the list obtained
-cmrc_add_resource_library(resources ${RECURSOS_LISTA})
+cmrc_add_resource_library(resources ${RESOURCES_LIST})
 
 # Copy data folder to build
 if(EMSCRIPTEN)
@@ -256,7 +268,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 endif()
 
 #SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype
-set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json resources ${OPENGL_LIBRARY})
+set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
     set(LIBS ${LIBS} libglew_static nfd stdc++fs)
@@ -271,6 +283,9 @@ if(WIN32)
     set(LIBS ${LIBS} -ldwmapi)
 endif()
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})
-target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_17)
+target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
