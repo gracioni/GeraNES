@@ -1,5 +1,4 @@
-#ifndef OPEN_AL_AUDIO_OUTPUT_H
-#define OPEN_AL_AUDIO_OUTPUT_H
+#pragma once
 
 #include <AL/al.h>
 #include <AL/alc.h>
@@ -210,6 +209,3 @@ public:
         return m_volume;
     }
 };
-
-
-#endif

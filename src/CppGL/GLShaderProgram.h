@@ -1,5 +1,4 @@
-#ifndef GL_SHADER_PROGRAM_H
-#define GL_SHADER_PROGRAM_H
+#pragma once
 
 #include "GLHeaders.h"
 
@@ -195,5 +194,3 @@ public:
         return m_lastError;
     }
 };
-
-#endif

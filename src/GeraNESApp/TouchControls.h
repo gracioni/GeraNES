@@ -1,13 +1,14 @@
-#ifndef TOUCH_CONTROLS_H
-#define TOUCH_CONTROLS_H
+#pragma once
 
 #include <map>
 
 #include <SDL.h>
 #include <glm/glm.hpp>
 
+#include "AppSettings.h"
+
 #include "GeraNESApp/InputManager.h"
-#include "InputInfo.h"
+#include "ControllerInfo.h"
 
 #include "util/geometry.h"
 #include "util/sdl_util.h"
@@ -33,7 +34,7 @@ private:
     int startFingerId = -1;
     int rewindFingerId = -1;
 
-    InputInfo& m_controller1;
+    ControllerInfo& m_controller1;
 
     struct Buttons {
         bool up = false;
@@ -47,6 +48,20 @@ private:
         bool rewind = false;
         bool saveState = false;
         bool loadState = false;
+
+        void reset() {
+            up = false;
+            right = false;
+            down = false;
+            left = false;
+            select = false;
+            start = false;
+            b = false;
+            a = false;
+            rewind = false;
+            saveState = false;
+            loadState = false;
+        }
     };
 
     Buttons m_buttons;
@@ -63,6 +78,7 @@ private:
 
     glm::vec4 m_margin = {0,0,0,0};
 
+    std::shared_ptr<GLTexture> m_rewindTexture;
     std::shared_ptr<GLTexture> m_digitalPagTexture;
     std::shared_ptr<GLTexture> m_midButtonTexture;
     std::shared_ptr<GLTexture> m_midButtonPressedTexture;
@@ -80,9 +96,54 @@ private:
             }
     }
 
+    void updateDigitalPad(int eventFingerIndex, glm::vec2 point ) {
+
+        float digitalPadThreshold = 0;
+        
+        if(glm::vec2 pixels; metersToPixels(0.005f, pixels, m_dpi)) {
+            digitalPadThreshold = pixels.x;
+        }
+        else return;
+
+        if (thumbIndex >= 0 && eventFingerIndex == thumbIndex) {
+
+            glm::vec2 dir = point - thumbCenter;              
+
+            if(glm::length(dir) > digitalPadThreshold) {
+
+                glm::vec2 norm = glm::normalize(dir);
+
+                float threshold = 0.5;
+                            
+                m_buttons.up = glm::dot(glm::vec2{0,-1}, norm) > threshold;
+
+                m_buttons.right = glm::dot(glm::vec2{1,0}, norm) > threshold;
+
+                m_buttons.down = glm::dot(glm::vec2{0,1}, norm) > threshold;
+
+                m_buttons.left = glm::dot(glm::vec2{-1,0}, norm) > threshold;
+
+                if(AppSettings::instance().data.input.touchControls.digitalPadMode == DigitaPadMode::Relative) {
+                    thumbCenter = point; //update center
+                }               
+            }
+            else {
+
+                if(AppSettings::instance().data.input.touchControls.digitalPadMode != DigitaPadMode::Relative) {
+                    m_buttons.up = false;
+                    m_buttons.right = false;
+                    m_buttons.down = false;
+                    m_buttons.left = false;
+                }
+            }        
+        
+        }
+
+    }
+
 public:
 
-    TouchControls(InputInfo& controller1, int screenWidth, int screenHeight, glm::vec2 dpi) : m_controller1(controller1){
+    TouchControls(ControllerInfo& controller1, int screenWidth, int screenHeight, glm::vec2 dpi) : m_controller1(controller1){
         m_screenWidth = screenWidth;
         m_screenHeight = screenHeight;
         m_dpi = dpi;        
@@ -91,6 +152,10 @@ public:
 
         auto fs2 = cmrc::resources::get_filesystem();
 
+        {
+            auto file = fs2.open("resources/rewind.png");
+            m_rewindTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
+        }
         {
             auto file = fs2.open("resources/digital-pad.png");
             m_digitalPagTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
@@ -144,8 +209,6 @@ public:
             m_root->setWidth(m_screenWidth);
             m_root->setHeight(m_screenHeight);
             m_root->calculateLayout();
-
-            m_root->debugDump();
         }
     }
 
@@ -160,16 +223,14 @@ public:
         }
     }
 
-    void onEvent(SDL_Event& ev) {
-
-        float digitalPadThreshold = 0;
-        
-        if(glm::vec2 pixels; metersToPixels(0.005f, pixels, m_dpi)) {
-            digitalPadThreshold = pixels.x;
-        }
-        else return;
+    void onEvent(SDL_Event& ev) {        
 
         const bool emulateTouch = true;
+
+        if(!AppSettings::instance().data.input.touchControls.enabled) {
+            m_buttons.reset();
+            return;
+        }
 
         int index = 0;
         bool evtDown = false;
@@ -212,62 +273,53 @@ public:
         }
 
         if(evtDown) {
-
+                        
             testDownButton("main/top/rewind", point, [&]() {
                 m_buttons.rewind = true;
                 rewindFingerId = index;
             });
 
-            testDownButton("main/bottom/digital-pad", point, [&]() {
+            bool digitalPadAbsoluteMode = AppSettings::instance().data.input.touchControls.digitalPadMode == DigitaPadMode::Absolute;
+
+            testDownButton(std::string("main/bottom/digital-pad") + (digitalPadAbsoluteMode ? "/draw" : ""), point, [&]() {
                 thumbIndex = index;
-                thumbCenter = point;
+
+                auto digitalPadMode = AppSettings::instance().data.input.touchControls.digitalPadMode;
+
+                if(digitalPadMode == DigitaPadMode::CentralizeOnTouch || digitalPadMode == DigitaPadMode::Relative) {
+                    thumbCenter = point;
+                }
+                else {
+                    thumbCenter = m_root->getById("main/bottom/digital-pad/draw")->getAbsoluteCenter();
+                }
+
+                if(digitalPadAbsoluteMode) updateDigitalPad(index, point);
             });
 
-            testDownButton("main/bottom/mid/select", point, [&]() {
+            bool buttonsAbsoluteMode = AppSettings::instance().data.input.touchControls.buttonsMode == ButtonsMode::Absolute;
+
+            testDownButton(std::string("main/bottom/mid/select") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
                 m_buttons.select = true;
                 selectFingerId = index;
             });
 
-            testDownButton("main/bottom/mid/start", point, [&]() {
+            testDownButton(std::string("main/bottom/mid/start") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
                 m_buttons.start = true;
                 startFingerId = index;
             });
 
-            testDownButton("main/bottom/right/b", point, [&]() {
+            testDownButton(std::string("main/bottom/right/b") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
                 m_buttons.b = true;
                 bFingerId = index;
             });
 
-            testDownButton("main/bottom/right/a", point, [&]() {
+            testDownButton(std::string("main/bottom/right/a") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
                 m_buttons.a = true;
                 aFingerId = index;
             });       
         }
-        else if(evtDrag) {          
-            
-            if (thumbIndex >= 0 && index == thumbIndex) {
-
-                glm::vec2 dir = point - thumbCenter;              
-
-                if(glm::length(dir) > digitalPadThreshold) {
-
-                    glm::vec2 norm = glm::normalize(dir);
-
-                    float threshold = 0.5;
-                   				
-                    m_buttons.up = glm::dot(glm::vec2{0,-1}, norm) > threshold;
-
-                    m_buttons.right = glm::dot(glm::vec2{1,0}, norm) > threshold;
-
-                    m_buttons.down = glm::dot(glm::vec2{0,1}, norm) > threshold;
-
-                    m_buttons.left = glm::dot(glm::vec2{-1,0}, norm) > threshold;
-
-                    //thumbCenter = point; //update center                 
-                }            
-            
-            }
-            
+        else if(evtDrag) {            
+            updateDigitalPad(index, point);       
         }
         else if(evtUp) {
 
@@ -309,7 +361,12 @@ public:
 
     void draw(ImDrawList* drawList)
     {
-        const int transparency = 200;
+        if(!AppSettings::instance().data.input.touchControls.enabled) {
+            return;
+        }
+
+        //const int transparency = 200;
+        const int transparency = (int)(AppSettings::instance().data.input.touchControls.transparency * 255);
 
         // if(m_root) {
         //     glm::vec2 min, max;
@@ -324,11 +381,14 @@ public:
         //     drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 255, 255, 255));
         // }
 
-        auto rewindNode = m_root->getById("main/top/rewind");
+        auto rewindNode = m_root->getById("main/top/rewind");  
         if(rewindNode) {
             glm::vec2 min, max;
             rewindNode->getAbsoluteRect(min, max);        
-            drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(0, 0, 255, 255));
+            //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
+            drawList->AddImage(m_rewindTexture->id(),
+                ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
+                IM_COL32(255, 255, 255, transparency));
         }
 
         auto digitalPadNode = m_root->getById("main/bottom/digital-pad/draw");
@@ -398,5 +458,3 @@ public:
     
 
 };
-
-#endif

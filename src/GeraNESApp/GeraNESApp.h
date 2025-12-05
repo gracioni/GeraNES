@@ -1,5 +1,4 @@
-#ifndef GERANES_APP_H
-#define GERANES_APP_H
+#pragma once
 
 #include <SDL.h>
 
@@ -50,8 +49,8 @@ namespace fs = std::filesystem;
 
 
 #include "GeraNESApp/InputManager.h"
-#include "GeraNESApp/InputInfo.h"
-#include "GeraNESApp/ConfigFile.h"
+#include "GeraNESApp/ControllerInfo.h"
+#include "GeraNESApp/AppSettings.h"
 
 #include "GeraNES/util/CircularBuffer.h"
 
@@ -94,8 +93,8 @@ private:
 
     GeraNESEmu m_emu;
 
-    InputInfo m_controller1;
-    InputInfo m_controller2; 
+    ControllerInfo m_controller1;
+    ControllerInfo m_controller2; 
 
     bool m_emuInputEnabled = true;
 
@@ -129,7 +128,7 @@ private:
     int m_frameCounter = 0;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
-    static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};
+    static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
 
     struct ShaderItem {
         std::string label;
@@ -221,8 +220,8 @@ private:
 
     void openFile(const char* path) {
 
-        ConfigFile::instance().addRecentFile(path);
-        ConfigFile::instance().setLastFolder(path);
+        AppSettings::instance().data.addRecentFile(path);
+        AppSettings::instance().data.setLastFolder(path);
         m_emu.open(path);
         const std::string filename = fs::path(path).filename().string();
         setTitle((std::string("GeraNES (") + filename + ")").c_str());    
@@ -244,23 +243,23 @@ public:
 
         m_audioDevices = audioOutput.getAudioList();
 
-        ConfigFile& cfg = ConfigFile::instance();
+        auto cfg = AppSettings::instance().data;
 
-        audioOutput.config(cfg.getAudioDevice());      
-        ConfigFile::instance().setAudioDevice(audioOutput.currentDeviceName()); 
-        audioOutput.setVolume(ConfigFile::instance().getAudioVolume());
+        audioOutput.config(cfg.audio.audioDevice);      
+        cfg.audio.audioDevice = audioOutput.currentDeviceName(); 
+        audioOutput.setVolume(cfg.audio.volume);
         
-        cfg.getInputInfo(0, m_controller1);
-        cfg.getInputInfo(1, m_controller2);
+        cfg.input.getControllerInfo(0, m_controller1);
+        cfg.input.getControllerInfo(1, m_controller2);
 
-        m_emu.setupRewindSystem(cfg.getMaxRewindTime() > 0, cfg.getMaxRewindTime());
-        m_emu.disableSpriteLimit(cfg.getDisableSpritesLimit());
-        m_emu.enableOverclock(cfg.getOverclock());
+        m_emu.setupRewindSystem(cfg.improvements.maxRewindTime > 0, cfg.improvements.maxRewindTime);
+        m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
+        m_emu.enableOverclock(cfg.improvements.overclock);
 
-        m_vsyncMode = (VSyncMode)cfg.getVSyncMode();
-        m_filterMode = (FilterMode)cfg.getFilterMode();
-        m_horizontalStretch = cfg.getHorizontalStretch();
-        m_fullScreen = cfg.getFullScreen();
+        m_vsyncMode = (VSyncMode)cfg.video.vsyncMode;
+        m_filterMode = (FilterMode)cfg.video.filterMode;
+        m_horizontalStretch = cfg.video.horizontalStretch;
+        m_fullScreen = cfg.video.fullScreen;
 
         // std::string key;
         // std::string label;
@@ -268,8 +267,8 @@ public:
         // std::function<void()> action;
         m_shortcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "Alt+F", [this]() {
             m_fullScreen = !isFullScreen();
-            setFullScreen(m_fullScreen);
-            ConfigFile::instance().setFullScreen(m_fullScreen);
+            setFullScreen(m_fullScreen);            
+            AppSettings::instance().data.video.fullScreen = m_fullScreen;
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"openRom", "Open Rom", "Alt+O", [this]() {
@@ -282,7 +281,7 @@ public:
 
         m_shortcuts.add(ShortcutManager::Data{"horizontalStretch", "Horizontal Stretch", "Alt+H", [this]() {
             m_horizontalStretch = !m_horizontalStretch;
-            ConfigFile::instance().setHorizontalStretch(m_horizontalStretch);
+            AppSettings::instance().data.video.horizontalStretch = m_horizontalStretch;
             m_updateObjectsFlag = true;
         }});
 
@@ -351,8 +350,8 @@ public:
         m_emuInputEnabled = true;        
 
         //save both
-        ConfigFile::instance().setInputInfo(0, m_controller1);
-        ConfigFile::instance().setInputInfo(1, m_controller2);
+        AppSettings::instance().data.input.setControllerInfo(0, m_controller1);
+        AppSettings::instance().data.input.setControllerInfo(1, m_controller2);
     }
 
     virtual ~GeraNESApp() {
@@ -375,7 +374,10 @@ public:
 
         nfdchar_t *outPath;
         nfdfilteritem_t filterItem[] = { { "iNes", "nes,zip" }, "Patch", "ips,ups,bps" };
-        nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t), (ConfigFile::instance().getLastFolder()).c_str());
+
+        nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t),
+            (AppSettings::instance().data.getLastFolder()).c_str());
+
         if (result == NFD_OKAY)
         {
             openFile(outPath);                        
@@ -426,7 +428,7 @@ public:
 
         bool loaded = false;
 
-        const std::string& shaderName = ConfigFile::instance().getShaderName();
+        const std::string& shaderName = AppSettings::instance().data.video.shaderName;
 
         if(shaderName != "") {
         
@@ -442,7 +444,7 @@ public:
 
             if(shaderName != "") {
                 Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::Type::INFO);
-                ConfigFile::instance().setShaderName("");
+                AppSettings::instance().data.video.shaderName = "";
             }
             loadShader(""); //default
         }
@@ -790,7 +792,7 @@ public:
                     }
                 }
 
-                auto recentFiles = ConfigFile::instance().getRecentFiles();
+                auto recentFiles = AppSettings::instance().data.getRecentFiles();
                 if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0))
                 {
                     for(int i = 0; i < recentFiles.size(); i++) {
@@ -866,7 +868,7 @@ public:
                     for(int i = OFF; i <= ADAPTATIVE ; i++) {                        
                         if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsyncMode == i)) {
                             m_vsyncMode = (VSyncMode)i;
-                            ConfigFile::instance().setVSyncMode(i);
+                            AppSettings::instance().data.video.vsyncMode = i;
                             updateVSyncConfig();
                         }      
                     }              
@@ -878,7 +880,7 @@ public:
                     for(int i = NEAREST; i <= BILINEAR ; i++) {                        
                         if(ImGui::MenuItem(FILTER_TYPE_LABELS[i], nullptr, m_filterMode == i)) {
                             m_filterMode = (FilterMode)i;
-                            ConfigFile::instance().setFilterMode(i);
+                            AppSettings::instance().data.video.filterMode = i;
                             updateFilterConfig();
                         }      
                     }              
@@ -887,16 +889,16 @@ public:
 
                 if (ImGui::BeginMenu("Shader")) {
 
-                    if(ImGui::MenuItem("default", nullptr, ConfigFile::instance().getShaderName() == "")) {                            
-                        ConfigFile::instance().setShaderName("");
+                    if(ImGui::MenuItem("default", nullptr, AppSettings::instance().data.video.shaderName == "")) {                            
+                        AppSettings::instance().data.video.shaderName = "";
                         updateShaderConfig();
                     }
 
                     if(shaderList.size() > 0) ImGui::Separator();
 
                     for(const ShaderItem& item: shaderList) {
-                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == ConfigFile::instance().getShaderName())) {                            
-                            ConfigFile::instance().setShaderName(item.label);
+                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == AppSettings::instance().data.video.shaderName)) {                            
+                            AppSettings::instance().data.video.shaderName = item.label;
                             updateShaderConfig();
                         } 
                     }               
@@ -934,7 +936,7 @@ public:
 
                         if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
                             audioOutput.config(m_audioDevices[i]);
-                            ConfigFile::instance().setAudioDevice(audioOutput.currentDeviceName());
+                            AppSettings::instance().data.audio.audioDevice = audioOutput.currentDeviceName();
                         }      
                     }              
                     ImGui::EndMenu();
@@ -943,7 +945,7 @@ public:
                 float volume = audioOutput.getVolume();
                 if(ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
                     audioOutput.setVolume(volume);
-                    ConfigFile::instance().setAudioVolume(volume);
+                    AppSettings::instance().data.audio.volume = volume;
                 }
 
                 ImGui::EndMenu();
@@ -951,24 +953,60 @@ public:
 
             if (ImGui::BeginMenu("Input"))
             {
-                if (ImGui::MenuItem("Player 1"))
-                {
-                    m_controllerConfigWindow.show("Player 1", m_controller1);                    
+                if (ImGui::BeginMenu("Controller")) {
+
+                    if (ImGui::MenuItem("1"))
+                    {
+                        m_controllerConfigWindow.show("Controller 1 config", m_controller1);                    
+                    }
+                    if (ImGui::MenuItem("2"))
+                    {
+                        m_controllerConfigWindow.show("Controller 2 config", m_controller2);
+                    }
+                    ImGui::EndMenu();
                 }
-                if (ImGui::MenuItem("Player 2"))
-                {
-                    m_controllerConfigWindow.show("Player 2", m_controller2);
+
+                if (ImGui::BeginMenu("Touch controls")) {
+
+                    bool enabled = AppSettings::instance().data.input.touchControls.enabled;
+                    if(ImGui::MenuItem("Enabled", nullptr, enabled)) {
+                        AppSettings::instance().data.input.touchControls.enabled = !enabled;
+                    }   
+
+                    if (ImGui::BeginMenu("Digital pad mode")) {
+                        int digitalPadMode = (int)AppSettings::instance().data.input.touchControls.digitalPadMode;
+                        for(int i = (int)DigitaPadMode::Absolute; i <= (int)DigitaPadMode::Relative ; i++) {                        
+                            if(ImGui::MenuItem(DigitaPadModeLabels[i], nullptr, digitalPadMode == i)) {
+                                AppSettings::instance().data.input.touchControls.digitalPadMode = (DigitaPadMode)i;
+                            }      
+                        }              
+                        ImGui::EndMenu();
+                    }
+
+                    if (ImGui::BeginMenu("Buttons mode")) {
+                        int buttonsMode = (int)AppSettings::instance().data.input.touchControls.buttonsMode;
+                        for(int i = (int)ButtonsMode::Absolute; i <= (int)ButtonsMode::Column ; i++) {                        
+                            if(ImGui::MenuItem(ButtonsModeLabels[i], nullptr, buttonsMode == i)) {
+                                AppSettings::instance().data.input.touchControls.buttonsMode = (ButtonsMode)i;
+                            }      
+                        }              
+                        ImGui::EndMenu();
+                    }
+
+                    if(ImGui::SliderFloat("Transparency", &AppSettings::instance().data.input.touchControls.transparency, 0.0f, 1.0f, "%.2f")) {
+                    }
+
+                    ImGui::EndMenu();
                 }
+
+
                 ImGui::EndMenu();
             }
 
             if (ImGui::BeginMenu("Debug"))
             {
-                bool showFps = ConfigFile::instance().getShowFps();
-
-                if (ImGui::MenuItem("Show FPS", nullptr, &showFps))
-                {
-                    ConfigFile::instance().setShowFps(showFps);                
+                if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
+                {             
                 }   
 
                 if (ImGui::MenuItem("Log"))
@@ -1028,9 +1066,8 @@ public:
 
         //ImGui::ShowDemoWindow();
 
-        showGui(); 
-
         showOverlay();
+        showGui();
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());       
@@ -1057,20 +1094,20 @@ public:
                 if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
                     m_emu.disableSpriteLimit(disableSpritesLimit);                        
                 }
-                ConfigFile::instance().setDisableSpritesLimit(m_emu.spriteLimitDisabled());
+                AppSettings::instance().data.improvements.disableSpritesLimit = m_emu.spriteLimitDisabled();
 
                 bool overclock = m_emu.overclocked();                     
                 if(ImGui::Checkbox("Overclock", &overclock)) {                   
                     m_emu.enableOverclock(overclock);                        
                 }
-                ConfigFile::instance().setOverclock(m_emu.overclocked());
+                AppSettings::instance().data.improvements.overclock = m_emu.overclocked();
 
                 ImGui::SetNextItemWidth(100);
 
-                int value = ConfigFile::instance().getMaxRewindTime();               
+                int value = AppSettings::instance().data.improvements.maxRewindTime;               
                 if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
                     value = std::max(0,value);                       
-                    ConfigFile::instance().setMaxRewindTime(value);
+                    AppSettings::instance().data.improvements.maxRewindTime = value;
                     m_emu.setupRewindSystem(value > 0, value);
                 }
             }                     
@@ -1189,7 +1226,9 @@ public:
 
     void showOverlay()
     {
-        if(ConfigFile::instance().getShowFps()) {
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+        if(AppSettings::instance().data.debug.showFps) {
 
             const int fontSize = 32;            
 
@@ -1197,14 +1236,11 @@ public:
             ImVec2 fpsTextSize = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
         
             const ImVec2 pos = ImVec2(width()- fpsTextSize.x - 32, 40);
-
-            ImDrawList* drawList = ImGui::GetForegroundDrawList();
+            
             DrawTextOutlined(drawList, nullptr, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
-
-            m_touch->draw(drawList);
         }
+
+        m_touch->draw(drawList);
     }   
  
 };
-
-#endif

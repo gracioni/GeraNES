@@ -1,5 +1,4 @@
-#ifndef SHORTCUT_MANAGER_H
-#define SHORTCUT_MANAGER_H
+#pragma once
 
 #include <string>
 #include <functional>
@@ -45,5 +44,3 @@ public:
     }
 
 };
-
-#endif

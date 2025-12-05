@@ -1,5 +1,4 @@
-#ifndef GL_VERTEX_ARRAY_OBJECT_H
-#define GL_VERTEX_ARRAY_OBJECT_H
+#pragma once
 
 #include "GLHeaders.h"
 
@@ -34,5 +33,3 @@ class GLVertexArrayObject
             }
         }
 };
-
-#endif

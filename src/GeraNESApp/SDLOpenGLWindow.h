@@ -1,5 +1,4 @@
-#ifndef SDL_OPENGL_WINDOW_H
-#define SDL_OPENGL_WINDOW_H
+#pragma once
 
 #include <SDL.h>
 
@@ -293,5 +292,3 @@ public:
     }  
 
 };
-
-#endif

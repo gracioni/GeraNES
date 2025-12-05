@@ -1,5 +1,4 @@
-#ifndef CONTROLLER_CONFIG_WINDOW_H
-#define CONTROLLER_CONFIG_WINDOW_H
+#pragma once
 
 #include <vector>
 #include <string>
@@ -9,7 +8,7 @@
 
 #include "signal/SigSlot.h"
 
-#include "GeraNESApp/InputInfo.h"
+#include "GeraNESApp/ControllerInfo.h"
 #include "GeraNESApp/InputManager.h"
 #include "GeraNESApp/yoga_raii.hpp"
 
@@ -17,7 +16,7 @@ class ControllerConfigWindow {
 
 private:
 
-    const static constexpr size_t N_BUTTONS = InputInfo::BUTTONS.size();
+    const static constexpr size_t N_BUTTONS = ControllerInfo::BUTTONS.size();
     const float CAPTURE_TIME = 3.0f;
     
     std::vector<int> selected = std::vector<int>(N_BUTTONS, 0);   
@@ -27,9 +26,9 @@ private:
     bool m_show = false;
     bool m_lastShow = false;
 
-    InputInfo* m_inputInfo = nullptr;
+    ControllerInfo* m_inputInfo = nullptr;
 
-    std::string m_label = "";
+    std::string m_windowTitle = "";
 
     int m_captureIndex = -1;
     float m_lastTime = 0.0f;
@@ -129,9 +128,9 @@ public:
     SigSlot::Signal<> signalClose;
     
 
-    void show(const std::string label, InputInfo& input) {
+    void show(const std::string windowTitle, ControllerInfo& input) {
 
-        m_label = label;
+        m_windowTitle = windowTitle;
 
         if(m_inputInfo != nullptr) {
             stopCapture();
@@ -143,7 +142,7 @@ public:
     }
 
     void hide() {
-        m_label = "";
+        m_windowTitle = "";
         m_show = false;
         stopCapture();
         m_inputInfo = nullptr;
@@ -199,7 +198,7 @@ public:
 
         ImGui::SetNextWindowSize(ImVec2(360, 0));
     
-        if(ImGui::Begin((m_label + " - Input Config").c_str(), &m_show)) {
+        if(ImGui::Begin((m_windowTitle).c_str(), &m_show)) {
 
             if(ImGui::BeginTable("Tabela", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)){
 
@@ -220,8 +219,8 @@ public:
                     ImGui::TableNextColumn();
 
                     // Coluna 1        
-                    if(m_captureState == NONE) ImGui::Selectable(InputInfo::BUTTONS[i], selected[i], ImGuiSelectableFlags_SpanAllColumns);
-                    else ImGui::Text("%s", InputInfo::BUTTONS[i]);
+                    if(m_captureState == NONE) ImGui::Selectable(ControllerInfo::BUTTONS[i], selected[i], ImGuiSelectableFlags_SpanAllColumns);
+                    else ImGui::Text("%s", ControllerInfo::BUTTONS[i]);
 
                     if (m_captureState == NONE && ImGui::IsItemActive()) {
                         startCapture(i);                    
@@ -230,7 +229,7 @@ public:
                     ImGui::TableNextColumn();   
                 
                     // Coluna 2
-                    ImGui::Text("%s", m_inputInfo->getByButtonName(InputInfo::BUTTONS[i]).c_str());
+                    ImGui::Text("%s", m_inputInfo->getByButtonName(ControllerInfo::BUTTONS[i]).c_str());
                     
                     
                 }
@@ -245,17 +244,15 @@ public:
             char aux[128];
 
             if (m_captureState != NONE) {            
-                sprintf(aux, "Waiting input for button '%s'... (%0.1fs)", InputInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
+                sprintf(aux, "Waiting input for button '%s'... (%0.1fs)", ControllerInfo::BUTTONS[m_captureIndex],std::max(0.0f, m_captureTime));
             }
             else sprintf(aux, "%s", "");
             ImGui::Text("%s", aux);     
 
-            ImGui::SetWindowFocus("Controller Config");
+            ImGui::SetWindowFocus(m_windowTitle.c_str());
         }
         ImGui::End();
 
     }
     
 };
-
-#endif

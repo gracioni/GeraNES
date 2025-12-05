@@ -1,5 +1,4 @@
-#ifndef GL_HEADERS_H
-#define GL_HEADERS_H
+#pragma once
 
 #ifdef __EMSCRIPTEN__
     #include <GLES3/gl3.h>
@@ -7,6 +6,4 @@
     #include <GL/glew.h>
     #include <GL/gl.h>
     #include <GL/glext.h>
-#endif
-
 #endif

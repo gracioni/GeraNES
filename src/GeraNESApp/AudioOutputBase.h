@@ -1,5 +1,4 @@
-#ifndef AUDIO_OUTPUT_BASE_H
-#define AUDIO_OUTPUT_BASE_H
+#pragma once
 
 #include "AudioGenerator.h"
 
@@ -154,5 +153,3 @@ public:
     }
 
 };
-
-#endif

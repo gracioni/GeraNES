@@ -18,7 +18,7 @@
                     "id": "top",
                     "style": {
                         "width": "100%",
-                        "flexBasis": "1cm",
+                        "flexBasis": "3cm",
                         "flexGrow": "0",
                         "flexDirection": "row-reverse"
                     },
@@ -26,7 +26,7 @@
                         {
                             "id": "rewind",
                             "style": {
-                                "width": "30%",
+                                "aspectRatio": 1,
                                 "height": "100%"
                             }
                         }

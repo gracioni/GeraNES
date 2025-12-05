@@ -1,5 +1,4 @@
-#ifndef SDL_AUDIO_OUTPUT_H
-#define SDL_AUDIO_OUTPUT_H
+#pragma once
 
 #include <SDL.h>
 
@@ -249,5 +248,3 @@ public:
     }
 
 };
-
-#endif

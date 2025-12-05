@@ -1,5 +1,4 @@
-#ifndef GL_FRAME_BUFFER_H
-#define GL_FRAME_BUFFER_H
+#pragma once
 
 #include "GLHeaders.h"
 
@@ -71,6 +70,3 @@ public:
     }
 
 };
-
-#endif
-

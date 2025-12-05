@@ -1,8 +1,5 @@
-#ifndef INCLUDE_CPP_GL_H
-#define INCLUDE_CPP_GL_H
+#pragma once
 
 #include "GLVertexArrayObject.h"
 #include "GLVertexBufferObject.h"
 #include "GLShaderProgram.h"
-
-#endif

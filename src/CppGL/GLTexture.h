@@ -1,8 +1,7 @@
-// GLTexture.h
-#ifndef GL_TEXTURE_H
-#define GL_TEXTURE_H
+#pragma once
 
 #include "GLHeaders.h"
+#include <cstdio>
 #include <cstddef>
 #include <utility>
 #include <cmath>
@@ -96,36 +95,91 @@ public:
     }
 
     // Upload pixels (assume pixels point to correct layout matching format_/type_)
-    void upload2D(int w, int h, const void* pixels,
-                  GLenum internalFormat = GL_RGBA8, GLenum format = GL_RGBA, GLenum type = GL_UNSIGNED_BYTE,
-                  bool generateMipmaps = false, GLenum target = GL_TEXTURE_2D)
+    bool upload2D(int w, int h, const void* pixels,
+              GLenum internalFormat = GL_RGBA8, GLenum format = GL_RGBA, GLenum type = GL_UNSIGNED_BYTE,
+              bool generateMipmaps = false, GLenum target = GL_TEXTURE_2D)
     {
         create();
         bind(target);
 
-        // store metadata
+        // store basic metadata
         width_ = w;
         height_ = h;
-        internalFormat_ = internalFormat;
-        format_ = format;
         type_ = type;
-        hasMipmaps_ = generateMipmaps;
-        levels_ = generateMipmaps ? (1 + static_cast<int>(std::floor(std::log2(std::max(w,h))))) : 1;
+
+        // helper: is power of two
+        auto isPowerOfTwo = [](int v)->bool { return v > 0 && ( (v & (v - 1)) == 0 ); };
+        bool pot = isPowerOfTwo(w) && isPowerOfTwo(h);
+
+        // Decide internalFormat handling depending on platform.
+        // On Emscripten/WebGL1 internalFormat must equal format (GL_RGBA etc).
+        #ifdef __EMSCRIPTEN__
+            internalFormat_ = format; // WebGL1-safe
+        #else
+            internalFormat_ = internalFormat; // Desktop: allow GL_RGBA8 etc.
+        #endif
+        format_ = format;
+
+        // Decide whether we'll actually generate mipmaps.
+        // - Desktop: respect generateMipmaps (GL supports NPOT mipmaps in modern GL)
+        // - Emscripten/WebGL1: only generate mipmaps if POT
+        bool willGenerateMipmaps = generateMipmaps;
+        #ifdef __EMSCRIPTEN__
+            willGenerateMipmaps = generateMipmaps && pot;
+        #endif
+
+        hasMipmaps_ = willGenerateMipmaps;
+        levels_ = willGenerateMipmaps ? (1 + static_cast<int>(std::floor(std::log2(static_cast<float>(std::max(w,h)))))) : 1;
 
         // alignment safe (caller may want to set elsewhere)
         GLint oldAlign = 4;
         glGetIntegerv(GL_UNPACK_ALIGNMENT, &oldAlign);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
+        // Set explicit texture parameters (avoid driver defaults that bite on WebGL).
+        // Wrap: for portability use CLAMP_TO_EDGE (safe for NPOT); desktop can handle REPEAT if you want,
+        // but CLAMP_TO_EDGE is harmless and simpler.
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        // MAG filter always set
+        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        // MIN filter: choose depending on whether we will create mipmaps.
+        if (willGenerateMipmaps) {
+            // If generating mipmaps use trilinear as default; desktop and WebGL2 support this.
+            // On WebGL1 we've ensured willGenerateMipmaps==false for NPOT, so this is safe.
+            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        } else {
+            // No mipmaps -> use a non-mipmap min filter (required for NPOT in WebGL1)
+            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        }
+
+        // Upload image data. On Emscripten we ensured internalFormat_ == format_ above.
         glTexImage2D(target, 0, internalFormat_, w, h, 0, format_, type_, pixels);
 
-        if (generateMipmaps) glGenerateMipmap(target);
+        // Generate mipmaps when allowed (desktop or POT on WebGL1)
+        if (willGenerateMipmaps) {
+            glGenerateMipmap(target);
+        }
 
         // restore alignment
         glPixelStorei(GL_UNPACK_ALIGNMENT, oldAlign);
 
         release(target);
+
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            // Use your project's logging if available. fprintf goes to stdout/stderr visible in browser console.
+            fprintf(stderr, "GL error after upload2D: 0x%X (w=%d h=%d pot=%d requestedMip=%d willGen=%d)\n",
+                    static_cast<unsigned int>(err), w, h, (int)pot, (int)generateMipmaps, (int)willGenerateMipmaps);
+        
+            return false;
+        }
+
+        return true;
     }
+
 
     // convenience: estimate GPU size in bytes (very rough)
     std::size_t gpuSizeBytes() const {
@@ -162,5 +216,3 @@ private:
         }
     }
 };
-
-#endif // GL_TEXTURE_H

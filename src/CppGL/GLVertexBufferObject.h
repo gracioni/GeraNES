@@ -1,5 +1,4 @@
-#ifndef GL_VERTEX_BUFFER_OBJECT_H
-#define GL_VERTEX_BUFFER_OBJECT_H
+#pragma once
 
 #include "GLHeaders.h"
 
@@ -56,5 +55,3 @@ class GLVertexBufferObject
             }
         }
 };
-
-#endif

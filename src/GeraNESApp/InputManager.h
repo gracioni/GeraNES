@@ -1,5 +1,4 @@
-#ifndef INPUTMANAGER_H
-#define INPUTMANAGER_H
+#pragma once
 
 #include <functional>
 #include <string>
@@ -140,5 +139,3 @@ public:
     }    
 
 };
-
-#endif // INPUTMANAGER_H

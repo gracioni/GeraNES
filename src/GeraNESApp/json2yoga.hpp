@@ -1,4 +1,4 @@
-// json2yoga.h
+// json2yoga.hpp
 // Build a Yoga tree from nlohmann::json and interpret length units
 // Supports: numbers (px), "123", "50%", "20px", "2in", "5cm", "10mm", "0.1m"
 // Requires glm::vec2 for DPI: x = horizontal DPI (px/in), y = vertical DPI (px/in).
@@ -9,17 +9,21 @@
 #include <string>
 #include <optional>
 #include <functional>
-#include <charconv>
+#include <charconv> // kept for compatibility with other code, but not used for float parsing here
 #include <nlohmann/json.hpp>
 #include <glm/vec2.hpp>
 #include "yoga_raii.hpp"
+
+#include <cerrno>
+#include <cstdlib>
+#include <cctype>
+#include <cmath>
 
 using json = nlohmann::json;
 
 namespace json_yoga {
 
 // --------------------------- UTIL: parse raw length token ---------------------------
-//
 // parseLengthRaw: accepts json that can be a number or string.
 // returns structure describing either percent or absolute with unit token and numeric value.
 // if invalid -> nullopt
@@ -34,6 +38,50 @@ struct LengthRaw {
     std::string unit;  // only meaningful if kind == Unit
 };
 
+// --------------------------- portable float parser (strtof-based) ---------------------------
+// parseFloatStrict: parse whole string (allow surrounding whitespace), reject trailing garbage.
+// returns true on success and sets out. Does not throw.
+static bool parseFloatStrict(const std::string &s_in, float &out) {
+    std::string s = s_in;
+    // trim leading/trailing whitespace
+    size_t a = 0; while (a < s.size() && std::isspace(static_cast<unsigned char>(s[a]))) ++a;
+    size_t b = s.size(); while (b > a && std::isspace(static_cast<unsigned char>(s[b-1]))) --b;
+    if (b <= a) return false;
+    s = s.substr(a, b - a);
+
+    const char* cstr = s.c_str();
+    char* end = nullptr;
+    errno = 0;
+    float v = std::strtof(cstr, &end);
+    if (end == cstr) return false;                  // nothing consumed
+    if (errno == ERANGE) return false;              // out of range
+    // skip trailing whitespace
+    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) ++end;
+    if (*end != '\0') return false;                 // leftover non-space characters -> invalid
+    out = v;
+    return true;
+}
+
+static bool parseDoubleStrict(const std::string &s_in, double &out) {
+    std::string s = s_in;
+    size_t a = 0; while (a < s.size() && std::isspace(static_cast<unsigned char>(s[a]))) ++a;
+    size_t b = s.size(); while (b > a && std::isspace(static_cast<unsigned char>(s[b-1]))) --b;
+    if (b <= a) return false;
+    s = s.substr(a, b - a);
+
+    const char* cstr = s.c_str();
+    char* end = nullptr;
+    errno = 0;
+    double v = std::strtod(cstr, &end);
+    if (end == cstr) return false;
+    if (errno == ERANGE) return false;
+    while (*end != '\0' && std::isspace(static_cast<unsigned char>(*end))) ++end;
+    if (*end != '\0') return false;
+    out = v;
+    return true;
+}
+
+// parseLengthRaw implementation (uses parseFloatStrict instead of from_chars)
 static std::optional<LengthRaw> parseLengthRaw(const json &j) {
     if (j.is_null()) return std::nullopt;
     // numeric -> treat as px (Number)
@@ -45,8 +93,8 @@ static std::optional<LengthRaw> parseLengthRaw(const json &j) {
     std::string s = j.get<std::string>();
     // trim
     auto trim = [](std::string &t){
-        size_t a=0; while(a<t.size() && isspace((unsigned char)t[a])) a++;
-        size_t b=t.size(); while(b>a && isspace((unsigned char)t[b-1])) b--;
+        size_t a=0; while(a<t.size() && std::isspace((unsigned char)t[a])) a++;
+        size_t b=t.size(); while(b>a && std::isspace((unsigned char)t[b-1])) b--;
         t = t.substr(a, b-a);
     };
     trim(s);
@@ -65,8 +113,7 @@ static std::optional<LengthRaw> parseLengthRaw(const json &j) {
         std::string num = s.substr(0, s.size()-1);
         trim(num);
         float v = 0.0f;
-        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
-        if (res.ec == std::errc()) {
+        if (parseFloatStrict(num, v)) {
             return LengthRaw{LengthRaw::Percent, v, "%"};
         }
         return std::nullopt;
@@ -90,55 +137,49 @@ static std::optional<LengthRaw> parseLengthRaw(const json &j) {
         std::string num = s.substr(0, s.size()-2);
         trim(num);
         float v = 0.0f;
-        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
-        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "px"};
+        if (parseFloatStrict(num, v)) return LengthRaw{LengthRaw::Unit, v, "px"};
         return std::nullopt;
     }
     if (ends_with(s, "in")) {
         std::string num = s.substr(0, s.size()-2);
         trim(num);
         float v = 0.0f;
-        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
-        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "in"};
+        if (parseFloatStrict(num, v)) return LengthRaw{LengthRaw::Unit, v, "in"};
         return std::nullopt;
     }
     if (ends_with(s, "cm")) {
         std::string num = s.substr(0, s.size()-2);
         trim(num);
         float v = 0.0f;
-        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
-        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "cm"};
+        if (parseFloatStrict(num, v)) return LengthRaw{LengthRaw::Unit, v, "cm"};
         return std::nullopt;
     }
     if (ends_with(s, "mm")) {
         std::string num = s.substr(0, s.size()-2);
         trim(num);
         float v = 0.0f;
-        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
-        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "mm"};
+        if (parseFloatStrict(num, v)) return LengthRaw{LengthRaw::Unit, v, "mm"};
         return std::nullopt;
     }
     if (ends_with(s, "m")) { // meter; careful: "m" single char
         std::string num = s.substr(0, s.size()-1);
         trim(num);
         float v = 0.0f;
-        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
-        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "m"};
+        if (parseFloatStrict(num, v)) return LengthRaw{LengthRaw::Unit, v, "m"};
         return std::nullopt;
     }
 
     // last attempt: plain numeric string -> treat as px (Number)
     {
         float v = 0.0f;
-        auto res = std::from_chars(s.data(), s.data()+s.size(), v);
-        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Number, v, "px"};
+        if (parseFloatStrict(s, v)) return LengthRaw{LengthRaw::Number, v, "px"};
         return std::nullopt;
     }
 }
 
 // --------------------------- parseNumber helper ---------------------------
 // Accepts json number or numeric string. Returns optional<float>.
-// Uses std::from_chars to avoid exceptions.
+// Uses parseFloatStrict to avoid exceptions.
 static std::optional<float> parseNumber(const json &j) {
     if (j.is_null()) return std::nullopt;
     if (j.is_number()) return j.get<float>();
@@ -153,8 +194,7 @@ static std::optional<float> parseNumber(const json &j) {
     trim(s);
     if (s.empty()) return std::nullopt;
     float v = 0.0f;
-    auto res = std::from_chars(s.data(), s.data()+s.size(), v);
-    if (res.ec == std::errc()) return v;
+    if (parseFloatStrict(s, v)) return v;
     return std::nullopt;
 }
 

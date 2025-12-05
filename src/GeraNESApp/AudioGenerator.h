@@ -1,5 +1,4 @@
-#ifndef AUDIO_GENERATOR_H
-#define AUDIO_GENERATOR_H
+#pragma once
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -512,5 +511,3 @@ public:
 
     ~FirstOrderLowPassFilter(){}
 };
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef IMGUI_UTIL_H
-#define IMGUI_UTIL_H
+#pragma once
 
 #include "imgui_include.h"
 
@@ -56,6 +55,4 @@ extern "C" {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

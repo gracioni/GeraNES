@@ -1,5 +1,4 @@
-#ifndef CONST_UTIL_H
-#define CONST_UTIL_H
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,4 +16,3 @@ constexpr int compileTimeYear() {
 }
 #endif
 
-#endif

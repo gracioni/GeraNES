@@ -1,5 +1,4 @@
-#ifndef INPUT_INFO_H
-#define INPUT_INFO_H
+#pragma once
 
 #include <vector>
 #include <string>
@@ -7,7 +6,7 @@
 #include <nlohmann/json.hpp>
 
 
-class InputInfo {
+class ControllerInfo {
 
 public:
 
@@ -25,7 +24,7 @@ public:
     std::string loadState;
     std::string rewind;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(InputInfo, a, b, select, start, up, down, left, right, saveState, loadState, rewind)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(ControllerInfo, a, b, select, start, up, down, left, right, saveState, loadState, rewind)
 
 private:
 
@@ -52,19 +51,19 @@ private:
 
 public:    
 
-    InputInfo() {
+    ControllerInfo() {
     }
 
-    ~InputInfo() {
+    ~ControllerInfo() {
         if(_map != nullptr) delete _map;
     }
 
-    InputInfo(const InputInfo& other)
+    ControllerInfo(const ControllerInfo& other)
     {
         *this = other;        
     }
 
-    InputInfo& operator = (const InputInfo& other) {
+    ControllerInfo& operator = (const ControllerInfo& other) {
         a = other.a;
         b = other.b;
         select = other.select;
@@ -110,9 +109,4 @@ public:
             case 10: rewind = input; break;
         }
     }
-
-
-
 };
-
-#endif

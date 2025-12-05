@@ -1,6 +1,3 @@
-#ifndef EMSCRIPTEN_FILE_DIALOG_H
-#define EMSCRIPTEN_FILE_DIALOG_H
+#pragma once
 
 void emcriptenFileDialog(int handler);
-
-#endif
