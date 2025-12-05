@@ -225,7 +225,7 @@ public:
 
     void onEvent(SDL_Event& ev) {        
 
-        const bool emulateTouch = true;
+        const bool emulateTouch = false;
 
         if(!AppSettings::instance().data.input.touchControls.enabled) {
             m_buttons.reset();
