@@ -4,20 +4,16 @@
 #include <map>
 
 #include <SDL.h>
-#include <glm/vec2.hpp>
+#include <glm/glm.hpp>
 
 #include "GeraNESApp/InputManager.h"
 #include "InputInfo.h"
 
+#include "util/geometry.h"
+#include "util/sdl_util.h"
+
 #include "yoga_raii.hpp"
 #include "json2yoga.hpp"
-
-template <typename Map, typename Key>
-static auto get_or_null(Map& map, const Key& key)
-{
-    auto it = map.find(key);
-    return (it != map.end()) ? it->second : nullptr;
-}
 
 class TouchControls {
 
@@ -65,11 +61,24 @@ private:
 
     yoga_raii::Node::Ptr m_root = nullptr;
 
-    //yoga_raii::Node::Ptr m_m = nullptr;
-
     glm::vec4 m_margin = {0,0,0,0};
 
-    json_yoga::IdMap idMap;
+    std::shared_ptr<GLTexture> m_digitalPagTexture;
+    std::shared_ptr<GLTexture> m_midButtonTexture;
+    std::shared_ptr<GLTexture> m_midButtonPressedTexture;
+    std::shared_ptr<GLTexture> m_rightButtonTexture;
+    std::shared_ptr<GLTexture> m_rightButtonPressedTexture;
+
+    void testDownButton(std::string_view id, glm::vec2 point, const std::function<void()>& callback) {
+        auto node = m_root->getById(std::string(id));
+            if(node) {
+                glm::vec2 min, max;
+                node->getAbsoluteRect(min, max);        
+                if(pointInRect(point, min, max)) {
+                    callback();
+                }
+            }
+    }
 
 public:
 
@@ -79,33 +88,45 @@ public:
         m_dpi = dpi;        
 
         createLayout();
+
+        auto fs2 = cmrc::resources::get_filesystem();
+
+        {
+            auto file = fs2.open("resources/digital-pad.png");
+            m_digitalPagTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
+        }
+        {
+            auto file = fs2.open("resources/mid-button.png");
+            m_midButtonTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
+        }
+        {
+            auto file = fs2.open("resources/mid-button-pressed.png");
+            m_midButtonPressedTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
+        }
+        {
+            auto file = fs2.open("resources/right-button.png");
+            m_rightButtonTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
+        }
+        {
+            auto file = fs2.open("resources/right-button-pressed.png");
+            m_rightButtonPressedTexture = loadImageFromMemory(reinterpret_cast<const unsigned char*>(file.begin()), file.size());
+        }
     }
 
     void setMargin(glm::vec4 margin) {
         m_margin = margin;
-        // if(!m_m) return;
-        // m_m->setMargin(YGEdgeTop, margin[0]);
-        // m_m->setMargin(YGEdgeRight, margin[1]);
-        // m_m->setMargin(YGEdgeBottom, margin[2]);
-        // m_m->setMargin(YGEdgeLeft, margin[3]);
-        // m_root->calculateLayout();      
+        if(m_root) {
+            m_root->setPadding(margin);
+            m_root->calculateLayout();  
+        }       
     }
 
     void setTopMargin(float value) {
-        m_margin[0] = value;
-        
-        // if(!m_m) return;
-        // m_m->setMargin(YGEdgeTop, value);
-        // m_root->calculateLayout();
+        m_margin[0] = value;      
 
-        auto mainNode = get_or_null(idMap, "main");
-        if(mainNode) {
-            mainNode->setMargin(YGEdgeTop, value);            
-        }
-
-        auto root = get_or_null(idMap, "root");
-        if(root) {
-            root->calculateLayout();           
+        if(m_root) {
+            m_root->setPadding(YGEdgeTop, value);        
+            m_root->calculateLayout();           
         }
     }
 
@@ -117,57 +138,36 @@ public:
 
         auto touchLayoutJson = json::parse(touchLayoutJsonStr);
 
-        m_root = json_yoga::buildTree(touchLayoutJson, idMap);
+        m_root = json_yoga::buildTree(touchLayoutJson, m_dpi);
+    
+        if(m_root) {
+            m_root->setWidth(m_screenWidth);
+            m_root->setHeight(m_screenHeight);
+            m_root->calculateLayout();
 
-        printf("buildTree returned root=%p\n", (void*)m_root.get());
-for (auto &p : idMap) {
-    printf("idMap['%s'] -> node=%p, raw=%p, children=%zu\n",
-           p.first.c_str(), (void*)p.second.get(), (void*)p.second->raw(), p.second->childrenCount());
-}
-
-        auto root = get_or_null(idMap, "root");
-        if(root) {
-            root->setWidth(m_screenWidth);
-            root->setHeight(m_screenHeight);
-            root->calculateLayout();
+            m_root->debugDump();
         }
-
-        // m_root = yoga_raii::Node::create();
-        // m_root->setWidth(m_screenWidth);
-        // m_root->setHeight(m_screenHeight);
-        // m_root->setFlexDirection(YGFlexDirectionRow);
-        // m_root->setJustifyContent(YGJustifyCenter);
-        // m_root->setAlignItems(YGAlignCenter);
-
-        // m_m = yoga_raii::Node::create();
-        // m_m->setWidth(80);
-        // m_m->setHeight(60);
-        // setMargin(m_margin);
-        
-        // m_root->addChild(m_m);
-
-        // m_root->calculateLayout();
     }
 
     void onResize(int screenWidth, int screenHeight) {
         m_screenWidth = screenWidth;
         m_screenHeight = screenHeight;
 
-        // m_root->setWidth(m_screenWidth);
-        // m_root->setHeight(m_screenHeight);
-        // m_root->calculateLayout();
-
-        auto root = get_or_null(idMap, "root");
-        if(root) {
-            root->setWidth(m_screenWidth);
-            root->setHeight(m_screenHeight);
-            root->calculateLayout();
+        if(m_root) {
+            m_root->setWidth(m_screenWidth);
+            m_root->setHeight(m_screenHeight);
+            m_root->calculateLayout();
         }
     }
 
     void onEvent(SDL_Event& ev) {
 
-        const float digitalPadThreshold = 16;
+        float digitalPadThreshold = 0;
+        
+        if(glm::vec2 pixels; metersToPixels(0.005f, pixels, m_dpi)) {
+            digitalPadThreshold = pixels.x;
+        }
+        else return;
 
         const bool emulateTouch = true;
 
@@ -175,80 +175,79 @@ for (auto &p : idMap) {
         bool evtDown = false;
         bool evtUp = false;
         bool evtDrag = false;
-        float x = 0;
-        float y = 0;
+        glm::vec2 point = {0,0};
 
         if(emulateTouch && ev.type == SDL_MOUSEBUTTONDOWN) {
             evtDown = true;
-            x = ev.button.x;
-            y = ev.button.y;
+            point.x = ev.button.x;
+            point.y = ev.button.y;
         }
         else if(emulateTouch && ev.type == SDL_MOUSEBUTTONUP) {
             evtUp = true;
-            x = ev.button.x;
-            y = ev.button.y;
+            point.x = ev.button.x;
+            point.y = ev.button.y;
         }
         else if(emulateTouch && ev.type == SDL_MOUSEMOTION) {
             evtDrag = true;
-            x = ev.button.x;
-            y = ev.button.y;
+            point.x = ev.button.x;
+            point.y = ev.button.y;
         }
         else if(ev.type == SDL_FINGERDOWN) {
             evtDown = true;
             index = ev.tfinger.fingerId;
-            x = ev.tfinger.x * m_screenWidth;
-            y = ev.tfinger.y * m_screenHeight;
+            point.x = ev.tfinger.x * m_screenWidth;
+            point.y = ev.tfinger.y * m_screenHeight;
         }
         else if(ev.type == SDL_FINGERUP) {
             evtUp = true;
             index = ev.tfinger.fingerId;
-            x = ev.tfinger.x * m_screenWidth;
-            y = ev.tfinger.y * m_screenHeight;
+            point.x = ev.tfinger.x * m_screenWidth;
+            point.y = ev.tfinger.y * m_screenHeight;
         }
         else if(ev.type == SDL_FINGERMOTION) {
             evtDrag = true;
             index = ev.tfinger.fingerId;
-            x = ev.tfinger.x * m_screenWidth;
-            y = ev.tfinger.y * m_screenHeight;
+            point.x = ev.tfinger.x * m_screenWidth;
+            point.y = ev.tfinger.y * m_screenHeight;
         }
 
-        if(evtDown) {   
+        if(evtDown) {
 
-            if(y < m_screenHeight/5) {
+            testDownButton("main/top/rewind", point, [&]() {
                 m_buttons.rewind = true;
                 rewindFingerId = index;
-            }
-            else {
+            });
 
-                if(x < 3*m_screenWidth/7 ) {
-                    if(thumbIndex < 0) {
-                        thumbIndex = index;
-                        thumbCenter = glm::vec2{x, y};
-                    }
-                }
-                else if(x < 4*m_screenWidth/7) {
-                    m_buttons.select = true;
-                    selectFingerId = index;
-                }
-                else if(x < 5*m_screenWidth/7) {
-                    m_buttons.start = true;
-                    startFingerId = index;
-                }
-                else if(x < 6*m_screenWidth/7) {
-                    m_buttons.b = true;
-                    bFingerId = index;
-                }
-                else if(x < 7*m_screenWidth/7) {
-                    m_buttons.a = true;
-                    aFingerId = index;
-                }
-            }            
+            testDownButton("main/bottom/digital-pad", point, [&]() {
+                thumbIndex = index;
+                thumbCenter = point;
+            });
+
+            testDownButton("main/bottom/mid/select", point, [&]() {
+                m_buttons.select = true;
+                selectFingerId = index;
+            });
+
+            testDownButton("main/bottom/mid/start", point, [&]() {
+                m_buttons.start = true;
+                startFingerId = index;
+            });
+
+            testDownButton("main/bottom/right/b", point, [&]() {
+                m_buttons.b = true;
+                bFingerId = index;
+            });
+
+            testDownButton("main/bottom/right/a", point, [&]() {
+                m_buttons.a = true;
+                aFingerId = index;
+            });       
         }
         else if(evtDrag) {          
             
             if (thumbIndex >= 0 && index == thumbIndex) {
 
-                glm::vec2 dir = glm::vec2{x, y} - thumbCenter;              
+                glm::vec2 dir = point - thumbCenter;              
 
                 if(glm::length(dir) > digitalPadThreshold) {
 
@@ -264,7 +263,7 @@ for (auto &p : idMap) {
 
                     m_buttons.left = glm::dot(glm::vec2{-1,0}, norm) > threshold;
 
-                    thumbCenter = glm::vec2(x,y); //update center                 
+                    //thumbCenter = point; //update center                 
                 }            
             
             }
@@ -310,42 +309,88 @@ for (auto &p : idMap) {
 
     void draw(ImDrawList* drawList)
     {
-        // ImVec2 min = {m_m->getLayoutLeft(), m_m->getLayoutTop()};
-        // ImVec2 max = {m_m->getLayoutRight(), m_m->getLayoutBottom()};
-    
-        // drawList->AddRect(min, max, IM_COL32(255, 0, 0, 255));
+        const int transparency = 200;
 
-        auto bottomNode = get_or_null(idMap, "bottom");
+        // if(m_root) {
+        //     glm::vec2 min, max;
+        //     m_root->getAbsoluteRect(min, max);        
+        //     drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 255, 255));
+        // }
 
-        if(bottomNode) {
-            ImVec2 min, max;
-            bottomNode->getAbsoluteRect(min, max);        
-            drawList->AddRect(min, max, IM_COL32(255, 255, 255, 255));
-        }
+        // auto bottomNode = m_root->getById("main/bottom");
+        // if(bottomNode) {
+        //     glm::vec2 min, max;
+        //     bottomNode->getAbsoluteRect(min, max);        
+        //     drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 255, 255, 255));
+        // }
 
-        auto rewindNode = get_or_null(idMap, "rewind");
-
+        auto rewindNode = m_root->getById("main/top/rewind");
         if(rewindNode) {
-            ImVec2 min, max;
+            glm::vec2 min, max;
             rewindNode->getAbsoluteRect(min, max);        
-            drawList->AddRect(min, max, IM_COL32(0, 0, 255, 255));
+            drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(0, 0, 255, 255));
         }
 
-        auto selectNode = get_or_null(idMap, "select");
-
-        if(selectNode) {
-            ImVec2 min, max;
-            selectNode->getAbsoluteRect(min, max);        
-            drawList->AddRect(min, max, IM_COL32(255, 0, 0, 255));
-        }
-
-        auto digitalPadNode = get_or_null(idMap, "digital-pad");
-
+        auto digitalPadNode = m_root->getById("main/bottom/digital-pad/draw");
         if(digitalPadNode) {
-            ImVec2 min, max;
+            glm::vec2 min, max;
             digitalPadNode->getAbsoluteRect(min, max);        
-            drawList->AddRect(min, max, IM_COL32(0, 255, 0, 255));
+            //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(0, 255, 0, 255));
+
+            if(thumbIndex >= 0) {
+                glm::vec2 center = digitalPadNode->getAbsoluteCenter();
+                min -= center;
+                max -= center;
+                min += thumbCenter;
+                max += thumbCenter;
+            }
+
+            drawList->AddImage(m_digitalPagTexture->id(),
+                ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
+                IM_COL32(255, 255, 255, transparency));
         }
+
+        auto selectNode = m_root->getById("main/bottom/mid/select/draw");
+        if(selectNode) {
+            glm::vec2 min, max;
+            selectNode->getAbsoluteRect(min, max);        
+            //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
+            drawList->AddImage(m_buttons.select ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
+                ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
+                IM_COL32(255, 255, 255, transparency));
+        }
+
+        auto startNode = m_root->getById("main/bottom/mid/start/draw");
+        if(startNode) {
+            glm::vec2 min, max;
+            startNode->getAbsoluteRect(min, max);        
+            //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
+            drawList->AddImage(m_buttons.start ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
+                ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
+                IM_COL32(255, 255, 255, transparency));
+        }
+
+        auto bNode = m_root->getById("main/bottom/right/b/draw");
+        if(bNode) {
+            glm::vec2 min, max;
+            bNode->getAbsoluteRect(min, max);        
+            //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
+            drawList->AddImage(m_buttons.b ? m_rightButtonPressedTexture->id(): m_rightButtonTexture->id(),
+                ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
+                IM_COL32(255, 255, 255, transparency));
+        }
+
+        auto aNode = m_root->getById("main/bottom/right/a/draw");
+        if(aNode) {
+            glm::vec2 min, max;
+            aNode->getAbsoluteRect(min, max);        
+            //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
+            drawList->AddImage(m_buttons.a ? m_rightButtonPressedTexture->id() : m_rightButtonTexture->id(),
+                ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
+                IM_COL32(255, 255, 255, transparency));
+        }
+
+        
 
         
     }

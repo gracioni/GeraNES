@@ -5,9 +5,9 @@
 #include <string>
 
 #include "imgui_include.h"
+#include "util/sdl_util.h"
 
 #include "signal/SigSlot.h"
-#include "SDLUtil.h"
 
 #include "GeraNESApp/InputInfo.h"
 #include "GeraNESApp/InputManager.h"
@@ -39,7 +39,7 @@ private:
         m_captureIndex = index;
         m_captureState = WAIT_EMPTY;
         m_captureTime = CAPTURE_TIME;
-        m_lastTime = GetTime();
+        m_lastTime = getTime();
 
         ImGuiIO& io = ImGui::GetIO();
         // Desativa o input de teclado
@@ -162,7 +162,7 @@ public:
 
         if(m_captureState != NONE) {
 
-            double time = GetTime();
+            double time = getTime();
             double dt = time - m_lastTime;
             m_captureTime -= dt;
             m_lastTime = time;

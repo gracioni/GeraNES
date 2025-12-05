@@ -40,53 +40,18 @@ FetchContent_MakeAvailable(SDL2)
 
 INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
 
-# FetchContent_Declare(
-#         SDL2_image
-#         GIT_REPOSITORY https://github.com/libsdl-org/SDL_image.git
-#         GIT_TAG release-2.6.3
-#         GIT_SHALLOW TRUE
-#         GIT_PROGRESS TRUE
-# )
+FetchContent_Declare(
+        stb
+        GIT_REPOSITORY https://github.com/nothings/stb.git
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+)
 
-# set(SDL2IMAGE_INSTALL OFF)
-# set(BUILD_SHARED_LIBS FALSE)
+FetchContent_MakeAvailable(stb)
 
-# FetchContent_MakeAvailable(SDL2_image)
+INCLUDE_DIRECTORIES(${stb_SOURCE_DIR})
 
-# FetchContent_Declare(
-#         freetype
-#         GIT_REPOSITORY https://github.com/freetype/freetype
-#         GIT_TAG VER-2-10-3
-#         GIT_SHALLOW TRUE
-#         GIT_PROGRESS TRUE
-# )
-
-# set(BUILD_SHARED_LIBS FALSE)
-
-# FetchContent_MakeAvailable(freetype)
-
-# IF(CMAKE_BUILD_TYPE MATCHES Debug)
-#         set(FREETYPE_LIBRARY ${freetype_BINARY_DIR}/libfreetyped.a)
-# ELSE()
-#         set(FREETYPE_LIBRARY ${freetype_BINARY_DIR}/libfreetype.a)
-# ENDIF()
-
-# set(FREETYPE_INCLUDE_DIRS ${freetype_SOURCE_DIR}/include)
-
-# INCLUDE_DIRECTORIES(${freetype_SOURCE_DIR}/include)
-
-# FetchContent_Declare(
-#         SDL2_ttf
-#         GIT_REPOSITORY https://github.com/libsdl-org/SDL_ttf.git
-#         GIT_TAG release-2.20.2
-#         GIT_SHALLOW TRUE
-#         GIT_PROGRESS TRUE
-# )
-
-# set(SDL3TTF_SAMPLES_INSTALL OFF)
-# set(BUILD_SHARED_LIBS FALSE)
-
-# FetchContent_MakeAvailable(SDL2_ttf)
 
 FetchContent_Declare(
         imgui
@@ -264,7 +229,7 @@ else()
     set(OPENGL_LIBRARY "GL")
 endif()
 
-set(CPP_FILES src/main.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/GeraNESApp/SDLUtil.cpp)
+set(CPP_FILES src/main.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/util/stb_image_impl.cpp src/util/sdl_util.cpp)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
     set(CPP_FILES ${CPP_FILES} src/GeraNESApp/EmscriptenProcessFile.cpp src/GeraNESApp/EmscriptenFileDialog.cpp)

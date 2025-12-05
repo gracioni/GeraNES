@@ -2,24 +2,24 @@
     "id": "root",
     "style": {
         "width": "0",
-        "height": "0"
+        "height": "0",
+        "paddingTop": "0"
     },
     "children": [
         {
             "id": "main",
             "style": {
                 "width": "100%",
-                "height": "100%",
-                "marginTop": "0",                
-                "flexDirection": "column",
-                "justifyContent": "flex-start"
+                "height": "100%",           
+                "flexDirection": "column"
             },
             "children": [
                 {
                     "id": "top",
                     "style": {
                         "width": "100%",
-                        "height": "20%",
+                        "flexBasis": "1cm",
+                        "flexGrow": "0",
                         "flexDirection": "row-reverse"
                     },
                     "children": [
@@ -36,49 +36,132 @@
                     "id": "bottom",
                     "style": {
                         "width": "100%",
-                        "height": "80%",
-                        "flexDirection": "row"
+                        "flexBasis": "100",
+                        "flexDirection": "row",
+                        "flexGrow": "1",
+                        "justifyContent": "space-between"
                     },
                     "children": [
                         {
                             "id": "digital-pad",
                             "style": {
-                                "flexBasis": "30%",
-                                "flexGrow": 0
-                            }
+                                "flexBasis": "6cm",
+                                "height": "100%",
+                                "flexGrow": 1,
+                                "flexShrink": 1,
+                                "maxWidth": "6cm",
+                                "flexDirection": "column-reverse"
+                            },
+                            "children": [
+                                {
+                                    "id": "draw",
+                                    "style": {
+                                        "width": "100%",
+                                        "aspectRatio": 1
+                                    }
+                                }
+                            ]
                         },
                         {
-                            "id": "select",
+                            "id": "mid",
                             "style": {
-                                "flexBasis": "0",
-                                "flexGrow": 1,
-                                "height": "100%"
-                            }
+                                "flexDirection": "row",
+                                "flexShrink": 1
+                            },
+                            "children": [
+                                {
+                                    "id": "select",
+                                    "style": {
+                                        "flexBasis": "3cm",
+                                        "flexGrow": 1,
+                                        "flexShrink": 1,
+                                        "height": "100%",
+                                        "maxWidth": "3cm",
+                                        "flexDirection": "column-reverse"                                
+                                    },
+                                    "children": [
+                                        {
+                                            "id": "draw",
+                                            "style": {
+                                                "width": "100%",
+                                                "aspectRatio": 1
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "id": "start",
+                                    "style": {
+                                        "flexBasis": "3cm",
+                                        "flexGrow": 1,
+                                        "flexShrink": 1,
+                                        "height": "100%",
+                                        "maxWidth": "3cm",
+                                        "flexDirection": "column-reverse"                                
+                                    },
+                                    "children": [
+                                        {
+                                            "id": "draw",
+                                            "style": {
+                                                "width": "100%",
+                                                "aspectRatio": 1
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
                         },
+
                         {
-                            "id": "start",
+                            "id": "right",
                             "style": {
-                                "flexBasis": "0",
-                                "flexGrow": 1,
-                                "height": "100%"
-                            }
-                        },
-                        {
-                            "id": "b",
-                            "style": {
-                                "flexBasis": "0",
-                                "flexGrow": 1,
-                                "height": "100%"
-                            }
-                        },
-                        {
-                            "id": "a",
-                            "style": {
-                                "flexBasis": "0",
-                                "flexGrow": 1,
-                                "height": "100%"
-                            }
-                        }
+                                "flexDirection": "row",
+                                "flexShrink": 1
+                            },
+                            "children": [
+                                {
+                                    "id": "b",
+                                    "style": {
+                                        "flexBasis": "3cm",
+                                        "flexGrow": 1,
+                                        "flexShrink": 1,
+                                        "height": "100%",
+                                        "maxWidth": "3cm",
+                                        "flexDirection": "column-reverse"                                
+                                    },
+                                    "children": [
+                                        {
+                                            "id": "draw",
+                                            "style": {
+                                                "width": "100%",
+                                                "aspectRatio": 1
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "id": "a",
+                                    "style": {
+                                        "flexBasis": "3cm",
+                                        "flexGrow": 1,
+                                        "flexShrink": 1,
+                                        "height": "100%",
+                                        "maxWidth": "3cm",
+                                        "flexDirection": "column-reverse"                                
+                                    },
+                                    "children": [
+                                        {
+                                            "id": "draw",
+                                            "style": {
+                                                "width": "100%",
+                                                "aspectRatio": 1
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }                                                                      
+
                     ]
                 }
             ]

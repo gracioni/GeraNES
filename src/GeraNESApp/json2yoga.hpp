@@ -1,79 +1,147 @@
-// json_to_yoga.hpp
-// Build a Yoga tree from nlohmann::json and map ids to Node::Ptr.
-// Defensive: ignores unknown fields, performs safe conversions.
-
-/*
-
-example json:
-
-{
-  "id": "root",
-  "style": { "width": "800", "height": "600", "flexDirection": "row", "justifyContent": "center", "alignItems": "center" },
-  "children": [
-    {
-      "id": "main",
-      "style": { "width": "80", "height": "60", "margin": "8" }
-    }
-  ]
-}
-
-example C++:
-
-#include <iostream>
-#include <fstream>
-#include "json_to_yoga.hpp"
-
-using json = nlohmann::json;
-
-void example_build_and_layout() {
-    // load JSON from file or string
-    std::ifstream ifs("layout.json");
-    json j; ifs >> j;
-
-    json_yoga::IdMap idMap;
-    auto root = json_yoga::buildTree(j, idMap);
-    if (!root) {
-        std::cout << "failed to build tree\n";
-        return;
-    }
-
-    // call layout with the viewport size (or YGUndefined to let Yoga resolve)
-    root->calculateLayout( (float)800.0f, (float)600.0f );
-
-    // lookup by id
-    auto it = idMap.find("main");
-    if (it != idMap.end()) {
-        auto mainNode = it->second;
-        std::cout << "main layout: " << mainNode->getLayoutLeft()
-                  << "," << mainNode->getLayoutTop()
-                  << " " << mainNode->getLayoutWidth()
-                  << "x" << mainNode->getLayoutHeight() << "\n";
-    }
-}
-*/
+// json2yoga.h
+// Build a Yoga tree from nlohmann::json and interpret length units
+// Supports: numbers (px), "123", "50%", "20px", "2in", "5cm", "10mm", "0.1m"
+// Requires glm::vec2 for DPI: x = horizontal DPI (px/in), y = vertical DPI (px/in).
+// No exceptions thrown; invalid values are ignored (no-op).
 
 #pragma once
 
 #include <string>
-#include <unordered_map>
 #include <optional>
+#include <functional>
+#include <charconv>
 #include <nlohmann/json.hpp>
+#include <glm/vec2.hpp>
 #include "yoga_raii.hpp"
 
 using json = nlohmann::json;
 
 namespace json_yoga {
 
-// result map type
-using IdMap = std::unordered_map<std::string, yoga_raii::Node::Ptr>;
+// --------------------------- UTIL: parse raw length token ---------------------------
+//
+// parseLengthRaw: accepts json that can be a number or string.
+// returns structure describing either percent or absolute with unit token and numeric value.
+// if invalid -> nullopt
+//
+struct LengthRaw {
+    // kind:
+    //  - percent: value interpreted as percent (0..100)
+    //  - number: unitless number (we'll treat as px)
+    //  - unit: has unit string (px, in, cm, mm, m)
+    enum Kind { Percent, Number, Unit } kind;
+    float value;       // numeric part
+    std::string unit;  // only meaningful if kind == Unit
+};
 
-// helper: parse a CSS-like length value: "50%", "80", 80
-// returns pair: (isPercent, value). If not present / invalid -> std::nullopt
-static std::optional<std::pair<bool, float>> parseLength(const json &j) {
+static std::optional<LengthRaw> parseLengthRaw(const json &j) {
     if (j.is_null()) return std::nullopt;
+    // numeric -> treat as px (Number)
     if (j.is_number()) {
-        return std::make_pair(false, j.get<float>());
+        return LengthRaw{LengthRaw::Number, j.get<float>(), "px"};
     }
+    if (!j.is_string()) return std::nullopt;
+
+    std::string s = j.get<std::string>();
+    // trim
+    auto trim = [](std::string &t){
+        size_t a=0; while(a<t.size() && isspace((unsigned char)t[a])) a++;
+        size_t b=t.size(); while(b>a && isspace((unsigned char)t[b-1])) b--;
+        t = t.substr(a, b-a);
+    };
+    trim(s);
+    if (s.empty()) return std::nullopt;
+
+    // check special tokens
+    std::string sl = s;
+    for (auto &c : sl) c = (char)tolower((unsigned char)c);
+    if (sl == "auto") {
+        // signal "auto" by returning Number with NaN
+        return LengthRaw{LengthRaw::Number, std::nanf(""), "auto"};
+    }
+
+    // percentage
+    if (s.back() == '%') {
+        std::string num = s.substr(0, s.size()-1);
+        trim(num);
+        float v = 0.0f;
+        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
+        if (res.ec == std::errc()) {
+            return LengthRaw{LengthRaw::Percent, v, "%"};
+        }
+        return std::nullopt;
+    }
+
+    // suffix-aware parsing: check common units (px, in, cm, mm, m)
+    // accept both lower and upper case
+    auto ends_with = [&](const std::string &str, const char *suffix)->bool{
+        size_t ln = strlen(suffix);
+        if (str.size() < ln) return false;
+        std::string end = str.substr(str.size()-ln);
+        // normalize lower
+        for (auto &c : end) c = (char)tolower((unsigned char)c);
+        std::string suf(suffix);
+        for (auto &c : suf) c = (char)tolower((unsigned char)c);
+        return end == suf;
+    };
+
+    // check "px"
+    if (ends_with(s, "px")) {
+        std::string num = s.substr(0, s.size()-2);
+        trim(num);
+        float v = 0.0f;
+        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
+        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "px"};
+        return std::nullopt;
+    }
+    if (ends_with(s, "in")) {
+        std::string num = s.substr(0, s.size()-2);
+        trim(num);
+        float v = 0.0f;
+        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
+        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "in"};
+        return std::nullopt;
+    }
+    if (ends_with(s, "cm")) {
+        std::string num = s.substr(0, s.size()-2);
+        trim(num);
+        float v = 0.0f;
+        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
+        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "cm"};
+        return std::nullopt;
+    }
+    if (ends_with(s, "mm")) {
+        std::string num = s.substr(0, s.size()-2);
+        trim(num);
+        float v = 0.0f;
+        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
+        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "mm"};
+        return std::nullopt;
+    }
+    if (ends_with(s, "m")) { // meter; careful: "m" single char
+        std::string num = s.substr(0, s.size()-1);
+        trim(num);
+        float v = 0.0f;
+        auto res = std::from_chars(num.data(), num.data()+num.size(), v);
+        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Unit, v, "m"};
+        return std::nullopt;
+    }
+
+    // last attempt: plain numeric string -> treat as px (Number)
+    {
+        float v = 0.0f;
+        auto res = std::from_chars(s.data(), s.data()+s.size(), v);
+        if (res.ec == std::errc()) return LengthRaw{LengthRaw::Number, v, "px"};
+        return std::nullopt;
+    }
+}
+
+// --------------------------- parseNumber helper ---------------------------
+// Accepts json number or numeric string. Returns optional<float>.
+// Uses std::from_chars to avoid exceptions.
+static std::optional<float> parseNumber(const json &j) {
+    if (j.is_null()) return std::nullopt;
+    if (j.is_number()) return j.get<float>();
     if (!j.is_string()) return std::nullopt;
     std::string s = j.get<std::string>();
     // trim
@@ -84,25 +152,67 @@ static std::optional<std::pair<bool, float>> parseLength(const json &j) {
     };
     trim(s);
     if (s.empty()) return std::nullopt;
-    if (s.back() == '%') {
-        // percent
-        try {
-            float v = std::stof(s.substr(0, s.size()-1));
-            return std::make_pair(true, v);
-        } catch(...) {
-            return std::nullopt;
-        }
-    } else {
-        try {
-            float v = std::stof(s);
-            return std::make_pair(false, v);
-        } catch(...) {
-            return std::nullopt;
-        }
-    }
+    float v = 0.0f;
+    auto res = std::from_chars(s.data(), s.data()+s.size(), v);
+    if (res.ec == std::errc()) return v;
+    return std::nullopt;
 }
 
-// map simple string tokens to Yoga enums (few examples)
+// --------------------------- convert raw length into percent/pixels ---------------------------
+// returns: optional pair (isPercent, value)
+// - if isPercent==true -> value is percent (0..100) and should be applied via setWidthPercent / setHeightPercent
+// - if isPercent==false -> value is pixels (converted using DPI when unit was physical)
+//
+// axis: 0 = horizontal (use dpi.x), 1 = vertical (use dpi.y)
+// dpi: glm::vec2(dpiX, dpiY) in pixels per inch
+static std::optional<std::pair<bool,float>> lengthToPixelsForAxis(const json &j, int axis, const glm::vec2 &dpi) {
+    auto rawOpt = parseLengthRaw(j);
+    if (!rawOpt) return std::nullopt;
+    LengthRaw raw = *rawOpt;
+
+    // if parseLengthRaw returned "auto" marker (unit == "auto" and value is NaN), signal no numeric value
+    if (raw.unit == "auto") return std::nullopt;
+
+    if (raw.kind == LengthRaw::Percent) {
+        // percent -> return percent value (no conversion)
+        return std::make_pair(true, raw.value);
+    }
+
+    // number or unit -> convert to pixels. axis selects which DPI to use for unit conversions that involve inches.
+    float pixels = 0.0f;
+    std::string unit = raw.unit;
+    // normalize unit to lower
+    for (auto &c : unit) c = (char)tolower((unsigned char)c);
+
+    if (raw.kind == LengthRaw::Number || unit == "px" || unit.empty()) {
+        pixels = raw.value;
+        return std::make_pair(false, pixels);
+    }
+
+    // physical units -> convert to inches then multiply by dpi
+    float inches = 0.0f;
+    if (unit == "in") {
+        inches = raw.value;
+    } else if (unit == "cm") {
+        inches = raw.value / 2.54f;
+    } else if (unit == "mm") {
+        inches = raw.value / 25.4f;
+    } else if (unit == "m") {
+        inches = raw.value * 100.0f / 2.54f; // meters -> cm -> inches (1 m = 100 cm)
+    } else {
+        // unknown unit -> fail silently
+        return std::nullopt;
+    }
+
+    float useDpi = (axis == 0) ? dpi.x : dpi.y;
+    // defensive: if dpi is zero or negative, fallback to 96 (common default)
+    if (!(useDpi > 0.0f)) useDpi = 96.0f;
+
+    pixels = inches * useDpi;
+    return std::make_pair(false, pixels);
+}
+
+// --------------------------- existing helpers (enum parsing etc) ---------------------------
 static YGFlexDirection parseFlexDirection(const std::string &s) {
     if (s == "row") return YGFlexDirectionRow;
     if (s == "column") return YGFlexDirectionColumn;
@@ -130,84 +240,113 @@ static YGAlign parseAlign(const std::string &s) {
     return YGAlignAuto;
 }
 
-// apply a length to node: either percent or px
-static void applyLengthToNode(yoga_raii::Node::Ptr node,
-                              const std::optional<std::pair<bool,float>> &len,
-                              std::function<void(yoga_raii::Node::Ptr,float)> pxSetter,
-                              std::function<void(yoga_raii::Node::Ptr,float)> pctSetter) {
-    if (!node) return;
-    if (!len) return;
-    bool isPct = len->first;
-    float v = len->second;
-    if (isPct) pctSetter(node, v);
-    else pxSetter(node, v);
+// --------------------------- apply style (uses lengthToPixelsForAxis) ---------------------------
+static YGDisplay parseDisplay(const std::string &s) {
+    if (s == "flex") return YGDisplayFlex;
+    return YGDisplayNone;
+}
+static YGPositionType parsePositionType(const std::string &s) {
+    if (s == "absolute") return YGPositionTypeAbsolute;
+    return YGPositionTypeRelative;
+}
+static YGOverflow parseOverflow(const std::string &s) {
+    if (s == "hidden") return YGOverflowHidden;
+    if (s == "scroll") return YGOverflowScroll;
+    return YGOverflowVisible;
+}
+static YGDirection parseDirection(const std::string &s) {
+    if (s == "rtl") return YGDirectionRTL;
+    if (s == "ltr") return YGDirectionLTR;
+    return YGDirectionInherit;
 }
 
-// Apply style object to a node (silently ignores unknown props)
-static void applyStyle(yoga_raii::Node::Ptr node, const json &style) {
+static void applyStyle(yoga_raii::Node::Ptr node, const json &style, const glm::vec2 &dpi) {
     if (!node || style.is_null() || !style.is_object()) return;
 
-    // size
-    auto w = parseLength(style.value("width", json()));
-    if (w) {
-        applyLengthToNode(node, w,
-            [](yoga_raii::Node::Ptr n, float px){ n->setWidth(px); },
-            [](yoga_raii::Node::Ptr n, float pct){ n->setWidthPercent(pct); });
-    }
-
-    auto h = parseLength(style.value("height", json()));
-    if (h) {
-        applyLengthToNode(node, h,
-            [](yoga_raii::Node::Ptr n, float px){ n->setHeight(px); },
-            [](yoga_raii::Node::Ptr n, float pct){ n->setHeightPercent(pct); });
-    }
-
-    // min/max
-    auto mw = parseLength(style.value("minWidth", json()));
-    if (mw) applyLengthToNode(node, mw,
-        [](yoga_raii::Node::Ptr n, float px){ n->setMinWidth(px); },
-        [](yoga_raii::Node::Ptr n, float pct){ n->setMinWidth(pct); /* percent setter not implemented in wrapper? */ });
-
-    auto Mxw = parseLength(style.value("maxWidth", json()));
-    if (Mxw) applyLengthToNode(node, Mxw,
-        [](yoga_raii::Node::Ptr n, float px){ n->setMaxWidth(px); },
-        [](yoga_raii::Node::Ptr n, float pct){ n->setMaxWidth(pct); /* percent setter not implemented */ });
-
-    auto mh = parseLength(style.value("minHeight", json()));
-    if (mh) applyLengthToNode(node, mh,
-        [](yoga_raii::Node::Ptr n, float px){ n->setMinHeight(px); },
-        [](yoga_raii::Node::Ptr n, float pct){ n->setMinHeight(pct); /* percent setter not implemented */ });
-
-    auto Mxh = parseLength(style.value("maxHeight", json()));
-    if (Mxh) applyLengthToNode(node, Mxh,
-        [](yoga_raii::Node::Ptr n, float px){ n->setMaxHeight(px); },
-        [](yoga_raii::Node::Ptr n, float pct){ n->setMaxHeight(pct); /* percent setter not implemented */ });
-
-    // flex properties
-    if (style.contains("flexGrow") && style["flexGrow"].is_number()) {
-        node->setFlexGrow(style["flexGrow"].get<float>());
-    }
-    if (style.contains("flexShrink") && style["flexShrink"].is_number()) {
-        node->setFlexShrink(style["flexShrink"].get<float>());
-    }
-    // flexBasis
-    if (style.contains("flexBasis")) {
-        if (style["flexBasis"].is_string()) {
-            std::string s = style["flexBasis"].get<std::string>();
-            if (s == "auto") {
-                // nothing to do (wrapper doesn't have setFlexBasisAuto)
-            } else {
-                auto fb = parseLength(style["flexBasis"]);
-                if (fb) applyLengthToNode(node, fb,
-                    [](yoga_raii::Node::Ptr n, float px){ n->setFlexBasis(px); },
-                    [](yoga_raii::Node::Ptr n, float pct){ n->setFlexBasisPercent(pct); });
+    // ---------- width/height (support "auto") ----------
+    if (style.contains("width")) {
+        const auto &j = style["width"];
+        if (j.is_string() && j.get<std::string>() == "auto") node->setWidthAuto();
+        else {
+            auto w = lengthToPixelsForAxis(j, 0, dpi);
+            if (w) {
+                if (w->first) node->setWidthPercent(w->second);
+                else node->setWidth(w->second);
             }
-        } else {
-            auto fb = parseLength(style["flexBasis"]);
-            if (fb) applyLengthToNode(node, fb,
-                [](yoga_raii::Node::Ptr n, float px){ n->setFlexBasis(px); },
-                [](yoga_raii::Node::Ptr n, float pct){ n->setFlexBasisPercent(pct); });
         }
+    }
+
+    if (style.contains("height")) {
+        const auto &j = style["height"];
+        if (j.is_string() && j.get<std::string>() == "auto") node->setHeightAuto();
+        else {
+            auto h = lengthToPixelsForAxis(j, 1, dpi);
+            if (h) {
+                if (h->first) node->setHeightPercent(h->second);
+                else node->setHeight(h->second);
+            }
+        }
+    }
+
+    // min/max (width axis) - support percent if wrapper provides percent setters
+    if (style.contains("minWidth")) {
+        auto mw = lengthToPixelsForAxis(style["minWidth"], 0, dpi);
+        if (mw) {
+            if (mw->first) node->setMinWidthPercent(mw->second);
+            else node->setMinWidth(mw->second);
+        }
+    }
+    if (style.contains("maxWidth")) {
+        auto Mxw = lengthToPixelsForAxis(style["maxWidth"], 0, dpi);
+        if (Mxw) {
+            if (Mxw->first) node->setMaxWidthPercent(Mxw->second);
+            else node->setMaxWidth(Mxw->second);
+        }
+    }
+
+    if (style.contains("minHeight")) {
+        auto mh = lengthToPixelsForAxis(style["minHeight"], 1, dpi);
+        if (mh) {
+            if (mh->first) node->setMinHeightPercent(mh->second);
+            else node->setMinHeight(mh->second);
+        }
+    }
+    if (style.contains("maxHeight")) {
+        auto Mxh = lengthToPixelsForAxis(style["maxHeight"], 1, dpi);
+        if (Mxh) {
+            if (Mxh->first) node->setMaxHeightPercent(Mxh->second);
+            else node->setMaxHeight(Mxh->second);
+        }
+    }
+
+    // flex properties: accept number or numeric-string
+    if (style.contains("flexGrow")) {
+        if (auto v = parseNumber(style["flexGrow"])) node->setFlexGrow(*v);
+    }
+    if (style.contains("flexShrink")) {
+        if (auto v = parseNumber(style["flexShrink"])) node->setFlexShrink(*v);
+    }
+    // flexBasis: can be percent or length; treat axis depending on main axis later.
+    if (style.contains("flexBasis")) {
+        const auto &fbj = style["flexBasis"];
+        if (fbj.is_string() && fbj.get<std::string>() == "auto") {
+            node->setFlexBasisAuto();
+        } else {
+            auto fb_h = lengthToPixelsForAxis(fbj, 0, dpi);
+            if (fb_h) {
+                if (fb_h->first) node->setFlexBasisPercent(fb_h->second);
+                else node->setFlexBasis(fb_h->second);
+            } else {
+                if (auto v = parseNumber(fbj)) {
+                    node->setFlexBasis(*v);
+                }
+            }
+        }
+    }
+
+    // shorthand flex (css-like)
+    if (style.contains("flex")) {
+        if (auto v = parseNumber(style["flex"])) node->setFlex(*v);
     }
 
     // direction / justify / align
@@ -224,106 +363,159 @@ static void applyStyle(yoga_raii::Node::Ptr node, const json &style) {
         node->setAlignSelf(parseAlign(style["alignSelf"].get<std::string>()));
     }
 
-    // margin shorthand and individual edges
-    auto applyMarginEdge = [&](const std::string &k, YGEdge edge){
+    // position type / display / overflow / direction
+    if (style.contains("positionType") && style["positionType"].is_string()) {
+        node->setPositionType(parsePositionType(style["positionType"].get<std::string>()));
+    }
+    if (style.contains("display") && style["display"].is_string()) {
+        node->setDisplay(parseDisplay(style["display"].get<std::string>()));
+    }
+    if (style.contains("overflow") && style["overflow"].is_string()) {
+        node->setOverflow(parseOverflow(style["overflow"].get<std::string>()));
+    }
+    if (style.contains("direction") && style["direction"].is_string()) {
+        node->setDirection(parseDirection(style["direction"].get<std::string>()));
+    }
+
+    // position edges: top/right/bottom/left
+    auto applyPositionEdge = [&](const std::string &k, YGEdge edge, int axis){
         if (!style.contains(k)) return;
-        auto val = parseLength(style[k]);
+        const auto &j = style[k];
+        if (j.is_string() && j.get<std::string>() == "auto") {
+            // Yoga has no "auto" position setter; ignore
+            return;
+        }
+        auto val = lengthToPixelsForAxis(j, axis, dpi);
+        if (!val) return;
+        if (val->first) node->setPositionPercent(edge, val->second);
+        else node->setPosition(edge, val->second);
+    };
+
+    applyPositionEdge("top", YGEdgeTop, 1);
+    applyPositionEdge("right", YGEdgeRight, 0);
+    applyPositionEdge("bottom", YGEdgeBottom, 1);
+    applyPositionEdge("left", YGEdgeLeft, 0);
+
+    // border shorthand and individual edges
+    if (style.contains("border")) {
+        if (auto v = parseNumber(style["border"])) {
+            node->setBorder(YGEdgeTop, *v);
+            node->setBorder(YGEdgeRight, *v);
+            node->setBorder(YGEdgeBottom, *v);
+            node->setBorder(YGEdgeLeft, *v);
+        }
+    }
+    if (style.contains("borderTop") && parseNumber(style["borderTop"])) node->setBorder(YGEdgeTop, *parseNumber(style["borderTop"]));
+    if (style.contains("borderRight") && parseNumber(style["borderRight"])) node->setBorder(YGEdgeRight, *parseNumber(style["borderRight"]));
+    if (style.contains("borderBottom") && parseNumber(style["borderBottom"])) node->setBorder(YGEdgeBottom, *parseNumber(style["borderBottom"]));
+    if (style.contains("borderLeft") && parseNumber(style["borderLeft"])) node->setBorder(YGEdgeLeft, *parseNumber(style["borderLeft"]));
+
+    // margin shorthand and individual edges
+    auto applyMarginEdge = [&](const std::string &k, YGEdge edge, int axis){
+        if (!style.contains(k)) return;
+        auto val = lengthToPixelsForAxis(style[k], axis, dpi);
         if (!val) return;
         if (val->first) node->setMarginPercent(edge, val->second);
         else node->setMargin(edge, val->second);
     };
 
     if (style.contains("margin")) {
-        auto m = parseLength(style["margin"]);
+        auto m = parseLengthRaw(style["margin"]); // we just detect percent or px/unit
         if (m) {
-            if (m->first) {
-                node->setMarginPercent(YGEdgeTop, m->second);
-                node->setMarginPercent(YGEdgeRight, m->second);
-                node->setMarginPercent(YGEdgeBottom, m->second);
-                node->setMarginPercent(YGEdgeLeft, m->second);
+            if (m->kind == LengthRaw::Percent) {
+                for (YGEdge e : {YGEdgeTop, YGEdgeRight, YGEdgeBottom, YGEdgeLeft}) node->setMarginPercent(e, m->value);
             } else {
-                node->setMargin(YGEdgeTop, m->second);
-                node->setMargin(YGEdgeRight, m->second);
-                node->setMargin(YGEdgeBottom, m->second);
-                node->setMargin(YGEdgeLeft, m->second);
+                // margin numbers in px or units -> convert using horizontal DPI for left/right and vertical for top/bottom
+                auto top = lengthToPixelsForAxis(style["margin"], 1, dpi);
+                auto horiz = lengthToPixelsForAxis(style["margin"], 0, dpi);
+                if (top) node->setMargin(YGEdgeTop, top->second);
+                if (horiz) node->setMargin(YGEdgeRight, horiz->second);
+                if (top) node->setMargin(YGEdgeBottom, top->second);
+                if (horiz) node->setMargin(YGEdgeLeft, horiz->second);
             }
         }
     } else {
-        applyMarginEdge("marginTop", YGEdgeTop);
-        applyMarginEdge("marginRight", YGEdgeRight);
-        applyMarginEdge("marginBottom", YGEdgeBottom);
-        applyMarginEdge("marginLeft", YGEdgeLeft);
+        applyMarginEdge("marginTop", YGEdgeTop, 1);
+        applyMarginEdge("marginRight", YGEdgeRight, 0);
+        applyMarginEdge("marginBottom", YGEdgeBottom, 1);
+        applyMarginEdge("marginLeft", YGEdgeLeft, 0);
+    }
+
+    // aspectRatio
+    if (style.contains("aspectRatio")) {
+        auto m = parseLengthRaw(style["aspectRatio"]);
+        if (m) {
+            if (m->kind == LengthRaw::Number) {
+                node->setAspectRatio(m->value);
+            }
+        }
     }
 
     // padding shorthand and edges
-    auto applyPaddingEdge = [&](const std::string &k, YGEdge edge){
+    auto applyPaddingEdge = [&](const std::string &k, YGEdge edge, int axis){
         if (!style.contains(k)) return;
-        auto val = parseLength(style[k]);
+        auto val = lengthToPixelsForAxis(style[k], axis, dpi);
         if (!val) return;
         if (val->first) node->setPaddingPercent(edge, val->second);
         else node->setPadding(edge, val->second);
     };
 
     if (style.contains("padding")) {
-        auto p = parseLength(style["padding"]);
-        if (p) {
-            if (p->first) {
-                node->setPaddingPercent(YGEdgeTop, p->second);
-                node->setPaddingPercent(YGEdgeRight, p->second);
-                node->setPaddingPercent(YGEdgeBottom, p->second);
-                node->setPaddingPercent(YGEdgeLeft, p->second);
+        auto pRaw = parseLengthRaw(style["padding"]);
+        if (pRaw) {
+            if (pRaw->kind == LengthRaw::Percent) {
+                for (YGEdge e : {YGEdgeTop, YGEdgeRight, YGEdgeBottom, YGEdgeLeft}) node->setPaddingPercent(e, pRaw->value);
             } else {
-                node->setPadding(YGEdgeTop, p->second);
-                node->setPadding(YGEdgeRight, p->second);
-                node->setPadding(YGEdgeBottom, p->second);
-                node->setPadding(YGEdgeLeft, p->second);
+                // convert top/bottom using vertical DPI, left/right using horizontal DPI
+                auto pVert = lengthToPixelsForAxis(style["padding"], 1, dpi);
+                auto pH = lengthToPixelsForAxis(style["padding"], 0, dpi);
+                if (pVert) node->setPadding(YGEdgeTop, pVert->second);
+                if (pH) node->setPadding(YGEdgeRight, pH->second);
+                if (pVert) node->setPadding(YGEdgeBottom, pVert->second);
+                if (pH) node->setPadding(YGEdgeLeft, pH->second);
             }
         }
     } else {
-        applyPaddingEdge("paddingTop", YGEdgeTop);
-        applyPaddingEdge("paddingRight", YGEdgeRight);
-        applyPaddingEdge("paddingBottom", YGEdgeBottom);
-        applyPaddingEdge("paddingLeft", YGEdgeLeft);
+        applyPaddingEdge("paddingTop", YGEdgeTop, 1);
+        applyPaddingEdge("paddingRight", YGEdgeRight, 0);
+        applyPaddingEdge("paddingBottom", YGEdgeBottom, 1);
+        applyPaddingEdge("paddingLeft", YGEdgeLeft, 0);
     }
 }
 
-// Recursively build a node and children, filling idMap with nodes that have "id" in JSON.
-// Returns created node (or nullptr if creation failed).
-static yoga_raii::Node::Ptr buildNodeFromJson(const json &j, IdMap &idMap) {
-    // create node
+// --------------------------- Builder (recursive) ---------------------------
+
+static yoga_raii::Node::Ptr buildNodeFromJson(const json &j, const glm::vec2 &dpi) {
     auto node = yoga_raii::Node::create();
     if (!node) return nullptr;
 
-    // apply style if present
-    if (j.contains("style") && j["style"].is_object()) {
-        applyStyle(node, j["style"]);
+    // set id/name
+    if (j.contains("id") && j["id"].is_string()) {
+        node->setName(j["id"].get<std::string>());
     }
 
-    // register id if present
-    if (j.contains("id") && j["id"].is_string()) {
-        idMap[j["id"].get<std::string>()] = node;
+    // style with DPI
+    if (j.contains("style") && j["style"].is_object()) {
+        applyStyle(node, j["style"], dpi);
     }
 
     // children
     if (j.contains("children") && j["children"].is_array()) {
         for (const auto &childJ : j["children"]) {
             if (!childJ.is_object()) continue;
-            auto childNode = buildNodeFromJson(childJ, idMap);
-            if (childNode) {
-                node->addChild(childNode);
-            }
+            auto childNode = buildNodeFromJson(childJ, dpi);
+            if (childNode) node->addChild(childNode);
         }
     }
 
     return node;
 }
 
-// Public entry: builds a tree from rootJson and fills idMap.
-// Example: json root should be an object (node). Returns root node pointer (or nullptr).
-static yoga_raii::Node::Ptr buildTree(const json &rootJson, IdMap &outIdMap) {
-    outIdMap.clear();
+// Entry point: build the tree using the supplied DPI
+// dpi.x = horizontal DPI (px/in), dpi.y = vertical DPI (px/in)
+static yoga_raii::Node::Ptr buildTree(const json &rootJson, const glm::vec2 &dpi = glm::vec2(96.0f,96.0f)) {
     if (!rootJson.is_object()) return nullptr;
-    return buildNodeFromJson(rootJson, outIdMap);
+    return buildNodeFromJson(rootJson, dpi);
 }
 
 } // namespace json_yoga
