@@ -746,6 +746,8 @@ public:
 
         if(dt == 0) return;
 
+        m_touch->update(dt);
+
         m_mainLoopLastTime = tempTime;
  
         m_fpsTimer += dt;        

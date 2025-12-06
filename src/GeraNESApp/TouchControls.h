@@ -12,6 +12,7 @@
 
 #include "util/geometry.h"
 #include "util/sdl_util.h"
+#include "util/glm_util.h"
 
 #include "yoga_raii.hpp"
 #include "json2yoga.hpp"
@@ -27,6 +28,7 @@ private:
 
     int thumbIndex = -1;
     glm::vec2 thumbCenter;
+    glm::vec2 fakeThumCenter;
 
     int aFingerId = -1;
     int bFingerId = -1;
@@ -288,6 +290,7 @@ public:
 
                 if(digitalPadMode == DigitaPadMode::CentralizeOnTouch || digitalPadMode == DigitaPadMode::Relative) {
                     thumbCenter = point;
+                    fakeThumCenter = point;
                 }
                 else {
                     thumbCenter = m_root->getById("main/bottom/digital-pad/draw")->getAbsoluteCenter();
@@ -355,7 +358,7 @@ public:
 
     }    
 
-    Buttons& buttons() {
+    const Buttons& buttons() {
         return m_buttons;
     }
 
@@ -365,21 +368,7 @@ public:
             return;
         }
 
-        //const int transparency = 200;
         const int transparency = (int)(AppSettings::instance().data.input.touchControls.transparency * 255);
-
-        // if(m_root) {
-        //     glm::vec2 min, max;
-        //     m_root->getAbsoluteRect(min, max);        
-        //     drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 255, 255));
-        // }
-
-        // auto bottomNode = m_root->getById("main/bottom");
-        // if(bottomNode) {
-        //     glm::vec2 min, max;
-        //     bottomNode->getAbsoluteRect(min, max);        
-        //     drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 255, 255, 255));
-        // }
 
         auto rewindNode = m_root->getById("main/top/rewind");  
         if(rewindNode) {
@@ -401,8 +390,15 @@ public:
                 glm::vec2 center = digitalPadNode->getAbsoluteCenter();
                 min -= center;
                 max -= center;
-                min += thumbCenter;
-                max += thumbCenter;
+
+                if(AppSettings::instance().data.input.touchControls.digitalPadMode == DigitaPadMode::Relative) {
+                    min += fakeThumCenter;
+                    max += fakeThumCenter;
+                }
+                else {
+                    min += thumbCenter;
+                    max += thumbCenter;
+                }
             }
 
             drawList->AddImage(m_digitalPagTexture->id(),
@@ -449,12 +445,10 @@ public:
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
                 IM_COL32(255, 255, 255, transparency));
         }
-
-        
-
-        
     }
 
-    
+    void update(Uint64 dt) {
+        fakeThumCenter = moveTowards(fakeThumCenter, thumbCenter, dt * 0.1f);
+    }    
 
 };
