@@ -166,6 +166,10 @@ private:
     uint16_t m_busAddress;
     int m_updateA12Delay;
 
+
+    //Do not serialize variables below
+    uint32_t* m_pFrameBuffer;
+
     void initOpenBus()
     {
         m_openBus = 0;
@@ -323,6 +327,7 @@ public:
 
         m_currentY = 0;
         m_currentX = 0;
+        m_pFrameBuffer = &m_framebuffer[0];
 
         m_reg_v = 0;
         m_reg_x = 0;
@@ -565,14 +570,16 @@ public:
             value  = m_palette[m_currentPixelColorIndex]&0x3F;
         }
 
-        m_framebuffer[m_currentY*SCREEN_WIDTH+m_currentX] = NESToRGBAColor(value);
+        *m_pFrameBuffer = NESToRGBAColor(value);
+        m_pFrameBuffer++;
 
         if(++m_currentX == SCREEN_WIDTH){
             m_currentX = 0;
 
             if(++m_currentY == SCREEN_HEIGHT) {
                 m_currentY = 0;
-                m_currentX = 0;                
+                m_currentX = 0;
+                m_pFrameBuffer = &m_framebuffer[0];          
             }
         }
     }
@@ -1767,6 +1774,8 @@ yyy NNYY YYYX XXXX
 
         SERIALIZEDATA(s, m_busAddress);
         SERIALIZEDATA(s, m_updateA12Delay);
+
+        m_pFrameBuffer = &m_framebuffer[0];
     }
 
 };

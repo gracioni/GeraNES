@@ -549,6 +549,20 @@ public:
 
     void serialization(SerializationBase& s) override
     {
+        uint32_t saveStateMagic = SAVE_STATE_MAGIC;
+        SERIALIZEDATA(s, saveStateMagic);
+        if(saveStateMagic != saveStateMagic) {
+            Logger::instance().log("Invalid save state: incorrect magic header.", Logger::Type::ERROR);
+            return;
+        }
+
+        uint32_t saveStateVersion = SAVE_STATE_VERSION;
+        SERIALIZEDATA(s, saveStateVersion);
+        if(saveStateVersion != SAVE_STATE_VERSION) {
+            Logger::instance().log("Incompatible save state: version mismatch.", Logger::Type::ERROR);
+            return;
+        }
+
         m_cpu.serialization(s);
         m_cartridge.serialization(s);
         m_ppu.serialization(s);
