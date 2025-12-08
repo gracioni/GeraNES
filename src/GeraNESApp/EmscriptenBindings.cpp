@@ -1,7 +1,5 @@
 #include "GeraNESApp.h"
 
-#ifdef __EMSCRIPTEN__
-
 #include <emscripten.h>
 
 extern "C" {
@@ -10,6 +8,8 @@ extern "C" {
         reinterpret_cast<GeraNESApp*>(handler)->processFile(fileName, fileSize, fileContent);
     }
 
-}
+    void EMSCRIPTEN_KEEPALIVE restartAudioModule(int handler) {
+        reinterpret_cast<GeraNESApp*>(handler)->restartAudioModule();
+    }    
 
-#endif
+}

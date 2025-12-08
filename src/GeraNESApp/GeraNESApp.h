@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 #include "ShortcutManager.h"
 
 #ifdef __EMSCRIPTEN__
-    #include "EmscriptenFileDialog.h"
+    #include "EmscriptenUtil.h"
 #else
     #include <nfd.h>
 #endif
@@ -91,7 +91,7 @@ private:
 
     glm::mat4x4 m_mvp = glm::mat4x4(1.0f);
 
-    AudioOutput audioOutput;
+    AudioOutput m_audioOutput;
 
     GeraNESEmu m_emu;
 
@@ -231,7 +231,7 @@ private:
 
 public:
 
-    GeraNESApp() : m_emu(audioOutput) {
+    GeraNESApp() : m_emu(m_audioOutput) {
 
         //reset log file content
         std::ofstream file(LOG_FILE);
@@ -243,13 +243,13 @@ public:
         m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(&GeraNESApp::onCaptureEnd, this);
 
-        m_audioDevices = audioOutput.getAudioList();
+        m_audioDevices = m_audioOutput.getAudioList();
 
         auto cfg = AppSettings::instance().data;
 
-        audioOutput.config(cfg.audio.audioDevice);      
-        cfg.audio.audioDevice = audioOutput.currentDeviceName(); 
-        audioOutput.setVolume(cfg.audio.volume);
+        m_audioOutput.config(cfg.audio.audioDevice);      
+        cfg.audio.audioDevice = m_audioOutput.currentDeviceName(); 
+        m_audioOutput.setVolume(cfg.audio.volume);
         
         cfg.input.getControllerInfo(0, m_controller1);
         cfg.input.getControllerInfo(1, m_controller2);
@@ -295,7 +295,11 @@ public:
             m_emu.loadState();
         }});
 
-        loadShaderList();        
+        loadShaderList();
+        
+        #ifdef __EMSCRIPTEN__
+            emcriptenRegisterAudioReset(reinterpret_cast<int>(this));
+        #endif
         
     }
 
@@ -343,6 +347,10 @@ public:
 
     }
 
+    void restartAudioModule() {
+        m_audioOutput.restart();
+    }
+
     void onCaptureBegin() {
         m_emuInputEnabled = false;
     }
@@ -367,9 +375,7 @@ public:
         if(isFullScreen()) minimizeWindow();
 
         #ifdef __EMSCRIPTEN__
-
             emcriptenFileDialog(reinterpret_cast<int>(this));
-
         #else
 
         NFD_Init();     
@@ -936,19 +942,19 @@ public:
 
                     for(int i = 0; i < m_audioDevices.size(); i++) {
 
-                        bool checked = audioOutput.currentDeviceName() == m_audioDevices[i].c_str();
+                        bool checked = m_audioOutput.currentDeviceName() == m_audioDevices[i].c_str();
 
                         if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
-                            audioOutput.config(m_audioDevices[i]);
-                            AppSettings::instance().data.audio.audioDevice = audioOutput.currentDeviceName();
+                            m_audioOutput.config(m_audioDevices[i]);
+                            AppSettings::instance().data.audio.audioDevice = m_audioOutput.currentDeviceName();
                         }      
                     }              
                     ImGui::EndMenu();
                 }
 
-                float volume = audioOutput.getVolume();
+                float volume = m_audioOutput.getVolume();
                 if(ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
-                    audioOutput.setVolume(volume);
+                    m_audioOutput.setVolume(volume);
                     AppSettings::instance().data.audio.volume = volume;
                 }
 

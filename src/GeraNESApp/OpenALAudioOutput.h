@@ -14,7 +14,7 @@
 
 #include "AudioOutputBase.h"
 
-#include "GeraNES/Logger.h"
+#include "logger/logger.h"
 
 #include "AudioGenerator.h"
 
@@ -94,6 +94,11 @@ public:
     int sampleSize()
     {
         return 16; // OpenAL typically uses 16-bit samples
+    }
+
+    void restart()
+    {
+        config(m_currentDeviceName);
     }
 
     const std::string& currentDeviceName()

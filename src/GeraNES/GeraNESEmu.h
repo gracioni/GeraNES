@@ -551,7 +551,7 @@ public:
     {
         uint32_t saveStateMagic = SAVE_STATE_MAGIC;
         SERIALIZEDATA(s, saveStateMagic);
-        if(saveStateMagic != saveStateMagic) {
+        if(saveStateMagic != SAVE_STATE_MAGIC) {
             Logger::instance().log("Invalid save state: incorrect magic header.", Logger::Type::ERROR);
             return;
         }

@@ -1,6 +1,4 @@
-#include "EmscriptenFileDialog.h"
-
-#ifdef __EMSCRIPTEN__
+#include "EmscriptenUtil.h"
 
 #include <emscripten.h>
 #include <iostream>
@@ -51,4 +49,42 @@ void emcriptenFileDialog(int handler) {
     }, handler);
 }
 
-#endif
+void emcriptenRegisterAudioReset(int handler)
+{
+    EM_ASM({
+        var handler = $0;
+        function restartAudioIfNeeded() {
+            if (Module && Module.ccall) {
+                try {
+                    Module.ccall(
+                        'restartAudioModule',
+                        null,
+                        ['number'],
+                        [handler]
+                    );
+                    console.log("Audio restarted");
+                } catch (e) {
+                    console.error("Failed to call restartAudioModule:", e);
+                }
+            }
+        }
+
+        // Register only once
+        if (!window.__geranes_audio_reset_registered) {
+            window.__geranes_audio_reset_registered = true;
+
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'visible') {
+                    restartAudioIfNeeded();
+                }
+            });
+
+            window.addEventListener('focus', function () {
+                restartAudioIfNeeded();
+            });
+
+            console.log("Audio auto-reset listeners installed for handler:", handler);
+        }
+
+    }, handler);
+}
