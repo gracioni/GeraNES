@@ -32,11 +32,13 @@ namespace fs = std::filesystem;
 
 #include <nlohmann/json.hpp>
 
+#include "logger/logger.h"
+
 #include "CppGL/CppGL.h"
 #include "SDLOpenGLWindow.h"
 
 #include "GeraNES/GeraNESEmu.h"
-#include "GeraNES/Logger.h"
+
 #include "GeraNES/defines.h"
 
 #ifdef __EMSCRIPTEN__
@@ -54,7 +56,7 @@ namespace fs = std::filesystem;
 
 #include "GeraNES/util/CircularBuffer.h"
 
-#include "signal/SigSlot.h"
+#include "signal/signal.h"
 
 #include "cmrc/cmrc.hpp"
 #include "const_util.h"

@@ -1,7 +1,7 @@
 #ifndef PPU_H
 #define PPU_H
 
-#include "signal/SigSlot.h"
+#include "signal/signal.h"
 
 #include "Settings.h"
 #include "Cartridge.h"

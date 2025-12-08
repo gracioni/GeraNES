@@ -5,7 +5,7 @@
 #include "GeraNES/Settings.h"
 #include "GeraNES/IAudioOutput.h"
 
-#include "signal/SigSlot.h"
+#include "signal/signal.h"
 
 class SampleChannel
 {

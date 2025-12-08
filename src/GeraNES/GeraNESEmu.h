@@ -15,8 +15,8 @@
 
 #include "Serialization.h"
 
-#include "signal/SigSlot.h"
-#include "Logger.h"
+#include "signal/signal.h"
+#include "logger/logger.h"
 
 #include "Rewind.h"
 

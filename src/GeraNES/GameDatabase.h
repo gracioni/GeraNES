@@ -11,7 +11,7 @@
 #include <functional>
 #include <vector>
 
-#include "Logger.h"
+#include "logger/logger.h"
 #include "util/StringTrim.h"
 
 class GameDatabase {

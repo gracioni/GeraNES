@@ -229,13 +229,14 @@ else()
     set(OPENGL_LIBRARY "GL")
 endif()
 
-set(CPP_FILES src/main.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/util/stb_image_impl.cpp src/util/sdl_util.cpp)
+#set(CPP_FILES src/main.cpp src/zip/zip.c src/signal/SigSlot.cpp src/GeraNESApp/SDLOpenGLWindow.cpp src/util/stb_image_impl.cpp src/util/sdl_util.cpp)
 
-if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(CPP_FILES ${CPP_FILES} src/GeraNESApp/EmscriptenProcessFile.cpp src/GeraNESApp/EmscriptenFileDialog.cpp)
-endif()
+file(GLOB_RECURSE CPP_FILES
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+)
 
-#SDL2_image::SDL2_image-static SDL2_ttf::SDL2_ttf-static freetype
 set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")

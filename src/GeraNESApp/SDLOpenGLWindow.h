@@ -4,7 +4,7 @@
 
 #include "CppGL/GLHeaders.h"
 
-#include "GeraNES/Logger.h"
+#include "logger/logger.h"
 
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>

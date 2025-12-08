@@ -1,6 +1,6 @@
 //Leon Colijn c++11 simple signal/slot implementation
 
-#include "SigSlot.h"
+#include "signal.h"
 
 #include <cassert>
 

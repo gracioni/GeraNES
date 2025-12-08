@@ -13,7 +13,7 @@ namespace fs = std::filesystem;
 
 #include "ControllerInfo.h"
 
-#include "GeraNES/Logger.h"
+#include "logger/logger.h"
 
 enum class ButtonsMode {Absolute, Column};
 enum class DigitaPadMode {Absolute, CentralizeOnTouch, Relative};

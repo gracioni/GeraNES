@@ -12,7 +12,7 @@
 #include <string>
 #include <cstring>
 
-#include "GeraNES/Logger.h"
+#include "logger/logger.h"
 
 class _INesFormat : public ICartridgeData
 {

@@ -1,7 +1,7 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
-#include "signal/SigSlot.h"
+#include <signal/signal.h>
 #include <string>
 
 class Logger

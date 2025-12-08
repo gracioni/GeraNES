@@ -1,5 +1,7 @@
 #include "EmscriptenFileDialog.h"
 
+#ifdef __EMSCRIPTEN__
+
 #include <emscripten.h>
 #include <iostream>
 #include <cstring>
@@ -49,3 +51,4 @@ void emcriptenFileDialog(int handler) {
     }, handler);
 }
 
+#endif

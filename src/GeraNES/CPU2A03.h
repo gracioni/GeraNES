@@ -12,7 +12,7 @@
 
 class DMA;
 
-#include "signal/SigSlot.h"
+#include "signal/signal.h"
 
 const uint8_t DO_NOT_POOL_INTS = 0xFF;
 

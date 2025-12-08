@@ -13,7 +13,7 @@
 
 #include "AudioOutputBase.h"
 
-#include "GeraNES/Logger.h"
+#include "logger/logger.h"
 
 #include "AudioGenerator.h"
 

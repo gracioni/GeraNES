@@ -6,7 +6,7 @@
 #include "imgui_include.h"
 #include "util/sdl_util.h"
 
-#include "signal/SigSlot.h"
+#include "signal/signal.h"
 
 #include "GeraNESApp/ControllerInfo.h"
 #include "GeraNESApp/InputManager.h"
