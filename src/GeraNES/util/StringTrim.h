@@ -1,5 +1,4 @@
-#ifndef STRING_TRIM_H
-#define STRING_TRIM_H
+#pragma once
 
 #include <string>
 
@@ -16,5 +15,3 @@ static std::string rtrim(const std::string& s) {
 static std::string trim(const std::string& s) {
     return rtrim(ltrim(s));
 }
-
-#endif

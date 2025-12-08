@@ -1,5 +1,4 @@
-#ifndef GERANES_EMU_H
-#define GERANES_EMU_H
+#pragma once
 
 #include "defines.h"
 #include "IBus.h"
@@ -629,5 +628,3 @@ public:
     }
 
 };
-
-#endif

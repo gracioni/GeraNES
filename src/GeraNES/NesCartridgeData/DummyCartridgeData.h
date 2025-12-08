@@ -1,5 +1,4 @@
-#ifndef DUMMYCARTRIDGEDATA_H
-#define DUMMYCARTRIDGEDATA_H
+#pragma once
 
 #include "ICartridgeData.h"
 
@@ -99,5 +98,3 @@ public:
     }
 
 };
-
-#endif // DUMMYCARTRIDGEDATA_H

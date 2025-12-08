@@ -1,5 +1,4 @@
-#ifndef CONSOLE_H
-#define CONSOLE_H
+#pragma once
 
 class CPU2A03;
 class PPU;
@@ -31,5 +30,3 @@ class Console {
         Cartridge& cartridge() { return m_cartridge; }
 
 };
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef SETTINGS_H
-#define SETTINGS_H
+#pragma once
 
 #include "defines.h"
 #include "Serialization.h"
@@ -84,5 +83,3 @@ public:
     }
 
 };
-
-#endif // SETTINGS_H

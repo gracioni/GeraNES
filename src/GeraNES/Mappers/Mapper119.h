@@ -1,5 +1,4 @@
-#ifndef MAPPER119_H
-#define MAPPER119_H
+#pragma once
 
 #include "Mapper004.h"
 
@@ -131,5 +130,3 @@ public:
     }
 
 };
-
-#endif // MAPPER119_H

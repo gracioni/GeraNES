@@ -1,5 +1,4 @@
-#ifndef REWIND_H
-#define REWIND_H
+#pragma once
 
 #include <cstdint>
 
@@ -138,6 +137,3 @@ public:
     }
 
 };
-
-
-#endif

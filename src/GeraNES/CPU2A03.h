@@ -1,5 +1,4 @@
-#ifndef CPU2A03_H
-#define CPU2A03_H
+#pragma once
 
 #include <array>
 
@@ -1329,7 +1328,3 @@ inline constexpr std::array<OpFunc, 256> OPCODE_TABLE = {
 GERANES_INLINE_HOT void CPU2A03::emulateOpcode() {
     (this->*OPCODE_TABLE[m_opcode])();
 }
-
-
-
-#endif

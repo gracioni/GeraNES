@@ -1,5 +1,4 @@
-#ifndef SERIALIZATION_H
-#define SERIALIZATION_H
+#pragma once
 
 #include <cstdint>
 
@@ -177,5 +176,3 @@ public:
 };
 
 #define SERIALIZEDATA(serializer, data) serializer.single(reinterpret_cast<uint8_t*>(&data), sizeof(data));
-
-#endif // SERIALIZATION_H

@@ -1,5 +1,4 @@
-#ifndef FILE_UTIL_H
-#define FILE_UTIL_H
+#pragma once
 
 #include <vector>
 #include <string>
@@ -68,5 +67,3 @@ static std::string basename(const std::string& filename)
 
     return filename.substr(index + 1, len - index);
 }
-
-#endif

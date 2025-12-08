@@ -1,5 +1,4 @@
-#ifndef MAPPER022_H
-#define MAPPER022_H
+#pragma once
 
 #include "Mapper021.h"
 
@@ -46,5 +45,3 @@ public:
     }
 
 };
-
-#endif

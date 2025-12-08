@@ -1,5 +1,4 @@
-#ifndef DB_OVERWRITE_CARTRIDGE_DATA_H
-#define DB_OVERWRITE_CARTRIDGE_DATA_H
+#pragma once
 
 #include "ICartridgeData.h"
 #include "GeraNES/GameDatabase.h"
@@ -164,5 +163,3 @@ public:
     }
 
 };
-
-#endif

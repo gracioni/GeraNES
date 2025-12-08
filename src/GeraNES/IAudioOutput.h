@@ -1,5 +1,4 @@
-#ifndef IAUDIOOUTPUT_H
-#define IAUDIOOUTPUT_H
+#pragma once
 
 #include <stdint.h>
 
@@ -39,5 +38,3 @@ public:
         return ret;
     }
 };
-
-#endif // IAUDIOOUTPUT_H

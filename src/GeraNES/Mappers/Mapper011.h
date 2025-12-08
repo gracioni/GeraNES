@@ -1,5 +1,4 @@
-#ifndef MAPPER011_H
-#define MAPPER011_H
+#pragma once
 
 #include "BaseMapper.h"
 
@@ -51,5 +50,3 @@ public:
         SERIALIZEDATA(s, m_CHRBank);
     }
 };
-
-#endif // MAPPER011_H

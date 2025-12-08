@@ -1,5 +1,4 @@
-#ifndef DUMMYMAPPER_H
-#define DUMMYMAPPER_H
+#pragma once
 
 #include "BaseMapper.h"
 #include "GeraNES/NesCartridgeData/ICartridgeData.h"
@@ -15,5 +14,3 @@ public:
     }
 
 };
-
-#endif // DUMMYMAPPER_H

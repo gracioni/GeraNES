@@ -1,5 +1,4 @@
-#ifndef MAPPER019_H
-#define MAPPER019_H
+#pragma once
 
 //TODO: expansion sound
 
@@ -270,5 +269,3 @@ public:
     }
 
 };
-
-#endif

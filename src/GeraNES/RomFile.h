@@ -1,5 +1,4 @@
-#ifndef ROMFILE_H
-#define ROMFILE_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -230,5 +229,3 @@ public:
     }
 
 };
-
-#endif // ROMFILE_H

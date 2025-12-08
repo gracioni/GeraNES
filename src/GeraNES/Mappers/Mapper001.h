@@ -1,5 +1,4 @@
-#ifndef MAPPER001_H
-#define MAPPER001_H
+#pragma once
 
 #include "BaseMapper.h"
 
@@ -148,6 +147,3 @@ public:
     }
 
 };
-
-#endif
-

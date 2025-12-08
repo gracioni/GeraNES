@@ -1,5 +1,4 @@
-#ifndef I_REWINDABLE_H
-#define I_REWINDABLE_H
+#pragma once
 
 #include <cstdint>
 #include "Serialization.h"
@@ -13,5 +12,3 @@ public:
     virtual int getFPS() = 0;
 
 };
-
-#endif

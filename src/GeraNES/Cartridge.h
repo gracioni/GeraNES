@@ -1,5 +1,4 @@
-#ifndef CARTRIDGE_H
-#define CARTRIDGE_H
+#pragma once
 
 #include "defines.h"
 #include "util/MapperUtil.h"
@@ -339,5 +338,3 @@ public:
     }
 
 };
-
-#endif

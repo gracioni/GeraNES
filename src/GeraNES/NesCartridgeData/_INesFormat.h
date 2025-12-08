@@ -1,5 +1,4 @@
-#ifndef INES_FORMAT_H
-#define INES_FORMAT_H
+#pragma once
 
 #include "GeraNES/defines.h"
 #include "ICartridgeData.h"
@@ -165,5 +164,3 @@ public:
     }
 
 };
-
-#endif

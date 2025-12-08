@@ -1,5 +1,4 @@
-#ifndef INCLUDE_TYPES
-#define INCLUDE_TYPES
+#pragma once
 
 #if defined( __GNUC__ )
     #define GERANES_INLINE __attribute__((always_inline)) inline
@@ -27,5 +26,3 @@
 enum class MirroringType {
     HORIZONTAL=0, VERTICAL=1, SINGLE_SCREEN_A=2, SINGLE_SCREEN_B=3, FOUR_SCREEN=4, CUSTOM=5
 };
-
-#endif

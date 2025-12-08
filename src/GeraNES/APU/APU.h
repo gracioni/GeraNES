@@ -1,5 +1,4 @@
-#ifndef APU_H
-#define APU_H
+#pragma once
 
 #include "GeraNES/defines.h"
 #include "GeraNES/Serialization.h"
@@ -361,5 +360,3 @@ public:
     }
 
 };
-
-#endif

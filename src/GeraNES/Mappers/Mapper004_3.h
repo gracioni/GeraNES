@@ -1,8 +1,6 @@
-#ifndef MAPPER004_3_H
-#define MAPPER004_3_H
+#pragma once
 
 #include "Mapper004.h"
-
 
 //McAcc
 //game: Mickey Letterland
@@ -64,5 +62,3 @@ public:
 	}
 
 };
-
-#endif

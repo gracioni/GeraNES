@@ -1,5 +1,4 @@
-#ifndef CONTROLLER_H
-#define CONTROLLER_H
+#pragma once
 
 #include "defines.h"
 
@@ -57,5 +56,3 @@ public:
     }
 
 };
-
-#endif

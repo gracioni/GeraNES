@@ -1,5 +1,4 @@
-#ifndef INCLUDE_INESCARTRIDGEDATA
-#define INCLUDE_INESCARTRIDGEDATA
+#pragma once
 
 #include "GeraNES/defines.h"
 #include "GeraNES/util/MapperUtil.h"
@@ -132,5 +131,3 @@ public:
     }
 
 };
-
-#endif

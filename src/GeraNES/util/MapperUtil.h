@@ -1,5 +1,4 @@
-#ifndef MAPPER_UTIL_H
-#define MAPPER_UTIL_H
+#pragma once
 
 #include <string>
 
@@ -49,5 +48,3 @@ static std::string getMapperName(int num)
 
     return "Unknow";
 }
-
-#endif

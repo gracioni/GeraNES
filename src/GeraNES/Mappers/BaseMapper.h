@@ -1,5 +1,4 @@
-#ifndef INCLUDE_BASE_MAPPER
-#define INCLUDE_BASE_MAPPER
+#pragma once
 
 #include <memory>
 #include <fstream>
@@ -203,5 +202,3 @@ public:
 
 
 };
-
-#endif

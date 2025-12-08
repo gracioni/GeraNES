@@ -1,5 +1,4 @@
-#ifndef SQUARE_CHANNEL_H
-#define SQUARE_CHANNEL_H
+#pragma once
 
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
@@ -242,5 +241,3 @@ public:
     }
 
 };
-
-#endif

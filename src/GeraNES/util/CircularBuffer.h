@@ -1,5 +1,4 @@
-#ifndef CIRCULARBUFFER_H
-#define CIRCULARBUFFER_H
+#pragma once
 
 #include <cstdlib>
 #include <vector>
@@ -140,5 +139,3 @@ public:
 
 
 };
-
-#endif // CIRCULARBUFFER_H

@@ -1,10 +1,8 @@
-#ifndef MAPPER024_H
-#define MAPPER024_H
+#pragma once
 
 #include "BaseMapper.h"
 
 //TODO: sound expansion
-
 
 //VRC6a
 class Mapper024 : public BaseMapper
@@ -221,5 +219,3 @@ public:
     }
 
 };
-
-#endif

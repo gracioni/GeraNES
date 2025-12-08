@@ -1,5 +1,4 @@
-#ifndef GAME_DATABASE_H
-#define GAME_DATABASE_H
+#pragma once
 
 #include <string>
 #include <map>
@@ -412,5 +411,3 @@ public:
     }
 
 };
-
-#endif

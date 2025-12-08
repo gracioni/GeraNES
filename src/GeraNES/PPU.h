@@ -1,5 +1,4 @@
-#ifndef PPU_H
-#define PPU_H
+#pragma once
 
 #include "signal/signal.h"
 
@@ -1771,5 +1770,3 @@ yyy NNYY YYYX XXXX
     }
 
 };
-
-#endif

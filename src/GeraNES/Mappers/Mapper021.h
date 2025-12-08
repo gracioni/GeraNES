@@ -1,8 +1,6 @@
-#ifndef MAPPER021_H
-#define MAPPER021_H
+#pragma once
 
 #include "BaseMapper.h"
-
 
 //VRC4a VRC4c
 class Mapper021 : public BaseMapper
@@ -232,5 +230,3 @@ public:
     }
 
 };
-
-#endif

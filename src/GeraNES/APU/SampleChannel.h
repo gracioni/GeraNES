@@ -1,5 +1,6 @@
-#ifndef SAMPLE_CHANNEL_H
-#define SAMPLE_CHANNEL_H
+#pragma once
+
+#include <array>
 
 #include "GeraNES/Serialization.h"
 #include "GeraNES/Settings.h"
@@ -11,11 +12,11 @@ class SampleChannel
 {
 private:
 
-    const uint16_t NTSC_DMC_PERIOD_TABLE[16] = {
+    static constexpr std::array<uint16_t, 16> NTSC_DMC_PERIOD_TABLE = {
         428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
     };
 
-    const uint16_t PAL_DMC_PERIOD_TABLE[16] = {
+    static constexpr std::array<uint16_t, 16> PAL_DMC_PERIOD_TABLE = {
         398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118,  98, 78, 66, 50
     };
 
@@ -286,5 +287,3 @@ public:
     }
 
 };
-
-#endif

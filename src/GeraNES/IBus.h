@@ -1,5 +1,4 @@
-#ifndef IBUS_H
-#define IBUS_H
+#pragma once
 
 #include "defines.h"
 
@@ -11,5 +10,3 @@ public:
     virtual void write(int addr, uint8_t data) = 0;
     virtual ~Ibus(){}
 };
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef DMA_H
-#define DMA_H
+#pragma once
 
 #include "IBus.h"
 #include "APU/APU.h"
@@ -220,6 +219,3 @@ inline void DMA::cycle()
     }
     
 }
-
-
-#endif // DMA_H

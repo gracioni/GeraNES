@@ -1,5 +1,4 @@
-#ifndef TRIANGLE_CHANNEL_H
-#define TRIANGLE_CHANNEL_H
+#pragma once
 
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
@@ -126,5 +125,3 @@ public:
 
 
 };
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef NOISE_CHANNEL_H
-#define NOISE_CHANNEL_H
+#pragma once
 
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
@@ -8,11 +7,11 @@ class NoiseChannel
 {
 private:
 
-    const uint16_t NTSC_NOISE_PERIOD_TABLE[16] = {
+    static constexpr std::array<uint16_t, 16> NTSC_NOISE_PERIOD_TABLE = {
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
     };
 
-    const uint16_t PAL_NOISE_PERIOD_TABLE[16] = {
+    static constexpr std::array<uint16_t, 16> PAL_NOISE_PERIOD_TABLE = {
         4, 7, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778
     };
 
@@ -173,5 +172,3 @@ public:
     }
 
 };
-
-#endif

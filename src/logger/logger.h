@@ -1,5 +1,4 @@
-#ifndef LOGGER_H
-#define LOGGER_H
+#pragma once
 
 #include <signal/signal.h>
 #include <string>
@@ -46,5 +45,3 @@ public:
     }
 
 };
-
-#endif // LOGGER_H

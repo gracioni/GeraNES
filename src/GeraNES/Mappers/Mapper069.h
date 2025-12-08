@@ -1,5 +1,4 @@
-#ifndef MAPPER069_H
-#define MAPPER069_H
+#pragma once
 
 #include <memory>
 
@@ -231,5 +230,3 @@ public:
     }
 
 };
-
-#endif // MAPPER069_H

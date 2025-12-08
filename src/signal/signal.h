@@ -1,7 +1,6 @@
 //Leon Colijn c++11 simple signal/slot implementation
 
-#ifndef SIGNAL_H_
-#define SIGNAL_H_
+#pragma once
 
 #include <memory>
 #include <functional>
@@ -129,7 +128,4 @@ class Signal: public SigSlotBase
         std::list<_Binding_Fun> _slots;
 };
 
-}
-
-
-#endif /* signal.h */
+} // namespace
