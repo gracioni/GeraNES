@@ -15,7 +15,7 @@
 
 #define GERANES_INLINE_HOT GERANES_INLINE GERANES_HOT
 
-#include "stdint.h"
+#include <cstdint>
 
 #define GERANES_NAME "GeraNES"
 #define GERANES_VERSION "1.5.6"

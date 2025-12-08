@@ -1,6 +1,8 @@
 #ifndef CPU2A03_H
 #define CPU2A03_H
 
+#include <array>
+
 #include "defines.h"
 #include "IBus.h"
 #include "Serialization.h"
@@ -16,77 +18,12 @@ class DMA;
 
 const uint8_t DO_NOT_POOL_INTS = 0xFF;
 
-#ifdef UNUSED_TABLES
-
-static const uint8_t OPCODE_CYCLES_TABLE[256] =
-{
-/*0x00*/ 7,6,2,8,3,3,5,5,3,2,2,2,4,4,6,6,
-/*0x10*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
-/*0x20*/ 6,6,2,8,3,3,5,5,4,2,2,2,4,4,6,6,
-/*0x30*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
-/*0x40*/ 6,6,2,8,3,3,5,5,3,2,2,2,3,4,6,6,
-/*0x50*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
-/*0x60*/ 6,6,2,8,3,3,5,5,4,2,2,2,5,4,6,6,
-/*0x70*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
-/*0x80*/ 2,6,2,6,3,3,3,3,2,2,2,2,4,4,4,4,
-/*0x90*/ 2,6,2,6,4,4,4,4,2,5,2,5,5,5,5,5,
-/*0xA0*/ 2,6,2,6,3,3,3,3,2,2,2,2,4,4,4,4,
-/*0xB0*/ 2,5,2,5,4,4,4,4,2,4,2,4,4,4,4,4,
-/*0xC0*/ 2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6,
-/*0xD0*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
-/*0xE0*/ 2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6,
-/*0xF0*/ 2,5,2,8,4,4,6,6,2,4,2,7,4,4,7,7,
-};
-
-static const uint8_t OPCODE_EXTRA_CYCLE_ON_PAGE_CROSS[256] =
-{
-//       0 1 2 3 4 5 6 7 8 9 A B C D E F
-/*0x00*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0x10*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
-/*0x20*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0x30*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
-/*0x40*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0x50*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
-/*0x60*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0x70*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
-/*0x80*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0x90*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0xA0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0xB0*/ 0,1,0,1,0,0,0,0,0,1,0,1,1,1,1,1,
-/*0xC0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0xD0*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
-/*0xE0*/ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-/*0xF0*/ 0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,
-};
-
-static const uint8_t OPCODE_WRITE_CYCLES_TABLE[256] =
-{
-/*0x00*/ 0x3C, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
-/*0x10*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
-/*0x20*/ 0x30, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
-/*0x30*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
-/*0x40*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
-/*0x50*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
-/*0x60*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
-/*0x70*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
-/*0x80*/ 0x00, 0x20, 0x00, 0x20, 0x04, 0x04, 0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x08, 0x08,
-/*0x90*/ 0x00, 0x20, 0x00, 0x20, 0x08, 0x08, 0x08, 0x08, 0x00, 0x10, 0x00, 0x10, 0x10, 0x10, 0x10, 0x10,
-/*0xA0*/ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-/*0xB0*/ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-/*0xC0*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
-/*0xD0*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60,
-/*0xE0*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x30,
-/*0xF0*/ 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x60, 0x60
-};
-
-#endif
-
 // BRK (NO_POOL)
 // CLI(0x58) SEI(0x78) PLP(0x28) in cycle 1
 // some references (https://www.nesdev.org/wiki/CPU_interrupts) says that branch instructions
 // 0x90 0xB0 0xF0 0x30 0xD0 0x10 0x50 0x70 are polled in cycle 1
 // and all 2 cycles instructions are polled in cycle 1
-static const uint8_t OPCODE_INT_POOL_CYCLE_TABLE[256] =
+inline constexpr std::array<uint8_t, 256> OPCODE_INT_POOL_CYCLE_TABLE =
 {
 /*0x00*/ DO_NOT_POOL_INTS,5,1,7,2,2,4,4,2,1,1,1,3,3,5,5,
 /*0x10*/ 1,4,1,7,3,3,5,5,1,3,1,6,3,3,6,6,
@@ -116,7 +53,7 @@ enum class AddrMode
 
 typedef AddrMode M;
 
-static AddrMode addrMode[] = {
+inline constexpr std::array<AddrMode, 256> addrMode = {
 //          0           1               2           3               4               5               6               7               8           9           A           B           C           D           E           F
 /*0x00*/    M::Imp,     M::IndX,        M::None,    M::IndX,        M::Zero,        M::Zero,        M::Zero,        M::Zero,        M::Imp,     M::Imm,     M::Acc,     M::Imm,     M::Abs,     M::Abs,     M::Abs,     M::Abs,
 /*0x10*/    M::Rel,     M::IndY,        M::None,    M::IndYW,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::ZeroX,       M::Imp,     M::AbsY,    M::Imp,     M::AbsYW,   M::AbsX,    M::AbsX,    M::AbsXW,   M::AbsXW,
@@ -156,15 +93,15 @@ private:
     union {
         uint8_t m_status;
         struct {
-            bool m_carryFlag : 1;
-            bool m_zeroFlag : 1;
-            bool m_intFlag : 1;
-            bool m_decimalFlag : 1;
-            bool m_brkFlag : 1;
-            bool m_unusedFlag : 1;
-            bool m_overflowFlag : 1;
-            bool m_negativeFlag : 1;
-        };
+            bool carry : 1;
+            bool zero : 1;
+            bool irq : 1;
+            bool decimal : 1;
+            bool brk : 1;
+            bool unused : 1;
+            bool overflow : 1;
+            bool negative : 1;
+        } m_flags;
     };
 
     unsigned int m_cyclesCounter;
@@ -227,15 +164,15 @@ private:
     }
 
     GERANES_INLINE_HOT void updateZeroAndNegativeFlags(uint8_t value) {
-        m_negativeFlag = value&0x80;
-        m_zeroFlag = value==0x00;
+        m_flags.negative = value&0x80;
+        m_flags.zero = value==0x00;
     }
 
     GERANES_INLINE_HOT void dummyRead() {
         readMemory(m_pc);
     }
 
-    GERANES_INLINE_HOT void getAddrImediate()
+    GERANES_INLINE_HOT void getAddrImmediate()
     {
         m_addr = m_pc++;
     }
@@ -385,7 +322,7 @@ public:
         m_nmiStep = NmiStep::WAITING_LOW;
         m_irqStep = false;
 
-        m_poolIntsAtCycle = -1;
+        m_poolIntsAtCycle = DO_NOT_POOL_INTS;
 
         m_haltCycles = 0;
         m_extraCycles = 0;
@@ -401,10 +338,10 @@ public:
     {
         const uint8_t value = readMemory(m_addr);
 
-        unsigned int result = (unsigned int)m_a + value + (m_carryFlag ? 1 : 0);
+        unsigned int result = (unsigned int)m_a + value + (m_flags.carry ? 1 : 0);
 
-        m_carryFlag = result > 0xFF;
-        m_overflowFlag = (!((m_a ^ value) & 0x80) && ((m_a ^ result) & 0x80));
+        m_flags.carry = result > 0xFF;
+        m_flags.overflow = (!((m_a ^ value) & 0x80) && ((m_a ^ result) & 0x80));
 
         m_a = (uint8_t)result;
 
@@ -422,7 +359,7 @@ public:
         uint8_t value = readMemory(m_addr);
         writeMemory(m_addr, value); // dummy write
 
-        m_carryFlag = value & 0x80;
+        m_flags.carry = value & 0x80;
 
         value <<= 1;
 
@@ -434,7 +371,7 @@ public:
     GERANES_INLINE_HOT void ASL_implied()
     {
         dummyRead();
-        m_carryFlag = (m_a & 0x80);
+        m_flags.carry = (m_a & 0x80);
         m_a <<= 1;
         updateZeroAndNegativeFlags(m_a);
     }
@@ -446,7 +383,7 @@ public:
 
         updateZeroAndNegativeFlags(m_a);
 
-        m_carryFlag = m_negativeFlag;
+        m_flags.carry = m_flags.negative;
     }
 
     GERANES_INLINE_HOT void U_SLO()
@@ -456,7 +393,7 @@ public:
         uint8_t value = readMemory(m_addr);
         writeMemory(m_addr, value); // dummy write
 
-        m_carryFlag = value & 0x80;
+        m_flags.carry = value & 0x80;
 
         value <<= 1;
 
@@ -489,41 +426,41 @@ public:
 
     GERANES_INLINE_HOT void BCC()
     {
-        branch(!m_carryFlag);
+        branch(!m_flags.carry);
     }
 
     GERANES_INLINE_HOT void BCS()
     {
-        branch(m_carryFlag);
+        branch(m_flags.carry);
     }
 
     GERANES_INLINE_HOT void BEQ()
     {
-        branch(m_zeroFlag);
+        branch(m_flags.zero);
     }
 
     GERANES_INLINE_HOT void BIT()
     {
         const uint8_t value = readMemory(m_addr);
 
-        m_zeroFlag = (m_a & value) == 0x00;
-        m_negativeFlag = value & 0x80;
-        m_overflowFlag = value & 0x40;
+        m_flags.zero = (m_a & value) == 0x00;
+        m_flags.negative = value & 0x80;
+        m_flags.overflow = value & 0x40;
     }
 
     GERANES_INLINE_HOT void BMI()
     {
-        branch(m_negativeFlag);
+        branch(m_flags.negative);
     }
 
     GERANES_INLINE_HOT void BNE()
     {
-        branch(!m_zeroFlag);
+        branch(!m_flags.zero);
     }
 
     GERANES_INLINE_HOT void BPL()
     {
-        branch(!m_negativeFlag);
+        branch(!m_flags.negative);
     }
 
     GERANES_INLINE_HOT void BRK()
@@ -533,43 +470,43 @@ public:
 
     GERANES_INLINE_HOT void BVC()
     {
-        branch(!m_overflowFlag);
+        branch(!m_flags.overflow);
     }
 
     GERANES_INLINE_HOT void BVS()
     {
-        branch(m_overflowFlag);
+        branch(m_flags.overflow);
     }
 
     GERANES_INLINE_HOT void CLC()
     {
         dummyRead();
-        m_carryFlag = false;
+        m_flags.carry = false;
     }
 
     GERANES_INLINE_HOT void CLD()
     {
         dummyRead();
-        m_decimalFlag = false;
+        m_flags.decimal = false;
     }
 
     GERANES_INLINE_HOT void CLI()
     {
         dummyRead();
-        m_intFlag = false;
+        m_flags.irq = false;
     }
 
     GERANES_INLINE_HOT void CLV()
     {
         dummyRead();
-        m_overflowFlag = false;
+        m_flags.overflow = false;
     }
 
     GERANES_INLINE_HOT void CMP()
     {
         uint8_t value = readMemory(m_addr);
 
-        m_carryFlag = m_a >= value;
+        m_flags.carry = m_a >= value;
 
         value = m_a - value;
 
@@ -580,7 +517,7 @@ public:
     {
         uint8_t value = readMemory(m_addr);
 
-        m_carryFlag = m_x >= value;
+        m_flags.carry = m_x >= value;
 
         value = m_x - value;
 
@@ -591,7 +528,7 @@ public:
     {
         uint8_t value = readMemory(m_addr);
 
-        m_carryFlag = m_y >= value;
+        m_flags.carry = m_y >= value;
 
         value = m_y - value;
 
@@ -622,7 +559,7 @@ public:
         writeMemory(m_addr, value);
 
         // CMP
-        m_carryFlag = m_a >= value;
+        m_flags.carry = m_a >= value;
         value = m_a - value;
         updateZeroAndNegativeFlags(value);
     }
@@ -640,7 +577,7 @@ public:
         const uint8_t value = readMemory(m_addr);
         uint8_t result = (m_a & m_x) - value;
 
-        m_carryFlag = (m_a & m_x) >= value;
+        m_flags.carry = (m_a & m_x) >= value;
 
         m_x = result;
         updateZeroAndNegativeFlags(m_x);
@@ -679,9 +616,9 @@ public:
         value++;
 
         // ADC
-        unsigned int result = (unsigned int)m_a + (value ^ 0xFF) + (m_carryFlag ? 1 : 0);
-        m_carryFlag = result > 0xFF;
-        m_overflowFlag = (!((m_a ^ (value ^ 0xFF)) & 0x80) && ((m_a ^ result) & 0x80));
+        unsigned int result = (unsigned int)m_a + (value ^ 0xFF) + (m_flags.carry ? 1 : 0);
+        m_flags.carry = result > 0xFF;
+        m_flags.overflow = (!((m_a ^ (value ^ 0xFF)) & 0x80) && ((m_a ^ result) & 0x80));
 
         m_a = (uint8_t)result;
 
@@ -739,7 +676,7 @@ public:
     {
         uint8_t value = readMemory(m_addr);
         writeMemory(m_addr, value); // dummy write
-        m_carryFlag = value & 0x01;
+        m_flags.carry = value & 0x01;
         value >>= 1;
         updateZeroAndNegativeFlags(value);
         writeMemory(m_addr, value);
@@ -748,7 +685,7 @@ public:
     GERANES_INLINE_HOT void LSR_implied()
     {
         dummyRead();
-        m_carryFlag = m_a & 0x01;
+        m_flags.carry = m_a & 0x01;
         m_a >>= 1;
         updateZeroAndNegativeFlags(m_a);
     }
@@ -759,7 +696,7 @@ public:
 
         m_a &= value;
 
-        m_carryFlag = m_a & 0x01;
+        m_flags.carry = m_a & 0x01;
 
         m_a >>= 1;
 
@@ -772,7 +709,7 @@ public:
         uint8_t value = readMemory(m_addr);
         writeMemory(m_addr, value); // dummy write
 
-        m_carryFlag = value & 0x01;
+        m_flags.carry = value & 0x01;
         value >>= 1;
 
         m_a ^= value;
@@ -806,8 +743,8 @@ public:
     GERANES_INLINE_HOT void PHP()
     {
         dummyRead();
-        m_brkFlag = true;
-        m_unusedFlag = true;
+        m_flags.brk = true;
+        m_flags.unused = true;
         push(m_status);
     }
 
@@ -834,10 +771,10 @@ public:
         bool outputCarry = value & 0x80;
 
         value <<= 1;
-        if (m_carryFlag)
+        if (m_flags.carry)
             value |= 0x01;
 
-        m_carryFlag = outputCarry;
+        m_flags.carry = outputCarry;
         updateZeroAndNegativeFlags(value);
 
         writeMemory(m_addr, value);
@@ -850,10 +787,10 @@ public:
         bool outputCarry = m_a & 0x80;
 
         m_a <<= 1;
-        if (m_carryFlag)
+        if (m_flags.carry)
             m_a |= 0x01;
 
-        m_carryFlag = outputCarry;
+        m_flags.carry = outputCarry;
         updateZeroAndNegativeFlags(m_a);
     }
 
@@ -868,10 +805,10 @@ public:
         bool outputCarry = value & 0x80;
 
         value <<= 1;
-        if (m_carryFlag)
+        if (m_flags.carry)
             value |= 0x01;
 
-        m_carryFlag = outputCarry;
+        m_flags.carry = outputCarry;
 
         m_a &= value;
 
@@ -888,10 +825,10 @@ public:
         bool outputCarry = value & 0x01;
 
         value >>= 1;
-        if (m_carryFlag)
+        if (m_flags.carry)
             value |= 0x80;
 
-        m_carryFlag = outputCarry;
+        m_flags.carry = outputCarry;
         updateZeroAndNegativeFlags(value);
 
         writeMemory(m_addr, value);
@@ -904,10 +841,10 @@ public:
         bool outputCarry = m_a & 0x01;
 
         m_a >>= 1;
-        if (m_carryFlag)
+        if (m_flags.carry)
             m_a |= 0x80;
 
-        m_carryFlag = outputCarry;
+        m_flags.carry = outputCarry;
         updateZeroAndNegativeFlags(m_a);
     }
 
@@ -915,10 +852,10 @@ public:
     {
         const uint8_t value = readMemory(m_addr);
 
-        m_a = ((m_a & value) >> 1) | (m_carryFlag ? 0x80 : 0x00);
+        m_a = ((m_a & value) >> 1) | (m_flags.carry ? 0x80 : 0x00);
         updateZeroAndNegativeFlags(m_a);
-        m_carryFlag = m_a & 0x40;
-        m_overflowFlag = (m_carryFlag ? 0x01 : 0x00) ^ ((m_a >> 5) & 0x01);
+        m_flags.carry = m_a & 0x40;
+        m_flags.overflow = (m_flags.carry ? 0x01 : 0x00) ^ ((m_a >> 5) & 0x01);
     }
 
     GERANES_INLINE_HOT void U_RRA()
@@ -932,15 +869,15 @@ public:
         bool outputCarry = value & 0x01;
 
         value >>= 1;
-        if (m_carryFlag)
+        if (m_flags.carry)
             value |= 0x80;
 
-        m_carryFlag = outputCarry;
+        m_flags.carry = outputCarry;
 
         // ADC
-        unsigned int result = (unsigned int)m_a + value + (m_carryFlag ? 1 : 0);
-        m_carryFlag = result > 0xFF;
-        m_overflowFlag = (!((m_a ^ value) & 0x80) && ((m_a ^ result) & 0x80));
+        unsigned int result = (unsigned int)m_a + value + (m_flags.carry ? 1 : 0);
+        m_flags.carry = result > 0xFF;
+        m_flags.overflow = (!((m_a ^ value) & 0x80) && ((m_a ^ result) & 0x80));
 
         m_a = (uint8_t)result;
 
@@ -969,10 +906,10 @@ public:
     {
         const uint8_t value = readMemory(m_addr);
 
-        const unsigned int result = (unsigned int)m_a - value - (m_carryFlag ? 0 : 1);
+        const unsigned int result = (unsigned int)m_a - value - (m_flags.carry ? 0 : 1);
 
-        m_carryFlag = (result < 0x100);
-        m_overflowFlag = (((m_a ^ result) & 0x80) && ((m_a ^ value) & 0x80));
+        m_flags.carry = (result < 0x100);
+        m_flags.overflow = (((m_a ^ result) & 0x80) && ((m_a ^ value) & 0x80));
 
         m_a = result & 0xFF;
 
@@ -986,19 +923,19 @@ public:
     GERANES_INLINE_HOT void SEC()
     {
         dummyRead();
-        m_carryFlag = true;
+        m_flags.carry = true;
     }
 
     GERANES_INLINE_HOT void SED()
     {
         dummyRead();
-        m_decimalFlag = true;
+        m_flags.decimal = true;
     }
 
     GERANES_INLINE_HOT void SEI()
     {
         dummyRead();
-        m_intFlag = true;
+        m_flags.irq = true;
     }
 
     GERANES_INLINE_HOT void STA()
@@ -1127,7 +1064,7 @@ public:
 
     GERANES_INLINE_HOT void checkInterrupts()
     {
-        if( (m_nmiSignal) || (m_irqSignal && m_intFlag == false))
+        if( (m_nmiSignal) || (m_irqSignal && m_flags.irq == false))
         {
             if(m_nmiSignal) {
                 m_nmiSignal = false;
@@ -1145,10 +1082,10 @@ public:
     {
         dummyRead();
         push16(isBrk ? m_pc+1 : m_pc);
-        m_brkFlag = isBrk;
-        m_unusedFlag = true;
+        m_flags.brk = isBrk;
+        m_flags.unused = true;
         push(m_status);
-        m_intFlag = true;   
+        m_flags.irq = true;   
 
         if(m_interrupt == Interrupt::NMI || m_nmiSignal) {
             const uint8_t low = readMemory(NMI_VECTOR);
@@ -1167,7 +1104,7 @@ public:
         switch(addrMode[m_opcode]) {
             case AddrMode::Acc:
             case AddrMode::Imp: m_addr = 0; break;
-            case AddrMode::Imm: getAddrImediate(); break;
+            case AddrMode::Imm: getAddrImmediate(); break;
             case AddrMode::Rel: getAddrRelative(); break;
             case AddrMode::Zero: getAddrZeroPage(); break;
             case AddrMode::ZeroX: getAddrZeroPageX(); break;
@@ -1369,7 +1306,7 @@ inline void CPU2A03::endCycle() {
 
 using OpFunc = void (CPU2A03::*)();
 
-constexpr OpFunc OPCODE_TABLE[256] = {
+inline constexpr std::array<OpFunc, 256> OPCODE_TABLE = {
 //          0                1                2                3                4                5                6                7                8                9                A                B                C                D                E                F
 /*0x00*/ &CPU2A03::BRK,     &CPU2A03::ORA,     &CPU2A03::U_HLT,  &CPU2A03::U_SLO,  &CPU2A03::U_DOP,  &CPU2A03::ORA,     &CPU2A03::ASL,     &CPU2A03::U_SLO,  &CPU2A03::PHP,     &CPU2A03::ORA,     &CPU2A03::ASL_implied, &CPU2A03::AAC,  &CPU2A03::U_DOP,  &CPU2A03::ORA,     &CPU2A03::ASL,     &CPU2A03::U_SLO,
 /*0x10*/ &CPU2A03::BPL,     &CPU2A03::ORA,     &CPU2A03::U_HLT,  &CPU2A03::U_SLO,  &CPU2A03::U_DOP,  &CPU2A03::ORA,     &CPU2A03::ASL,     &CPU2A03::U_SLO,  &CPU2A03::CLC,     &CPU2A03::ORA,     &CPU2A03::NOP,         &CPU2A03::U_SLO,  &CPU2A03::U_DOP,  &CPU2A03::ORA,     &CPU2A03::ASL,     &CPU2A03::U_SLO,
