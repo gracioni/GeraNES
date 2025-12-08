@@ -552,14 +552,21 @@ public:
         uint32_t saveStateMagic = SAVE_STATE_MAGIC;
         SERIALIZEDATA(s, saveStateMagic);
         if(saveStateMagic != SAVE_STATE_MAGIC) {
-            Logger::instance().log("Invalid save state: incorrect magic header.", Logger::Type::ERROR);
+            Logger::instance().log("Invalid save state: incorrect magic header", Logger::Type::ERROR);
             return;
         }
 
         uint32_t saveStateVersion = SAVE_STATE_VERSION;
         SERIALIZEDATA(s, saveStateVersion);
         if(saveStateVersion != SAVE_STATE_VERSION) {
-            Logger::instance().log("Incompatible save state: version mismatch.", Logger::Type::ERROR);
+            Logger::instance().log("Incompatible save state: version mismatch", Logger::Type::ERROR);
+            return;
+        }
+
+        uint32_t fileCrc = m_cartridge.romFile().fileCrc32();
+        SERIALIZEDATA(s, fileCrc);
+        if(fileCrc != m_cartridge.romFile().fileCrc32()) {
+            Logger::instance().log("Save state mismatch: this state was created for a different ROM", Logger::Type::ERROR);
             return;
         }
 
