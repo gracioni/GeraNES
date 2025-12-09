@@ -1775,7 +1775,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_busAddress);
         SERIALIZEDATA(s, m_updateA12Delay);
 
-        m_pFrameBuffer = &m_framebuffer[m_framebuffer[m_currentY*SCREEN_WIDTH+m_currentX]];
+        m_pFrameBuffer = &m_framebuffer[m_currentY*SCREEN_WIDTH+m_currentX];
     }
 
 };
