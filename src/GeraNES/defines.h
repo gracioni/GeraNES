@@ -20,7 +20,7 @@
 #include <string>
 
 static constexpr std::string GERANES_NAME = "GeraNES";
-static constexpr std::string GERANES_VERSION = "1.5.6";
+static constexpr std::string GERANES_VERSION = "1.6.0";
 
 static constexpr uint32_t SAVE_STATE_MAGIC = makeMagic('G','N','E','S');
 static constexpr uint32_t SAVE_STATE_VERSION = 0;
