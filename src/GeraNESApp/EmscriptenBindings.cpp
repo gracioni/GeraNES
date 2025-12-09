@@ -1,5 +1,7 @@
 #include "GeraNESApp.h"
 
+#ifdef __EMSCRIPTEN__
+
 #include <emscripten.h>
 
 extern "C" {
@@ -13,3 +15,5 @@ extern "C" {
     }    
 
 }
+
+#endif

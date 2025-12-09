@@ -1,5 +1,7 @@
 #include "EmscriptenUtil.h"
 
+#ifdef __EMSCRIPTEN__
+
 #include <emscripten.h>
 #include <iostream>
 #include <cstring>
@@ -88,3 +90,5 @@ void emcriptenRegisterAudioReset(int handler)
 
     }, handler);
 }
+
+#endif

@@ -99,6 +99,10 @@ public:
         return ret;
     }
 
+    void restart() {
+        config(m_currentDeviceName);
+    }
+
     bool config(const std::string& deviceName)
     {
         turnOff();
