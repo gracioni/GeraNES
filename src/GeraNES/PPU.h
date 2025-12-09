@@ -7,9 +7,6 @@
 
 #include "Serialization.h"
 
-const int SCREEN_WIDTH = 256;
-const int SCREEN_HEIGHT = 240;
-
 const int VBLANK_CYCLE = 1;
 
 //0xAABBGGRR
@@ -31,6 +28,10 @@ const uint8_t POWER_UP_PALETTE[] = {
 
 class PPU
 {
+public:
+
+    const static int SCREEN_WIDTH = 256;
+    const static int SCREEN_HEIGHT = 240;
 
 private:
 
@@ -290,6 +291,7 @@ public:
 
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady; //called when the frame buffer is ready to show
+    SigSlot::Signal<> signalScanlineStart;
 
     PPU(Settings& settings, Cartridge& cartridge) : m_settings(settings), m_cartridge(cartridge)
     {
@@ -925,7 +927,7 @@ yyy NN YYYYY XXXXX
         }
     }
 
-    GERANES_INLINE_HOT void onScanlineChanged()
+    GERANES_INLINE_HOT void onScanlineStart()
     {
         if(m_settings.overclockLines() > 0) {
             if(m_overclockFrame && m_scanline >= 241 && m_scanline < FRAME_VBLANK_START_LINE)
@@ -978,11 +980,13 @@ yyy NN YYYYY XXXXX
                 FRAME_VBLANK_END_LINE += m_settings.overclockLines();
             }
         }
+
+        signalScanlineStart();
     }
 
     GERANES_HOT void ppuCycle()
     {        
-        if(m_cycle == 0) onScanlineChanged();
+        if(m_cycle == 0) onScanlineStart();
 
         if(!m_interruptFlag) {
             if(m_VBlankHasStarted && m_NMIOnVBlank) {
@@ -1565,6 +1569,19 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE const uint32_t* getFramebuffer()
     {
         return m_framebufferFriendly;
+    }
+
+    GERANES_INLINE const uint32_t getZapperPixel(int x, int y)
+    {
+        if(m_VBlankHasStarted) return 0;
+
+        if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT)
+            return 0;
+
+        if(y > m_currentY) return 0;
+        if(x > m_currentX) return 0;
+
+        return m_framebuffer[y * SCREEN_WIDTH + x];
     }
 
     GERANES_INLINE void incrementVX()

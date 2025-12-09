@@ -24,6 +24,8 @@ namespace fs = std::filesystem;
 
 #include <vector>
 
+#include "util/SdlCursor.h"
+
 #include <functional>
 #include <iterator>
 #include <regex>
@@ -124,6 +126,8 @@ private:
 
     Uint64 m_mainLoopLastTime = 0;
 
+    SDL_Rect m_nesScreenRect = {0, 0, 1, 1};
+
     // FPS vars    
     Uint64 m_fpsTimer = 0;
     int m_fps = 0;
@@ -140,6 +144,9 @@ private:
     std::vector<ShaderItem> shaderList;
 
     std::unique_ptr<TouchControls> m_touch;
+
+    std::optional<SdlCursor> m_defaultCursor;
+    std::optional<SdlCursor> m_crossCursor;
 
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
@@ -206,6 +213,29 @@ private:
                 im.isPressed(m_controller2.up), im.isPressed(m_controller2.down),
                 im.isPressed(m_controller2.left), im.isPressed(m_controller2.right)
             );
+
+            {
+                int mx, my;
+                Uint32 buttons = SDL_GetMouseState(&mx, &my);
+
+                int nesX = ((mx - m_nesScreenRect.x) * m_emu.getConsole().ppu().SCREEN_WIDTH) / m_nesScreenRect.w;
+
+                int clipTop = m_clipHeightValue;
+                int visibleNES = m_emu.getConsole().ppu().SCREEN_HEIGHT - 2*m_clipHeightValue;
+                int nesY = clipTop + ((my - m_nesScreenRect.y) * visibleNES) / m_nesScreenRect.h;
+
+                bool inside = pointInRect(glm::vec2(mx,my), glm::vec2(m_nesScreenRect.x, m_nesScreenRect.y),
+                    glm::vec2(m_nesScreenRect.x+m_nesScreenRect.w, m_nesScreenRect.y+m_nesScreenRect.h));
+
+                if(inside && m_emu.useZapper()) {
+                    if(m_crossCursor.has_value()) m_crossCursor->setAsCurrent();
+                }
+                else {
+                    if(m_defaultCursor.has_value()) m_defaultCursor->setAsCurrent();
+                }
+
+                m_emu.setZapper(nesX, nesY, buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
+            }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
             if(im.isJustPressed(m_controller2.loadState)) m_emu.loadState();
@@ -477,6 +507,9 @@ public:
 
     virtual bool initGL() override {
 
+        m_defaultCursor = SdlCursor::getDefault();
+        m_crossCursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+
         setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
@@ -641,6 +674,11 @@ public:
             GLfloat drawWidth = m_horizontalStretch ? clientArea.w : 256.0/(240.0-2*m_clipHeightValue) * clientArea.h;
             GLfloat offsetX = (clientArea.w - drawWidth)/2.0;
 
+            m_nesScreenRect.x = clientArea.x+offsetX;
+            m_nesScreenRect.w = drawWidth;
+            m_nesScreenRect.y = clientArea.y;
+            m_nesScreenRect.h = clientArea.h;
+
             //glVertex2f(offsetX,0);]
             data.push_back(clientArea.x+offsetX);
             data.push_back(clientArea.y);
@@ -673,6 +711,11 @@ public:
         {
             GLfloat drawHeight = (240.0-2*m_clipHeightValue)/256.0 * clientArea.w;
             GLfloat offsetY = (clientArea.h - drawHeight)/2.0;
+
+            m_nesScreenRect.x = clientArea.x;
+            m_nesScreenRect.w = clientArea.w;;
+            m_nesScreenRect.y = clientArea.y+offsetY;
+            m_nesScreenRect.h = drawHeight;
 
             //glVertex2f(0,offsetY);
             data.push_back(clientArea.x);
@@ -1007,6 +1050,10 @@ public:
                         m_controllerConfigWindow.show("Controller 2 config", m_controller2);
                     }
                     ImGui::EndMenu();
+                }
+
+                if(ImGui::MenuItem("Use Zapper", nullptr, m_emu.useZapper())) {
+                    m_emu.useZapper(!m_emu.useZapper());
                 }
 
                 if (ImGui::BeginMenu("Touch controls")) {

@@ -7,6 +7,7 @@
 #include "PPU.h"
 #include "APU/APU.h"
 #include "Controller.h"
+#include "Zapper.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
 #include "DMA.h"
@@ -35,6 +36,7 @@ private:
     uint8_t m_ram[0x800]; //2K
     Controller m_controller1;
     Controller m_controller2;
+    Zapper m_zapper;
     Console m_console;
 
     uint32_t m_updateCyclesAcc;
@@ -139,7 +141,8 @@ private:
                 {
                     if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data);
                     else {
-                        data = m_controller2.read(!m_cpu.isHalted());
+                        if(m_settings.useZapper()) data = m_zapper.read();
+                        else data = m_controller2.read(!m_cpu.isHalted());                        
                         data = (data&0x1F) | (m_openBus&(~0x1F));
                     }
                     break;
@@ -201,6 +204,11 @@ private:
         signalFrameReady();
     }
 
+    void onScanlineStart()
+    {
+        m_zapper.onScanlineChanged();
+    }
+
     void onDMCRequest(uint16_t addr, bool reload) {
         m_dma.dmcRequest(addr, reload);
     }
@@ -233,6 +241,7 @@ public:
     m_dma(*this, m_apu.getSampleChannel(), m_cpu),
     m_controller1(),
     m_controller2(),
+    m_zapper(),
     m_rewind(*this),
     m_console(m_cpu, m_ppu, m_dma, m_apu, m_cartridge)
     {
@@ -242,7 +251,21 @@ public:
 
         m_ppu.signalFrameStart.bind(&GeraNESEmu::onFrameStart, this);
         m_ppu.signalFrameReady.bind(&GeraNESEmu::onFrameReady, this);
+        m_ppu.signalScanlineStart.bind(&GeraNESEmu::onScanlineStart, this);
         m_apu.getSampleChannel().dmcRequest.bind(&GeraNESEmu::onDMCRequest, this);
+
+        m_zapper.setPixelChecker([&](int x, int y){
+
+                    uint32_t pixel = m_ppu.getZapperPixel(x, y);
+
+                    int r =  pixel        & 0xFF;
+                    int g = (pixel >> 8)  & 0xFF;
+                    int b = (pixel >> 16) & 0xFF;
+
+                    float luma = 0.2126f*r + 0.7152f*g + 0.0722f*b;
+
+                    return luma;
+        });
     }
 
     ~GeraNESEmu()
@@ -512,6 +535,14 @@ public:
     }
     */
 
+    void useZapper(bool flag) {
+        m_settings.useZapper(flag);
+    }
+
+    bool useZapper() {
+        return m_settings.useZapper();
+    }
+
     bool overclocked()
     {
         return m_settings.overclockLines() > 0;
@@ -577,6 +608,7 @@ public:
         s.array(m_ram, 1, 0x800);
         m_controller1.serialization(s);
         m_controller2.serialization(s);
+        m_zapper.serialization(s);
         m_settings.serialization(s);
         m_dma.serialization(s);
 
@@ -607,9 +639,14 @@ public:
         m_controller2.setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
     }
 
-    PPU& getPPU()
+    void setZapper(int x, int y, bool trigger)
     {
-        return m_ppu;
+        m_zapper.setCursorPosition(x,y);
+        m_zapper.setTrigger(trigger);
+    }
+
+    Console& getConsole() {
+        return m_console;
     }
 
     bool valid() //ready to run

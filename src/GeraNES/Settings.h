@@ -13,14 +13,16 @@ private:
     Region m_region = Region::NTSC;
     int m_overclockLines = 0;    
     bool m_disableSpriteLimit = false;
+    bool m_useZapper = false;
 
 public:
 
     void serialization(SerializationBase& s)
     {
         SERIALIZEDATA(s, m_region);
-        SERIALIZEDATA(s,m_overclockLines);  
-        SERIALIZEDATA(s,m_disableSpriteLimit);
+        SERIALIZEDATA(s, m_overclockLines);  
+        SERIALIZEDATA(s, m_disableSpriteLimit);
+        SERIALIZEDATA(s, m_useZapper);
     }
 
     GERANES_INLINE void setRegion(Region r)
@@ -80,6 +82,16 @@ public:
     GERANES_INLINE bool spriteLimitDisabled()
     {
         return m_disableSpriteLimit;
+    }
+
+    GERANES_INLINE void useZapper(bool flag)
+    {
+        m_useZapper = flag;
+    }
+
+    GERANES_INLINE bool useZapper()
+    {
+        return m_useZapper;
     }
 
 };
