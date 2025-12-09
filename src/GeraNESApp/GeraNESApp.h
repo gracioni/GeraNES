@@ -229,21 +229,9 @@ private:
         setTitle((std::string("GeraNES (") + filename + ")").c_str());    
     }
 
-public:
+    void syncSettings() {
 
-    GeraNESApp() : m_emu(m_audioOutput) {
-
-        //reset log file content
-        std::ofstream file(LOG_FILE);
-        file.close();
-
-        Logger::instance().signalLog.bind(&GeraNESApp::onLog, this);
-        m_emu.signalFrameStart.bind(&GeraNESApp::onFrameStart, this);    
-
-        m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
-        m_controllerConfigWindow.signalClose.bind(&GeraNESApp::onCaptureEnd, this);
-
-        m_audioDevices = m_audioOutput.getAudioList();
+        AppSettings::instance().load();
 
         auto cfg = AppSettings::instance().data;
 
@@ -262,7 +250,10 @@ public:
         m_filterMode = (FilterMode)cfg.video.filterMode;
         m_horizontalStretch = cfg.video.horizontalStretch;
         m_fullScreen = cfg.video.fullScreen;
+    }
 
+    void createShortcuts() {
+        
         // std::string key;
         // std::string label;
         // std::string shortcut;
@@ -294,6 +285,27 @@ public:
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
             m_emu.loadState();
         }});
+    }
+
+public:
+
+    GeraNESApp() : m_emu(m_audioOutput) {
+
+        //reset log file content
+        std::ofstream file(LOG_FILE);
+        file.close();
+
+        Logger::instance().signalLog.bind(&GeraNESApp::onLog, this);
+        m_emu.signalFrameStart.bind(&GeraNESApp::onFrameStart, this);    
+
+        m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
+        m_controllerConfigWindow.signalClose.bind(&GeraNESApp::onCaptureEnd, this);
+
+        m_audioDevices = m_audioOutput.getAudioList();
+
+        syncSettings();
+
+        createShortcuts();
 
         loadShaderList();
         
@@ -322,10 +334,9 @@ public:
     });
     }
 
-    /**
-     * Process the file uploaded in browser
-    */
-    void processFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
+#ifdef __EMSCRIPTEN__
+
+    void processUploadedFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
 
         FILE* file = fopen(fileName, "w");
 
@@ -334,7 +345,7 @@ public:
             size_t written = fwrite(fileContent, sizeof(uint8_t), fileSize, file);
 
             if (written != fileSize) {
-                Logger::instance().log("Failed writing file in processFile call", Logger::Type::ERROR);
+                Logger::instance().log("Failed writing file in processUploadedFile call", Logger::Type::ERROR);
             }
 
             fclose(file);
@@ -342,7 +353,7 @@ public:
             openFile(fileName);
 
         } else {
-            Logger::instance().log("Failed to open file for writing in processFile call", Logger::Type::ERROR);
+            Logger::instance().log("Failed to open file for writing in processUploadedFile call", Logger::Type::ERROR);
         }
 
     }
@@ -350,6 +361,12 @@ public:
     void restartAudioModule() {
         m_audioOutput.restart();
     }
+
+    void onSessionImportComplete() {
+        syncSettings();
+    }
+
+#endif
 
     void onCaptureBegin() {
         m_emuInputEnabled = false;
@@ -451,7 +468,7 @@ public:
         if(!loaded) {
 
             if(shaderName != "") {
-                Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::Type::INFO);
+                Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::Type::WARNING);
                 AppSettings::instance().data.video.shaderName = "";
             }
             loadShader(""); //default
@@ -801,6 +818,22 @@ public:
                         sc->action();                        
                     }
                 }
+
+                #ifdef __EMSCRIPTEN__
+                if (ImGui::BeginMenu("Session")) {
+
+                    if(ImGui::MenuItem("Export")) {
+                        AppSettings::instance().save();
+                        emcriptenExportSession();
+                    }
+
+                    if(ImGui::MenuItem("Import")) {
+                        emcriptenImportSession(reinterpret_cast<int>(this));
+                    }
+
+                    ImGui::EndMenu();                                      
+                }
+                #endif
 
                 auto recentFiles = AppSettings::instance().data.getRecentFiles();
                 if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0))

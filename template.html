@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GeraNES</title>
     <link rel="icon" href="geranes.ico" type="image/x-icon">
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
     <style>
 
@@ -58,7 +59,8 @@
     <div class="emscripten" id="status">Downloading...</div>
     <div class="emscripten">
       <progress value="0" max="100" id="progress" hidden=1></progress>  
-    </div>
+    </div>  
+
     <div class="emscripten_border">
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
     </div>
@@ -176,6 +178,233 @@
         };
       };
     </script>
+
+    <script>
+
+    // Import zip into root '/' (will overwrite existing files)
+    async function importEntireFSFromZip(fileOrBlob) {
+      if (typeof FS === 'undefined') {
+        console.error('Emscripten FS is not yet available.');
+        throw new Error('FS not available');
+      }
+
+      // helper sleep (se precisar)
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      // If no argument: open file dialog and let the user choose a .zip
+      if (!fileOrBlob) {
+        // Return a Promise that resolves/rejects when the user picks a file and the import finishes
+        return new Promise((resolve, reject) => {
+          let input = document.getElementById("fsImportInput");
+          if (!input) {
+            input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".zip";
+            input.id = "fsImportInput";
+            input.style.display = "none";
+            document.body.appendChild(input);
+          }
+
+          // Use a one-time change handler
+          const onChange = async (ev) => {
+            input.removeEventListener("change", onChange);
+            const f = ev.target.files[0];
+            input.value = ""; // clear selection for reuse
+            if (!f) {
+              // user cancelled — resolve as "cancelled" or reject depending on your convention
+              // Here we resolve with false to indicate no import occurred
+              resolve(false);
+              return;
+            }
+            try {
+              // call the same function but with the File — this returns a Promise that resolves when import completes
+              await importEntireFSFromZip(f);
+              resolve(true); // import succeeded
+            } catch (e) {
+              reject(e); // forward the error
+            }
+          };
+
+          input.addEventListener("change", onChange, { once: true });
+          // open dialog
+          input.click();
+        });
+      }
+
+      // If we reach here, fileOrBlob is an actual File/Blob
+      const zip = await JSZip.loadAsync(fileOrBlob);
+
+      function sanitize(path) {
+        return path
+          .replace(/^\/+/, "")
+          .split("/")
+          .filter((x) => x !== "" && x !== "..")
+          .join("/");
+      }
+
+      const entries = Object.keys(zip.files);
+
+      const filesToVerify = [];
+
+      for (const name of entries) {
+        const clean = sanitize(name);
+        if (!clean) continue;
+        const full = "/" + clean;
+        const entry = zip.files[name];
+
+        if (entry.dir) {
+          try { FS.mkdirTree(full); } catch (_) {}
+        } else {
+          const data = await entry.async("uint8array");
+
+          const dir = full.substring(0, full.lastIndexOf("/"));
+          if (dir) {
+            try { FS.mkdirTree(dir); } catch (_) {}
+          }
+
+          try { FS.unlink(full); } catch (_) {}
+          FS.writeFile(full, data, { encoding: "binary" });
+
+          filesToVerify.push(full);
+        }
+      }
+
+      // Persist if using IDBFS (wait until it's done)
+      if (typeof FS.syncfs === "function") {
+        await new Promise((res, rej) =>
+          FS.syncfs(true, (err) => (err ? rej(err) : res()))
+        );
+      }
+
+      // Verify files exist (FS.stat) — retry a few times if necessary
+      const maxRetries = 5;
+      const retryDelayMs = 200;
+      let attempt = 0;
+
+      while (attempt <= maxRetries) {
+        let missing = [];
+
+        for (const p of filesToVerify) {
+          try {
+            FS.stat(p);
+          } catch (e) {
+            missing.push(p);
+          }
+        }
+
+        if (missing.length === 0) {
+          // All good — return true to indicate success.
+          return true;
+        }
+
+        attempt++;
+        if (attempt > maxRetries) {
+          const example = missing.slice(0,5);
+          const err = new Error(`Import incomplete: ${missing.length} files missing after ${maxRetries} retries. Example: ${example.join(', ')}`);
+          console.error(err);
+          throw err;
+        }
+
+        // wait a little and try again
+        await sleep(retryDelayMs);
+      }
+
+      // should not reach here
+      return true;
+    }
+
+    // Exports the entire MEMFS (starting from "/") to a .zip file
+    async function exportEntireFS(filename = "geranes_session.zip") {
+      if (typeof FS === 'undefined' || typeof JSZip === 'undefined') {
+        console.error('Export unavailable (FS or JSZip missing).');
+        return;
+      }
+
+      // If IDBFS is used, attempt to sync its content into MEMFS before exporting.
+      if (typeof FS.syncfs === 'function') {
+        try {
+          await new Promise((res, rej) => FS.syncfs(false, err => err ? rej(err) : res()));
+        } catch (_) {
+          // ignore sync errors — continue with whatever is in memory
+        }
+      }
+
+      const zip = new JSZip();
+
+      // Helper: skip pseudo-filesystems/dev nodes that can cause issues
+      function isSkippablePath(path) {
+        return path.startsWith('/proc') || path.startsWith('/dev') || path.startsWith('/sys');
+      }
+
+      // Recursively walk FS and add regular files to zip; silently skip problematic entries
+      function walk(path) {
+        let entries;
+        try {
+          entries = FS.readdir(path);
+        } catch (_) {
+          return;
+        }
+
+        for (const name of entries) {
+          if (name === '.' || name === '..') continue;
+          const full = path === '/' ? `/${name}` : `${path}/${name}`;
+
+          if (isSkippablePath(full)) continue;
+
+          let stat;
+          try {
+            stat = FS.stat(full);
+          } catch (_) {
+            continue;
+          }
+
+          const isDir = (typeof FS.isDir === 'function') ? FS.isDir(stat.mode) : !!(stat.mode & 0o040000);
+
+          if (isDir) {
+            walk(full);
+          } else {
+            try {
+              const data = FS.readFile(full, { encoding: 'binary' }); // Uint8Array
+              const zipName = full.replace(/^\/+/, ''); // remove leading slash
+              zip.file(zipName, data);
+            } catch (_) {
+              // silently skip unreadable files
+              continue;
+            }
+          }
+        }
+      }
+
+      walk('/');
+
+      // Generate ZIP (may take time for large FS)
+      try {
+        const blob = await zip.generateAsync(
+          { type: 'blob' },
+          (meta) => {
+            console.log(`Compressing... (${Math.round(meta.percent)}%)`);
+          }
+        );
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        console.log('Export complete.');
+      } catch (e) {
+        console.error('Export failed.');
+      }
+    }
+
+
+    </script>
+
     {{{ SCRIPT }}}
+
   </body>
 </html>

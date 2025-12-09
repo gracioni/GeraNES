@@ -32,7 +32,7 @@ void emcriptenFileDialog(int handler) {
                         var buffer = Module._malloc(fileSize);
                         Module.HEAPU8.set(fileContent, buffer);
 
-                        Module.ccall('processFile', null, ['number', 'string', 'number', 'number'], [handler, fileName, fileSize, buffer]);
+                        Module.ccall('processUploadedFile', null, ['number', 'string', 'number', 'number'], [handler, fileName, fileSize, buffer]);
 
                         // Free allocated memory
                         Module._free(buffer);
@@ -89,6 +89,45 @@ void emcriptenRegisterAudioReset(int handler)
         }
 
     }, handler);
+}
+
+void emcriptenImportSession(int handler) {
+    
+    EM_ASM({
+        (async () => {
+
+            const handler = $0;
+
+            try {
+                if (typeof importEntireFSFromZip !== 'function') {
+                    console.error("importEntireFSFromZip not found");
+                    return;
+                }
+
+                await importEntireFSFromZip();
+
+                Module.ccall('onSessionImportComplete', null, ['number'], [handler]);
+
+            } catch (err) {
+                console.error("Import failed:", err);
+            }
+
+        })();
+    }, handler);
+}
+
+void emcriptenExportSession() {
+    EM_ASM({
+        try {
+            if (typeof exportEntireFS === 'function') {
+                exportEntireFS();
+            } else {
+                console.error('exportEntireFS not found on window/Module.');
+            }
+        } catch (e) {
+            console.error('emcriptenExportSession error:', e);
+        }
+    });
 }
 
 #endif
