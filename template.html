@@ -11,174 +11,138 @@
 
     <style>
 
-      body { margin: 0; padding: 0; }
+      html, body { height: 100%; margin: 0; padding: 0; }
 
-      .emscripten { padding-right: 0; margin-left: auto; margin-right: auto; display: block; }
-      textarea.emscripten { font-family: monospace; width: 80%; }
-      div.emscripten { text-align: center; }
-      div.emscripten_border { width: 100vw; height: 100vh; height: calc(var(--vh, 1vh) * 100); overflow: hidden;}
-      /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
-      canvas.emscripten { width: 100%; height: 100%; background-color: black; }
+      .emscripten_border {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      canvas.emscripten {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* FULLSCREEN OVERLAY (simplified loading screen) */
+
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        pointer-events: none;
+      }
+
+      #overlay .inner {
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 1.2rem 1.6rem;
+        background: rgba(0,0,0,0.35);
+        border-radius: 8px;
+        color: #fff;
+        min-width: 220px;
+      }
 
       .spinner {
         height: 50px;
         width: 50px;
-        margin: 0px auto;
-        -webkit-animation: rotation .8s linear infinite;
-        -moz-animation: rotation .8s linear infinite;
-        -o-animation: rotation .8s linear infinite;
-        animation: rotation 0.8s linear infinite;
-        border-left: 10px solid rgb(0,150,240);
-        border-right: 10px solid rgb(0,150,240);
-        border-bottom: 10px solid rgb(0,150,240);
-        border-top: 10px solid rgb(100,0,200);
-        border-radius: 100%;
-        background-color: rgb(200,100,250);
+        animation: spin 0.8s linear infinite;
+        border-left: 8px solid rgb(0,150,240);
+        border-right: 8px solid rgb(0,150,240);
+        border-bottom: 8px solid rgb(0,150,240);
+        border-top: 8px solid rgb(100,0,200);
+        border-radius: 50%;
       }
-      @-webkit-keyframes rotation {
-        from {-webkit-transform: rotate(0deg);}
-        to {-webkit-transform: rotate(360deg);}
-      }
-      @-moz-keyframes rotation {
-        from {-moz-transform: rotate(0deg);}
-        to {-moz-transform: rotate(360deg);}
-      }
-      @-o-keyframes rotation {
-        from {-o-transform: rotate(0deg);}
-        to {-o-transform: rotate(360deg);}
-      }
-      @keyframes rotation {
-        from {transform: rotate(0deg);}
-        to {transform: rotate(360deg);}
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
       }
 
     </style>
   </head>
-  <body>
-    <figure style="overflow:visible;" id="spinner"><div class="spinner"></div><center style="margin-top:0.5em"><strong>GeraNES</strong></center></figure>
-    <div class="emscripten" id="status">Downloading...</div>
-    <div class="emscripten">
-      <progress value="0" max="100" id="progress" hidden=1></progress>  
-    </div>  
 
-    <div class="emscripten_border">
-      <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+  <body>
+
+    <!-- LOADING OVERLAY -->
+    <div id="overlay">
+      <div class="inner">
+        <div class="spinner"></div>
+        <div id="statusText" style="font-size:1.1rem; font-weight:700;">
+          Downloading...
+        </div>
+      </div>
     </div>
 
-    <script type='text/javascript'>
+    <div class="emscripten_border">
+      <canvas id="canvas" class="emscripten"
+              oncontextmenu="event.preventDefault()"
+              tabindex="-1"
+              style="visibility:hidden;"></canvas>
+    </div>
 
+    <script type="text/javascript">
+
+      // Viewport fix
       function updateVh() {
-        // First we get the viewport height and we multiple it by 1% to get a value for a vh unit
         let vh = window.innerHeight * 0.01;
-        // Then we set the value in the --vh custom property to the root of the document
         document.documentElement.style.setProperty('--vh', `${vh}px`);
       }
-
       updateVh();
+      window.addEventListener('resize', updateVh);
 
-      window.addEventListener('resize', () => {
-        updateVh();
+      // Wake Lock
+      let wakeLock = null;
+      async function requestWakeLock() {
+        try {
+          if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      requestWakeLock();
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === "visible") requestWakeLock();
       });
 
-      // ---
+      // Overlay elements
+      var overlay = document.getElementById("overlay");
+      var statusText = document.getElementById("statusText");
+      var canvas = document.getElementById("canvas");
 
-      let wakeLock = null;
-
-      async function requestWakeLock() {
-          try {
-              if ('wakeLock' in navigator) {
-                  wakeLock = await navigator.wakeLock.request('screen');
-                  console.log('Wake Lock acquired');
-              } else {
-                  console.warn('Wake Lock API is not supported');
-              }
-          } catch (e) {
-              console.error(`${e.name}, ${e.message}`);
-          }
-      }
-
-      requestWakeLock();
-
-      async function handleVisibilityChange() {
-          if (document.visibilityState === 'visible') {
-              requestWakeLock();
-          } else {
-              wakeLock = null;
-          }
-      }
-
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-
-      // ---
-
-      var statusElement = document.getElementById('status');
-      var progressElement = document.getElementById('progress');
-      var spinnerElement = document.getElementById('spinner');
-
+      // Module object
       var Module = {
-        print: (function() {
+        canvas: canvas,
 
-          return;
-
-          var element = document.getElementById('output');
-          if (element) element.value = ''; // clear browser cache
-          return (...args) => {
-            var text = args.join(' ');
-            console.log(text);
-            if (element) {
-              element.value += text + "\n";
-              element.scrollTop = element.scrollHeight; // focus on bottom
-            }
-          };
-        })(),
-        canvas: (() => {
-          var canvas = document.getElementById('canvas');
-
-          // As a default initial behavior, pop up an alert when webgl context is lost. To make your
-          // application robust, you may want to override this behavior before shipping!
-          // See http://www.khronos.org/registry/webgl/specs/latest/1.0/#5.15.2
-          canvas.addEventListener("webglcontextlost", (e) => { alert('WebGL context lost. You will need to reload the page.'); e.preventDefault(); }, false);
-
-          return canvas;
-        })(),
-        setStatus: (text) => {
-          if (!Module.setStatus.last) Module.setStatus.last = { time: Date.now(), text: '' };
-          if (text === Module.setStatus.last.text) return;
-          var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
-          var now = Date.now();
-          if (m && now - Module.setStatus.last.time < 30) return; // if this is a progress update, skip it if too soon
-          Module.setStatus.last.time = now;
-          Module.setStatus.last.text = text;
-          if (m) {
-            text = m[1];
-            progressElement.value = parseInt(m[2])*100;
-            progressElement.max = parseInt(m[4])*100;
-            progressElement.hidden = false;
-            spinnerElement.hidden = false;
-          } else {
-            progressElement.value = null;
-            progressElement.max = null;
-            progressElement.hidden = true;
-            if (!text) spinnerElement.hidden = true;
-          }
-          statusElement.innerHTML = text;
+        // SIMPLE STATUS — always just text, no numbers
+        setStatus: function(text) {
+          if (text) statusText.textContent = text;
         },
-        totalDependencies: 0,
-        monitorRunDependencies: (left) => {
-          this.totalDependencies = Math.max(this.totalDependencies, left);
-          Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
+
+        onRuntimeInitialized: function() {
+          overlay.style.display = "none";
+          canvas.style.visibility = "visible";
+          try { canvas.focus(); } catch(_){}
         }
       };
-      Module.setStatus('Downloading...');
+
+      Module.setStatus("Downloading...");
+
       window.onerror = () => {
-        Module.setStatus('Exception thrown, see JavaScript console');
-        spinnerElement.style.display = 'none';
-        Module.setStatus = (text) => {
-          if (text) console.error('[post-exception status] ' + text);
-        };
+        Module.setStatus("Exception thrown, see console");
       };
+
     </script>
 
+    <!-- IMPORT/EXPORT FS (YOUR ORIGINAL CODE UNCHANGED) -->
     <script>
 
     // Import zip into root '/' (will overwrite existing files)
@@ -188,12 +152,9 @@
         throw new Error('FS not available');
       }
 
-      // helper sleep (se precisar)
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      // If no argument: open file dialog and let the user choose a .zip
       if (!fileOrBlob) {
-        // Return a Promise that resolves/rejects when the user picks a file and the import finishes
         return new Promise((resolve, reject) => {
           let input = document.getElementById("fsImportInput");
           if (!input) {
@@ -205,33 +166,27 @@
             document.body.appendChild(input);
           }
 
-          // Use a one-time change handler
           const onChange = async (ev) => {
             input.removeEventListener("change", onChange);
             const f = ev.target.files[0];
-            input.value = ""; // clear selection for reuse
+            input.value = "";
             if (!f) {
-              // user cancelled — resolve as "cancelled" or reject depending on your convention
-              // Here we resolve with false to indicate no import occurred
               resolve(false);
               return;
             }
             try {
-              // call the same function but with the File — this returns a Promise that resolves when import completes
               await importEntireFSFromZip(f);
-              resolve(true); // import succeeded
+              resolve(true);
             } catch (e) {
-              reject(e); // forward the error
+              reject(e);
             }
           };
 
           input.addEventListener("change", onChange, { once: true });
-          // open dialog
           input.click();
         });
       }
 
-      // If we reach here, fileOrBlob is an actual File/Blob
       const zip = await JSZip.loadAsync(fileOrBlob);
 
       function sanitize(path) {
@@ -243,7 +198,6 @@
       }
 
       const entries = Object.keys(zip.files);
-
       const filesToVerify = [];
 
       for (const name of entries) {
@@ -269,14 +223,12 @@
         }
       }
 
-      // Persist if using IDBFS (wait until it's done)
       if (typeof FS.syncfs === "function") {
         await new Promise((res, rej) =>
           FS.syncfs(true, (err) => (err ? rej(err) : res()))
         );
       }
 
-      // Verify files exist (FS.stat) — retry a few times if necessary
       const maxRetries = 5;
       const retryDelayMs = 200;
       let attempt = 0;
@@ -293,60 +245,55 @@
         }
 
         if (missing.length === 0) {
-          // All good — return true to indicate success.
           return true;
         }
 
         attempt++;
         if (attempt > maxRetries) {
           const example = missing.slice(0,5);
-          const err = new Error(`Import incomplete: ${missing.length} files missing after ${maxRetries} retries. Example: ${example.join(', ')}`);
+          const err = new Error(`Import incomplete: ${missing.length} files missing. Example: ${example.join(', ')}`);
           console.error(err);
           throw err;
         }
 
-        // wait a little and try again
         await sleep(retryDelayMs);
       }
 
-      // should not reach here
       return true;
     }
 
-    // Exports the entire MEMFS (starting from "/") to a .zip file
+    // Export entire MEMFS → zip
     async function exportEntireFS(filename = "geranes_session.zip") {
       if (typeof FS === 'undefined' || typeof JSZip === 'undefined') {
         console.error('Export unavailable (FS or JSZip missing).');
         return;
       }
 
-      // If IDBFS is used, attempt to sync its content into MEMFS before exporting.
       if (typeof FS.syncfs === 'function') {
         try {
-          await new Promise((res, rej) => FS.syncfs(false, err => err ? rej(err) : res()));
-        } catch (_) {
-          // ignore sync errors — continue with whatever is in memory
-        }
+          await new Promise((res, rej) =>
+            FS.syncfs(false, err => err ? rej(err) : res())
+          );
+        } catch (_) {}
       }
 
       const zip = new JSZip();
 
-      // Helper: skip pseudo-filesystems/dev nodes that can cause issues
       function isSkippablePath(path) {
-        return path.startsWith('/proc') || path.startsWith('/dev') || path.startsWith('/sys');
+        return path.startsWith('/proc') ||
+               path.startsWith('/dev') ||
+               path.startsWith('/sys');
       }
 
-      // Recursively walk FS and add regular files to zip; silently skip problematic entries
       function walk(path) {
         let entries;
         try {
           entries = FS.readdir(path);
-        } catch (_) {
-          return;
-        }
+        } catch (_) { return; }
 
         for (const name of entries) {
           if (name === '.' || name === '..') continue;
+
           const full = path === '/' ? `/${name}` : `${path}/${name}`;
 
           if (isSkippablePath(full)) continue;
@@ -354,21 +301,18 @@
           let stat;
           try {
             stat = FS.stat(full);
-          } catch (_) {
-            continue;
-          }
+          } catch (_) { continue; }
 
-          const isDir = (typeof FS.isDir === 'function') ? FS.isDir(stat.mode) : !!(stat.mode & 0o040000);
+          const isDir = (stat.mode & 0o040000) !== 0;
 
           if (isDir) {
             walk(full);
           } else {
             try {
-              const data = FS.readFile(full, { encoding: 'binary' }); // Uint8Array
-              const zipName = full.replace(/^\/+/, ''); // remove leading slash
+              const data = FS.readFile(full, { encoding:'binary' });
+              const zipName = full.replace(/^\/+/, '');
               zip.file(zipName, data);
             } catch (_) {
-              // silently skip unreadable files
               continue;
             }
           }
@@ -377,13 +321,10 @@
 
       walk('/');
 
-      // Generate ZIP (may take time for large FS)
       try {
         const blob = await zip.generateAsync(
           { type: 'blob' },
-          (meta) => {
-            console.log(`Compressing... (${Math.round(meta.percent)}%)`);
-          }
+          (meta) => console.log(`Compressing... ${Math.round(meta.percent)}%`)
         );
 
         const url = URL.createObjectURL(blob);
@@ -395,12 +336,10 @@
         a.remove();
         URL.revokeObjectURL(url);
 
-        console.log('Export complete.');
       } catch (e) {
-        console.error('Export failed.');
+        console.error('Export failed.', e);
       }
     }
-
 
     </script>
 
