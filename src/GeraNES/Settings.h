@@ -2,18 +2,25 @@
 
 #include "defines.h"
 #include "Serialization.h"
+#include "util/map_util.h"
 
 class Settings {
 
 public:
     enum class Region { PAL, NTSC, DENDY };
+    enum class Device { CONTROLLER, ZAPPER };
+    enum class Port { P_1, P_2 };
 
 private:
 
     Region m_region = Region::NTSC;
     int m_overclockLines = 0;    
     bool m_disableSpriteLimit = false;
-    bool m_useZapper = false;
+
+    std::map<Port, Device> m_portDevice = {
+        {Port::P_1, Device::CONTROLLER},
+        {Port::P_2, Device::CONTROLLER}
+    };
 
 public:
 
@@ -22,7 +29,7 @@ public:
         SERIALIZEDATA(s, m_region);
         SERIALIZEDATA(s, m_overclockLines);  
         SERIALIZEDATA(s, m_disableSpriteLimit);
-        SERIALIZEDATA(s, m_useZapper);
+        serialize_map(s, m_portDevice);
     }
 
     GERANES_INLINE void setRegion(Region r)
@@ -84,14 +91,18 @@ public:
         return m_disableSpriteLimit;
     }
 
-    GERANES_INLINE void useZapper(bool flag)
+    GERANES_INLINE std::optional<Device> getPortDevice(Port port)
     {
-        m_useZapper = flag;
+        auto it = m_portDevice.find(port);
+        if (it != m_portDevice.end())
+            return it->second;
+
+        return std::nullopt;
     }
 
-    GERANES_INLINE bool useZapper()
+    GERANES_INLINE void setPortDevice(Port port, Device device)
     {
-        return m_useZapper;
+        if (auto it = m_portDevice.find(port); it != m_portDevice.end())
+            it->second = device;
     }
-
 };

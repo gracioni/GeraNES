@@ -155,12 +155,16 @@ public:
         return "";
     }
 
-    GameDatabase::System system() override {
+    GameDatabase::Sistem sistem() override {
 
         if(m_romFile.fileName().find("(E)") != std::string::npos)
-            return GameDatabase::System::NesPal;
+            return GameDatabase::Sistem::NesPal;
 
-        return GameDatabase::System::NesNtsc;
+        return GameDatabase::Sistem::NesNtsc;
+    }
+
+    GameDatabase::InputType inputType() override {
+        return GameDatabase::InputType::Unspecified;
     }
 
 };

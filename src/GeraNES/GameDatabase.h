@@ -17,7 +17,7 @@ class GameDatabase {
 
 public:
 
-    enum class System
+    enum class Sistem
     {
         NesNtsc,
         NesPal,
@@ -151,7 +151,7 @@ public:
 
     struct Item {
         uint32_t PrgChrCrc32;
-        System System;
+        Sistem System;
         std::string Board;
         std::string PCB;
         std::string Chip;
@@ -174,23 +174,23 @@ public:
         return (uint32_t)std::stoll(str.c_str(), nullptr, 16);
     }
 
-    System getGameSystem(const std::string& str)
+    Sistem getGameSystem(const std::string& str)
     {
         if(str == "NesNtsc") {
-            return System::NesNtsc;
+            return Sistem::NesNtsc;
         } else if(str == "NesPal") {
-            return System::NesPal;
+            return Sistem::NesPal;
         } else if(str == "Famicom") {
-            return System::Famicom;
+            return Sistem::Famicom;
         } else if(str == "VsSystem") {
-            return System::VsSystem;
+            return Sistem::VsSystem;
         } else if(str == "Dendy") {
-            return System::Dendy;
+            return Sistem::Dendy;
         } else if(str == "Playchoice") {
-            return System::Playchoice;
+            return Sistem::Playchoice;
         }
         
-        return System::Unknown;
+        return Sistem::Unknown;
     }
 
     Battery getBattery(const std::string& str) {

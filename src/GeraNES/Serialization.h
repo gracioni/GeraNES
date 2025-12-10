@@ -5,6 +5,8 @@
 #include <vector>
 #include <fstream>
 
+#include "util/map_util.h"
+
 #include <filesystem>
 namespace fs = std::filesystem;
 
@@ -176,3 +178,19 @@ public:
 };
 
 #define SERIALIZEDATA(serializer, data) serializer.single(reinterpret_cast<uint8_t*>(&data), sizeof(data));
+
+template<typename Map>
+void serialize_map(SerializationBase& s, Map& m) {
+    auto array = map_to_array(m);
+    uint32_t arraySize = array.size();
+    SERIALIZEDATA(s, arraySize);
+
+    if(array.size() != arraySize) array.resize(arraySize);
+
+    s.array(
+        reinterpret_cast<uint8_t*>(array.data()),
+        sizeof(typename decltype(array)::value_type),
+        arraySize);
+
+    array_to_map(array, m);
+}

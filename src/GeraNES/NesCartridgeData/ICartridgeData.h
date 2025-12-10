@@ -62,7 +62,9 @@ public:
 
     virtual std::string chip() = 0; 
 
-    virtual GameDatabase::System system() = 0;
+    virtual GameDatabase::Sistem sistem() = 0;
+
+    virtual GameDatabase::InputType inputType() = 0;
 
     virtual ~ICartridgeData() {}
 

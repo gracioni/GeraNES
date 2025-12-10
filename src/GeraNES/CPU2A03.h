@@ -131,6 +131,8 @@ private:
 
     bool m_writeCycle;
 
+    bool m_resetRequest;
+
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
     {
         return ((uint16_t)low) | (((uint16_t)high)<<8);
@@ -331,6 +333,8 @@ public:
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
+
+        m_resetRequest = false;
     }
 
     GERANES_INLINE_HOT void ADC()
@@ -1061,6 +1065,51 @@ public:
         dummyRead();
     }
 
+    GERANES_INLINE_HOT void resetSequence()
+    {
+        m_sp = 0xFD;
+        m_status = 0x24;
+        m_a = m_x = m_y = 0;
+
+        m_cyclesCounter = 0;
+        m_addr = 0;
+        m_opcode = 0;
+
+        m_nmiSignal = false;
+        m_irqSignal = false;
+
+        m_nmiStep = NmiStep::WAITING_LOW;
+        m_irqStep = false;
+
+        m_poolIntsAtCycle = DO_NOT_POOL_INTS;
+
+        m_haltCycles = 0;
+        m_extraCycles = 0;
+
+        m_runCount = 0;
+        m_writeCycle = false;
+
+        m_currentInstructionCycle = 0;
+        m_interrupt = Interrupt::NONE;
+ 
+        uint8_t low = 0, high = 0;
+
+        beginCycle();
+        low = m_bus.read(0xFFFC);
+        endCycle();
+
+        beginCycle();
+        high = m_bus.read(0xFFFD);
+        endCycle();
+
+        m_pc = MAKE16(low, high);
+
+        for (int i = 0; i < 5; ++i) {
+            beginCycle();
+            endCycle();
+        }
+    }
+
     GERANES_INLINE_HOT void checkInterrupts()
     {
         if( (m_nmiSignal) || (m_irqSignal && m_flags.irq == false))
@@ -1166,7 +1215,11 @@ public:
 
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
-    }   
+    }
+    
+    GERANES_INLINE_HOT void reset() {
+        m_resetRequest = true;
+    }
     
     GERANES_INLINE_HOT int run() {
 
@@ -1174,7 +1227,11 @@ public:
         m_currentInstructionCycle = 0;        
         m_addr = 0;
 
-        if(m_interrupt != Interrupt::NONE) {
+        if(m_resetRequest) {
+            m_resetRequest = false;
+            resetSequence();
+        }
+        else if(m_interrupt != Interrupt::NONE) {
             m_poolIntsAtCycle = DO_NOT_POOL_INTS;
             m_opcode = 0x00; //BRK
             dummyRead();            

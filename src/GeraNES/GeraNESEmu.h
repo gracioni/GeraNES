@@ -36,7 +36,8 @@ private:
     uint8_t m_ram[0x800]; //2K
     Controller m_controller1;
     Controller m_controller2;
-    Zapper m_zapper;
+    Zapper m_zapper1;
+    Zapper m_zapper2;
     Console m_console;
 
     uint32_t m_updateCyclesAcc;
@@ -131,8 +132,12 @@ private:
 
                     }
                     else {
-                        data = m_controller1.read(!m_cpu.isHalted());
-                        data = (data&0x1F) | (m_openBus&(~0x1F));
+
+                        bool useZapper = m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
+
+                        if(useZapper) data = m_zapper1.read();
+                        else data = m_controller1.read(!m_cpu.isHalted());
+                        data = (data&0x1F) | (m_openBus&(~0x1F));                        
                     }
                     break;
                 }
@@ -141,7 +146,10 @@ private:
                 {
                     if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data);
                     else {
-                        if(m_settings.useZapper()) data = m_zapper.read();
+
+                        bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
+
+                        if(useZapper) data = m_zapper2.read();
                         else data = m_controller2.read(!m_cpu.isHalted());                        
                         data = (data&0x1F) | (m_openBus&(~0x1F));
                     }
@@ -206,7 +214,8 @@ private:
 
     void onScanlineStart()
     {
-        m_zapper.onScanlineChanged();
+        m_zapper1.onScanlineChanged();
+        m_zapper2.onScanlineChanged();
     }
 
     void onDMCRequest(uint16_t addr, bool reload) {
@@ -241,7 +250,8 @@ public:
     m_dma(*this, m_apu.getSampleChannel(), m_cpu),
     m_controller1(),
     m_controller2(),
-    m_zapper(),
+    m_zapper1(),
+    m_zapper2(),
     m_rewind(*this),
     m_console(m_cpu, m_ppu, m_dma, m_apu, m_cartridge)
     {
@@ -254,7 +264,7 @@ public:
         m_ppu.signalScanlineStart.bind(&GeraNESEmu::onScanlineStart, this);
         m_apu.getSampleChannel().dmcRequest.bind(&GeraNESEmu::onDMCRequest, this);
 
-        m_zapper.setPixelChecker([&](int x, int y){
+        auto f = [&](int x, int y){
 
             uint32_t pixel = m_ppu.getZapperPixel(x, y);
 
@@ -265,7 +275,10 @@ public:
             float luma = 0.2126f*r + 0.7152f*g + 0.0722f*b;
 
             return luma;
-        });
+        };
+
+        m_zapper1.setPixelChecker(f);
+        m_zapper2.setPixelChecker(f);
     }
 
     ~GeraNESEmu()
@@ -328,15 +341,15 @@ public:
 
             switch(m_cartridge.system()) {
 
-                case GameDatabase::System::NesPal:
+                case GameDatabase::Sistem::NesPal:
                     m_settings.setRegion(Settings::Region::PAL);
                     break;
 
-                case GameDatabase::System::NesNtsc:
+                case GameDatabase::Sistem::NesNtsc:
                     m_settings.setRegion(Settings::Region::NTSC);
                     break;
 
-                case GameDatabase::System::Dendy:
+                case GameDatabase::Sistem::Dendy:
                     m_settings.setRegion(Settings::Region::DENDY);
                     break;
 
@@ -344,6 +357,24 @@ public:
                     m_settings.setRegion(Settings::Region::NTSC);
 
             }  
+
+            switch(m_cartridge.inputType()) {
+
+                case GameDatabase::InputType::VsZapper:
+                case GameDatabase::InputType::Zapper:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
+                    break;
+
+                case GameDatabase::InputType::TwoZappers:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
+                    break;
+
+                default:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+            }
 
             updateCyclesPerSecond();
 
@@ -535,12 +566,14 @@ public:
     }
     */
 
-    void useZapper(bool flag) {
-        m_settings.useZapper(flag);
+    GERANES_INLINE std::optional<Settings::Device> getPortDevice(Settings::Port port)
+    {
+        return m_settings.getPortDevice(port);
     }
 
-    bool useZapper() {
-        return m_settings.useZapper();
+    GERANES_INLINE void setPortDevice(Settings::Port port, Settings::Device device)
+    {
+        m_settings.setPortDevice(port, device);
     }
 
     bool overclocked()
@@ -608,7 +641,8 @@ public:
         s.array(m_ram, 1, 0x800);
         m_controller1.serialization(s);
         m_controller2.serialization(s);
-        m_zapper.serialization(s);
+        m_zapper1.serialization(s);
+        m_zapper2.serialization(s);
         m_settings.serialization(s);
         m_dma.serialization(s);
 
@@ -639,10 +673,22 @@ public:
         m_controller2.setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
     }
 
-    void setZapper(int x, int y, bool trigger)
+    void setZapper(Settings::Port port, int x, int y, bool trigger)
     {
-        m_zapper.setCursorPosition(x,y);
-        m_zapper.setTrigger(trigger);
+        switch(port) {
+
+            case Settings::Port::P_1:
+                m_zapper1.setCursorPosition(x,y);
+                m_zapper1.setTrigger(trigger);
+                break;
+
+            case Settings::Port::P_2:
+                m_zapper2.setCursorPosition(x,y);
+                m_zapper2.setTrigger(trigger);
+                break;
+        }
+
+        
     }
 
     Console& getConsole() {
@@ -683,6 +729,10 @@ public:
 
     uint32_t frameCount() {
         return m_frameCount;
+    }
+
+    void reset() {
+        m_cpu.reset();
     }
 
 };

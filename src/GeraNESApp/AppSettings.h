@@ -51,7 +51,7 @@ public:
         bool enabled = false;
         ButtonsMode buttonsMode = ButtonsMode::Absolute;
         DigitaPadMode digitalPadMode = DigitaPadMode::Absolute;
-        float transparency = 0.8f;        
+        float transparency = 0.2f;        
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(TouchControls, enabled, buttonsMode, digitalPadMode, transparency)
     };

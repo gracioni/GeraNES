@@ -87,8 +87,12 @@ public:
         return "";
     }
 
-    GameDatabase::System system() override {
-        return GameDatabase::System::NesNtsc;
+    GameDatabase::Sistem sistem() override {
+        return GameDatabase::Sistem::NesNtsc;
+    }
+
+    GameDatabase::InputType inputType() override {
+        return GameDatabase::InputType::Unspecified;
     }
     
     static DummyCartridgeData& instance()

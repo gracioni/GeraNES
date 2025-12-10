@@ -317,9 +317,14 @@ public:
         return m_mapper->readCustomNameTable(index,addr);
     }
 
-    GERANES_INLINE GameDatabase::System system()
+    GERANES_INLINE GameDatabase::Sistem system()
     {
-        return m_nesCartridgeData->system();
+        return m_nesCartridgeData->sistem();
+    }
+
+    GERANES_INLINE GameDatabase::InputType inputType()
+    {
+        return m_nesCartridgeData->inputType();
     }
 
     GERANES_INLINE bool isValid()

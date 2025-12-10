@@ -236,7 +236,8 @@ private:
 
                 auto [nesX, nesY] = getNesCursor(mx, my);            
 
-                m_emu.setZapper(nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)));
+                m_emu.setZapper(Settings::Port::P_1, nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)));
+                m_emu.setZapper(Settings::Port::P_2, nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)));
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
@@ -326,7 +327,10 @@ private:
 
         bool inside = pointInRect(glm::vec2(mx,my), m_nesScreenRect);
 
-        if(!m_imGuiWantsMouse && inside && m_emu.useZapper()) {
+        bool useZapper = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
+        m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
+
+        if(!m_imGuiWantsMouse && inside && useZapper) {
             if(m_crossCursor.has_value() && !m_crossCursor->isCurrent()) {
                 m_crossCursor->setAsCurrent();
             }
@@ -962,6 +966,12 @@ public:
                     ImGui::EndMenu();                                      
                 }
 
+                ImGui::Separator();
+
+                if(ImGui::MenuItem("Reset")) {
+                    m_emu.reset();
+                }
+
                 ImGui::EndMenu();
             }
 
@@ -1057,21 +1067,45 @@ public:
 
             if (ImGui::BeginMenu("Input"))
             {
-                if (ImGui::BeginMenu("Controller")) {
+                if (ImGui::BeginMenu("Port 1")) {
 
-                    if (ImGui::MenuItem("1"))
+                    if (ImGui::MenuItem("Controller", nullptr, m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::CONTROLLER)))
                     {
-                        m_controllerConfigWindow.show("Controller 1 config", m_controller1);                    
+                        m_emu.setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);                   
                     }
-                    if (ImGui::MenuItem("2"))
+                    if (ImGui::MenuItem("Zapper", nullptr, m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER)))
                     {
-                        m_controllerConfigWindow.show("Controller 2 config", m_controller2);
+                        m_emu.setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);   
                     }
                     ImGui::EndMenu();
                 }
 
-                if(ImGui::MenuItem("Use Zapper", nullptr, m_emu.useZapper())) {
-                    m_emu.useZapper(!m_emu.useZapper());
+                if (ImGui::BeginMenu("Port 2")) {
+
+                    if (ImGui::MenuItem("Controller", nullptr, m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::CONTROLLER)))
+                    {
+                        m_emu.setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);                   
+                    }
+                    if (ImGui::MenuItem("Zapper", nullptr, m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER)))
+                    {
+                        m_emu.setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);   
+                    }
+                    ImGui::EndMenu();
+                }
+
+                ImGui::Separator();
+
+                if (ImGui::BeginMenu("Controller")) {
+
+                    if (ImGui::MenuItem("1"))
+                    {
+                        m_controllerConfigWindow.show("Controller 1", m_controller1);                    
+                    }
+                    if (ImGui::MenuItem("2"))
+                    {
+                        m_controllerConfigWindow.show("Controller 2", m_controller2);
+                    }
+                    ImGui::EndMenu();
                 }
 
                 if (ImGui::BeginMenu("Touch controls")) {

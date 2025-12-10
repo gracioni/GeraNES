@@ -29,7 +29,9 @@ private:
 
     std::string m_chip;
 
-    GameDatabase::System m_system;
+    GameDatabase::Sistem m_system;
+
+    GameDatabase::InputType m_inputType;
 
 public:
 
@@ -77,7 +79,9 @@ public:
 
         m_chip = !m_item->Chip.empty() ? m_item->Chip : m_src->chip();
 
-        m_system = m_item->System != GameDatabase::System::Unknown ? m_item->System : m_src->system();
+        m_system = m_item->System != GameDatabase::Sistem::Unknown ? m_item->System : m_src->sistem();
+
+        m_inputType = m_item->InputType != GameDatabase::InputType::Unspecified ? m_item->InputType : m_src->inputType();
     }
 
     virtual ~DbOverwriteCartridgeData() {
@@ -158,8 +162,12 @@ public:
         return m_chip;
     }
 
-    GameDatabase::System system() override {
+    GameDatabase::Sistem sistem() override {
         return m_system;
+    }
+
+    GameDatabase::InputType inputType() override {
+        return m_inputType;
     }
 
 };
