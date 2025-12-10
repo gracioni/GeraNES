@@ -371,7 +371,7 @@ public:
             return;
         }
 
-        const int transparency = (int)(AppSettings::instance().data.input.touchControls.transparency * 255);
+        const int transparency = (int)((AppSettings::instance().data.input.touchControls.transparency+0.5f) * 255);
 
         auto rewindNode = m_root->getById("main/top/rewind");  
         if(rewindNode) {
@@ -406,7 +406,7 @@ public:
 
             drawList->AddImage(m_digitalPagTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, transparency));
+                IM_COL32(255, 255, 255, 255-transparency));
         }
 
         auto selectNode = m_root->getById("main/bottom/mid/select/draw");
