@@ -126,7 +126,9 @@ private:
 
     Uint64 m_mainLoopLastTime = 0;
 
-    SDL_Rect m_nesScreenRect = {0, 0, 1, 1};
+    Rect m_nesScreenRect = {{0,0}, {1,1}};
+
+    bool m_imGuiWantsMouse = false;
 
     // FPS vars    
     Uint64 m_fpsTimer = 0;
@@ -161,6 +163,10 @@ private:
         if(type == Logger::Type::ERROR) {
             m_errorMessage = msg;
             m_showErrorWindow = true;
+
+            if(!m_emu.valid()) {
+                if(m_defaultCursor.has_value()) m_defaultCursor->setAsCurrent();
+            }
         }
 
         std::string msgType = "";
@@ -183,6 +189,16 @@ private:
         memcpy(m_logBuf.data(), m_log.c_str(), needed);        
     }
 
+    std::tuple<int, int> getNesCursor(int screenX, int screenY) {
+
+        int nesX = ((screenX - m_nesScreenRect.min.x) * m_emu.getConsole().ppu().SCREEN_WIDTH) / m_nesScreenRect.getWidth();
+        int clipTop = m_clipHeightValue;
+        int visibleNES = m_emu.getConsole().ppu().SCREEN_HEIGHT - 2*m_clipHeightValue;
+        int nesY = clipTop + ((screenY - m_nesScreenRect.min.y) * visibleNES) / m_nesScreenRect.getHeight();
+
+        return std::make_tuple(nesX, nesY);
+    }
+
     void onFrameStart() { 
 
         if(m_emuInputEnabled) {
@@ -193,14 +209,14 @@ private:
 
             // Player1
             m_emu.setController1Buttons(
-                im.isPressed(m_controller1.a) || m_touch->buttons().a,
-                im.isPressed(m_controller1.b) || m_touch->buttons().b,
-                im.isPressed(m_controller1.select) || m_touch->buttons().select,
-                im.isPressed(m_controller1.start) || m_touch->buttons().start,
-                im.isPressed(m_controller1.up) || m_touch->buttons().up,
-                im.isPressed(m_controller1.down) || m_touch->buttons().down,
-                im.isPressed(m_controller1.left) || m_touch->buttons().left,
-                im.isPressed(m_controller1.right) || m_touch->buttons().right
+                im.isPressed(m_controller1.a) || (!m_imGuiWantsMouse && m_touch->buttons().a),
+                im.isPressed(m_controller1.b) || (!m_imGuiWantsMouse &&m_touch->buttons().b),
+                im.isPressed(m_controller1.select) || (!m_imGuiWantsMouse &&m_touch->buttons().select),
+                im.isPressed(m_controller1.start) || (!m_imGuiWantsMouse &&m_touch->buttons().start),
+                im.isPressed(m_controller1.up) || (!m_imGuiWantsMouse &&m_touch->buttons().up),
+                im.isPressed(m_controller1.down) || (!m_imGuiWantsMouse &&m_touch->buttons().down),
+                im.isPressed(m_controller1.left) || (!m_imGuiWantsMouse &&m_touch->buttons().left),
+                im.isPressed(m_controller1.right) || (!m_imGuiWantsMouse &&m_touch->buttons().right)
             );
 
             if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
@@ -218,23 +234,9 @@ private:
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
-                int nesX = ((mx - m_nesScreenRect.x) * m_emu.getConsole().ppu().SCREEN_WIDTH) / m_nesScreenRect.w;
+                auto [nesX, nesY] = getNesCursor(mx, my);            
 
-                int clipTop = m_clipHeightValue;
-                int visibleNES = m_emu.getConsole().ppu().SCREEN_HEIGHT - 2*m_clipHeightValue;
-                int nesY = clipTop + ((my - m_nesScreenRect.y) * visibleNES) / m_nesScreenRect.h;
-
-                bool inside = pointInRect(glm::vec2(mx,my), glm::vec2(m_nesScreenRect.x, m_nesScreenRect.y),
-                    glm::vec2(m_nesScreenRect.x+m_nesScreenRect.w, m_nesScreenRect.y+m_nesScreenRect.h));
-
-                if(inside && m_emu.useZapper()) {
-                    if(m_crossCursor.has_value()) m_crossCursor->setAsCurrent();
-                }
-                else {
-                    if(m_defaultCursor.has_value()) m_defaultCursor->setAsCurrent();
-                }
-
-                m_emu.setZapper(nesX, nesY, buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
+                m_emu.setZapper(nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)));
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
@@ -315,6 +317,24 @@ private:
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
             m_emu.loadState();
         }});
+    }
+
+    void updateCursor() {
+
+        int mx, my;
+        SDL_GetMouseState(&mx, &my);
+
+        bool inside = pointInRect(glm::vec2(mx,my), m_nesScreenRect);
+
+        if(!m_imGuiWantsMouse && inside && m_emu.useZapper()) {
+            if(m_crossCursor.has_value() && !m_crossCursor->isCurrent()) {
+                m_crossCursor->setAsCurrent();
+            }
+        }
+        else {
+            if(m_defaultCursor.has_value() && !m_defaultCursor->isCurrent())
+                m_defaultCursor->setAsCurrent();
+        }
     }
 
 public:
@@ -674,10 +694,8 @@ public:
             GLfloat drawWidth = m_horizontalStretch ? clientArea.w : 256.0/(240.0-2*m_clipHeightValue) * clientArea.h;
             GLfloat offsetX = (clientArea.w - drawWidth)/2.0;
 
-            m_nesScreenRect.x = clientArea.x+offsetX;
-            m_nesScreenRect.w = drawWidth;
-            m_nesScreenRect.y = clientArea.y;
-            m_nesScreenRect.h = clientArea.h;
+            m_nesScreenRect.min = glm::vec2(clientArea.x+offsetX, clientArea.y);
+            m_nesScreenRect.max = glm::vec2(m_nesScreenRect.min.x+drawWidth, m_nesScreenRect.min.y+clientArea.h);
 
             //glVertex2f(offsetX,0);]
             data.push_back(clientArea.x+offsetX);
@@ -710,12 +728,10 @@ public:
         else
         {
             GLfloat drawHeight = (240.0-2*m_clipHeightValue)/256.0 * clientArea.w;
-            GLfloat offsetY = (clientArea.h - drawHeight)/2.0;
+            GLfloat offsetY = (clientArea.h - drawHeight)/2.0; 
 
-            m_nesScreenRect.x = clientArea.x;
-            m_nesScreenRect.w = clientArea.w;;
-            m_nesScreenRect.y = clientArea.y+offsetY;
-            m_nesScreenRect.h = drawHeight;
+            m_nesScreenRect.min = glm::vec2(clientArea.x, clientArea.y+offsetY);
+            m_nesScreenRect.max = glm::vec2(m_nesScreenRect.min.x+clientArea.w, m_nesScreenRect.min.y+drawHeight);
 
             //glVertex2f(0,offsetY);
             data.push_back(clientArea.x);
@@ -762,7 +778,7 @@ public:
 
         ImGuiIO &io = ImGui::GetIO();
 
-        bool imGuiWantsMouse = io.WantCaptureMouse;
+        m_imGuiWantsMouse = io.WantCaptureMouse;
         bool imGuiWantsKeyboard = io.WantCaptureKeyboard;
 
         switch(event.type) {
@@ -799,13 +815,15 @@ public:
                 
         }
 
-        if(!imGuiWantsMouse) m_touch->onEvent(event);
+        if(!m_imGuiWantsMouse) m_touch->onEvent(event);
 
         return SDLOpenGLWindow::onEvent(event);
     }    
 
     void mainLoop()
     {
+        updateCursor();
+
         int displayFrameRate = getDisplayFrameRate();
 
         Uint64 tempTime = SDL_GetTicks64();
@@ -1119,9 +1137,20 @@ public:
 
     virtual void paintGL()  override {
 
-        mainLoop();
-
         glClear(GL_COLOR_BUFFER_BIT);
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        //ImGui::ShowDemoWindow();
+
+        showOverlay();
+        showGui();
+
+        ImGui::Render();
+
+        mainLoop();        
 
         if(m_updateObjectsFlag) {
             m_updateObjectsFlag = false;
@@ -1147,19 +1176,8 @@ public:
             m_shaderProgram.release();
         }
 
-        m_vao.release();      
-            
+        m_vao.release();  
         
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        //ImGui::ShowDemoWindow();
-
-        showOverlay();
-        showGui();
-
-        ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());       
     }
 

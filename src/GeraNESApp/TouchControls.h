@@ -21,11 +21,6 @@ class TouchControls {
 
 private:
 
-    struct Rect {
-        glm::vec2 min;
-        glm::vec2 max;
-    };
-
     int thumbIndex = -1;
     glm::vec2 thumbCenter;
     glm::vec2 fakeThumCenter;
@@ -64,6 +59,14 @@ private:
             saveState = false;
             loadState = false;
         }
+
+        bool anyPressed() const {
+            if(up || right || down || left ||
+            select || start || b || a ||
+            rewind || saveState || loadState) return true;
+
+            return false;
+        }
     };
 
     Buttons m_buttons;
@@ -92,7 +95,7 @@ private:
             if(node) {
                 glm::vec2 min, max;
                 node->getAbsoluteRect(min, max);        
-                if(pointInRect(point, min, max)) {
+                if(pointInRect(point, Rect(min, max))) {
                     callback();
                 }
             }

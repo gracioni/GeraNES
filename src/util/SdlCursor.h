@@ -7,6 +7,9 @@ private:
     SDL_Cursor* m_cursor = nullptr;
     bool m_owned = true;  // controls whether SDL_FreeCursor should be called
 
+    // Tracks the currently active cursor
+    inline static SDL_Cursor* s_currentCursor = nullptr;
+
 public:
     // Empty constructor (no cursor)
     SdlCursor() = default;
@@ -61,7 +64,15 @@ public:
     // Sets this cursor as the active one
     void setAsCurrent() const
     {
-        if (m_cursor) SDL_SetCursor(m_cursor);
+        if (m_cursor) {
+            SDL_SetCursor(m_cursor);
+            s_currentCursor = m_cursor;
+        }
+    }
+
+    bool isCurrent() const
+    {
+        return m_cursor == s_currentCursor;
     }
 
     // Safely create a system cursor

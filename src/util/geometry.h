@@ -2,10 +2,28 @@
 
 #include <glm/glm.hpp>
 
-static bool pointInRect(const glm::vec2& p, const glm::vec2& min, const glm::vec2& max)
+struct Rect {
+    glm::vec2 min;
+    glm::vec2 max;
+
+    Rect(const glm::vec2& min, const glm::vec2& max) {
+        this->min = min;
+        this->max = max;
+    }
+
+    float getWidth() {
+        return max.x - min.x;
+    }
+
+    float getHeight() {
+        return max.y - min.y;
+    }
+};
+
+static bool pointInRect(const glm::vec2& p, const Rect& rect)
 {
-    return (p.x >= min.x && p.x <= max.x &&
-            p.y >= min.y && p.y <= max.y);
+    return (p.x >= rect.min.x && p.x <= rect.max.x &&
+            p.y >= rect.min.y && p.y <= rect.max.y);
 }
 
 

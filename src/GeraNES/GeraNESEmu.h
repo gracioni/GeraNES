@@ -256,15 +256,15 @@ public:
 
         m_zapper.setPixelChecker([&](int x, int y){
 
-                    uint32_t pixel = m_ppu.getZapperPixel(x, y);
+            uint32_t pixel = m_ppu.getZapperPixel(x, y);
 
-                    int r =  pixel        & 0xFF;
-                    int g = (pixel >> 8)  & 0xFF;
-                    int b = (pixel >> 16) & 0xFF;
+            int r =  pixel        & 0xFF;
+            int g = (pixel >> 8)  & 0xFF;
+            int b = (pixel >> 16) & 0xFF;
 
-                    float luma = 0.2126f*r + 0.7152f*g + 0.0722f*b;
+            float luma = 0.2126f*r + 0.7152f*g + 0.0722f*b;
 
-                    return luma;
+            return luma;
         });
     }
 
