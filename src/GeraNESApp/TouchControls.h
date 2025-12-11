@@ -371,7 +371,8 @@ public:
             return;
         }
 
-        const int transparency = (int)((AppSettings::instance().data.input.touchControls.transparency+0.5f) * 255);
+        const int transparency = (int)(AppSettings::instance().data.input.touchControls.transparency * 255);
+        const int opacity = 255 - transparency;
 
         auto rewindNode = m_root->getById("main/top/rewind");  
         if(rewindNode) {
@@ -380,7 +381,7 @@ public:
             //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
             drawList->AddImage(m_rewindTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, transparency));
+                IM_COL32(255, 255, 255, opacity));
         }
 
         auto digitalPadNode = m_root->getById("main/bottom/digital-pad/draw");
@@ -406,7 +407,7 @@ public:
 
             drawList->AddImage(m_digitalPagTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, 255-transparency));
+                IM_COL32(255, 255, 255, opacity));
         }
 
         auto selectNode = m_root->getById("main/bottom/mid/select/draw");
@@ -416,7 +417,7 @@ public:
             //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
             drawList->AddImage(m_buttons.select ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, transparency));
+                IM_COL32(255, 255, 255, opacity));
         }
 
         auto startNode = m_root->getById("main/bottom/mid/start/draw");
@@ -426,7 +427,7 @@ public:
             //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
             drawList->AddImage(m_buttons.start ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, transparency));
+                IM_COL32(255, 255, 255, opacity));
         }
 
         auto bNode = m_root->getById("main/bottom/right/b/draw");
@@ -436,7 +437,7 @@ public:
             //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
             drawList->AddImage(m_buttons.b ? m_rightButtonPressedTexture->id(): m_rightButtonTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, transparency));
+                IM_COL32(255, 255, 255, opacity));
         }
 
         auto aNode = m_root->getById("main/bottom/right/a/draw");
@@ -446,7 +447,7 @@ public:
             //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(255, 0, 0, 255));
             drawList->AddImage(m_buttons.a ? m_rightButtonPressedTexture->id() : m_rightButtonTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
-                IM_COL32(255, 255, 255, transparency));
+                IM_COL32(255, 255, 255, opacity));
         }
     }
 
