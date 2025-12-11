@@ -154,8 +154,8 @@ public:
             //f = CPU / (16 * (t + 1))
             //t = (CPU / (16 * f)) - 1
 
-            m_audioGenerator.setSampleFrequency( 2*(m_settings.CPUClockHz()/16.0)/(getPeriod()+1));
-            m_audioGenerator.setSampleVolume(1.0);
+            m_audioGenerator.setChannelFrequency(IAudioOutput::Channel::Sample, 2*(m_settings.CPUClockHz()/16.0)/(getPeriod()+1));
+            m_audioGenerator.setChannelVolume(IAudioOutput::Channel::Sample, 1.0);
 
             if ((data & 0x80) == 0x00) m_interruptFlag = false;
             break;

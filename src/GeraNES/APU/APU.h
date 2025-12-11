@@ -226,34 +226,34 @@ public:
     {
         switch(m_square1.getDuty())
         {
-        case 0: m_audioOutput.setSquare1DutyCycle(0.125f); break;
-        case 1: m_audioOutput.setSquare1DutyCycle(0.25f); break;
-        case 2: m_audioOutput.setSquare1DutyCycle(0.5f); break;
-        case 3: m_audioOutput.setSquare1DutyCycle(0.75f); break;
+        case 0: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.125f); break;
+        case 1: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.25f); break;
+        case 2: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.5f); break;
+        case 3: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.75f); break;
         }        
 
         const float CPUClock = m_settings.CPUClockHz();
 
         //f = CPU / (16 * (t + 1))
-        m_audioOutput.setSquare1Frequency( CPUClock/16.0f/(m_square1.getPeriod()+1) );
-        m_audioOutput.setSquare1Volume( (float)m_square1.getVolume()/15.0f );
+        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Square_1, CPUClock/16.0f/(m_square1.getPeriod()+1) );
+        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Square_1, (float)m_square1.getVolume()/15.0f );
 
         switch(m_square2.getDuty())
         {
-        case 0: m_audioOutput.setSquare2DutyCycle(0.125f); break;
-        case 1: m_audioOutput.setSquare2DutyCycle(0.25f); break;
-        case 2: m_audioOutput.setSquare2DutyCycle(0.5f); break;
-        case 3: m_audioOutput.setSquare2DutyCycle(0.75f); break;
+        case 0: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.125f); break;
+        case 1: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.25f); break;
+        case 2: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.5f); break;
+        case 3: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.75f); break;
         }
 
-        m_audioOutput.setSquare2Frequency( CPUClock/16.0f/(m_square2.getPeriod()+1) );
-        m_audioOutput.setSquare2Volume( (float)m_square2.getVolume()/15.0f );
+        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Square_2, CPUClock/16.0f/(m_square2.getPeriod()+1) );
+        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Square_2, (float)m_square2.getVolume()/15.0f );
 
-        m_audioOutput.setTriangleFrequency( (CPUClock/16.0f/2.0f)/(m_triangle.getPeriod()+1) );
-        m_audioOutput.setTriangleVolume( (float)m_triangle.getVolume()/15.0f );
+        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Triangle, (CPUClock/16.0f/2.0f)/(m_triangle.getPeriod()+1) );
+        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Triangle, (float)m_triangle.getVolume()/15.0f );
 
-        m_audioOutput.setNoiseFrequency( CPUClock/(m_noise.getPeriod()) );
-        m_audioOutput.setNoiseVolume( (float)m_noise.getVolume()/15.0f );
+        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Noise, CPUClock/(m_noise.getPeriod()) );
+        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Noise, (float)m_noise.getVolume()/15.0f );
         m_audioOutput.setNoiseMetallic( m_noise.getMode() );
     }
 

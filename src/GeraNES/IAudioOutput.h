@@ -6,21 +6,17 @@ class IAudioOutput
 {
     public:
 
+    enum class Channel { Square_1, Square_2, Triangle, Noise, Sample };
+    enum class SquareChannel { Square_1, Square_2 };
+
     virtual bool init(){return true;}
     virtual void render(uint32_t dt, bool silenceFlag){}
-    virtual void setSquare1Frequency(float /*f*/){}
-    virtual void setSquare1DutyCycle(float /*d*/){}
-    virtual void setSquare1Volume(float /*v*/){}
-    virtual void setSquare2Frequency(float /*f*/){}
-    virtual void setSquare2DutyCycle(float /*d*/){}
-    virtual void setSquare2Volume(float /*v*/){}
-    virtual void setTriangleFrequency(float /*f*/){}
-    virtual void setTriangleVolume(float /*v*/){}
-    virtual void setNoiseFrequency(float /*f*/){}
+
+    virtual void setChannelVolume(Channel, float) {}
+    virtual void setChannelFrequency(Channel, float) {}
+
+    virtual void setSquareDutyCycle(SquareChannel, float){}
     virtual void setNoiseMetallic(bool /*state*/){}
-    virtual void setNoiseVolume(float /*v*/){}
-    virtual void setSampleVolume(float /*v*/){}
-    virtual void setSampleFrequency(float /*f*/){}
     virtual void addSample(float /*sample*/){}
     virtual void addSampleDirect(float /*period*/, float /*sample*/){}
 

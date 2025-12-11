@@ -74,72 +74,40 @@ public:
         else if(ret < -0.999f) ret = -0.999f;
 
         return ret;
-    }  
+    }
+
+    void setChannelVolume(Channel channel, float volume) override {
+        switch(channel) {
+            case Channel::Square_1: m_pulseWave1.setVolume(volume); break;
+            case Channel::Square_2: m_pulseWave2.setVolume(volume); break;
+            case Channel::Triangle: m_triangleWave.setVolume(volume); break;
+            case Channel::Noise: m_noise.setVolume(volume); break;
+            case Channel::Sample:
+                m_sample.setVolume(volume);
+                m_sampleDirect.setVolume(volume); break;
+        }
+    }
+
+    void setChannelFrequency(Channel channel, float frequency) override {
+        switch(channel) {
+            case Channel::Square_1: m_pulseWave1.setFrequency(frequency); break;
+            case Channel::Square_2: m_pulseWave2.setFrequency(frequency); break;
+            case Channel::Triangle: m_triangleWave.setFrequency(frequency); break;
+            case Channel::Noise: m_noise.setFrequency(frequency); break;
+            case Channel::Sample: m_sample.setFrequency(frequency); break;
+        }
+    }
     
-    void setSquare1Frequency(float f) override
-    {
-        m_pulseWave1.setFrequency(f);
-    }
-
-    void setSquare1DutyCycle(float d) override
-    {
-        m_pulseWave1.setDuty(d);
-    }
-
-    void setSquare1Volume(float v) override
-    {
-        m_pulseWave1.setVolume(v);
-    }
-
-    void setSquare2Frequency(float f) override
-    {
-        m_pulseWave2.setFrequency(f);
-    }
-
-    void setSquare2DutyCycle(float d) override
-    {
-        m_pulseWave2.setDuty(d);
-    }
-
-    void setSquare2Volume(float v) override
-    {
-        m_pulseWave2.setVolume(v);
-    }
-
-    void setTriangleFrequency(float f) override
-    {
-        m_triangleWave.setFrequency(f);
-    }
-
-    void setTriangleVolume(float v) override
-    {
-        m_triangleWave.setVolume(v);
-    }
-
-    void setNoiseFrequency(float f) override
-    {
-        m_noise.setFrequency(f);
+    virtual void setSquareDutyCycle(SquareChannel squareChannel, float duty) override {
+        switch(squareChannel) {
+            case SquareChannel::Square_1: m_pulseWave1.setDuty(duty); break;
+            case SquareChannel::Square_2: m_pulseWave2.setDuty(duty); break;
+        }
     }
 
     void setNoiseMetallic(bool state) override
     {
         m_noise.setMetallic(state);
-    }
-
-    void setNoiseVolume(float v) override
-    {
-        m_noise.setVolume(v);
-    }
-
-    void setSampleVolume(float v) override
-    {
-        m_sample.setVolume(v);
-        m_sampleDirect.setVolume(v);
-    }
-
-    void setSampleFrequency(float f) override
-    {
-        m_sample.setFrequency(f);
     }
 
     void addSample(float sample) override
