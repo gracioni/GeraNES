@@ -78,8 +78,8 @@ public:
 
     void setChannelVolume(Channel channel, float volume) override {
         switch(channel) {
-            case Channel::Square_1: m_pulseWave1.setVolume(volume); break;
-            case Channel::Square_2: m_pulseWave2.setVolume(volume); break;
+            case Channel::Pulse_1: m_pulseWave1.setVolume(volume); break;
+            case Channel::Pulse_2: m_pulseWave2.setVolume(volume); break;
             case Channel::Triangle: m_triangleWave.setVolume(volume); break;
             case Channel::Noise: m_noise.setVolume(volume); break;
             case Channel::Sample:
@@ -90,18 +90,18 @@ public:
 
     void setChannelFrequency(Channel channel, float frequency) override {
         switch(channel) {
-            case Channel::Square_1: m_pulseWave1.setFrequency(frequency); break;
-            case Channel::Square_2: m_pulseWave2.setFrequency(frequency); break;
+            case Channel::Pulse_1: m_pulseWave1.setFrequency(frequency); break;
+            case Channel::Pulse_2: m_pulseWave2.setFrequency(frequency); break;
             case Channel::Triangle: m_triangleWave.setFrequency(frequency); break;
             case Channel::Noise: m_noise.setFrequency(frequency); break;
             case Channel::Sample: m_sample.setFrequency(frequency); break;
         }
     }
     
-    virtual void setSquareDutyCycle(SquareChannel squareChannel, float duty) override {
-        switch(squareChannel) {
-            case SquareChannel::Square_1: m_pulseWave1.setDuty(duty); break;
-            case SquareChannel::Square_2: m_pulseWave2.setDuty(duty); break;
+    virtual void setPulseDutyCycle(PulseChannel pulseChannel, float duty) override {
+        switch(pulseChannel) {
+            case PulseChannel::Pulse_1: m_pulseWave1.setDuty(duty); break;
+            case PulseChannel::Pulse_2: m_pulseWave2.setDuty(duty); break;
         }
     }
 

@@ -7,7 +7,7 @@
 
 #include "GeraNES/IAudioOutput.h"
 
-#include "SquareChannel.h"
+#include "PulseChannel.h"
 #include "TriangleChannel.h"
 #include "NoiseChannel.h"
 #include "SampleChannel.h"
@@ -32,8 +32,8 @@ class APU
     const int mode1Delays[5] = {7457, 7456, 7458, 7457, 7453};
     int m_nextDelay;
 
-    SquareChannel m_square1;
-    SquareChannel m_square2;
+    PulseChannel m_pulse1;
+    PulseChannel m_pulse2;
     TriangleChannel m_triangle;
     NoiseChannel m_noise;
     SampleChannel m_sample;
@@ -55,8 +55,8 @@ public:
         SERIALIZEDATA(s, m_jitter);
         SERIALIZEDATA(s, m_nextDelay);
 
-        m_square1.serialization(s);
-        m_square2.serialization(s);
+        m_pulse1.serialization(s);
+        m_pulse2.serialization(s);
         m_triangle.serialization(s);
         m_noise.serialization(s);
         m_sample.serialization(s);
@@ -80,12 +80,10 @@ public:
 
     const std::string init()
     {
-
-
         m_audioOutput.init();
 
-        m_square1.init();
-        m_square2.init();
+        m_pulse1.init();
+        m_pulse2.init();
         m_triangle.init();
         m_noise.init();
         m_sample.init();
@@ -118,8 +116,8 @@ public:
 
         if(addr == 0x15)
         {
-            if(m_square1.getLengthCounter() > 0) ret |= 0x01;
-            if(m_square2.getLengthCounter() > 0) ret |= 0x02;
+            if(m_pulse1.getLengthCounter() > 0) ret |= 0x01;
+            if(m_pulse2.getLengthCounter() > 0) ret |= 0x02;
             if(m_triangle.getLengthCounter() > 0) ret |= 0x04;
             if(m_noise.getLengthCounter() > 0) ret |= 0x08;
             if(m_sample.getBytesRemaining() > 0) ret |= 0x10;
@@ -144,20 +142,7 @@ public:
         }
 
         switch(addr) {
-            /*
-        case 0x00 ... 0x03: m_square1.write(addr,data); break;
-        case 0x04 ... 0x07: m_square2.write(addr&0x03,data); break;
-        case 0x08 ... 0x0B: m_triangle.write(addr&0x03,data); break;
-        case 0x0C ... 0x0F: m_noise.write(addr&0x03,data); break;
-        case 0x10 ... 0x13: m_sample.write(addr&0x03,data); break;
-        case 0x15:
-            m_square1.setEnabled(data&0x01);
-            m_square2.setEnabled(data&0x02);
-            m_triangle.setEnabled(data&0x04);
-            m_noise.setEnabled(data&0x08);
-            m_sample.setEnabled(data&0x10);
-            break;
-            */
+
         case 0x17:
             m_mode = data&0x80;
             m_interruptInhibitFlag = data&0x40;
@@ -185,14 +170,14 @@ public:
 
         switch(addr) {
 
-            case 0x00 ... 0x03: m_square1.write(addr,data); break;
-            case 0x04 ... 0x07: m_square2.write(addr&0x03,data); break;
+            case 0x00 ... 0x03: m_pulse1.write(addr,data); break;
+            case 0x04 ... 0x07: m_pulse2.write(addr&0x03,data); break;
             case 0x08 ... 0x0B: m_triangle.write(addr&0x03,data); break;
             case 0x0C ... 0x0F: m_noise.write(addr&0x03,data); break;
             case 0x10 ... 0x13: m_sample.write(addr&0x03,data); break;
             case 0x15:
-                m_square1.setEnabled(data&0x01);
-                m_square2.setEnabled(data&0x02);
+                m_pulse1.setEnabled(data&0x01);
+                m_pulse2.setEnabled(data&0x02);
                 m_triangle.setEnabled(data&0x04);
                 m_noise.setEnabled(data&0x08);
                 m_sample.setEnabled(data&0x10);
@@ -203,19 +188,19 @@ public:
 
     void updateEnvelopsAndLinearCounters()
     {
-        m_square1.updateEnvelop();
-        m_square2.updateEnvelop();
+        m_pulse1.updateEnvelop();
+        m_pulse2.updateEnvelop();
         m_triangle.updateLinearCounter();
         m_noise.updateEnvelop();
     }
 
     void updateLengthCountersAndSweeps()
     {
-        m_square1.updateSweep(0);
-        m_square1.updateLengthCounter();
+        m_pulse1.updateSweep(0);
+        m_pulse1.updateLengthCounter();
 
-        m_square2.updateSweep(1);
-        m_square2.updateLengthCounter();
+        m_pulse2.updateSweep(1);
+        m_pulse2.updateLengthCounter();
 
         m_triangle.updateLengthCounter();
 
@@ -224,30 +209,30 @@ public:
 
     void updateAudioOutput()
     {
-        switch(m_square1.getDuty())
+        switch(m_pulse1.getDuty())
         {
-        case 0: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.125f); break;
-        case 1: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.25f); break;
-        case 2: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.5f); break;
-        case 3: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_1, 0.75f); break;
+        case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.125f); break;
+        case 1: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.25f); break;
+        case 2: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.5f); break;
+        case 3: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.75f); break;
         }        
 
         const float CPUClock = m_settings.CPUClockHz();
 
         //f = CPU / (16 * (t + 1))
-        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Square_1, CPUClock/16.0f/(m_square1.getPeriod()+1) );
-        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Square_1, (float)m_square1.getVolume()/15.0f );
+        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Pulse_1, CPUClock/16.0f/(m_pulse1.getPeriod()+1) );
+        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Pulse_1, (float)m_pulse1.getVolume()/15.0f );
 
-        switch(m_square2.getDuty())
+        switch(m_pulse2.getDuty())
         {
-        case 0: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.125f); break;
-        case 1: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.25f); break;
-        case 2: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.5f); break;
-        case 3: m_audioOutput.setSquareDutyCycle(IAudioOutput::SquareChannel::Square_2, 0.75f); break;
+        case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.125f); break;
+        case 1: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.25f); break;
+        case 2: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.5f); break;
+        case 3: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.75f); break;
         }
 
-        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Square_2, CPUClock/16.0f/(m_square2.getPeriod()+1) );
-        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Square_2, (float)m_square2.getVolume()/15.0f );
+        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Pulse_2, CPUClock/16.0f/(m_pulse2.getPeriod()+1) );
+        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Pulse_2, (float)m_pulse2.getVolume()/15.0f );
 
         m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Triangle, (CPUClock/16.0f/2.0f)/(m_triangle.getPeriod()+1) );
         m_audioOutput.setChannelVolume(IAudioOutput::Channel::Triangle, (float)m_triangle.getVolume()/15.0f );
@@ -350,8 +335,8 @@ public:
             writeChannels(m_writeChannelsAddr, m_writeChannelsData);            
         }
 
-        m_square1.cycle();
-        m_square2.cycle();
+        m_pulse1.cycle();
+        m_pulse2.cycle();
       
         m_noise.cycle();
         m_sample.cycle();

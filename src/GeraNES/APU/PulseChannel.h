@@ -3,7 +3,7 @@
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
 
-class SquareChannel
+class PulseChannel
 {
 private:
 
@@ -61,7 +61,7 @@ public:
         SERIALIZEDATA(s, m_lengthUpdated);
     }
 
-    SquareChannel()
+    PulseChannel()
     {
         init();
     }
