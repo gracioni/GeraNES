@@ -27,10 +27,10 @@ public:
 
     Mapper010(ICartridgeData& cd) : BaseMapper(cd)
     {
-        numberOfPRG16kBanks  = m_cd.numberOfPRGBanks<W16K>();
+        numberOfPRG16kBanks  = m_cd.numberOfPRGBanks<WindowSize::W16K>();
 
         m_PRGRegMask = calculateMask(numberOfPRG16kBanks);
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W4K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W4K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -59,8 +59,8 @@ public:
     {
         addr &= 0x7FFF;
 
-        if(addr < 0x4000) return m_cd.readPrg<W16K>(m_PRGReg,addr);
-        return m_cd.readPrg<W16K>(numberOfPRG16kBanks-1,addr);
+        if(addr < 0x4000) return m_cd.readPrg<WindowSize::W16K>(m_PRGReg,addr);
+        return m_cd.readPrg<WindowSize::W16K>(numberOfPRG16kBanks-1,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
@@ -72,12 +72,12 @@ public:
         addr &= 0x1FFF;
 
         if(addr < 0x1000) {
-            if(!m_latch1) ret = m_cd.readChr<W4K>(m_CHRReg0A, addr);
-            else ret = m_cd.readChr<W4K>(m_CHRReg0B, addr);
+            if(!m_latch1) ret = m_cd.readChr<WindowSize::W4K>(m_CHRReg0A, addr);
+            else ret = m_cd.readChr<WindowSize::W4K>(m_CHRReg0B, addr);
         }
         else {
-            if(!m_latch2) ret = m_cd.readChr<W4K>(m_CHRReg1A, addr);
-            else ret = m_cd.readChr<W4K>(m_CHRReg1B, addr);
+            if(!m_latch2) ret = m_cd.readChr<WindowSize::W4K>(m_CHRReg1A, addr);
+            else ret = m_cd.readChr<WindowSize::W4K>(m_CHRReg1B, addr);
         }
 
         if(addr == 0x0FD8) m_latch1 = false;

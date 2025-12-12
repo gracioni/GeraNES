@@ -11,6 +11,8 @@
 
 #include "GeraNES/GameDatabase.h"
 
+#include "GeraNES/util/powerOfTwo.h"
+
 class ICartridgeData
 {
 protected:
@@ -68,28 +70,28 @@ public:
 
     virtual ~ICartridgeData() {}
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE uint8_t readPrg(int bank, int addr)
     {
-        return readPrg(bank*WindowSize + (addr&(WindowSize-1)));
+        return readPrg((bank << log2(ws)) + (addr&(static_cast<int>(ws)-1)));
     }
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE uint8_t readChr(int bank, int addr)
     {
-        return readChr(bank*WindowSize + (addr&(WindowSize-1)));
+        return readChr((bank << log2(ws)) + (addr&(static_cast<int>(ws)-1)));
     }
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE uint32_t numberOfPRGBanks()
     {
-        return prgSize()/WindowSize;
+        return prgSize()/static_cast<int>(ws);
     }
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE uint32_t numberOfCHRBanks()
     {
-        return chrSize()/WindowSize;
+        return chrSize()/static_cast<int>(ws);
     }
 
     uint32_t prgCrc32() {

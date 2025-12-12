@@ -165,8 +165,8 @@ private:
             }
             else {
 
-                if constexpr(writeFlag) m_cartridge.write0x4000(addr&0x1FFF, data);
-                data = m_cartridge.read0x4000(addr&0x1FFF,data);
+                if constexpr(writeFlag) m_cartridge.writeMapperRegister(addr&0x1FFF, data);
+                data = m_cartridge.readMapperRegister(addr&0x1FFF,data);
 
                 m_openBus = data;
             }

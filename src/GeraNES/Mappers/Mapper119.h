@@ -14,20 +14,20 @@ public:
     {
     }
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)
-    {
-        addr = bank*WindowSize + (addr&(WindowSize-1));
-        addr = addr&(W8K-1);
+    {        
+        addr = (bank << log2(ws)) + (addr&(static_cast<int>(ws)-1));
+        addr = addr&(static_cast<int>(WindowSize::W8K)-1);
 
         return getChrRam()[addr];
     }
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data)
     {
-        addr = bank*WindowSize + (addr&(WindowSize-1));
-        addr = addr&(W8K-1);
+        addr = (bank << log2(ws)) + (addr&(static_cast<int>(ws)-1));
+        addr = addr&(static_cast<int>(WindowSize::W8K)-1);
 
         getChrRam()[addr] = data;
     }
@@ -39,27 +39,27 @@ public:
         {
             switch(addr>>10) {
             case 0:
-            case 1: if(m_chrReg[0]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr); break;
+            case 1: if(m_chrReg[0]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1,addr); break;
             case 2:
-            case 3: if(m_chrReg[1]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr); break;
-            case 4: if(m_chrReg[2]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[2]&m_chrMask,addr); break;
-            case 5: if(m_chrReg[3]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[3]&m_chrMask,addr); break;
-            case 6: if(m_chrReg[4]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[4]&m_chrMask,addr); break;
-            case 7: if(m_chrReg[5]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[5]&m_chrMask,addr); break;
+            case 3: if(m_chrReg[1]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1,addr); break;
+            case 4: if(m_chrReg[2]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[2]&m_chrMask,addr); break;
+            case 5: if(m_chrReg[3]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[3]&m_chrMask,addr); break;
+            case 6: if(m_chrReg[4]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[4]&m_chrMask,addr); break;
+            case 7: if(m_chrReg[5]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[5]&m_chrMask,addr); break;
             }
 
         }
         else
         {
             switch(addr>>10) {
-            case 0: if(m_chrReg[2]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[2]&m_chrMask,addr); break;
-            case 1: if(m_chrReg[3]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[3]&m_chrMask,addr); break;
-            case 2: if(m_chrReg[4]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[4]&m_chrMask,addr); break;
-            case 3: if(m_chrReg[5]&CHRRAM_BIT_MASK) return readChrRam<W1K>(m_chrReg[5]&m_chrMask,addr); break;
+            case 0: if(m_chrReg[2]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[2]&m_chrMask,addr); break;
+            case 1: if(m_chrReg[3]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[3]&m_chrMask,addr); break;
+            case 2: if(m_chrReg[4]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[4]&m_chrMask,addr); break;
+            case 3: if(m_chrReg[5]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W1K>(m_chrReg[5]&m_chrMask,addr); break;
             case 4:
-            case 5: if(m_chrReg[0]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr); break;
+            case 5: if(m_chrReg[0]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1,addr); break;
             case 6:
-            case 7: if(m_chrReg[1]&CHRRAM_BIT_MASK) return readChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr); break;
+            case 7: if(m_chrReg[1]&CHRRAM_BIT_MASK) return readChrRam<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1,addr); break;
             }
         }
 
@@ -67,26 +67,26 @@ public:
         {
             switch(addr >> 10) { // addr/1k
             case 0:
-            case 1: return m_cd.readChr<W2K>((m_chrReg[0]&m_chrMask)>>1,addr);
+            case 1: return m_cd.readChr<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1,addr);
             case 2:
-            case 3: return m_cd.readChr<W2K>((m_chrReg[1]&m_chrMask)>>1,addr);
-            case 4: return m_cd.readChr<W1K>(m_chrReg[2]&m_chrMask,addr);
-            case 5: return m_cd.readChr<W1K>(m_chrReg[3]&m_chrMask,addr);
-            case 6: return m_cd.readChr<W1K>(m_chrReg[4]&m_chrMask,addr);
-            case 7: return m_cd.readChr<W1K>(m_chrReg[5]&m_chrMask,addr);
+            case 3: return m_cd.readChr<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1,addr);
+            case 4: return m_cd.readChr<WindowSize::W1K>(m_chrReg[2]&m_chrMask,addr);
+            case 5: return m_cd.readChr<WindowSize::W1K>(m_chrReg[3]&m_chrMask,addr);
+            case 6: return m_cd.readChr<WindowSize::W1K>(m_chrReg[4]&m_chrMask,addr);
+            case 7: return m_cd.readChr<WindowSize::W1K>(m_chrReg[5]&m_chrMask,addr);
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: return m_cd.readChr<W1K>(m_chrReg[2]&m_chrMask,addr);
-            case 1: return m_cd.readChr<W1K>(m_chrReg[3]&m_chrMask,addr);
-            case 2: return m_cd.readChr<W1K>(m_chrReg[4]&m_chrMask,addr);
-            case 3: return m_cd.readChr<W1K>(m_chrReg[5]&m_chrMask,addr);
+            case 0: return m_cd.readChr<WindowSize::W1K>(m_chrReg[2]&m_chrMask,addr);
+            case 1: return m_cd.readChr<WindowSize::W1K>(m_chrReg[3]&m_chrMask,addr);
+            case 2: return m_cd.readChr<WindowSize::W1K>(m_chrReg[4]&m_chrMask,addr);
+            case 3: return m_cd.readChr<WindowSize::W1K>(m_chrReg[5]&m_chrMask,addr);
             case 4:
-            case 5: return m_cd.readChr<W2K>((m_chrReg[0]&m_chrMask)>>1,addr);
+            case 5: return m_cd.readChr<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1,addr);
             case 6:
-            case 7: return m_cd.readChr<W2K>((m_chrReg[1]&m_chrMask)>>1,addr);
+            case 7: return m_cd.readChr<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1,addr);
             }
 
         }
@@ -100,26 +100,26 @@ public:
         {
             switch(addr>>10) {
             case 0:
-            case 1: if(m_chrReg[0]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr,data); break;
+            case 1: if(m_chrReg[0]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1,addr,data); break;
             case 2:
-            case 3: if(m_chrReg[1]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr,data); break;
-            case 4: if(m_chrReg[2]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[2]&m_chrMask,addr,data); break;
-            case 5: if(m_chrReg[3]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[3]&m_chrMask,addr,data); break;
-            case 6: if(m_chrReg[4]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[4]&m_chrMask,addr,data); break;
-            case 7: if(m_chrReg[5]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[5]&m_chrMask,addr,data); break;
+            case 3: if(m_chrReg[1]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1,addr,data); break;
+            case 4: if(m_chrReg[2]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[2]&m_chrMask,addr,data); break;
+            case 5: if(m_chrReg[3]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[3]&m_chrMask,addr,data); break;
+            case 6: if(m_chrReg[4]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[4]&m_chrMask,addr,data); break;
+            case 7: if(m_chrReg[5]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[5]&m_chrMask,addr,data); break;
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: if(m_chrReg[2]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[2]&m_chrMask,addr,data); break;
-            case 1: if(m_chrReg[3]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[3]&m_chrMask,addr,data); break;
-            case 2: if(m_chrReg[4]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[4]&m_chrMask,addr,data); break;
-            case 3: if(m_chrReg[5]&CHRRAM_BIT_MASK) writeChrRam<W1K>(m_chrReg[5]&m_chrMask,addr,data); break;
+            case 0: if(m_chrReg[2]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[2]&m_chrMask,addr,data); break;
+            case 1: if(m_chrReg[3]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[3]&m_chrMask,addr,data); break;
+            case 2: if(m_chrReg[4]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[4]&m_chrMask,addr,data); break;
+            case 3: if(m_chrReg[5]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W1K>(m_chrReg[5]&m_chrMask,addr,data); break;
             case 4:
-            case 5: if(m_chrReg[0]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[0]&m_chrMask)>>1,addr,data); break;
+            case 5: if(m_chrReg[0]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1,addr,data); break;
             case 6:
-            case 7: if(m_chrReg[1]&CHRRAM_BIT_MASK) writeChrRam<W2K>((m_chrReg[1]&m_chrMask)>>1,addr,data); break;
+            case 7: if(m_chrReg[1]&CHRRAM_BIT_MASK) writeChrRam<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1,addr,data); break;
             }
         }
     }

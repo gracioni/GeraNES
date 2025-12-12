@@ -36,7 +36,7 @@ public:
 
         bank >>= 1; //VRC2a only
 
-        return m_cd.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
+        return m_cd.readChr<WindowSize::W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
     GERANES_HOT bool getInterruptFlag() override

@@ -18,7 +18,6 @@
 #include "Mappers/Mapper004.h"
 #include "Mappers/Mapper004_3.h"
 
-
 #include "Mappers/Mapper007.h"
 #include "Mappers/Mapper009.h"
 #include "Mappers/Mapper010.h"
@@ -81,6 +80,8 @@ private:
 
             return new Mapper004(*m_nesCartridgeData);
         }
+
+        case 5: return new Mapper005(*m_nesCartridgeData);
 
         case 7: return new Mapper007(*m_nesCartridgeData);
 
@@ -253,14 +254,14 @@ public:
         return m_mapper->readChr(addr);
     }
 
-    GERANES_INLINE void write0x4000(int addr, uint8_t data)
+    GERANES_INLINE void writeMapperRegister(int addr, uint8_t data)
     {
-        m_mapper->write0x4000(addr,data);
+        m_mapper->writeMapperRegister(addr,data);
     }
 
-    GERANES_INLINE uint8_t read0x4000(int addr, uint8_t openBusData)
+    GERANES_INLINE uint8_t readMapperRegister(int addr, uint8_t openBusData)
     {
-        return m_mapper->read0x4000(addr,openBusData);
+        return m_mapper->readMapperRegister(addr,openBusData);
     }
 
     GERANES_INLINE MirroringType getMirroringType()

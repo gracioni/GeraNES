@@ -110,8 +110,8 @@ public:
 
     Mapper021(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
-        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W8K>());
+        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W1K>());
     }
 
     GERANES_HOT virtual void writePrg(int addr, uint8_t data) override
@@ -130,19 +130,19 @@ public:
         if(!m_PRGMode) {
 
             switch(addr>>13) { // addr/8192
-            case 0: return m_cd.readPrg<W8K>(m_PRGReg[0],addr);
-            case 1: return m_cd.readPrg<W8K>(m_PRGReg[1],addr);
-            case 2: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-2,addr);
-            case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[0],addr);
+            case 1: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[1],addr);
+            case 2: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-2,addr);
+            case 3: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-1,addr);
             }
         }
         else {
 
             switch(addr>>13) { // addr/8192
-            case 0: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-2,addr);
-            case 1: return m_cd.readPrg<W8K>(m_PRGReg[1],addr);
-            case 2: return m_cd.readPrg<W8K>(m_PRGReg[0],addr);
-            case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
+            case 0: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-2,addr);
+            case 1: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[1],addr);
+            case 2: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[0],addr);
+            case 3: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-1,addr);
             }
 
         }
@@ -157,7 +157,7 @@ public:
         size_t index = addr >> 10;
         uint8_t bank = m_CHRReg[index];
 
-        return m_cd.readChr<W1K>(bank&m_CHRREGMask,addr); // addr/1024
+        return m_cd.readChr<WindowSize::W1K>(bank&m_CHRREGMask,addr); // addr/1024
     }
 
     GERANES_HOT MirroringType mirroringType() override

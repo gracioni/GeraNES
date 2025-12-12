@@ -30,8 +30,8 @@ public:
     {
         memset(m_CHRReg, 0x00, 8);
 
-        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W8K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W1K>());
 
         m_PRGReg0 &= m_PRGMask;
         m_PRGReg1 &= m_PRGMask;
@@ -63,18 +63,18 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        if(addr < 0x2000) return m_cd.readPrg<W8K>(m_PRGReg0,addr);
-        else if(addr < 0x4000) return m_cd.readPrg<W8K>(m_PRGReg1,addr);
-        else if(addr < 0x6000) return m_cd.readPrg<W8K>(m_PRGReg2,addr);
+        if(addr < 0x2000) return m_cd.readPrg<WindowSize::W8K>(m_PRGReg0,addr);
+        else if(addr < 0x4000) return m_cd.readPrg<WindowSize::W8K>(m_PRGReg1,addr);
+        else if(addr < 0x6000) return m_cd.readPrg<WindowSize::W8K>(m_PRGReg2,addr);
 
-        return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
+        return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-1,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
         if(hasChrRam()) return BaseMapper::readChr(addr);
 
-        return m_cd.readChr<W1K>(m_CHRReg[(addr >> 10)&0x07],addr);
+        return m_cd.readChr<WindowSize::W1K>(m_CHRReg[(addr >> 10)&0x07],addr);
     }
 
     GERANES_HOT MirroringType mirroringType() override

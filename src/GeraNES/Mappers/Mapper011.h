@@ -16,8 +16,8 @@ public:
 
     Mapper011(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W8K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W32K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W8K>());
     }
 
     GERANES_HOT void writePrg(int /*addr*/, uint8_t data) override
@@ -29,7 +29,7 @@ public:
     GERANES_HOT uint8_t readPrg(int addr) override
     {
         addr &= 0x7FFF;
-        return m_cd.readPrg<W32K>(m_PRGBank, addr);
+        return m_cd.readPrg<WindowSize::W32K>(m_PRGBank, addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
@@ -37,7 +37,7 @@ public:
         if(hasChrRam()) return BaseMapper::readChr(addr);
 
         addr &= 0x1FFF;
-        return m_cd.readChr<W8K>(m_CHRBank,addr);
+        return m_cd.readChr<WindowSize::W8K>(m_CHRBank,addr);
     }
 
     void serialization(SerializationBase& s) override

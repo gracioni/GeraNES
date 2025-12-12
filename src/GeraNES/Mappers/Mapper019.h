@@ -32,17 +32,17 @@ private:
     bool m_soundAutoIncrement = false;
     uint8_t m_soundRAM[SOUND_RAM_SIZE];
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)
     {
-        addr = bank*WindowSize + (addr&(WindowSize-1));
+        addr = (bank << log2(ws)) + (addr&(static_cast<int>(ws)-1));
         return getChrRam()[addr];
     }
 
-    template<int WindowSize>
+    template<WindowSize ws>
     GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data)
     {
-        addr = bank*WindowSize + (addr&(WindowSize-1));
+        addr = (bank << log2(ws)) + (addr&(static_cast<int>(ws)-1));
         getChrRam()[addr] = data;
     }
 
@@ -72,8 +72,8 @@ public:
 
     Mapper019(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<W8K>());
-        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W8K>());
+        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W1K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -121,10 +121,10 @@ public:
     GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>13) { // addr/8192
-        case 0: return m_cd.readPrg<W8K>(m_PRGReg[0],addr);
-        case 1: return m_cd.readPrg<W8K>(m_PRGReg[1],addr);
-        case 2: return m_cd.readPrg<W8K>(m_PRGReg[2],addr);
-        case 3: return m_cd.readPrg<W8K>(m_cd.numberOfPRGBanks<W8K>()-1,addr);
+        case 0: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[0],addr);
+        case 1: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[1],addr);
+        case 2: return m_cd.readPrg<WindowSize::W8K>(m_PRGReg[2],addr);
+        case 3: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-1,addr);
         }
 
         return 0;
@@ -137,13 +137,13 @@ public:
         int index = addr >> 10; // addr/0x400
 
         if(index < 4) {
-            if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable) return readChrRam<W1K>(m_CHRReg[index]-0xE0,addr);
+            if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable) return readChrRam<WindowSize::W1K>(m_CHRReg[index]-0xE0,addr);
         }
         else {
-            if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return readChrRam<W1K>(m_CHRReg[index]-0xE0,addr);
+            if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return readChrRam<WindowSize::W1K>(m_CHRReg[index]-0xE0,addr);
         }
 
-        return m_cd.readChr<W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
+        return m_cd.readChr<WindowSize::W1K>(m_CHRReg[index]&m_CHRREGMask,addr);
     }
 
     GERANES_HOT void writeChr(int addr, uint8_t data) override
@@ -157,15 +157,15 @@ public:
 
         if(addr < 0x1000) {
             if(m_CHRReg[index] >= 0xE0 && !m_lowCHRRAMDisable)
-                return writeChrRam<W1K>(m_CHRReg[index]-0xE0,addr,data);
+                return writeChrRam<WindowSize::W1K>(m_CHRReg[index]-0xE0,addr,data);
         }
         else {
             if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable)
-                return writeChrRam<W1K>(m_CHRReg[index]-0xE0,addr,data);
+                return writeChrRam<WindowSize::W1K>(m_CHRReg[index]-0xE0,addr,data);
         }
     }
 
-    GERANES_HOT void write0x4000(int addr, uint8_t data) override
+    GERANES_HOT void writeMapperRegister(int addr, uint8_t data) override
     {
         switch(addr) {
         case 0x0000: break;
@@ -186,7 +186,7 @@ public:
         }
     }
 
-    GERANES_HOT uint8_t read0x4000(int addr, uint8_t openBusData) override
+    GERANES_HOT uint8_t readMapperRegister(int addr, uint8_t openBusData) override
     {
         switch(addr) {
         case 0x0000: return openBusData;
@@ -211,7 +211,7 @@ public:
     GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
     {        
         uint8_t bank = m_MirroringReg[index];
-        return m_cd.readChr<W1K>(bank,addr);
+        return m_cd.readChr<WindowSize::W1K>(bank,addr);
     }
     
     GERANES_HOT MirroringType mirroringType() override

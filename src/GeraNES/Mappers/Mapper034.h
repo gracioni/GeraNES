@@ -17,9 +17,9 @@ public:
 
     Mapper034(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W32K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W32K>());
 
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W4K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W4K>());
     }
 
     GERANES_HOT bool isNINA() {
@@ -34,7 +34,7 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        return m_cd.readPrg<W32K>(m_PRGReg,addr);
+        return m_cd.readPrg<WindowSize::W32K>(m_PRGReg,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
@@ -43,8 +43,8 @@ public:
         else {
 
             switch(addr>>12){
-            case 0: return m_cd.readChr<W4K>(m_CHRReg[0],addr);
-            case 1: return m_cd.readChr<W4K>(m_CHRReg[1],addr);
+            case 0: return m_cd.readChr<WindowSize::W4K>(m_CHRReg[0],addr);
+            case 1: return m_cd.readChr<WindowSize::W4K>(m_CHRReg[1],addr);
             }
 
         }

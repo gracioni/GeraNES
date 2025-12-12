@@ -26,8 +26,8 @@ public:
     {
         memset(m_CHRBank, 0x00, 8);
 
-        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<W16K>());
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<W1K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W16K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W1K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -78,8 +78,8 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        if(addr < 0x4000) return m_cd.readPrg<W16K>(m_PRGBank,addr);
-        return m_cd.readPrg<W16K>(m_cd.numberOfPRGBanks<W16K>()-1,addr);
+        if(addr < 0x4000) return m_cd.readPrg<WindowSize::W16K>(m_PRGBank,addr);
+        return m_cd.readPrg<WindowSize::W16K>(m_cd.numberOfPRGBanks<WindowSize::W16K>()-1,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
@@ -87,7 +87,7 @@ public:
         if(hasChrRam()) return BaseMapper::readChr(addr);
 
         addr &= 0x1FFF;
-        return m_cd.readChr<W1K>(m_CHRBank[(addr/0x0400)&0x07], addr);
+        return m_cd.readChr<WindowSize::W1K>(m_CHRBank[(addr/0x0400)&0x07], addr);
         return 0;
     }
 
