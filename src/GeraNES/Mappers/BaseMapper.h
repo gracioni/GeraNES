@@ -20,9 +20,6 @@ protected:
 
     ICartridgeData& m_cd;
 
-    template<int WindowSize>
-    struct ChrShift { static constexpr int value = __builtin_ctz(WindowSize); };
-
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr) {
         return m_chrRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))];
