@@ -17,7 +17,7 @@ public:
 
     Mapper071(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W16K>());
+        m_PRGRegMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B16K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -35,8 +35,8 @@ public:
     GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>14) { //addr/16K
-            case 0: return m_cd.readPrg<WindowSize::W16K>(m_PRGReg,addr);
-            case 1: return m_cd.readPrg<WindowSize::W16K>(m_cd.numberOfPRGBanks<WindowSize::W16K>()-1,addr);
+            case 0: return m_cd.readPrg<BankSize::B16K>(m_PRGReg,addr);
+            case 1: return m_cd.readPrg<BankSize::B16K>(m_cd.numberOfPRGBanks<BankSize::B16K>()-1,addr);
         }
 
         return 0;

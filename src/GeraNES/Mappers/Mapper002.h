@@ -17,8 +17,8 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        if(addr < 0x4000) return m_cd.readPrg<WindowSize::W16K>(m_selectedBank,addr);
-        return m_cd.readPrg<WindowSize::W16K>(m_cd.numberOfPRGBanks<WindowSize::W16K>()-1,addr);
+        if(addr < 0x4000) return m_cd.readPrg<BankSize::B16K>(m_selectedBank,addr);
+        return m_cd.readPrg<BankSize::B16K>(m_cd.numberOfPRGBanks<BankSize::B16K>()-1,addr);
     }
 
     GERANES_HOT void writePrg(int /*addr*/, uint8_t data) override

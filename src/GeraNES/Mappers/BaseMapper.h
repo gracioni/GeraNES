@@ -11,7 +11,7 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
-#include "GeraNES/util/powerOfTwo.h"
+#include "GeraNES/util/bank.h"
 
 class BaseMapper
 {
@@ -23,14 +23,14 @@ protected:
     template<int WindowSize>
     struct ChrShift { static constexpr int value = __builtin_ctz(WindowSize); };
 
-    template<WindowSize ws>
+    template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr) {
-        return m_chrRam[(bank << log2(ws)) + (addr&(static_cast<int>(ws)-1))];
+        return m_chrRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))];
     }
 
-    template<WindowSize ws>
+    template<BankSize bs>
     GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data) {
-        m_chrRam[(bank << log2(ws)) + (addr&(static_cast<int>(ws)-1))] = data;
+        m_chrRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))] = data;
     }
 
 private:
@@ -113,11 +113,11 @@ public:
     virtual uint8_t readPrg(int /*addr*/) { return 0; }
 
     virtual void writeChr(int addr, uint8_t data) {
-        if(hasChrRam()) writeChrRam<WindowSize::W8K>(0, addr, data);
+        if(hasChrRam()) writeChrRam<BankSize::B8K>(0, addr, data);
     }
 
     virtual uint8_t readChr(int addr) {
-        if(hasChrRam()) return readChrRam<WindowSize::W8K>(0, addr);
+        if(hasChrRam()) return readChrRam<BankSize::B8K>(0, addr);
         return 0;
     }
 

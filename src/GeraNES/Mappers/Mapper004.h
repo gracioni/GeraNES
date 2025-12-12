@@ -46,28 +46,28 @@ protected:
 
     bool m_mmc3RevAIrqs = false;
 
-    template<WindowSize ws>
+    template<BankSize bs>
     GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
-        if(hasChrRam()) return readChrRam<ws>(bank, addr);
-        return m_cd.readChr<ws>(bank, addr);
+        if(hasChrRam()) return readChrRam<bs>(bank, addr);
+        return m_cd.readChr<bs>(bank, addr);
     }
 
-    template<WindowSize ws>
+    template<BankSize bs>
     GERANES_INLINE void writeChrBank(int bank, int addr, uint8_t data) {
-        writeChrRam<ws>(bank, addr, data);
+        writeChrRam<bs>(bank, addr, data);
     }
 
 public:
 
     Mapper004(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_prgMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W8K>());
+        m_prgMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B8K>());
 
         if(hasChrRam()) {
             m_chrMask = calculateMask(cd.chrRamSize()/0x400);
         }
         else {
-            m_chrMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W1K>());
+            m_chrMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B1K>());
         }
 
         m_mmc3RevAIrqs = cd.chip().substr(0, 5).compare("MMC3A") == 0;        
@@ -83,19 +83,19 @@ public:
         if(!m_prgMode)
         {
             switch(addr >> 13) { // addr/8k
-            case 0: return m_cd.readPrg<WindowSize::W8K>(m_prgReg0,addr);
-            case 1: return m_cd.readPrg<WindowSize::W8K>(m_prgReg1,addr);
-            case 2: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-2,addr);
-            case 3: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-1,addr);
+            case 0: return m_cd.readPrg<BankSize::B8K>(m_prgReg0,addr);
+            case 1: return m_cd.readPrg<BankSize::B8K>(m_prgReg1,addr);
+            case 2: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-2,addr);
+            case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
             }
         }
         else
         {
             switch(addr >> 13) {
-            case 0: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-2,addr);
-            case 1: return m_cd.readPrg<WindowSize::W8K>(m_prgReg1,addr);
-            case 2: return m_cd.readPrg<WindowSize::W8K>(m_prgReg0,addr);
-            case 3: return m_cd.readPrg<WindowSize::W8K>(m_cd.numberOfPRGBanks<WindowSize::W8K>()-1,addr);
+            case 0: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-2,addr);
+            case 1: return m_cd.readPrg<BankSize::B8K>(m_prgReg1,addr);
+            case 2: return m_cd.readPrg<BankSize::B8K>(m_prgReg0,addr);
+            case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
             }
         }
 
@@ -157,26 +157,26 @@ public:
         {
             switch(addr >> 10) { // addr/1k
                 case 0:
-                case 1: return readChrBank<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1, addr);
+                case 1: return readChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr);
                 case 2:
-                case 3: return readChrBank<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1, addr);
-                case 4: return readChrBank<WindowSize::W1K>(m_chrReg[2]&m_chrMask, addr);
-                case 5: return readChrBank<WindowSize::W1K>(m_chrReg[3]&m_chrMask, addr);
-                case 6: return readChrBank<WindowSize::W1K>(m_chrReg[4]&m_chrMask, addr);
-                case 7: return readChrBank<WindowSize::W1K>(m_chrReg[5]&m_chrMask, addr);
+                case 3: return readChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr);
+                case 4: return readChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr);
+                case 5: return readChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr);
+                case 6: return readChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr);
+                case 7: return readChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr);
             }
         }
         else
         {
             switch(addr>>10) {
-                case 0: return readChrBank<WindowSize::W1K>(m_chrReg[2]&m_chrMask, addr);
-                case 1: return readChrBank<WindowSize::W1K>(m_chrReg[3]&m_chrMask, addr);
-                case 2: return readChrBank<WindowSize::W1K>(m_chrReg[4]&m_chrMask, addr);
-                case 3: return readChrBank<WindowSize::W1K>(m_chrReg[5]&m_chrMask, addr);
+                case 0: return readChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr);
+                case 1: return readChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr);
+                case 2: return readChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr);
+                case 3: return readChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr);
                 case 4:
-                case 5: return readChrBank<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1, addr);
+                case 5: return readChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr);
                 case 6:
-                case 7: return readChrBank<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1, addr);
+                case 7: return readChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr);
             }
 
         }
@@ -188,33 +188,33 @@ public:
     {
         if(!hasChrRam()) return;
 
-        // writeChrRam<W8K>(0, addr, data);
+        // writeChrRam<B8K>(0, addr, data);
         // return;
 
         if(!m_chrMode)
         {
             switch(addr >> 10) { // addr/1k
                 case 0:
-                case 1: writeChrBank<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
+                case 1: writeChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
                 case 2:
-                case 3: writeChrBank<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
-                case 4: writeChrBank<WindowSize::W1K>(m_chrReg[2]&m_chrMask, addr, data); break;
-                case 5: writeChrBank<WindowSize::W1K>(m_chrReg[3]&m_chrMask, addr, data); break;
-                case 6: writeChrBank<WindowSize::W1K>(m_chrReg[4]&m_chrMask, addr, data); break;
-                case 7: writeChrBank<WindowSize::W1K>(m_chrReg[5]&m_chrMask, addr, data); break;
+                case 3: writeChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
+                case 4: writeChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr, data); break;
+                case 5: writeChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr, data); break;
+                case 6: writeChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr, data); break;
+                case 7: writeChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr, data); break;
             }
         }
         else
         {
             switch(addr>>10) {
-                case 0: writeChrBank<WindowSize::W1K>(m_chrReg[2]&m_chrMask, addr, data); break;
-                case 1: writeChrBank<WindowSize::W1K>(m_chrReg[3]&m_chrMask, addr, data); break;
-                case 2: writeChrBank<WindowSize::W1K>(m_chrReg[4]&m_chrMask, addr, data); break;
-                case 3: writeChrBank<WindowSize::W1K>(m_chrReg[5]&m_chrMask, addr, data); break;
+                case 0: writeChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr, data); break;
+                case 1: writeChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr, data); break;
+                case 2: writeChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr, data); break;
+                case 3: writeChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr, data); break;
                 case 4:
-                case 5: writeChrBank<WindowSize::W2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
+                case 5: writeChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
                 case 6:
-                case 7: writeChrBank<WindowSize::W2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
+                case 7: writeChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
             }
 
         }

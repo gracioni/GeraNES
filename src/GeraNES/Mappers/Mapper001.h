@@ -22,8 +22,8 @@ public:
 
     Mapper001(ICartridgeData& cd) : BaseMapper(cd)
     { 
-        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<WindowSize::W16K>());
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<WindowSize::W4K>());
+        m_PRGMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B16K>());
+        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B4K>());
 
     }
 
@@ -74,18 +74,18 @@ public:
         {
         case 0: //switch 32 KB at $8000, ignoring low bit of bank number
         case 1:
-            if(addr < 0x4000) return m_cd.readPrg<WindowSize::W16K>(m_prgBank>>1,addr);
-            return m_cd.readPrg<WindowSize::W16K>((m_prgBank>>1)+1,addr);
+            if(addr < 0x4000) return m_cd.readPrg<BankSize::B16K>(m_prgBank>>1,addr);
+            return m_cd.readPrg<BankSize::B16K>((m_prgBank>>1)+1,addr);
             break;
 
         case 2:  //fix first bank at $8000 and switch 16 KB bank at $C000
-            if(addr < 0x4000) return m_cd.readPrg<WindowSize::W16K>(0,addr);
-            return m_cd.readPrg<WindowSize::W16K>(m_prgBank&0x0F,addr);
+            if(addr < 0x4000) return m_cd.readPrg<BankSize::B16K>(0,addr);
+            return m_cd.readPrg<BankSize::B16K>(m_prgBank&0x0F,addr);
             break;
 
         case 3: //fix last bank at $C000 and switch 16 KB bank at $8000
-            if(addr < 0x4000) return m_cd.readPrg<WindowSize::W16K>(m_prgBank&0x0F,addr);
-            return m_cd.readPrg<WindowSize::W16K>(m_cd.numberOfPRGBanks<WindowSize::W16K>()-1,addr);
+            if(addr < 0x4000) return m_cd.readPrg<BankSize::B16K>(m_prgBank&0x0F,addr);
+            return m_cd.readPrg<BankSize::B16K>(m_cd.numberOfPRGBanks<BankSize::B16K>()-1,addr);
             break;
         }
 
@@ -100,17 +100,17 @@ public:
         {
             if( !(m_control&0x10) ) //switch 8 KB at a time - low bit ignored in 8 KB mode
             {
-                return m_cd.readChr<WindowSize::W8K>(m_chrBank0>>1,addr);
+                return m_cd.readChr<BankSize::B8K>(m_chrBank0>>1,addr);
             }
             else //switch two separate 4 KB banks
             {
                 if(addr < 0x1000)
                 {
-                    return m_cd.readChr<WindowSize::W4K>(m_chrBank0,addr);
+                    return m_cd.readChr<BankSize::B4K>(m_chrBank0,addr);
                 }
                 else
                 {
-                    return m_cd.readChr<WindowSize::W4K>(m_chrBank1,addr);
+                    return m_cd.readChr<BankSize::B4K>(m_chrBank1,addr);
                 }
             }
         }

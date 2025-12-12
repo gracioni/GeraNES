@@ -22,7 +22,7 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        return m_cd.readPrg<WindowSize::W32K>(0,addr);
+        return m_cd.readPrg<BankSize::B32K>(0,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
