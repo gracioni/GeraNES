@@ -20,7 +20,7 @@ public:
         addr = (bank << log2(bs)) + (addr&(static_cast<int>(bs)-1));
         addr = addr&(static_cast<int>(BankSize::B8K)-1);
 
-        return getChrRam()[addr];
+        return chrRam()[addr];
     }
 
     template<BankSize bs>
@@ -29,7 +29,7 @@ public:
         addr = (bank << log2(bs)) + (addr&(static_cast<int>(bs)-1));
         addr = addr&(static_cast<int>(BankSize::B8K)-1);
 
-        getChrRam()[addr] = data;
+        chrRam()[addr] = data;
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
@@ -67,26 +67,26 @@ public:
         {
             switch(addr >> 10) { // addr/1k
             case 0:
-            case 1: return m_cd.readChr<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1,addr);
+            case 1: return cd().readChr<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1,addr);
             case 2:
-            case 3: return m_cd.readChr<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1,addr);
-            case 4: return m_cd.readChr<BankSize::B1K>(m_chrReg[2]&m_chrMask,addr);
-            case 5: return m_cd.readChr<BankSize::B1K>(m_chrReg[3]&m_chrMask,addr);
-            case 6: return m_cd.readChr<BankSize::B1K>(m_chrReg[4]&m_chrMask,addr);
-            case 7: return m_cd.readChr<BankSize::B1K>(m_chrReg[5]&m_chrMask,addr);
+            case 3: return cd().readChr<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1,addr);
+            case 4: return cd().readChr<BankSize::B1K>(m_chrReg[2]&m_chrMask,addr);
+            case 5: return cd().readChr<BankSize::B1K>(m_chrReg[3]&m_chrMask,addr);
+            case 6: return cd().readChr<BankSize::B1K>(m_chrReg[4]&m_chrMask,addr);
+            case 7: return cd().readChr<BankSize::B1K>(m_chrReg[5]&m_chrMask,addr);
             }
         }
         else
         {
             switch(addr>>10) {
-            case 0: return m_cd.readChr<BankSize::B1K>(m_chrReg[2]&m_chrMask,addr);
-            case 1: return m_cd.readChr<BankSize::B1K>(m_chrReg[3]&m_chrMask,addr);
-            case 2: return m_cd.readChr<BankSize::B1K>(m_chrReg[4]&m_chrMask,addr);
-            case 3: return m_cd.readChr<BankSize::B1K>(m_chrReg[5]&m_chrMask,addr);
+            case 0: return cd().readChr<BankSize::B1K>(m_chrReg[2]&m_chrMask,addr);
+            case 1: return cd().readChr<BankSize::B1K>(m_chrReg[3]&m_chrMask,addr);
+            case 2: return cd().readChr<BankSize::B1K>(m_chrReg[4]&m_chrMask,addr);
+            case 3: return cd().readChr<BankSize::B1K>(m_chrReg[5]&m_chrMask,addr);
             case 4:
-            case 5: return m_cd.readChr<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1,addr);
+            case 5: return cd().readChr<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1,addr);
             case 6:
-            case 7: return m_cd.readChr<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1,addr);
+            case 7: return cd().readChr<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1,addr);
             }
 
         }

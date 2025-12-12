@@ -33,21 +33,21 @@ public:
         switch(m_mode) {
 
         case 0:
-            if(addr < 0x4000) return m_cd.readPrg<BankSize::B16K>(m_PRGBank,addr);
-            return m_cd.readPrg<BankSize::B16K>(m_PRGBank | 1,addr);
+            if(addr < 0x4000) return cd().readPrg<BankSize::B16K>(m_PRGBank,addr);
+            return cd().readPrg<BankSize::B16K>(m_PRGBank | 1,addr);
             break;
 
         case 1:
-            if(addr < 0x4000) return m_cd.readPrg<BankSize::B16K>(m_PRGBank,addr);
-            return m_cd.readPrg<BankSize::B16K>(m_PRGBank | 7,addr);
+            if(addr < 0x4000) return cd().readPrg<BankSize::B16K>(m_PRGBank,addr);
+            return cd().readPrg<BankSize::B16K>(m_PRGBank | 7,addr);
             break;
 
         case 2:
-            return m_cd.readPrg<BankSize::B8K>((m_PRGBank << 1) | m_b,addr);
+            return cd().readPrg<BankSize::B8K>((m_PRGBank << 1) | m_b,addr);
             break;
 
         case 3:
-            return m_cd.readPrg<BankSize::B16K>(m_PRGBank,addr);
+            return cd().readPrg<BankSize::B16K>(m_PRGBank,addr);
             break;
         }
 

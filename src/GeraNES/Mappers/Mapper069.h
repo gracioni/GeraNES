@@ -85,8 +85,8 @@ public:
     Mapper069(ICartridgeData& cd) : BaseMapper(cd), m_PRGRAM()
     {
         m_PRGRAM.reset(new uint8_t[m_currentRAMSize]);
-        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B8K>());
-        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B1K>());
+        m_PRGREGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
+        m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -143,10 +143,10 @@ public:
     GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>13) {
-        case 0: return m_cd.readPrg<BankSize::B8K>(m_PRGREG[1],addr);
-        case 1: return m_cd.readPrg<BankSize::B8K>(m_PRGREG[2],addr);
-        case 2: return m_cd.readPrg<BankSize::B8K>(m_PRGREG[3],addr);
-        case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
+        case 0: return cd().readPrg<BankSize::B8K>(m_PRGREG[1],addr);
+        case 1: return cd().readPrg<BankSize::B8K>(m_PRGREG[2],addr);
+        case 2: return cd().readPrg<BankSize::B8K>(m_PRGREG[3],addr);
+        case 3: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-1,addr);
         }
 
         return 0;
@@ -157,7 +157,7 @@ public:
         if(hasChrRam()) return BaseMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
-        return m_cd.readChr<BankSize::B1K>(m_CHRREG[index],addr);
+        return cd().readChr<BankSize::B1K>(m_CHRREG[index],addr);
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -195,7 +195,7 @@ public:
         if(m_PRGRAMEnable && m_PRGRAMSelect)
             return readCHRRAM<BankSize::B8K>(m_PRGREG[0],addr);
 
-        return m_cd.readPrg<BankSize::B8K>(m_PRGREG[0],addr);
+        return cd().readPrg<BankSize::B8K>(m_PRGREG[0],addr);
     }
 
     void serialization(SerializationBase& s) override

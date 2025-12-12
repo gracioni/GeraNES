@@ -16,9 +16,7 @@ namespace fs = std::filesystem;
 class BaseMapper
 {
 
-protected:
-
-    ICartridgeData& m_cd;
+protected:    
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr) {
@@ -30,20 +28,44 @@ protected:
         m_chrRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))] = data;
     }
 
+    //helper function to generate bit mask
+    static uint8_t calculateMask(int nBanks)
+    {
+        uint8_t mask = 0;
+
+        int n = nBanks - 1;
+
+        while(n > 0) {
+            mask <<= 1;
+            mask |= 1;
+            n >>= 1;
+        }
+
+        return mask;
+    }
+
+    ICartridgeData& cd() {
+        return m_cd;
+    }
+
+    uint8_t* chrRam() {
+        return m_chrRam;
+    }
+
 private:
 
-    uint8_t* m_sRam = nullptr;
-
+    ICartridgeData& m_cd;
     uint8_t* m_chrRam = nullptr;
+    uint8_t* m_sRam = nullptr;    
 
     std::string saveRamFile() {
-        auto romFile = m_cd.romFile();
+        auto romFile = cd().romFile();
         return std::string(SRAM_FOLDER) + basename(romFile.fileName()) + ".sram";
     }
 
     void loadSaveRamFromFile()
     {
-        if(!m_cd.hasBattery()) return;
+        if(!cd().hasBattery()) return;
 
         std::ifstream f(saveRamFile(), std::ios::binary);
 
@@ -57,8 +79,8 @@ private:
 
             size_t size = end-begin;
 
-            if(size == m_cd.saveRamSize())
-                f.read(reinterpret_cast<char*>(m_sRam), m_cd.saveRamSize());
+            if(size == cd().saveRamSize())
+                f.read(reinterpret_cast<char*>(m_sRam), cd().saveRamSize());
 
             f.close();
         }
@@ -66,42 +88,47 @@ private:
 
     void writeSaveRamToFile()
     {
-        if(!m_cd.hasBattery()) return;
+        if(!cd().hasBattery()) return;
 
         std::string dir = fs::path(saveRamFile()).parent_path().string();
         if(!fs::exists(dir)) fs::create_directory(dir);
 
         std::ofstream f(saveRamFile(), std::ios::binary | std::ios::trunc);
         if(f.is_open()) {
-            f.write(reinterpret_cast<char*>(m_sRam), m_cd.saveRamSize());
+            f.write(reinterpret_cast<char*>(m_sRam), cd().saveRamSize());
             f.close();
         }
-    }
-
-public:
-
-    BaseMapper(ICartridgeData& cd) : m_cd(cd)
-    {               
     }
 
     // we cant call virtual methods from constructor, so we need an init method
     void init() {
 
-        if(m_cd.saveRamSize() > 0) {
-            m_sRam = new uint8_t[m_cd.saveRamSize()];
-            memset(m_sRam, 0, m_cd.saveRamSize());
+        if(cd().saveRamSize() > 0) {
+            m_sRam = new uint8_t[cd().saveRamSize()];
+            memset(m_sRam, 0, cd().saveRamSize());
             loadSaveRamFromFile();
         }
 
-        if(m_cd.chrRamSize() > 0) {
-            m_chrRam = new uint8_t[m_cd.chrRamSize()];
-            memset(m_chrRam, 0, m_cd.chrRamSize());
+        if(cd().chrRamSize() > 0) {
+            m_chrRam = new uint8_t[cd().chrRamSize()];
+            memset(m_chrRam, 0, cd().chrRamSize());
         }
     }
 
-    uint8_t* getChrRam() {
-        return m_chrRam;
+protected:
+
+    BaseMapper(ICartridgeData& cd) : m_cd(cd)
+    {               
     }
+    
+public:
+
+    template<std::derived_from<BaseMapper> T>
+    static T* create(ICartridgeData& cd) {
+        auto ret = new T(cd);
+        ret->init();
+        return ret;
+    }    
 
     virtual void reset(){}
 
@@ -135,22 +162,22 @@ public:
     virtual void writeSaveRam(int addr, uint8_t data)
     {
         if(m_sRam != nullptr)
-            m_sRam[addr&(m_cd.saveRamSize()-1)] = data;
+            m_sRam[addr&(cd().saveRamSize()-1)] = data;
     }
 
     virtual uint8_t readSaveRam(int addr)
     {
         if(m_sRam != nullptr)
-            return m_sRam[addr&(m_cd.saveRamSize()-1)];
+            return m_sRam[addr&(cd().saveRamSize()-1)];
 
         return 0;
     }
 
     virtual MirroringType mirroringType()
     {
-        if(m_cd.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        if(cd().useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
         else {
-            return m_cd.mirroringType();
+            return cd().mirroringType();
         }
     }
 
@@ -165,37 +192,21 @@ public:
 
         if(m_chrRam != nullptr) delete[] m_chrRam;
         if(m_sRam != nullptr) delete[] m_sRam;
-    }
-
-    //helper function to generate bit mask
-    uint8_t calculateMask(int nBanks)
-    {
-        uint8_t mask = 0;
-
-        int n = nBanks - 1;
-
-        while(n > 0) {
-            mask <<= 1;
-            mask |= 1;
-            n >>= 1;
-        }
-
-        return mask;
-    }
+    }    
 
     virtual void serialization(SerializationBase& s)
     {
-        s.array(m_sRam, 1, m_cd.saveRamSize());
+        s.array(m_sRam, 1, cd().saveRamSize());
 
         bool hasChrRam = (m_chrRam != NULL);
         SERIALIZEDATA(s, hasChrRam);
         if(hasChrRam) {
-            s.array(m_chrRam, 1, m_cd.chrRamSize());
+            s.array(m_chrRam, 1, cd().chrRamSize());
         }
     }
 
     GERANES_INLINE bool hasChrRam() {
-        return m_cd.chrRamSize() > 0;
+        return cd().chrRamSize() > 0;
     }
 
 

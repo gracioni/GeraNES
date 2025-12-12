@@ -68,49 +68,49 @@ private:
     {
         switch(m_nesCartridgeData->mapperId())
         {
-        case 0: return new Mapper000(*m_nesCartridgeData);
-        case 1: return new Mapper001(*m_nesCartridgeData);
-        case 2: return new Mapper002(*m_nesCartridgeData);
-        case 3: return new Mapper003(*m_nesCartridgeData);
+        case 0: return BaseMapper::create<Mapper000>(*m_nesCartridgeData);
+        case 1: return BaseMapper::create<Mapper001>(*m_nesCartridgeData);
+        case 2: return BaseMapper::create<Mapper002>(*m_nesCartridgeData);
+        case 3: return BaseMapper::create<Mapper003>(*m_nesCartridgeData);
         case 4: {
             
             if(m_nesCartridgeData->subMapperId() == 3 ) {
-                return new Mapper004_3(*m_nesCartridgeData);
+                return BaseMapper::create<Mapper004_3>(*m_nesCartridgeData);
             }             
 
-            return new Mapper004(*m_nesCartridgeData);
+            return BaseMapper::create<Mapper004>(*m_nesCartridgeData);
         }
 
-        case 5: return new Mapper005(*m_nesCartridgeData);
+        case 5: return BaseMapper::create<Mapper005>(*m_nesCartridgeData);
 
-        case 7: return new Mapper007(*m_nesCartridgeData);
+        case 7: return BaseMapper::create<Mapper007>(*m_nesCartridgeData);
 
-        case 9: return new Mapper009(*m_nesCartridgeData);
-        case 10: return new Mapper010(*m_nesCartridgeData);
-        case 11: return new Mapper011(*m_nesCartridgeData);
-        case 13: return new Mapper013(*m_nesCartridgeData);
-        case 15: return new Mapper015(*m_nesCartridgeData);
-        case 16: return new Mapper016(*m_nesCartridgeData);
-        case 18: return new Mapper018(*m_nesCartridgeData);
-        case 19: return new Mapper019(*m_nesCartridgeData);
-        case 21: return new Mapper021(*m_nesCartridgeData);
-        case 22: return new Mapper022(*m_nesCartridgeData);
-        case 23: return new Mapper023(*m_nesCartridgeData);
-        case 24: return new Mapper024(*m_nesCartridgeData);
-        case 25: return new Mapper025(*m_nesCartridgeData);
-        case 26: return new Mapper026(*m_nesCartridgeData);
-        case 34: return new Mapper034(*m_nesCartridgeData);
+        case 9: return BaseMapper::create<Mapper009>(*m_nesCartridgeData);
+        case 10: return BaseMapper::create<Mapper010>(*m_nesCartridgeData);
+        case 11: return BaseMapper::create<Mapper011>(*m_nesCartridgeData);
+        case 13: return BaseMapper::create<Mapper013>(*m_nesCartridgeData);
+        case 15: return BaseMapper::create<Mapper015>(*m_nesCartridgeData);
+        case 16: return BaseMapper::create<Mapper016>(*m_nesCartridgeData);
+        case 18: return BaseMapper::create<Mapper018>(*m_nesCartridgeData);
+        case 19: return BaseMapper::create<Mapper019>(*m_nesCartridgeData);
+        case 21: return BaseMapper::create<Mapper021>(*m_nesCartridgeData);
+        case 22: return BaseMapper::create<Mapper022>(*m_nesCartridgeData);
+        case 23: return BaseMapper::create<Mapper023>(*m_nesCartridgeData);
+        case 24: return BaseMapper::create<Mapper024>(*m_nesCartridgeData);
+        case 25: return BaseMapper::create<Mapper025>(*m_nesCartridgeData);
+        case 26: return BaseMapper::create<Mapper026>(*m_nesCartridgeData);
+        case 34: return BaseMapper::create<Mapper034>(*m_nesCartridgeData);
 
-        case 64: return new Mapper064(*m_nesCartridgeData);
-        case 65: return new Mapper065(*m_nesCartridgeData);
-        case 66: return new Mapper066(*m_nesCartridgeData);
-        case 69: return new Mapper069(*m_nesCartridgeData);
+        case 64: return BaseMapper::create<Mapper064>(*m_nesCartridgeData);
+        case 65: return BaseMapper::create<Mapper065>(*m_nesCartridgeData);
+        case 66: return BaseMapper::create<Mapper066>(*m_nesCartridgeData);
+        case 69: return BaseMapper::create<Mapper069>(*m_nesCartridgeData);
 
-        case 71: return new Mapper071(*m_nesCartridgeData);
+        case 71: return BaseMapper::create<Mapper071>(*m_nesCartridgeData);
 
-        case 118: return new Mapper118(*m_nesCartridgeData);
-        case 119: return new Mapper119(*m_nesCartridgeData);
-        case 210: return new Mapper210(*m_nesCartridgeData);
+        case 118: return BaseMapper::create<Mapper118>(*m_nesCartridgeData);
+        case 119: return BaseMapper::create<Mapper119>(*m_nesCartridgeData);
+        case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
 
         }         
 
@@ -203,7 +203,6 @@ public:
 
             return false;
         }
-        else m_mapper->init();
 
         m_isValid = true;
 

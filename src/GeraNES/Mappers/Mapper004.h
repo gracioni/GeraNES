@@ -49,7 +49,7 @@ protected:
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
         if(hasChrRam()) return readChrRam<bs>(bank, addr);
-        return m_cd.readChr<bs>(bank, addr);
+        return cd().readChr<bs>(bank, addr);
     }
 
     template<BankSize bs>
@@ -61,13 +61,13 @@ public:
 
     Mapper004(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_prgMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B8K>());
+        m_prgMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
 
         if(hasChrRam()) {
             m_chrMask = calculateMask(cd.chrRamSize()/0x400);
         }
         else {
-            m_chrMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B1K>());
+            m_chrMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
         }
 
         m_mmc3RevAIrqs = cd.chip().substr(0, 5).compare("MMC3A") == 0;        
@@ -83,19 +83,19 @@ public:
         if(!m_prgMode)
         {
             switch(addr >> 13) { // addr/8k
-            case 0: return m_cd.readPrg<BankSize::B8K>(m_prgReg0,addr);
-            case 1: return m_cd.readPrg<BankSize::B8K>(m_prgReg1,addr);
-            case 2: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-2,addr);
-            case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
+            case 0: return cd().readPrg<BankSize::B8K>(m_prgReg0,addr);
+            case 1: return cd().readPrg<BankSize::B8K>(m_prgReg1,addr);
+            case 2: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-2,addr);
+            case 3: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-1,addr);
             }
         }
         else
         {
             switch(addr >> 13) {
-            case 0: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-2,addr);
-            case 1: return m_cd.readPrg<BankSize::B8K>(m_prgReg1,addr);
-            case 2: return m_cd.readPrg<BankSize::B8K>(m_prgReg0,addr);
-            case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
+            case 0: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-2,addr);
+            case 1: return cd().readPrg<BankSize::B8K>(m_prgReg1,addr);
+            case 2: return cd().readPrg<BankSize::B8K>(m_prgReg0,addr);
+            case 3: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-1,addr);
             }
         }
 
@@ -223,7 +223,7 @@ public:
 
     GERANES_HOT MirroringType mirroringType() override
     {
-        if(m_cd.useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
+        if(cd().useFourScreenMirroring() ) return MirroringType::FOUR_SCREEN;
         if(m_mirroring) return MirroringType::HORIZONTAL;
         return MirroringType::VERTICAL;
     }

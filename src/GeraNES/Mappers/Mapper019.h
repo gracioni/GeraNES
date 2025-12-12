@@ -36,14 +36,14 @@ private:
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)
     {
         addr = (bank << log2(bs)) + (addr&(static_cast<int>(bs)-1));
-        return getChrRam()[addr];
+        return chrRam()[addr];
     }
 
     template<BankSize bs>
     GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data)
     {
         addr = (bank << log2(bs)) + (addr&(static_cast<int>(bs)-1));
-        getChrRam()[addr] = data;
+        chrRam()[addr] = data;
     }
 
     GERANES_INLINE void writeSoundRAM(uint8_t data)
@@ -72,8 +72,8 @@ public:
 
     Mapper019(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B8K>());
-        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B1K>());
+        m_PRGREGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
+        m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -121,10 +121,10 @@ public:
     GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>13) { // addr/8192
-        case 0: return m_cd.readPrg<BankSize::B8K>(m_PRGReg[0],addr);
-        case 1: return m_cd.readPrg<BankSize::B8K>(m_PRGReg[1],addr);
-        case 2: return m_cd.readPrg<BankSize::B8K>(m_PRGReg[2],addr);
-        case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
+        case 0: return cd().readPrg<BankSize::B8K>(m_PRGReg[0],addr);
+        case 1: return cd().readPrg<BankSize::B8K>(m_PRGReg[1],addr);
+        case 2: return cd().readPrg<BankSize::B8K>(m_PRGReg[2],addr);
+        case 3: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-1,addr);
         }
 
         return 0;
@@ -143,7 +143,7 @@ public:
             if(m_CHRReg[index] >= 0xE0 && !m_highCHRRAMDisable) return readChrRam<BankSize::B1K>(m_CHRReg[index]-0xE0,addr);
         }
 
-        return m_cd.readChr<BankSize::B1K>(m_CHRReg[index]&m_CHRREGMask,addr);
+        return cd().readChr<BankSize::B1K>(m_CHRReg[index]&m_CHRREGMask,addr);
     }
 
     GERANES_HOT void writeChr(int addr, uint8_t data) override
@@ -211,7 +211,7 @@ public:
     GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
     {        
         uint8_t bank = m_MirroringReg[index];
-        return m_cd.readChr<BankSize::B1K>(bank,addr);
+        return cd().readChr<BankSize::B1K>(bank,addr);
     }
     
     GERANES_HOT MirroringType mirroringType() override
