@@ -81,8 +81,6 @@ private:
             return BaseMapper::create<Mapper004>(*m_nesCartridgeData);
         }
 
-        case 5: return BaseMapper::create<Mapper005>(*m_nesCartridgeData);
-
         case 7: return BaseMapper::create<Mapper007>(*m_nesCartridgeData);
 
         case 9: return BaseMapper::create<Mapper009>(*m_nesCartridgeData);
