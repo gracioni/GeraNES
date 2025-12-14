@@ -303,6 +303,11 @@ public:
         m_mapper->setA12State(state);
     }
 
+    GERANES_INLINE void onMMC5Scanline(bool inFrame)
+    {
+        m_mapper->onMMC5Scanline(inFrame);
+    }
+
     GERANES_INLINE void cycle()
     {    
         m_mapper->cycle();

@@ -41,7 +41,7 @@ protected:
     uint8_t m_scanlineCounter = 0;
     uint8_t m_scanlineCompare = 0; // $5203
     bool m_scanlinePending = false; // pending flag (5204)
-    bool m_scanlineEnable = false;  // enable flag (5204 write bit7)
+    bool m_irqEnable = false;  // enable flag (5204 write bit7)
     int m_ppuMatchCount = 0;
     uint16_t m_lastPpuAddr = 0xFFFF;
     int m_idleCounter = 0;
@@ -53,9 +53,6 @@ protected:
     // Masks derived from cartridge
     uint8_t m_prgMask = 0;   // for 8KB banks
     uint32_t m_chrMask = 0;  // for 1KB banks
-
-    // A12 fallback state (for compatibility)
-    bool m_a12LastState = false;
 
     // helpers
     template<BankSize bs>
@@ -205,8 +202,8 @@ public:
                     m_scanlineCompare = data;
                     return;
                 case 0x5204: // IRQ enable (write)
-                    m_scanlineEnable = (data & 0x80) != 0;
-                    if (!m_scanlineEnable) {
+                    m_irqEnable = (data & 0x80) != 0;
+                    if (!m_irqEnable) {
                         m_irqLine = false;
                     } else {
                         if (m_scanlinePending) m_irqLine = true;
@@ -264,8 +261,8 @@ public:
         // IRQ status $5204 read
         if (cpuAddr == 0x5204) {
             uint8_t v = 0;
-            if (m_scanlinePending) v |= 0x01;
-            if (m_inFrame) v |= 0x02;
+            if (m_scanlinePending) v |= 0x80;
+            if (m_inFrame) v |= 0x40;
             // reading clears pending flag (ack)
             m_scanlinePending = false;
             m_irqLine = false;
@@ -338,79 +335,56 @@ public:
 
     // ---------- PRG area $8000-$FFFF
     // core calls readPrg/writePrg with addr&0x7FFF for addresses >= 0x8000
-    GERANES_HOT uint8_t readPrg(int maskedAddr) override
+    GERANES_HOT uint8_t readPrg(int addr) override
     {
-        const uint32_t cpuAddr = (maskedAddr & 0x7FFF) + 0x8000; // reconstruct original cpu addr
-
-        #ifdef MMC5_DEBUG
-        printf("[MMC5] readPrg masked=0x%04X cpu=0x%04X\n", maskedAddr & 0x7FFF, cpuAddr);
-        #endif
-
-        // mapping logic depends on m_prgMode
-        if (cpuAddr >= 0x8000 && cpuAddr <= 0xFFFF) {
-            const int slot = (cpuAddr >> 13) & 0x3; // which 8K window 0..3
-            uint8_t bankIndex = 0;
-            switch (m_prgMode) {
-                case 0: {
-                    // 32KB switching via $5117 -> align to 4*8KB
-                    uint8_t base8k = (m_prgReg[4] & m_prgMask) & ~0x3;
-                    bankIndex = (uint8_t)((base8k + slot) & m_prgMask);
-                    break;
-                }
-                case 1: {
-                    // $8000-$BFFF: $5115 (16KB). $C000-$FFFF: $5117 (16KB)
-                    if (cpuAddr <= 0xBFFF) {
-                        uint8_t base16k = (m_prgReg[1] & m_prgMask) & ~0x1;
-                        bankIndex = (uint8_t)((base16k + slot) & m_prgMask);
-                    } else {
-                        uint8_t base16k = (m_prgReg[4] & m_prgMask) & ~0x1;
-                        int slotC = ((cpuAddr - 0xC000) >> 13) & 0x1;
-                        bankIndex = (uint8_t)((base16k + slotC + 2) & m_prgMask);
-                    }
-                    break;
-                }
-                case 2: {
-                    // $8000-$BFFF: $5115(16KB), $C000-$DFFF: $5116(8K), $E000-$FFFF: $5117(8K)
-                    if (cpuAddr <= 0xBFFF) {
-                        uint8_t base16k = (m_prgReg[1] & m_prgMask) & ~0x1;
-                        bankIndex = (uint8_t)((base16k + slot) & m_prgMask);
-                    } else if (cpuAddr <= 0xDFFF) {
-                        bankIndex = (uint8_t)(m_prgReg[2] & m_prgMask);
-                    } else {
-                        bankIndex = (uint8_t)(m_prgReg[4] & m_prgMask);
-                    }
-                    break;
-                }
-                case 3:
-                default: {
-                    // mode 3: four 8KB banks ($5114-$5117)
-                    bankIndex = m_prgReg[slot] & m_prgMask;
-                    break;
-                }
+        switch (m_prgMode) {
+            case 0: {
+                int bank = ((m_prgReg[4] & m_prgMask) >> 2);
+                return cd().readPrg<BankSize::B32K>(bank, addr);
             }
-
-            return cd().readPrg<BankSize::B8K>(bankIndex, cpuAddr);
-        }
+            case 1: {
+                switch(addr >> 12) { //addr/16k
+                    case 0: {
+                        int bank = ((m_prgReg[2] & m_prgMask) >> 1);
+                        return cd().readPrg<BankSize::B16K>(bank, addr);
+                    }
+                    case 1: {
+                        int bank = ((m_prgReg[4] & m_prgMask) >> 1);
+                        return cd().readPrg<BankSize::B16K>(bank, addr);
+                    }
+                }                 
+            }
+            case 2: {
+                switch(addr >> 12) { //addr/16k
+                    case 0: {
+                        int bank = ((m_prgReg[2] & m_prgMask) >> 1);
+                        return cd().readPrg<BankSize::B16K>(bank, addr);
+                    }
+                    case 1: {
+                        int div = addr >> 13; //addr/8k
+                        int bank = (m_prgReg[div+1] & m_prgMask);
+                        return cd().readPrg<BankSize::B8K>(bank, addr);
+                    }
+                }                 
+            }
+            case 3:
+            default: {
+                int div = addr >> 13; //addr/8k
+                int bank = (m_prgReg[div+1] & m_prgMask);
+                return cd().readPrg<BankSize::B8K>(bank, addr);
+            }
+        }        
 
         return 0xFF;
     }
 
-    GERANES_HOT void writePrg(int maskedAddr, uint8_t data) override
-    {
-        const uint32_t cpuAddr = (maskedAddr & 0x7FFF) + 0x8000;
-
-        #ifdef MMC5_DEBUG
-        printf("[MMC5] writePrg masked=0x%04X cpu=0x%04X data=0x%02X\n", maskedAddr & 0x7FFF, cpuAddr, data);
-        #endif
-
-        // Some games write to ROM area to trigger special behavior (e.g., Bandit Kings writes PRG-RAM via ROM window).
-        // MMC5 supports PRG-RAM overlay via registers. For now we only support standard behavior:
-        // If write falls into area intended for PRG-RAM (some boards let ROM address space target RAM via register bits),
-        // then the cartridge may expect these writes to update PRG-RAM. We don't implement those exotic behaviors here
-        // beyond writeSaveRam override which handles the normal $6000-$7FFF window.
-        // Normally writes to $8000+ are writes to mapper registers on some mappers (MMC3), but MMC5 uses $5000-$5FFF for regs.
-        (void)cpuAddr; (void)data;
-    }
+    // GERANES_HOT void writePrg(int maskedAddr, uint8_t data) override    
+    // Some games write to ROM area to trigger special behavior (e.g., Bandit Kings writes PRG-RAM via ROM window).
+    // MMC5 supports PRG-RAM overlay via registers. For now we only support standard behavior:
+    // If write falls into area intended for PRG-RAM (some boards let ROM address space target RAM via register bits),
+    // then the cartridge may expect these writes to update PRG-RAM. We don't implement those exotic behaviors here
+    // beyond writeSaveRam override which handles the normal $6000-$7FFF window.
+    // Normally writes to $8000+ are writes to mapper registers on some mappers (MMC3), but MMC5 uses $5000-$5FFF for regs.
 
     // ---------- CHR handlers
     GERANES_HOT virtual uint8_t readChr(int addr) override
@@ -542,7 +516,7 @@ public:
                 m_scanlineCounter++;
                 if (m_scanlineCounter == m_scanlineCompare) {
                     m_scanlinePending = true;
-                    if (m_scanlineEnable) m_irqLine = true;
+                    if (m_irqEnable) m_irqLine = true;
                 }
             }
             m_ppuMatchCount = 0;
@@ -570,17 +544,21 @@ public:
     }
 
     // A12 fallback (called by system when PPU A12 toggles)
-    void setA12State(bool state) override
+    void onMMC5Scanline(bool inFrame) override
     {
-        if (!m_a12LastState && state) {
-            // rising edge
-            m_scanlineCounter++;
-            if (m_scanlineCounter == m_scanlineCompare) {
-                m_scanlinePending = true;
-                if (m_scanlineEnable) m_irqLine = true;
-            }
+        m_inFrame = inFrame;
+
+        if(!m_inFrame) {
+            m_scanlineCounter = 0;
+            m_scanlinePending = false;
+            return;
         }
-        m_a12LastState = state;
+
+        m_scanlineCounter++;
+        if (m_scanlineCounter == m_scanlineCompare) {
+            m_scanlinePending = true;
+            if (m_irqEnable) m_irqLine = true;
+        }  
     }
 
     void setPpuRendering(bool rendering) {
@@ -663,7 +641,7 @@ public:
         SERIALIZEDATA(s, m_scanlineCounter);
         SERIALIZEDATA(s, m_scanlineCompare);
         SERIALIZEDATA(s, m_scanlinePending);
-        SERIALIZEDATA(s, m_scanlineEnable);
+        SERIALIZEDATA(s, m_irqEnable);
         SERIALIZEDATA(s, m_ppuMatchCount);
         SERIALIZEDATA(s, m_lastPpuAddr);
         SERIALIZEDATA(s, m_idleCounter);
@@ -671,7 +649,5 @@ public:
 
         SERIALIZEDATA(s, m_prgMask);
         SERIALIZEDATA(s, m_chrMask);
-
-        SERIALIZEDATA(s, m_a12LastState);
     }
 };

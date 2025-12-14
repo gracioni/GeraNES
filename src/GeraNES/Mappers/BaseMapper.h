@@ -186,6 +186,8 @@ public:
         return 0;
     }
 
+    virtual void onMMC5Scanline(bool inFrame) {}
+
     virtual ~BaseMapper()
     {
         writeSaveRamToFile();

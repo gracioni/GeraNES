@@ -981,6 +981,9 @@ yyy NN YYYYY XXXXX
             }
         }
 
+        m_cartridge.onMMC5Scanline(m_visibleLine && isRenderingEnabled());
+        
+
         signalScanlineStart();
     }
 
