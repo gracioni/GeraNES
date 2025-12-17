@@ -16,22 +16,43 @@ namespace fs = std::filesystem;
 class BaseMapper
 {
 
-protected:    
+protected:
 
     template<BankSize bs>
-    GERANES_INLINE uint8_t readChrRam(int bank, int addr) {
+    GERANES_INLINE uint8_t readChrRamBank(int bank, int addr) {
         return m_chrRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))];
     }
 
     template<BankSize bs>
-    GERANES_INLINE void writeChrRam(int bank, int addr, uint8_t data) {
+    GERANES_INLINE void writeChrRamBank(int bank, int addr, uint8_t data) {
         m_chrRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))] = data;
     }
 
+    template<BankSize bs>
+    GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
+        if(hasChrRam()) return readChrRamBank<bs>(bank, addr);
+        return cd().readChr<bs>(bank, addr);
+    }
+
+    template<BankSize bs>
+    GERANES_INLINE void writeChrBank(int bank, int addr, uint8_t data) {
+        writeChrRamBank<bs>(bank, addr, data);
+    }
+
+    template<BankSize bs>
+    GERANES_INLINE uint8_t readSRamBank(int bank, int addr) {
+        return m_sRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))];
+    }
+
+    template<BankSize bs>
+    GERANES_INLINE void writeSRamBank(int bank, int addr, uint8_t data) {
+        m_sRam[(bank << log2(bs)) + (addr&(static_cast<int>(bs)-1))] = data;
+    }
+
     //helper function to generate bit mask
-    static uint8_t calculateMask(int nBanks)
+    static uint32_t calculateMask(int nBanks)
     {
-        uint8_t mask = 0;
+        uint32_t mask = 0;
 
         int n = nBanks - 1;
 
@@ -137,11 +158,11 @@ public:
     virtual uint8_t readPrg(int /*addr*/) { return 0; }
 
     virtual void writeChr(int addr, uint8_t data) {
-        if(hasChrRam()) writeChrRam<BankSize::B8K>(0, addr, data);
+        if(hasChrRam()) writeChrRamBank<BankSize::B8K>(0, addr, data);
     }
 
     virtual uint8_t readChr(int addr) {
-        if(hasChrRam()) return readChrRam<BankSize::B8K>(0, addr);
+        if(hasChrRam()) return readChrRamBank<BankSize::B8K>(0, addr);
         return 0;
     }
 
@@ -181,12 +202,20 @@ public:
         }
     }
 
-    virtual uint8_t customMirroring(uint8_t /*blockIndex*/)
+    virtual uint8_t customMirroring(uint8_t /*ntIndex*/)
     {
         return 0;
     }
 
     virtual void onMMC5Scanline(bool inFrame) {}
+
+    virtual void configMMC5(bool is8x16, bool isBg) {}
+
+    virtual void onMMC5BgTileIndex(uint16_t tileIndex) {}
+
+    virtual std::optional<uint8_t> getMMC5BgPalette() const {
+        return std::nullopt;
+    }
 
     virtual ~BaseMapper()
     {

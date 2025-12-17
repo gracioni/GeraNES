@@ -44,18 +44,7 @@ protected:
 
     uint8_t m_cycleCounter = 0;
 
-    bool m_mmc3RevAIrqs = false;
-
-    template<BankSize bs>
-    GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
-        if(hasChrRam()) return readChrRam<bs>(bank, addr);
-        return cd().readChr<bs>(bank, addr);
-    }
-
-    template<BankSize bs>
-    GERANES_INLINE void writeChrBank(int bank, int addr, uint8_t data) {
-        writeChrRam<bs>(bank, addr, data);
-    }
+    bool m_mmc3RevAIrqs = false;    
 
 public:
 
@@ -117,12 +106,12 @@ public:
         case 0x0001:
             switch(m_addrReg)
             {
-            case 0: m_chrReg[0] = data; break;
-            case 1: m_chrReg[1] = data; break;
-            case 2: m_chrReg[2] = data; break;
-            case 3: m_chrReg[3] = data; break;
-            case 4: m_chrReg[4] = data; break;
-            case 5: m_chrReg[5] = data; break;
+            case 0: m_chrReg[0] = data&m_chrMask; break;
+            case 1: m_chrReg[1] = data&m_chrMask; break;
+            case 2: m_chrReg[2] = data&m_chrMask; break;
+            case 3: m_chrReg[3] = data&m_chrMask; break;
+            case 4: m_chrReg[4] = data&m_chrMask; break;
+            case 5: m_chrReg[5] = data&m_chrMask; break;
             case 6: m_prgReg0 = data&m_prgMask; break;
             case 7: m_prgReg1 = data&m_prgMask; break;
             }
@@ -155,28 +144,28 @@ public:
     {
         if(!m_chrMode)
         {
-            switch(addr >> 10) { // addr/1k
+            switch(addr >> 10) { // addr/0x400
                 case 0:
-                case 1: return readChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr);
+                case 1: return readChrBank<BankSize::B2K>(m_chrReg[0]>>1, addr);
                 case 2:
-                case 3: return readChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr);
-                case 4: return readChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr);
-                case 5: return readChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr);
-                case 6: return readChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr);
-                case 7: return readChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr);
+                case 3: return readChrBank<BankSize::B2K>(m_chrReg[1]>>1, addr);
+                case 4: return readChrBank<BankSize::B1K>(m_chrReg[2], addr);
+                case 5: return readChrBank<BankSize::B1K>(m_chrReg[3], addr);
+                case 6: return readChrBank<BankSize::B1K>(m_chrReg[4], addr);
+                case 7: return readChrBank<BankSize::B1K>(m_chrReg[5], addr);
             }
         }
         else
         {
             switch(addr>>10) {
-                case 0: return readChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr);
-                case 1: return readChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr);
-                case 2: return readChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr);
-                case 3: return readChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr);
+                case 0: return readChrBank<BankSize::B1K>(m_chrReg[2], addr);
+                case 1: return readChrBank<BankSize::B1K>(m_chrReg[3], addr);
+                case 2: return readChrBank<BankSize::B1K>(m_chrReg[4], addr);
+                case 3: return readChrBank<BankSize::B1K>(m_chrReg[5], addr);
                 case 4:
-                case 5: return readChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr);
+                case 5: return readChrBank<BankSize::B2K>(m_chrReg[0]>>1, addr);
                 case 6:
-                case 7: return readChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr);
+                case 7: return readChrBank<BankSize::B2K>(m_chrReg[1]>>1, addr);
             }
 
         }
@@ -195,26 +184,26 @@ public:
         {
             switch(addr >> 10) { // addr/1k
                 case 0:
-                case 1: writeChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
+                case 1: writeChrBank<BankSize::B2K>(m_chrReg[0]>>1, addr, data); break;
                 case 2:
-                case 3: writeChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
-                case 4: writeChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr, data); break;
-                case 5: writeChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr, data); break;
-                case 6: writeChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr, data); break;
-                case 7: writeChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr, data); break;
+                case 3: writeChrBank<BankSize::B2K>(m_chrReg[1]>>1, addr, data); break;
+                case 4: writeChrBank<BankSize::B1K>(m_chrReg[2], addr, data); break;
+                case 5: writeChrBank<BankSize::B1K>(m_chrReg[3], addr, data); break;
+                case 6: writeChrBank<BankSize::B1K>(m_chrReg[4], addr, data); break;
+                case 7: writeChrBank<BankSize::B1K>(m_chrReg[5], addr, data); break;
             }
         }
         else
         {
             switch(addr>>10) {
-                case 0: writeChrBank<BankSize::B1K>(m_chrReg[2]&m_chrMask, addr, data); break;
-                case 1: writeChrBank<BankSize::B1K>(m_chrReg[3]&m_chrMask, addr, data); break;
-                case 2: writeChrBank<BankSize::B1K>(m_chrReg[4]&m_chrMask, addr, data); break;
-                case 3: writeChrBank<BankSize::B1K>(m_chrReg[5]&m_chrMask, addr, data); break;
+                case 0: writeChrBank<BankSize::B1K>(m_chrReg[2], addr, data); break;
+                case 1: writeChrBank<BankSize::B1K>(m_chrReg[3], addr, data); break;
+                case 2: writeChrBank<BankSize::B1K>(m_chrReg[4], addr, data); break;
+                case 3: writeChrBank<BankSize::B1K>(m_chrReg[5], addr, data); break;
                 case 4:
-                case 5: writeChrBank<BankSize::B2K>((m_chrReg[0]&m_chrMask)>>1, addr, data); break;
+                case 5: writeChrBank<BankSize::B2K>(m_chrReg[0]>>1, addr, data); break;
                 case 6:
-                case 7: writeChrBank<BankSize::B2K>((m_chrReg[1]&m_chrMask)>>1, addr, data); break;
+                case 7: writeChrBank<BankSize::B2K>(m_chrReg[1]>>1, addr, data); break;
             }
 
         }

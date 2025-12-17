@@ -308,6 +308,21 @@ public:
         m_mapper->onMMC5Scanline(inFrame);
     }
 
+    GERANES_INLINE void onMMC5BgTileIndex(uint16_t tileIndex)
+    {
+        m_mapper->onMMC5BgTileIndex(tileIndex);
+    }
+
+    GERANES_INLINE std::optional<uint8_t> getMMC5BgPalette() const {
+        return m_mapper->getMMC5BgPalette();
+    }
+
+    GERANES_INLINE void configMMC5(bool is8x16, bool isBg)
+    {
+        m_mapper->configMMC5(is8x16, isBg);
+    }
+    
+
     GERANES_INLINE void cycle()
     {    
         m_mapper->cycle();

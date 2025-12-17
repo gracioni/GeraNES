@@ -6,10 +6,15 @@
 #include <cassert>
 #include <stdio.h>
 
-//#define MMC5_DEBUG
-
 class Mapper005 : public BaseMapper
 {
+private:
+
+    enum class ChrType {A, B};
+
+    ChrType m_lastChrWritten = ChrType::A;
+    ChrType m_currentChrSet = ChrType::A;
+
 protected:
     // Configuration registers
     uint8_t m_prgMode = 3;    // $5100 bits 1..0 (default mode 3 = 8k banks)
@@ -47,31 +52,21 @@ protected:
     int m_idleCounter = 0;
     bool m_irqLine = false; // actual IRQ output line for console
 
-    // PPU rendering state (for ExRAM write-only-during-rendering behavior)
-    bool m_ppuRendering = false;
-
     // Masks derived from cartridge
     uint8_t m_prgMask = 0;   // for 8KB banks
     uint32_t m_chrMask = 0;  // for 1KB banks
+    uint8_t m_saveRamMask = 0;
 
-    // helpers
-    template<BankSize bs>
-    GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
-        if(hasChrRam()) return readChrRam<bs>(bank, addr);
-        uint32_t b = static_cast<uint32_t>(bank) & m_chrMask;
-        return cd().readChr<bs>((int)b, addr);
-    }
-
-    template<BankSize bs>
-    GERANES_INLINE void writeChrBank(int bank, int addr, uint8_t data) {
-        writeChrRam<bs>(bank, addr, data);
-    }
+    uint16_t m_currentBgTileIndex = 0;
+    uint8_t  m_currentBgPalette = 0;
+    uint16_t m_currentBgChrBank = 0;
 
 public:
     Mapper005(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_prgMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
-        m_chrMask = calculateMask(static_cast<uint32_t>(cd.numberOfCHRBanks<BankSize::B1K>()));
+        m_chrMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
+        m_saveRamMask = calculateMask(cd.numberOfSRamBanks<BankSize::B8K>());
 
         // sensible power-on defaults: mode 3 (8k prg), CHR 1k
         m_prgMode = 3;
@@ -79,7 +74,7 @@ public:
 
         const uint32_t nb = cd.numberOfPRGBanks<BankSize::B8K>();
         if (nb >= 4) {
-            m_prgReg[0] = 0 & m_prgMask;
+            m_prgReg[0] = 0 & m_saveRamMask;
             m_prgReg[1] = 1 & m_prgMask;
             m_prgReg[2] = (nb - 2) & m_prgMask;
             m_prgReg[3] = (nb - 1) & m_prgMask;
@@ -109,10 +104,6 @@ public:
     {
         const uint16_t cpuAddr = 0x4000 + (off & 0x1FFF);
 
-        #ifdef MMC5_DEBUG
-        printf("[MMC5] write0x4000 cpu=0x%04X data=0x%02X\n", cpuAddr, data);
-        #endif
-
         // Sound regs: $5000-$5015 are inside this range
         if (cpuAddr >= 0x5000 && cpuAddr <= 0x5015) {
             uint16_t idx = cpuAddr - 0x5000;
@@ -127,15 +118,9 @@ public:
             switch (off5100) {
                 case 0x00: // $5100 PRG mode
                     m_prgMode = data & 0x03;
-                    #ifdef MMC5_DEBUG
-                    printf("[MMC5] $5100 PRG mode = %d\n", m_prgMode);
-                    #endif
                     return;
                 case 0x01: // $5101 CHR mode
                     m_chrMode = data & 0x03;
-                    #ifdef MMC5_DEBUG
-                    printf("[MMC5] $5101 CHR mode = %d\n", m_chrMode);
-                    #endif
                     return;
                 case 0x02:
                     m_prgRamProtect1 = (data & 0x03) == 0x02;
@@ -163,32 +148,22 @@ public:
         // PRG bank registers $5113-$5117 are mapped in the same $5100 window => detect them
         if (cpuAddr >= 0x5113 && cpuAddr <= 0x5117) {
             int r = cpuAddr - 0x5113;
-            if (r >=0 && r < 5) {
-                m_prgReg[r] = data;
-                #ifdef MMC5_DEBUG
-                printf("[MMC5] $511%d = 0x%02X\n", 3 + r, data);
-                #endif
-            }
+            if(r == 0) m_prgReg[r] = data & m_saveRamMask;
+            else m_prgReg[r] = data & m_prgMask;
             return;
         }
 
         // CHR regs $5120 - $512B
         if (cpuAddr >= 0x5120 && cpuAddr <= 0x512B) {
             int idx = cpuAddr - 0x5120;
-            if (idx >= 0 && idx < 12) {
-                m_chrReg[idx] = (uint16_t)data | ((uint16_t)m_chrUpper << 8);
-                #ifdef MMC5_DEBUG
-                printf("[MMC5] $512%X = 0x%02X (chr idx %d => %03X)\n", idx, data, idx, m_chrReg[idx]);
-                #endif
-            }
+            m_chrReg[idx] = (uint16_t)data | ((uint16_t)m_chrUpper << 8);
+            //m_chrReg[idx] &= m_chrMask;
+            m_lastChrWritten = idx < 8 ? ChrType::A : ChrType::B;
             return;
         }
 
         if (cpuAddr == 0x5130) {
             m_chrUpper = data & 0x03;
-            #ifdef MMC5_DEBUG
-            printf("[MMC5] $5130 = 0x%02X (upper bits)\n", m_chrUpper);
-            #endif
             return;
         }
 
@@ -227,10 +202,11 @@ public:
             // Ex2: cpu read/write allowed
             // Ex3: cpu read-only
             if (m_exRamMode == 0 || m_exRamMode == 1) {
-                if (m_ppuRendering) {
+                if (m_inFrame) { //ppu rendering
                     m_exRam[exOff & 0x03FF] = data;
                 } else {
                     // write ignored (or writes as zero per doc). We'll ignore.
+                    m_exRam[exOff & 0x03FF] = 0;
                 }
             } else if (m_exRamMode == 2) {
                 m_exRam[exOff & 0x03FF] = data;
@@ -246,10 +222,6 @@ public:
     virtual uint8_t readMapperRegister(int off, uint8_t openBusData) override
     {
         const uint16_t cpuAddr = 0x4000 + (off & 0x1FFF);
-
-        #ifdef MMC5_DEBUG
-        printf("[MMC5] read0x4000 cpu=0x%04X\n", cpuAddr);
-        #endif
 
         // sound status $5015
         if (cpuAddr == 0x5015) {
@@ -298,39 +270,18 @@ public:
     {
         if(!m_prgRamProtect1 || !m_prgRamProtect2) return;
 
-        // Map the 8KB SaveRam window into the actual save RAM using $5113 (m_prgReg[0]).
-        // Use cartridge-provided saveRamSize to compute number of 8k pages. If saveRamSize==0 fallback to default BaseMapper.
-        size_t saveSize = (size_t)cd().saveRamSize();
-        if (saveSize == 0) {
-            // fallback to base behavior
-            BaseMapper::writeSaveRam(addr, data);
-            return;
+        if(cd().saveRamSize() > 0) {
+            writeSRamBank<BankSize::B8K>(m_prgReg[0], addr, data);
         }
-
-        const uint16_t pageSize = 0x2000; // 8KB pages
-        size_t nPages = (saveSize + pageSize - 1) / pageSize;
-        if (nPages == 0) nPages = 1;
-
-        uint32_t bank = (uint32_t)m_prgReg[0] & (uint32_t)(nPages - 1); // wrap around available pages
-        uint32_t mapped = (bank * pageSize) + (addr & 0x1FFF);
-        // forward to BaseMapper storage (BaseMapper will mask by saveRamSize if needed)
-        BaseMapper::writeSaveRam((int)mapped, data);
     }
 
     virtual uint8_t readSaveRam(int addr) override
     {
-        size_t saveSize = (size_t)cd().saveRamSize();
-        if (saveSize == 0) {
-            return BaseMapper::readSaveRam(addr);
+        if(cd().saveRamSize() > 0) {
+            return readSRamBank<BankSize::B8K>(m_prgReg[0], addr);
         }
 
-        const uint16_t pageSize = 0x2000;
-        size_t nPages = (saveSize + pageSize - 1) / pageSize;
-        if (nPages == 0) nPages = 1;
-
-        uint32_t bank = (uint32_t)m_prgReg[0] & (uint32_t)(nPages - 1);
-        uint32_t mapped = (bank * pageSize) + (addr & 0x1FFF);
-        return BaseMapper::readSaveRam((int)mapped);
+        return 0;
     }
 
     // ---------- PRG area $8000-$FFFF
@@ -339,17 +290,17 @@ public:
     {
         switch (m_prgMode) {
             case 0: {
-                int bank = ((m_prgReg[4] & m_prgMask) >> 2);
+                int bank = (m_prgReg[4] >> 2);
                 return cd().readPrg<BankSize::B32K>(bank, addr);
             }
             case 1: {
                 switch(addr >> 12) { //addr/16k
                     case 0: {
-                        int bank = ((m_prgReg[2] & m_prgMask) >> 1);
+                        int bank = (m_prgReg[2] >> 1);
                         return cd().readPrg<BankSize::B16K>(bank, addr);
                     }
                     case 1: {
-                        int bank = ((m_prgReg[4] & m_prgMask) >> 1);
+                        int bank = (m_prgReg[4] >> 1);
                         return cd().readPrg<BankSize::B16K>(bank, addr);
                     }
                 }                 
@@ -357,12 +308,12 @@ public:
             case 2: {
                 switch(addr >> 12) { //addr/16k
                     case 0: {
-                        int bank = ((m_prgReg[2] & m_prgMask) >> 1);
+                        int bank = (m_prgReg[2] >> 1);
                         return cd().readPrg<BankSize::B16K>(bank, addr);
                     }
                     case 1: {
                         int div = addr >> 13; //addr/8k
-                        int bank = (m_prgReg[div+1] & m_prgMask);
+                        int bank = m_prgReg[div+1];
                         return cd().readPrg<BankSize::B8K>(bank, addr);
                     }
                 }                 
@@ -370,7 +321,7 @@ public:
             case 3:
             default: {
                 int div = addr >> 13; //addr/8k
-                int bank = (m_prgReg[div+1] & m_prgMask);
+                int bank = m_prgReg[div+1];
                 return cd().readPrg<BankSize::B8K>(bank, addr);
             }
         }        
@@ -389,170 +340,189 @@ public:
     // ---------- CHR handlers
     GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        switch (m_chrMode) {
-            case 0: {
-                // 8KB mode: use m_chrReg[0] as base
-                uint32_t full = (static_cast<uint32_t>(m_chrUpper) << 8) | (uint32_t)m_chrReg[0];
-                full &= (~0x7u) & m_chrMask;
-                int bank8k = (int)(full & m_chrMask);
-                return readChrBank<BankSize::B8K>(bank8k, addr);
-            }
-            case 1: {
-                // 4KB mode
-                if (addr < 0x1000) {
-                    uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[8];
-                    idx &= (~0x3u) & m_chrMask;
-                    return readChrBank<BankSize::B4K>((int)idx, addr);
-                } else {
-                    uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[9];
-                    idx &= (~0x3u) & m_chrMask;
-                    return readChrBank<BankSize::B4K>((int)idx, addr);
-                }
-            }
-            case 2: {
-                // 2KB mode
-                int slot = (addr >> 11) & 0x3;
-                int regIndex = slot * 2;
-                if (regIndex > 11) regIndex = 11;
-                uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[regIndex];
-                idx &= (~0x1u) & m_chrMask;
-                return readChrBank<BankSize::B2K>((int)idx, addr);
-            }
-            case 3:
-            default: {
-                // 1KB mode
-                int slot = (addr >> 10) & 0x7;
-                int regIndex = slot;
-                if (regIndex > 11) regIndex = 11;
-                uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[regIndex];
-                idx &= m_chrMask;
-                return readChrBank<BankSize::B1K>((int)idx, addr);
+        if (m_exRamMode == 1 && m_currentChrSet == ChrType::A) {
+            // BG em Ex1
+            return readChrBank<BankSize::B4K>(m_currentBgChrBank, addr);
+        }
+
+        if(m_currentChrSet == ChrType::A) {
+            switch (m_chrMode) {
+                case 0: return readChrBank<BankSize::B8K>(m_chrReg[7], addr);
+                case 1:
+                    switch(addr >> 12) { // addr/0x1000
+                        case 0: return readChrBank<BankSize::B4K>(m_chrReg[3], addr);
+                        case 1: return readChrBank<BankSize::B4K>(m_chrReg[7], addr);
+                    }
+                case 2:
+                    switch(addr >> 11) { // addr/0x800
+                        case 0: return readChrBank<BankSize::B2K>(m_chrReg[1], addr);
+                        case 1: return readChrBank<BankSize::B2K>(m_chrReg[3], addr);
+                        case 2: return readChrBank<BankSize::B2K>(m_chrReg[5], addr);
+                        case 3: return readChrBank<BankSize::B2K>(m_chrReg[7], addr);
+                    }
+                case 3: {
+                    int index = addr >> 10; // addr/0x400
+                    return readChrBank<BankSize::B1K>(m_chrReg[index], addr);
+                }                    
             }
         }
+        else { //ChrType::B
+            switch (m_chrMode) {
+                case 0: return readChrBank<BankSize::B8K>(m_chrReg[11], addr);
+                case 1:
+                    switch(addr >> 12) { // addr/0x1000
+                        case 0: return readChrBank<BankSize::B4K>(m_chrReg[11], addr);
+                        case 1: return readChrBank<BankSize::B4K>(m_chrReg[11], addr);
+                    }
+                case 2:
+                    switch(addr >> 11) { // addr/0x800
+                        case 0: return readChrBank<BankSize::B2K>(m_chrReg[9], addr);
+                        case 1: return readChrBank<BankSize::B2K>(m_chrReg[11], addr);
+                        case 2: return readChrBank<BankSize::B2K>(m_chrReg[9], addr);
+                        case 3: return readChrBank<BankSize::B2K>(m_chrReg[11], addr);
+                    }
+                case 3: {
+                    int index = addr >> 10; // addr/0x400
+                    return readChrBank<BankSize::B1K>(m_chrReg[8+(index%4)], addr);
+                }                    
+            }
+        }
+        
+        return 0;
     }
 
     GERANES_HOT virtual void writeChr(int addr, uint8_t data) override
     {
         if (!hasChrRam()) return;
 
-        switch (m_chrMode) {
-            case 0: {
-                uint32_t full = (static_cast<uint32_t>(m_chrUpper) << 8) | (uint32_t)m_chrReg[0];
-                full &= (~0x7u) & m_chrMask;
-                writeChrBank<BankSize::B8K>((int)full, addr, data);
-                break;
-            }
-            case 1: {
-                if (addr < 0x1000) {
-                    uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[8];
-                    idx &= (~0x3u) & m_chrMask;
-                    writeChrBank<BankSize::B4K>((int)idx, addr, data);
-                } else {
-                    uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[9];
-                    idx &= (~0x3u) & m_chrMask;
-                    writeChrBank<BankSize::B4K>((int)idx, addr, data);
-                }
-                break;
-            }
-            case 2: {
-                int slot = (addr >> 11) & 0x3;
-                int regIndex = slot * 2;
-                if (regIndex > 11) regIndex = 11;
-                uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[regIndex];
-                idx &= (~0x1u) & m_chrMask;
-                writeChrBank<BankSize::B2K>((int)idx, addr, data);
-                break;
-            }
-            case 3:
-            default: {
-                int slot = (addr >> 10) & 0x7;
-                int regIndex = slot;
-                if (regIndex > 11) regIndex = 11;
-                uint32_t idx = (static_cast<uint32_t>(m_chrUpper) << 8) | m_chrReg[regIndex];
-                idx &= m_chrMask;
-                writeChrBank<BankSize::B1K>((int)idx, addr, data);
-                break;
+        if(m_currentChrSet == ChrType::A) {
+            switch (m_chrMode) {
+                case 0: writeChrBank<BankSize::B8K>(m_chrReg[7], addr, data); break;
+                case 1:
+                    switch(addr >> 12) { // addr/0x1000
+                        case 0: writeChrBank<BankSize::B4K>(m_chrReg[3], addr, data); break;
+                        case 1: writeChrBank<BankSize::B4K>(m_chrReg[7], addr, data); break;
+                    }
+                    break;
+                case 2:
+                    switch(addr >> 11) { // addr/0x800
+                        case 0: writeChrBank<BankSize::B2K>(m_chrReg[1], addr, data); break;
+                        case 1: writeChrBank<BankSize::B2K>(m_chrReg[3], addr, data); break;
+                        case 2: writeChrBank<BankSize::B2K>(m_chrReg[5], addr, data); break;
+                        case 3: writeChrBank<BankSize::B2K>(m_chrReg[7], addr, data); break;
+                    }
+                    break;
+                case 3: {
+                    int index = addr >> 10; // addr/0x400
+                    writeChrBank<BankSize::B1K>(m_chrReg[index], addr, data); break;
+                }                    
             }
         }
+        else { //ChrType::B
+            switch (m_chrMode) {
+                case 0: writeChrBank<BankSize::B8K>(m_chrReg[11], addr, data); break;
+                case 1:
+                    switch(addr >> 12) { // addr/0x1000
+                        case 0: writeChrBank<BankSize::B4K>(m_chrReg[11], addr, data); break;
+                        case 1: writeChrBank<BankSize::B4K>(m_chrReg[11], addr, data); break;
+                    }
+                    break;
+                case 2:
+                    switch(addr >> 11) { // addr/0x800
+                        case 0: writeChrBank<BankSize::B2K>(m_chrReg[9], addr, data); break;
+                        case 1: writeChrBank<BankSize::B2K>(m_chrReg[11], addr, data); break;
+                        case 2: writeChrBank<BankSize::B2K>(m_chrReg[9], addr, data); break;
+                        case 3: writeChrBank<BankSize::B2K>(m_chrReg[11], addr, data); break;
+                    }
+                    break;
+                case 3: {
+                    int index = addr >> 10; // addr/0x400
+                    writeChrBank<BankSize::B1K>(m_chrReg[8+(index%4)], addr, data); break;
+                }                    
+            }
+        } 
     }
 
-    // ---------- Mirroring / nametable behavior
     GERANES_HOT MirroringType mirroringType() override
     {
-        // If any nametable maps to ExRAM (value 2) make PPU use ExRAM via four-screen mode hook.
-        uint8_t n = m_ntMap;
-        for (int i = 0; i < 4; ++i) {
-            uint8_t v = (n >> (i*2)) & 0x03;
-            if (v == 2) return MirroringType::FOUR_SCREEN;
-        }
-        if (cd().useFourScreenMirroring()) return MirroringType::FOUR_SCREEN;
-        // fallback to base mapper mirroring
-        return BaseMapper::mirroringType();
+        return MirroringType::CUSTOM;
     }
 
-    // ---------- PPU integration hooks for scanline detection & ExRAM render-only writes
-    // Call mapper.ppuRead(ppuAddr) when PPU reads $2000-$2FFF (nametable/attribute accesses).
-    void ppuRead(uint16_t ppuAddr)
+    virtual uint8_t customMirroring(uint8_t addrIndex) override
     {
-        if (ppuAddr < 0x2000 || ppuAddr > 0x2FFF) {
-            m_ppuMatchCount = 0;
-            m_lastPpuAddr = 0xFFFF;
-            return;
+        uint8_t x = (m_ntMap >> (2*addrIndex)) & 3;
+
+        switch(x) {
+            case 0: return 0;
+            case 1: return 1;
         }
 
-        if (ppuAddr == m_lastPpuAddr) {
-            m_ppuMatchCount++;
-        } else {
-            m_ppuMatchCount = 1;
-            m_lastPpuAddr = ppuAddr;
-        }
-
-        if (m_ppuMatchCount >= 3) {
-            if (!m_inFrame) {
-                m_inFrame = true;
-                m_scanlineCounter = 0;
-                m_scanlinePending = false;
-            } else {
-                m_scanlineCounter++;
-                if (m_scanlineCounter == m_scanlineCompare) {
-                    m_scanlinePending = true;
-                    if (m_irqEnable) m_irqLine = true;
-                }
-            }
-            m_ppuMatchCount = 0;
-            m_lastPpuAddr = 0xFFFF;
-        }
+        assert(false); //should never occur
+        return 0;
     }
 
-    // Call this each M2 rising edge from CPU/PPU: ppuWasReading = true if PPU read happened during last M2.
-    void ppuIdleTick(bool ppuWasReading)
+    GERANES_HOT bool useCustomNameTable(uint8_t index) override
     {
-        if (ppuWasReading) {
-            m_idleCounter = 0;
-        } else {
-            m_idleCounter++;
-            if (m_idleCounter >= 3) {
-                // PPU inactive -> clear inFrame and counters
-                m_inFrame = false;
-                m_ppuMatchCount = 0;
-                m_lastPpuAddr = 0xFFFF;
-                m_scanlineCounter = 0;
-                m_scanlinePending = false;
-                m_irqLine = false;
-            }
+        uint8_t x = (m_ntMap >> (2*index)) & 3;
+
+        switch(x) {
+            case 0: return false;
+            case 1: return false;
+            case 2: return true;
+            case 3: return true;
+        }
+
+        assert(false); //should never occur
+        return 0;
+    }
+
+    GERANES_HOT uint8_t readFillNameTable(uint16_t addr) {
+        return addr < 0x3C0 ? m_fillTile : m_fillColor;
+    }
+
+    GERANES_HOT uint8_t readExRamAsNametable(uint16_t addr) {
+
+        if(m_exRamMode == 0 || m_exRamMode == 1)
+            return m_exRam[addr];
+
+        return 0;
+    }
+
+    GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
+    {        
+        uint8_t x = (m_ntMap >> (2*index)) & 3;
+
+        switch(x) {
+            case 2: return readExRamAsNametable(addr);
+            case 3: return readFillNameTable(addr);
+        }
+
+        assert(false); //should never occur
+        return 0;
+    }
+
+    void configMMC5(bool is8x16, bool isBg) override {
+        if(is8x16) {
+            m_currentChrSet = isBg ? ChrType::B : ChrType::A; //TODO inverted?
+        }
+        else {
+            m_currentChrSet = m_lastChrWritten;
         }
     }
 
-    // A12 fallback (called by system when PPU A12 toggles)
     void onMMC5Scanline(bool inFrame) override
-    {
-        m_inFrame = inFrame;
-
-        if(!m_inFrame) {
+    {        
+        if(!m_inFrame && inFrame) {
+            m_inFrame = true;
             m_scanlineCounter = 0;
             m_scanlinePending = false;
             return;
         }
+        
+        if(!inFrame) {
+            m_inFrame = false;
+            return;
+        }       
 
         m_scanlineCounter++;
         if (m_scanlineCounter == m_scanlineCompare) {
@@ -560,32 +530,24 @@ public:
             if (m_irqEnable) m_irqLine = true;
         }  
     }
+    
+    virtual void onMMC5BgTileIndex(uint16_t tileIndex) override {
+        if (m_exRamMode == 1) {
+            uint8_t v = m_exRam[tileIndex & 0x03FF];
 
-    void setPpuRendering(bool rendering) {
-        m_ppuRendering = rendering;
+            uint8_t chrLow = v & 0x3F;
+            uint8_t pal    = (v >> 6) << 2;
+
+            m_currentBgPalette = pal;
+            m_currentBgChrBank = (m_chrUpper << 6) | chrLow;
+        }
     }
 
-    // Read mapper-specific register directly (some cores route CPU reads $5xxx through this)
-    uint8_t readRegister(uint16_t addr, uint8_t openBusData = 0)
-    {
-        uint16_t off = addr & 0x0FFF;
-        if (off == 0x204) { // $5204
-            uint8_t v = 0;
-            if (m_scanlinePending) v |= 0x01;
-            if (m_inFrame) v |= 0x02;
-            m_scanlinePending = false;
-            m_irqLine = false;
-            return v;
+    virtual std::optional<uint8_t> getMMC5BgPalette() const override {
+        if(m_exRamMode == 1) {
+            return m_currentBgPalette;
         }
-        if (off == 0x205) { // $5205 low product
-            uint16_t product = (uint16_t)m_soundRegs[0x05] * (uint16_t)m_soundRegs[0x06];
-            return (uint8_t)(product & 0xFF);
-        }
-        if (off == 0x206) { // $5206 high product
-            uint16_t product = (uint16_t)m_soundRegs[0x05] * (uint16_t)m_soundRegs[0x06];
-            return (uint8_t)((product >> 8) & 0xFF);
-        }
-        return openBusData;
+        return std::nullopt;
     }
 
     // Console polls this to decide /IRQ line
@@ -606,14 +568,11 @@ public:
         offset &= 0x03FF;
         // obey mode: Ex0/Ex1 only during rendering
         if (m_exRamMode == 0 || m_exRamMode == 1) {
-            if (m_ppuRendering) m_exRam[offset] = v;
+            if (m_inFrame) m_exRam[offset] = v; //ppu rendering
         } else if (m_exRamMode == 2) {
             m_exRam[offset] = v;
         } else { /* Ex3 write ignored */ }
     }
-
-    // cycle hook
-    void cycle() override { /* nothing required here for now */ }
 
     // Serialization
     virtual void serialization(SerializationBase& s) override

@@ -265,6 +265,10 @@ private:
     //index 0-3
     GERANES_INLINE_HOT void writeNameTable(uint8_t addrIndex, uint16_t addr, uint8_t data)
     {
+        if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
+            return;
+        }
+
         int index = m_cartridge.mirroring(addrIndex&0x03);
         m_nameTable[index&3][addr&0x3FF] = data;
     }
@@ -273,7 +277,7 @@ private:
     GERANES_INLINE_HOT uint8_t readNameTable(uint8_t addrIndex, uint16_t addr)
     {
         if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
-            return m_cartridge.readCustomNameTable(addrIndex&0x03,addr&0x3FF);
+            return m_cartridge.readCustomNameTable(addrIndex&0x03, addr&0x3FF);
         }
 
         int index = m_cartridge.mirroring(addrIndex&0x03);
@@ -785,6 +789,8 @@ yyy NN YYYYY XXXXX
         if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
         if(m_currentY == 0) return;
 
+        m_cartridge.configMMC5(m_spriteSize8x16, false);
+
         int spriteLineToDraw = 0;
         int spriteXToDraw = 0;
 
@@ -1025,7 +1031,7 @@ yyy NN YYYYY XXXXX
             if(m_prevCycleRenderingEnabled) {
          
                 if(bgFetchCycles) {
-
+    
                     m_tileData <<= 4;
 
                     switch(m_cycle%8) {
@@ -1046,7 +1052,7 @@ yyy NN YYYYY XXXXX
             if(isRenderingEnabled()) {
                 //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
 			    if(spriteFetchCycles) {
-                    m_oamAddr = 0;
+                    m_oamAddr = 0;                    
                     fetchSprites();
                 }
             }
@@ -1131,6 +1137,10 @@ yyy NN YYYYY XXXXX
 
                 break;
             }
+            case 5:
+            case 7:
+                m_cartridge.configMMC5(m_spriteSize8x16, false);
+                break;
         }
    
     }
@@ -1654,6 +1664,14 @@ yyy NNYY YYYX XXXX
         uint8_t tileIndex = readPpuMemory(address);
 
         int fineY = (m_reg_v >> 12) & 7;
+
+        {
+            uint16_t tilePos = address & 0x03FF;
+            m_cartridge.onMMC5BgTileIndex(tilePos);
+        }
+
+
+
         int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
 
         m_tileAddr = table + (tileIndex << 4) + fineY;
@@ -1672,14 +1690,25 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void fetchLowTileByte() {
+        m_cartridge.configMMC5(m_spriteSize8x16, true);
         m_lowTileByte = readPpuMemory(m_tileAddr);        
     }
 
     GERANES_INLINE void fetchHighTileByte() {
+        m_cartridge.configMMC5(m_spriteSize8x16, true);
         m_highTileByte = readPpuMemory(m_tileAddr + 8);        
     }
 
     GERANES_INLINE void storeTileData() {
+
+        uint8_t paletteOffset;
+
+        if (auto pal = m_cartridge.getMMC5BgPalette()) {
+            paletteOffset = *pal;
+        } else {
+            paletteOffset = m_paletteOffset;
+        }
+
         uint64_t data = 0;
         for(int i= 0; i < 8; i++) {
             int p1 = (m_lowTileByte & 0x80) >> 7;
@@ -1687,7 +1716,7 @@ yyy NNYY YYYX XXXX
             m_lowTileByte <<= 1;
             m_highTileByte <<= 1;
             data <<= 4;
-            data |= uint32_t(m_paletteOffset | p1 | p2);
+            data |= uint32_t(paletteOffset | p1 | p2);
         }
         m_tileData |= data;
     }
