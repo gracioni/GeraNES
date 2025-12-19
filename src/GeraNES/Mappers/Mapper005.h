@@ -54,18 +54,18 @@ protected:
 
     // Masks derived from cartridge
     uint8_t m_prgMask = 0;   // for 8KB banks
-    uint32_t m_chrMask = 0;  // for 1KB banks
     uint8_t m_saveRamMask = 0;
 
     uint16_t m_currentBgTileIndex = 0;
     uint8_t  m_currentBgPalette = 0;
-    uint16_t m_currentBgChrBank = 0;
+    uint8_t m_currentBgChrLow = 0;
+
+    bool m_spriteSize8x16 = false;
 
 public:
     Mapper005(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_prgMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
-        m_chrMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
         m_saveRamMask = calculateMask(cd.numberOfSRamBanks<BankSize::B8K>());
 
         // sensible power-on defaults: mode 3 (8k prg), CHR 1k
@@ -157,7 +157,6 @@ public:
         if (cpuAddr >= 0x5120 && cpuAddr <= 0x512B) {
             int idx = cpuAddr - 0x5120;
             m_chrReg[idx] = (uint16_t)data | ((uint16_t)m_chrUpper << 8);
-            //m_chrReg[idx] &= m_chrMask;
             m_lastChrWritten = idx < 8 ? ChrType::A : ChrType::B;
             return;
         }
@@ -206,7 +205,7 @@ public:
                     m_exRam[exOff & 0x03FF] = data;
                 } else {
                     // write ignored (or writes as zero per doc). We'll ignore.
-                    m_exRam[exOff & 0x03FF] = 0;
+                    //m_exRam[exOff & 0x03FF] = 0;
                 }
             } else if (m_exRamMode == 2) {
                 m_exRam[exOff & 0x03FF] = data;
@@ -340,9 +339,18 @@ public:
     // ---------- CHR handlers
     GERANES_HOT virtual uint8_t readChr(int addr) override
     {
-        if (m_exRamMode == 1 && m_currentChrSet == ChrType::A) {
+        addr &= 0x1FFF;
+
+        if (!m_spriteSize8x16            // 8x8 sprites
+            && m_currentChrSet == ChrType::B)
+        {
+            addr &= 0x0FFF;              // <<< mirroring
+        }
+
+        if (m_exRamMode == 1 && m_isBg) {
             // BG em Ex1
-            return readChrBank<BankSize::B4K>(m_currentBgChrBank, addr);
+            uint8_t bank4k = (m_chrUpper << 6) | m_currentBgChrLow;
+            return readChrBank<BankSize::B4K>(bank4k, addr);
         }
 
         if(m_currentChrSet == ChrType::A) {
@@ -384,7 +392,7 @@ public:
                 case 3: {
                     int index = addr >> 10; // addr/0x400
                     return readChrBank<BankSize::B1K>(m_chrReg[8+(index%4)], addr);
-                }                    
+                }
             }
         }
         
@@ -450,7 +458,7 @@ public:
 
     virtual uint8_t customMirroring(uint8_t addrIndex) override
     {
-        uint8_t x = (m_ntMap >> (2*addrIndex)) & 3;
+        uint8_t x = (m_ntMap >> (2*addrIndex)) & 0x03;
 
         switch(x) {
             case 0: return 0;
@@ -463,7 +471,7 @@ public:
 
     GERANES_HOT bool useCustomNameTable(uint8_t index) override
     {
-        uint8_t x = (m_ntMap >> (2*index)) & 3;
+        uint8_t x = (m_ntMap >> (2*index)) & 0x03;
 
         switch(x) {
             case 0: return false;
@@ -473,11 +481,16 @@ public:
         }
 
         assert(false); //should never occur
-        return 0;
+        return false;
     }
 
     GERANES_HOT uint8_t readFillNameTable(uint16_t addr) {
-        return addr < 0x3C0 ? m_fillTile : m_fillColor;
+        if (addr < 0x3C0)
+            return m_fillTile;
+        else {
+            uint8_t a = m_fillColor & 0x03;
+            return (a << 6) | (a << 4) | (a << 2) | a;
+        }
     }
 
     GERANES_HOT uint8_t readExRamAsNametable(uint16_t addr) {
@@ -488,9 +501,9 @@ public:
         return 0;
     }
 
-    GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
+    GERANES_HOT uint8_t readCustomNameTable(uint8_t addrIndex, uint16_t addr) override
     {        
-        uint8_t x = (m_ntMap >> (2*index)) & 3;
+        uint8_t x = (m_ntMap >> (2*addrIndex)) & 0x03;
 
         switch(x) {
             case 2: return readExRamAsNametable(addr);
@@ -501,9 +514,15 @@ public:
         return 0;
     }
 
+    bool m_isBg = false;
+
     void configMMC5(bool is8x16, bool isBg) override {
+        
+        m_isBg = isBg;
+        m_spriteSize8x16 = is8x16;
+        
         if(is8x16) {
-            m_currentChrSet = isBg ? ChrType::B : ChrType::A; //TODO inverted?
+            m_currentChrSet = isBg ? ChrType::B : ChrType::A;            
         }
         else {
             m_currentChrSet = m_lastChrWritten;
@@ -539,7 +558,7 @@ public:
             uint8_t pal    = (v >> 6) << 2;
 
             m_currentBgPalette = pal;
-            m_currentBgChrBank = (m_chrUpper << 6) | chrLow;
+            m_currentBgChrLow = chrLow;
         }
     }
 
@@ -554,25 +573,7 @@ public:
     bool getInterruptFlag() override
     {
         return m_irqLine;
-    }
-
-    // Expose ExRAM read/write for PPU when nametable mapped to ExRAM
-    uint8_t exRamRead(uint16_t offset)
-    {
-        offset &= 0x03FF;
-        return m_exRam[offset];
-    }
-
-    void exRamWrite(uint16_t offset, uint8_t v)
-    {
-        offset &= 0x03FF;
-        // obey mode: Ex0/Ex1 only during rendering
-        if (m_exRamMode == 0 || m_exRamMode == 1) {
-            if (m_inFrame) m_exRam[offset] = v; //ppu rendering
-        } else if (m_exRamMode == 2) {
-            m_exRam[offset] = v;
-        } else { /* Ex3 write ignored */ }
-    }
+    }    
 
     // Serialization
     virtual void serialization(SerializationBase& s) override
@@ -607,6 +608,5 @@ public:
         SERIALIZEDATA(s, m_irqLine);
 
         SERIALIZEDATA(s, m_prgMask);
-        SERIALIZEDATA(s, m_chrMask);
     }
 };

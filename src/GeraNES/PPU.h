@@ -908,6 +908,8 @@ yyy NN YYYYY XXXXX
                 if(!isPixelBehind) m_currentPixelColorIndex = paletteIndex;
             }
         }
+        
+        //m_cartridge.configMMC5(m_spriteSize8x16, true);
     }
 
     //called every cpu cycle
@@ -1665,12 +1667,7 @@ yyy NNYY YYYX XXXX
 
         int fineY = (m_reg_v >> 12) & 7;
 
-        {
-            uint16_t tilePos = address & 0x03FF;
-            m_cartridge.onMMC5BgTileIndex(tilePos);
-        }
-
-
+        m_cartridge.onMMC5BgTileIndex(address);
 
         int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
 
