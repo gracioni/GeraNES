@@ -29,7 +29,7 @@ protected:
     uint8_t m_fillColor = 0; // $5107
 
     // PRG registers ($5113-$5117)
-    uint8_t m_prgReg[5] = {0};
+    uint8_t m_prgReg[5] = {0, 0, 0, 0, 0xFF};
 
     // CHR registers ($5120-$512B + $5130)
     uint16_t m_chrReg[12] = {0};
@@ -61,6 +61,10 @@ protected:
     uint8_t m_currentBgChrLow = 0;
 
     bool m_spriteSize8x16 = false;
+
+    uint8_t m_splitControl = 0;
+    uint8_t m_splitYScroll = 0;
+    uint8_t m_splitChrBank = 0;
 
 public:
     Mapper005(ICartridgeData& cd) : BaseMapper(cd)
@@ -169,9 +173,12 @@ public:
         // Split screen & scanline $5200-$5206
         if (cpuAddr >= 0x5200 && cpuAddr <= 0x5206) {
             switch (cpuAddr) {
-                case 0x5200: /* split control */ /* TODO: store if needed */ return;
-                case 0x5201: /* split vscroll */ /* TODO */ return;
-                case 0x5202: /* split bank */ /* TODO */ return;
+                case 0x5200:
+                    m_splitControl = data; return;
+                case 0x5201:
+                    m_splitYScroll  = data; return;
+                case 0x5202:
+                    m_splitChrBank = data; return;
                 case 0x5203: // IRQ trigger
                     m_scanlineCompare = data;
                     return;
@@ -382,6 +389,7 @@ public:
                         case 0: return readChrBank<BankSize::B4K>(m_chrReg[11], addr);
                         case 1: return readChrBank<BankSize::B4K>(m_chrReg[11], addr);
                     }
+                    assert(false);
                 case 2:
                     switch(addr >> 11) { // addr/0x800
                         case 0: return readChrBank<BankSize::B2K>(m_chrReg[9], addr);
@@ -389,6 +397,7 @@ public:
                         case 2: return readChrBank<BankSize::B2K>(m_chrReg[9], addr);
                         case 3: return readChrBank<BankSize::B2K>(m_chrReg[11], addr);
                     }
+                    assert(false);
                 case 3: {
                     int index = addr >> 10; // addr/0x400
                     return readChrBank<BankSize::B1K>(m_chrReg[8+(index%4)], addr);
@@ -399,57 +408,57 @@ public:
         return 0;
     }
 
-    GERANES_HOT virtual void writeChr(int addr, uint8_t data) override
-    {
-        if (!hasChrRam()) return;
+    // GERANES_HOT virtual void writeChr(int addr, uint8_t data) override
+    // {
+    //     if (!hasChrRam()) return;
 
-        if(m_currentChrSet == ChrType::A) {
-            switch (m_chrMode) {
-                case 0: writeChrBank<BankSize::B8K>(m_chrReg[7], addr, data); break;
-                case 1:
-                    switch(addr >> 12) { // addr/0x1000
-                        case 0: writeChrBank<BankSize::B4K>(m_chrReg[3], addr, data); break;
-                        case 1: writeChrBank<BankSize::B4K>(m_chrReg[7], addr, data); break;
-                    }
-                    break;
-                case 2:
-                    switch(addr >> 11) { // addr/0x800
-                        case 0: writeChrBank<BankSize::B2K>(m_chrReg[1], addr, data); break;
-                        case 1: writeChrBank<BankSize::B2K>(m_chrReg[3], addr, data); break;
-                        case 2: writeChrBank<BankSize::B2K>(m_chrReg[5], addr, data); break;
-                        case 3: writeChrBank<BankSize::B2K>(m_chrReg[7], addr, data); break;
-                    }
-                    break;
-                case 3: {
-                    int index = addr >> 10; // addr/0x400
-                    writeChrBank<BankSize::B1K>(m_chrReg[index], addr, data); break;
-                }                    
-            }
-        }
-        else { //ChrType::B
-            switch (m_chrMode) {
-                case 0: writeChrBank<BankSize::B8K>(m_chrReg[11], addr, data); break;
-                case 1:
-                    switch(addr >> 12) { // addr/0x1000
-                        case 0: writeChrBank<BankSize::B4K>(m_chrReg[11], addr, data); break;
-                        case 1: writeChrBank<BankSize::B4K>(m_chrReg[11], addr, data); break;
-                    }
-                    break;
-                case 2:
-                    switch(addr >> 11) { // addr/0x800
-                        case 0: writeChrBank<BankSize::B2K>(m_chrReg[9], addr, data); break;
-                        case 1: writeChrBank<BankSize::B2K>(m_chrReg[11], addr, data); break;
-                        case 2: writeChrBank<BankSize::B2K>(m_chrReg[9], addr, data); break;
-                        case 3: writeChrBank<BankSize::B2K>(m_chrReg[11], addr, data); break;
-                    }
-                    break;
-                case 3: {
-                    int index = addr >> 10; // addr/0x400
-                    writeChrBank<BankSize::B1K>(m_chrReg[8+(index%4)], addr, data); break;
-                }                    
-            }
-        } 
-    }
+    //     if(m_currentChrSet == ChrType::A) {
+    //         switch (m_chrMode) {
+    //             case 0: writeChrBank<BankSize::B8K>(m_chrReg[7], addr, data); break;
+    //             case 1:
+    //                 switch(addr >> 12) { // addr/0x1000
+    //                     case 0: writeChrBank<BankSize::B4K>(m_chrReg[3], addr, data); break;
+    //                     case 1: writeChrBank<BankSize::B4K>(m_chrReg[7], addr, data); break;
+    //                 }
+    //                 break;
+    //             case 2:
+    //                 switch(addr >> 11) { // addr/0x800
+    //                     case 0: writeChrBank<BankSize::B2K>(m_chrReg[1], addr, data); break;
+    //                     case 1: writeChrBank<BankSize::B2K>(m_chrReg[3], addr, data); break;
+    //                     case 2: writeChrBank<BankSize::B2K>(m_chrReg[5], addr, data); break;
+    //                     case 3: writeChrBank<BankSize::B2K>(m_chrReg[7], addr, data); break;
+    //                 }
+    //                 break;
+    //             case 3: {
+    //                 int index = addr >> 10; // addr/0x400
+    //                 writeChrBank<BankSize::B1K>(m_chrReg[index], addr, data); break;
+    //             }                    
+    //         }
+    //     }
+    //     else { //ChrType::B
+    //         switch (m_chrMode) {
+    //             case 0: writeChrBank<BankSize::B8K>(m_chrReg[11], addr, data); break;
+    //             case 1:
+    //                 switch(addr >> 12) { // addr/0x1000
+    //                     case 0: writeChrBank<BankSize::B4K>(m_chrReg[11], addr, data); break;
+    //                     case 1: writeChrBank<BankSize::B4K>(m_chrReg[11], addr, data); break;
+    //                 }
+    //                 break;
+    //             case 2:
+    //                 switch(addr >> 11) { // addr/0x800
+    //                     case 0: writeChrBank<BankSize::B2K>(m_chrReg[9], addr, data); break;
+    //                     case 1: writeChrBank<BankSize::B2K>(m_chrReg[11], addr, data); break;
+    //                     case 2: writeChrBank<BankSize::B2K>(m_chrReg[9], addr, data); break;
+    //                     case 3: writeChrBank<BankSize::B2K>(m_chrReg[11], addr, data); break;
+    //                 }
+    //                 break;
+    //             case 3: {
+    //                 int index = addr >> 10; // addr/0x400
+    //                 writeChrBank<BankSize::B1K>(m_chrReg[8+(index%4)], addr, data); break;
+    //             }                    
+    //         }
+    //     } 
+    // }
 
     GERANES_HOT MirroringType mirroringType() override
     {

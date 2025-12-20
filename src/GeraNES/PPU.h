@@ -1665,13 +1665,13 @@ yyy NNYY YYYX XXXX
         uint16_t address = getNameTableAddr();
         uint8_t tileIndex = readPpuMemory(address);
 
-        int fineY = (m_reg_v >> 12) & 7;
-
-        m_cartridge.onMMC5BgTileIndex(address);
+        int fineY = (m_reg_v >> 12) & 7;        
 
         int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
 
         m_tileAddr = table + (tileIndex << 4) + fineY;
+
+        m_cartridge.onMMC5BgTileIndex( address);
     }
 
     GERANES_INLINE uint16_t getAttributeTableAddr() {
