@@ -181,7 +181,10 @@ private:
 
         default: // >= 8
             if constexpr(writeFlag) m_cartridge.writePrg(addr&0x7FFF, data);
-            else data = m_cartridge.readPrg(addr&0x7FFF);
+            else {
+                m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
+                data = m_cartridge.readPrg(addr&0x7FFF);
+            }
             break;
 
         }
@@ -216,6 +219,7 @@ private:
     {
         m_zapper1.onScanlineChanged();
         m_zapper2.onScanlineChanged();
+        m_cartridge.onScanlineStart(m_ppu.isActivelyRendering(), m_ppu.scanline());
     }
 
     void onDMCRequest(uint16_t addr, bool reload) {

@@ -166,6 +166,8 @@ private:
 
     uint16_t m_busAddress;
     int m_updateA12Delay;
+    bool m_isSpritePatternFetch;
+    bool m_currentReadAffectsBus;
 
 
     //Do not serialize variables below
@@ -204,6 +206,13 @@ private:
     template<bool writeFlag, bool affectsTheBus>
     GERANES_HOT auto readWritePpuMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
+        m_currentReadAffectsBus = affectsTheBus;
+        m_cartridge.setPpuReadAffectsBus(affectsTheBus);
+
+        if constexpr(!writeFlag && affectsTheBus) {
+            m_cartridge.onPpuRead(addr & 0x3FFF);
+        }
+
         if constexpr (affectsTheBus)
             setBusAddress(addr);
 
@@ -211,6 +220,7 @@ private:
 
         if(addr < 0x2000)
         {
+            m_cartridge.setPpuFetchSource(m_isSpritePatternFetch);
             if constexpr(writeFlag) m_cartridge.writeChr(addr,data);
             else return m_cartridge.readChr(addr);
         }
@@ -265,6 +275,11 @@ private:
     //index 0-3
     GERANES_INLINE_HOT void writeNameTable(uint8_t addrIndex, uint16_t addr, uint8_t data)
     {
+        if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
+            m_cartridge.writeCustomNameTable(addrIndex&0x03, addr&0x3FF, data);
+            return;
+        }
+
         int index = m_cartridge.mirroring(addrIndex&0x03);
         m_nameTable[index&3][addr&0x3FF] = data;
     }
@@ -272,12 +287,21 @@ private:
     //index 0-3
     GERANES_INLINE_HOT uint8_t readNameTable(uint8_t addrIndex, uint16_t addr)
     {
+        uint8_t ret = 0;
+
         if(m_cartridge.useCustomNameTable(addrIndex&0x03)) {
-            return m_cartridge.readCustomNameTable(addrIndex&0x03,addr&0x3FF);
+            ret = m_cartridge.readCustomNameTable(addrIndex&0x03,addr&0x3FF);
+        }
+        else {
+            int index = m_cartridge.mirroring(addrIndex&0x03);
+            ret = m_nameTable[index&3][addr&0x3FF];
         }
 
-        int index = m_cartridge.mirroring(addrIndex&0x03);
-        return m_nameTable[index&3][addr&0x3FF];
+        if(!m_currentReadAffectsBus) {
+            return ret;
+        }
+
+        return m_cartridge.transformNameTableRead(addrIndex&0x03, addr&0x3FF, ret);
     }
 
     GERANES_INLINE void setBusAddress(uint16_t addr) {
@@ -376,6 +400,8 @@ public:
 
         m_busAddress = 0;
         m_updateA12Delay = 0;
+        m_isSpritePatternFetch = false;
+        m_currentReadAffectsBus = true;
 
         updateSettings();        
 
@@ -451,6 +477,7 @@ public:
     template<bool writeFlag>
     GERANES_INLINE_HOT uint8_t readWrite(int addr, uint8_t data)
     {
+        const int fullAddr = addr;
         uint8_t openBusMask;
 
         if constexpr(!writeFlag) {
@@ -467,18 +494,18 @@ public:
         {
         case 0x2000: //acess: write only
         {
-            if constexpr(writeFlag) writePPUCTRL(data);
+            if constexpr(writeFlag) writePPUCTRL(data, true);
             break;
         }
         case 0x2001: //acess: write only
         {
-            if constexpr(writeFlag) writePPUMASK(data);
+            if constexpr(writeFlag) writePPUMASK(data, fullAddr == 0x2001);
             break;
         }
         case 0x2002: //acess: read only
         {
             if constexpr(!writeFlag) {
-                data = readPPUSTATUS();
+                data = readPPUSTATUS(fullAddr == 0x2002);
 
                 data &= ~0x1F;
                 data |= m_openBus&0x1F; //the low 5 bits are open and they should be from decay value
@@ -845,6 +872,7 @@ yyy NN YYYYY XXXXX
 
                 int index = spriteIndexInPatternTable + (m_sprite8x8PatternTableAddress?256:0); //add 512 if sprite is in second page (0x1000);
 
+                m_isSpritePatternFetch = true;
                 paletteIndex =  getColorLowBitsInPatternTable(index,spriteXToDraw,spriteLineToDraw);
                 paletteIndex |= (spriteAttrib&0x03) << 2; //get 2 high bits
             }
@@ -874,6 +902,7 @@ yyy NN YYYYY XXXXX
 
                 if(spriteIndexInPatternTable&0x01) index += 255;
 
+                m_isSpritePatternFetch = true;
                 paletteIndex = getColorLowBitsInPatternTable(index,spriteXToDraw,spriteLineToDraw%8);
                 paletteIndex |= (spriteAttrib&0x03) << 2; //get 2 high bits
             }
@@ -987,6 +1016,7 @@ yyy NN YYYYY XXXXX
     GERANES_HOT void ppuCycle()
     {        
         if(m_cycle == 0) onScanlineStart();
+        m_cartridge.onPpuCycle(m_scanline, m_cycle, m_renderLine && m_prevCycleRenderingEnabled, m_preLine);
 
         if(!m_interruptFlag) {
             if(m_VBlankHasStarted && m_NMIOnVBlank) {
@@ -1101,6 +1131,8 @@ yyy NN YYYYY XXXXX
     }
 
     void fetchSprites() {
+        // Mapper hooks must classify sprite-cycle PPU reads as sprite-source.
+        m_isSpritePatternFetch = true;
 
         const int startCycle = 257;
 
@@ -1188,6 +1220,7 @@ yyy NN YYYYY XXXXX
     //in pixels 512x480
     uint8_t getColorLowBitsInNameTables(int x, int y)
     {
+        m_isSpritePatternFetch = false;
         const int tileX = x >> 3; //x/8
         const int tileY = y >> 3; //y/8
 
@@ -1253,7 +1286,7 @@ yyy NN YYYYY XXXXX
         return color;
     }
     
-    GERANES_INLINE void writePPUCTRL(uint8_t data)
+    GERANES_INLINE void writePPUCTRL(uint8_t data, bool notifyMapper = true)
     {
         //put base nametable address in bits 10 and 11 of reg_t
         m_reg_t &= 0xF3FF;
@@ -1263,6 +1296,9 @@ yyy NN YYYYY XXXXX
         m_sprite8x8PatternTableAddress = (data&0x08) ? true : false;
         m_backgroundPatternTableAddress = (data&0x10) ? true : false;
         m_spriteSize8x16 = (data&0x20) ? true : false;
+        if(notifyMapper) {
+            m_cartridge.setSpriteSize8x16(m_spriteSize8x16);
+        }
         m_PPUSlave = (data&0x40) ? true : false;
         m_NMIOnVBlank = (data&0x80) ? true : false;
 
@@ -1270,7 +1306,7 @@ yyy NN YYYYY XXXXX
 
     }
 
-    GERANES_INLINE void writePPUMASK(uint8_t data)
+    GERANES_INLINE void writePPUMASK(uint8_t data, bool notifyMapper = true)
     {
         m_monochromeDisplay = (data&0x01) ? true : false;
         m_showBackgroundLeftmost8Pixels = (data&0x02) ? true : false;
@@ -1278,19 +1314,25 @@ yyy NN YYYYY XXXXX
         m_backgroundEnabled = (data&0x08) ? true : false;
         m_spritesEnabled = (data&0x10) ? true : false;
         m_colorEmphasis = data >> 5;        
+        if(notifyMapper) {
+            m_cartridge.setPpuMask(data);
+        }
 
         if(m_renderingEnabled != (m_backgroundEnabled || m_spritesEnabled)) {
 		    m_needUpdateState = true;
 	    }
     }
 
-    GERANES_INLINE uint8_t readPPUSTATUS()
+    GERANES_INLINE uint8_t readPPUSTATUS(bool notifyMapper = true)
     {
         uint8_t ret = 0x00;
 
         m_lastPPUSTATUSReadCycle = m_cycle;
 
         if(m_VBlankHasStarted) ret |= 0x80;
+        if(notifyMapper) {
+            m_cartridge.onPpuStatusRead((ret & 0x80) != 0);
+        }
 
         if(m_sprite0Hit) ret |= 0x40;
         if(m_spriteOverflow) ret |= 0x20;
@@ -1330,7 +1372,15 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE bool isRenderingEnabled() {
         //return m_spritesEnabled || m_backgroundEnabled;
         return m_renderingEnabled;
-    }    
+    }
+
+    GERANES_INLINE bool isActivelyRendering() {
+        return m_renderLine && m_renderingEnabled;
+    }
+
+    GERANES_INLINE int scanline() const {
+        return m_scanline;
+    }
 
     GERANES_INLINE void writeOAMDATA(uint8_t data)
     {
@@ -1647,6 +1697,8 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void fetchNameTableByte() {
+        // Background tile fetch source for mapper CHR/NT substitution.
+        m_isSpritePatternFetch = false;
         uint16_t address = getNameTableAddr();
         uint8_t tileIndex = readPpuMemory(address);
 
@@ -1662,6 +1714,8 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void fetchAttributeTableByte() {
+        // Background tile fetch source for mapper CHR/NT substitution.
+        m_isSpritePatternFetch = false;
 
         int address = getAttributeTableAddr();
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
@@ -1669,10 +1723,12 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void fetchLowTileByte() {
+        m_isSpritePatternFetch = false;
         m_lowTileByte = readPpuMemory(m_tileAddr);        
     }
 
     GERANES_INLINE void fetchHighTileByte() {
+        m_isSpritePatternFetch = false;
         m_highTileByte = readPpuMemory(m_tileAddr + 8);        
     }
 
@@ -1791,6 +1847,8 @@ yyy NNYY YYYX XXXX
 
         SERIALIZEDATA(s, m_busAddress);
         SERIALIZEDATA(s, m_updateA12Delay);
+        SERIALIZEDATA(s, m_isSpritePatternFetch);
+        SERIALIZEDATA(s, m_currentReadAffectsBus);
 
         m_pFrameBuffer = &m_framebuffer[m_currentY*SCREEN_WIDTH+m_currentX];
     }

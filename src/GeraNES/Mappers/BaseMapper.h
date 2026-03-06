@@ -132,6 +132,8 @@ public:
 
     virtual uint8_t readCustomNameTable(uint8_t index, uint16_t addr) { return 0; }
 
+    virtual void writeCustomNameTable(uint8_t /*index*/, uint16_t /*addr*/, uint8_t /*data*/) {}
+
     virtual void writeSaveRam(int addr, uint8_t data)
     {
         if(m_sRam != nullptr)
@@ -157,6 +159,51 @@ public:
     virtual uint8_t customMirroring(uint8_t /*blockIndex*/)
     {
         return 0;
+    }
+
+    virtual void onScanlineStart(bool /*renderingEnabled*/)
+    {
+    }
+    virtual void onScanlineStart(bool renderingEnabled, int /*scanline*/)
+    {
+        onScanlineStart(renderingEnabled);
+    }
+
+    virtual void setPpuFetchSource(bool /*isSpriteFetch*/)
+    {
+    }
+
+    virtual uint8_t transformNameTableRead(uint8_t /*index*/, uint16_t /*addr*/, uint8_t value)
+    {
+        return value;
+    }
+
+    virtual void setSpriteSize8x16(bool /*sprite8x16*/)
+    {
+    }
+
+    virtual void setPpuReadAffectsBus(bool /*affectsBus*/)
+    {
+    }
+
+    virtual void setPpuMask(uint8_t /*mask*/)
+    {
+    }
+
+    virtual void onPpuStatusRead(bool /*vblankSet*/)
+    {
+    }
+
+    virtual void onPpuRead(uint16_t /*addr*/)
+    {
+    }
+
+    virtual void onPpuCycle(int /*scanline*/, int /*cycle*/, bool /*isRendering*/, bool /*isPreLine*/)
+    {
+    }
+
+    virtual void onCpuRead(uint16_t /*addr*/)
+    {
     }
 
     virtual ~BaseMapper()
@@ -194,7 +241,7 @@ public:
         }
     }
 
-    GERANES_INLINE bool hasChrRam() {
+    GERANES_INLINE bool hasChrRam() const {
         return m_cd.chrRamSize() > 0;
     }
 

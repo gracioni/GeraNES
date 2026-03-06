@@ -113,32 +113,44 @@ public:
 
         if(deviceName == "") {
 
-            char* name;
+            char* name = nullptr;
             SDL_AudioSpec dummySpec;
             if(SDL_GetDefaultAudioInfo(&name, &dummySpec, 0) != 0) {
-                Logger::instance().log("SDL_GetDefaultAudioInfo error", Logger::Type::ERROR);
-                return false;
+                Logger::instance().log(std::string("SDL_GetDefaultAudioInfo error: ") + SDL_GetError(), Logger::Type::WARNING);
+                _deviceName = "";
             }
-            _deviceName = name;
-            SDL_free(name); 
+            else {
+                _deviceName = name ? name : "";
+            }
+            if(name) SDL_free(name);
         }
 
-        int deviceIndex = 0;
+        int deviceIndex = -1;
 
         auto deviceList = getAudioList();
 
-        for(int i = 0; i < deviceList.size(); i++) {
+        for(int i = 0; i < static_cast<int>(deviceList.size()); i++) {
             if(_deviceName == deviceList[i]) {
                 deviceIndex = i;
                 break;
             }
         }
 
-        SDL_AudioSpec preferedSpec;
+        if(!_deviceName.empty() && deviceIndex < 0) {
+            Logger::instance().log(std::string("Requested audio device not found: ") + _deviceName + ". Falling back to SDL default.", Logger::Type::WARNING);
+            _deviceName = "";
+        }
 
-        if( SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) {
-            Logger::instance().log("SDL_GetAudioDeviceSpec error", Logger::Type::ERROR);
-            return false;
+        SDL_AudioSpec preferedSpec{};
+        preferedSpec.freq = 44100;
+        preferedSpec.format = AUDIO_S16;
+        preferedSpec.channels = 1;
+
+        if(deviceIndex >= 0 && SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferedSpec) != 0) {
+            Logger::instance().log(std::string("SDL_GetAudioDeviceSpec error: ") + SDL_GetError() + ". Using fallback format.", Logger::Type::WARNING);
+            preferedSpec.freq = 44100;
+            preferedSpec.format = AUDIO_S16;
+            preferedSpec.channels = 1;
         }
 
         m_currentDeviceName = _deviceName;
@@ -154,7 +166,7 @@ public:
     
         spec.freq = sampleRate;
         spec.channels = 1;
-        spec.samples = sampleRate*BUFFER_TIME;
+        spec.samples = static_cast<uint16_t>(sampleRate*BUFFER_TIME);
         spec.callback = nullptr;
         spec.userdata = this;
 
@@ -174,15 +186,18 @@ public:
 
         m_device = SDL_OpenAudioDevice(_deviceName != "" ? _deviceName.c_str() : nullptr, 0, &spec, &obtained, 0);
 
-        if(m_device == 0 || spec.format != obtained.format) {
+        if(m_device == 0) {
             turnOff();
-            Logger::instance().log("Audio init error", Logger::Type::ERROR);
+            Logger::instance().log(std::string("Audio init error: ") + SDL_GetError(), Logger::Type::ERROR);
             return false; 
         }
 
-        Logger::instance().log(std::string("Audio device: ") + _deviceName, Logger::Type::INFO);
-        Logger::instance().log(std::string("Sample rate: ") + std::to_string(sampleRate), Logger::Type::INFO); 
-        Logger::instance().log(std::string("Sample size: ") + std::to_string(sampleSize), Logger::Type::INFO); 
+        spec = obtained;
+        m_currentDeviceName = _deviceName.empty() ? "default" : _deviceName;
+
+        Logger::instance().log(std::string("Audio device: ") + m_currentDeviceName, Logger::Type::INFO);
+        Logger::instance().log(std::string("Sample rate: ") + std::to_string(spec.freq), Logger::Type::INFO); 
+        Logger::instance().log(std::string("Sample size: ") + std::to_string(spec.format & 0xFF), Logger::Type::INFO); 
 
         SDL_PauseAudioDevice(m_device, 0);
 
