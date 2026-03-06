@@ -19,6 +19,9 @@ class IAudioOutput
     virtual void setNoiseMetallic(bool /*state*/){}
     virtual void addSample(float /*sample*/){}
     virtual void addSampleDirect(float /*period*/, float /*sample*/){}
+    virtual void setExpansionAudioSampleRate(float /*rateHz*/) {}
+    virtual void setExpansionAudioVolume(float /*volume*/) {}
+    virtual void addExpansionAudioSample(float /*sample*/) {}
 
     virtual ~IAudioOutput(){}
 };

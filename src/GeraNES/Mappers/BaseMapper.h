@@ -206,6 +206,11 @@ public:
     {
     }
 
+    virtual float getExpansionAudioSample()
+    {
+        return 0.0f;
+    }
+
     virtual ~BaseMapper()
     {
         writeSaveRamToFile();

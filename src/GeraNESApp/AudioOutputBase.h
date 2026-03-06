@@ -16,6 +16,7 @@ private:
 
     SampleWave m_sample;
     SampleDirect m_sampleDirect;
+    SampleWave m_expansionSample;
 
     FirstOrderHighPassFilter m_hpFilter1;
     FirstOrderHighPassFilter m_hpFilter2;
@@ -39,6 +40,7 @@ public:
         m_noise.init(sampleRate);
         m_sample.init(sampleRate);
         m_sampleDirect.init(sampleRate);
+        m_expansionSample.init(sampleRate);
 
         //from https://www.nesdev.org/wiki/APU_Mixer
         m_hpFilter1.init(sampleRate, 90);
@@ -49,14 +51,15 @@ public:
     void clearBuffers()
     {
         m_sampleDirect.clearBuffer();
-        m_sample.clearBuffer();   
+        m_sample.clearBuffer();
+        m_expansionSample.clearBuffer();
     }
 
     GERANES_INLINE_HOT float mix()
     {
         float ret = 0;
 
-        const float sum = 0.5f+0.5f+0.5f+1.0f+1.5f+1.5f;
+        const float sum = 0.5f+0.5f+0.5f+1.0f+1.5f+1.5f+1.0f;
 
         //empirical values 
         ret += 0.5f/sum*m_pulseWave1.get();
@@ -65,6 +68,7 @@ public:
         ret += 1.0f/sum*m_noise.get();
         ret += 1.5f/sum*m_sample.get();
         ret += 1.5f/sum*m_sampleDirect.get();
+        ret += 1.0f/sum*m_expansionSample.get();
 
         ret = m_hpFilter1.apply(ret);
         ret = m_hpFilter2.apply(ret);
@@ -118,6 +122,23 @@ public:
     void addSampleDirect(float period, float sample) override
     {
         m_sampleDirect.add(period,sample);
+    }
+
+    void setExpansionAudioSampleRate(float rateHz) override
+    {
+        if(rateHz > 1.0f) {
+            m_expansionSample.setFrequency(rateHz);
+        }
+    }
+
+    void setExpansionAudioVolume(float volume) override
+    {
+        m_expansionSample.setVolume(volume);
+    }
+
+    void addExpansionAudioSample(float sample) override
+    {
+        m_expansionSample.add(sample);
     }
 
 };

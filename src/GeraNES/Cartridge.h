@@ -374,6 +374,11 @@ public:
         m_mapper->onCpuRead(addr);
     }
 
+    GERANES_INLINE float getExpansionAudioSample()
+    {
+        return m_mapper->getExpansionAudioSample();
+    }
+
     GERANES_INLINE GameDatabase::Sistem system()
     {
         return m_nesCartridgeData->sistem();

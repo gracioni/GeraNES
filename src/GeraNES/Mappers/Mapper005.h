@@ -2,10 +2,12 @@
 
 #include <array>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
 #include "BaseMapper.h"
+#include "../APU/APUCommon.h"
 
 // MMC5
 // Implemented features in this mapper:
@@ -14,12 +16,10 @@
 // - Extended nametable mapping (CIRAM/ExRAM/fill) ($5104-$5107)
 // - Scanline IRQ core registers ($5203/$5204)
 // - 8x8 multiplier ($5205/$5206)
-//
-// Not implemented in this mapper:
-// - Expansion audio
+// - Expansion audio (2 pulse channels + PCM DAC) ($5000-$5015)
 class Mapper005 : public BaseMapper
 {
-private:
+private: // GERA VIADÃO!!!!!!!
     uint8_t m_prgMode = 3;
     uint8_t m_chrMode = 3;
     uint8_t m_chrModeByte = 3;
@@ -63,6 +63,27 @@ private:
     uint8_t m_audioPcmControl = 0;
     uint8_t m_audioPcmValue = 0;
     uint8_t m_audioStatus = 0;
+    bool m_audioPcmLatched = false;
+
+    struct ExpansionPulseState {
+        uint16_t timerCounter = 0;
+        uint8_t dutyStep = 0;
+        uint8_t lengthCounter = 0;
+        uint8_t envelopeDivider = 0;
+        uint8_t envelopeVolume = 0;
+        bool envelopeStart = false;
+    };
+    ExpansionPulseState m_expPulse[2] = {};
+    int m_expQuarterCounter = 0;
+    int m_expHalfCounter = 0;
+    float m_expansionAudioSample = 0.0f;
+
+    static constexpr uint8_t MMC5_DUTY_TABLE[4][8] = {
+        {0, 1, 0, 0, 0, 0, 0, 0},
+        {0, 1, 1, 0, 0, 0, 0, 0},
+        {0, 1, 1, 1, 1, 0, 0, 0},
+        {1, 0, 0, 1, 1, 1, 1, 1}
+    };
     uint8_t m_mmc5aRegs[2] = {0}; // $5207/$5208
     uint16_t m_mmc5aTimerCounter = 0; // $5209/$520A
     bool m_mmc5aTimerActive = false;
@@ -103,6 +124,141 @@ private:
     std::array<uint8_t, 0x400> m_exRam = {};
     std::array<uint8_t, 0x400> m_mmc5aRam = {};
     std::array<uint8_t, 0x10000> m_prgRam = {};
+
+    GERANES_INLINE uint16_t pulsePeriod(int channel) const
+    {
+        return static_cast<uint16_t>(
+            (static_cast<uint16_t>(m_audioPulseRegs[channel][3] & 0x07) << 8) |
+            m_audioPulseRegs[channel][2]);
+    }
+
+    GERANES_INLINE uint8_t pulseDuty(int channel) const
+    {
+        return static_cast<uint8_t>((m_audioPulseRegs[channel][0] >> 6) & 0x03);
+    }
+
+    GERANES_INLINE bool pulseLengthHalt(int channel) const
+    {
+        return (m_audioPulseRegs[channel][0] & 0x20) != 0;
+    }
+
+    GERANES_INLINE bool pulseConstantVolumeMode(int channel) const
+    {
+        return (m_audioPulseRegs[channel][0] & 0x10) != 0;
+    }
+
+    GERANES_INLINE uint8_t pulseVolumeParam(int channel) const
+    {
+        return static_cast<uint8_t>(m_audioPulseRegs[channel][0] & 0x0F);
+    }
+
+    GERANES_INLINE void clockPulseEnvelope(int channel)
+    {
+        ExpansionPulseState& p = m_expPulse[channel];
+
+        if(p.envelopeStart) {
+            p.envelopeStart = false;
+            p.envelopeVolume = 0x0F;
+            p.envelopeDivider = static_cast<uint8_t>(pulseVolumeParam(channel) + 1);
+            return;
+        }
+
+        if(p.envelopeDivider > 0) {
+            --p.envelopeDivider;
+        }
+
+        if(p.envelopeDivider == 0) {
+            p.envelopeDivider = static_cast<uint8_t>(pulseVolumeParam(channel) + 1);
+            if(p.envelopeVolume > 0) {
+                --p.envelopeVolume;
+            }
+            else if(pulseLengthHalt(channel)) {
+                p.envelopeVolume = 0x0F;
+            }
+        }
+    }
+
+    GERANES_INLINE void clockPulseLength(int channel)
+    {
+        if((m_audioStatus & (1 << channel)) == 0) {
+            return;
+        }
+
+        ExpansionPulseState& p = m_expPulse[channel];
+        if(!pulseLengthHalt(channel) && p.lengthCounter > 0) {
+            --p.lengthCounter;
+        }
+    }
+
+    GERANES_INLINE void stepPulseTimer(int channel)
+    {
+        ExpansionPulseState& p = m_expPulse[channel];
+        const uint16_t period = pulsePeriod(channel);
+        uint16_t timerPeriod = static_cast<uint16_t>((period + 1) << 1);
+        if(timerPeriod < 2) {
+            timerPeriod = 2;
+        }
+
+        if(p.timerCounter == 0) {
+            p.timerCounter = static_cast<uint16_t>(timerPeriod - 1);
+            p.dutyStep = static_cast<uint8_t>((p.dutyStep + 1) & 0x07);
+        }
+        else {
+            --p.timerCounter;
+        }
+    }
+
+    GERANES_INLINE float pulseOutput(int channel) const
+    {
+        if((m_audioStatus & (1 << channel)) == 0) {
+            return 0.0f;
+        }
+
+        const ExpansionPulseState& p = m_expPulse[channel];
+        if(p.lengthCounter == 0) {
+            return 0.0f;
+        }
+
+        if(pulsePeriod(channel) < 8) {
+            return 0.0f;
+        }
+
+        const uint8_t duty = pulseDuty(channel);
+        const uint8_t dutyBit = MMC5_DUTY_TABLE[duty][p.dutyStep];
+        const uint8_t rawVolume = pulseConstantVolumeMode(channel) ? pulseVolumeParam(channel) : p.envelopeVolume;
+        const float volume = static_cast<float>(rawVolume) / 15.0f;
+
+        return dutyBit ? volume : -volume;
+    }
+
+    GERANES_INLINE void updateExpansionAudioSample()
+    {
+        const float pulseMix = (pulseOutput(0) + pulseOutput(1)) * 0.5f;
+        const float pcm = m_audioPcmLatched ? (static_cast<float>(static_cast<int>(m_audioPcmValue) - 128) / 128.0f) : 0.0f;
+
+        float out = pulseMix * 0.60f + pcm * 0.25f;
+        if(out > 1.0f) out = 1.0f;
+        else if(out < -1.0f) out = -1.0f;
+
+        m_expansionAudioSample = out;
+    }
+
+    GERANES_INLINE void writePulseRegister(int channel, int reg, uint8_t data)
+    {
+        m_audioPulseRegs[channel][reg] = data;
+        ExpansionPulseState& p = m_expPulse[channel];
+
+        if(reg == 3) {
+            if(m_audioStatus & (1 << channel)) {
+                p.lengthCounter = LENGTH_TABLE[(data >> 3) & 0x1F];
+            }
+            p.envelopeStart = true;
+            p.dutyStep = 0;
+            uint16_t timerPeriod = static_cast<uint16_t>((pulsePeriod(channel) + 1) << 1);
+            if(timerPeriod < 2) timerPeriod = 2;
+            p.timerCounter = static_cast<uint16_t>(timerPeriod - 1);
+        }
+    }
 
     GERANES_INLINE uint16_t calculateMask16(int nBanks) const
     {
@@ -413,6 +569,15 @@ public:
         m_mmc5aTimerCounter = 0;
         m_mmc5aTimerActive = false;
         m_mmc5aTimerIrqFlag = false;
+        m_audioPcmLatched = false;
+        m_audioStatus = 0;
+        m_expQuarterCounter = 0;
+        m_expHalfCounter = 0;
+        m_expansionAudioSample = 0.0f;
+        for(int i = 0; i < 2; ++i) {
+            m_expPulse[i] = ExpansionPulseState();
+        }
+        memset(m_audioPulseRegs, 0, sizeof(m_audioPulseRegs));
         refreshChrMask();
     }
 
@@ -541,16 +706,20 @@ public:
         case 0x5000:
         case 0x5001:
         case 0x5002:
-        case 0x5003:
-            m_audioPulseRegs[0][absolute - 0x5000] = data;
+        case 0x5003: {
+            int reg = absolute - 0x5000;
+            writePulseRegister(0, reg, data);
             break;
+        }
 
         case 0x5004:
         case 0x5005:
         case 0x5006:
-        case 0x5007:
-            m_audioPulseRegs[1][absolute - 0x5004] = data;
+        case 0x5007: {
+            int reg = absolute - 0x5004;
+            writePulseRegister(1, reg, data);
             break;
+        }
 
         case 0x5010:
             m_audioPcmControl = data;
@@ -558,11 +727,17 @@ public:
 
         case 0x5011:
             m_audioPcmValue = data;
+            m_audioPcmLatched = true;
             break;
 
         case 0x5015:
-            m_audioStatus &= static_cast<uint8_t>(~0x03);
-            m_audioStatus |= static_cast<uint8_t>(data & 0x03);
+            m_audioStatus = static_cast<uint8_t>(data & 0x03);
+            if((m_audioStatus & 0x01) == 0) {
+                m_expPulse[0].lengthCounter = 0;
+            }
+            if((m_audioStatus & 0x02) == 0) {
+                m_expPulse[1].lengthCounter = 0;
+            }
             break;
 
         case 0x5100:
@@ -726,7 +901,9 @@ public:
 
         switch(absolute) {
         case 0x5015:
-            return m_audioStatus;
+            return static_cast<uint8_t>(
+                (m_expPulse[0].lengthCounter > 0 ? 0x01 : 0x00) |
+                (m_expPulse[1].lengthCounter > 0 ? 0x02 : 0x00));
 
         case 0x5204: {
             uint8_t ret = 0;
@@ -836,6 +1013,18 @@ public:
         SERIALIZEDATA(s, m_audioPcmControl);
         SERIALIZEDATA(s, m_audioPcmValue);
         SERIALIZEDATA(s, m_audioStatus);
+        SERIALIZEDATA(s, m_audioPcmLatched);
+        for(int i = 0; i < 2; ++i) {
+            SERIALIZEDATA(s, m_expPulse[i].timerCounter);
+            SERIALIZEDATA(s, m_expPulse[i].dutyStep);
+            SERIALIZEDATA(s, m_expPulse[i].lengthCounter);
+            SERIALIZEDATA(s, m_expPulse[i].envelopeDivider);
+            SERIALIZEDATA(s, m_expPulse[i].envelopeVolume);
+            SERIALIZEDATA(s, m_expPulse[i].envelopeStart);
+        }
+        SERIALIZEDATA(s, m_expQuarterCounter);
+        SERIALIZEDATA(s, m_expHalfCounter);
+        SERIALIZEDATA(s, m_expansionAudioSample);
         s.array(reinterpret_cast<uint8_t*>(m_mmc5aRegs), 1, static_cast<int>(sizeof(m_mmc5aRegs)));
         SERIALIZEDATA(s, m_mmc5aTimerCounter);
         SERIALIZEDATA(s, m_mmc5aTimerActive);
@@ -933,6 +1122,23 @@ public:
                 --m_mmc5aTimerCounter;
             }
         }
+
+        stepPulseTimer(0);
+        stepPulseTimer(1);
+
+        if(++m_expQuarterCounter >= 7457) {
+            m_expQuarterCounter -= 7457;
+            clockPulseEnvelope(0);
+            clockPulseEnvelope(1);
+        }
+
+        if(++m_expHalfCounter >= 14914) {
+            m_expHalfCounter -= 14914;
+            clockPulseLength(0);
+            clockPulseLength(1);
+        }
+
+        updateExpansionAudioSample();
     }
 
     GERANES_HOT void onPpuCycle(int scanline, int cycle, bool isRendering, bool isPreLine) override
@@ -1112,5 +1318,10 @@ public:
         }
 
         return m_cd.readChr<BankSize::B1K>(bank, effectiveAddr);
+    }
+
+    GERANES_HOT float getExpansionAudioSample() override
+    {
+        return m_expansionAudioSample;
     }
 };
