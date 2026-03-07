@@ -1138,30 +1138,34 @@ public:
         int tileNumber = static_cast<int>(m_splitTileCount);
         uint8_t splitTileX = 0;
         if(isNtFetch) {
+            // Split/ex-attribute logic must follow BG nametable fetches only.
+            // Sprite-phase dummy nametable reads would skew the tile counter.
+            if(m_isSpriteFetch) {
+                return value;
+            }
+
             ++m_splitTileCount;
             tileNumber = static_cast<int>(m_splitTileCount);
 
             if(splitEnabled) {
                 // MMC5 split region follows nametable fetch order with a +2 pipeline offset.
-                uint8_t column = static_cast<uint8_t>((tileNumber + 2) % 42);
+                int fetchIndex = tileNumber - 1; // 0..33 (32 visible + 2 prefetch)
+                uint8_t column = static_cast<uint8_t>((fetchIndex + 2) % 34);
                 bool splitRight = (m_splitMode & 0x40) != 0;
                 uint8_t threshold = m_splitMode & 0x1F;
+                bool visibleColumn = column < 32;
 
-                if(column == 0) {
-                    m_splitActive = !splitRight;
+                if(splitRight) {
+                    m_splitActive = visibleColumn && (column >= threshold);
                 }
-
-                if(column == threshold && tileNumber < 42) {
-                    m_splitActive = !m_splitActive;
-                }
-                else if(column > 32) {
-                    m_splitActive = false;
+                else {
+                    m_splitActive = visibleColumn && (column < threshold);
                 }
 
                 splitTileX = static_cast<uint8_t>(column & 0x1F);
 
                 uint8_t splitY = m_splitScanline;
-                if(tileNumber >= 41) {
+                if(fetchIndex >= 32) {
                     splitY = static_cast<uint8_t>((splitY + 1) % 240);
                 }
                 m_splitVScroll = static_cast<uint8_t>((splitY + m_splitScroll) % 240);
@@ -1183,7 +1187,7 @@ public:
             }
 
             // ExRAM mode 1 pipeline: NT fetch arms AT+CHR substitution for this tile.
-            if(!m_isSpriteFetch && m_exRamMode == 1 && (tileNumber <= 32 || tileNumber >= 40) && !m_splitActive) {
+            if(!m_isSpriteFetch && m_exRamMode == 1 && !m_splitActive) {
                 m_extAttrLatch = m_exRam[addr & 0x03FF];
                 m_exAttrSelectedChrBank = static_cast<uint16_t>(((m_chrUpperBits & 0x03) << 6) | (m_extAttrLatch & 0x3F));
                 m_exAttrFetchCounter = 3;
