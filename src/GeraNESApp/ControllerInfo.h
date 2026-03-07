@@ -2,6 +2,8 @@
 
 #include <vector>
 #include <string>
+#include <array>
+#include <map>
 
 #include <nlohmann/json.hpp>
 
@@ -10,7 +12,7 @@ class ControllerInfo {
 
 public:
 
-    static constexpr std::array<const char*, 11> BUTTONS {"A", "B", "Select", "Start", "Up", "Down", "Left", "Right", "Save", "Load", "Rewind"};
+    static constexpr std::array<const char*, 12> BUTTONS {"A", "B", "Select", "Start", "Up", "Down", "Left", "Right", "Save", "Load", "Rewind", "Speed"};
 
     std::string a;
     std::string b;
@@ -23,8 +25,9 @@ public:
     std::string saveState;
     std::string loadState;
     std::string rewind;
+    std::string speed;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(ControllerInfo, a, b, select, start, up, down, left, right, saveState, loadState, rewind)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ControllerInfo, a, b, select, start, up, down, left, right, saveState, loadState, rewind, speed)
 
 private:
 
@@ -47,6 +50,7 @@ private:
         _map->insert(std::make_pair(BUTTONS[8], &saveState));
         _map->insert(std::make_pair(BUTTONS[9], &loadState));
         _map->insert(std::make_pair(BUTTONS[10], &rewind));
+        _map->insert(std::make_pair(BUTTONS[11], &speed));
     }
 
 public:    
@@ -75,6 +79,7 @@ public:
         saveState = other.saveState;
         loadState = other.loadState;
         rewind = other.rewind;
+        speed = other.speed;
 
         return *this;
     }
@@ -107,6 +112,7 @@ public:
             case 8: saveState = input; break;
             case 9: loadState = input; break;
             case 10: rewind = input; break;
+            case 11: speed = input; break;
         }
     }
 };

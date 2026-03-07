@@ -58,6 +58,8 @@ private:
     uint32_t m_frameCount;
 
     bool m_runningLoop;
+    bool m_speedBoost;
+    static constexpr int SPEED_BOOST_MULTIPLIER = 3;
 
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
@@ -303,6 +305,7 @@ public:
         m_saveStateFlag = false;
         m_loadStateFlag = false;
         m_runningLoop = false;
+        m_speedBoost = false;
         m_audioRenderDtAcc = 0;
 
         m_openBus = 0;
@@ -319,6 +322,11 @@ public:
     void setRewind(bool state)
     {
         m_rewind.setRewind(state);
+    }
+
+    void setSpeedBoost(bool state)
+    {
+        m_speedBoost = state;
     }
 
     void resetRewindSystem()
@@ -416,9 +424,9 @@ public:
         dt = std::min(dt, (uint32_t)1000/10);  //0.1s
 
         if constexpr(!waitForNewFrame)
-            m_updateCyclesAcc += m_cyclesPerSecond  * dt;    
+            m_updateCyclesAcc += (m_cyclesPerSecond * (m_speedBoost ? SPEED_BOOST_MULTIPLIER : 1)) * dt;
 
-        const uint32_t audioRenderCycles = m_cyclesPerSecond * AUDIO_RENDER_TIME_STEP;
+        const uint32_t audioRenderCycles = (m_cyclesPerSecond * (m_speedBoost ? SPEED_BOOST_MULTIPLIER : 1)) * AUDIO_RENDER_TIME_STEP;
 
         bool ret = false;
 
@@ -453,7 +461,7 @@ public:
 
             while(m_audioRenderCyclesAcc >= audioRenderCycles) {
                 m_audioRenderCyclesAcc -= audioRenderCycles;
-                bool enableAudio = m_rewind.rewindLimit();
+                bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
                 m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
                 m_audioRenderDtAcc += AUDIO_RENDER_TIME_STEP;                     
             }    
@@ -481,7 +489,7 @@ public:
             m_audioRenderDtAcc -= dt;
 
             while(m_audioRenderDtAcc < 0) {
-                bool enableAudio = m_rewind.rewindLimit();
+                bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
                 m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
                 m_audioRenderDtAcc++;
             }
@@ -508,7 +516,16 @@ public:
     }
 
     GERANES_INLINE bool updateUntilFrame(uint32_t dt) {
-        return _update<true>(dt);
+        if(!m_speedBoost) {
+            return _update<true>(dt);
+        }
+
+        // In frame-locked mode (vsync path), run extra emulated frames while held.
+        _update<true>(dt);
+        for(int i = 1; i < SPEED_BOOST_MULTIPLIER; ++i) {
+            _update<true>(0);
+        }
+        return true;
     }  
 
     GERANES_INLINE const uint32_t* getFramebuffer()
