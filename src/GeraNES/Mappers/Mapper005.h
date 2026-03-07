@@ -112,7 +112,6 @@ private:
 
     std::array<uint8_t, 0x400> m_exRam = {};
     std::array<uint8_t, 0x400> m_mmc5aRam = {};
-    std::array<uint8_t, 0x10000> m_prgRam = {};
 
     GERANES_INLINE uint16_t pulsePeriod(int channel) const
     {
@@ -277,10 +276,15 @@ private:
         return (m_prgRamProtect1 & 0x03) == 0x02 && (m_prgRamProtect2 & 0x03) == 0x01;
     }
 
-    GERANES_INLINE uint8_t readPrgRam8k(uint8_t bank8k, int addr)
+    GERANES_INLINE int prgRamOffset(uint8_t bank8k, int addr) const
     {
         uint8_t bank = bank8k & 0x07;
-        return m_prgRam[(bank << log2(BankSize::B8K)) + (addr & (static_cast<int>(BankSize::B8K) - 1))];
+        return (bank << log2(BankSize::B8K)) + (addr & (static_cast<int>(BankSize::B8K) - 1));
+    }
+
+    GERANES_INLINE uint8_t readPrgRam8k(uint8_t bank8k, int addr)
+    {
+        return BaseMapper::readSaveRam(prgRamOffset(bank8k, addr));
     }
 
     GERANES_INLINE void writePrgRam8k(uint8_t bank8k, int addr, uint8_t data)
@@ -289,8 +293,7 @@ private:
             return;
         }
 
-        uint8_t bank = bank8k & 0x07;
-        m_prgRam[(bank << log2(BankSize::B8K)) + (addr & (static_cast<int>(BankSize::B8K) - 1))] = data;
+        BaseMapper::writeSaveRam(prgRamOffset(bank8k, addr), data);
     }
 
     GERANES_INLINE uint8_t readPrgRom8k(uint8_t bank8k, int addr)
@@ -983,7 +986,6 @@ public:
 
         s.array(m_exRam.data(), 1, static_cast<int>(m_exRam.size()));
         s.array(m_mmc5aRam.data(), 1, static_cast<int>(m_mmc5aRam.size()));
-        s.array(m_prgRam.data(), 1, static_cast<int>(m_prgRam.size()));
         refreshChrMask();
     }
 
