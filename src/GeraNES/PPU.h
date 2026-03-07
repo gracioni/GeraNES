@@ -1126,6 +1126,19 @@ yyy NN YYYYY XXXXX
             case 0: readPpuMemory(getNameTableAddr()); break;
             case 2: readPpuMemory(getAttributeTableAddr()); break;
             case 4:
+                // Preserve the old approximate A12 behavior used by MMC3 IRQ timing.
+                {
+                    bool a12High = false;
+                    if(m_spriteSize8x16) {
+                        a12High = (sprite->indexInPatternTable & 0x01) != 0;
+                    }
+                    else {
+                        a12High = m_sprite8x8PatternTableAddress;
+                    }
+                    setBusAddress(static_cast<uint16_t>(m_busAddress | (a12High ? 0x1000 : 0x0000)));
+                    m_cartridge.setA12State(a12High);
+                }
+
                 if(!hasSpriteData || sprite->y == 0xFF) {
                     entry.lowByte = 0;
                     readPpuMemory(0);
