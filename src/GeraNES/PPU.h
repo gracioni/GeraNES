@@ -818,6 +818,29 @@ yyy NN YYYYY XXXXX
 
     }    
 
+    GERANES_INLINE uint8_t getSpritePixelFake(const Sprite* sprite, int xOnScreen)
+    {
+        int spriteY = sprite->y + 1;
+        int spriteLineToDraw;
+        int spriteXToDraw;
+
+        if((sprite->attrib & 0x80) == 0) spriteLineToDraw = m_currentY - spriteY;
+        else spriteLineToDraw = (m_spriteSize8x16 ? 15 : 7) - (m_currentY - spriteY);
+
+        if((sprite->attrib & 0x40) == 0) spriteXToDraw = xOnScreen - sprite->x;
+        else spriteXToDraw = sprite->x - xOnScreen + 7;
+
+        if(!m_spriteSize8x16) {
+            int index = sprite->indexInPatternTable + (m_sprite8x8PatternTableAddress ? 256 : 0);
+            return (uint8_t)(getColorLowBitsInPatternTable(index, spriteXToDraw, spriteLineToDraw) | ((sprite->attrib & 0x03) << 2));
+        }
+
+        int index = sprite->indexInPatternTable;
+        if(spriteLineToDraw >= 8) index++;
+        if(sprite->indexInPatternTable & 0x01) index += 255;
+        return (uint8_t)(getColorLowBitsInPatternTable(index, spriteXToDraw, spriteLineToDraw & 0x07) | ((sprite->attrib & 0x03) << 2));
+    }
+
     GERANES_INLINE_HOT void renderSpritesPixel()
     {
         if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
@@ -825,32 +848,64 @@ yyy NN YYYYY XXXXX
 
         int paletteIndex = 0;
         bool isPixelBehind = false;
+        const int indexedSpritesCount = (m_spritesInThisLine > 64) ? 64 : m_spritesInThisLine;
 
-        for(int i = 0; i < m_spriteFetchCount; i++) {
-            const SpriteFetchEntry& sprite = m_spriteFetchEntries[i];
-
-            if(m_currentX < sprite.x || m_currentX >= sprite.x + 8) {
-                continue;
+        bool spritesAsMask = false;
+        if(m_settings.spriteLimitDisabled() && indexedSpritesCount >= 8) {
+            const Sprite* first = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[0]];
+            int i = 1;
+            for(; i < 8; i++) {
+                const Sprite* other = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
+                if(first->y != other->y && first->indexInPatternTable != other->indexInPatternTable) break;
             }
+            spritesAsMask = i == 8;
+        }
 
-            int pixelX = m_currentX - sprite.x;
-            int bit = (sprite.attr & 0x40) ? pixelX : (7 - pixelX);
-            int color = ((sprite.lowByte >> bit) & 0x01) | (((sprite.highByte >> bit) & 0x01) << 1);
-            if(color == 0) {
-                continue;
+        int maxSprites = indexedSpritesCount;
+        if(!m_settings.spriteLimitDisabled() || spritesAsMask) {
+            if(maxSprites > 8) maxSprites = 8;
+        }
+
+        for(int i = 0; i < maxSprites; i++) {
+            if(i < 8) {
+                if(i >= m_spriteFetchCount) continue;
+
+                const SpriteFetchEntry& sprite = m_spriteFetchEntries[i];
+
+                if(m_currentX < sprite.x || m_currentX >= sprite.x + 8) {
+                    continue;
+                }
+
+                int pixelX = m_currentX - sprite.x;
+                int bit = (sprite.attr & 0x40) ? pixelX : (7 - pixelX);
+                int color = ((sprite.lowByte >> bit) & 0x01) | (((sprite.highByte >> bit) & 0x01) << 1);
+                if(color == 0) {
+                    continue;
+                }
+
+                paletteIndex = color | ((sprite.attr & 0x03) << 2);
+
+                if(sprite.sprite0 && m_backgroundEnabled &&
+                   (m_currentPixelColorIndex & 0x03) != 0 &&
+                   (paletteIndex & 0x03) != 0 && m_currentX != 255) {
+                    m_sprite0Hit = true;
+                }
+
+                paletteIndex = 0x10 + paletteIndex;
+                isPixelBehind = (sprite.attr & 0x20) != 0;
+                break;
             }
+            else {
+                const Sprite* sprite = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
+                if(m_currentX < sprite->x || m_currentX >= sprite->x + 8) continue;
 
-            paletteIndex = color | ((sprite.attr & 0x03) << 2);
+                uint8_t low = getSpritePixelFake(sprite, m_currentX);
+                if((low & 0x03) == 0) continue;
 
-            if(sprite.sprite0 && m_backgroundEnabled &&
-               (m_currentPixelColorIndex & 0x03) != 0 &&
-               (paletteIndex & 0x03) != 0 && m_currentX != 255) {
-                m_sprite0Hit = true;
+                paletteIndex = 0x10 + low;
+                isPixelBehind = (sprite->attrib & 0x20) != 0;
+                break;
             }
-
-            paletteIndex = 0x10 + paletteIndex;
-            isPixelBehind = (sprite.attr & 0x20) != 0;
-            break;
         }
 
         if((paletteIndex & 0x03) != 0) {
