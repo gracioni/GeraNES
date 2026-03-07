@@ -1181,7 +1181,7 @@ public:
             }
 
             // ExRAM mode 1 pipeline: NT fetch arms AT+CHR substitution for this tile.
-            if(!m_isSpriteFetch && m_exRamMode == 1 && (tileNumber < 32 || tileNumber >= 40) && !m_splitActive) {
+            if(!m_isSpriteFetch && m_exRamMode == 1 && (tileNumber <= 32 || tileNumber >= 40) && !m_splitActive) {
                 m_extAttrLatch = m_exRam[addr & 0x03FF];
                 m_exAttrSelectedChrBank = static_cast<uint16_t>(((m_chrUpperBits & 0x03) << 6) | (m_extAttrLatch & 0x3F));
                 m_exAttrFetchCounter = 3;

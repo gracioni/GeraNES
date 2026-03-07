@@ -1109,18 +1109,24 @@ yyy NN YYYYY XXXXX
             return;
         }
 
+        int fetchedSpriteCount = static_cast<int>(m_secondaryOamAddr >> 2);
+        if(fetchedSpriteCount > 8) {
+            fetchedSpriteCount = 8;
+        }
+        bool hasSpriteData = spriteIndex < fetchedSpriteCount;
+
         Sprite* sprite = (Sprite*)&m_secondaryOam[spriteIndex << 2];
         SpriteFetchEntry& entry = m_spriteFetchEntries[spriteIndex];
-        entry.x = sprite->x;
-        entry.attr = sprite->attrib;
-        entry.sprite0 = (spriteIndex == 0) && m_testSprite0HitInThisLine;
+        entry.x = hasSpriteData ? sprite->x : 0xFF;
+        entry.attr = hasSpriteData ? sprite->attrib : 0;
+        entry.sprite0 = hasSpriteData && (spriteIndex == 0) && m_testSprite0HitInThisLine;
 
         switch(fetchCycle) {
 
             case 0: readPpuMemory(getNameTableAddr()); break;
             case 2: readPpuMemory(getAttributeTableAddr()); break;
             case 4:
-                if(sprite->y == 0xFF) {
+                if(!hasSpriteData || sprite->y == 0xFF) {
                     entry.lowByte = 0;
                     readPpuMemory(0);
                 }
@@ -1129,7 +1135,7 @@ yyy NN YYYYY XXXXX
                 }
                 break;
             case 6:
-                if(sprite->y == 0xFF) {
+                if(!hasSpriteData || sprite->y == 0xFF) {
                     entry.highByte = 0;
                     readPpuMemory(0);
                 }
