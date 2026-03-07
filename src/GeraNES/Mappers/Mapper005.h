@@ -19,7 +19,7 @@
 // - Expansion audio (2 pulse channels + PCM DAC) ($5000-$5015)
 class Mapper005 : public BaseMapper
 {
-private: // GERA VIADÃO!!!!!!!
+private:
     uint8_t m_prgMode = 3;
     uint8_t m_chrMode = 3;
     uint8_t m_chrModeByte = 3;
