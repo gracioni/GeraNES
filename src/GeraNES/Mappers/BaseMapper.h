@@ -182,10 +182,6 @@ public:
     {
     }
 
-    virtual void setPpuReadAffectsBus(bool /*affectsBus*/)
-    {
-    }
-
     virtual void setPpuMask(uint8_t /*mask*/)
     {
     }

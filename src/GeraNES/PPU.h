@@ -207,7 +207,6 @@ private:
     GERANES_HOT auto readWritePpuMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
         m_currentReadAffectsBus = affectsTheBus;
-        m_cartridge.setPpuReadAffectsBus(affectsTheBus);
 
         if constexpr(!writeFlag && affectsTheBus) {
             m_cartridge.onPpuRead(addr & 0x3FFF);

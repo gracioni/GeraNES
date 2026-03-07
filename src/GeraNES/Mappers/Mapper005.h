@@ -1,10 +1,7 @@
 #pragma once
 
 #include <array>
-#include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <sstream>
 
 #include "BaseMapper.h"
 #include "../APU/APUCommon.h"
@@ -110,16 +107,6 @@ private:
     int16_t m_lineCounter = -2;
     uint16_t m_lastNtRead = 0xFFFF;
     uint8_t m_sameNtReadCount = 0;
-    bool m_lastSplitActiveLogged = false;
-    bool m_lastSplitStateValid = false;
-    uint16_t m_lastLoggedChrBank = 0xFFFF;
-    uint8_t m_lastLoggedChrPage = 0xFF;
-    bool m_traceInitDone = false;
-    bool m_traceEnabled = false;
-    bool m_traceChr = false;
-    uint32_t m_traceLines = 0;
-    std::ofstream m_traceFile;
-    static constexpr uint32_t TRACE_MAX_LINES = 200000;
 
     std::array<uint8_t, 0x400> m_exRam = {};
     std::array<uint8_t, 0x400> m_mmc5aRam = {};
@@ -269,47 +256,6 @@ private:
             n >>= 1;
         }
         return mask;
-    }
-
-    void initTraceIfNeeded()
-    {
-        if(m_traceInitDone) {
-            return;
-        }
-        m_traceInitDone = true;
-
-        const char* enabled = std::getenv("GERANES_MMC5_TRACE");
-        if(enabled == nullptr || enabled[0] == '0') {
-            return;
-        }
-
-        const char* path = std::getenv("GERANES_MMC5_TRACE_FILE");
-        if(path == nullptr || path[0] == '\0') {
-            path = "/tmp/geranes-mmc5-trace.log";
-        }
-
-        m_traceFile.open(path, std::ios::out | std::ios::trunc);
-        m_traceEnabled = m_traceFile.is_open();
-        const char* traceChr = std::getenv("GERANES_MMC5_TRACE_CHR");
-        m_traceChr = (traceChr != nullptr && traceChr[0] != '0');
-
-        if(m_traceEnabled) {
-            m_traceFile << "MMC5 trace start\n";
-            m_traceFile.flush();
-        }
-    }
-
-    void traceLine(const std::string& s)
-    {
-        initTraceIfNeeded();
-        if(!m_traceEnabled || m_traceLines >= TRACE_MAX_LINES) {
-            return;
-        }
-        m_traceFile << s << '\n';
-        ++m_traceLines;
-        if((m_traceLines & 0x3FF) == 0) {
-            m_traceFile.flush();
-        }
     }
 
     GERANES_INLINE uint8_t fillAttributeByte() const
@@ -558,7 +504,6 @@ public:
         m_lineCounter = -2;
         m_lastNtRead = 0xFFFF;
         m_sameNtReadCount = 0;
-        m_lastSplitStateValid = false;
         m_extAttrLatch = 0;
         m_splitAttrLatch = 0;
 
@@ -750,9 +695,6 @@ public:
             m_chrRamEnable = (data & 0x80) != 0;
             refreshChrMask();
             updateChrMaps();
-            traceLine(
-                "reg 5101 chrMode=" + std::to_string(m_chrMode) +
-                " chrRamEnable=" + std::to_string(m_chrRamEnable ? 1 : 0));
             break;
 
         case 0x5102:
@@ -765,7 +707,6 @@ public:
 
         case 0x5104:
             m_exRamMode = data & 0x03;
-            traceLine("reg 5104 exRamMode=" + std::to_string(m_exRamMode));
             break;
 
         case 0x5105:
@@ -773,12 +714,6 @@ public:
             m_nameTableMap[1] = (data >> 2) & 0x03;
             m_nameTableMap[2] = (data >> 4) & 0x03;
             m_nameTableMap[3] = (data >> 6) & 0x03;
-            traceLine(
-                "reg 5105 ntMap=" + std::to_string(data) +
-                " [" + std::to_string(m_nameTableMap[0]) +
-                "," + std::to_string(m_nameTableMap[1]) +
-                "," + std::to_string(m_nameTableMap[2]) +
-                "," + std::to_string(m_nameTableMap[3]) + "]");
             break;
 
         case 0x5106:
@@ -820,7 +755,6 @@ public:
             m_abMode = 0;
             m_chrSpriteRegs[absolute - 0x5120] = static_cast<uint16_t>(data | ((m_chrUpperBits & 0x03) << 8));
             updateChrMaps();
-            traceLine("reg " + std::to_string(absolute) + " chra[" + std::to_string(absolute - 0x5120) + "]=" + std::to_string(data));
             break;
 
         case 0x5128:
@@ -830,7 +764,6 @@ public:
             m_abMode = 1;
             m_chrBgRegs[absolute - 0x5128] = static_cast<uint16_t>(data | ((m_chrUpperBits & 0x03) << 8));
             updateChrMaps();
-            traceLine("reg " + std::to_string(absolute) + " chrb[" + std::to_string(absolute - 0x5128) + "]=" + std::to_string(data));
             break;
 
         case 0x5130:
@@ -869,17 +802,14 @@ public:
 
         case 0x5200:
             m_splitMode = data;
-            traceLine("reg 5200 splitMode=" + std::to_string(m_splitMode));
             break;
 
         case 0x5201:
             m_splitScroll = data;
-            traceLine("reg 5201 splitScroll=" + std::to_string(m_splitScroll));
             break;
 
         case 0x5202:
             m_splitBank = data;
-            traceLine("reg 5202 splitBank=" + std::to_string(m_splitBank));
             break;
         }
     }
@@ -1065,22 +995,11 @@ public:
     GERANES_HOT void setSpriteSize8x16(bool sprite8x16) override
     {
         m_sprite8x16 = sprite8x16;
-        traceLine(std::string("ppu sprite8x16=") + (m_sprite8x16 ? "1" : "0"));
-    }
-
-    GERANES_HOT void setPpuReadAffectsBus(bool affectsBus) override
-    {
-        (void)affectsBus;
     }
 
     GERANES_HOT void setPpuMask(uint8_t mask) override
     {
         bool newEnabled = (mask & 0x18) != 0;
-        traceLine(
-            "ppu mask=" + std::to_string(mask) +
-            " bg=" + std::to_string((mask & 0x08) ? 1 : 0) +
-            " spr=" + std::to_string((mask & 0x10) ? 1 : 0) +
-            " subs=" + std::to_string(newEnabled ? 1 : 0));
         m_substitutionsEnabled = newEnabled;
 
         // MMC5+ behavior (mirrors Nintendulator): when both BG and sprites are disabled,
@@ -1252,34 +1171,12 @@ public:
                 uint8_t shift = static_cast<uint8_t>(((tileY & 0x02) << 1) | (splitTileX & 0x02));
                 m_splitAttrLatch = expandPaletteBits(static_cast<uint8_t>((attrByte >> shift) & 0x03));
                 value = m_extAttrLatch;
-                if(fetchTileX == 0 || fetchTileX == 16 || fetchTileX == 31) {
-                    traceLine(
-                        "split nt idx=" + std::to_string(index) +
-                        " x=" + std::to_string(fetchTileX) +
-                        " y=" + std::to_string(m_splitScanline) +
-                        " ex=" + std::to_string(exAddr) +
-                        " exv=" + std::to_string(m_extAttrLatch));
-                }
             }
             else {
                 m_extAttrLatch = m_exRam[addr & 0x03FF];
                 m_splitAttrLatch = 0;
             }
 
-            if(splitEnabled && (!m_lastSplitStateValid || m_lastSplitActiveLogged != m_splitActive)) {
-                m_lastSplitStateValid = true;
-                m_lastSplitActiveLogged = m_splitActive;
-                traceLine(
-                    "split state active=" + std::to_string(m_splitActive ? 1 : 0) +
-                    " mode=" + std::to_string(m_splitMode) +
-                    " x=" + std::to_string(fetchTileX) +
-                    " nt=" + std::to_string(index));
-            }
-        }
-        else {
-            if(m_splitMode & 0x80) {
-                m_lastSplitStateValid = false;
-            }
         }
 
         if(!m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && addr >= 0x03C0 && m_splitActive && (m_splitMode & 0x80)) {
@@ -1298,20 +1195,6 @@ public:
     {
         int effectiveAddr = applySplitPatternRow(addr);
         uint16_t bank = resolveChr1kBank(effectiveAddr);
-        uint8_t page = static_cast<uint8_t>((effectiveAddr >> 10) & 0x07);
-
-        if(m_traceChr && (page != m_lastLoggedChrPage || bank != m_lastLoggedChrBank)) {
-            m_lastLoggedChrPage = page;
-            m_lastLoggedChrBank = bank;
-            traceLine(
-                "chr page=" + std::to_string(page) +
-                " bank=" + std::to_string(bank) +
-                " mode=" + std::to_string(m_chrMode) +
-                " spr=" + std::to_string(m_isSpriteFetch ? 1 : 0) +
-                " spr8x16=" + std::to_string(m_sprite8x16 ? 1 : 0) +
-                " exMode=" + std::to_string(m_exRamMode) +
-                " split=" + std::to_string(m_splitActive ? 1 : 0));
-        }
 
         if(useChrRam()) {
             return readChrRam<BankSize::B1K>(bank, effectiveAddr);

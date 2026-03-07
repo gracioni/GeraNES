@@ -344,11 +344,6 @@ public:
         m_mapper->setSpriteSize8x16(sprite8x16);
     }
 
-    GERANES_INLINE void setPpuReadAffectsBus(bool affectsBus)
-    {
-        m_mapper->setPpuReadAffectsBus(affectsBus);
-    }
-
     GERANES_INLINE void setPpuMask(uint8_t mask)
     {
         m_mapper->setPpuMask(mask);
