@@ -1229,7 +1229,7 @@ public:
                 return readChrRam<BankSize::B1K>(bank, effectiveAddr);
             }
 
-            return m_cd.readChr<BankSize::B1K>(bank, effectiveAddr);
+            return cd().readChr<BankSize::B1K>(bank, effectiveAddr);
         }
 
         uint16_t bank = resolveChr1kBank(effectiveAddr);
