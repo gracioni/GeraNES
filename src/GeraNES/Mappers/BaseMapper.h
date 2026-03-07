@@ -209,10 +209,6 @@ public:
     {
     }
 
-    virtual void setPpuReadAffectsBus(bool /*affectsBus*/)
-    {
-    }
-
     virtual void setPpuMask(uint8_t /*mask*/)
     {
     }
@@ -258,7 +254,7 @@ public:
     }
 
     GERANES_INLINE bool hasChrRam() const {
-        return cd().chrRamSize() > 0;
+        return m_cd.chrRamSize() > 0;
     }
 
 

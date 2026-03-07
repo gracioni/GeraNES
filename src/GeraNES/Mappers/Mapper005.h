@@ -1,10 +1,7 @@
 #pragma once
 
 #include <array>
-#include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <sstream>
 
 #include "BaseMapper.h"
 #include "../APU/APUCommon.h"
@@ -19,7 +16,7 @@
 // - Expansion audio (2 pulse channels + PCM DAC) ($5000-$5015)
 class Mapper005 : public BaseMapper
 {
-private: // GERA VIADÃO!!!!!!!
+private:
     uint8_t m_prgMode = 3;
     uint8_t m_chrMode = 3;
     uint8_t m_chrModeByte = 3;
@@ -98,6 +95,8 @@ private: // GERA VIADÃO!!!!!!!
     bool m_renderingEnabled = false;
     bool m_substitutionsEnabled = false;
     uint8_t m_extAttrLatch = 0;
+    uint8_t m_exAttrFetchCounter = 0;
+    uint16_t m_exAttrSelectedChrBank = 0;
     uint8_t m_splitAttrLatch = 0;
     uint8_t m_splitMode = 0;
     uint8_t m_splitScroll = 0;
@@ -110,20 +109,9 @@ private: // GERA VIADÃO!!!!!!!
     int16_t m_lineCounter = -2;
     uint16_t m_lastNtRead = 0xFFFF;
     uint8_t m_sameNtReadCount = 0;
-    bool m_lastSplitActiveLogged = false;
-    bool m_lastSplitStateValid = false;
-    uint16_t m_lastLoggedChrBank = 0xFFFF;
-    uint8_t m_lastLoggedChrPage = 0xFF;
-    bool m_traceInitDone = false;
-    bool m_traceEnabled = false;
-    bool m_traceChr = false;
-    uint32_t m_traceLines = 0;
-    std::ofstream m_traceFile;
-    static constexpr uint32_t TRACE_MAX_LINES = 200000;
 
     std::array<uint8_t, 0x400> m_exRam = {};
     std::array<uint8_t, 0x400> m_mmc5aRam = {};
-    std::array<uint8_t, 0x10000> m_prgRam = {};
 
     GERANES_INLINE uint16_t pulsePeriod(int channel) const
     {
@@ -271,47 +259,6 @@ private: // GERA VIADÃO!!!!!!!
         return mask;
     }
 
-    void initTraceIfNeeded()
-    {
-        if(m_traceInitDone) {
-            return;
-        }
-        m_traceInitDone = true;
-
-        const char* enabled = std::getenv("GERANES_MMC5_TRACE");
-        if(enabled == nullptr || enabled[0] == '0') {
-            return;
-        }
-
-        const char* path = std::getenv("GERANES_MMC5_TRACE_FILE");
-        if(path == nullptr || path[0] == '\0') {
-            path = "/tmp/geranes-mmc5-trace.log";
-        }
-
-        m_traceFile.open(path, std::ios::out | std::ios::trunc);
-        m_traceEnabled = m_traceFile.is_open();
-        const char* traceChr = std::getenv("GERANES_MMC5_TRACE_CHR");
-        m_traceChr = (traceChr != nullptr && traceChr[0] != '0');
-
-        if(m_traceEnabled) {
-            m_traceFile << "MMC5 trace start\n";
-            m_traceFile.flush();
-        }
-    }
-
-    void traceLine(const std::string& s)
-    {
-        initTraceIfNeeded();
-        if(!m_traceEnabled || m_traceLines >= TRACE_MAX_LINES) {
-            return;
-        }
-        m_traceFile << s << '\n';
-        ++m_traceLines;
-        if((m_traceLines & 0x3FF) == 0) {
-            m_traceFile.flush();
-        }
-    }
-
     GERANES_INLINE uint8_t fillAttributeByte() const
     {
         uint8_t v = m_fillAttribute & 0x03;
@@ -329,10 +276,15 @@ private: // GERA VIADÃO!!!!!!!
         return (m_prgRamProtect1 & 0x03) == 0x02 && (m_prgRamProtect2 & 0x03) == 0x01;
     }
 
-    GERANES_INLINE uint8_t readPrgRam8k(uint8_t bank8k, int addr)
+    GERANES_INLINE int prgRamOffset(uint8_t bank8k, int addr) const
     {
         uint8_t bank = bank8k & 0x07;
-        return m_prgRam[(bank << log2(BankSize::B8K)) + (addr & (static_cast<int>(BankSize::B8K) - 1))];
+        return (bank << log2(BankSize::B8K)) + (addr & (static_cast<int>(BankSize::B8K) - 1));
+    }
+
+    GERANES_INLINE uint8_t readPrgRam8k(uint8_t bank8k, int addr)
+    {
+        return BaseMapper::readSaveRam(prgRamOffset(bank8k, addr));
     }
 
     GERANES_INLINE void writePrgRam8k(uint8_t bank8k, int addr, uint8_t data)
@@ -341,8 +293,7 @@ private: // GERA VIADÃO!!!!!!!
             return;
         }
 
-        uint8_t bank = bank8k & 0x07;
-        m_prgRam[(bank << log2(BankSize::B8K)) + (addr & (static_cast<int>(BankSize::B8K) - 1))] = data;
+        BaseMapper::writeSaveRam(prgRamOffset(bank8k, addr), data);
     }
 
     GERANES_INLINE uint8_t readPrgRom8k(uint8_t bank8k, int addr)
@@ -453,15 +404,8 @@ private: // GERA VIADÃO!!!!!!!
         uint16_t bank = 0;
 
         // Split mode CHR mapping takes priority over extended attributes in the split region.
-        if(!m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && m_splitActive && (m_splitMode & 0x80)) {
+        if(!m_isSpriteFetch && m_inFrame && m_renderingEnabled && m_substitutionsEnabled && m_splitActive && (m_splitMode & 0x80)) {
             uint16_t bank4k = m_splitBank;
-            bank = static_cast<uint16_t>((bank4k << 2) | (page & 0x03));
-            return bank & m_chr1kMask;
-        }
-
-        // In extended attribute mode, background CHR uses ExRAM per-tile 4K bank selection.
-        if(!m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && m_exRamMode == 1) {
-            uint16_t bank4k = static_cast<uint16_t>(((m_chrUpperBits & 0x03) << 6) | (m_extAttrLatch & 0x3F));
             bank = static_cast<uint16_t>((bank4k << 2) | (page & 0x03));
             return bank & m_chr1kMask;
         }
@@ -501,7 +445,7 @@ private: // GERA VIADÃO!!!!!!!
 
     GERANES_INLINE bool splitBackgroundActive() const
     {
-        return !m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && m_splitActive && (m_splitMode & 0x80);
+        return !m_isSpriteFetch && m_inFrame && m_renderingEnabled && m_substitutionsEnabled && m_splitActive && (m_splitMode & 0x80);
     }
 
     GERANES_INLINE uint8_t splitFineY() const
@@ -558,8 +502,9 @@ public:
         m_lineCounter = -2;
         m_lastNtRead = 0xFFFF;
         m_sameNtReadCount = 0;
-        m_lastSplitStateValid = false;
         m_extAttrLatch = 0;
+        m_exAttrFetchCounter = 0;
+        m_exAttrSelectedChrBank = 0;
         m_splitAttrLatch = 0;
 
         // Multiplier power-on defaults per wiki notes.
@@ -750,9 +695,6 @@ public:
             m_chrRamEnable = (data & 0x80) != 0;
             refreshChrMask();
             updateChrMaps();
-            traceLine(
-                "reg 5101 chrMode=" + std::to_string(m_chrMode) +
-                " chrRamEnable=" + std::to_string(m_chrRamEnable ? 1 : 0));
             break;
 
         case 0x5102:
@@ -765,7 +707,6 @@ public:
 
         case 0x5104:
             m_exRamMode = data & 0x03;
-            traceLine("reg 5104 exRamMode=" + std::to_string(m_exRamMode));
             break;
 
         case 0x5105:
@@ -773,12 +714,6 @@ public:
             m_nameTableMap[1] = (data >> 2) & 0x03;
             m_nameTableMap[2] = (data >> 4) & 0x03;
             m_nameTableMap[3] = (data >> 6) & 0x03;
-            traceLine(
-                "reg 5105 ntMap=" + std::to_string(data) +
-                " [" + std::to_string(m_nameTableMap[0]) +
-                "," + std::to_string(m_nameTableMap[1]) +
-                "," + std::to_string(m_nameTableMap[2]) +
-                "," + std::to_string(m_nameTableMap[3]) + "]");
             break;
 
         case 0x5106:
@@ -820,7 +755,6 @@ public:
             m_abMode = 0;
             m_chrSpriteRegs[absolute - 0x5120] = static_cast<uint16_t>(data | ((m_chrUpperBits & 0x03) << 8));
             updateChrMaps();
-            traceLine("reg " + std::to_string(absolute) + " chra[" + std::to_string(absolute - 0x5120) + "]=" + std::to_string(data));
             break;
 
         case 0x5128:
@@ -830,7 +764,6 @@ public:
             m_abMode = 1;
             m_chrBgRegs[absolute - 0x5128] = static_cast<uint16_t>(data | ((m_chrUpperBits & 0x03) << 8));
             updateChrMaps();
-            traceLine("reg " + std::to_string(absolute) + " chrb[" + std::to_string(absolute - 0x5128) + "]=" + std::to_string(data));
             break;
 
         case 0x5130:
@@ -869,17 +802,14 @@ public:
 
         case 0x5200:
             m_splitMode = data;
-            traceLine("reg 5200 splitMode=" + std::to_string(m_splitMode));
             break;
 
         case 0x5201:
             m_splitScroll = data;
-            traceLine("reg 5201 splitScroll=" + std::to_string(m_splitScroll));
             break;
 
         case 0x5202:
             m_splitBank = data;
-            traceLine("reg 5202 splitBank=" + std::to_string(m_splitBank));
             break;
         }
     }
@@ -949,16 +879,17 @@ public:
         m_renderingEnabled = renderingEnabled;
 
         if(!renderingEnabled) {
-            m_inFrame = false;
             m_splitActive = false;
             m_splitTileCount = 0;
             m_splitScanline = 0;
+            m_exAttrFetchCounter = 0;
             m_splitAttrLatch = 0;
             return;
         }
 
         m_splitActive = false;
         m_splitTileCount = 0;
+        m_exAttrFetchCounter = 0;
         m_splitAttrLatch = 0;
         if(scanline >= 0 && scanline < 240) {
             m_splitScanline = static_cast<uint8_t>(scanline);
@@ -1038,6 +969,8 @@ public:
         SERIALIZEDATA(s, m_sprite8x16);
         SERIALIZEDATA(s, m_renderingEnabled);
         SERIALIZEDATA(s, m_extAttrLatch);
+        SERIALIZEDATA(s, m_exAttrFetchCounter);
+        SERIALIZEDATA(s, m_exAttrSelectedChrBank);
         SERIALIZEDATA(s, m_splitAttrLatch);
         SERIALIZEDATA(s, m_splitMode);
         SERIALIZEDATA(s, m_splitScroll);
@@ -1053,7 +986,6 @@ public:
 
         s.array(m_exRam.data(), 1, static_cast<int>(m_exRam.size()));
         s.array(m_mmc5aRam.data(), 1, static_cast<int>(m_mmc5aRam.size()));
-        s.array(m_prgRam.data(), 1, static_cast<int>(m_prgRam.size()));
         refreshChrMask();
     }
 
@@ -1065,28 +997,16 @@ public:
     GERANES_HOT void setSpriteSize8x16(bool sprite8x16) override
     {
         m_sprite8x16 = sprite8x16;
-        traceLine(std::string("ppu sprite8x16=") + (m_sprite8x16 ? "1" : "0"));
-    }
-
-    GERANES_HOT void setPpuReadAffectsBus(bool affectsBus) override
-    {
-        (void)affectsBus;
     }
 
     GERANES_HOT void setPpuMask(uint8_t mask) override
     {
         bool newEnabled = (mask & 0x18) != 0;
-        traceLine(
-            "ppu mask=" + std::to_string(mask) +
-            " bg=" + std::to_string((mask & 0x08) ? 1 : 0) +
-            " spr=" + std::to_string((mask & 0x10) ? 1 : 0) +
-            " subs=" + std::to_string(newEnabled ? 1 : 0));
         m_substitutionsEnabled = newEnabled;
 
         // MMC5+ behavior (mirrors Nintendulator): when both BG and sprites are disabled,
         // reset frame/read detector state.
         if(!newEnabled) {
-            m_inFrame = false;
             m_lineCounter = -2;
             m_splitActive = false;
             m_splitTileCount = 0;
@@ -1108,6 +1028,7 @@ public:
     GERANES_HOT void onPpuRead(uint16_t addr) override
     {
         m_ppuReadAddress = static_cast<uint16_t>(addr & 0x3FFF);
+        m_ppuReading = true;
     }
 
     GERANES_HOT void cycle() override
@@ -1138,18 +1059,35 @@ public:
             clockPulseLength(1);
         }
 
+        if(m_ppuReading) {
+            m_ppuReading = false;
+            m_idleCount = 0;
+            m_lastPpuReadAddress = m_ppuReadAddress;
+        }
+        else {
+            if(m_idleCount < 0xFF) {
+                ++m_idleCount;
+            }
+
+            // MMC5 keeps "in-frame" asserted briefly after the last PPU read.
+            if(m_idleCount >= 3) {
+                m_inFrame = false;
+            }
+        }
+
         updateExpansionAudioSample();
     }
 
     GERANES_HOT void onPpuCycle(int scanline, int cycle, bool isRendering, bool isPreLine) override
     {
+        (void)isPreLine;
         if(scanline == 240 && cycle == 0) {
             m_splitActive = false;
             m_splitTileCount = 0;
+            m_exAttrFetchCounter = 0;
             m_splitAttrLatch = 0;
             m_curTile = -1;
             m_lineCounter = -2;
-            m_inFrame = false;
         }
 
         if(!isRendering) {
@@ -1162,6 +1100,7 @@ public:
             }
             if(scanline == 1) {
                 m_inFrame = true;
+                m_idleCount = 0;
             }
 
             if(m_lineCounter < 0x7FFF) {
@@ -1174,121 +1113,102 @@ public:
 
         if(cycle == 320) {
             m_curTile = -1;
-            m_splitTileCount = 0;
-
-            if(isPreLine) {
-                m_splitVScroll = m_splitScroll;
-                if(m_splitVScroll >= 240) {
-                    m_splitVScroll = static_cast<uint8_t>(m_splitVScroll - 16);
-                }
-            }
-            else if(scanline >= 0 && scanline < 240) {
-                m_splitVScroll = static_cast<uint8_t>(m_splitVScroll + 1);
-            }
-
-            if(m_splitVScroll >= 240) {
-                m_splitVScroll = static_cast<uint8_t>(m_splitVScroll - 240);
-            }
         }
 
         if((cycle & 0x07) == 0 && cycle < 336) {
             ++m_curTile;
-
-            bool splitEnabled = (m_splitMode & 0x80) && ((m_exRamMode & 0x02) == 0);
-            if(!splitEnabled) {
-                m_splitActive = false;
-                return;
-            }
-
-            uint8_t threshold = m_splitMode & 0x1F;
-            bool splitRight = (m_splitMode & 0x40) != 0;
-            if(splitRight) {
-                if(m_curTile == 0) {
-                    m_splitActive = false;
-                }
-                else if(m_curTile == threshold) {
-                    m_splitActive = true;
-                }
-                else if(m_curTile == 34) {
-                    m_splitActive = false;
-                }
-            }
-            else {
-                if(m_curTile == 0) {
-                    m_splitActive = true;
-                }
-                else if(m_curTile == threshold) {
-                    m_splitActive = false;
-                }
-                else if(m_curTile >= 34) {
-                    m_splitActive = false;
-                }
-            }
         }
     }
 
     GERANES_HOT uint8_t transformNameTableRead(uint8_t index, uint16_t addr, uint8_t value) override
     {
-        if(!m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && addr < 0x03C0) {
-            ++m_splitTileCount;
-            int curTile = m_curTile;
-            if(curTile < 0) {
-                curTile = static_cast<int>(m_splitTileCount) - 1;
-            }
-            uint8_t fetchTileX = static_cast<uint8_t>(curTile & 0x1F);
+        (void)index;
+        if(!(m_renderingEnabled && m_substitutionsEnabled)) {
+            return value;
+        }
 
-            bool splitEnabled = (m_splitMode & 0x80) && ((m_exRamMode & 0x02) == 0);
-            if(!splitEnabled) {
+        // MMC5 split/ex-attr substitutions are valid only while in-frame.
+        if(!m_inFrame) {
+            return value;
+        }
+
+        const bool isNtFetch = addr < 0x03C0;
+        const bool splitEnabled = (m_splitMode & 0x80) && ((m_exRamMode & 0x02) == 0);
+
+        int tileNumber = static_cast<int>(m_splitTileCount);
+        uint8_t splitTileX = 0;
+        if(isNtFetch) {
+            // Split/ex-attribute logic must follow BG nametable fetches only.
+            // Sprite-phase dummy nametable reads would skew the tile counter.
+            if(m_isSpriteFetch) {
+                return value;
+            }
+
+            ++m_splitTileCount;
+            tileNumber = static_cast<int>(m_splitTileCount);
+
+            if(splitEnabled) {
+                // MMC5 split region follows nametable fetch order with a +2 pipeline offset.
+                int fetchIndex = tileNumber - 1; // 0..33 (32 visible + 2 prefetch)
+                uint8_t column = static_cast<uint8_t>((fetchIndex + 2) % 34);
+                bool splitRight = (m_splitMode & 0x40) != 0;
+                uint8_t threshold = m_splitMode & 0x1F;
+                bool visibleColumn = column < 32;
+
+                if(splitRight) {
+                    m_splitActive = visibleColumn && (column >= threshold);
+                }
+                else {
+                    m_splitActive = visibleColumn && (column < threshold);
+                }
+
+                splitTileX = static_cast<uint8_t>(column & 0x1F);
+
+                uint8_t splitY = m_splitScanline;
+                if(fetchIndex >= 32) {
+                    splitY = static_cast<uint8_t>((splitY + 1) % 240);
+                }
+                m_splitVScroll = static_cast<uint8_t>((splitY + m_splitScroll) % 240);
+            }
+            else {
                 m_splitActive = false;
             }
 
-            if(m_splitActive && splitEnabled) {
+            if(!m_isSpriteFetch && m_splitActive && splitEnabled) {
                 uint8_t tileY = splitCoarseY();
-                uint8_t splitTileX = fetchTileX;
                 uint16_t exAddr = static_cast<uint16_t>(((tileY << 5) | splitTileX) & 0x03FF);
                 uint16_t attrAddr = static_cast<uint16_t>((0x03C0 | ((tileY >> 2) << 3) | (splitTileX >> 2)) & 0x03FF);
                 m_extAttrLatch = m_exRam[exAddr];
                 uint8_t attrByte = m_exRam[attrAddr];
                 uint8_t shift = static_cast<uint8_t>(((tileY & 0x02) << 1) | (splitTileX & 0x02));
                 m_splitAttrLatch = expandPaletteBits(static_cast<uint8_t>((attrByte >> shift) & 0x03));
-                value = m_extAttrLatch;
-                if(fetchTileX == 0 || fetchTileX == 16 || fetchTileX == 31) {
-                    traceLine(
-                        "split nt idx=" + std::to_string(index) +
-                        " x=" + std::to_string(fetchTileX) +
-                        " y=" + std::to_string(m_splitScanline) +
-                        " ex=" + std::to_string(exAddr) +
-                        " exv=" + std::to_string(m_extAttrLatch));
-                }
+                m_exAttrFetchCounter = 0;
+                return m_extAttrLatch;
             }
-            else {
+
+            // ExRAM mode 1 pipeline: NT fetch arms AT+CHR substitution for this tile.
+            if(!m_isSpriteFetch && m_exRamMode == 1 && !m_splitActive) {
                 m_extAttrLatch = m_exRam[addr & 0x03FF];
-                m_splitAttrLatch = 0;
+                m_exAttrSelectedChrBank = static_cast<uint16_t>(((m_chrUpperBits & 0x03) << 6) | (m_extAttrLatch & 0x3F));
+                m_exAttrFetchCounter = 3;
+            }
+            else if(!m_isSpriteFetch) {
+                m_exAttrFetchCounter = 0;
             }
 
-            if(splitEnabled && (!m_lastSplitStateValid || m_lastSplitActiveLogged != m_splitActive)) {
-                m_lastSplitStateValid = true;
-                m_lastSplitActiveLogged = m_splitActive;
-                traceLine(
-                    "split state active=" + std::to_string(m_splitActive ? 1 : 0) +
-                    " mode=" + std::to_string(m_splitMode) +
-                    " x=" + std::to_string(fetchTileX) +
-                    " nt=" + std::to_string(index));
-            }
-        }
-        else {
-            if(m_splitMode & 0x80) {
-                m_lastSplitStateValid = false;
-            }
+            return value;
         }
 
-        if(!m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && addr >= 0x03C0 && m_splitActive && (m_splitMode & 0x80)) {
+        if(!m_isSpriteFetch && m_splitActive && splitEnabled) {
             return m_splitAttrLatch;
         }
 
-        if(!m_isSpriteFetch && m_renderingEnabled && m_substitutionsEnabled && m_exRamMode == 1 && addr >= 0x03C0) {
-            uint8_t p = (m_extAttrLatch >> 6) & 0x03;
-            return expandPaletteBits(p);
+        if(!m_isSpriteFetch && m_exRamMode == 1 && m_exAttrFetchCounter > 0) {
+            --m_exAttrFetchCounter;
+            if(m_exAttrFetchCounter == 2) {
+                uint8_t p = static_cast<uint8_t>((m_extAttrLatch >> 6) & 0x03);
+                return expandPaletteBits(p);
+            }
         }
 
         return value;
@@ -1297,21 +1217,22 @@ public:
     GERANES_HOT uint8_t readChr(int addr) override
     {
         int effectiveAddr = applySplitPatternRow(addr);
-        uint16_t bank = resolveChr1kBank(effectiveAddr);
-        uint8_t page = static_cast<uint8_t>((effectiveAddr >> 10) & 0x07);
 
-        if(m_traceChr && (page != m_lastLoggedChrPage || bank != m_lastLoggedChrBank)) {
-            m_lastLoggedChrPage = page;
-            m_lastLoggedChrBank = bank;
-            traceLine(
-                "chr page=" + std::to_string(page) +
-                " bank=" + std::to_string(bank) +
-                " mode=" + std::to_string(m_chrMode) +
-                " spr=" + std::to_string(m_isSpriteFetch ? 1 : 0) +
-                " spr8x16=" + std::to_string(m_sprite8x16 ? 1 : 0) +
-                " exMode=" + std::to_string(m_exRamMode) +
-                " split=" + std::to_string(m_splitActive ? 1 : 0));
+        // ExRAM mode 1 substitutes only the 2 CHR fetches that follow the attribute fetch.
+        if(!m_isSpriteFetch && m_inFrame && m_renderingEnabled && m_substitutionsEnabled && m_exRamMode == 1 &&
+           !splitBackgroundActive() && m_exAttrFetchCounter > 0) {
+            --m_exAttrFetchCounter;
+            uint16_t bank = static_cast<uint16_t>((m_exAttrSelectedChrBank << 2) | ((effectiveAddr >> 10) & 0x03));
+            bank &= m_chr1kMask;
+
+            if(useChrRam()) {
+                return readChrRam<BankSize::B1K>(bank, effectiveAddr);
+            }
+
+            return m_cd.readChr<BankSize::B1K>(bank, effectiveAddr);
         }
+
+        uint16_t bank = resolveChr1kBank(effectiveAddr);
 
         if(useChrRam()) {
             return readChrRam<BankSize::B1K>(bank, effectiveAddr);
