@@ -44,7 +44,7 @@ protected:
         return mask;
     }
 
-    ICartridgeData& cd() {
+    ICartridgeData& cd() const {
         return m_cd;
     }
 
@@ -258,7 +258,7 @@ public:
     }
 
     GERANES_INLINE bool hasChrRam() const {
-        return m_cd.chrRamSize() > 0;
+        return cd().chrRamSize() > 0;
     }
 
 
