@@ -116,6 +116,16 @@ private:
 
     uint8_t m_spritesIndexesInThisLine[64];
 
+    struct SpriteFetchEntry {
+        uint8_t x;
+        uint8_t attr;
+        uint8_t lowByte;
+        uint8_t highByte;
+        bool sprite0;
+    };
+    SpriteFetchEntry m_spriteFetchEntries[8];
+    uint8_t m_spriteFetchCount;
+
     //write/read internal regs
     uint16_t m_reg_v;
     uint8_t m_reg_x;
@@ -340,6 +350,8 @@ public:
 
         m_spritesInThisLine = 0;
         m_testSprite0HitInThisLine = false;
+        m_spriteFetchCount = 0;
+        memset(m_spriteFetchEntries, 0, sizeof(m_spriteFetchEntries));
 
         m_oamAddr = 0;
         m_dataLatch = 0;
@@ -811,123 +823,39 @@ yyy NN YYYYY XXXXX
         if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
         if(m_currentY == 0) return;
 
-        int spriteLineToDraw = 0;
-        int spriteXToDraw = 0;
-
         int paletteIndex = 0;
         bool isPixelBehind = false;
 
-        bool spritesAsMask = false;
+        for(int i = 0; i < m_spriteFetchCount; i++) {
+            const SpriteFetchEntry& sprite = m_spriteFetchEntries[i];
 
-        if(m_settings.spriteLimitDisabled() && m_spritesInThisLine >= 8) {
-            
-            // Detecting masking effects
-            // Games will place 8 consecutive sprites with the same Y coordinate and same tile number.
-            // If you see this, then that is a sign that the game is using a masking effect,
-            // and the 8-sprite limit should be enforced for that area.
-
-            const Sprite* first = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[0]];
- 
-
-            int i = 1;
-
-            //test if all sprites have the same y and x
-            for(; i < 8; i++) {
-                const Sprite* other = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
-
-
-                if(first->y != other->y && first->indexInPatternTable != other->indexInPatternTable) break;
+            if(m_currentX < sprite.x || m_currentX >= sprite.x + 8) {
+                continue;
             }
 
-            spritesAsMask = i == 8;
-        }
-
-        for(int i = 0; i < m_spritesInThisLine; i++)
-        {
-            const Sprite* sprite = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
-
-            const int& spriteY = sprite->y+1;
-            const uint8_t& spriteIndexInPatternTable = sprite->indexInPatternTable;
-            const uint8_t& spriteAttrib = sprite->attrib;
-            const int& spriteX = sprite->x;
-
-            if(i >= 8 && (!m_settings.spriteLimitDisabled() || spritesAsMask)) break;
-
-            //if( !(m_currentX >= spriteX && m_currentX < spriteX+8) ) continue;
-            if( m_currentX < spriteX || m_currentX >= spriteX+8) continue;
-
-            if(m_spriteSize8x16 == false) //sprite 8x8
-            {
-
-                if( (spriteAttrib&0x80) == false) //vertical flip = false?
-                    spriteLineToDraw = m_currentY - spriteY;
-                else
-                    spriteLineToDraw = spriteY - m_currentY + 7;
-
-                if( (spriteAttrib&0x40) == false) //horizontal flip = false?
-                    spriteXToDraw = m_currentX - spriteX;
-                else
-                    spriteXToDraw = spriteX - m_currentX + 7;
-
-                int index = spriteIndexInPatternTable + (m_sprite8x8PatternTableAddress?256:0); //add 512 if sprite is in second page (0x1000);
-
-                m_isSpritePatternFetch = true;
-                paletteIndex =  getColorLowBitsInPatternTable(index,spriteXToDraw,spriteLineToDraw);
-                paletteIndex |= (spriteAttrib&0x03) << 2; //get 2 high bits
-            }
-            else //sprite 8x16
-            {
-                if( (spriteAttrib&0x80) == false) //vertical flip check
-                    spriteLineToDraw = m_currentY - spriteY;
-                else
-                    spriteLineToDraw = spriteY - m_currentY + 15;
-
-                if( (spriteAttrib&0x40) == false) //horizontal flip = false?
-                    spriteXToDraw = m_currentX - spriteX;
-                else
-                    spriteXToDraw = spriteX - m_currentX + 7;
-
-                int index;
-
-                if(spriteLineToDraw < 8) //top sprite
-                {
-                    index = spriteIndexInPatternTable;
-                }
-                else //bottom sprite
-                {
-                    index = spriteIndexInPatternTable;
-                    index += 1;
-                }
-
-                if(spriteIndexInPatternTable&0x01) index += 255;
-
-                m_isSpritePatternFetch = true;
-                paletteIndex = getColorLowBitsInPatternTable(index,spriteXToDraw,spriteLineToDraw%8);
-                paletteIndex |= (spriteAttrib&0x03) << 2; //get 2 high bits
+            int pixelX = m_currentX - sprite.x;
+            int bit = (sprite.attr & 0x40) ? pixelX : (7 - pixelX);
+            int color = ((sprite.lowByte >> bit) & 0x01) | (((sprite.highByte >> bit) & 0x01) << 1);
+            if(color == 0) {
+                continue;
             }
 
-            //sprite0hit test
-            if (i == 0 && m_testSprite0HitInThisLine && m_backgroundEnabled &&
-            (m_currentPixelColorIndex&0x03) != 0 &&
-            (paletteIndex&0x03) != 0 && m_currentX != 255) {
+            paletteIndex = color | ((sprite.attr & 0x03) << 2);
+
+            if(sprite.sprite0 && m_backgroundEnabled &&
+               (m_currentPixelColorIndex & 0x03) != 0 &&
+               (paletteIndex & 0x03) != 0 && m_currentX != 255) {
                 m_sprite0Hit = true;
             }
 
-            if( (paletteIndex&0x03) != 0)
-            {
-                paletteIndex = 0x10+paletteIndex;
-                isPixelBehind = spriteAttrib&0x20;
-                break;
-            }
-
+            paletteIndex = 0x10 + paletteIndex;
+            isPixelBehind = (sprite.attr & 0x20) != 0;
+            break;
         }
 
-        if( (paletteIndex&0x03) != 0 )
-        {
-            if( (m_currentPixelColorIndex&0x03) == 0) m_currentPixelColorIndex = paletteIndex;
-            else
-            {
-                if(!isPixelBehind) m_currentPixelColorIndex = paletteIndex;
+        if((paletteIndex & 0x03) != 0) {
+            if((m_currentPixelColorIndex & 0x03) == 0 || !isPixelBehind) {
+                m_currentPixelColorIndex = static_cast<uint8_t>(paletteIndex);
             }
         }
     }
@@ -1129,38 +1057,89 @@ yyy NN YYYYY XXXXX
         if(m_needUpdateState) updateState();
     }
 
+    GERANES_INLINE uint16_t getSpritePatternAddress(const Sprite& sprite, bool highPlane)
+    {
+        const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
+        int spriteScanline = m_scanline + 1;
+        if(spriteScanline >= FRAME_NUMBER_OF_LINES) {
+            spriteScanline = 0;
+        }
+
+        int row = spriteScanline - (static_cast<int>(sprite.y) + 1);
+        if(row < 0 || row >= spriteHeight) {
+            return 0;
+        }
+
+        if(sprite.attrib & 0x80) {
+            row = (spriteHeight - 1) - row;
+        }
+
+        uint16_t base = 0;
+        uint16_t tileIndex = sprite.indexInPatternTable;
+        if(m_spriteSize8x16) {
+            base = (sprite.indexInPatternTable & 0x01) ? 0x1000 : 0x0000;
+            tileIndex = static_cast<uint16_t>(sprite.indexInPatternTable & 0xFE);
+            if(row >= 8) {
+                tileIndex++;
+                row -= 8;
+            }
+        }
+        else {
+            base = m_sprite8x8PatternTableAddress ? 0x1000 : 0x0000;
+        }
+
+        return static_cast<uint16_t>(base + (tileIndex << 4) + row + (highPlane ? 8 : 0));
+    }
+
     void fetchSprites() {
         // Mapper hooks must classify sprite-cycle PPU reads as sprite-source.
         m_isSpritePatternFetch = true;
+        m_cartridge.setPpuFetchSource(true);
 
         const int startCycle = 257;
+        const int spriteIndex = (m_cycle - startCycle) / 8;
 
-        int fetchCycle = (m_cycle - startCycle) % 8;   
+        if(m_cycle == startCycle) {
+            m_spriteFetchCount = 0;
+            memset(m_spriteFetchEntries, 0, sizeof(m_spriteFetchEntries));
+        }
+
+        int fetchCycle = (m_cycle - startCycle) % 8;
+        if(spriteIndex < 0 || spriteIndex >= 8) {
+            return;
+        }
+
+        Sprite* sprite = (Sprite*)&m_secondaryOam[spriteIndex << 2];
+        SpriteFetchEntry& entry = m_spriteFetchEntries[spriteIndex];
+        entry.x = sprite->x;
+        entry.attr = sprite->attrib;
+        entry.sprite0 = (spriteIndex == 0) && m_testSprite0HitInThisLine;
 
         switch(fetchCycle) {
 
             case 0: readPpuMemory(getNameTableAddr()); break;
             case 2: readPpuMemory(getAttributeTableAddr()); break;
-            case 4: {         
-
-                bool state;
-
-                int spriteIndex = (m_cycle - startCycle) / 8;
-                Sprite* sprite = (Sprite*)&m_secondaryOam[spriteIndex << 2];
-
-                uint8_t tile = sprite->indexInPatternTable;
-               
-                if(m_spriteSize8x16) {
-                    state = tile & 1;
+            case 4:
+                if(sprite->y == 0xFF) {
+                    entry.lowByte = 0;
+                    readPpuMemory(0);
                 }
-                else state = m_sprite8x8PatternTableAddress;
-
-                setBusAddress(m_busAddress | (state ? 0x1000 : 0)); // approximate relevant behavior         
-
+                else {
+                    entry.lowByte = readPpuMemory(getSpritePatternAddress(*sprite, false));
+                }
                 break;
-            }
+            case 6:
+                if(sprite->y == 0xFF) {
+                    entry.highByte = 0;
+                    readPpuMemory(0);
+                }
+                else {
+                    entry.highByte = readPpuMemory(getSpritePatternAddress(*sprite, true));
+                    m_spriteFetchCount = static_cast<uint8_t>(spriteIndex + 1);
+                }
+                break;
         }
-   
+    
     }
 
     //name tables
@@ -1698,6 +1677,7 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE void fetchNameTableByte() {
         // Background tile fetch source for mapper CHR/NT substitution.
         m_isSpritePatternFetch = false;
+        m_cartridge.setPpuFetchSource(false);
         uint16_t address = getNameTableAddr();
         uint8_t tileIndex = readPpuMemory(address);
 
@@ -1715,6 +1695,7 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE void fetchAttributeTableByte() {
         // Background tile fetch source for mapper CHR/NT substitution.
         m_isSpritePatternFetch = false;
+        m_cartridge.setPpuFetchSource(false);
 
         int address = getAttributeTableAddr();
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
@@ -1805,6 +1786,8 @@ yyy NNYY YYYX XXXX
         s.array(m_palette, 1, sizeof(m_palette));
         s.array(m_primaryOam, 1, sizeof(m_primaryOam));
         s.array(m_secondaryOam, 1, sizeof(m_secondaryOam));
+        s.array(reinterpret_cast<uint8_t*>(m_spriteFetchEntries), 1, sizeof(m_spriteFetchEntries));
+        SERIALIZEDATA(s, m_spriteFetchCount);
 
         SERIALIZEDATA(s, m_reg_v);
         SERIALIZEDATA(s, m_reg_x);
