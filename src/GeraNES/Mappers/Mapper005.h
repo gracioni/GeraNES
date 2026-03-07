@@ -298,7 +298,7 @@ private:
 
     GERANES_INLINE uint8_t readPrgRom8k(uint8_t bank8k, int addr)
     {
-        return m_cd.readPrg<BankSize::B8K>(bank8k & m_prgRom8kMask, addr);
+        return cd().readPrg<BankSize::B8K>(bank8k & m_prgRom8kMask, addr);
     }
 
     struct PrgWindow {
@@ -424,7 +424,7 @@ private:
 
     GERANES_INLINE bool hasChrRom() const
     {
-        return m_cd.chrSize() > 0;
+        return cd().chrSize() > 0;
     }
 
     GERANES_INLINE bool useChrRam() const
@@ -469,13 +469,13 @@ private:
 public:
     Mapper005(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_prgRom8kMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B8K>());
+        m_prgRom8kMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
 
         if(hasChrRom()) {
-            m_chrRom1kMask = calculateMask16(m_cd.numberOfCHRBanks<BankSize::B1K>());
+            m_chrRom1kMask = calculateMask16(cd.numberOfCHRBanks<BankSize::B1K>());
         }
         if(hasChrRam()) {
-            m_chrRam1kMask = calculateMask16(m_cd.chrRamSize() / static_cast<int>(BankSize::B1K));
+            m_chrRam1kMask = calculateMask16(cd.chrRamSize() / static_cast<int>(BankSize::B1K));
         }
         refreshChrMask();
 
@@ -1229,7 +1229,7 @@ public:
                 return readChrRam<BankSize::B1K>(bank, effectiveAddr);
             }
 
-            return m_cd.readChr<BankSize::B1K>(bank, effectiveAddr);
+            return cd().readChr<BankSize::B1K>(bank, effectiveAddr);
         }
 
         uint16_t bank = resolveChr1kBank(effectiveAddr);
@@ -1238,7 +1238,7 @@ public:
             return readChrRam<BankSize::B1K>(bank, effectiveAddr);
         }
 
-        return m_cd.readChr<BankSize::B1K>(bank, effectiveAddr);
+        return cd().readChr<BankSize::B1K>(bank, effectiveAddr);
     }
 
     GERANES_HOT float getExpansionAudioSample() override
