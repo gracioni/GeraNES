@@ -163,7 +163,7 @@ public:
         int SaveRamSize;
         Battery HasBattery;
         MirroringType Mirroring;
-        InputType InputType;
+        InputType InputDeviceType;
         BusConflictType BusConflicts;
         int SubmapperId;
         VsSystemType VsType;
@@ -365,7 +365,7 @@ private:
                 data.SaveRamSize = getInt(rawData.SaveRamSize);
                 data.HasBattery = getBattery(rawData.HasBattery);
                 data.Mirroring = getMirroringType(rawData.Mirroring);
-                data.InputType = getInputType(rawData.InputType);
+                data.InputDeviceType = getInputType(rawData.InputType);
                 data.BusConflicts = getBusConflictType(rawData.BusConflicts);
                 data.SubmapperId = getInt(rawData.SubMapperId);
                 data.VsType = getVsSystemType(rawData.VsSystemType);

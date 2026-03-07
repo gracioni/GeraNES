@@ -102,7 +102,16 @@ public:
         write(0x0017, 0x00);
         for(int i = 0; i < 12; i++ ) cycle();
 
+        // Mapper expansion audio is fed at CPU-cycle rate.
+        m_audioOutput.setExpansionAudioSampleRate(static_cast<float>(m_settings.CPUClockHz()));
+        m_audioOutput.setExpansionAudioVolume(1.0f);
+
         return "";
+    }
+
+    GERANES_INLINE void addExpansionAudioSample(float sample)
+    {
+        m_audioOutput.addExpansionAudioSample(sample);
     }
 
     GERANES_INLINE_HOT bool getInterruptFlag()
@@ -209,6 +218,9 @@ public:
 
     void updateAudioOutput()
     {
+        m_audioOutput.setExpansionAudioSampleRate(static_cast<float>(m_settings.CPUClockHz()));
+        m_audioOutput.setExpansionAudioVolume(1.0f);
+
         switch(m_pulse1.getDuty())
         {
         case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.125f); break;

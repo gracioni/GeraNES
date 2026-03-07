@@ -81,7 +81,7 @@ public:
 
         m_system = m_item->System != GameDatabase::Sistem::Unknown ? m_item->System : m_src->sistem();
 
-        m_inputType = m_item->InputType != GameDatabase::InputType::Unspecified ? m_item->InputType : m_src->inputType();
+        m_inputType = m_item->InputDeviceType != GameDatabase::InputType::Unspecified ? m_item->InputDeviceType : m_src->inputType();
     }
 
     virtual ~DbOverwriteCartridgeData() {

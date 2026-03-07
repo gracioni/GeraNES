@@ -17,6 +17,7 @@
 
 #include "Mappers/Mapper004.h"
 #include "Mappers/Mapper004_3.h"
+#include "Mappers/Mapper005.h"
 
 #include "Mappers/Mapper007.h"
 #include "Mappers/Mapper009.h"
@@ -313,6 +314,61 @@ public:
     GERANES_INLINE_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr)
     {
         return m_mapper->readCustomNameTable(index,addr);
+    }
+
+    GERANES_INLINE_HOT void writeCustomNameTable(uint8_t index, uint16_t addr, uint8_t data)
+    {
+        m_mapper->writeCustomNameTable(index,addr,data);
+    }
+
+    GERANES_INLINE void onScanlineStart(bool renderingEnabled, int scanline)
+    {
+        m_mapper->onScanlineStart(renderingEnabled, scanline);
+    }
+
+    GERANES_INLINE void setPpuFetchSource(bool isSpriteFetch)
+    {
+        m_mapper->setPpuFetchSource(isSpriteFetch);
+    }
+
+    GERANES_INLINE uint8_t transformNameTableRead(uint8_t index, uint16_t addr, uint8_t value)
+    {
+        return m_mapper->transformNameTableRead(index, addr, value);
+    }
+
+    GERANES_INLINE void setSpriteSize8x16(bool sprite8x16)
+    {
+        m_mapper->setSpriteSize8x16(sprite8x16);
+    }
+
+    GERANES_INLINE void setPpuMask(uint8_t mask)
+    {
+        m_mapper->setPpuMask(mask);
+    }
+
+    GERANES_INLINE void onPpuStatusRead(bool vblankSet)
+    {
+        m_mapper->onPpuStatusRead(vblankSet);
+    }
+
+    GERANES_INLINE void onPpuRead(uint16_t addr)
+    {
+        m_mapper->onPpuRead(addr);
+    }
+
+    GERANES_INLINE void onPpuCycle(int scanline, int cycle, bool isRendering, bool isPreLine)
+    {
+        m_mapper->onPpuCycle(scanline, cycle, isRendering, isPreLine);
+    }
+
+    GERANES_INLINE void onCpuRead(uint16_t addr)
+    {
+        m_mapper->onCpuRead(addr);
+    }
+
+    GERANES_INLINE float getExpansionAudioSample()
+    {
+        return m_mapper->getExpansionAudioSample();
     }
 
     GERANES_INLINE GameDatabase::Sistem system()

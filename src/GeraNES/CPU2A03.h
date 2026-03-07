@@ -1347,6 +1347,7 @@ inline void CPU2A03::endCycle() {
 
     if(!m_console.ppu().inOverclockLines()) {       
         m_console.cartridge().cycle();
+        m_console.apu().addExpansionAudioSample(m_console.cartridge().getExpansionAudioSample());
     }       
 
     m_console.ppu().ppuCyclePAL(); 
