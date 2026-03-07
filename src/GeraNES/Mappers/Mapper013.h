@@ -22,21 +22,21 @@ public:
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
-        return m_cd.readPrg<BankSize::B32K>(0,addr);
+        return cd().readPrg<BankSize::B32K>(0,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
         if(addr < 0x1000) addr &= 0x0FFF;
         else addr = (m_CHRReg * 0x1000) + (addr&0x0FFF);
-        return *(getChrRam()+addr);
+        return *(chrRam()+addr);
     }
 
     GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
         if(addr < 0x1000) addr &= 0x0FFF;
         else addr = (m_CHRReg * 0x1000) + (addr&0x0FFF);
-        *(getChrRam()+addr) = data;
+        *(chrRam()+addr) = data;
     }
 
     void serialization(SerializationBase &s) override
