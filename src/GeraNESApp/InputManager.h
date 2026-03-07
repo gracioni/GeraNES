@@ -109,6 +109,10 @@ public:
     {
         if(name.empty()) return false;
 
+        if(name == "+") {
+            return isPressed("=") || isPressed("Keypad +") || isPressed("KP +") || isPressed("Plus");
+        }
+
         if(m_inputMap.find(name) != m_inputMap.end()){
             return m_inputMap[name].pressed;
         }
@@ -119,6 +123,10 @@ public:
     bool isJustPressed(const std::string& name)
     {
         if(name.empty()) return false;
+
+        if(name == "+") {
+            return isJustPressed("=") || isJustPressed("Keypad +") || isJustPressed("KP +") || isJustPressed("Plus");
+        }
 
         if(m_inputMap.find(name) != m_inputMap.end()){
             return m_inputMap[name].pressed && m_inputMap[name].pressedFrameId == m_currentFrameId;

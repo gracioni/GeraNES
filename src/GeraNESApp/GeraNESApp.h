@@ -248,7 +248,17 @@ private:
                 im.isPressed(m_controller1.rewind) ||
                 im.isPressed(m_controller2.rewind) ||
                 m_touch->buttons().rewind
-            );            
+            );
+
+            // Hold-to-speed (fast forward)
+            m_emu.setSpeedBoost(
+                im.isPressed(m_controller1.speed) ||
+                im.isPressed(m_controller2.speed)
+            );
+        }
+        else {
+            m_emu.setRewind(false);
+            m_emu.setSpeedBoost(false);
         }
 
     }

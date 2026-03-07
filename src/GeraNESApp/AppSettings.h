@@ -102,6 +102,7 @@ public:
                 i.saveState = "F5";
                 i.loadState = "F6";
                 i.rewind = "Backspace";
+                i.speed = "+";
 
                 controller.insert(std::make_pair("0", i));
             }
@@ -121,8 +122,13 @@ public:
                 i.saveState = "";
                 i.loadState = "";
                 i.rewind = "";
+                i.speed = "";
 
                 controller.insert(std::make_pair("1", i)); 
+            }
+
+            if(controller.count("0") > 0 && controller["0"].speed.empty()) {
+                controller["0"].speed = "+";
             }
         }
 
