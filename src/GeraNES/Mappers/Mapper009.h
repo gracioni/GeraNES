@@ -26,10 +26,10 @@ public:
 
     Mapper009(ICartridgeData& cd) : BaseMapper(cd)
     {
-        numberOfPRG8kBanks  = m_cd.numberOfPRGBanks<BankSize::B8K>();
+        numberOfPRG8kBanks  = cd.numberOfPRGBanks<BankSize::B8K>();
 
         m_PRGRegMask = calculateMask(numberOfPRG8kBanks);
-        m_CHRMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B4K>());
+        m_CHRMask = calculateMask(cd.numberOfCHRBanks<BankSize::B4K>());
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -58,11 +58,11 @@ public:
     {
         addr &= 0x7FFF;
 
-        if(addr < 0x2000) return m_cd.readPrg<BankSize::B8K>(m_PRGReg,addr);
-        else if(addr < 0x4000) return m_cd.readPrg<BankSize::B8K>(numberOfPRG8kBanks-3,addr);
-        else if(addr < 0x6000) return m_cd.readPrg<BankSize::B8K>(numberOfPRG8kBanks-2,addr);
+        if(addr < 0x2000) return cd().readPrg<BankSize::B8K>(m_PRGReg,addr);
+        else if(addr < 0x4000) return cd().readPrg<BankSize::B8K>(numberOfPRG8kBanks-3,addr);
+        else if(addr < 0x6000) return cd().readPrg<BankSize::B8K>(numberOfPRG8kBanks-2,addr);
 
-        return m_cd.readPrg<BankSize::B8K>(numberOfPRG8kBanks-1,addr);
+        return cd().readPrg<BankSize::B8K>(numberOfPRG8kBanks-1,addr);
     }
 
     GERANES_HOT uint8_t readChr(int addr) override
@@ -74,12 +74,12 @@ public:
         addr &= 0x1FFF;
 
         if(addr < 0x1000) {
-            if(!m_latch1) ret = m_cd.readChr<BankSize::B4K>(m_CHRReg0A, addr);
-            else ret = m_cd.readChr<BankSize::B4K>(m_CHRReg0B, addr);
+            if(!m_latch1) ret = cd().readChr<BankSize::B4K>(m_CHRReg0A, addr);
+            else ret = cd().readChr<BankSize::B4K>(m_CHRReg0B, addr);
         }
         else {
-            if(!m_latch2) ret = m_cd.readChr<BankSize::B4K>(m_CHRReg1A, addr);
-            else ret = m_cd.readChr<BankSize::B4K>(m_CHRReg1B, addr);
+            if(!m_latch2) ret = cd().readChr<BankSize::B4K>(m_CHRReg1A, addr);
+            else ret = cd().readChr<BankSize::B4K>(m_CHRReg1B, addr);
         }
 
         if(addr == 0x0FD8) m_latch1 = false;

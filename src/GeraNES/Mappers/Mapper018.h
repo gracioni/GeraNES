@@ -55,8 +55,8 @@ public:
 
     Mapper018(ICartridgeData& cd) : BaseMapper(cd)
     {
-        m_PRGREGMask = calculateMask(m_cd.numberOfPRGBanks<BankSize::B8K>());
-        m_CHRREGMask = calculateMask(m_cd.numberOfCHRBanks<BankSize::B1K>());
+        m_PRGREGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
+        m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
 
     }
 
@@ -119,16 +119,16 @@ public:
         if(hasChrRam()) return BaseMapper::readChr(addr);
 
         int index = addr >> 10; // addr/0x400
-        return m_cd.readChr<BankSize::B1K>(m_CHRReg[index],addr);
+        return cd().readChr<BankSize::B1K>(m_CHRReg[index],addr);
     }
 
     GERANES_HOT uint8_t readPrg(int addr) override
     {
         switch(addr>>13) { // addr/8192
-        case 0: return m_cd.readPrg<BankSize::B8K>(m_PRGReg[0],addr);
-        case 1: return m_cd.readPrg<BankSize::B8K>(m_PRGReg[1],addr);
-        case 2: return m_cd.readPrg<BankSize::B8K>(m_PRGReg[2],addr);
-        case 3: return m_cd.readPrg<BankSize::B8K>(m_cd.numberOfPRGBanks<BankSize::B8K>()-1,addr);
+        case 0: return cd().readPrg<BankSize::B8K>(m_PRGReg[0],addr);
+        case 1: return cd().readPrg<BankSize::B8K>(m_PRGReg[1],addr);
+        case 2: return cd().readPrg<BankSize::B8K>(m_PRGReg[2],addr);
+        case 3: return cd().readPrg<BankSize::B8K>(cd().numberOfPRGBanks<BankSize::B8K>()-1,addr);
         }
 
         return 0;
