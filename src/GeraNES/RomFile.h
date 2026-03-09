@@ -17,11 +17,9 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
-#ifndef GERANES_DISABLE_PATCHES
 #include "libips.h"
 #include "libups.h"
 #include "libbps.h"
-#endif
 
 class RomFile {
 
@@ -151,11 +149,6 @@ public:
     GERANES_INLINE size_t size() const { return m_data.size(); }
 
     bool applyPatch(const std::string patchFilePath) { 
-#ifdef GERANES_DISABLE_PATCHES
-        (void)patchFilePath;
-        m_error = "patch files (.ips/.ups/.bps) are disabled in this build";
-        return false;
-#else
 
         std::vector<uint8_t> patchData;
 
@@ -221,7 +214,6 @@ public:
         }
         
         return true;
-#endif
     }
 
     void log() {

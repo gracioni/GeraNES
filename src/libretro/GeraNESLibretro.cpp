@@ -7,10 +7,23 @@
 #include <string>
 #include <vector>
 
+#if defined(GERANES_LIBRETRO_USE_CMRC_DB)
+#include "cmrc/cmrc.hpp"
+#endif
+
 #include "GeraNES/GeraNESEmu.h"
+#include "GeraNES/GameDatabase.h"
 #include "GeraNES/PPU.h"
 #include "GeraNES/Serialization.h"
 #include "GeraNESApp/AudioOutputBase.h"
+#include "logger/logger.h"
+
+#if defined(GERANES_LIBRETRO_USE_CMRC_DB)
+CMRC_DECLARE(libretro_db_assets);
+#else
+extern unsigned char geranes_libretro_embedded_db[];
+extern unsigned int geranes_libretro_embedded_db_size;
+#endif
 
 extern "C" {
 
@@ -54,6 +67,11 @@ struct retro_system_av_info {
     struct retro_system_timing timing;
 };
 
+struct retro_message {
+    const char* msg;
+    unsigned frames;
+};
+
 enum retro_pixel_format {
     RETRO_PIXEL_FORMAT_0RGB1555 = 0,
     RETRO_PIXEL_FORMAT_XRGB8888 = 1,
@@ -61,6 +79,10 @@ enum retro_pixel_format {
 };
 
 enum {
+    RETRO_ENVIRONMENT_SET_MESSAGE = 6,
+    RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY = 9,
+    RETRO_ENVIRONMENT_GET_LIBRETRO_PATH = 19,
+    RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY = 30,
     RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10,
     RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME = 18
 };
@@ -173,6 +195,26 @@ std::string g_tempRomPath;
 
 bool g_gameLoaded = false;
 uint32_t g_frameTimeMs = 16;
+std::string g_dbPath;
+bool g_loggerBound = false;
+
+void frontendMessage(const std::string& msg, unsigned frames = 180);
+
+class LibretroLogSink final : public SigSlot::SigSlotBase {
+public:
+    void onLog(const std::string& msg, Logger::Type type)
+    {
+        if(msg.empty()) return;
+
+        unsigned frames = 120;
+        if(type == Logger::Type::WARNING) frames = 180;
+        else if(type == Logger::Type::ERROR) frames = 300;
+
+        frontendMessage(msg, frames);
+    }
+};
+
+LibretroLogSink g_logSink;
 
 void updateTimingFromRegion()
 {
@@ -231,6 +273,100 @@ void convertVideoFrame()
     }
 }
 
+void frontendMessage(const std::string& msg, unsigned frames)
+{
+    if(g_environmentCb == nullptr) return;
+
+    retro_message m{};
+    m.msg = msg.c_str();
+    m.frames = frames;
+    g_environmentCb(RETRO_ENVIRONMENT_SET_MESSAGE, &m);
+}
+
+void tryAddDbCandidate(unsigned command, std::vector<std::filesystem::path>& outCandidates)
+{
+    if(g_environmentCb == nullptr) return;
+
+    const char* dir = nullptr;
+    if(!g_environmentCb(command, &dir) || dir == nullptr || std::strlen(dir) == 0) return;
+
+    outCandidates.push_back(std::filesystem::path(dir) / "db.txt");
+}
+
+void configureDatabasePath()
+{
+    namespace fs = std::filesystem;
+
+    std::vector<fs::path> candidates;
+    if(g_environmentCb != nullptr) {
+        const char* systemDir = nullptr;
+        if(g_environmentCb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &systemDir) && systemDir != nullptr && std::strlen(systemDir) > 0) {
+            const fs::path base(systemDir);
+            // Preferred libretro layout for per-core assets.
+            candidates.push_back(base / "geranes" / "db.txt");
+        }
+    }
+
+    tryAddDbCandidate(RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY, candidates);
+
+    if(g_environmentCb != nullptr) {
+        const char* corePath = nullptr;
+        if(g_environmentCb(RETRO_ENVIRONMENT_GET_LIBRETRO_PATH, &corePath) && corePath != nullptr && std::strlen(corePath) > 0) {
+            candidates.push_back(fs::path(corePath).parent_path() / "db.txt");
+        }
+    }
+
+    candidates.push_back("db.txt");
+
+    std::error_code ec;
+    for(const auto& candidate : candidates) {
+        if(fs::exists(candidate, ec)) {
+            g_dbPath = candidate.string();
+            GameDatabase::setDatabasePath(g_dbPath);
+            return;
+        }
+    }
+
+    // Fallback: use the database embedded in the core binary.
+    const auto tempPath = fs::temp_directory_path() / "geranes_libretro_db.txt";
+#if defined(GERANES_LIBRETRO_USE_CMRC_DB)
+    try {
+        auto fsDb = cmrc::libretro_db_assets::get_filesystem();
+        cmrc::file dbFile = fsDb.exists("data/db.txt") ? fsDb.open("data/db.txt") : fsDb.open("db.txt");
+
+        std::ofstream out(tempPath, std::ios::binary | std::ios::trunc);
+        if(out.is_open()) {
+            out.write(dbFile.begin(), static_cast<std::streamsize>(dbFile.size()));
+            if(out.good()) {
+                g_dbPath = tempPath.string();
+                GameDatabase::setDatabasePath(g_dbPath);
+                frontendMessage("Using embedded db.txt fallback.", 180);
+                return;
+            }
+        }
+    }
+    catch(...) {
+    }
+#else
+    if(geranes_libretro_embedded_db_size > 0) {
+        std::ofstream out(tempPath, std::ios::binary | std::ios::trunc);
+        if(out.is_open()) {
+            out.write(reinterpret_cast<const char*>(geranes_libretro_embedded_db),
+                      static_cast<std::streamsize>(geranes_libretro_embedded_db_size));
+            if(out.good()) {
+                g_dbPath = tempPath.string();
+                GameDatabase::setDatabasePath(g_dbPath);
+                frontendMessage("Using embedded db.txt fallback.", 180);
+                return;
+            }
+        }
+    }
+#endif
+
+    g_dbPath.clear();
+    GameDatabase::setDatabasePath("db.txt");
+}
+
 }
 
 RETRO_API void retro_set_environment(retro_environment_t cb)
@@ -265,6 +401,11 @@ RETRO_API void retro_set_input_state(retro_input_state_t cb)
 
 RETRO_API void retro_init(void)
 {
+    if(!g_loggerBound) {
+        Logger::instance().signalLog.bind(&LibretroLogSink::onLog, &g_logSink);
+        g_loggerBound = true;
+    }
+
     if(g_environmentCb != nullptr) {
         retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
         g_environmentCb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt);
@@ -273,6 +414,7 @@ RETRO_API void retro_init(void)
         g_environmentCb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &noGame);
     }
 
+    configureDatabasePath();
     g_audio.init();
 }
 
@@ -298,7 +440,7 @@ RETRO_API void retro_get_system_info(struct retro_system_info* info)
     info->library_name = "GeraNES";
     info->library_version = GERANES_VERSION;
     info->valid_extensions = "nes|fds|zip|ips|ups|bps";
-    info->need_fullpath = false;
+    info->need_fullpath = true;
     info->block_extract = false;
 }
 
@@ -394,7 +536,10 @@ RETRO_API void retro_cheat_set(unsigned, bool, const char*)
 
 RETRO_API bool retro_load_game(const struct retro_game_info* game)
 {
-    if(game == nullptr) return false;
+    if(game == nullptr) {
+        frontendMessage("Failed to load content: null game info.", 300);
+        return false;
+    }
 
     if(g_gameLoaded) {
         g_emu.close();
@@ -414,13 +559,17 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
             g_tempRomPath = tempPath;
             loaded = g_emu.open(g_tempRomPath);
         }
+        else {
+            frontendMessage("Failed to load content: could not create temporary ROM file.", 300);
+        }
+    }
+    else {
+        frontendMessage("Failed to load content: no path or in-memory data provided.", 300);
     }
 
     g_gameLoaded = loaded;
 
-    if(g_gameLoaded) {
-        updateTimingFromRegion();
-    }
+    if(g_gameLoaded) updateTimingFromRegion();
 
     return g_gameLoaded;
 }

@@ -207,6 +207,7 @@ file(GLOB_RECURSE RESOURCES_LIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 
 # Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RESOURCES_LIST})
+cmrc_add_resource_library(libretro_db_assets "${CMAKE_CURRENT_SOURCE_DIR}/data/db.txt")
 
 # Copy data folder to build
 if(EMSCRIPTEN)
@@ -270,5 +271,22 @@ add_library(${LIBRETRO_CORE_NAME} SHARED
 )
 target_compile_features(${LIBRETRO_CORE_NAME} PUBLIC cxx_std_20)
 target_include_directories(${LIBRETRO_CORE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_definitions(${LIBRETRO_CORE_NAME} PRIVATE GERANES_DISABLE_PATCHES)
+target_compile_definitions(${LIBRETRO_CORE_NAME} PRIVATE GERANES_LIBRETRO_USE_CMRC_DB=1)
+target_link_libraries(${LIBRETRO_CORE_NAME} PRIVATE libretro_db_assets flips)
+if(MINGW)
+    # Make the core self-contained for RetroArch on Windows.
+    target_link_options(${LIBRETRO_CORE_NAME} PRIVATE -static-libgcc -static-libstdc++)
+    target_link_libraries(${LIBRETRO_CORE_NAME} PRIVATE
+        -Wl,-Bstatic
+        -lstdc++
+        -lgcc
+        -lwinpthread
+        -Wl,-Bdynamic
+    )
+endif()
 set_target_properties(${LIBRETRO_CORE_NAME} PROPERTIES PREFIX "")
+
+# Copy the canonical libretro .info file.
+set(LIBRETRO_INFO_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/libretro/geranes_libretro.info")
+set(LIBRETRO_INFO_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${LIBRETRO_CORE_NAME}.info")
+configure_file("${LIBRETRO_INFO_SOURCE}" "${LIBRETRO_INFO_OUTPUT}" COPYONLY)
