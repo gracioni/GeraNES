@@ -388,6 +388,21 @@ public:
         return m_isValid;
     }
 
+    GERANES_INLINE uint8_t* saveRamData()
+    {
+        return m_mapper->saveRamData();
+    }
+
+    GERANES_INLINE size_t saveRamSize() const
+    {
+        return m_mapper->saveRamSize();
+    }
+
+    GERANES_INLINE bool hasBatterySaveRam() const
+    {
+        return m_mapper->hasBatterySaveRam();
+    }
+
     GERANES_INLINE const RomFile& romFile() {
         return m_romFile;
     }

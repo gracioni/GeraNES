@@ -955,13 +955,23 @@ RETRO_API unsigned retro_get_region(void)
 
 RETRO_API void* retro_get_memory_data(unsigned id)
 {
-    if(id == RETRO_MEMORY_SAVE_RAM) return nullptr;
+    if(id != RETRO_MEMORY_SAVE_RAM || !g_gameLoaded) return nullptr;
+
+    Cartridge& cart = g_emu.getConsole().cartridge();
+    if(!cart.hasBatterySaveRam()) return nullptr;
+    return cart.saveRamData();
+
     return nullptr;
 }
 
 RETRO_API size_t retro_get_memory_size(unsigned id)
 {
-    if(id == RETRO_MEMORY_SAVE_RAM) return 0;
+    if(id != RETRO_MEMORY_SAVE_RAM || !g_gameLoaded) return 0;
+
+    Cartridge& cart = g_emu.getConsole().cartridge();
+    if(!cart.hasBatterySaveRam()) return 0;
+    return cart.saveRamSize();
+
     return 0;
 
 }

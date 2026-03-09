@@ -257,6 +257,22 @@ public:
         return cd().chrRamSize() > 0;
     }
 
+    GERANES_INLINE uint8_t* saveRamData()
+    {
+        return m_sRam;
+    }
+
+    GERANES_INLINE size_t saveRamSize() const
+    {
+        if(m_sRam == nullptr) return 0;
+        return static_cast<size_t>(cd().saveRamSize());
+    }
+
+    GERANES_INLINE bool hasBatterySaveRam() const
+    {
+        return m_sRam != nullptr && cd().hasBattery();
+    }
+
 
 
 };
