@@ -1,4 +1,5 @@
 #include <array>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -89,6 +90,7 @@ enum {
     RETRO_ENVIRONMENT_SET_VARIABLES = 16,
     RETRO_ENVIRONMENT_GET_VARIABLE = 15,
     RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE = 17,
+    RETRO_ENVIRONMENT_SET_GEOMETRY = 37,
     RETRO_ENVIRONMENT_GET_LIBRETRO_PATH = 19,
     RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY = 30,
     RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10,
@@ -226,6 +228,8 @@ LibretroLogSink g_logSink;
 
 constexpr const char* kOptionDisableSpriteLimit = "geranes_disable_sprite_limit";
 constexpr const char* kOptionOverclock = "geranes_overclock";
+constexpr const char* kOptionVerticalCrop = "geranes_vertical_crop";
+int g_verticalCropPx = 8;
 
 void registerCoreOptions()
 {
@@ -234,6 +238,7 @@ void registerCoreOptions()
     static const retro_variable variables[] = {
         {kOptionDisableSpriteLimit, "Disable sprite limit; disabled|enabled"},
         {kOptionOverclock, "Overclock; disabled|enabled"},
+        {kOptionVerticalCrop, "Vertical crop (top/bottom lines); 8|0|4|12|16"},
         {nullptr, nullptr}
     };
 
@@ -261,10 +266,55 @@ bool getCoreOptionBool(const char* key, bool defaultValue = false)
     return defaultValue;
 }
 
+int getCoreOptionInt(const char* key, int defaultValue)
+{
+    if(g_environmentCb == nullptr || key == nullptr) return defaultValue;
+
+    retro_variable variable{};
+    variable.key = key;
+    if(!g_environmentCb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) || variable.value == nullptr) {
+        return defaultValue;
+    }
+
+    const long v = std::strtol(variable.value, nullptr, 10);
+    return static_cast<int>(v);
+}
+
+int getCroppedHeight()
+{
+    int crop = g_verticalCropPx;
+    if(crop < 0) crop = 0;
+    const int maxCrop = (PPU::SCREEN_HEIGHT - 1) / 2;
+    if(crop > maxCrop) crop = maxCrop;
+    return PPU::SCREEN_HEIGHT - 2 * crop;
+}
+
+void notifyGeometryChanged()
+{
+    if(g_environmentCb == nullptr) return;
+
+    retro_game_geometry geometry{};
+    geometry.base_width = PPU::SCREEN_WIDTH;
+    geometry.base_height = static_cast<unsigned>(getCroppedHeight());
+    geometry.max_width = PPU::SCREEN_WIDTH;
+    geometry.max_height = PPU::SCREEN_HEIGHT;
+    geometry.aspect_ratio = static_cast<float>(PPU::SCREEN_WIDTH) / static_cast<float>(getCroppedHeight());
+    g_environmentCb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geometry);
+}
+
 void applyCoreOptions()
 {
     g_emu.disableSpriteLimit(getCoreOptionBool(kOptionDisableSpriteLimit, false));
     g_emu.enableOverclock(getCoreOptionBool(kOptionOverclock, false));
+
+    int newCrop = getCoreOptionInt(kOptionVerticalCrop, 8);
+    if(newCrop < 0) newCrop = 0;
+    const int maxCrop = (PPU::SCREEN_HEIGHT - 1) / 2;
+    if(newCrop > maxCrop) newCrop = maxCrop;
+    if(newCrop != g_verticalCropPx) {
+        g_verticalCropPx = newCrop;
+        notifyGeometryChanged();
+    }
 }
 
 void updateTimingFromRegion()
@@ -502,10 +552,10 @@ RETRO_API void retro_get_system_av_info(struct retro_system_av_info* info)
     if(info == nullptr) return;
 
     info->geometry.base_width = PPU::SCREEN_WIDTH;
-    info->geometry.base_height = PPU::SCREEN_HEIGHT;
+    info->geometry.base_height = static_cast<unsigned>(getCroppedHeight());
     info->geometry.max_width = PPU::SCREEN_WIDTH;
     info->geometry.max_height = PPU::SCREEN_HEIGHT;
-    info->geometry.aspect_ratio = 4.0f / 3.0f;
+    info->geometry.aspect_ratio = static_cast<float>(PPU::SCREEN_WIDTH) / static_cast<float>(getCroppedHeight());
 
     const auto fps = g_gameLoaded ? static_cast<double>(g_emu.getRegionFPS()) : 60.0;
     info->timing.fps = fps;
@@ -534,7 +584,7 @@ RETRO_API void retro_run(void)
 
     if(!g_gameLoaded) {
         if(g_videoCb != nullptr) {
-            g_videoCb(nullptr, PPU::SCREEN_WIDTH, PPU::SCREEN_HEIGHT, 0);
+            g_videoCb(nullptr, PPU::SCREEN_WIDTH, static_cast<unsigned>(getCroppedHeight()), 0);
         }
         return;
     }
@@ -547,7 +597,11 @@ RETRO_API void retro_run(void)
     convertVideoFrame();
 
     if(g_videoCb != nullptr) {
-        g_videoCb(g_videoFrame.data(), PPU::SCREEN_WIDTH, PPU::SCREEN_HEIGHT, PPU::SCREEN_WIDTH * sizeof(uint32_t));
+        const auto cropOffset = static_cast<size_t>(g_verticalCropPx) * PPU::SCREEN_WIDTH;
+        g_videoCb(g_videoFrame.data() + cropOffset,
+                  PPU::SCREEN_WIDTH,
+                  static_cast<unsigned>(getCroppedHeight()),
+                  PPU::SCREEN_WIDTH * sizeof(uint32_t));
     }
 
     g_audio.submit();
