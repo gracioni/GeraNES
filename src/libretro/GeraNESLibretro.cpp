@@ -864,9 +864,7 @@ RETRO_API bool retro_unserialize(const void* data, size_t size)
 {
     if(!g_gameLoaded || data == nullptr || size == 0) return false;
 
-    std::vector<uint8_t> state(size);
-    std::memcpy(state.data(), data, size);
-    g_emu.loadStateFromMemory(state);
+    g_emu.loadStateFromMemory(static_cast<const uint8_t*>(data), size);
     return true;
 }
 

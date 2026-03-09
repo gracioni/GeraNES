@@ -576,6 +576,17 @@ public:
         m_updateCyclesAcc = old;
     }
 
+    void loadStateFromMemory(const uint8_t* data, size_t size)
+    {
+        auto old = m_updateCyclesAcc; //preserve this
+
+        Deserialize d;
+        d.setData(data, size);
+        serialization(d);
+
+        m_updateCyclesAcc = old;
+    }
+
     /*
     void calculateSerializationSize()
     {
