@@ -3,6 +3,7 @@
 #include "defines.h"
 #include "Serialization.h"
 #include "util/map_util.h"
+#include <optional>
 
 class Settings {
 

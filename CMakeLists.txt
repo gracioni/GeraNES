@@ -198,6 +198,7 @@ file(GLOB FLIPS_GLOB
 )
 
 add_library("flips" STATIC ${FLIPS_GLOB})
+set_target_properties("flips" PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 INCLUDE_DIRECTORIES(src)
 
@@ -236,6 +237,7 @@ file(GLOB_RECURSE CPP_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
+list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
 
 set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
@@ -258,3 +260,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})
 target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
+
+set(LIBRETRO_CORE_NAME "geranes_libretro")
+
+add_library(${LIBRETRO_CORE_NAME} SHARED
+    src/libretro/GeraNESLibretro.cpp
+    src/signal/signal.cpp
+    src/zip/zip.c
+)
+target_compile_features(${LIBRETRO_CORE_NAME} PUBLIC cxx_std_20)
+target_include_directories(${LIBRETRO_CORE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(${LIBRETRO_CORE_NAME} PRIVATE GERANES_DISABLE_PATCHES)
+set_target_properties(${LIBRETRO_CORE_NAME} PROPERTIES PREFIX "")
