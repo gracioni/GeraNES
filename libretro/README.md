@@ -16,6 +16,13 @@ Or directly:
 make -C libretro
 ```
 
+On Windows/MinGW, the Makefile auto-detects the toolchain and emits `.dll`
+even when `platform` is not passed. You can still force it explicitly:
+
+```bash
+make -C libretro platform=mingw
+```
+
 Output artifact:
 
 - `geranes_libretro.so` (Linux)
@@ -24,6 +31,5 @@ Output artifact:
 
 ## Notes
 
-- Libretro builds define `GERANES_DISABLE_PATCHES`.
-  - `.ips/.ups/.bps` runtime patching is disabled in this core build.
+- Runtime patching support is enabled (`.ips`, `.ups`, `.bps`).
 - Standard ROM formats (`.nes`, `.zip`) are supported.
