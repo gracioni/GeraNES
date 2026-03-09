@@ -72,6 +72,11 @@ struct retro_message {
     unsigned frames;
 };
 
+struct retro_variable {
+    const char* key;
+    const char* value;
+};
+
 enum retro_pixel_format {
     RETRO_PIXEL_FORMAT_0RGB1555 = 0,
     RETRO_PIXEL_FORMAT_XRGB8888 = 1,
@@ -81,6 +86,9 @@ enum retro_pixel_format {
 enum {
     RETRO_ENVIRONMENT_SET_MESSAGE = 6,
     RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY = 9,
+    RETRO_ENVIRONMENT_SET_VARIABLES = 16,
+    RETRO_ENVIRONMENT_GET_VARIABLE = 15,
+    RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE = 17,
     RETRO_ENVIRONMENT_GET_LIBRETRO_PATH = 19,
     RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY = 30,
     RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10,
@@ -215,6 +223,49 @@ public:
 };
 
 LibretroLogSink g_logSink;
+
+constexpr const char* kOptionDisableSpriteLimit = "geranes_disable_sprite_limit";
+constexpr const char* kOptionOverclock = "geranes_overclock";
+
+void registerCoreOptions()
+{
+    if(g_environmentCb == nullptr) return;
+
+    static const retro_variable variables[] = {
+        {kOptionDisableSpriteLimit, "Disable sprite limit; disabled|enabled"},
+        {kOptionOverclock, "Overclock; disabled|enabled"},
+        {nullptr, nullptr}
+    };
+
+    g_environmentCb(RETRO_ENVIRONMENT_SET_VARIABLES, const_cast<retro_variable*>(variables));
+}
+
+bool getCoreOptionBool(const char* key, bool defaultValue = false)
+{
+    if(g_environmentCb == nullptr || key == nullptr) return defaultValue;
+
+    retro_variable variable{};
+    variable.key = key;
+    if(!g_environmentCb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) || variable.value == nullptr) {
+        return defaultValue;
+    }
+
+    const std::string value(variable.value);
+    if(value == "enabled" || value == "Enabled" || value == "on" || value == "ON" || value == "true" || value == "1") {
+        return true;
+    }
+    if(value == "disabled" || value == "Disabled" || value == "off" || value == "OFF" || value == "false" || value == "0") {
+        return false;
+    }
+
+    return defaultValue;
+}
+
+void applyCoreOptions()
+{
+    g_emu.disableSpriteLimit(getCoreOptionBool(kOptionDisableSpriteLimit, false));
+    g_emu.enableOverclock(getCoreOptionBool(kOptionOverclock, false));
+}
 
 void updateTimingFromRegion()
 {
@@ -372,6 +423,7 @@ void configureDatabasePath()
 RETRO_API void retro_set_environment(retro_environment_t cb)
 {
     g_environmentCb = cb;
+    registerCoreOptions();
 }
 
 RETRO_API void retro_set_video_refresh(retro_video_refresh_t cb)
@@ -414,6 +466,7 @@ RETRO_API void retro_init(void)
         g_environmentCb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &noGame);
     }
 
+    applyCoreOptions();
     configureDatabasePath();
     g_audio.init();
 }
@@ -470,6 +523,13 @@ RETRO_API void retro_reset(void)
 
 RETRO_API void retro_run(void)
 {
+    if(g_environmentCb != nullptr) {
+        bool optionsUpdated = false;
+        if(g_environmentCb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &optionsUpdated) && optionsUpdated) {
+            applyCoreOptions();
+        }
+    }
+
     if(g_inputPollCb != nullptr) g_inputPollCb();
 
     if(!g_gameLoaded) {
@@ -570,6 +630,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     g_gameLoaded = loaded;
 
     if(g_gameLoaded) updateTimingFromRegion();
+    if(g_gameLoaded) applyCoreOptions();
 
     return g_gameLoaded;
 }
