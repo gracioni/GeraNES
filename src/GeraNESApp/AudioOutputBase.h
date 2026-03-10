@@ -3,6 +3,8 @@
 #include "AudioGenerator.h"
 
 #include "GeraNES/IAudioOutput.h"
+#include <algorithm>
+#include <sstream>
 
 class AudioOutputBase : public IAudioOutput
 {
@@ -21,6 +23,17 @@ private:
     FirstOrderHighPassFilter m_hpFilter1;
     FirstOrderHighPassFilter m_hpFilter2;
     FirstOrderLowPassFilter m_lpFilter;
+
+    float m_userPulse1Volume = 1.0f;
+    float m_userPulse2Volume = 1.0f;
+    float m_userTriangleVolume = 1.0f;
+    float m_userNoiseVolume = 1.0f;
+    float m_userSampleVolume = 1.0f;
+
+    static float clampVolume(float v)
+    {
+        return std::clamp(v, 0.0f, 1.0f);
+    }
 
 public:
 
@@ -62,12 +75,12 @@ public:
         const float sum = 0.5f+0.5f+0.5f+1.0f+1.5f+1.5f+1.0f;
 
         //empirical values 
-        ret += 0.5f/sum*m_pulseWave1.get();
-        ret += 0.5f/sum*m_pulseWave2.get();
-        ret += 0.5f/sum*m_triangleWave.get();
-        ret += 1.0f/sum*m_noise.get();
-        ret += 1.5f/sum*m_sample.get();
-        ret += 1.5f/sum*m_sampleDirect.get();
+        ret += 0.5f/sum*m_pulseWave1.get()*m_userPulse1Volume;
+        ret += 0.5f/sum*m_pulseWave2.get()*m_userPulse2Volume;
+        ret += 0.5f/sum*m_triangleWave.get()*m_userTriangleVolume;
+        ret += 1.0f/sum*m_noise.get()*m_userNoiseVolume;
+        ret += 1.5f/sum*m_sample.get()*m_userSampleVolume;
+        ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
         ret += 1.0f/sum*m_expansionSample.get();
 
         ret = m_hpFilter1.apply(ret);
@@ -139,6 +152,30 @@ public:
     void addExpansionAudioSample(float sample) override
     {
         m_expansionSample.add(sample);
+    }
+
+    std::string getAudioChannelsJson() const override
+    {
+        std::ostringstream ss;
+        ss << "{\"channels\":["
+           << "{\"id\":\"nes.pulse1\",\"label\":\"NES Pulse 1\",\"volume\":" << m_userPulse1Volume << ",\"min\":0.0,\"max\":1.0},"
+           << "{\"id\":\"nes.pulse2\",\"label\":\"NES Pulse 2\",\"volume\":" << m_userPulse2Volume << ",\"min\":0.0,\"max\":1.0},"
+           << "{\"id\":\"nes.triangle\",\"label\":\"NES Triangle\",\"volume\":" << m_userTriangleVolume << ",\"min\":0.0,\"max\":1.0},"
+           << "{\"id\":\"nes.noise\",\"label\":\"NES Noise\",\"volume\":" << m_userNoiseVolume << ",\"min\":0.0,\"max\":1.0},"
+           << "{\"id\":\"nes.sample\",\"label\":\"NES Sample\",\"volume\":" << m_userSampleVolume << ",\"min\":0.0,\"max\":1.0}"
+           << "]}";
+        return ss.str();
+    }
+
+    bool setAudioChannelVolumeById(const std::string& id, float volume) override
+    {
+        const float v = clampVolume(volume);
+        if(id == "nes.pulse1") { m_userPulse1Volume = v; return true; }
+        if(id == "nes.pulse2") { m_userPulse2Volume = v; return true; }
+        if(id == "nes.triangle") { m_userTriangleVolume = v; return true; }
+        if(id == "nes.noise") { m_userNoiseVolume = v; return true; }
+        if(id == "nes.sample") { m_userSampleVolume = v; return true; }
+        return false;
     }
 
 };

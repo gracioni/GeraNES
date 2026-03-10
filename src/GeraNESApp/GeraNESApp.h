@@ -138,6 +138,15 @@ private:
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
 
+    struct AudioChannelControl {
+        std::string source;
+        std::string id;
+        std::string label;
+        float volume = 1.0f;
+        float min = 0.0f;
+        float max = 1.0f;
+    };
+
     struct ShaderItem {
         std::string label;
         std::string path;
@@ -1164,7 +1173,14 @@ public:
                 if (ImGui::MenuItem("Log"))
                 {
                     m_showLogWindow = true;    
-                }   
+                }
+
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Audio"))
+                {
+                    drawAudioChannelDebugControls();
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
 
@@ -1177,6 +1193,70 @@ public:
         }
 
         m_menuBarHeight = ImGui::GetFrameHeight();
+    }
+
+    void collectAudioChannelsFromJson(const std::string& jsonStr, const char* source, std::vector<AudioChannelControl>& out)
+    {
+        if(jsonStr.empty()) return;
+
+        try {
+            nlohmann::json j = nlohmann::json::parse(jsonStr);
+            if(!j.is_object() || !j.contains("channels") || !j["channels"].is_array()) return;
+
+            for(const auto& item : j["channels"]) {
+                if(!item.is_object() || !item.contains("id")) continue;
+
+                AudioChannelControl c;
+                c.source = source;
+                c.id = item.value("id", "");
+                if(c.id.empty()) continue;
+
+                c.label = item.value("label", c.id);
+                c.volume = item.value("volume", 1.0f);
+                c.min = item.value("min", 0.0f);
+                c.max = item.value("max", 1.0f);
+
+                if(c.min > c.max) std::swap(c.min, c.max);
+                if(c.volume < c.min) c.volume = c.min;
+                if(c.volume > c.max) c.volume = c.max;
+
+                out.push_back(std::move(c));
+            }
+        }
+        catch(...) {
+        }
+    }
+
+    void applyAudioChannelVolume(const AudioChannelControl& c, float value)
+    {
+        if(c.source == "nes") {
+            m_audioOutput.setAudioChannelVolumeById(c.id, value);
+            return;
+        }
+
+        if(c.source == "mapper") {
+            m_emu.getConsole().cartridge().setMapperAudioChannelVolumeById(c.id, value);
+        }
+    }
+
+    void drawAudioChannelDebugControls()
+    {
+        std::vector<AudioChannelControl> channels;
+        collectAudioChannelsFromJson(m_audioOutput.getAudioChannelsJson(), "nes", channels);
+        collectAudioChannelsFromJson(m_emu.getConsole().cartridge().getMapperAudioChannelsJson(), "mapper", channels);
+
+        if(channels.empty()) {
+            ImGui::TextDisabled("No channel controls available.");
+            return;
+        }
+
+        for(auto& c : channels) {
+            float value = c.volume;
+            std::string label = c.label + "##" + c.source + "." + c.id;
+            if(ImGui::SliderFloat(label.c_str(), &value, c.min, c.max, "%.2f")) {
+                applyAudioChannelVolume(c, value);
+            }
+        }
     }
 
     virtual void paintGL()  override {

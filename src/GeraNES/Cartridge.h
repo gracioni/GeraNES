@@ -373,6 +373,16 @@ public:
         return m_mapper->getExpansionAudioSample();
     }
 
+    GERANES_INLINE std::string getMapperAudioChannelsJson() const
+    {
+        return m_mapper->getAudioChannelsJson();
+    }
+
+    GERANES_INLINE bool setMapperAudioChannelVolumeById(const std::string& id, float volume)
+    {
+        return m_mapper->setAudioChannelVolumeById(id, volume);
+    }
+
     GERANES_INLINE GameDatabase::Sistem system()
     {
         return m_nesCartridgeData->sistem();

@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <fstream>
+#include <string>
 
 #include "../defines.h"
 #include "../NesCartridgeData/ICartridgeData.h"
@@ -232,6 +233,16 @@ public:
     virtual float getExpansionAudioSample()
     {
         return 0.0f;
+    }
+
+    virtual std::string getAudioChannelsJson() const
+    {
+        return "{\"channels\":[]}";
+    }
+
+    virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/)
+    {
+        return false;
     }
 
     virtual ~BaseMapper()
