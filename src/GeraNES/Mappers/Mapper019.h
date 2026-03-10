@@ -1,12 +1,18 @@
 #pragma once
 
-//TODO: expansion sound
-
 #include <memory>
+#include <algorithm>
+#include <cmath>
+#include <sstream>
+#include <iomanip>
 
 #include "BaseMapper.h"
+#include "logger/logger.h"
 
 #define SOUND_RAM_SIZE 128
+#ifndef GERANES_M019_AUDIO_DEBUG
+#define GERANES_M019_AUDIO_DEBUG 0
+#endif
 
 class Mapper019 : public BaseMapper
 {
@@ -30,7 +36,22 @@ private:
 
     uint8_t m_soundRAMAddress = 0;
     bool m_soundAutoIncrement = false;
-    uint8_t m_soundRAM[SOUND_RAM_SIZE];
+    uint8_t m_soundRAM[SOUND_RAM_SIZE] = {0};
+    bool m_soundDisable = false;
+    bool m_skipSoundDataReadSideEffectOnce = false;
+
+    // Namco 163 expansion audio
+    int m_audioClockDiv = 15;
+    int m_audioClockCounter = 0;
+    float m_expansionAudioSample = 0.0f;
+    float m_expansionAudioFiltered = 0.0f;
+    uint32_t m_audioPhaseRemainder[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    float m_audioChannelVol[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+#if GERANES_M019_AUDIO_DEBUG
+    int m_dbgWriteCounter = 0;
+    int m_dbgCycleCounter = 0;
+    int m_dbgLastFirstChannel = -1;
+#endif
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)
@@ -67,6 +88,138 @@ private:
         m_soundRAMAddress &= SOUND_RAM_SIZE-1;
     }
 
+    GERANES_INLINE int firstActiveChannel() const
+    {
+        const int c = static_cast<int>((m_soundRAM[0x7F] >> 4) & 0x07);
+        return std::clamp(7 - c, 0, 7);
+    }
+
+    GERANES_INLINE int activeChannelCount() const
+    {
+        return 8 - firstActiveChannel();
+    }
+
+    GERANES_INLINE uint8_t readWaveNibble(uint8_t nibbleIndex) const
+    {
+        const uint8_t byteVal = m_soundRAM[(nibbleIndex >> 1) & (SOUND_RAM_SIZE - 1)];
+        return (nibbleIndex & 0x01) ? static_cast<uint8_t>((byteVal >> 4) & 0x0F)
+                                    : static_cast<uint8_t>(byteVal & 0x0F);
+    }
+
+    GERANES_INLINE float updateChannelAndGetSample(int channel, int channels)
+    {
+        const int base = 0x40 + (channel << 3);
+
+        const uint32_t freq =
+            static_cast<uint32_t>(m_soundRAM[base + 0]) |
+            (static_cast<uint32_t>(m_soundRAM[base + 2]) << 8) |
+            (static_cast<uint32_t>(m_soundRAM[base + 4] & 0x03) << 16);
+
+        uint32_t phase =
+            static_cast<uint32_t>(m_soundRAM[base + 1]) |
+            (static_cast<uint32_t>(m_soundRAM[base + 3]) << 8) |
+            (static_cast<uint32_t>(m_soundRAM[base + 5]) << 16);
+
+        const uint32_t stepNumerator = freq + m_audioPhaseRemainder[channel];
+        const uint32_t step = stepNumerator / static_cast<uint32_t>(channels);
+        m_audioPhaseRemainder[channel] = stepNumerator % static_cast<uint32_t>(channels);
+
+        phase += step;
+        phase &= 0x00FFFFFF;
+
+        const uint32_t waveLen = static_cast<uint32_t>(256 - (m_soundRAM[base + 4] & 0xFC));
+        const uint32_t waveSpan = waveLen << 16;
+        if(waveSpan != 0) {
+            phase %= waveSpan;
+        }
+
+        m_soundRAM[base + 1] = static_cast<uint8_t>(phase & 0xFF);
+        m_soundRAM[base + 3] = static_cast<uint8_t>((phase >> 8) & 0xFF);
+        m_soundRAM[base + 5] = static_cast<uint8_t>((phase >> 16) & 0xFF);
+
+        const uint8_t waveAddr = m_soundRAM[base + 6];
+        const uint8_t wavePos = static_cast<uint8_t>((phase >> 16) & 0xFF);
+        const uint8_t sampleIndex = static_cast<uint8_t>(waveAddr + wavePos);
+        const uint8_t sample4 = readWaveNibble(sampleIndex);
+        const int sampleCentered = static_cast<int>(sample4) - 8;
+        const int volume = static_cast<int>(m_soundRAM[base + 7] & 0x0F);
+
+        const float out = static_cast<float>(sampleCentered * volume) / 120.0f;
+        return out * m_audioChannelVol[channel];
+    }
+
+    GERANES_INLINE void tickExpansionAudio()
+    {
+        if(m_soundDisable) {
+            m_expansionAudioSample = 0.0f;
+            return;
+        }
+
+        const int first = firstActiveChannel();
+        const int channels = std::max(1, activeChannelCount());
+
+        float mix = 0.0f;
+        for(int ch = first; ch <= 7; ++ch) {
+            mix += updateChannelAndGetSample(ch, channels);
+        }
+
+        // "Smooth" approximation for this emulator pipeline:
+        // normalize by channel energy (sqrt) so multi-channel songs keep a usable level.
+        const float channelNorm = std::sqrt(static_cast<float>(channels));
+        const float raw = std::clamp(mix / std::max(1.0f, channelNorm), -1.0f, 1.0f);
+        const float alpha = (channels >= 6) ? 0.18f : 0.30f;
+        m_expansionAudioFiltered += alpha * (raw - m_expansionAudioFiltered);
+        m_expansionAudioSample = std::clamp(m_expansionAudioFiltered, -1.0f, 1.0f);
+
+#if GERANES_M019_AUDIO_DEBUG
+        if(m_dbgLastFirstChannel != first) {
+            m_dbgLastFirstChannel = first;
+            std::ostringstream ss;
+            ss << "[M019][AUDIO] active_first=" << first
+               << " channels=" << channels
+               << " reg7f=0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<int>(m_soundRAM[0x7F]);
+            Logger::instance().log(ss.str(), Logger::Type::DEBUG);
+        }
+#endif
+    }
+
+#if GERANES_M019_AUDIO_DEBUG
+    void debugLogAddrPortWrite(uint8_t data)
+    {
+        std::ostringstream ss;
+        ss << "[M019][F800] data=0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+           << static_cast<int>(data)
+           << " autoInc=" << ((data & 0x80) ? 1 : 0)
+           << " addr=0x" << std::setw(2) << static_cast<int>(data & 0x7F);
+        Logger::instance().log(ss.str(), Logger::Type::DEBUG);
+    }
+
+    void debugLogDataPortWrite(uint8_t addr, uint8_t data)
+    {
+        if(addr >= 0x40) {
+            std::ostringstream ss;
+            ss << "[M019][4800] ram[0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<int>(addr) << "]=0x" << std::setw(2) << static_cast<int>(data);
+            Logger::instance().log(ss.str(), Logger::Type::DEBUG);
+        }
+    }
+
+    void debugLogWaveRegsSnapshot()
+    {
+        std::ostringstream ss;
+        ss << "[M019][SNAP] 40-7F";
+        for(int i = 0x40; i <= 0x7F; ++i) {
+            if(((i - 0x40) % 16) == 0) {
+                ss << "\n  ";
+            }
+            ss << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<int>(m_soundRAM[i]) << ' ';
+        }
+        Logger::instance().log(ss.str(), Logger::Type::DEBUG);
+    }
+#endif
+
 
 public:
 
@@ -78,7 +231,7 @@ public:
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
-        switch(addr) {
+        switch(addr & 0x7800) {
 
         case 0x0000: m_CHRReg[0] = data; break;
         case 0x0800: m_CHRReg[1] = data; break;
@@ -97,6 +250,7 @@ public:
 
         case 0x6000:
             m_PRGReg[0] = data & 0x3F & m_PRGREGMask;
+            m_soundDisable = (data & 0x40) != 0;
             break;
 
         case 0x6800:
@@ -112,6 +266,9 @@ public:
         case 0x7800: //sound
             m_soundAutoIncrement = data & 0x80;
             m_soundRAMAddress = data & 0x7F;
+#if GERANES_M019_AUDIO_DEBUG
+            debugLogAddrPortWrite(data);
+#endif
             break;
 
         }
@@ -167,9 +324,18 @@ public:
 
     GERANES_HOT void writeMapperRegister(int addr, uint8_t data) override
     {
-        switch(addr) {
+        switch(addr & 0x1800) {
         case 0x0000: break;
         case 0x0800: //Sound Data port
+            // GeraNESEmu calls readMapperRegister right after writeMapperRegister on mapper I/O.
+            // For N163 this would spuriously auto-increment sound RAM pointer on every write.
+            m_skipSoundDataReadSideEffectOnce = true;
+#if GERANES_M019_AUDIO_DEBUG
+            debugLogDataPortWrite(m_soundRAMAddress, data);
+            if((++m_dbgWriteCounter % 256) == 0) {
+                debugLogWaveRegsSnapshot();
+            }
+#endif
             writeSoundRAM(data);
             break;
         case 0x1000:
@@ -188,9 +354,13 @@ public:
 
     GERANES_HOT uint8_t readMapperRegister(int addr, uint8_t openBusData) override
     {
-        switch(addr) {
+        switch(addr & 0x1800) {
         case 0x0000: return openBusData;
         case 0x0800: //Sound Data port
+            if(m_skipSoundDataReadSideEffectOnce) {
+                m_skipSoundDataReadSideEffectOnce = false;
+                return openBusData;
+            }
             return readSoundRAM();
         case 0x1000:
             m_interruptFlag = false;
@@ -230,6 +400,53 @@ public:
         return m_interruptFlag;
     }
 
+    GERANES_HOT float getExpansionAudioSample() override
+    {
+        return m_expansionAudioSample;
+    }
+
+    std::string getAudioChannelsJson() const override
+    {
+        std::ostringstream ss;
+        ss << "{\"channels\":[";
+        for(int i = 0; i < 8; ++i) {
+            if(i > 0) ss << ",";
+            ss << "{\"id\":\"n163.ch" << (i + 1) << "\",\"label\":\"N163 Ch " << (i + 1)
+               << "\",\"volume\":" << m_audioChannelVol[i] << ",\"min\":0.0,\"max\":1.0}";
+        }
+        ss << "]}";
+        return ss.str();
+    }
+
+    bool setAudioChannelVolumeById(const std::string& id, float volume) override
+    {
+        const float v = std::clamp(volume, 0.0f, 1.0f);
+        for(int i = 0; i < 8; ++i) {
+            const std::string chId = std::string("n163.ch") + std::to_string(i + 1);
+            if(id == chId) {
+                m_audioChannelVol[i] = v;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void reset() override
+    {
+        m_audioClockCounter = 0;
+        m_expansionAudioSample = 0.0f;
+        m_expansionAudioFiltered = 0.0f;
+        m_soundDisable = false;
+        m_skipSoundDataReadSideEffectOnce = false;
+        for(uint32_t& r : m_audioPhaseRemainder) r = 0;
+        for(float& v : m_audioChannelVol) v = 1.0f;
+#if GERANES_M019_AUDIO_DEBUG
+        m_dbgWriteCounter = 0;
+        m_dbgCycleCounter = 0;
+        m_dbgLastFirstChannel = -1;
+#endif
+    }
+
     GERANES_HOT void cycle() override
     {
         if(m_IRQEnable) {
@@ -240,6 +457,17 @@ public:
             else ++m_IRQCounter;
 
         }
+
+        if(++m_audioClockCounter >= m_audioClockDiv) {
+            m_audioClockCounter = 0;
+            tickExpansionAudio();
+        }
+
+#if GERANES_M019_AUDIO_DEBUG
+        if((++m_dbgCycleCounter % 4096) == 0) {
+            debugLogWaveRegsSnapshot();
+        }
+#endif
     }
 
     void serialization(SerializationBase& s) override
@@ -265,6 +493,15 @@ public:
         SERIALIZEDATA(s, m_soundAutoIncrement);
 
         s.array(m_soundRAM,1,SOUND_RAM_SIZE);
+
+        SERIALIZEDATA(s, m_soundDisable);
+        SERIALIZEDATA(s, m_skipSoundDataReadSideEffectOnce);
+        SERIALIZEDATA(s, m_audioClockDiv);
+        SERIALIZEDATA(s, m_audioClockCounter);
+        SERIALIZEDATA(s, m_expansionAudioSample);
+        SERIALIZEDATA(s, m_expansionAudioFiltered);
+        s.array(reinterpret_cast<uint8_t*>(m_audioPhaseRemainder), sizeof(uint32_t), 8);
+        s.array(reinterpret_cast<uint8_t*>(m_audioChannelVol), sizeof(float), 8);
 
     }
 
