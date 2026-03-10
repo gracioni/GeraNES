@@ -2,6 +2,8 @@
 
 inline void GeraNESApp::showGui()
 {
+    const ImVec2 viewportCenter = ImGui::GetMainViewport()->GetCenter();
+
     float lastMenuBarHeight = m_menuBarHeight;
 
     if(m_showMenuBar) menuBar();
@@ -13,6 +15,7 @@ inline void GeraNESApp::showGui()
 
     if(m_showImprovementsWindow) {
         ImGui::SetNextWindowSize(ImVec2(320, 0));
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_NoResize)) {
             bool disableSpritesLimit = m_emu.spriteLimitDisabled();
@@ -42,6 +45,7 @@ inline void GeraNESApp::showGui()
 
     if(m_showAboutWindow) {
         ImGui::SetNextWindowSize(ImVec2(320, 0));
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_NoResize)) {
             std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;
@@ -65,6 +69,7 @@ inline void GeraNESApp::showGui()
 
     if(m_showErrorWindow) {
         ImGui::SetNextWindowSize(ImVec2(320, 0));
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         bool lastState = m_showErrorWindow;
 
@@ -96,6 +101,7 @@ inline void GeraNESApp::showGui()
 
     if(m_showLogWindow) {
         ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Once);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Log", &m_showLogWindow)) {
             ImGui::InputTextMultiline("MyMultilineInput", m_logBuf.data(), m_logBuf.size(),
