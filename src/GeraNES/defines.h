@@ -20,7 +20,7 @@
 #include <string>
 
 static constexpr const char* GERANES_NAME = "GeraNES";
-static constexpr const char* GERANES_VERSION = "1.6.2";
+static constexpr const char* GERANES_VERSION = "1.6.3";
 
 static constexpr uint32_t SAVE_STATE_MAGIC = makeMagic('G','N','E','S');
 static constexpr uint32_t SAVE_STATE_VERSION = 0;
