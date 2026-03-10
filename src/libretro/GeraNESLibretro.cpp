@@ -121,6 +121,7 @@ enum {
 enum {
     RETRO_DEVICE_NONE = 0,
     RETRO_DEVICE_JOYPAD = 1
+    , RETRO_DEVICE_MOUSE = 2
     , RETRO_DEVICE_LIGHTGUN = 4
     , RETRO_DEVICE_POINTER = 6
 };
@@ -138,6 +139,11 @@ enum {
     RETRO_DEVICE_ID_JOYPAD_LEFT = 6,
     RETRO_DEVICE_ID_JOYPAD_RIGHT = 7,
     RETRO_DEVICE_ID_JOYPAD_A = 8
+};
+
+enum {
+    RETRO_DEVICE_ID_MOUSE_LEFT = 2,
+    RETRO_DEVICE_ID_MOUSE_RIGHT = 3
 };
 
 enum {
@@ -678,7 +684,10 @@ void updateZapperState(unsigned port)
     const bool pointerOffscreen = readInput(port, RETRO_DEVICE_POINTER, RETRO_DEVICE_ID_POINTER_IS_OFFSCREEN) != 0;
     const int16_t pointerX = readInput(port, RETRO_DEVICE_POINTER, RETRO_DEVICE_ID_POINTER_X);
     const int16_t pointerY = readInput(port, RETRO_DEVICE_POINTER, RETRO_DEVICE_ID_POINTER_Y);
+    const bool mouseLeft = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
+    const bool mouseRight = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
     trigger = trigger || pointerPressed;
+    trigger = trigger || mouseLeft || mouseRight;
 
     // If pointer is actively pressed, trust pointer coordinates first.
     if(pointerPressed && !pointerOffscreen) {
@@ -696,7 +705,7 @@ void updateZapperState(unsigned port)
     const int yVisible = axisToPixel(yAxis, visibleHeight);
     const int y = (yVisible >= 0) ? (yVisible + g_verticalCropPx) : -1;
 
-    if(lgOffscreen || pointerOffscreen) {
+    if(lgOffscreen || pointerOffscreen || mouseRight) {
         g_emu.setZapper(emuPort, -1, -1, trigger);
         return;
     }

@@ -250,10 +250,19 @@ private:
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
-                auto [nesX, nesY] = getNesCursor(mx, my);            
+                auto [nesX, nesY] = getNesCursor(mx, my);
 
-                m_emu.setZapper(Settings::Port::P_1, nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)));
-                m_emu.setZapper(Settings::Port::P_2, nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)));
+                const bool mouseAllowed = !m_imGuiWantsMouse && !m_touch->buttons().anyPressed();
+                const bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
+                const bool rightClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT));
+
+                const int zapperX = rightClick ? -1 : nesX;
+                const int zapperY = rightClick ? -1 : nesY;
+
+                // Right click = off-screen shot. Keep previous trigger mapping for P1 and
+                // allow off-screen reload on P2 (left or right).
+                m_emu.setZapper(Settings::Port::P_1, zapperX, zapperY, rightClick);
+                m_emu.setZapper(Settings::Port::P_2, zapperX, zapperY, leftClick || rightClick);
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
