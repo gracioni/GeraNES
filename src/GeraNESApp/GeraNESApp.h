@@ -67,6 +67,7 @@ namespace fs = std::filesystem;
 CMRC_DECLARE(resources);
 
 #include "TouchControls.h"
+#include "UserToastNotifier.h"
 
 const std::string LOG_FILE = "log.txt";
 
@@ -124,6 +125,7 @@ private:
     std::vector<char> m_logBuf = {'\0'};
     std::string m_log = "";
     bool m_showLogWindow = false;
+    UserToastNotifier m_userToast;
 
     Uint64 m_mainLoopLastTime = 0;
 
@@ -186,6 +188,10 @@ private:
             case Logger::Type::WARNING: msgType = "[Warning] "; break;
             case Logger::Type::ERROR: msgType = "[Error] "; break;
             case Logger::Type::DEBUG: msgType = "[Debug] "; break;
+            case Logger::Type::USER:
+                msgType = "[User] ";
+                m_userToast.show(msg);
+                break;
         }
 
         m_log += msgType + msg + "\n";
@@ -277,9 +283,14 @@ private:
 
         AppSettings::instance().data.addRecentFile(path);
         AppSettings::instance().data.setLastFolder(path);
-        m_emu.open(path);
-        const std::string filename = fs::path(path).filename().string();
-        setTitle((std::string("GeraNES (") + filename + ")").c_str());    
+        if(m_emu.open(path)) {
+            const std::string filename = fs::path(path).filename().string();
+            setTitle((std::string("GeraNES (") + filename + ")").c_str());
+            Logger::instance().log("Rom loaded", Logger::Type::USER);
+        }
+        else {
+            Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+        }
     }
 
     void syncSettings() {

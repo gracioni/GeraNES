@@ -544,7 +544,12 @@ public:
 
         Serialize s;
         serialization(s);
-        s.saveToFile(saveStateFileName());
+        if(s.saveToFile(saveStateFileName())) {
+            Logger::instance().log("State saved", Logger::Type::USER);
+        }
+        else {
+            Logger::instance().log("Failed to save state", Logger::Type::ERROR);
+        }
     }    
 
     void saveState() {
@@ -560,6 +565,10 @@ public:
 
         if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
+            Logger::instance().log("State loaded", Logger::Type::USER);
+        }
+        else {
+            Logger::instance().log("Failed to load state", Logger::Type::ERROR);
         }
 
         resetRewindSystem();
@@ -631,6 +640,7 @@ public:
     void togglePaused()
     {
         m_paused = !m_paused;
+        Logger::instance().log(m_paused ? "Emulation paused" : "Emulation resumed", Logger::Type::USER);
     }
 
     void enableOverclock(bool state)
@@ -807,6 +817,7 @@ public:
         m_rewind.reset();
         updateCyclesPerSecond();
         m_cpu.reset();
+        Logger::instance().log("Emulator reset", Logger::Type::USER);
     }
 
 };

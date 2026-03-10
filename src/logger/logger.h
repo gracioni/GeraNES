@@ -15,7 +15,7 @@ private:
 
 public:
 
-    enum class Type {INFO = 1, WARNING = 2, ERROR = 3, DEBUG = 4};
+    enum class Type { USER = 0, INFO = 1, WARNING = 2, ERROR = 3, DEBUG = 4};
 
     SigSlot::Signal<const std::string&, Type> signalLog;
 

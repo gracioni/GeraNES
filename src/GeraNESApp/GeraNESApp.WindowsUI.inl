@@ -155,6 +155,7 @@ inline void GeraNESApp::showOverlay()
 
         DrawTextOutlined(drawList, nullptr, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
     }
+    m_userToast.draw(drawList, static_cast<float>(width()), static_cast<float>(height()));
 
     m_touch->draw(drawList);
 }
