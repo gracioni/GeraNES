@@ -104,13 +104,14 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Log", &m_showLogWindow)) {
-            ImGui::InputTextMultiline("MyMultilineInput", m_logBuf.data(), m_logBuf.size(),
+            constexpr const char* kLogTextId = "##LogMultilineInput";
+            ImGui::InputTextMultiline(kLogTextId, m_logBuf.data(), m_logBuf.size(),
                     ImVec2(-1, 400), ImGuiInputTextFlags_ReadOnly);
 
             if(!(ImGui::IsItemActive() || ImGui::IsItemEdited())) {
                 ImGuiContext& g = *GImGui;
                 const char* child_window_name = NULL;
-                ImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g.CurrentWindow->Name, "MyMultilineInput", ImGui::GetID("MyMultilineInput"));
+                ImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g.CurrentWindow->Name, kLogTextId, ImGui::GetID(kLogTextId));
                 ImGuiWindow* child_window = ImGui::FindWindowByName(child_window_name);
 
                 if(child_window) {
