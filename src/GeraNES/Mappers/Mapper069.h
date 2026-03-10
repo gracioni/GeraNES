@@ -9,6 +9,7 @@
 class Mapper069 : public BaseMapper
 {
 private:
+    static constexpr uint32_t MAX_PRGRAM_SIZE = 512 * 1024;
 
     uint8_t m_PRGREGMask = 0;
     uint8_t m_CHRREGMask = 0;
@@ -28,55 +29,50 @@ private:
 
     uint8_t m_mirroring = 0;
 
-    //512K PRG_RAM? dynamic size. No games seem to use more than 8k PRG-RAM.
-    uint32_t m_currentRAMSize = 0x2000; //start with 8k
+    uint32_t m_currentRAMSize = 0x2000;
     std::unique_ptr<uint8_t[]> m_PRGRAM;
 
     uint8_t command = 0;
 
-    uint32_t calculateNewPRGRAMSize(uint32_t addr)
-    {
-        uint32_t ret = m_currentRAMSize;
-
-        while(addr > ret) ret *= 2;
-
-        return ret;
-    }
-
     void setPRGRAMSize(uint32_t newSize) {
+        if(newSize == 0) newSize = 0x2000;
+        if(newSize == m_currentRAMSize && m_PRGRAM) return;
 
-        if(newSize == m_currentRAMSize) return; //nothing to do
+        auto aux = std::unique_ptr<uint8_t[]>(new uint8_t[newSize]);
+        memset(aux.get(), 0, newSize);
 
-        auto aux = new uint8_t[newSize];
-        uint32_t copySize = std::min(newSize,m_currentRAMSize);
-        memcpy(aux,m_PRGRAM.get(),copySize);
-        m_currentRAMSize = newSize;
-        m_PRGRAM.reset(aux);
-    }
-
-    void resizePRGRAMIfNecessary(uint32_t addr)
-    {
-        if(addr > m_currentRAMSize) {
-            setPRGRAMSize(calculateNewPRGRAMSize(addr));
+        if(m_PRGRAM) {
+            uint32_t copySize = std::min(newSize, m_currentRAMSize);
+            memcpy(aux.get(), m_PRGRAM.get(), copySize);
         }
+
+        m_currentRAMSize = newSize;
+        m_PRGRAM = std::move(aux);
     }
 
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readCHRRAM(int bank, int addr)
     {
-        addr = (bank << log2(bs)) + (addr&(static_cast<int>(bs)-1));
-        resizePRGRAMIfNecessary(addr);
+        if(m_currentRAMSize == 0 || !m_PRGRAM) return 0;
 
-        return m_PRGRAM[addr];
+        const uint32_t index =
+            (static_cast<uint32_t>(bank) << log2(bs)) +
+            static_cast<uint32_t>(addr & (static_cast<int>(bs) - 1));
+
+        return m_PRGRAM[index % m_currentRAMSize];
     }
 
     template<BankSize bs>
     GERANES_INLINE void writeCHRRAM(int bank, int addr, uint8_t data)
     {
-        addr = (bank << log2(bs)) + (addr&(static_cast<int>(bs)-1));
-        resizePRGRAMIfNecessary(addr);
-        m_PRGRAM[addr] = data;
+        if(m_currentRAMSize == 0 || !m_PRGRAM) return;
+
+        const uint32_t index =
+            (static_cast<uint32_t>(bank) << log2(bs)) +
+            static_cast<uint32_t>(addr & (static_cast<int>(bs) - 1));
+
+        m_PRGRAM[index % m_currentRAMSize] = data;
     }
 
 
@@ -84,7 +80,12 @@ public:
 
     Mapper069(ICartridgeData& cd) : BaseMapper(cd), m_PRGRAM()
     {
-        m_PRGRAM.reset(new uint8_t[m_currentRAMSize]);
+        if(cd.foundInDatabase() && cd.saveRamSize() > 0)
+            m_currentRAMSize = static_cast<uint32_t>(cd.saveRamSize());
+        else
+            m_currentRAMSize = MAX_PRGRAM_SIZE;
+
+        setPRGRAMSize(m_currentRAMSize);
         m_PRGREGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
         m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
     }
