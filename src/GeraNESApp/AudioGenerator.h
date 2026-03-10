@@ -322,14 +322,14 @@ private:
 
     GERANES_INLINE_HOT int update()
     {
-        int ret = 0;
-
         m_currentPosition += m_inverseSampleRate;
+        if(m_current.first <= 0.0f) {
+            return 0;
+        }
 
-        while(m_currentPosition >= m_current.first)
-        {
-            m_currentPosition -= m_current.first;
-            ret++;
+        int ret = static_cast<int>(m_currentPosition / m_current.first);
+        if(ret > 0) {
+            m_currentPosition -= static_cast<float>(ret) * m_current.first;
         }
 
         return ret;

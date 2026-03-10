@@ -18,7 +18,9 @@ private:
 
     SampleWave m_sample;
     SampleDirect m_sampleDirect;
-    SampleWave m_expansionSample;
+    // Expansion audio (mappers) uses timestamped samples to avoid jitter/cutouts.
+    SampleDirect m_expansionSampleDirect;
+    float m_expansionSamplePeriodSec = 1.0f / 1789773.0f;
 
     FirstOrderHighPassFilter m_hpFilter1;
     FirstOrderHighPassFilter m_hpFilter2;
@@ -53,7 +55,7 @@ public:
         m_noise.init(sampleRate);
         m_sample.init(sampleRate);
         m_sampleDirect.init(sampleRate);
-        m_expansionSample.init(sampleRate);
+        m_expansionSampleDirect.init(sampleRate);
 
         //from https://www.nesdev.org/wiki/APU_Mixer
         m_hpFilter1.init(sampleRate, 90);
@@ -65,7 +67,7 @@ public:
     {
         m_sampleDirect.clearBuffer();
         m_sample.clearBuffer();
-        m_expansionSample.clearBuffer();
+        m_expansionSampleDirect.clearBuffer();
     }
 
     GERANES_INLINE_HOT float mix()
@@ -81,7 +83,7 @@ public:
         ret += 1.0f/sum*m_noise.get()*m_userNoiseVolume;
         ret += 1.5f/sum*m_sample.get()*m_userSampleVolume;
         ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
-        ret += 1.0f/sum*m_expansionSample.get();
+        ret += 1.0f/sum*m_expansionSampleDirect.get();
 
         ret = m_hpFilter1.apply(ret);
         ret = m_hpFilter2.apply(ret);
@@ -140,18 +142,19 @@ public:
     void setExpansionAudioSampleRate(float rateHz) override
     {
         if(rateHz > 1.0f) {
-            m_expansionSample.setFrequency(rateHz);
+            m_expansionSamplePeriodSec = 1.0f / rateHz;
         }
     }
 
     void setExpansionAudioVolume(float volume) override
     {
-        m_expansionSample.setVolume(volume);
+        // SampleDirect applies an internal gain curve; compensate to keep expansion level close.
+        m_expansionSampleDirect.setVolume(volume * 0.4f);
     }
 
     void addExpansionAudioSample(float sample) override
     {
-        m_expansionSample.add(sample);
+        m_expansionSampleDirect.add(m_expansionSamplePeriodSec, sample);
     }
 
     std::string getAudioChannelsJson() const override
