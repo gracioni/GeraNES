@@ -23,6 +23,11 @@ even when `platform` is not passed. You can still force it explicitly:
 make -C libretro platform=mingw
 ```
 
+Build profile:
+
+- Release (default): `make -C libretro`
+- Debug: `make -C libretro BUILD=debug`
+
 Output artifact:
 
 - `geranes_libretro.so` (Linux)

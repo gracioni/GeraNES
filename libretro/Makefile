@@ -38,9 +38,16 @@ OBJECTS := $(SOURCES_CXX:.cpp=.o) $(SOURCES_C:.c=.o)
 
 INCLUDES := -I.. -I$(SRC_DIR) -I$(FLIPS_DIR)
 DEFINES :=
+BUILD ?= release
 
-CXXFLAGS += -std=gnu++20 -fPIC $(INCLUDES) $(DEFINES)
-CFLAGS += -std=gnu11 -fPIC $(INCLUDES) $(DEFINES)
+ifeq ($(BUILD),debug)
+	OPT_FLAGS := -O0 -g
+else
+	OPT_FLAGS := -O3 -DNDEBUG
+endif
+
+CXXFLAGS += -std=gnu++20 -fPIC $(OPT_FLAGS) $(INCLUDES) $(DEFINES)
+CFLAGS += -std=gnu11 -fPIC $(OPT_FLAGS) $(INCLUDES) $(DEFINES)
 LDFLAGS +=
 LIBS +=
 

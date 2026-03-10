@@ -7,6 +7,20 @@ cmake_minimum_required(VERSION 3.26)
 
 project(GeraNES)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+add_compile_definitions(
+    $<$<CONFIG:Release>:NDEBUG>
+    $<$<CONFIG:RelWithDebInfo>:NDEBUG>
+    $<$<CONFIG:MinSizeRel>:NDEBUG>
+)
+
+add_compile_options(
+    $<$<CONFIG:Release>:-O3>
+)
+
 if (EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")    
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/template.html")
