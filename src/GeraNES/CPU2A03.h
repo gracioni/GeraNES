@@ -1323,7 +1323,7 @@ GERANES_INLINE_HOT void CPU2A03::beginCycle() {
     //CPU   --X-----------X-----------X-----------X---...
     //CPU   --1-------2---1-------2---1-------2---1---...
 
-    if(!m_console.ppu().inOverclockLines()){              
+    if(!m_console.ppu().inOverclockLines()){
         m_console.dma().cycle();
         m_console.apu().cycle();                           
     }
@@ -1356,9 +1356,8 @@ inline void CPU2A03::endCycle() {
 
     m_runCount++;
 
-    if(!m_console.ppu().inOverclockLines()) {
-        m_cyclesCounter++;
-    }
+    // Keep CPU odd/even phase coherent even during overclock lines.
+    m_cyclesCounter++;
 }
 
 using OpFunc = void (CPU2A03::*)();
