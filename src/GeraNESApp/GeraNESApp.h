@@ -12,6 +12,7 @@ namespace fs = std::filesystem;
 
 #include "imgui_include.h"
 #include "imgui_util.h"
+#include "ImGuiTheme.h"
 
 #include "ControllerConfigWindow.h"
 #include "ShortcutManager.h"
@@ -576,8 +577,7 @@ public:
 
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-        // Setup Dear ImGui style
-        ImGui::StyleColorsDark();
+        ApplyImGuiTheme();
 
         const char* glsl_version = "#version 100";
 
