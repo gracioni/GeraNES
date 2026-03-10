@@ -90,6 +90,9 @@ class Deserialize : public SerializationBase
     private:
 
         std::vector<uint8_t> _data;
+        const uint8_t* _dataView = nullptr;
+        size_t _dataViewSize = 0;
+        bool _useDataView = false;
         size_t _index = 0;
         bool _error = false;
 
@@ -106,12 +109,13 @@ class Deserialize : public SerializationBase
 
             for(size_t i = 0; i < size; i++) {
 
-                if(_index >= _data.size()){
+                const size_t dataSize = _useDataView ? _dataViewSize : _data.size();
+                if(_index >= dataSize){
                     _error = true;
                     break;
                 }
 
-                *pointer = _data[_index];
+                *pointer = _useDataView ? _dataView[_index] : _data[_index];
                 pointer += step;
                 _index++;
             }
@@ -133,6 +137,11 @@ class Deserialize : public SerializationBase
 
                 _data.clear();
                 _data.resize(size);
+                _useDataView = false;
+                _dataView = nullptr;
+                _dataViewSize = 0;
+                _index = 0;
+                _error = false;
 
                 f.read((char*)&_data[0],size);
 
@@ -149,6 +158,20 @@ class Deserialize : public SerializationBase
 
         void setData(const std::vector<uint8_t>& data) {
             _data = data;
+            _useDataView = false;
+            _dataView = nullptr;
+            _dataViewSize = 0;
+            _index = 0;
+            _error = false;
+        }
+
+        void setData(const uint8_t* data, size_t size) {
+            _data.clear();
+            _useDataView = true;
+            _dataView = data;
+            _dataViewSize = size;
+            _index = 0;
+            _error = (data == nullptr && size > 0);
         }
 
         bool error()

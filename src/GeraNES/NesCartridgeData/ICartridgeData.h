@@ -61,6 +61,8 @@ public:
     virtual uint8_t readChr(int addr) = 0;
 
     virtual int saveRamSize() = 0;
+    
+    virtual bool foundInDatabase() { return false; }
 
     virtual std::string chip() = 0; 
 

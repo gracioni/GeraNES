@@ -59,6 +59,7 @@ private:
 
     bool m_runningLoop;
     bool m_speedBoost;
+    bool m_paused;
     static constexpr int SPEED_BOOST_MULTIPLIER = 3;
 
     //do not serialize bellow atributtes
@@ -306,6 +307,7 @@ public:
         m_loadStateFlag = false;
         m_runningLoop = false;
         m_speedBoost = false;
+        m_paused = false;
         m_audioRenderDtAcc = 0;
 
         m_openBus = 0;
@@ -512,10 +514,13 @@ public:
     }
 
     GERANES_INLINE bool update(uint32_t dt) {
+        if(m_paused) return false;
         return _update<false>(dt);
     }
 
     GERANES_INLINE bool updateUntilFrame(uint32_t dt) {
+        if(m_paused) return true;
+
         if(!m_speedBoost) {
             return _update<true>(dt);
         }
@@ -539,7 +544,12 @@ public:
 
         Serialize s;
         serialization(s);
-        s.saveToFile(saveStateFileName());
+        if(s.saveToFile(saveStateFileName())) {
+            Logger::instance().log("State saved", Logger::Type::USER);
+        }
+        else {
+            Logger::instance().log("Failed to save state", Logger::Type::ERROR);
+        }
     }    
 
     void saveState() {
@@ -555,6 +565,10 @@ public:
 
         if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
+            Logger::instance().log("State loaded", Logger::Type::USER);
+        }
+        else {
+            Logger::instance().log("Failed to load state", Logger::Type::ERROR);
         }
 
         resetRewindSystem();
@@ -571,6 +585,17 @@ public:
 
         Deserialize d;
         d.setData(data);
+        serialization(d);
+
+        m_updateCyclesAcc = old;
+    }
+
+    void loadStateFromMemory(const uint8_t* data, size_t size)
+    {
+        auto old = m_updateCyclesAcc; //preserve this
+
+        Deserialize d;
+        d.setData(data, size);
         serialization(d);
 
         m_updateCyclesAcc = old;
@@ -600,6 +625,22 @@ public:
     bool overclocked()
     {
         return m_settings.overclockLines() > 0;
+    }
+
+    void setPaused(bool paused)
+    {
+        m_paused = paused;
+    }
+
+    bool paused() const
+    {
+        return m_paused;
+    }
+
+    void togglePaused()
+    {
+        m_paused = !m_paused;
+        Logger::instance().log(m_paused ? "Emulation paused" : "Emulation resumed", Logger::Type::USER);
     }
 
     void enableOverclock(bool state)
@@ -753,7 +794,30 @@ public:
     }
 
     void reset() {
+        if(!m_cartridge.isValid()) return;
+
+        m_cartridge.reset();
+        m_dma.init();
+        m_apu.reset();
+        m_ppu.init();
+
+        m_halt = false;
+        m_updateCyclesAcc = 0;
+        m_cpuCyclesAcc = 1;
+        m_audioRenderCyclesAcc = 0;
+        m_audioRenderDtAcc = 0;
+        m_openBus = 0;
+        m_4011WriteCounter = 0;
+        m_newFrame = false;
+        m_frameCount = 0;
+        m_runningLoop = false;
+        m_saveStateFlag = false;
+        m_loadStateFlag = false;
+
+        m_rewind.reset();
+        updateCyclesPerSecond();
         m_cpu.reset();
+        Logger::instance().log("Emulator reset", Logger::Type::USER);
     }
 
 };

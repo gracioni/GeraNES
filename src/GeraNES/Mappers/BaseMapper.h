@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <fstream>
+#include <string>
 
 #include "../defines.h"
 #include "../NesCartridgeData/ICartridgeData.h"
@@ -234,6 +235,16 @@ public:
         return 0.0f;
     }
 
+    virtual std::string getAudioChannelsJson() const
+    {
+        return "{\"channels\":[]}";
+    }
+
+    virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/)
+    {
+        return false;
+    }
+
     virtual ~BaseMapper()
     {
         writeSaveRamToFile();
@@ -255,6 +266,22 @@ public:
 
     GERANES_INLINE bool hasChrRam() const {
         return cd().chrRamSize() > 0;
+    }
+
+    GERANES_INLINE uint8_t* saveRamData()
+    {
+        return m_sRam;
+    }
+
+    GERANES_INLINE size_t saveRamSize() const
+    {
+        if(m_sRam == nullptr) return 0;
+        return static_cast<size_t>(cd().saveRamSize());
+    }
+
+    GERANES_INLINE bool hasBatterySaveRam() const
+    {
+        return m_sRam != nullptr && cd().hasBattery();
     }
 
 

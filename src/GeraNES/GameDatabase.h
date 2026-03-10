@@ -250,6 +250,8 @@ public:
 
 private:
 
+    static inline std::string s_databasePath = "db.txt";
+
     std::map<std::string, Item> m_map;
 
     GameDatabase(const GameDatabase&) = delete;
@@ -272,7 +274,7 @@ private:
         
         Logger::instance().log(std::string("(DB) Loading database"), Logger::Type::INFO);
 
-        const std::string filename = "db.txt";
+        const std::string filename = s_databasePath;
 
         std::ifstream file(filename);
 
@@ -382,6 +384,12 @@ private:
 
 
 public:    
+
+    static void setDatabasePath(const std::string& path)
+    {
+        if(path.empty()) s_databasePath = "db.txt";
+        else s_databasePath = path;
+    }
 
     static GameDatabase& instance() {
         static GameDatabase _instance;

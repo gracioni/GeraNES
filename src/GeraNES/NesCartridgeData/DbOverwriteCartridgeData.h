@@ -124,6 +124,10 @@ public:
         return m_saveRamSize;
     }
 
+    bool foundInDatabase() override {
+        return true;
+    }
+
     int chrRamSize() override {
         return m_chrRamSize;
     }

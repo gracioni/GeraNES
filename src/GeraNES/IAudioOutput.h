@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <string>
 
 class IAudioOutput
 {
@@ -22,6 +23,9 @@ class IAudioOutput
     virtual void setExpansionAudioSampleRate(float /*rateHz*/) {}
     virtual void setExpansionAudioVolume(float /*volume*/) {}
     virtual void addExpansionAudioSample(float /*sample*/) {}
+
+    virtual std::string getAudioChannelsJson() const { return "{\"channels\":[]}"; }
+    virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/) { return false; }
 
     virtual ~IAudioOutput(){}
 };

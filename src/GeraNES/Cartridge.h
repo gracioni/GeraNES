@@ -210,6 +210,13 @@ public:
         return true;
     }
 
+    void reset()
+    {
+        if(m_mapper != nullptr) {
+            m_mapper->reset();
+        }
+    }
+
     static std::vector<std::string> listFiles(const fs::path& directory) {
 
         std::vector<std::string> filePaths;
@@ -373,6 +380,16 @@ public:
         return m_mapper->getExpansionAudioSample();
     }
 
+    GERANES_INLINE std::string getMapperAudioChannelsJson() const
+    {
+        return m_mapper->getAudioChannelsJson();
+    }
+
+    GERANES_INLINE bool setMapperAudioChannelVolumeById(const std::string& id, float volume)
+    {
+        return m_mapper->setAudioChannelVolumeById(id, volume);
+    }
+
     GERANES_INLINE GameDatabase::Sistem system()
     {
         return m_nesCartridgeData->sistem();
@@ -386,6 +403,21 @@ public:
     GERANES_INLINE bool isValid()
     {
         return m_isValid;
+    }
+
+    GERANES_INLINE uint8_t* saveRamData()
+    {
+        return m_mapper->saveRamData();
+    }
+
+    GERANES_INLINE size_t saveRamSize() const
+    {
+        return m_mapper->saveRamSize();
+    }
+
+    GERANES_INLINE bool hasBatterySaveRam() const
+    {
+        return m_mapper->hasBatterySaveRam();
     }
 
     GERANES_INLINE const RomFile& romFile() {

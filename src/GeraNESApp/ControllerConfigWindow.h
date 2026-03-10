@@ -196,7 +196,8 @@ public:
             
         }  
 
-        ImGui::SetNextWindowSize(ImVec2(360, 0));
+        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     
         if(ImGui::Begin((m_windowTitle).c_str(), &m_show)) {
 

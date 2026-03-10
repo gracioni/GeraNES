@@ -7,6 +7,20 @@ cmake_minimum_required(VERSION 3.26)
 
 project(GeraNES)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+add_compile_definitions(
+    $<$<CONFIG:Release>:NDEBUG>
+    $<$<CONFIG:RelWithDebInfo>:NDEBUG>
+    $<$<CONFIG:MinSizeRel>:NDEBUG>
+)
+
+add_compile_options(
+    $<$<CONFIG:Release>:-O3>
+)
+
 if (EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")    
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/template.html")
@@ -198,6 +212,7 @@ file(GLOB FLIPS_GLOB
 )
 
 add_library("flips" STATIC ${FLIPS_GLOB})
+set_target_properties("flips" PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 INCLUDE_DIRECTORIES(src)
 
@@ -206,6 +221,7 @@ file(GLOB_RECURSE RESOURCES_LIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 
 # Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RESOURCES_LIST})
+cmrc_add_resource_library(libretro_db_assets "${CMAKE_CURRENT_SOURCE_DIR}/data/db.txt")
 
 # Copy data folder to build
 if(EMSCRIPTEN)
@@ -236,6 +252,7 @@ file(GLOB_RECURSE CPP_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
+list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
 
 set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
@@ -258,3 +275,32 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})
 target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
+
+set(LIBRETRO_CORE_NAME "geranes_libretro")
+
+add_library(${LIBRETRO_CORE_NAME} SHARED
+    src/libretro/GeraNESLibretro.cpp
+    src/signal/signal.cpp
+    src/zip/zip.c
+)
+target_compile_features(${LIBRETRO_CORE_NAME} PUBLIC cxx_std_20)
+target_include_directories(${LIBRETRO_CORE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(${LIBRETRO_CORE_NAME} PRIVATE GERANES_LIBRETRO_USE_CMRC_DB=1)
+target_link_libraries(${LIBRETRO_CORE_NAME} PRIVATE libretro_db_assets flips)
+if(MINGW)
+    # Make the core self-contained for RetroArch on Windows.
+    target_link_options(${LIBRETRO_CORE_NAME} PRIVATE -static-libgcc -static-libstdc++)
+    target_link_libraries(${LIBRETRO_CORE_NAME} PRIVATE
+        -Wl,-Bstatic
+        -lstdc++
+        -lgcc
+        -lwinpthread
+        -Wl,-Bdynamic
+    )
+endif()
+set_target_properties(${LIBRETRO_CORE_NAME} PROPERTIES PREFIX "")
+
+# Copy the canonical libretro .info file.
+set(LIBRETRO_INFO_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/libretro/geranes_libretro.info")
+set(LIBRETRO_INFO_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${LIBRETRO_CORE_NAME}.info")
+configure_file("${LIBRETRO_INFO_SOURCE}" "${LIBRETRO_INFO_OUTPUT}" COPYONLY)

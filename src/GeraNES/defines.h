@@ -19,15 +19,15 @@
 #include <cstdint>
 #include <string>
 
-static constexpr std::string GERANES_NAME = "GeraNES";
-static constexpr std::string GERANES_VERSION = "1.6.2";
+static constexpr const char* GERANES_NAME = "GeraNES";
+static constexpr const char* GERANES_VERSION = "1.6.2";
 
 static constexpr uint32_t SAVE_STATE_MAGIC = makeMagic('G','N','E','S');
 static constexpr uint32_t SAVE_STATE_VERSION = 0;
 
-static constexpr std::string STATES_FOLDER  = "states/";
+static constexpr const char* STATES_FOLDER  = "states/";
 
-static constexpr std::string SRAM_FOLDER = "sram/";
+static constexpr const char* SRAM_FOLDER = "sram/";
 
 enum class MirroringType {
     HORIZONTAL=0, VERTICAL=1, SINGLE_SCREEN_A=2, SINGLE_SCREEN_B=3, FOUR_SCREEN=4, CUSTOM=5

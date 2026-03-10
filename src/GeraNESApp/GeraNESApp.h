@@ -12,6 +12,7 @@ namespace fs = std::filesystem;
 
 #include "imgui_include.h"
 #include "imgui_util.h"
+#include "ImGuiTheme.h"
 
 #include "ControllerConfigWindow.h"
 #include "ShortcutManager.h"
@@ -66,6 +67,7 @@ namespace fs = std::filesystem;
 CMRC_DECLARE(resources);
 
 #include "TouchControls.h"
+#include "UserToastNotifier.h"
 
 const std::string LOG_FILE = "log.txt";
 
@@ -123,6 +125,7 @@ private:
     std::vector<char> m_logBuf = {'\0'};
     std::string m_log = "";
     bool m_showLogWindow = false;
+    UserToastNotifier m_userToast;
 
     Uint64 m_mainLoopLastTime = 0;
 
@@ -137,6 +140,15 @@ private:
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
+
+    struct AudioChannelControl {
+        std::string source;
+        std::string id;
+        std::string label;
+        float volume = 1.0f;
+        float min = 0.0f;
+        float max = 1.0f;
+    };
 
     struct ShaderItem {
         std::string label;
@@ -176,6 +188,10 @@ private:
             case Logger::Type::WARNING: msgType = "[Warning] "; break;
             case Logger::Type::ERROR: msgType = "[Error] "; break;
             case Logger::Type::DEBUG: msgType = "[Debug] "; break;
+            case Logger::Type::USER:
+                msgType = "[User] ";
+                m_userToast.show(msg);
+                break;
         }
 
         m_log += msgType + msg + "\n";
@@ -234,10 +250,19 @@ private:
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
-                auto [nesX, nesY] = getNesCursor(mx, my);            
+                auto [nesX, nesY] = getNesCursor(mx, my);
 
-                m_emu.setZapper(Settings::Port::P_1, nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)));
-                m_emu.setZapper(Settings::Port::P_2, nesX, nesY, !m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)));
+                const bool mouseAllowed = !m_imGuiWantsMouse && !m_touch->buttons().anyPressed();
+                const bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
+                const bool rightClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT));
+
+                const int zapperX = rightClick ? -1 : nesX;
+                const int zapperY = rightClick ? -1 : nesY;
+
+                // Right click = off-screen shot. Keep previous trigger mapping for P1 and
+                // allow off-screen reload on P2 (left or right).
+                m_emu.setZapper(Settings::Port::P_1, zapperX, zapperY, rightClick);
+                m_emu.setZapper(Settings::Port::P_2, zapperX, zapperY, leftClick || rightClick);
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
@@ -267,9 +292,14 @@ private:
 
         AppSettings::instance().data.addRecentFile(path);
         AppSettings::instance().data.setLastFolder(path);
-        m_emu.open(path);
-        const std::string filename = fs::path(path).filename().string();
-        setTitle((std::string("GeraNES (") + filename + ")").c_str());    
+        if(m_emu.open(path)) {
+            const std::string filename = fs::path(path).filename().string();
+            setTitle((std::string("GeraNES (") + filename + ")").c_str());
+            Logger::instance().log("Rom loaded", Logger::Type::USER);
+        }
+        else {
+            Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+        }
     }
 
     void syncSettings() {
@@ -327,6 +357,10 @@ private:
 
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
             m_emu.loadState();
+        }});
+
+        m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
+            m_emu.togglePaused();
         }});
     }
 
@@ -567,8 +601,7 @@ public:
 
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-        // Setup Dear ImGui style
-        ImGui::StyleColorsDark();
+        ApplyImGuiTheme();
 
         const char* glsl_version = "#version 100";
 
@@ -623,18 +656,6 @@ public:
         updateMVP();
 
         m_touch = std::make_unique<TouchControls>(m_controller1, width(), height(), GetWindowDPI());
-
-        // ImGuiIO& io = ImGui::GetIO();
-        // io.Fonts->Clear();  // limpa qualquer fonte existente
-
-        // ImFontConfig cfg;
-        // cfg.SizePixels = 18.0f;
-
-        // // default font
-        // io.Fonts->AddFontDefault(&cfg);
-
-        // // rebuild
-        // io.Fonts->Build();
 
         return true;
     }
@@ -871,528 +892,20 @@ public:
         m_frameCounter++;
     }
 
-    void render()
-    {
-        glBindTexture(GL_TEXTURE_2D, m_texture);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240-2*m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_emu.getFramebuffer()+m_clipHeightValue*256);
-    }    
+    void render();
 
-    void menuBar() {
+    void menuBar();
+    void collectAudioChannelsFromJson(const std::string& jsonStr, const char* source, std::vector<AudioChannelControl>& out);
+    void applyAudioChannelVolume(const AudioChannelControl& c, float value);
+    void drawAudioChannelDebugControls();
 
-        bool show_menu = true;
+    virtual void paintGL() override;
 
-        if (show_menu && ImGui::BeginMainMenuBar())
-        {
-            if (ImGui::BeginMenu("File"))
-            { 
-                auto sc = m_shortcuts.get("openRom");
-                if( sc != nullptr) {
-
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
-                    {
-                        sc->action();                        
-                    }
-                }
-
-                #ifdef __EMSCRIPTEN__
-                if (ImGui::BeginMenu("Session")) {
-
-                    if(ImGui::MenuItem("Export")) {
-                        AppSettings::instance().save();
-                        emcriptenExportSession();
-                    }
-
-                    if(ImGui::MenuItem("Import")) {
-                        emcriptenImportSession(reinterpret_cast<int>(this));
-                    }
-
-                    ImGui::EndMenu();                                      
-                }
-                #endif
-
-                auto recentFiles = AppSettings::instance().data.getRecentFiles();
-                if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0))
-                {
-                    for(int i = 0; i < recentFiles.size(); i++) {
-                        if(ImGui::MenuItem(recentFiles[i].c_str())) {
-                            openFile(recentFiles[i].c_str());
-                        } 
-                    }
-                    ImGui::EndMenu();
-                }
-
-                ImGui::Separator();
-
-                sc = m_shortcuts.get("quit");
-                if( sc != nullptr) {
-
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
-                    {
-                        sc->action();                        
-                    }
-                }
-                      
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Emulator"))
-            {
-                auto sc = m_shortcuts.get("saveState");
-                if( sc != nullptr) {
-
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
-                    {
-                        sc->action();                        
-                    }
-                }
-
-                sc = m_shortcuts.get("loadState");
-                if( sc != nullptr) {
-
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
-                    {
-                        sc->action();                        
-                    }
-                }
-
-                ImGui::Separator();
-
-                if (ImGui::MenuItem("Improvements")) {
-                    m_showImprovementsWindow = true;                                       
-                }
-
-                ImGui::Separator();
-
-                if (ImGui::BeginMenu("Region")) {
-
-                    if(ImGui::MenuItem("NTSC", nullptr, m_emu.region() == Settings::Region::NTSC)) {
-                        m_emu.setRegion(Settings::Region::NTSC);
-                    }
-
-                    if(ImGui::MenuItem("PAL", nullptr, m_emu.region() == Settings::Region::PAL)) {
-                        m_emu.setRegion(Settings::Region::PAL);
-                    }
-
-                    ImGui::EndMenu();                                      
-                }
-
-                ImGui::Separator();
-
-                if(ImGui::MenuItem("Reset")) {
-                    m_emu.reset();
-                }
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Video"))
-            {
-                if (ImGui::BeginMenu("VSync")) {
-
-                    for(int i = OFF; i <= ADAPTATIVE ; i++) {                        
-                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsyncMode == i)) {
-                            m_vsyncMode = (VSyncMode)i;
-                            AppSettings::instance().data.video.vsyncMode = i;
-                            updateVSyncConfig();
-                        }      
-                    }              
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("Filter")) {
-
-                    for(int i = NEAREST; i <= BILINEAR ; i++) {                        
-                        if(ImGui::MenuItem(FILTER_TYPE_LABELS[i], nullptr, m_filterMode == i)) {
-                            m_filterMode = (FilterMode)i;
-                            AppSettings::instance().data.video.filterMode = i;
-                            updateFilterConfig();
-                        }      
-                    }              
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("Shader")) {
-
-                    if(ImGui::MenuItem("default", nullptr, AppSettings::instance().data.video.shaderName == "")) {                            
-                        AppSettings::instance().data.video.shaderName = "";
-                        updateShaderConfig();
-                    }
-
-                    if(shaderList.size() > 0) ImGui::Separator();
-
-                    for(const ShaderItem& item: shaderList) {
-                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == AppSettings::instance().data.video.shaderName)) {                            
-                            AppSettings::instance().data.video.shaderName = item.label;
-                            updateShaderConfig();
-                        } 
-                    }               
-                    ImGui::EndMenu();
-                }
-
-                auto sc = m_shortcuts.get("horizontalStretch");
-                if( sc != nullptr) {
-
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_horizontalStretch))
-                    {
-                        sc->action();                        
-                    }
-                }
-
-                sc = m_shortcuts.get("fullscreen");
-                if( sc != nullptr) {
-
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), isFullScreen()))
-                    {
-                        sc->action();                        
-                    }
-                }
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Audio"))
-            {
-                if (ImGui::BeginMenu("Device")) {
-
-                    for(int i = 0; i < m_audioDevices.size(); i++) {
-
-                        bool checked = m_audioOutput.currentDeviceName() == m_audioDevices[i].c_str();
-
-                        if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
-                            m_audioOutput.config(m_audioDevices[i]);
-                            AppSettings::instance().data.audio.audioDevice = m_audioOutput.currentDeviceName();
-                        }      
-                    }              
-                    ImGui::EndMenu();
-                }
-
-                float volume = m_audioOutput.getVolume();
-                if(ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
-                    m_audioOutput.setVolume(volume);
-                    AppSettings::instance().data.audio.volume = volume;
-                }
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Input"))
-            {
-                if (ImGui::BeginMenu("Port 1")) {
-
-                    if (ImGui::MenuItem("Controller", nullptr, m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::CONTROLLER)))
-                    {
-                        m_emu.setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);                   
-                    }
-                    if (ImGui::MenuItem("Zapper", nullptr, m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER)))
-                    {
-                        m_emu.setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);   
-                    }
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("Port 2")) {
-
-                    if (ImGui::MenuItem("Controller", nullptr, m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::CONTROLLER)))
-                    {
-                        m_emu.setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);                   
-                    }
-                    if (ImGui::MenuItem("Zapper", nullptr, m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER)))
-                    {
-                        m_emu.setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);   
-                    }
-                    ImGui::EndMenu();
-                }
-
-                ImGui::Separator();
-
-                if (ImGui::BeginMenu("Controller")) {
-
-                    if (ImGui::MenuItem("1"))
-                    {
-                        m_controllerConfigWindow.show("Controller 1", m_controller1);                    
-                    }
-                    if (ImGui::MenuItem("2"))
-                    {
-                        m_controllerConfigWindow.show("Controller 2", m_controller2);
-                    }
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("Touch controls")) {
-
-                    bool enabled = AppSettings::instance().data.input.touchControls.enabled;
-                    if(ImGui::MenuItem("Enabled", nullptr, enabled)) {
-                        AppSettings::instance().data.input.touchControls.enabled = !enabled;
-                    }   
-
-                    if (ImGui::BeginMenu("Digital pad mode")) {
-                        int digitalPadMode = (int)AppSettings::instance().data.input.touchControls.digitalPadMode;
-                        for(int i = (int)DigitaPadMode::Absolute; i <= (int)DigitaPadMode::Relative ; i++) {                        
-                            if(ImGui::MenuItem(DigitaPadModeLabels[i], nullptr, digitalPadMode == i)) {
-                                AppSettings::instance().data.input.touchControls.digitalPadMode = (DigitaPadMode)i;
-                            }      
-                        }              
-                        ImGui::EndMenu();
-                    }
-
-                    if (ImGui::BeginMenu("Buttons mode")) {
-                        int buttonsMode = (int)AppSettings::instance().data.input.touchControls.buttonsMode;
-                        for(int i = (int)ButtonsMode::Absolute; i <= (int)ButtonsMode::Column ; i++) {                        
-                            if(ImGui::MenuItem(ButtonsModeLabels[i], nullptr, buttonsMode == i)) {
-                                AppSettings::instance().data.input.touchControls.buttonsMode = (ButtonsMode)i;
-                            }      
-                        }              
-                        ImGui::EndMenu();
-                    }
-
-                    if(ImGui::SliderFloat("Transparency", &AppSettings::instance().data.input.touchControls.transparency, 0.0f, 1.0f, "%.2f")) {
-                    }
-
-                    ImGui::EndMenu();
-                }
-
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Debug"))
-            {
-                if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
-                {             
-                }   
-
-                if (ImGui::MenuItem("Log"))
-                {
-                    m_showLogWindow = true;    
-                }   
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::MenuItem("About"))
-            {
-                m_showAboutWindow = true;              
-            }
-
-            ImGui::EndMainMenuBar();
-        }
-
-        m_menuBarHeight = ImGui::GetFrameHeight();
-    }
-
-    virtual void paintGL()  override {
-
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        //ImGui::ShowDemoWindow();
-
-        showOverlay();
-        showGui();
-
-        ImGui::Render();
-
-        mainLoop();        
-
-        if(m_updateObjectsFlag) {
-            m_updateObjectsFlag = false;
-            updateBuffers();
-        }
-
-        m_vao.bind();
-
-        glBindTexture(GL_TEXTURE_2D, m_texture);
-
-        if(m_shaderProgram.bind()) {
-            m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
-            m_shaderProgram.setUniformValue("Texture", 0);      
-
-            m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
-            m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
-            m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)width(),(float)height()));
-            m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256,256));
-            m_shaderProgram.setUniformValue("InputSize", glm::vec2(256,256));
-
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);            
-
-            m_shaderProgram.release();
-        }
-
-        m_vao.release();  
-        
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());       
-    }
-
-    void showGui()
-    {
-        float lastMenuBarHeight = m_menuBarHeight;
-
-        if(m_showMenuBar) menuBar();
-        else  m_menuBarHeight = 0;
-        
-        if(lastMenuBarHeight != m_menuBarHeight) updateBuffers(); 
- 
-        m_controllerConfigWindow.update();
-
-        if(m_showImprovementsWindow) {
-
-            ImGui::SetNextWindowSize(ImVec2(320, 0));   
-
-            if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_NoResize)) {
-                
-                bool disableSpritesLimit = m_emu.spriteLimitDisabled();
-                if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) { 
-                    m_emu.disableSpriteLimit(disableSpritesLimit);                        
-                }
-                AppSettings::instance().data.improvements.disableSpritesLimit = m_emu.spriteLimitDisabled();
-
-                bool overclock = m_emu.overclocked();                     
-                if(ImGui::Checkbox("Overclock", &overclock)) {                   
-                    m_emu.enableOverclock(overclock);                        
-                }
-                AppSettings::instance().data.improvements.overclock = m_emu.overclocked();
-
-                ImGui::SetNextItemWidth(100);
-
-                int value = AppSettings::instance().data.improvements.maxRewindTime;               
-                if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
-                    value = std::max(0,value);                       
-                    AppSettings::instance().data.improvements.maxRewindTime = value;
-                    m_emu.setupRewindSystem(value > 0, value);
-                }
-            }                     
-            
-            ImGui::End();
-        }
-
-        if(m_showAboutWindow) {
-
-            ImGui::SetNextWindowSize(ImVec2(320, 0));         
-
-            if (ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_NoResize)) {
-        
-                std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;
-                
-                TextCenteredWrapped(txt);
-
-                txt = std::string("Racionisoft 2015 - ") + std::to_string(compileTimeYear());
-
-                ImGui::NewLine();
-
-                TextCenteredWrapped(txt);    
-
-                ImGui::NewLine();
-                ImGui::NewLine();
-
-                txt = "geraldoracioni@gmail.com";
-
-                TextCenteredWrapped(txt);           
-            }
-
-            ImGui::End();
-        }
-        
-        if(m_showErrorWindow) {
-
-            ImGui::SetNextWindowSize(ImVec2(320, 0));
-
-            bool lastState = m_showErrorWindow;
-
-            if (ImGui::Begin("Error", &m_showErrorWindow))
-            {
-                float windowWidth = ImGui::GetContentRegionAvail().x;
-
-                TextCenteredWrapped(m_errorMessage.c_str());
-
-                ImGui::Spacing();
-                ImGui::Spacing();            
-                
-                const char* btnLabel = "OK";
-
-                // Button size
-                ImVec2 btnSize = ImGui::CalcTextSize(btnLabel);
-                btnSize.x += ImGui::GetStyle().FramePadding.x * 2.0f;
-                btnSize.y += ImGui::GetStyle().FramePadding.y * 2.0f;
-
-                //Calculate center x
-                float posX = (windowWidth - btnSize.x) * 0.5f;
-
-                ImGui::SetCursorPosX(posX);
-
-                if (ImGui::Button(btnLabel, btnSize))
-                {
-                    m_showErrorWindow = false; // fecha janela
-                }
-            }
-            ImGui::End();
-
-            if(lastState && !m_showErrorWindow) m_showErrorWindow = false; 
-        }
-
-        if(m_showLogWindow) {
-
-            ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Once);
-
-            if (ImGui::Begin("Log", &m_showLogWindow))
-            {
-                ImGui::InputTextMultiline("MyMultilineInput", m_logBuf.data(), m_logBuf.size(),
-                        ImVec2(-1, 400), ImGuiInputTextFlags_ReadOnly);
-
-                if (!(ImGui::IsItemActive() || ImGui::IsItemEdited()))
-                {
-                    ImGuiContext& g = *GImGui;
-                    const char* child_window_name = NULL;
-                    ImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g.CurrentWindow->Name, "MyMultilineInput", ImGui::GetID("MyMultilineInput"));
-                    ImGuiWindow* child_window = ImGui::FindWindowByName(child_window_name);
-
-                    if (child_window)
-                    {
-                        ImGui::SetScrollY(child_window, child_window->ScrollMax.y);
-                    }
-                }
-
-                ImGui::Spacing();
-
-                const char* btnLabel = "Clear";
-                ImVec2 btnTextSize = ImGui::CalcTextSize(btnLabel);
-                ImVec2 btnSize = ImVec2(btnTextSize.x + ImGui::GetStyle().FramePadding.x * 2.0f,
-                                        btnTextSize.y + ImGui::GetStyle().FramePadding.y * 2.0f);
-
-                float windowWidth = ImGui::GetContentRegionAvail().x;
-                float posX = (windowWidth - btnSize.x) * 0.5f;
-                ImGui::SetCursorPosX(posX);
-
-                if (ImGui::Button(btnLabel, btnSize))
-                {
-                    m_log.clear();
-                    m_logBuf.clear();
-                    m_logBuf.push_back('\0');
-                }
-            }
-
-            ImGui::End();
-        }
-    }
-
-    void showOverlay()
-    {
-        ImDrawList* drawList = ImGui::GetForegroundDrawList();
-
-        if(AppSettings::instance().data.debug.showFps) {
-
-            const int fontSize = 32;            
-
-            std::string fpsText = std::to_string(m_fps);
-            ImVec2 fpsTextSize = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
-        
-            const ImVec2 pos = ImVec2(width()- fpsTextSize.x - 32, 40);
-            
-            DrawTextOutlined(drawList, nullptr, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
-        }
-
-        m_touch->draw(drawList);
-    }   
+    void showGui();
+    void showOverlay();
  
 };
+
+#include "GeraNESApp.MenuUI.inl"
+#include "GeraNESApp.Render.inl"
+#include "GeraNESApp.WindowsUI.inl"

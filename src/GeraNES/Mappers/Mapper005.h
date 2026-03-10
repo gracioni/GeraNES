@@ -1,7 +1,9 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <cstring>
+#include <sstream>
 
 #include "BaseMapper.h"
 #include "../APU/APUCommon.h"
@@ -74,6 +76,9 @@ private:
     int m_expQuarterCounter = 0;
     int m_expHalfCounter = 0;
     float m_expansionAudioSample = 0.0f;
+    float m_audioChannelVolPulse1 = 1.0f;
+    float m_audioChannelVolPulse2 = 1.0f;
+    float m_audioChannelVolPcm = 1.0f;
 
     static constexpr uint8_t MMC5_DUTY_TABLE[4][8] = {
         {0, 1, 0, 0, 0, 0, 0, 0},
@@ -221,8 +226,8 @@ private:
 
     GERANES_INLINE void updateExpansionAudioSample()
     {
-        const float pulseMix = (pulseOutput(0) + pulseOutput(1)) * 0.5f;
-        const float pcm = m_audioPcmLatched ? (static_cast<float>(static_cast<int>(m_audioPcmValue) - 128) / 128.0f) : 0.0f;
+        const float pulseMix = (pulseOutput(0) * m_audioChannelVolPulse1 + pulseOutput(1) * m_audioChannelVolPulse2) * 0.5f;
+        const float pcm = (m_audioPcmLatched ? (static_cast<float>(static_cast<int>(m_audioPcmValue) - 128) / 128.0f) : 0.0f) * m_audioChannelVolPcm;
 
         float out = pulseMix * 0.60f + pcm * 0.25f;
         if(out > 1.0f) out = 1.0f;
@@ -519,6 +524,9 @@ public:
         m_expQuarterCounter = 0;
         m_expHalfCounter = 0;
         m_expansionAudioSample = 0.0f;
+        m_audioChannelVolPulse1 = 1.0f;
+        m_audioChannelVolPulse2 = 1.0f;
+        m_audioChannelVolPcm = 1.0f;
         for(int i = 0; i < 2; ++i) {
             m_expPulse[i] = ExpansionPulseState();
         }
@@ -956,6 +964,9 @@ public:
         SERIALIZEDATA(s, m_expQuarterCounter);
         SERIALIZEDATA(s, m_expHalfCounter);
         SERIALIZEDATA(s, m_expansionAudioSample);
+        SERIALIZEDATA(s, m_audioChannelVolPulse1);
+        SERIALIZEDATA(s, m_audioChannelVolPulse2);
+        SERIALIZEDATA(s, m_audioChannelVolPcm);
         s.array(reinterpret_cast<uint8_t*>(m_mmc5aRegs), 1, static_cast<int>(sizeof(m_mmc5aRegs)));
         SERIALIZEDATA(s, m_mmc5aTimerCounter);
         SERIALIZEDATA(s, m_mmc5aTimerActive);
@@ -1244,5 +1255,25 @@ public:
     GERANES_HOT float getExpansionAudioSample() override
     {
         return m_expansionAudioSample;
+    }
+
+    std::string getAudioChannelsJson() const override
+    {
+        std::ostringstream ss;
+        ss << "{\"channels\":["
+           << "{\"id\":\"mmc5.pulse1\",\"label\":\"MMC5 Pulse 1\",\"volume\":" << m_audioChannelVolPulse1 << ",\"min\":0.0,\"max\":1.0},"
+           << "{\"id\":\"mmc5.pulse2\",\"label\":\"MMC5 Pulse 2\",\"volume\":" << m_audioChannelVolPulse2 << ",\"min\":0.0,\"max\":1.0},"
+           << "{\"id\":\"mmc5.pcm\",\"label\":\"MMC5 PCM\",\"volume\":" << m_audioChannelVolPcm << ",\"min\":0.0,\"max\":1.0}"
+           << "]}";
+        return ss.str();
+    }
+
+    bool setAudioChannelVolumeById(const std::string& id, float volume) override
+    {
+        const float v = std::clamp(volume, 0.0f, 1.0f);
+        if(id == "mmc5.pulse1") { m_audioChannelVolPulse1 = v; return true; }
+        if(id == "mmc5.pulse2") { m_audioChannelVolPulse2 = v; return true; }
+        if(id == "mmc5.pcm") { m_audioChannelVolPcm = v; return true; }
+        return false;
     }
 };
