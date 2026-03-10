@@ -4,14 +4,12 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
-#include <iomanip>
 
 #include "BaseMapper.h"
-#include "logger/logger.h"
 
 #define SOUND_RAM_SIZE 128
-#ifndef GERANES_M019_AUDIO_DEBUG
-#define GERANES_M019_AUDIO_DEBUG 0
+#ifndef GERANES_M019_AUDIO_SMOOTH
+#define GERANES_M019_AUDIO_SMOOTH 1
 #endif
 
 class Mapper019 : public BaseMapper
@@ -48,11 +46,6 @@ private:
     float m_expansionAudioFiltered = 0.0f;
     uint32_t m_audioPhaseRemainder[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     float m_audioChannelVol[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
-#if GERANES_M019_AUDIO_DEBUG
-    int m_dbgWriteCounter = 0;
-    int m_dbgCycleCounter = 0;
-    int m_dbgLastFirstChannel = -1;
-#endif
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)
@@ -107,7 +100,7 @@ private:
                                     : static_cast<uint8_t>(byteVal & 0x0F);
     }
 
-    GERANES_INLINE float updateChannelAndGetSample(int channel, int channels)
+    GERANES_INLINE float updateChannelAndGetSampleMixed(int channel, int channels)
     {
         const int base = 0x40 + (channel << 3);
 
@@ -161,65 +154,22 @@ private:
 
         float mix = 0.0f;
         for(int ch = first; ch <= 7; ++ch) {
-            mix += updateChannelAndGetSample(ch, channels);
+            mix += updateChannelAndGetSampleMixed(ch, channels);
         }
 
-        // "Smooth" approximation for this emulator pipeline:
-        // normalize by channel energy (sqrt) so multi-channel songs keep a usable level.
+        // Normalize by channel energy (sqrt) so multi-channel songs keep a usable level.
         const float channelNorm = std::sqrt(static_cast<float>(channels));
         const float raw = std::clamp(mix / std::max(1.0f, channelNorm), -1.0f, 1.0f);
+#if GERANES_M019_AUDIO_SMOOTH
         const float alpha = (channels >= 6) ? 0.18f : 0.30f;
         m_expansionAudioFiltered += alpha * (raw - m_expansionAudioFiltered);
         m_expansionAudioTarget = std::clamp(m_expansionAudioFiltered, -1.0f, 1.0f);
-
-#if GERANES_M019_AUDIO_DEBUG
-        if(m_dbgLastFirstChannel != first) {
-            m_dbgLastFirstChannel = first;
-            std::ostringstream ss;
-            ss << "[M019][AUDIO] active_first=" << first
-               << " channels=" << channels
-               << " reg7f=0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-               << static_cast<int>(m_soundRAM[0x7F]);
-            Logger::instance().log(ss.str(), Logger::Type::DEBUG);
-        }
+#else
+        m_expansionAudioFiltered = raw;
+        m_expansionAudioTarget = raw;
 #endif
-    }
 
-#if GERANES_M019_AUDIO_DEBUG
-    void debugLogAddrPortWrite(uint8_t data)
-    {
-        std::ostringstream ss;
-        ss << "[M019][F800] data=0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-           << static_cast<int>(data)
-           << " autoInc=" << ((data & 0x80) ? 1 : 0)
-           << " addr=0x" << std::setw(2) << static_cast<int>(data & 0x7F);
-        Logger::instance().log(ss.str(), Logger::Type::DEBUG);
     }
-
-    void debugLogDataPortWrite(uint8_t addr, uint8_t data)
-    {
-        if(addr >= 0x40) {
-            std::ostringstream ss;
-            ss << "[M019][4800] ram[0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-               << static_cast<int>(addr) << "]=0x" << std::setw(2) << static_cast<int>(data);
-            Logger::instance().log(ss.str(), Logger::Type::DEBUG);
-        }
-    }
-
-    void debugLogWaveRegsSnapshot()
-    {
-        std::ostringstream ss;
-        ss << "[M019][SNAP] 40-7F";
-        for(int i = 0x40; i <= 0x7F; ++i) {
-            if(((i - 0x40) % 16) == 0) {
-                ss << "\n  ";
-            }
-            ss << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-               << static_cast<int>(m_soundRAM[i]) << ' ';
-        }
-        Logger::instance().log(ss.str(), Logger::Type::DEBUG);
-    }
-#endif
 
 
 public:
@@ -267,9 +217,6 @@ public:
         case 0x7800: //sound
             m_soundAutoIncrement = data & 0x80;
             m_soundRAMAddress = data & 0x7F;
-#if GERANES_M019_AUDIO_DEBUG
-            debugLogAddrPortWrite(data);
-#endif
             break;
 
         }
@@ -328,12 +275,6 @@ public:
         switch(addr & 0x1800) {
         case 0x0000: break;
         case 0x0800: //Sound Data port
-#if GERANES_M019_AUDIO_DEBUG
-            debugLogDataPortWrite(m_soundRAMAddress, data);
-            if((++m_dbgWriteCounter % 256) == 0) {
-                debugLogWaveRegsSnapshot();
-            }
-#endif
             writeSoundRAM(data);
             break;
         case 0x1000:
@@ -435,11 +376,6 @@ public:
         m_soundDisable = false;
         for(uint32_t& r : m_audioPhaseRemainder) r = 0;
         for(float& v : m_audioChannelVol) v = 1.0f;
-#if GERANES_M019_AUDIO_DEBUG
-        m_dbgWriteCounter = 0;
-        m_dbgCycleCounter = 0;
-        m_dbgLastFirstChannel = -1;
-#endif
     }
 
     GERANES_HOT void cycle() override
@@ -458,26 +394,8 @@ public:
             m_expansionAudioPrev = m_expansionAudioTarget;
             tickExpansionAudio();
         }
-
         const float t = static_cast<float>(m_audioClockCounter + 1) / static_cast<float>(m_audioClockDiv);
-        const float interpolated = m_expansionAudioPrev + (m_expansionAudioTarget - m_expansionAudioPrev) * t;
-
-        // De-click guard without long-term lag:
-        // only soften very large discontinuities, otherwise pass through unchanged.
-        const float prevOut = m_expansionAudioSample;
-        const float jump = std::fabs(interpolated - prevOut);
-        if(jump > 0.55f) {
-            m_expansionAudioSample = std::clamp(prevOut + (interpolated - prevOut) * 0.35f, -1.0f, 1.0f);
-        }
-        else {
-            m_expansionAudioSample = std::clamp(interpolated, -1.0f, 1.0f);
-        }
-
-#if GERANES_M019_AUDIO_DEBUG
-        if((++m_dbgCycleCounter % 4096) == 0) {
-            debugLogWaveRegsSnapshot();
-        }
-#endif
+        m_expansionAudioSample = m_expansionAudioPrev + (m_expansionAudioTarget - m_expansionAudioPrev) * t;
     }
 
     void serialization(SerializationBase& s) override
