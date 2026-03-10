@@ -38,12 +38,13 @@ private:
     bool m_soundAutoIncrement = false;
     uint8_t m_soundRAM[SOUND_RAM_SIZE] = {0};
     bool m_soundDisable = false;
-    bool m_skipSoundDataReadSideEffectOnce = false;
 
     // Namco 163 expansion audio
     int m_audioClockDiv = 15;
     int m_audioClockCounter = 0;
     float m_expansionAudioSample = 0.0f;
+    float m_expansionAudioPrev = 0.0f;
+    float m_expansionAudioTarget = 0.0f;
     float m_expansionAudioFiltered = 0.0f;
     uint32_t m_audioPhaseRemainder[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     float m_audioChannelVol[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
@@ -151,7 +152,7 @@ private:
     GERANES_INLINE void tickExpansionAudio()
     {
         if(m_soundDisable) {
-            m_expansionAudioSample = 0.0f;
+            m_expansionAudioTarget = 0.0f;
             return;
         }
 
@@ -169,7 +170,7 @@ private:
         const float raw = std::clamp(mix / std::max(1.0f, channelNorm), -1.0f, 1.0f);
         const float alpha = (channels >= 6) ? 0.18f : 0.30f;
         m_expansionAudioFiltered += alpha * (raw - m_expansionAudioFiltered);
-        m_expansionAudioSample = std::clamp(m_expansionAudioFiltered, -1.0f, 1.0f);
+        m_expansionAudioTarget = std::clamp(m_expansionAudioFiltered, -1.0f, 1.0f);
 
 #if GERANES_M019_AUDIO_DEBUG
         if(m_dbgLastFirstChannel != first) {
@@ -327,9 +328,6 @@ public:
         switch(addr & 0x1800) {
         case 0x0000: break;
         case 0x0800: //Sound Data port
-            // GeraNESEmu calls readMapperRegister right after writeMapperRegister on mapper I/O.
-            // For N163 this would spuriously auto-increment sound RAM pointer on every write.
-            m_skipSoundDataReadSideEffectOnce = true;
 #if GERANES_M019_AUDIO_DEBUG
             debugLogDataPortWrite(m_soundRAMAddress, data);
             if((++m_dbgWriteCounter % 256) == 0) {
@@ -357,10 +355,6 @@ public:
         switch(addr & 0x1800) {
         case 0x0000: return openBusData;
         case 0x0800: //Sound Data port
-            if(m_skipSoundDataReadSideEffectOnce) {
-                m_skipSoundDataReadSideEffectOnce = false;
-                return openBusData;
-            }
             return readSoundRAM();
         case 0x1000:
             m_interruptFlag = false;
@@ -435,9 +429,10 @@ public:
     {
         m_audioClockCounter = 0;
         m_expansionAudioSample = 0.0f;
+        m_expansionAudioPrev = 0.0f;
+        m_expansionAudioTarget = 0.0f;
         m_expansionAudioFiltered = 0.0f;
         m_soundDisable = false;
-        m_skipSoundDataReadSideEffectOnce = false;
         for(uint32_t& r : m_audioPhaseRemainder) r = 0;
         for(float& v : m_audioChannelVol) v = 1.0f;
 #if GERANES_M019_AUDIO_DEBUG
@@ -460,7 +455,22 @@ public:
 
         if(++m_audioClockCounter >= m_audioClockDiv) {
             m_audioClockCounter = 0;
+            m_expansionAudioPrev = m_expansionAudioTarget;
             tickExpansionAudio();
+        }
+
+        const float t = static_cast<float>(m_audioClockCounter + 1) / static_cast<float>(m_audioClockDiv);
+        const float interpolated = m_expansionAudioPrev + (m_expansionAudioTarget - m_expansionAudioPrev) * t;
+
+        // De-click guard without long-term lag:
+        // only soften very large discontinuities, otherwise pass through unchanged.
+        const float prevOut = m_expansionAudioSample;
+        const float jump = std::fabs(interpolated - prevOut);
+        if(jump > 0.55f) {
+            m_expansionAudioSample = std::clamp(prevOut + (interpolated - prevOut) * 0.35f, -1.0f, 1.0f);
+        }
+        else {
+            m_expansionAudioSample = std::clamp(interpolated, -1.0f, 1.0f);
         }
 
 #if GERANES_M019_AUDIO_DEBUG
@@ -495,10 +505,11 @@ public:
         s.array(m_soundRAM,1,SOUND_RAM_SIZE);
 
         SERIALIZEDATA(s, m_soundDisable);
-        SERIALIZEDATA(s, m_skipSoundDataReadSideEffectOnce);
         SERIALIZEDATA(s, m_audioClockDiv);
         SERIALIZEDATA(s, m_audioClockCounter);
         SERIALIZEDATA(s, m_expansionAudioSample);
+        SERIALIZEDATA(s, m_expansionAudioPrev);
+        SERIALIZEDATA(s, m_expansionAudioTarget);
         SERIALIZEDATA(s, m_expansionAudioFiltered);
         s.array(reinterpret_cast<uint8_t*>(m_audioPhaseRemainder), sizeof(uint32_t), 8);
         s.array(reinterpret_cast<uint8_t*>(m_audioChannelVol), sizeof(float), 8);
