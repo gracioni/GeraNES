@@ -168,6 +168,11 @@ private:
     }    
 
     void onLog(const std::string& msg, Logger::Type type) {
+        if(type == Logger::Type::USER) {
+            m_userToast.show(msg);
+            return;
+        }
+
         std::ofstream file(LOG_FILE, std::ios_base::app);
         file << msg << std::endl;
         std::cout << msg << std::endl;
@@ -188,10 +193,7 @@ private:
             case Logger::Type::WARNING: msgType = "[Warning] "; break;
             case Logger::Type::ERROR: msgType = "[Error] "; break;
             case Logger::Type::DEBUG: msgType = "[Debug] "; break;
-            case Logger::Type::USER:
-                msgType = "[User] ";
-                m_userToast.show(msg);
-                break;
+            case Logger::Type::USER: break;
         }
 
         m_log += msgType + msg + "\n";
