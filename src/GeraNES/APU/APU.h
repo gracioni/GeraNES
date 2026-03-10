@@ -82,6 +82,13 @@ public:
     {
         m_audioOutput.init();
 
+        reset();
+
+        return "";
+    }
+
+    void reset()
+    {
         m_pulse1.init();
         m_pulse2.init();
         m_triangle.init();
@@ -105,8 +112,6 @@ public:
         // Mapper expansion audio is fed at CPU-cycle rate.
         m_audioOutput.setExpansionAudioSampleRate(static_cast<float>(m_settings.CPUClockHz()));
         m_audioOutput.setExpansionAudioVolume(1.0f);
-
-        return "";
     }
 
     GERANES_INLINE void addExpansionAudioSample(float sample)

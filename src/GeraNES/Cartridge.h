@@ -210,6 +210,13 @@ public:
         return true;
     }
 
+    void reset()
+    {
+        if(m_mapper != nullptr) {
+            m_mapper->reset();
+        }
+    }
+
     static std::vector<std::string> listFiles(const fs::path& directory) {
 
         std::vector<std::string> filePaths;

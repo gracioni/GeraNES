@@ -764,6 +764,28 @@ public:
     }
 
     void reset() {
+        if(!m_cartridge.isValid()) return;
+
+        m_cartridge.reset();
+        m_dma.init();
+        m_apu.reset();
+        m_ppu.init();
+
+        m_halt = false;
+        m_updateCyclesAcc = 0;
+        m_cpuCyclesAcc = 1;
+        m_audioRenderCyclesAcc = 0;
+        m_audioRenderDtAcc = 0;
+        m_openBus = 0;
+        m_4011WriteCounter = 0;
+        m_newFrame = false;
+        m_frameCount = 0;
+        m_runningLoop = false;
+        m_saveStateFlag = false;
+        m_loadStateFlag = false;
+
+        m_rewind.reset();
+        updateCyclesPerSecond();
         m_cpu.reset();
     }
 
