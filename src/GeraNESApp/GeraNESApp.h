@@ -338,6 +338,10 @@ private:
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
             m_emu.loadState();
         }});
+
+        m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
+            m_emu.togglePaused();
+        }});
     }
 
     void updateCursor() {

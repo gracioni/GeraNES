@@ -101,6 +101,14 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
+            auto pauseShortcut = m_shortcuts.get("pause");
+            const char* pauseKey = (pauseShortcut != nullptr) ? pauseShortcut->shortcut.c_str() : nullptr;
+            if(ImGui::MenuItem("Pause", pauseKey, m_emu.paused())) {
+                m_emu.togglePaused();
+            }
+
+            ImGui::Separator();
+
             if(ImGui::MenuItem("Reset")) {
                 m_emu.reset();
             }

@@ -59,6 +59,7 @@ private:
 
     bool m_runningLoop;
     bool m_speedBoost;
+    bool m_paused;
     static constexpr int SPEED_BOOST_MULTIPLIER = 3;
 
     //do not serialize bellow atributtes
@@ -306,6 +307,7 @@ public:
         m_loadStateFlag = false;
         m_runningLoop = false;
         m_speedBoost = false;
+        m_paused = false;
         m_audioRenderDtAcc = 0;
 
         m_openBus = 0;
@@ -512,10 +514,13 @@ public:
     }
 
     GERANES_INLINE bool update(uint32_t dt) {
+        if(m_paused) return false;
         return _update<false>(dt);
     }
 
     GERANES_INLINE bool updateUntilFrame(uint32_t dt) {
+        if(m_paused) return true;
+
         if(!m_speedBoost) {
             return _update<true>(dt);
         }
@@ -611,6 +616,21 @@ public:
     bool overclocked()
     {
         return m_settings.overclockLines() > 0;
+    }
+
+    void setPaused(bool paused)
+    {
+        m_paused = paused;
+    }
+
+    bool paused() const
+    {
+        return m_paused;
+    }
+
+    void togglePaused()
+    {
+        m_paused = !m_paused;
     }
 
     void enableOverclock(bool state)
