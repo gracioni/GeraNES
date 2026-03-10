@@ -252,6 +252,7 @@ bool g_gameLoaded = false;
 uint32_t g_frameTimeMs = 16;
 std::string g_dbPath;
 bool g_loggerBound = false;
+size_t g_cachedSerializeSize = 0;
 
 enum class PortInputMode {
     Controller,
@@ -766,6 +767,7 @@ RETRO_API void retro_deinit(void)
     }
 
     g_audio.reset();
+    g_cachedSerializeSize = 0;
 }
 
 RETRO_API unsigned retro_api_version(void)
@@ -864,9 +866,12 @@ RETRO_API size_t retro_serialize_size(void)
 {
     if(!g_gameLoaded) return 0;
 
+    if(g_cachedSerializeSize != 0) return g_cachedSerializeSize;
+
     SerializationSize s;
     g_emu.serialization(s);
-    return s.size();
+    g_cachedSerializeSize = s.size();
+    return g_cachedSerializeSize;
 }
 
 RETRO_API bool retro_serialize(void* data, size_t size)
@@ -935,6 +940,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     }
 
     g_gameLoaded = loaded;
+    g_cachedSerializeSize = 0;
 
     if(g_gameLoaded) {
         updateTimingFromRegion();
@@ -948,6 +954,11 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
         applyAllPortInputModes();
     }
     if(g_gameLoaded) applyCoreOptions(false);
+    if(g_gameLoaded) {
+        SerializationSize s;
+        g_emu.serialization(s);
+        g_cachedSerializeSize = s.size();
+    }
 
     return g_gameLoaded;
 }
@@ -965,6 +976,7 @@ RETRO_API void retro_unload_game(void)
 
     g_gameLoaded = false;
     g_audio.reset();
+    g_cachedSerializeSize = 0;
 
     if(!g_tempRomPath.empty()) {
         std::error_code ec;
