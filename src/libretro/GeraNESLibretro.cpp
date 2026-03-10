@@ -115,6 +115,7 @@ enum {
     RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY = 30,
     RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10,
     RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME = 18
+    , RETRO_ENVIRONMENT_SET_VARIABLE = 70
 };
 
 enum {
@@ -127,13 +128,6 @@ enum {
 enum {
     RETRO_DEVICE_MASK = 0xFF
 };
-
-constexpr unsigned retroDeviceSubclass(unsigned base, unsigned id)
-{
-    return base | ((id + 1u) << 8);
-}
-
-constexpr unsigned kDeviceAuto = retroDeviceSubclass(RETRO_DEVICE_JOYPAD, 0);
 
 enum {
     RETRO_DEVICE_ID_JOYPAD_B = 0,
@@ -260,15 +254,36 @@ std::string g_dbPath;
 bool g_loggerBound = false;
 
 enum class PortInputMode {
-    Auto,
     Controller,
     Zapper
 };
 
-std::array<PortInputMode, 2> g_portInputModes = {PortInputMode::Auto, PortInputMode::Auto};
-std::array<Settings::Device, 2> g_autoDetectedDevices = {Settings::Device::CONTROLLER, Settings::Device::CONTROLLER};
+std::array<PortInputMode, 2> g_portInputModes = {PortInputMode::Controller, PortInputMode::Controller};
 
 void frontendMessage(const std::string& msg, unsigned frames = 180);
+
+const char* regionToOptionValue(Settings::Region region)
+{
+    switch(region) {
+        case Settings::Region::PAL:
+            return "PAL";
+        case Settings::Region::DENDY:
+            return "Dendy";
+        case Settings::Region::NTSC:
+        default:
+            return "NTSC";
+    }
+}
+
+void syncRegionOptionWithLoadedGame()
+{
+    if(!g_gameLoaded || g_environmentCb == nullptr) return;
+
+    retro_variable variable{};
+    variable.key = "geranes_region";
+    variable.value = regionToOptionValue(g_emu.region());
+    g_environmentCb(RETRO_ENVIRONMENT_SET_VARIABLE, &variable);
+}
 
 class LibretroLogSink final : public SigSlot::SigSlotBase {
 public:
@@ -289,6 +304,7 @@ LibretroLogSink g_logSink;
 constexpr const char* kOptionDisableSpriteLimit = "geranes_disable_sprite_limit";
 constexpr const char* kOptionOverclock = "geranes_overclock";
 constexpr const char* kOptionVerticalCrop = "geranes_vertical_crop";
+constexpr const char* kOptionRegion = "geranes_region";
 int g_verticalCropPx = 8;
 
 void registerCoreOptions()
@@ -299,11 +315,14 @@ void registerCoreOptions()
         {kOptionDisableSpriteLimit, "Disable sprite limit; disabled|enabled"},
         {kOptionOverclock, "Overclock; disabled|enabled"},
         {kOptionVerticalCrop, "Vertical crop (top/bottom lines); 8|0|4|12|16"},
+        {kOptionRegion, "Region; NTSC|PAL|Dendy"},
         {nullptr, nullptr}
     };
 
     g_environmentCb(RETRO_ENVIRONMENT_SET_VARIABLES, const_cast<retro_variable*>(variables));
 }
+
+void updateTimingFromRegion();
 
 void registerInputDescriptors()
 {
@@ -339,26 +358,17 @@ void registerControllerInfo()
     if(g_environmentCb == nullptr) return;
 
     static const retro_controller_description portTypes[] = {
-        {"Auto", kDeviceAuto},
         {"Joypad", RETRO_DEVICE_JOYPAD},
         {"Zapper", RETRO_DEVICE_LIGHTGUN}
     };
 
     static const retro_controller_info ports[] = {
-        {portTypes, 3},
-        {portTypes, 3},
+        {portTypes, 2},
+        {portTypes, 2},
         {nullptr, 0}
     };
 
     g_environmentCb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, const_cast<retro_controller_info*>(ports));
-}
-
-void syncAutoDetectedDevices()
-{
-    const auto p1 = g_emu.getPortDevice(Settings::Port::P_1);
-    const auto p2 = g_emu.getPortDevice(Settings::Port::P_2);
-    g_autoDetectedDevices[0] = p1.value_or(Settings::Device::CONTROLLER);
-    g_autoDetectedDevices[1] = p2.value_or(Settings::Device::CONTROLLER);
 }
 
 void applyPortInputMode(unsigned port)
@@ -368,9 +378,6 @@ void applyPortInputMode(unsigned port)
     const Settings::Port emuPort = (port == 0) ? Settings::Port::P_1 : Settings::Port::P_2;
     Settings::Device device = Settings::Device::CONTROLLER;
     switch(g_portInputModes[port]) {
-        case PortInputMode::Auto:
-            device = g_autoDetectedDevices[port];
-            break;
         case PortInputMode::Controller:
             device = Settings::Device::CONTROLLER;
             break;
@@ -423,6 +430,21 @@ int getCoreOptionInt(const char* key, int defaultValue)
     return static_cast<int>(v);
 }
 
+std::string getCoreOptionString(const char* key, const char* defaultValue)
+{
+    if(g_environmentCb == nullptr || key == nullptr) {
+        return defaultValue != nullptr ? std::string(defaultValue) : std::string();
+    }
+
+    retro_variable variable{};
+    variable.key = key;
+    if(!g_environmentCb(RETRO_ENVIRONMENT_GET_VARIABLE, &variable) || variable.value == nullptr) {
+        return defaultValue != nullptr ? std::string(defaultValue) : std::string();
+    }
+
+    return std::string(variable.value);
+}
+
 int getCroppedHeight()
 {
     int crop = g_verticalCropPx;
@@ -445,8 +467,16 @@ void notifyGeometryChanged()
     g_environmentCb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geometry);
 }
 
-void applyCoreOptions()
+void applyCoreOptions(bool applyRegion = true)
 {
+    if(applyRegion) {
+        const std::string regionOption = getCoreOptionString(kOptionRegion, "NTSC");
+        if(regionOption == "PAL") g_emu.setRegion(Settings::Region::PAL);
+        else if(regionOption == "Dendy") g_emu.setRegion(Settings::Region::DENDY);
+        else g_emu.setRegion(Settings::Region::NTSC);
+        if(g_gameLoaded) updateTimingFromRegion();
+    }
+
     g_emu.disableSpriteLimit(getCoreOptionBool(kOptionDisableSpriteLimit, false));
     g_emu.enableOverclock(getCoreOptionBool(kOptionOverclock, false));
 
@@ -774,21 +804,14 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
     if(port > 1) return;
 
     const unsigned deviceBase = device & RETRO_DEVICE_MASK;
-    if(device == kDeviceAuto) {
-        g_portInputModes[port] = PortInputMode::Auto;
-    }
-    else if(deviceBase == RETRO_DEVICE_LIGHTGUN) {
+    if(deviceBase == RETRO_DEVICE_LIGHTGUN) {
         g_portInputModes[port] = PortInputMode::Zapper;
     }
+    else if(deviceBase == RETRO_DEVICE_JOYPAD) {
+        g_portInputModes[port] = PortInputMode::Controller;
+    }
     else {
-        // RetroArch usually sends Joypad defaults while content is loading.
-        // Keep Auto as the true default so DB-based device detection can apply.
-        if(!g_gameLoaded && deviceBase == RETRO_DEVICE_JOYPAD) {
-            g_portInputModes[port] = PortInputMode::Auto;
-        }
-        else {
-            g_portInputModes[port] = PortInputMode::Controller;
-        }
+        g_portInputModes[port] = PortInputMode::Controller;
     }
 
     applyPortInputMode(port);
@@ -889,8 +912,8 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     }
 
     g_audio.reset();
-    g_portInputModes[0] = PortInputMode::Auto;
-    g_portInputModes[1] = PortInputMode::Auto;
+    g_portInputModes[0] = PortInputMode::Controller;
+    g_portInputModes[1] = PortInputMode::Controller;
 
     bool loaded = false;
 
@@ -913,12 +936,18 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
 
     g_gameLoaded = loaded;
 
-    if(g_gameLoaded) updateTimingFromRegion();
     if(g_gameLoaded) {
-        syncAutoDetectedDevices();
+        updateTimingFromRegion();
+        syncRegionOptionWithLoadedGame();
+        g_portInputModes[0] = (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER))
+            ? PortInputMode::Zapper
+            : PortInputMode::Controller;
+        g_portInputModes[1] = (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER))
+            ? PortInputMode::Zapper
+            : PortInputMode::Controller;
         applyAllPortInputModes();
     }
-    if(g_gameLoaded) applyCoreOptions();
+    if(g_gameLoaded) applyCoreOptions(false);
 
     return g_gameLoaded;
 }
