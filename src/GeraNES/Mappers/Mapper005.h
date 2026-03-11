@@ -4,9 +4,12 @@
 #include <algorithm>
 #include <cstring>
 #include <sstream>
+#include <cmath>
 
 #include "BaseMapper.h"
+#include "Mmc5Audio.h"
 #include "../APU/APUCommon.h"
+#define GERANES_M005_AUDIO_DEBUG 0
 
 // MMC5
 // Implemented features in this mapper:
@@ -68,7 +71,11 @@ private:
         uint16_t timerCounter = 0;
         uint8_t dutyStep = 0;
         uint8_t lengthCounter = 0;
-        uint8_t envelopeDivider = 0;
+        uint8_t lengthPreviousValue = 0;
+        uint8_t lengthReloadValue = 0;
+        bool lengthHalt = false;
+        bool newLengthHalt = false;
+        int8_t envelopeDivider = 0;
         uint8_t envelopeVolume = 0;
         bool envelopeStart = false;
     };
@@ -79,12 +86,33 @@ private:
     float m_audioChannelVolPulse1 = 1.0f;
     float m_audioChannelVolPulse2 = 1.0f;
     float m_audioChannelVolPcm = 1.0f;
+    Mmc5Audio m_mmc5Audio;
+
+#if GERANES_M005_AUDIO_DEBUG
+    uint64_t m_dbgAudioCycles = 0;
+    uint64_t m_dbgAudioWrites = 0;
+    uint64_t m_dbgAudioWritesPcmValue = 0;
+    uint64_t m_dbgAudioWritesStatus = 0;
+    uint64_t m_dbgAudioZeroSamples = 0;
+    uint64_t m_dbgAudioSameSampleRun = 0;
+    uint64_t m_dbgAudioMaxSameSampleRun = 0;
+    uint64_t m_dbgAudioPcmLatchedSamples = 0;
+    uint64_t m_dbgPulseZeroDisabled[2] = {0, 0};
+    uint64_t m_dbgPulseZeroLength[2] = {0, 0};
+    uint64_t m_dbgPulseZeroVolume[2] = {0, 0};
+    uint64_t m_dbgPulseZeroDuty[2] = {0, 0};
+    uint64_t m_dbgPulsePeriodSum[2] = {0, 0};
+    uint16_t m_dbgPulsePeriodMax[2] = {0, 0};
+    uint64_t m_dbgPulseSamples = 0;
+    float m_dbgAudioPrevSample = 0.0f;
+    bool m_dbgAudioHasPrevSample = false;
+#endif
 
     static constexpr uint8_t MMC5_DUTY_TABLE[4][8] = {
-        {0, 1, 0, 0, 0, 0, 0, 0},
-        {0, 1, 1, 0, 0, 0, 0, 0},
-        {0, 1, 1, 1, 1, 0, 0, 0},
-        {1, 0, 0, 1, 1, 1, 1, 1}
+        {0, 0, 0, 0, 0, 0, 0, 1},
+        {0, 0, 0, 0, 0, 0, 1, 1},
+        {0, 0, 0, 0, 1, 1, 1, 1},
+        {1, 1, 1, 1, 1, 1, 0, 0}
     };
     uint8_t m_mmc5aRegs[2] = {0}; // $5207/$5208
     uint16_t m_mmc5aTimerCounter = 0; // $5209/$520A
@@ -152,20 +180,17 @@ private:
         if(p.envelopeStart) {
             p.envelopeStart = false;
             p.envelopeVolume = 0x0F;
-            p.envelopeDivider = static_cast<uint8_t>(pulseVolumeParam(channel) + 1);
+            p.envelopeDivider = static_cast<int8_t>(pulseVolumeParam(channel));
             return;
         }
 
-        if(p.envelopeDivider > 0) {
-            --p.envelopeDivider;
-        }
-
-        if(p.envelopeDivider == 0) {
-            p.envelopeDivider = static_cast<uint8_t>(pulseVolumeParam(channel) + 1);
+        --p.envelopeDivider;
+        if(p.envelopeDivider < 0) {
+            p.envelopeDivider = static_cast<int8_t>(pulseVolumeParam(channel));
             if(p.envelopeVolume > 0) {
                 --p.envelopeVolume;
             }
-            else if(pulseLengthHalt(channel)) {
+            else if(p.lengthHalt) {
                 p.envelopeVolume = 0x0F;
             }
         }
@@ -178,56 +203,89 @@ private:
         }
 
         ExpansionPulseState& p = m_expPulse[channel];
-        if(!pulseLengthHalt(channel) && p.lengthCounter > 0) {
+        if(!p.lengthHalt && p.lengthCounter > 0) {
             --p.lengthCounter;
         }
+    }
+
+    GERANES_INLINE void reloadPulseLength(int channel)
+    {
+        ExpansionPulseState& p = m_expPulse[channel];
+        if(p.lengthReloadValue != 0) {
+            if(p.lengthCounter == p.lengthPreviousValue) {
+                p.lengthCounter = p.lengthReloadValue;
+            }
+            p.lengthReloadValue = 0;
+        }
+        p.lengthHalt = p.newLengthHalt;
     }
 
     GERANES_INLINE void stepPulseTimer(int channel)
     {
         ExpansionPulseState& p = m_expPulse[channel];
         const uint16_t period = pulsePeriod(channel);
-        uint16_t timerPeriod = static_cast<uint16_t>((period + 1) << 1);
-        if(timerPeriod < 2) {
-            timerPeriod = 2;
-        }
+        const uint16_t timerPeriod = static_cast<uint16_t>((period << 1) | 0x01); // (period * 2) + 1
 
         if(p.timerCounter == 0) {
-            p.timerCounter = static_cast<uint16_t>(timerPeriod - 1);
-            p.dutyStep = static_cast<uint8_t>((p.dutyStep + 1) & 0x07);
+            p.dutyStep = static_cast<uint8_t>((p.dutyStep - 1) & 0x07);
+            p.timerCounter = timerPeriod;
         }
         else {
             --p.timerCounter;
         }
     }
 
-    GERANES_INLINE float pulseOutput(int channel) const
+    GERANES_INLINE float pulseOutput(int channel)
     {
         if((m_audioStatus & (1 << channel)) == 0) {
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgPulseZeroDisabled[channel];
+#endif
             return 0.0f;
         }
 
         const ExpansionPulseState& p = m_expPulse[channel];
         if(p.lengthCounter == 0) {
-            return 0.0f;
-        }
-
-        if(pulsePeriod(channel) < 8) {
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgPulseZeroLength[channel];
+#endif
             return 0.0f;
         }
 
         const uint8_t duty = pulseDuty(channel);
         const uint8_t dutyBit = MMC5_DUTY_TABLE[duty][p.dutyStep];
         const uint8_t rawVolume = pulseConstantVolumeMode(channel) ? pulseVolumeParam(channel) : p.envelopeVolume;
+#if GERANES_M005_AUDIO_DEBUG
+        const uint16_t period = pulsePeriod(channel);
+        m_dbgPulsePeriodSum[channel] += period;
+        if(period > m_dbgPulsePeriodMax[channel]) {
+            m_dbgPulsePeriodMax[channel] = period;
+        }
+#endif
+        if(rawVolume == 0) {
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgPulseZeroVolume[channel];
+#endif
+            return 0.0f;
+        }
+        if(dutyBit == 0) {
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgPulseZeroDuty[channel];
+#endif
+            return 0.0f;
+        }
         const float volume = static_cast<float>(rawVolume) / 15.0f;
 
-        return dutyBit ? volume : -volume;
+        return volume;
     }
 
     GERANES_INLINE void updateExpansionAudioSample()
     {
         const float pulseMix = (pulseOutput(0) * m_audioChannelVolPulse1 + pulseOutput(1) * m_audioChannelVolPulse2) * 0.5f;
         const float pcm = (m_audioPcmLatched ? (static_cast<float>(static_cast<int>(m_audioPcmValue) - 128) / 128.0f) : 0.0f) * m_audioChannelVolPcm;
+#if GERANES_M005_AUDIO_DEBUG
+        ++m_dbgPulseSamples;
+#endif
 
         float out = pulseMix * 0.60f + pcm * 0.25f;
         if(out > 1.0f) out = 1.0f;
@@ -236,20 +294,63 @@ private:
         m_expansionAudioSample = out;
     }
 
+#if GERANES_M005_AUDIO_DEBUG
+    GERANES_INLINE void resetAudioDebugWindow()
+    {
+        m_dbgAudioCycles = 0;
+        m_dbgAudioWrites = 0;
+        m_dbgAudioWritesPcmValue = 0;
+        m_dbgAudioWritesStatus = 0;
+        m_dbgAudioZeroSamples = 0;
+        m_dbgAudioSameSampleRun = 0;
+        m_dbgAudioMaxSameSampleRun = 0;
+        m_dbgAudioPcmLatchedSamples = 0;
+        m_dbgPulseZeroDisabled[0] = m_dbgPulseZeroDisabled[1] = 0;
+        m_dbgPulseZeroLength[0] = m_dbgPulseZeroLength[1] = 0;
+        m_dbgPulseZeroVolume[0] = m_dbgPulseZeroVolume[1] = 0;
+        m_dbgPulseZeroDuty[0] = m_dbgPulseZeroDuty[1] = 0;
+        m_dbgPulsePeriodSum[0] = m_dbgPulsePeriodSum[1] = 0;
+        m_dbgPulsePeriodMax[0] = m_dbgPulsePeriodMax[1] = 0;
+        m_dbgPulseSamples = 0;
+        m_dbgAudioHasPrevSample = false;
+        m_dbgAudioPrevSample = 0.0f;
+    }
+
+    GERANES_INLINE void logAudioDebugWindow()
+    {
+        std::ostringstream ss;
+        ss << "(M005AudioDbg) cycles=" << m_dbgAudioCycles
+           << " writes=" << m_dbgAudioWrites
+           << " w5011=" << m_dbgAudioWritesPcmValue
+           << " w5015=" << m_dbgAudioWritesStatus
+           << " zero=" << m_dbgAudioZeroSamples
+           << " sameRunMax=" << m_dbgAudioMaxSameSampleRun
+           << " pcmLatchedCycles=" << m_dbgAudioPcmLatchedSamples
+           << " status=" << static_cast<int>(m_mmc5Audio.readStatus() & 0x03)
+           << " len0=" << static_cast<int>(m_mmc5Audio.pulseLengthCounter(0))
+           << " len1=" << static_cast<int>(m_mmc5Audio.pulseLengthCounter(1))
+           << " pcmCtrl=" << static_cast<int>(m_audioPcmControl)
+           << " pcmVal=" << static_cast<int>(m_audioPcmValue);
+        Logger::instance().log(ss.str(), Logger::Type::INFO);
+    }
+#endif
+
     GERANES_INLINE void writePulseRegister(int channel, int reg, uint8_t data)
     {
         m_audioPulseRegs[channel][reg] = data;
         ExpansionPulseState& p = m_expPulse[channel];
 
+        if(reg == 0) {
+            p.newLengthHalt = pulseLengthHalt(channel);
+        }
+
         if(reg == 3) {
             if(m_audioStatus & (1 << channel)) {
-                p.lengthCounter = LENGTH_TABLE[(data >> 3) & 0x1F];
+                p.lengthReloadValue = LENGTH_TABLE[(data >> 3) & 0x1F];
+                p.lengthPreviousValue = p.lengthCounter;
             }
             p.envelopeStart = true;
             p.dutyStep = 0;
-            uint16_t timerPeriod = static_cast<uint16_t>((pulsePeriod(channel) + 1) << 1);
-            if(timerPeriod < 2) timerPeriod = 2;
-            p.timerCounter = static_cast<uint16_t>(timerPeriod - 1);
         }
     }
 
@@ -527,11 +628,16 @@ public:
         m_audioChannelVolPulse1 = 1.0f;
         m_audioChannelVolPulse2 = 1.0f;
         m_audioChannelVolPcm = 1.0f;
+        m_mmc5Audio.reset(1789773);
         for(int i = 0; i < 2; ++i) {
             m_expPulse[i] = ExpansionPulseState();
         }
         memset(m_audioPulseRegs, 0, sizeof(m_audioPulseRegs));
         refreshChrMask();
+
+#if GERANES_M005_AUDIO_DEBUG
+        resetAudioDebugWindow();
+#endif
     }
 
     GERANES_HOT uint8_t readPrg(int addr) override
@@ -660,8 +766,10 @@ public:
         case 0x5001:
         case 0x5002:
         case 0x5003: {
-            int reg = absolute - 0x5000;
-            writePulseRegister(0, reg, data);
+            m_mmc5Audio.writeRegister(absolute, data);
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgAudioWrites;
+#endif
             break;
         }
 
@@ -669,28 +777,51 @@ public:
         case 0x5005:
         case 0x5006:
         case 0x5007: {
-            int reg = absolute - 0x5004;
-            writePulseRegister(1, reg, data);
+            m_mmc5Audio.writeRegister(absolute, data);
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgAudioWrites;
+#endif
             break;
         }
 
         case 0x5010:
+            m_mmc5Audio.writeRegister(absolute, data);
             m_audioPcmControl = data;
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgAudioWrites;
+#endif
             break;
 
         case 0x5011:
-            m_audioPcmValue = data;
-            m_audioPcmLatched = true;
+            m_mmc5Audio.writeRegister(absolute, data);
+            // MMC5 behavior: in direct mode, value 0 does not update DAC output.
+            if((m_audioPcmControl & 0x01) == 0) {
+                if(data != 0) {
+                    m_audioPcmValue = data;
+                    m_audioPcmLatched = true;
+                }
+            }
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgAudioWrites;
+            ++m_dbgAudioWritesPcmValue;
+#endif
             break;
 
         case 0x5015:
+            m_mmc5Audio.writeRegister(absolute, data);
             m_audioStatus = static_cast<uint8_t>(data & 0x03);
             if((m_audioStatus & 0x01) == 0) {
                 m_expPulse[0].lengthCounter = 0;
+                m_expPulse[0].lengthReloadValue = 0;
             }
             if((m_audioStatus & 0x02) == 0) {
                 m_expPulse[1].lengthCounter = 0;
+                m_expPulse[1].lengthReloadValue = 0;
             }
+#if GERANES_M005_AUDIO_DEBUG
+            ++m_dbgAudioWrites;
+            ++m_dbgAudioWritesStatus;
+#endif
             break;
 
         case 0x5100:
@@ -839,9 +970,7 @@ public:
 
         switch(absolute) {
         case 0x5015:
-            return static_cast<uint8_t>(
-                (m_expPulse[0].lengthCounter > 0 ? 0x01 : 0x00) |
-                (m_expPulse[1].lengthCounter > 0 ? 0x02 : 0x00));
+            return m_mmc5Audio.readStatus();
 
         case 0x5204: {
             uint8_t ret = 0;
@@ -957,6 +1086,10 @@ public:
             SERIALIZEDATA(s, m_expPulse[i].timerCounter);
             SERIALIZEDATA(s, m_expPulse[i].dutyStep);
             SERIALIZEDATA(s, m_expPulse[i].lengthCounter);
+            SERIALIZEDATA(s, m_expPulse[i].lengthPreviousValue);
+            SERIALIZEDATA(s, m_expPulse[i].lengthReloadValue);
+            SERIALIZEDATA(s, m_expPulse[i].lengthHalt);
+            SERIALIZEDATA(s, m_expPulse[i].newLengthHalt);
             SERIALIZEDATA(s, m_expPulse[i].envelopeDivider);
             SERIALIZEDATA(s, m_expPulse[i].envelopeVolume);
             SERIALIZEDATA(s, m_expPulse[i].envelopeStart);
@@ -967,6 +1100,7 @@ public:
         SERIALIZEDATA(s, m_audioChannelVolPulse1);
         SERIALIZEDATA(s, m_audioChannelVolPulse2);
         SERIALIZEDATA(s, m_audioChannelVolPcm);
+        m_mmc5Audio.serialization(s);
         s.array(reinterpret_cast<uint8_t*>(m_mmc5aRegs), 1, static_cast<int>(sizeof(m_mmc5aRegs)));
         SERIALIZEDATA(s, m_mmc5aTimerCounter);
         SERIALIZEDATA(s, m_mmc5aTimerActive);
@@ -1055,20 +1189,7 @@ public:
             }
         }
 
-        stepPulseTimer(0);
-        stepPulseTimer(1);
-
-        if(++m_expQuarterCounter >= 7457) {
-            m_expQuarterCounter -= 7457;
-            clockPulseEnvelope(0);
-            clockPulseEnvelope(1);
-        }
-
-        if(++m_expHalfCounter >= 14914) {
-            m_expHalfCounter -= 14914;
-            clockPulseLength(0);
-            clockPulseLength(1);
-        }
+        m_mmc5Audio.clock();
 
         if(m_ppuReading) {
             m_ppuReading = false;
@@ -1086,7 +1207,33 @@ public:
             }
         }
 
-        updateExpansionAudioSample();
+        m_expansionAudioSample = m_mmc5Audio.getSample();
+
+#if GERANES_M005_AUDIO_DEBUG
+        ++m_dbgAudioCycles;
+        if(m_mmc5Audio.isPcmLatched()) {
+            ++m_dbgAudioPcmLatchedSamples;
+        }
+        if(std::fabs(m_expansionAudioSample) <= 1.0e-8f) {
+            ++m_dbgAudioZeroSamples;
+        }
+        if(m_dbgAudioHasPrevSample) {
+            if(m_expansionAudioSample == m_dbgAudioPrevSample) {
+                ++m_dbgAudioSameSampleRun;
+                m_dbgAudioMaxSameSampleRun = std::max(m_dbgAudioMaxSameSampleRun, m_dbgAudioSameSampleRun);
+            } else {
+                m_dbgAudioSameSampleRun = 0;
+            }
+        } else {
+            m_dbgAudioHasPrevSample = true;
+        }
+        m_dbgAudioPrevSample = m_expansionAudioSample;
+
+        if(m_dbgAudioCycles >= 1789773ull) {
+            logAudioDebugWindow();
+            resetAudioDebugWindow();
+        }
+#endif
     }
 
     GERANES_HOT void onPpuCycle(int scanline, int cycle, bool isRendering, bool isPreLine) override
@@ -1271,9 +1418,9 @@ public:
     bool setAudioChannelVolumeById(const std::string& id, float volume) override
     {
         const float v = std::clamp(volume, 0.0f, 1.0f);
-        if(id == "mmc5.pulse1") { m_audioChannelVolPulse1 = v; return true; }
-        if(id == "mmc5.pulse2") { m_audioChannelVolPulse2 = v; return true; }
-        if(id == "mmc5.pcm") { m_audioChannelVolPcm = v; return true; }
+        if(id == "mmc5.pulse1") { m_audioChannelVolPulse1 = v; m_mmc5Audio.setPulse1Volume(v); return true; }
+        if(id == "mmc5.pulse2") { m_audioChannelVolPulse2 = v; m_mmc5Audio.setPulse2Volume(v); return true; }
+        if(id == "mmc5.pcm") { m_audioChannelVolPcm = v; m_mmc5Audio.setPcmVolume(v); return true; }
         return false;
     }
 };
