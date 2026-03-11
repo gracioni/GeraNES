@@ -350,6 +350,7 @@ public:
 
     bool open(const std::string& filename)
     {
+        m_audioOutput.clearAudioBuffers();
         m_ppu.clearFramebuffer();      
 
         bool result = m_cartridge.open(filename);
@@ -376,6 +377,7 @@ public:
                     m_settings.setRegion(Settings::Region::NTSC);
 
             }  
+            m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
 
             switch(m_cartridge.inputType()) {
 
@@ -669,6 +671,7 @@ public:
     {
         if(value != m_settings.region()) {
             m_settings.setRegion(value);
+            m_apu.reset();
             m_rewind.reset();
             updateCyclesPerSecond();
         }
@@ -800,6 +803,7 @@ public:
     }
 
     void reset() {
+
         if(!m_cartridge.isValid()) return;
 
         m_cartridge.reset();

@@ -1343,11 +1343,11 @@ inline void CPU2A03::endCycle() {
             m_console.ppu().getInterruptFlag(),
             m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
         );
-    }        
+    }
 
     if(!m_console.ppu().inOverclockLines()) {       
         m_console.cartridge().cycle();
-        m_console.apu().addExpansionAudioSample(m_console.cartridge().getExpansionAudioSample());
+        m_console.apu().processExpansionAudioSample(m_console.cartridge().getExpansionAudioSample());
     }       
 
     m_console.ppu().ppuCyclePAL(); 

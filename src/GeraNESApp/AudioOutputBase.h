@@ -3,6 +3,7 @@
 #include "AudioGenerator.h"
 
 #include "GeraNES/IAudioOutput.h"
+#include "GeraNES/util/CircularBuffer.h"
 #include <algorithm>
 #include <sstream>
 
@@ -18,9 +19,21 @@ private:
 
     SampleWave m_sample;
     SampleDirect m_sampleDirect;
-    // Expansion audio (mappers) uses timestamped samples to avoid jitter/cutouts.
-    SampleDirect m_expansionSampleDirect;
-    float m_expansionSamplePeriodSec = 1.0f / 1789773.0f;
+    // Expansion audio: CPU-domain samples are downsampled and queued to FIFO.
+    CircularBuffer<float> m_expansionFifo { 4096, CircularBuffer<float>::GROW };
+    float m_expansionVolume = 1.0f;
+    float m_expansionLastSample = 0.0f;
+    bool m_expansionPlaybackStarted = false;
+    static constexpr size_t EXPANSION_PREBUFFER_SAMPLES = 256;
+    static constexpr size_t EXPANSION_TARGET_FIFO_SAMPLES = 256;
+    double m_expansionConsumeRate = 1.0;
+    double m_expansionConsumeAcc = 0.0;
+    uint32_t m_expansionSourceRateHz = 1789773;
+    uint64_t m_expansionPhaseAcc = 0; // [0, m_expansionSourceRateHz)
+    int64_t m_expansionWindowWeight = 0; // weighted by output-rate units
+    int64_t m_expansionWindowSumQ = 0;   // fixed-point weighted sum
+    static constexpr int64_t EXPANSION_Q_SCALE = 1 << 20;
+    int m_outputSampleRate = 44100;
 
     FirstOrderHighPassFilter m_hpFilter1;
     FirstOrderHighPassFilter m_hpFilter2;
@@ -49,13 +62,22 @@ public:
 
     void initChannels(int sampleRate)
     {    
+        m_outputSampleRate = std::max(1, sampleRate);
         m_pulseWave1.init(sampleRate);
         m_pulseWave2.init(sampleRate);
         m_triangleWave.init(sampleRate);
         m_noise.init(sampleRate);
         m_sample.init(sampleRate);
         m_sampleDirect.init(sampleRate);
-        m_expansionSampleDirect.init(sampleRate);
+        m_expansionFifo.clear();
+        m_expansionVolume = 1.0f;
+        m_expansionLastSample = 0.0f;
+        m_expansionPlaybackStarted = false;
+        m_expansionConsumeRate = 1.0;
+        m_expansionConsumeAcc = 0.0;
+        m_expansionPhaseAcc = 0;
+        m_expansionWindowWeight = 0;
+        m_expansionWindowSumQ = 0;
 
         //from https://www.nesdev.org/wiki/APU_Mixer
         m_hpFilter1.init(sampleRate, 90);
@@ -67,7 +89,19 @@ public:
     {
         m_sampleDirect.clearBuffer();
         m_sample.clearBuffer();
-        m_expansionSampleDirect.clearBuffer();
+        m_expansionFifo.clear();
+        m_expansionLastSample = 0.0f;
+        m_expansionPlaybackStarted = false;
+        m_expansionConsumeRate = 1.0;
+        m_expansionConsumeAcc = 0.0;
+        m_expansionPhaseAcc = 0;
+        m_expansionWindowWeight = 0;
+        m_expansionWindowSumQ = 0;
+    }
+
+    void clearAudioBuffers() override
+    {
+        clearBuffers();
     }
 
     GERANES_INLINE_HOT float mix()
@@ -83,7 +117,28 @@ public:
         ret += 1.0f/sum*m_noise.get()*m_userNoiseVolume;
         ret += 1.5f/sum*m_sample.get()*m_userSampleVolume;
         ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
-        ret += 1.0f/sum*m_expansionSampleDirect.get();
+        float expansionRaw = 0.0f;
+        if(!m_expansionPlaybackStarted) {
+            if(m_expansionFifo.size() >= EXPANSION_PREBUFFER_SAMPLES) {
+                m_expansionPlaybackStarted = true;
+            }
+        }
+        if(m_expansionPlaybackStarted) {
+            const double fifoError = static_cast<double>(
+                static_cast<int64_t>(m_expansionFifo.size()) - static_cast<int64_t>(EXPANSION_TARGET_FIFO_SAMPLES));
+            // Tiny drift-correction loop to prevent long-term FIFO drain/fill.
+            m_expansionConsumeRate = std::clamp(1.0 + fifoError * 0.00002, 0.995, 1.005);
+            m_expansionConsumeAcc += m_expansionConsumeRate;
+            while(m_expansionConsumeAcc >= 1.0) {
+                if(!m_expansionFifo.empty()) {
+                    m_expansionLastSample = m_expansionFifo.read();
+                }
+                m_expansionConsumeAcc -= 1.0;
+            }
+            // If FIFO starves, hold last value to avoid sharp discontinuity.
+            expansionRaw = m_expansionLastSample * m_expansionVolume;
+        }
+        ret += 1.0f/sum*expansionRaw;
 
         ret = m_hpFilter1.apply(ret);
         ret = m_hpFilter2.apply(ret);
@@ -139,22 +194,52 @@ public:
         m_sampleDirect.add(period,sample);
     }
 
-    void setExpansionAudioSampleRate(float rateHz) override
+    void setExpansionSourceRateHz(int rateHz) override
     {
-        if(rateHz > 1.0f) {
-            m_expansionSamplePeriodSec = 1.0f / rateHz;
+        if(rateHz > 1) {
+            m_expansionSourceRateHz = static_cast<uint32_t>(std::max(1, rateHz));
         }
     }
 
     void setExpansionAudioVolume(float volume) override
     {
-        // SampleDirect applies an internal gain curve; compensate to keep expansion level close.
-        m_expansionSampleDirect.setVolume(volume * 0.4f);
+        m_expansionVolume = clampVolume(volume);
     }
 
-    void addExpansionAudioSample(float sample) override
+    void processExpansionAudioSample(float currentSample) override
     {
-        m_expansionSampleDirect.add(m_expansionSamplePeriodSec, sample);
+        const int64_t sampleQ = static_cast<int64_t>(currentSample * static_cast<float>(EXPANSION_Q_SCALE));
+        const uint64_t outRate = static_cast<uint64_t>(std::max(1, m_outputSampleRate));
+        const uint64_t srcRate = static_cast<uint64_t>(m_expansionSourceRateHz);
+
+        // Advance one source tick (CPU cycle) in rational clock space.
+        m_expansionPhaseAcc += outRate;
+
+        if(m_expansionPhaseAcc < srcRate) {
+            m_expansionWindowWeight += static_cast<int64_t>(outRate);
+            m_expansionWindowSumQ += sampleQ * static_cast<int64_t>(outRate);
+            return;
+        }
+
+        // Boundary crossed inside this source tick. Split this tick proportionally.
+        const uint64_t excess = m_expansionPhaseAcc - srcRate;
+        const uint64_t inWindowUnits = outRate - excess;
+
+        m_expansionWindowWeight += static_cast<int64_t>(inWindowUnits);
+        m_expansionWindowSumQ += sampleQ * static_cast<int64_t>(inWindowUnits);
+
+        if(m_expansionWindowWeight > 0) {
+            const float averaged = static_cast<float>(
+                static_cast<double>(m_expansionWindowSumQ) /
+                static_cast<double>(m_expansionWindowWeight) /
+                static_cast<double>(EXPANSION_Q_SCALE));
+            m_expansionFifo.write(averaged);
+        }
+
+        // Keep only leftover proportional time/value for next output sample window.
+        m_expansionWindowWeight = static_cast<int64_t>(excess);
+        m_expansionWindowSumQ = sampleQ * static_cast<int64_t>(excess);
+        m_expansionPhaseAcc = excess;
     }
 
     std::string getAudioChannelsJson() const override

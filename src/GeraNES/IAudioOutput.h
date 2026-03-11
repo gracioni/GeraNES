@@ -20,9 +20,10 @@ class IAudioOutput
     virtual void setNoiseMetallic(bool /*state*/){}
     virtual void addSample(float /*sample*/){}
     virtual void addSampleDirect(float /*period*/, float /*sample*/){}
-    virtual void setExpansionAudioSampleRate(float /*rateHz*/) {}
+    virtual void setExpansionSourceRateHz(int /*rateHz*/) {}
     virtual void setExpansionAudioVolume(float /*volume*/) {}
-    virtual void addExpansionAudioSample(float /*sample*/) {}
+    virtual void processExpansionAudioSample(float /*currentSample*/) {}
+    virtual void clearAudioBuffers() {}
 
     virtual std::string getAudioChannelsJson() const { return "{\"channels\":[]}"; }
     virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/) { return false; }

@@ -303,7 +303,17 @@ public:
 class SampleDirect
 {
 public:
-    typedef std::pair<float,float> SampleDirectInfo; //period,value
+    struct SampleDirectInfo
+    {
+        double period;
+        float value;
+        uint32_t serial;
+
+        SampleDirectInfo(double p = 0.001, float v = 0.0f, uint32_t s = 0)
+            : period(p), value(v), serial(s)
+        {
+        }
+    };
 
 private:
 
@@ -311,25 +321,27 @@ private:
 
     float m_value;
     float m_volume;
-    float m_currentPosition;
-    float m_inverseSampleRate;
+    double m_currentPosition;
+    double m_inverseSampleRate;
 
     float m_sample;
     float m_lastSample;
 
     SampleDirectInfo m_current;
+    uint32_t m_serialCounter = 0;
+    uint32_t m_lastAddedSerial = 0;
 
 
     GERANES_INLINE_HOT int update()
     {
         m_currentPosition += m_inverseSampleRate;
-        if(m_current.first <= 0.0f) {
+        if(m_current.period <= 0.0) {
             return 0;
         }
 
-        int ret = static_cast<int>(m_currentPosition / m_current.first);
+        int ret = static_cast<int>(m_currentPosition / m_current.period);
         if(ret > 0) {
-            m_currentPosition -= static_cast<float>(ret) * m_current.first;
+            m_currentPosition -= static_cast<double>(ret) * m_current.period;
         }
 
         return ret;
@@ -344,7 +356,7 @@ public:
 
     GERANES_INLINE void init(int sampleRate)
     {
-        m_inverseSampleRate = 1.0/sampleRate;
+        m_inverseSampleRate = 1.0/static_cast<double>(sampleRate);
   
         m_value = 0.0;
         m_volume = 0.0;
@@ -353,14 +365,42 @@ public:
         m_sample = 0;
         m_lastSample = 0;
 
-        m_current = SampleDirectInfo(0.001, 0);
+        m_current = SampleDirectInfo(0.001f, 0.0f, 0);
+        m_serialCounter = 0;
+        m_lastAddedSerial = 0;
 
         clearBuffer();
     }
 
     GERANES_INLINE void add(float period, float sample)
     {
-        m_buffer.write(SampleDirectInfo(period, sample));
+        const uint32_t serial = ++m_serialCounter;
+        m_lastAddedSerial = serial;
+        m_buffer.write(SampleDirectInfo(period, sample, serial));
+    }
+
+    GERANES_INLINE void setLastPeriod(float period)
+    {
+        if(period <= 0.0f) {
+            return;
+        }
+
+        // Update the most recently added logical sample, regardless of whether
+        // it is still queued or already being played from m_current.
+        if(m_current.serial == m_lastAddedSerial) {
+            // Keep absolute elapsed time when extending period.
+            // Rescaling by normalized phase causes artificial time stretch
+            // when this method is called repeatedly for long runs.
+            m_current.period = static_cast<double>(period);
+            return;
+        }
+
+        if(!m_buffer.empty()) {
+            SampleDirectInfo& back = m_buffer.peakBack();
+            if(back.serial == m_lastAddedSerial) {
+                back.period = static_cast<double>(period);
+            }
+        }
     }
 
     GERANES_INLINE void clearBuffer()
@@ -369,6 +409,7 @@ public:
         m_currentPosition = 0.0;
         m_sample = 0;
         m_lastSample = 0;
+        m_current = SampleDirectInfo(0.001f, 0.0f, 0);
     }
 
     GERANES_INLINE void setVolume(float volume)
@@ -392,15 +433,15 @@ public:
                 if(!m_buffer.empty()) {
                     m_current = m_buffer.read();
                 }
-                
-                m_sample += m_current.second/total;            
-            }            
+
+                m_sample += m_current.value/total;
+            }
         }
 
         if(total > 1)
             m_value = m_sample;            
         else
-            m_value = cosineInterpolate(m_lastSample,m_sample, m_currentPosition/m_current.first);
+            m_value = cosineInterpolate(m_lastSample,m_sample, static_cast<float>(m_currentPosition/m_current.period));
             
         m_value *= m_volume;
 

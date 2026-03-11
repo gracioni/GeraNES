@@ -356,7 +356,7 @@ inline void GeraNESApp::applyAudioChannelVolume(const AudioChannelControl& c, fl
     }
 
     if(c.source == "mapper") {
-        m_emu.getConsole().cartridge().setMapperAudioChannelVolumeById(c.id, value);
+        m_emu.getConsole().cartridge().setMapperAudioChannelVolumeById(c.id, value);        
     }
 }
 
