@@ -54,6 +54,7 @@
 #include "Mappers/Mapper118.h"
 #include "Mappers/Mapper119.h"
 #include "Mappers/Mapper210.h"
+#include "Mappers/Mapper245.h"
 
 #include "RomFile.h"
 
@@ -82,10 +83,9 @@ private:
         case 2: return BaseMapper::create<Mapper002>(*m_nesCartridgeData);
         case 3: return BaseMapper::create<Mapper003>(*m_nesCartridgeData);
         case 4: {
-            
             if(m_nesCartridgeData->subMapperId() == 3 ) {
                 return BaseMapper::create<Mapper004_3>(*m_nesCartridgeData);
-            }             
+            } 
 
             return BaseMapper::create<Mapper004>(*m_nesCartridgeData);
         }
@@ -136,6 +136,7 @@ private:
         case 118: return BaseMapper::create<Mapper118>(*m_nesCartridgeData);
         case 119: return BaseMapper::create<Mapper119>(*m_nesCartridgeData);
         case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
+        case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
 
         }         
 
