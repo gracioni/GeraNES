@@ -248,6 +248,16 @@ public:
 
     void reset() override
     {
+        command = 0;
+        m_PRGRAMEnable = false;
+        m_PRGRAMSelect = false;
+        m_mirroring = 0;
+        m_PRGREG[0] = 0;
+        m_PRGREG[1] = 0;
+        m_PRGREG[2] = 0;
+        m_PRGREG[3] = 0;
+        for(uint8_t& r : m_CHRREG) r = 0;
+
         m_interruptFlag = false;
         m_IRQEnable = false;
         m_IRQCounterEnable = false;

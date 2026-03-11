@@ -39,6 +39,11 @@ public:
         *(chrRam()+addr) = data;
     }
 
+    void reset() override
+    {
+        m_CHRReg = 0;
+    }
+
     void serialization(SerializationBase &s) override
     {
         BaseMapper::serialization(s);

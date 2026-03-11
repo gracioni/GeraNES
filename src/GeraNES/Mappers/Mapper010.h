@@ -95,6 +95,18 @@ public:
         return MirroringType::VERTICAL;
     }
 
+    void reset() override
+    {
+        m_PRGReg = 0;
+        m_CHRReg0A = 0;
+        m_CHRReg0B = 0;
+        m_CHRReg1A = 0;
+        m_CHRReg1B = 0;
+        m_mirrorMode = false;
+        m_latch1 = false;
+        m_latch2 = false;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

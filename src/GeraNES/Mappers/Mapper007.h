@@ -36,6 +36,12 @@ public:
         return MirroringType::SINGLE_SCREEN_B;
     }
 
+    void reset() override
+    {
+        m_PRGReg = 0;
+        m_mirroring = false;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

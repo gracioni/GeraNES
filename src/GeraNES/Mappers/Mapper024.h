@@ -325,6 +325,19 @@ public:
 
     void reset() override
     {
+        m_mirroring = 0;
+        m_ppuBankMode = 0;
+        m_interruptFlag = false;
+        m_IRQCounter = 0;
+        m_IRQReload = 0;
+        m_IRQMode = false;
+        m_IRQEnable = false;
+        m_IRQEnableOnAck = false;
+        m_prescaler = 0;
+        m_PRGReg[0] = 0;
+        m_PRGReg[1] = 0;
+        memset(m_CHRReg, 0, sizeof(m_CHRReg));
+
         memset(m_pulseRegs, 0, sizeof(m_pulseRegs));
         memset(m_pulseTimer, 0, sizeof(m_pulseTimer));
         memset(m_pulseStep, 0, sizeof(m_pulseStep));
@@ -336,7 +349,6 @@ public:
         m_audioChannelVolPulse1 = 1.0f;
         m_audioChannelVolPulse2 = 1.0f;
         m_audioChannelVolSaw = 1.0f;
-        m_ppuBankMode = 0;
     }
 
     GERANES_HOT void cycle() override

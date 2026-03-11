@@ -304,6 +304,40 @@ public:
 
     }
 
+    void reset() override
+    {
+        m_CHRMode = false;
+        m_PRGMode = false;
+        m_CHR1KMode = false;
+        m_addrReg = 0;
+
+        m_CHRReg0 = 0;
+        m_CHRReg1 = 0;
+        m_CHRReg2 = 0;
+        m_CHRReg3 = 0;
+        m_CHRReg4 = 0;
+        m_CHRReg5 = 0;
+        m_CHRReg6 = 0;
+        m_CHRReg7 = 0;
+
+        m_PRGReg0 = 0;
+        m_PRGReg1 = 0;
+        m_PRGReg2 = 0;
+
+        m_mirroring = false;
+
+        m_reloadValue = 0;
+        m_irqCounter = 0;
+        m_enableInterrupt = false;
+        m_irqMode = false;
+        m_reloadFlag = false;
+        m_interruptFlag = false;
+        m_cycleDivider = 0;
+        m_delayToInterrupt = 0;
+        m_a12LastState = false;
+        m_cycleCounter = 0;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

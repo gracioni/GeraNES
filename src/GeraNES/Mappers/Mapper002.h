@@ -26,6 +26,11 @@ public:
         m_selectedBank = data;
     };
 
+    void reset() override
+    {
+        m_selectedBank = 0;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

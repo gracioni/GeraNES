@@ -202,6 +202,23 @@ public:
         m_interruptFlag = true;
     }
 
+    void reset() override
+    {
+        m_mirroring = 0;
+        m_interruptFlag = false;
+        m_IRQCounter = 0;
+        m_IRQReload = 0;
+        m_IRQMode = false;
+        m_IRQEnable = false;
+        m_IRQEnableOnAck = false;
+        m_prescaler = 0;
+
+        m_PRGMode = false;
+        m_PRGReg[0] = 0;
+        m_PRGReg[1] = 0;
+        for(uint8_t& reg : m_CHRReg) reg = 0;
+    }
+
 
 
     virtual void serialization(SerializationBase& s) override

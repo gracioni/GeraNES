@@ -35,6 +35,11 @@ public:
         return cd().readChr<BankSize::B8K>(m_CHRREG,addr);
     }
 
+    void reset() override
+    {
+        m_CHRREG = 0;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

@@ -278,6 +278,35 @@ public:
         m_irqClearFlag = false;
     }
 
+    void reset() override
+    {
+        m_addrReg = 0;
+        m_chrMode = false;
+        m_chrReg[0] = 0;
+        m_chrReg[1] = 0;
+        m_chrReg[2] = 0;
+        m_chrReg[3] = 0;
+        m_chrReg[4] = 0;
+        m_chrReg[5] = 0;
+
+        m_prgMode = false;
+        m_prgReg0 = 0;
+        m_prgReg1 = 0;
+
+        m_mirroring = false;
+        m_enableWRAM = false;
+        m_writeProtectWRAM = false;
+
+        m_reloadValue = 0;
+        m_irqCounter = 0;
+        m_enableInterrupt = false;
+        m_irqClearFlag = false;
+        m_interruptFlag = false;
+
+        m_a12LastState = true;
+        m_cycleCounter = 0;
+    }
+
     virtual void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

@@ -117,5 +117,15 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
+    void reset() override
+    {
+        memset(m_CHRBank, 0x00, sizeof(m_CHRBank));
+        m_PRGBank = 0;
+        m_mirroring = 0;
+        m_enableIRQ = false;
+        m_IRQCounter = 0;
+        m_IRQFlag = false;
+    }
+
 
 };

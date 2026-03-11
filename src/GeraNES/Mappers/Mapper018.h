@@ -165,6 +165,19 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
+    void reset() override
+    {
+        memset(m_CHRReg, 0x00, sizeof(m_CHRReg));
+        memset(m_PRGReg, 0x00, sizeof(m_PRGReg));
+
+        m_IRQReload.value = 0;
+        m_IRQCounter = 0;
+        m_IRQCounterMask = 0xFFFF;
+        m_IRQEnable = false;
+        m_interruptFlag = false;
+        m_mirroring = 0;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

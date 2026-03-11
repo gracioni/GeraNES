@@ -54,6 +54,12 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
+    void reset() override
+    {
+        m_PRGReg = 0;
+        m_mirroring = 0xFF;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

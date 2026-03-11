@@ -65,6 +65,13 @@ public:
         BaseMapper::writeSaveRam(addr,data);
     }
 
+    void reset() override
+    {
+        m_PRGReg = 0;
+        m_CHRReg[0] = 0;
+        m_CHRReg[1] = 0;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);    

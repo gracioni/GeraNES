@@ -130,6 +130,16 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
+    void reset() override
+    {
+        m_shiftCounter = 0;
+        m_shiftRegister = 0;
+        m_control = 0x0C;
+        m_chrBank0 = 0;
+        m_chrBank1 = 0;
+        m_prgBank = 0;
+    }
+
     void serialization(SerializationBase &s) override
     {
         BaseMapper::serialization(s); 

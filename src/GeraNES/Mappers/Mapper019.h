@@ -368,6 +368,18 @@ public:
 
     void reset() override
     {
+        for(uint8_t& r : m_CHRReg) r = 0;
+        for(uint8_t& r : m_PRGReg) r = 0;
+        for(uint8_t& r : m_MirroringReg) r = 0;
+        m_highCHRRAMDisable = false;
+        m_lowCHRRAMDisable = false;
+        m_IRQCounter = 0;
+        m_interruptFlag = false;
+        m_IRQEnable = false;
+        m_soundRAMAddress = 0;
+        m_soundAutoIncrement = false;
+        for(uint8_t& v : m_soundRAM) v = 0;
+
         m_audioClockCounter = 0;
         m_expansionAudioSample = 0.0f;
         m_expansionAudioPrev = 0.0f;

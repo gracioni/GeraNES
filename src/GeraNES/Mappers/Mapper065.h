@@ -100,6 +100,19 @@ public:
         return m_interruptFlag;
     }
 
+    void reset() override
+    {
+        m_PRGReg0 = 0x00 & m_PRGMask;
+        m_PRGReg1 = 0x01 & m_PRGMask;
+        m_PRGReg2 = 0xFE & m_PRGMask;
+        memset(m_CHRReg, 0x00, sizeof(m_CHRReg));
+        m_mirroring = false;
+        m_IRQEnable = false;
+        m_IRQCounter = 0;
+        m_IRQReload = 0;
+        m_interruptFlag = false;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);
