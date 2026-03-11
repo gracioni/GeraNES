@@ -11,6 +11,9 @@
 #ifndef GERANES_M019_AUDIO_SMOOTH
 #define GERANES_M019_AUDIO_SMOOTH 1
 #endif
+#ifndef GERANES_M019_SUBMAPPER5_GAIN
+#define GERANES_M019_SUBMAPPER5_GAIN 2.0f
+#endif
 
 class Mapper019 : public BaseMapper
 {
@@ -46,6 +49,8 @@ private:
     float m_expansionAudioFiltered = 0.0f;
     uint32_t m_audioPhaseRemainder[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     float m_audioChannelVol[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    bool m_subMapper5Mix = false;
+    float m_subMapperMixGain = 1.0f;
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)
@@ -178,6 +183,8 @@ public:
     {
         m_PRGREGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
         m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
+        m_subMapper5Mix = (cd.subMapperId() == 5);
+        m_subMapperMixGain = m_subMapper5Mix ? GERANES_M019_SUBMAPPER5_GAIN : 1.0f;
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -337,7 +344,7 @@ public:
 
     GERANES_HOT float getExpansionAudioSample() override
     {
-        return m_expansionAudioSample;
+        return m_expansionAudioSample * m_subMapperMixGain;
     }
 
     std::string getAudioChannelsJson() const override
@@ -443,6 +450,8 @@ public:
         SERIALIZEDATA(s, m_expansionAudioFiltered);
         s.array(reinterpret_cast<uint8_t*>(m_audioPhaseRemainder), sizeof(uint32_t), 8);
         s.array(reinterpret_cast<uint8_t*>(m_audioChannelVol), sizeof(float), 8);
+        SERIALIZEDATA(s, m_subMapper5Mix);
+        SERIALIZEDATA(s, m_subMapperMixGain);
 
     }
 
