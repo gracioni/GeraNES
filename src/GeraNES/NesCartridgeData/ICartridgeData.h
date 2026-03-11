@@ -131,7 +131,7 @@ public:
         aux << prefix << " Has trainer: " << hasTrainer() << std::endl;
         aux << prefix << " Use four-screen mirroring: " << useFourScreenMirroring() << std::endl;
         aux << prefix << " RAM size: " << ramSize() << " bytes" << std::endl;
-        aux << prefix << " Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << std::endl;
+        aux << prefix << " Mapper: " << mapperId() <<  " (" << getMapperName(mapperId()) << ")" << " Sub: " << subMapperId() << std::endl;
         aux << prefix << " PRG CRC32: " << Crc32::toString(prgCrc32()) << std::endl;
         aux << prefix << " PRG+CHR CRC32: " << Crc32::toString(prgChrCrc32());
 
