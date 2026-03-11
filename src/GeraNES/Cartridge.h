@@ -122,15 +122,7 @@ private:
 
         case 71: return BaseMapper::create<Mapper071>(*m_nesCartridgeData);
         case 75: return BaseMapper::create<Mapper075>(*m_nesCartridgeData);
-        case 79:
-            // NINA-003/NINA-006 only supports up to 64KB PRG + 64KB CHR.
-            // Some bad dumps/hacks (e.g. Contra Function 16 multicarts) are
-            // mislabeled as mapper 79, but behave as mapper 15.
-            if(m_nesCartridgeData->prgSize() > 64 * 1024 || m_nesCartridgeData->chrSize() > 64 * 1024) {
-                Logger::instance().log("Mapper 79 oversized ROM detected; using mapper 15 fallback", Logger::Type::INFO);
-                return BaseMapper::create<Mapper015>(*m_nesCartridgeData);
-            }
-            return BaseMapper::create<Mapper079>(*m_nesCartridgeData);
+        case 79: return BaseMapper::create<Mapper079>(*m_nesCartridgeData);
         case 99: return BaseMapper::create<Mapper099>(*m_nesCartridgeData);
 
         case 118: return BaseMapper::create<Mapper118>(*m_nesCartridgeData);
