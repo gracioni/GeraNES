@@ -66,6 +66,15 @@ public:
         return MirroringType::VERTICAL;
     }
 
+    void reset() override
+    {
+        // NESdev: power-on/reset value is all bits clear.
+        m_mode = 0;
+        m_mirroring = false;
+        m_PRGBank = 0;
+        m_b = 0;
+    }
+
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);

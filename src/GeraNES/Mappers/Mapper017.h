@@ -240,6 +240,21 @@ public:
 
     void reset() override
     {
+        const uint8_t pageCount = static_cast<uint8_t>(cd().numberOfPRGBanks<BankSize::B8K>());
+        m_prgPage[0] = static_cast<uint8_t>((pageCount - 4) & m_prgMask);
+        m_prgPage[1] = static_cast<uint8_t>((pageCount - 3) & m_prgMask);
+        m_prgPage[2] = static_cast<uint8_t>((pageCount - 2) & m_prgMask);
+        m_prgPage[3] = static_cast<uint8_t>((pageCount - 1) & m_prgMask);
+
+        m_chrPage[0] = 0;
+        m_chrPage[1] = 1;
+        m_chrPage[2] = 2;
+        m_chrPage[3] = 3;
+        m_chrPage[4] = 4;
+        m_chrPage[5] = 5;
+        m_chrPage[6] = 6;
+        m_chrPage[7] = 7;
+
         m_singleScreen = false;
         m_singleScreenB = false;
         m_verticalMirroring = (cd().mirroringType() == MirroringType::VERTICAL);
