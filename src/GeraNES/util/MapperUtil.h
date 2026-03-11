@@ -41,6 +41,7 @@ static std::string getMapperName(int num)
     case 69: return "Sunsoft5 FME-7 chip";
     case 71: return "Camerica chip";
     case 78: return "Irem 74HC161/32-based";
+    case 79: return "NINA-003/NINA-006";
     case 90: return "Pirate HK-SF3 chip";
     case 118: return "TxSROM";
     case 119: return "TQROM";
