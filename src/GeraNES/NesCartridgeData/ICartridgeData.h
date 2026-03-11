@@ -70,6 +70,8 @@ public:
 
     virtual GameDatabase::InputType inputType() = 0;
 
+    virtual GameDatabase::PpuModel vsPpuModel() = 0;
+
     virtual ~ICartridgeData() {}
 
     template<BankSize bs>

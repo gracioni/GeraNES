@@ -230,6 +230,10 @@ public:
     {
     }
 
+    virtual void onCpuWrite(uint16_t /*addr*/, uint8_t /*data*/)
+    {
+    }
+
     virtual float getExpansionAudioSample()
     {
         return 0.0f;

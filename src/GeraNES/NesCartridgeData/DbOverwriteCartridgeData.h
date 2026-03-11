@@ -32,6 +32,7 @@ private:
     GameDatabase::Sistem m_system;
 
     GameDatabase::InputType m_inputType;
+    GameDatabase::PpuModel m_vsPpuModel;
 
 public:
 
@@ -82,6 +83,8 @@ public:
         m_system = m_item->System != GameDatabase::Sistem::Unknown ? m_item->System : m_src->sistem();
 
         m_inputType = m_item->InputDeviceType != GameDatabase::InputType::Unspecified ? m_item->InputDeviceType : m_src->inputType();
+
+        m_vsPpuModel = m_item->VsPpuModel;
     }
 
     virtual ~DbOverwriteCartridgeData() {
@@ -172,6 +175,10 @@ public:
 
     GameDatabase::InputType inputType() override {
         return m_inputType;
+    }
+
+    GameDatabase::PpuModel vsPpuModel() override {
+        return m_vsPpuModel;
     }
 
 };

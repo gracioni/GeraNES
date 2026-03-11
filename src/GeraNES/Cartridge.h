@@ -48,6 +48,7 @@
 #include "Mappers/Mapper071.h"
 #include "Mappers/Mapper075.h"
 #include "Mappers/Mapper079.h"
+#include "Mappers/Mapper099.h"
 
 
 #include "Mappers/Mapper118.h"
@@ -130,6 +131,7 @@ private:
                 return BaseMapper::create<Mapper015>(*m_nesCartridgeData);
             }
             return BaseMapper::create<Mapper079>(*m_nesCartridgeData);
+        case 99: return BaseMapper::create<Mapper099>(*m_nesCartridgeData);
 
         case 118: return BaseMapper::create<Mapper118>(*m_nesCartridgeData);
         case 119: return BaseMapper::create<Mapper119>(*m_nesCartridgeData);
@@ -397,6 +399,11 @@ public:
         m_mapper->onCpuRead(addr);
     }
 
+    GERANES_INLINE void onCpuWrite(uint16_t addr, uint8_t data)
+    {
+        m_mapper->onCpuWrite(addr, data);
+    }
+
     GERANES_INLINE float getExpansionAudioSample()
     {
         return m_mapper->getExpansionAudioSample();
@@ -420,6 +427,11 @@ public:
     GERANES_INLINE GameDatabase::InputType inputType()
     {
         return m_nesCartridgeData->inputType();
+    }
+
+    GERANES_INLINE GameDatabase::PpuModel vsPpuModel()
+    {
+        return m_nesCartridgeData->vsPpuModel();
     }
 
     GERANES_INLINE bool isValid()

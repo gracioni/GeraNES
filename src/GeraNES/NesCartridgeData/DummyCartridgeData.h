@@ -94,6 +94,10 @@ public:
     GameDatabase::InputType inputType() override {
         return GameDatabase::InputType::Unspecified;
     }
+
+    GameDatabase::PpuModel vsPpuModel() override {
+        return GameDatabase::PpuModel::Ppu2C02;
+    }
     
     static DummyCartridgeData& instance()
     {

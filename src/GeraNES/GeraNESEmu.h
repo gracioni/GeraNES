@@ -132,6 +132,7 @@ private:
                     {
                         m_controller1.write(data);
                         m_controller2.write(data);
+                        m_cartridge.onCpuWrite(addr, data);
 
                     }
                     else {
@@ -396,6 +397,7 @@ public:
 
             updateCyclesPerSecond();
 
+            m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_ppu.init();
             m_cpu.init();
             m_apu.init();
