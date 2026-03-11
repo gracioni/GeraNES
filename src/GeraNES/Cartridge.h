@@ -46,6 +46,7 @@
 #include "Mappers/Mapper068.h"
 #include "Mappers/Mapper069.h"
 #include "Mappers/Mapper071.h"
+#include "Mappers/Mapper075.h"
 #include "Mappers/Mapper079.h"
 
 
@@ -119,6 +120,7 @@ private:
         case 69: return BaseMapper::create<Mapper069>(*m_nesCartridgeData);
 
         case 71: return BaseMapper::create<Mapper071>(*m_nesCartridgeData);
+        case 75: return BaseMapper::create<Mapper075>(*m_nesCartridgeData);
         case 79:
             // NINA-003/NINA-006 only supports up to 64KB PRG + 64KB CHR.
             // Some bad dumps/hacks (e.g. Contra Function 16 multicarts) are
