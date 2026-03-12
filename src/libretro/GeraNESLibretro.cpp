@@ -184,7 +184,7 @@ static constexpr unsigned RETRO_API_VERSION = 1;
 
 namespace {
 
-constexpr int kSampleRate = 44100;
+constexpr int kSampleRate = 48000;
 
 retro_environment_t g_environmentCb = nullptr;
 retro_video_refresh_t g_videoCb = nullptr;
@@ -856,7 +856,8 @@ RETRO_API void retro_run(void)
     updateZapperState(0);
     updateZapperState(1);
 
-    g_emu.updateUntilFrame(g_frameTimeMs);
+    // Libretro drives one emulated frame per retro_run call; avoid desktop-vsync drift compensation here.
+    g_emu.updateUntilFrame(0);
 
     convertVideoFrame();
 
@@ -1023,3 +1024,6 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
     return 0;
 
 }
+
+
+
