@@ -197,8 +197,9 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            float volume = m_audioOutput.getVolume();
-            if(ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
+            float volumePercent = m_audioOutput.getVolume() * 100.0f;
+            if(ImGui::SliderFloat("Volume", &volumePercent, 0.0f, 100.0f, "%.0f%%")) {
+                float volume = volumePercent / 100.0f;
                 m_audioOutput.setVolume(volume);
                 AppSettings::instance().data.audio.volume = volume;
             }
@@ -372,10 +373,12 @@ inline void GeraNESApp::drawAudioChannelDebugControls()
     }
 
     for(auto& c : channels) {
-        float value = c.volume;
+        float valuePercent = c.volume * 100.0f;
+        float minPercent = c.min * 100.0f;
+        float maxPercent = c.max * 100.0f;
         std::string label = c.label + "##" + c.source + "." + c.id;
-        if(ImGui::SliderFloat(label.c_str(), &value, c.min, c.max, "%.2f")) {
-            applyAudioChannelVolume(c, value);
+        if(ImGui::SliderFloat(label.c_str(), &valuePercent, minPercent, maxPercent, "%.0f%%")) {
+            applyAudioChannelVolume(c, valuePercent / 100.0f);
         }
     }
 }
