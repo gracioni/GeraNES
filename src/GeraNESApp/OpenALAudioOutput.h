@@ -65,19 +65,26 @@ public:
 
     OpenALAudioOutput()
     {
+        auto audioDevices = getAudioList();
+        for(const auto& d : audioDevices) {
+            Logger::instance().log(std::string("Audio device detected: ") + d, Logger::Type::INFO);
+        }
+
         m_device = alcOpenDevice(nullptr); // Open default device
         if (!m_device)
         {
-            std::cerr << "Failed to open default OpenAL device." << std::endl;
+            Logger::instance().log("Failed to open default OpenAL device", Logger::Type::ERROR);
             return;
         }
 
         m_context = alcCreateContext(m_device, nullptr);
         if (!alcMakeContextCurrent(m_context))
         {
-            std::cerr << "Failed to make OpenAL context current." << std::endl;
+            Logger::instance().log("Failed to make default OpenAL context current", Logger::Type::ERROR);
             return;
         }
+
+        Logger::instance().log("OpenAL default device initialized", Logger::Type::INFO);
     }
 
     ~OpenALAudioOutput() override
@@ -122,11 +129,26 @@ public:
     {
         turnOff();
 
+        Logger::instance().log("Initializing audio...", Logger::Type::INFO);
+
         m_device = alcOpenDevice(deviceName.empty() ? nullptr : deviceName.c_str());
+        std::string selectedName = deviceName;
         if (!m_device)
         {
-            Logger::instance().log("Failed to open OpenAL device", Logger::Type::ERROR);
-            return false;
+            if(!deviceName.empty()) {
+                Logger::instance().log(
+                    std::string("Requested audio device not available: ") + deviceName + ". Falling back to default.",
+                    Logger::Type::WARNING);
+                m_device = alcOpenDevice(nullptr);
+                selectedName = "default";
+            }
+            if(!m_device) {
+                Logger::instance().log("Failed to open OpenAL device", Logger::Type::ERROR);
+                return false;
+            }
+        }
+        else if(selectedName.empty()) {
+            selectedName = "default";
         }
 
         m_context = alcCreateContext(m_device, nullptr);
@@ -142,7 +164,11 @@ public:
         m_currentBufferIndex = 0;
         m_buffersAvailable = N_BUFFERS;
 
-        m_currentDeviceName = deviceName;
+        m_currentDeviceName = selectedName;
+
+        Logger::instance().log(std::string("Audio device: ") + m_currentDeviceName, Logger::Type::INFO);
+        Logger::instance().log(std::string("Sample rate: ") + std::to_string(sampleRate()), Logger::Type::INFO);
+        Logger::instance().log(std::string("Sample size: ") + std::to_string(sampleSize()), Logger::Type::INFO);
 
         initChannels(sampleRate());
 
