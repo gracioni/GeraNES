@@ -233,6 +233,16 @@ private:
         m_dma.dmcRequest(addr, reload);
     }
 
+    void resyncAudioAfterStateLoad()
+    {
+        // Audio output internals (wave generators/FIFOs) are not part of save states.
+        // Re-sync them to the restored APU/settings to avoid stale buffered audio.
+        m_audioOutput.clearAudioBuffers();
+        m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
+        m_audioOutput.setExpansionAudioVolume(1.0f);
+        m_apu.updateAudioOutput();
+    }
+
     void updateCyclesPerSecond()
     {
         if(m_ppu.isOverclockFrame()) {
@@ -474,6 +484,7 @@ public:
 
             while(m_audioRenderCyclesAcc >= audioRenderCycles) {
                 m_audioRenderCyclesAcc -= audioRenderCycles;
+                m_audioOutput.setExpansionAudioVolume(m_rewind.isRewinding() ? 0.0f : 1.0f);
                 bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
                 m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
             }    
@@ -563,6 +574,7 @@ public:
 
         if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
+            resyncAudioAfterStateLoad();
             Logger::instance().log("State loaded", Logger::Type::USER);
         }
         else {
@@ -584,6 +596,7 @@ public:
         Deserialize d;
         d.setData(data);
         serialization(d);
+        resyncAudioAfterStateLoad();
 
         m_updateCyclesAcc = old;
     }
@@ -595,6 +608,7 @@ public:
         Deserialize d;
         d.setData(data, size);
         serialization(d);
+        resyncAudioAfterStateLoad();
 
         m_updateCyclesAcc = old;
     }
