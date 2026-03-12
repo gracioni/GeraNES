@@ -24,8 +24,8 @@ private:
     float m_expansionVolume = 1.0f;
     float m_expansionLastSample = 0.0f;
     bool m_expansionPlaybackStarted = false;
-    static constexpr size_t EXPANSION_PREBUFFER_MS = 2;
-    static constexpr size_t EXPANSION_TARGET_BUFFER_MS = 4;
+    static constexpr size_t EXPANSION_PREBUFFER_MS = 3;
+    static constexpr size_t EXPANSION_TARGET_BUFFER_MS = 6;
     double m_expansionConsumeRate = 1.0;
     double m_expansionConsumeAcc = 0.0;
     uint32_t m_expansionSourceRateHz = 1789773;

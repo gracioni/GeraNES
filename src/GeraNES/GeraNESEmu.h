@@ -52,6 +52,9 @@ private:
     uint32_t m_cyclesPerSecond;
 
     uint32_t m_audioRenderCyclesAcc;
+    uint32_t m_lastAudioRenderedMs;
+    double m_vsyncAudioCompMsAcc;
+    int m_vsyncAudioSkipMsDebt;
 
     uint8_t m_openBus;
 
@@ -240,7 +243,50 @@ private:
         m_audioOutput.clearAudioBuffers();
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
+        m_lastAudioRenderedMs = 0;
+        m_vsyncAudioCompMsAcc = 0.0;
+        m_vsyncAudioSkipMsDebt = 0;
         m_apu.updateAudioOutput();
+    }
+
+    GERANES_INLINE void renderAudioMs(uint32_t ms)
+    {
+        if(ms == 0) return;
+
+        m_audioOutput.setExpansionAudioVolume(m_rewind.isRewinding() ? 0.0f : 1.0f);
+        bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
+        m_audioOutput.render(ms, !enableAudio);
+    }
+
+    GERANES_INLINE void compensateVsyncAudioDrift(uint32_t dt)
+    {
+        if(dt == 0) return;
+
+        // Ignore large hitches; keep normal underflow/prebuffer behavior in the backend.
+        if(dt > 34) {
+            m_vsyncAudioCompMsAcc = 0.0;
+            m_vsyncAudioSkipMsDebt = 0;
+            return;
+        }
+
+        m_vsyncAudioCompMsAcc += static_cast<double>(dt) - static_cast<double>(m_lastAudioRenderedMs);
+
+        if(m_vsyncAudioCompMsAcc < -10.0) m_vsyncAudioCompMsAcc = -10.0;
+        if(m_vsyncAudioCompMsAcc > 10.0) m_vsyncAudioCompMsAcc = 10.0;
+
+        while(m_vsyncAudioCompMsAcc >= 1.0) {
+            renderAudioMs(1);
+            m_vsyncAudioCompMsAcc -= 1.0;
+        }
+
+        // Symmetric path, but conservative: only build skip-debt after sustained negative drift.
+        // This avoids harming the common NES-NTSC-on-60Hz case where positive compensation is critical.
+        constexpr double NEGATIVE_DRIFT_DEADBAND_MS = 60.0;
+        constexpr int MAX_SKIP_DEBT_MS = 3;
+        while(m_vsyncAudioCompMsAcc <= -NEGATIVE_DRIFT_DEADBAND_MS && m_vsyncAudioSkipMsDebt < MAX_SKIP_DEBT_MS) {
+            ++m_vsyncAudioSkipMsDebt;
+            m_vsyncAudioCompMsAcc += 1.0;
+        }
     }
 
     void updateCyclesPerSecond()
@@ -317,6 +363,9 @@ public:
 
         m_cpuCyclesAcc = 1;
         m_audioRenderCyclesAcc = 0;
+        m_lastAudioRenderedMs = 0;
+        m_vsyncAudioCompMsAcc = 0.0;
+        m_vsyncAudioSkipMsDebt = 0;
 
         m_frameCount = 0;
 
@@ -453,6 +502,7 @@ public:
         const uint32_t audioRenderCycles = (m_cyclesPerSecond * (m_speedBoost ? SPEED_BOOST_MULTIPLIER : 1)) * AUDIO_RENDER_TIME_STEP;
 
         bool ret = false;
+        uint32_t renderedAudioMs = 0;
 
         bool loop = false;
 
@@ -484,9 +534,13 @@ public:
 
             while(m_audioRenderCyclesAcc >= audioRenderCycles) {
                 m_audioRenderCyclesAcc -= audioRenderCycles;
-                m_audioOutput.setExpansionAudioVolume(m_rewind.isRewinding() ? 0.0f : 1.0f);
-                bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
-                m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
+                if(m_vsyncAudioSkipMsDebt > 0) {
+                    --m_vsyncAudioSkipMsDebt;
+                }
+                else {
+                    renderAudioMs(AUDIO_RENDER_TIME_STEP);
+                    renderedAudioMs += AUDIO_RENDER_TIME_STEP;
+                }
             }    
 
             if(m_newFrame) {
@@ -505,8 +559,9 @@ public:
             else
                 loop = m_updateCyclesAcc >= 1000;
 
-        }        
+        }
 
+        m_lastAudioRenderedMs = renderedAudioMs;
         m_runningLoop = false;
 
         if(m_saveStateFlag) {
@@ -531,7 +586,9 @@ public:
         if(m_paused) return true;
 
         if(!m_speedBoost) {
-            return _update<true>(dt);
+            const bool ret = _update<true>(dt);
+            compensateVsyncAudioDrift(dt);
+            return ret;
         }
 
         // In frame-locked mode (vsync path), run extra emulated frames while held.
@@ -539,8 +596,10 @@ public:
         for(int i = 1; i < SPEED_BOOST_MULTIPLIER; ++i) {
             _update<true>(0);
         }
+        m_vsyncAudioCompMsAcc = 0.0;
+        m_vsyncAudioSkipMsDebt = 0;
         return true;
-    }  
+    }
 
     GERANES_INLINE const uint32_t* getFramebuffer()
     {
@@ -819,6 +878,9 @@ public:
         m_updateCyclesAcc = 0;
         m_cpuCyclesAcc = 1;
         m_audioRenderCyclesAcc = 0;
+        m_lastAudioRenderedMs = 0;
+        m_vsyncAudioCompMsAcc = 0.0;
+        m_vsyncAudioSkipMsDebt = 0;
         m_openBus = 0;
         m_4011WriteCounter = 0;
         m_newFrame = false;
@@ -834,3 +896,27 @@ public:
     }
 
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
