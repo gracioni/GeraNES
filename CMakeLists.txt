@@ -36,23 +36,25 @@ include(CMakeRC)
 include(FetchContent)
 Set(FETCHCONTENT_QUIET FALSE)
 
-FetchContent_Declare(
-        SDL2
-        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG release-2.32.10
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE
-)
+if(NOT EMSCRIPTEN)
+    FetchContent_Declare(
+            SDL2
+            GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+            GIT_TAG release-2.32.10
+            GIT_SHALLOW TRUE
+            GIT_PROGRESS TRUE
+    )
 
-set(SDL_VULKAN OFF)
-set(SDL_TEST OFF)
-set(SDL_STATIC ON)
-set(SDL_SHARED OFF)
-set(SDL_RENDER_D3D OFF)
+    set(SDL_VULKAN OFF)
+    set(SDL_TEST OFF)
+    set(SDL_STATIC ON)
+    set(SDL_SHARED OFF)
+    set(SDL_RENDER_D3D OFF)
 
-FetchContent_MakeAvailable(SDL2)
+    FetchContent_MakeAvailable(SDL2)
 
-INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
+    INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
+endif()
 
 FetchContent_Declare(
         stb
@@ -254,10 +256,10 @@ file(GLOB_RECURSE CPP_FILES
 )
 list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
 
-set(LIBS -static-libgcc -static-libstdc++ SDL2::SDL2main SDL2::SDL2-static imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
+set(LIBS -static-libgcc -static-libstdc++ imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} libglew_static nfd stdc++fs)
+    set(LIBS ${LIBS} SDL2::SDL2main SDL2::SDL2-static libglew_static nfd stdc++fs)
 else()
 set(LIBS ${LIBS} -lopenal)
 endif()
