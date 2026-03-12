@@ -25,6 +25,7 @@
 #include "Mappers/Mapper009.h"
 #include "Mappers/Mapper010.h"
 #include "Mappers/Mapper011.h"
+#include "Mappers/Mapper012.h"
 #include "Mappers/Mapper013.h"
 #include "Mappers/Mapper015.h"
 #include "Mappers/Mapper016.h"
@@ -101,6 +102,7 @@ private:
         case 9: return BaseMapper::create<Mapper009>(*m_nesCartridgeData);
         case 10: return BaseMapper::create<Mapper010>(*m_nesCartridgeData);
         case 11: return BaseMapper::create<Mapper011>(*m_nesCartridgeData);
+        case 12: return BaseMapper::create<Mapper012>(*m_nesCartridgeData);
         case 13: return BaseMapper::create<Mapper013>(*m_nesCartridgeData);
         case 15: return BaseMapper::create<Mapper015>(*m_nesCartridgeData);
         case 16: return BaseMapper::create<Mapper016>(*m_nesCartridgeData);
@@ -462,5 +464,7 @@ public:
     }
 
 };
+
+
 
 
