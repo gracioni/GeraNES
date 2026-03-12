@@ -410,7 +410,7 @@ public:
         loadShaderList();
         
         #ifdef __EMSCRIPTEN__
-            emcriptenRegisterAudioReset(reinterpret_cast<int>(this));
+            emcriptenRegisterAudioReset(reinterpret_cast<intptr_t>(this));
         #endif
         
     }
@@ -489,10 +489,12 @@ public:
 
     void openRom() {
 
+        #ifndef __EMSCRIPTEN__
         if(isFullScreen()) minimizeWindow();
+        #endif
 
         #ifdef __EMSCRIPTEN__
-            emcriptenFileDialog(reinterpret_cast<int>(this));
+            emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
         #else
 
         NFD_Init();     

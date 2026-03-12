@@ -128,6 +128,44 @@
       var statusText = document.getElementById("statusText");
       var canvas = document.getElementById("canvas");
 
+      function browserFullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+      }
+
+      window.geranesIsFullscreen = function() {
+        return !!browserFullscreenElement();
+      };
+
+      window.geranesSetFullscreen = function(state) {
+        const desired = !!state;
+        const current = window.geranesIsFullscreen();
+        if (desired === current) return Promise.resolve(true);
+
+        if (desired) {
+          const req = canvas.requestFullscreen || canvas.webkitRequestFullscreen || canvas.msRequestFullscreen;
+          if (!req) return Promise.resolve(false);
+          return Promise.resolve(req.call(canvas)).then(() => true).catch((e) => {
+            console.error("Fullscreen request failed:", e);
+            return false;
+          });
+        }
+
+        const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+        if (!exit) return Promise.resolve(false);
+        return Promise.resolve(exit.call(document)).then(() => true).catch((e) => {
+          console.error("Exit fullscreen failed:", e);
+          return false;
+        });
+      };
+
+      function onFullscreenChanged() {
+        updateVh();
+        window.dispatchEvent(new Event('resize'));
+        try { canvas.focus(); } catch(_){}
+      }
+      document.addEventListener('fullscreenchange', onFullscreenChanged);
+      document.addEventListener('webkitfullscreenchange', onFullscreenChanged);
+
       // Module object (simplified loading)
       var Module = {
         canvas: canvas,

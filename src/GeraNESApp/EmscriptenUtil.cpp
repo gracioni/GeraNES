@@ -3,71 +3,96 @@
 #ifdef __EMSCRIPTEN__
 
 #include <emscripten.h>
-#include <iostream>
-#include <cstring>
 
-void emcriptenFileDialog(int handler) {
+void emcriptenFileDialog(intptr_t handler) {
 
     EM_ASM({
 
         function openFileDialog() {
 
-            var handler = $0;
+            var handler = Number($0);
 
-            var input = document.createElement('input');
-            input.type = 'file';
-            input.style.display = 'none';
+            var input = document.getElementById('__geranes_open_rom_input');
+            if (!input) {
+                input = document.createElement('input');
+                input.id = '__geranes_open_rom_input';
+                input.type = 'file';
+                input.accept = '.nes,.fds,.zip,.7z';
+                input.style.display = 'none';
+                document.body.appendChild(input);
+            }
 
             input.addEventListener('change', function () {
-                if (input.files.length > 0) {
-                    var file = input.files[0];
-                    var reader = new FileReader();
-                    
-                    reader.onload = function(e) {
-                        var fileContent = new Uint8Array(e.target.result);
-                        var fileName = file.name;
-                        var fileSize = fileContent.length;
+                if (!input.files || input.files.length === 0) return;
 
-                        // Pass file data and name to C++
-                        var buffer = Module._malloc(fileSize);
-                        Module.HEAPU8.set(fileContent, buffer);
+                var file = input.files[0];
+                var reader = new FileReader();
 
-                        Module.ccall('processUploadedFile', null, ['number', 'string', 'number', 'number'], [handler, fileName, fileSize, buffer]);
+                reader.onload = function(e) {
+                    var fileContent = new Uint8Array(e.target.result);
+                    var fileName = file.name;
+                    var fileSize = fileContent.length;
 
-                        // Free allocated memory
-                        Module._free(buffer);
-                    };
-                    
-                    reader.readAsArrayBuffer(file); // Lê o arquivo como ArrayBuffer para binários
-                }
-            });
+                    var moduleObj = (typeof Module !== 'undefined') ? Module : null;
+                    var mallocFn = (typeof _malloc === 'function') ? _malloc : (moduleObj && typeof moduleObj._malloc === 'function' ? moduleObj._malloc.bind(moduleObj) : null);
+                    var freeFn = (typeof _free === 'function') ? _free : (moduleObj && typeof moduleObj._free === 'function' ? moduleObj._free.bind(moduleObj) : null);
+                    var heapU8 = (typeof HEAPU8 !== 'undefined' && HEAPU8) ? HEAPU8 : (moduleObj ? moduleObj.HEAPU8 : null);
+                    var ccallFn = (typeof ccall === 'function') ? ccall : (moduleObj && typeof moduleObj.ccall === 'function' ? moduleObj.ccall.bind(moduleObj) : null);
 
-            document.body.appendChild(input);
-            input.click();
-            document.body.removeChild(input);
+                    if (!mallocFn || !freeFn || !heapU8 || !ccallFn) {
+                        console.error('Emscripten runtime symbols are unavailable for file upload');
+                        return;
+                    }
+
+                    var buffer = mallocFn(fileSize);
+                    heapU8.set(fileContent, buffer);
+                    ccallFn('processUploadedFile', null, ['number', 'string', 'number', 'number'], [handler, fileName, fileSize, buffer]);
+                    freeFn(buffer);
+                };
+
+                reader.onerror = function(err) {
+                    console.error('Failed to read selected file:', err);
+                };
+
+                reader.readAsArrayBuffer(file);
+            }, { once: true });
+
+            input.value = "";
+            try {
+                if (typeof input.showPicker === 'function') input.showPicker();
+                else input.click();
+            } catch (e) {
+                console.error('openFileDialog failed to show picker, falling back to click:', e);
+                try { input.click(); } catch (_) {}
+            }
         }
         openFileDialog();
-        
+
     }, handler);
 }
 
-void emcriptenRegisterAudioReset(int handler)
+void emcriptenRegisterAudioReset(intptr_t handler)
 {
     EM_ASM({
-        var handler = $0;
+        var handler = Number($0);
+        function resolveCcall() {
+            if (typeof ccall === 'function') return ccall;
+            if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
+            return null;
+        }
         function restartAudioIfNeeded() {
-            if (Module && Module.ccall) {
-                try {
-                    Module.ccall(
-                        'restartAudioModule',
-                        null,
-                        ['number'],
-                        [handler]
-                    );
-                    console.log("Audio restarted");
-                } catch (e) {
-                    console.error("Failed to call restartAudioModule:", e);
-                }
+            var ccallFn = resolveCcall();
+            if (!ccallFn) return;
+            try {
+                ccallFn(
+                    'restartAudioModule',
+                    null,
+                    ['number'],
+                    [handler]
+                );
+                console.log("Audio restarted");
+            } catch (e) {
+                console.error("Failed to call restartAudioModule:", e);
             }
         }
 
@@ -91,12 +116,14 @@ void emcriptenRegisterAudioReset(int handler)
     }, handler);
 }
 
-void emcriptenImportSession(int handler) {
-    
+void emcriptenImportSession(intptr_t handler) {
+
     EM_ASM({
         (async () => {
 
-            const handler = $0;
+            const handler = Number($0);
+            const ccallFn = (typeof ccall === 'function') ? ccall :
+                ((typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') ? Module.ccall.bind(Module) : null);
 
             try {
                 if (typeof importEntireFSFromZip !== 'function') {
@@ -106,7 +133,12 @@ void emcriptenImportSession(int handler) {
 
                 await importEntireFSFromZip();
 
-                Module.ccall('onSessionImportComplete', null, ['number'], [handler]);
+                if (!ccallFn) {
+                    console.error("ccall not available for onSessionImportComplete");
+                    return;
+                }
+
+                ccallFn('onSessionImportComplete', null, ['number'], [handler]);
 
             } catch (err) {
                 console.error("Import failed:", err);

@@ -8,7 +8,6 @@
 
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>
-    #include <emscripten/html5.h>
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -24,9 +23,42 @@ private:
     SDL_GLContext m_context = NULL;
 
     bool m_quit = false;
+    int m_lastDrawableW = 0;
+    int m_lastDrawableH = 0;
 
     void swapBuffers() {
         SDL_GL_SwapWindow(m_window);
+    }
+
+    void syncDrawableSize(bool emitResizeEvent) {
+        if (m_window == NULL) return;
+
+        int drawableW = 0;
+        int drawableH = 0;
+        SDL_GL_GetDrawableSize(m_window, &drawableW, &drawableH);
+        if (drawableW <= 0 || drawableH <= 0) return;
+
+        if (drawableW == m_lastDrawableW && drawableH == m_lastDrawableH) return;
+
+        m_lastDrawableW = drawableW;
+        m_lastDrawableH = drawableH;
+
+        glViewport(0, 0, drawableW, drawableH);
+
+        if (!emitResizeEvent) return;
+
+        int windowW = 0;
+        int windowH = 0;
+        SDL_GetWindowSize(m_window, &windowW, &windowH);
+
+        SDL_Event resizeEvent;
+        SDL_zero(resizeEvent);
+        resizeEvent.type = SDL_WINDOWEVENT;
+        resizeEvent.window.windowID = SDL_GetWindowID(m_window);
+        resizeEvent.window.event = SDL_WINDOWEVENT_SIZE_CHANGED;
+        resizeEvent.window.data1 = windowW;
+        resizeEvent.window.data2 = windowH;
+        SDL_PushEvent(&resizeEvent);
     }
 
     void mainLoop() {
@@ -48,11 +80,7 @@ private:
                     switch(event.window.event) {
 
                         case SDL_WINDOWEVENT_SIZE_CHANGED:
-
-                            int windowWidth = event.window.data1;
-                            int windowHeight = event.window.data2;
-                            glViewport(0, 0, windowWidth, windowHeight);
-
+                            syncDrawableSize(false);
                             break;
                     }
                     
@@ -62,6 +90,9 @@ private:
         }
 
         if(m_quit) return; 
+
+        // Fullscreen transitions nem sempre chegam como SIZE_CHANGED no SDL web.
+        syncDrawableSize(true);
 
         paintGL();
 
@@ -98,6 +129,8 @@ public:
         }
 
         SDL_GL_MakeCurrent(m_window, m_context);
+
+        syncDrawableSize(false);
 
         initGL();
 
@@ -178,15 +211,13 @@ public:
     bool isFullScreen() {
 
         #ifdef __EMSCRIPTEN__
-
-            EmscriptenFullscreenChangeEvent fullscreenStatus;
-            EMSCRIPTEN_RESULT result = emscripten_get_fullscreen_status(&fullscreenStatus);
-
-            if (result == EMSCRIPTEN_RESULT_SUCCESS) {
-                return fullscreenStatus.isFullscreen;
-            }
-
-            return false;
+            int isFullscreen = EM_ASM_INT({
+                if (typeof window !== 'undefined' && typeof window.geranesIsFullscreen === 'function') {
+                    return window.geranesIsFullscreen() ? 1 : 0;
+                }
+                return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+            });
+            return isFullscreen != 0;
 
         #else
 
@@ -199,26 +230,39 @@ public:
     bool setFullScreen(bool state) {
 
         #ifdef __EMSCRIPTEN__
+            int requested = EM_ASM_INT({
+                var desired = !!$0;
 
-            if(state) {
+                if (typeof window !== 'undefined' && typeof window.geranesSetFullscreen === 'function') {
+                    try {
+                        window.geranesSetFullscreen(desired);
+                        return 1;
+                    } catch (e) {
+                        console.error("geranesSetFullscreen failed:", e);
+                        return 0;
+                    }
+                }
 
-                EmscriptenFullscreenStrategy strategy;
-                strategy.scaleMode = EMSCRIPTEN_FULLSCREEN_CANVAS_SCALE_STDDEF;
-                strategy.filteringMode = EMSCRIPTEN_FULLSCREEN_FILTERING_DEFAULT;
-                strategy.canvasResizedCallback = nullptr;
-                strategy.canvasResizedCallbackUserData = nullptr;
+                var canvas = (typeof Module !== 'undefined' && Module.canvas) ? Module.canvas : document.getElementById('canvas');
+                if (!canvas) return 0;
 
-                // Solicita o modo de tela cheia "proper fullscreen"
-                EMSCRIPTEN_RESULT result = emscripten_request_fullscreen_strategy("canvas", EM_TRUE, &strategy);
+                var current = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+                if (desired === current) return 1;
 
-                return result == EMSCRIPTEN_RESULT_SUCCESS;
-            }
-            else {
+                if (desired) {
+                    var req = canvas.requestFullscreen || canvas.webkitRequestFullscreen || canvas.msRequestFullscreen;
+                    if (!req) return 0;
+                    req.call(canvas);
+                    return 1;
+                }
 
-                EMSCRIPTEN_RESULT result = emscripten_exit_fullscreen();
+                var exitFs = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                if (!exitFs) return 0;
+                exitFs.call(document);
+                return 1;
+            }, state ? 1 : 0);
 
-                return result == EMSCRIPTEN_RESULT_SUCCESS;    
-            }       
+            return requested != 0;
 
         #else
 

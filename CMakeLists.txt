@@ -183,12 +183,28 @@ FetchContent_Declare(
 )
 
 set(BUILD_FUZZ_TESTS OFF CACHE BOOL "Disable fuzz tests for yoga" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests in this superbuild" FORCE)
+set(YOGA_BUILD_TESTS OFF CACHE BOOL "Disable yoga tests" FORCE)
 set(gmock_build_tests OFF CACHE BOOL "Disable gmock tests" FORCE)
 set(gtest_build_tests OFF CACHE BOOL "Disable gtest tests" FORCE)
 set(gtest_build_samples OFF CACHE BOOL "Disable gtest samples" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "Do not install gtest" FORCE)
 
 FetchContent_MakeAvailable(yoga)
+
+if (TARGET yogatests)
+    set_target_properties(yogatests PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+
+# Some toolchains (notably newer Clang/Emscripten combinations) can promote
+# gtest char8_t conversion warnings to errors. Keep this scoped to vendored
+# gtest targets so project warnings policy remains unchanged.
+if (TARGET gtest)
+    target_compile_options(gtest PRIVATE -Wno-character-conversion -Wno-error=character-conversion)
+endif()
+if (TARGET gtest_main)
+    target_compile_options(gtest_main PRIVATE -Wno-character-conversion -Wno-error=character-conversion)
+endif()
 
 FetchContent_Declare(
     flips
