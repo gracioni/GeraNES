@@ -25,6 +25,8 @@ private:
     float m_expansionLastSample = 0.0f;
     bool m_expansionPlaybackStarted = false;
     static constexpr size_t EXPANSION_PREBUFFER_MS = 2;
+    static constexpr size_t EXPANSION_TARGET_BUFFER_MS = 4;
+    double m_expansionConsumeRate = 1.0;
     double m_expansionConsumeAcc = 0.0;
     uint32_t m_expansionSourceRateHz = 1789773;
     uint64_t m_expansionPhaseAcc = 0; // [0, m_expansionSourceRateHz)
@@ -52,6 +54,13 @@ private:
     {
         const uint64_t rate = static_cast<uint64_t>(std::max(1, m_outputSampleRate));
         const uint64_t samples = (rate * static_cast<uint64_t>(EXPANSION_PREBUFFER_MS) + 999ULL) / 1000ULL;
+        return static_cast<size_t>(std::max<uint64_t>(1ULL, samples));
+    }
+
+    size_t expansionTargetBufferSamples() const
+    {
+        const uint64_t rate = static_cast<uint64_t>(std::max(1, m_outputSampleRate));
+        const uint64_t samples = (rate * static_cast<uint64_t>(EXPANSION_TARGET_BUFFER_MS) + 999ULL) / 1000ULL;
         return static_cast<size_t>(std::max<uint64_t>(1ULL, samples));
     }
 
@@ -83,6 +92,7 @@ public:
         m_expansionVolume = 1.0f;
         m_expansionLastSample = 0.0f;
         m_expansionPlaybackStarted = false;
+        m_expansionConsumeRate = 1.0;
         m_expansionConsumeAcc = 0.0;
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
@@ -101,6 +111,7 @@ public:
         m_expansionFifo.clear();
         m_expansionLastSample = 0.0f;
         m_expansionPlaybackStarted = false;
+        m_expansionConsumeRate = 1.0;
         m_expansionConsumeAcc = 0.0;
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
@@ -132,7 +143,11 @@ public:
             }
         }
         if(m_expansionPlaybackStarted) {
-            m_expansionConsumeAcc += 1.0;
+            const double fifoError = static_cast<double>(
+                static_cast<int64_t>(m_expansionFifo.size()) - static_cast<int64_t>(expansionTargetBufferSamples()));
+            // Keep FIFO around target size to reduce starvation/overfill over long runs.
+            m_expansionConsumeRate = std::clamp(1.0 + fifoError * 0.00002, 0.995, 1.005);
+            m_expansionConsumeAcc += m_expansionConsumeRate;
             while(m_expansionConsumeAcc >= 1.0) {
                 if(!m_expansionFifo.empty()) {
                     m_expansionLastSample = m_expansionFifo.read();
