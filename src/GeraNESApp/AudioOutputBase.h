@@ -24,9 +24,7 @@ private:
     float m_expansionVolume = 1.0f;
     float m_expansionLastSample = 0.0f;
     bool m_expansionPlaybackStarted = false;
-    static constexpr size_t EXPANSION_PREBUFFER_SAMPLES = 256;
-    static constexpr size_t EXPANSION_TARGET_FIFO_SAMPLES = 256;
-    double m_expansionConsumeRate = 1.0;
+    static constexpr size_t EXPANSION_PREBUFFER_MS = 2;
     double m_expansionConsumeAcc = 0.0;
     uint32_t m_expansionSourceRateHz = 1789773;
     uint64_t m_expansionPhaseAcc = 0; // [0, m_expansionSourceRateHz)
@@ -48,6 +46,13 @@ private:
     static float clampVolume(float v)
     {
         return std::clamp(v, 0.0f, 1.0f);
+    }
+
+    size_t expansionPrebufferSamples() const
+    {
+        const uint64_t rate = static_cast<uint64_t>(std::max(1, m_outputSampleRate));
+        const uint64_t samples = (rate * static_cast<uint64_t>(EXPANSION_PREBUFFER_MS) + 999ULL) / 1000ULL;
+        return static_cast<size_t>(std::max<uint64_t>(1ULL, samples));
     }
 
 public:
@@ -73,7 +78,6 @@ public:
         m_expansionVolume = 1.0f;
         m_expansionLastSample = 0.0f;
         m_expansionPlaybackStarted = false;
-        m_expansionConsumeRate = 1.0;
         m_expansionConsumeAcc = 0.0;
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
@@ -92,7 +96,6 @@ public:
         m_expansionFifo.clear();
         m_expansionLastSample = 0.0f;
         m_expansionPlaybackStarted = false;
-        m_expansionConsumeRate = 1.0;
         m_expansionConsumeAcc = 0.0;
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
@@ -119,16 +122,12 @@ public:
         ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
         float expansionRaw = 0.0f;
         if(!m_expansionPlaybackStarted) {
-            if(m_expansionFifo.size() >= EXPANSION_PREBUFFER_SAMPLES) {
+            if(m_expansionFifo.size() >= expansionPrebufferSamples()) {
                 m_expansionPlaybackStarted = true;
             }
         }
         if(m_expansionPlaybackStarted) {
-            const double fifoError = static_cast<double>(
-                static_cast<int64_t>(m_expansionFifo.size()) - static_cast<int64_t>(EXPANSION_TARGET_FIFO_SAMPLES));
-            // Tiny drift-correction loop to prevent long-term FIFO drain/fill.
-            m_expansionConsumeRate = std::clamp(1.0 + fifoError * 0.00002, 0.995, 1.005);
-            m_expansionConsumeAcc += m_expansionConsumeRate;
+            m_expansionConsumeAcc += 1.0;
             while(m_expansionConsumeAcc >= 1.0) {
                 if(!m_expansionFifo.empty()) {
                     m_expansionLastSample = m_expansionFifo.read();

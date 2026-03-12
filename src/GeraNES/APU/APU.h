@@ -109,6 +109,7 @@ public:
         write(0x0017, 0x00);
         for(int i = 0; i < 12; i++ ) cycle();
 
+        m_audioOutput.clearAudioBuffers();
         // Mapper expansion audio is fed at CPU-cycle rate.
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);

@@ -65,7 +65,6 @@ private:
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
     bool m_loadStateFlag;    
-    int m_audioRenderDtAcc;;
 
     Rewind m_rewind;
 
@@ -236,9 +235,12 @@ private:
 
     void updateCyclesPerSecond()
     {
-        if(m_ppu.isOverclockFrame())
-            m_cyclesPerSecond = m_settings.CPUClockHz() * (1 + m_settings.overclockLines()/m_settings.PPULinesPerFrame());
-        else
+        if(m_ppu.isOverclockFrame()) {
+            const uint64_t base = static_cast<uint64_t>(m_settings.CPUClockHz());
+            const uint64_t lines = static_cast<uint64_t>(m_settings.PPULinesPerFrame());
+            const uint64_t overclock = static_cast<uint64_t>(m_settings.overclockLines());
+            m_cyclesPerSecond = static_cast<uint32_t>((base * (lines + overclock)) / lines);
+        } else
             m_cyclesPerSecond = m_settings.CPUClockHz();      
         }
 
@@ -313,7 +315,6 @@ public:
         m_runningLoop = false;
         m_speedBoost = false;
         m_paused = false;
-        m_audioRenderDtAcc = 0;
 
         m_openBus = 0;
 
@@ -333,6 +334,9 @@ public:
 
     void setSpeedBoost(bool state)
     {
+        if(m_speedBoost && !state) {
+            m_apu.reset();
+        }
         m_speedBoost = state;
     }
 
@@ -458,9 +462,8 @@ public:
                 m_cpuCyclesAcc = m_cpu.run();
 
                 if constexpr(waitForNewFrame) {
-                    // renders a little less audio time to compensate for inaccuracies in monitor frequency,
-                    // the remainder will be rendered at the end of the loop
-                    m_audioRenderCyclesAcc += m_cpuCyclesAcc * (AUDIO_RENDER_TIME_STEP*(1000 - 10));
+                    // Keep audio strictly tied to emulated CPU time.
+                    m_audioRenderCyclesAcc += m_cpuCyclesAcc * (AUDIO_RENDER_TIME_STEP * 1000);
                 }
             }          
 
@@ -473,7 +476,6 @@ public:
                 m_audioRenderCyclesAcc -= audioRenderCycles;
                 bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
                 m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
-                m_audioRenderDtAcc += AUDIO_RENDER_TIME_STEP;                     
             }    
 
             if(m_newFrame) {
@@ -493,18 +495,6 @@ public:
                 loop = m_updateCyclesAcc >= 1000;
 
         }        
-
-        if constexpr(waitForNewFrame) {
-
-            m_audioRenderDtAcc -= dt;
-
-            while(m_audioRenderDtAcc < 0) {
-                bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
-                m_audioOutput.render(AUDIO_RENDER_TIME_STEP, !enableAudio);
-                m_audioRenderDtAcc++;
-            }
-        }
-        else m_audioRenderDtAcc = 0;
 
         m_runningLoop = false;
 
@@ -787,7 +777,7 @@ public:
                 return 50;
 
             case Settings::Region::DENDY:
-                return 59;
+                return 50;
 
             default:
                 return 60;
@@ -815,7 +805,6 @@ public:
         m_updateCyclesAcc = 0;
         m_cpuCyclesAcc = 1;
         m_audioRenderCyclesAcc = 0;
-        m_audioRenderDtAcc = 0;
         m_openBus = 0;
         m_4011WriteCounter = 0;
         m_newFrame = false;

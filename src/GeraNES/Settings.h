@@ -65,7 +65,7 @@ public:
                 return 312;
 
             case Region::DENDY:
-                return 59;
+                return 312;
 
             default:
                 return 262;
