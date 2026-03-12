@@ -208,6 +208,7 @@ public:
 
     bool init() override
     {
+        AudioOutputBase::init();
         if(m_device == 0) config("");
         return true;
     }

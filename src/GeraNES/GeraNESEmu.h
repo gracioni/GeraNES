@@ -345,7 +345,7 @@ public:
     void setSpeedBoost(bool state)
     {
         if(m_speedBoost && !state) {
-            m_apu.reset();
+            m_audioOutput.init();
         }
         m_speedBoost = state;
     }
@@ -675,7 +675,7 @@ public:
     {
         if(value != m_settings.region()) {
             m_settings.setRegion(value);
-            m_apu.reset();
+            m_audioOutput.init();
             m_rewind.reset();
             updateCyclesPerSecond();
         }

@@ -65,6 +65,11 @@ public:
     {
     }
 
+    bool init() override {
+        clearAudioBuffers();
+        return true;
+    }
+
     void initChannels(int sampleRate)
     {    
         m_outputSampleRate = std::max(1, sampleRate);
