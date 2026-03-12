@@ -19,6 +19,7 @@ private:
     bool m_singleScreenB = false;
     bool m_verticalMirroring = false;
     bool m_ffeAltMode = true;
+    bool m_forceSubmapper4 = false; // Mapper 6 submapper 4 / mapper 8
 
     bool m_irqEnabled = false;
     bool m_interruptFlag = false;
@@ -133,15 +134,17 @@ private:
 
 public:
 
-    Mapper006(ICartridgeData& cd) : BaseMapper(cd)
+    Mapper006(ICartridgeData& cd, bool forceSubmapper4 = false) :
+    BaseMapper(cd),
+    m_forceSubmapper4(forceSubmapper4 || cd.subMapperId() == 4)
     {
         m_prgMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
 
         if(hasChrRam()) {
             int chrRamSize = cd.chrRamSize();
-            // For known DB-matched mapper 6 carts, mirror Mesen behavior and force 32KB CHR-RAM.
-            // For unknown/hack dumps, keep header size to avoid over-banking artifacts.
-            if(cd.foundInDatabase() && chrRamSize != (32 * 1024)) {
+            // Match Mesen FrontFareast behavior: mapper 6/8 rely on 32KB CHR-RAM.
+            
+            if(chrRamSize != (32 * 1024)) {
                 m_useChrRamOverride = true;
                 m_chrRamOverride.resize(32 * 1024, 0x00);
                 chrRamSize = static_cast<int>(m_chrRamOverride.size());
@@ -214,6 +217,14 @@ public:
 
     GERANES_HOT void writePrg(int /*addr*/, uint8_t data) override
     {
+        if(m_forceSubmapper4) {
+            // Submapper 4 (and mapper 8 synonym): GNROM latch mode.
+            // D~[..PP ..CC] => 32KB PRG via PP, 8KB CHR via CC.
+            m_prgStartPage = ((((data >> 4) & 0x03) << 2) & m_prgMask);
+            m_chrStartPage = (((data & 0x03) << 3) & m_chrMask);
+            return;
+        }
+
         uint8_t chrValue = data;
 
         // FrontFareast (mapper 6): if CHR-RAM or alt mode,
@@ -233,6 +244,7 @@ public:
 
     GERANES_HOT void writeChr(int addr, uint8_t data) override
     {
+        if(m_forceSubmapper4) return; // CHR is write-protected in latch mode 4 (GNROM).
         int page = (m_chrStartPage + ((addr >> 10) & 0x07)) & m_chrMask;
         writeChrBank<BankSize::B1K>(page, addr, data);
     }
@@ -248,7 +260,9 @@ public:
             // FrontFareast:
             // bit7: alt mode enabled when 0
             // bit4: 0=ScreenA, 1=ScreenB
-            m_ffeAltMode = (data & 0x80) == 0x00;
+            if(!m_forceSubmapper4) {
+                m_ffeAltMode = (data & 0x80) == 0x00;
+            }
             m_singleScreen = true;
             m_singleScreenB = (data & 0x10) != 0;
             break;
@@ -371,6 +385,7 @@ public:
         SERIALIZEDATA(s, m_singleScreenB);
         SERIALIZEDATA(s, m_verticalMirroring);
         SERIALIZEDATA(s, m_ffeAltMode);
+        SERIALIZEDATA(s, m_forceSubmapper4);
 
         SERIALIZEDATA(s, m_irqEnabled);
         SERIALIZEDATA(s, m_interruptFlag);
@@ -387,3 +402,8 @@ public:
     }
 
 };
+
+
+
+
+
