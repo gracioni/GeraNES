@@ -1,9 +1,11 @@
 #pragma once
 
-void emcriptenFileDialog(int handler);
+#include <cstdint>
 
-void emcriptenRegisterAudioReset(int handler);
+void emcriptenFileDialog(intptr_t handler);
 
-void emcriptenImportSession(int handler);
+void emcriptenRegisterAudioReset(intptr_t handler);
+
+void emcriptenImportSession(intptr_t handler);
 
 void emcriptenExportSession();

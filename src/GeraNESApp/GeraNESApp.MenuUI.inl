@@ -26,7 +26,7 @@ inline void GeraNESApp::menuBar() {
                 }
 
                 if(ImGui::MenuItem("Import")) {
-                    emcriptenImportSession(reinterpret_cast<int>(this));
+                    emcriptenImportSession(reinterpret_cast<intptr_t>(this));
                 }
 
                 ImGui::EndMenu();
