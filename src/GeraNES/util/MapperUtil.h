@@ -33,6 +33,7 @@ static std::string getMapperName(int num)
     case 32: return "Irem G-101 chip";
     case 33: return "Taito TC0190/TC0350";
     case 34: return "32KB ROM switch";
+    case 45: return "X1005";
     case 64: return "Tengen RAMBO-1 chip";
     case 65: return "Irem H-3001 chip";
     case 66: return "GNROM switch";
