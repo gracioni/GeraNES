@@ -189,26 +189,6 @@ private:
     std::optional<SdlCursor> m_defaultCursor;
     std::optional<SdlCursor> m_crossCursor;
 
-    static bool confirmActionDialog(const std::string& title, const std::string& message)
-    {
-        const SDL_MessageBoxButtonData buttons[] = {
-            { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
-            { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" }
-        };
-        SDL_MessageBoxData data = {};
-        data.flags = SDL_MESSAGEBOX_WARNING;
-        data.window = nullptr;
-        data.title = title.c_str();
-        data.message = message.c_str();
-        data.numbuttons = 2;
-        data.buttons = buttons;
-        data.colorScheme = nullptr;
-
-        int buttonId = 0;
-        if(SDL_ShowMessageBox(&data, &buttonId) < 0) return false;
-        return buttonId == 1;
-    }
-
     static void setIfNegative(std::string& dst, int value)
     {
         dst = value >= 0 ? std::to_string(value) : "";
@@ -290,11 +270,6 @@ private:
     void saveRomDatabaseEditor()
     {
         if(!m_romDbEditor.loaded) return;
-
-        if(!confirmActionDialog("Save ROM Database Entry",
-            "Are you sure you want to save this entry to db.txt?")) {
-            return;
-        }
 
         GameDatabase::RawItem raw;
         raw.PrgChrCrc32 = m_romDbEditor.PrgChrCrc32;

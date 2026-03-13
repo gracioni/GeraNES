@@ -146,7 +146,11 @@ inline void GeraNESApp::showGui()
                 bool ch = false;
                 ch = isChanged(m_romDbEditor.PrgChrCrc32, m_romDbSaved.PrgChrCrc32);
                 pushChangedStyle(ch);
-                ImGui::InputText("PrgChrCrc32", &m_romDbEditor.PrgChrCrc32, ImGuiInputTextFlags_ReadOnly);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("PrgChrCrc32");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::InputText("##PrgChrCrc32", &m_romDbEditor.PrgChrCrc32, ImGuiInputTextFlags_ReadOnly);
                 popChangedStyle(ch);
 
                 auto drawLabelCell = [&](const char* label) {
@@ -304,9 +308,46 @@ inline void GeraNESApp::showGui()
                     ImGui::EndTable();
                 }
 
+                const bool hasChanges = !compareWithSaved
+                    || isChanged(m_romDbEditor.PrgChrCrc32, m_romDbSaved.PrgChrCrc32)
+                    || isChanged(m_romDbEditor.System, m_romDbSaved.System)
+                    || isChanged(m_romDbEditor.Board, m_romDbSaved.Board)
+                    || isChanged(m_romDbEditor.PCB, m_romDbSaved.PCB)
+                    || isChanged(m_romDbEditor.Chip, m_romDbSaved.Chip)
+                    || isChanged(m_romDbEditor.Mapper, m_romDbSaved.Mapper)
+                    || isChanged(m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize)
+                    || isChanged(m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize)
+                    || isChanged(m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize)
+                    || isChanged(m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize)
+                    || isChanged(m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize)
+                    || isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery)
+                    || isChanged(m_romDbEditor.Mirroring, m_romDbSaved.Mirroring)
+                    || isChanged(m_romDbEditor.InputType, m_romDbSaved.InputType)
+                    || isChanged(m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts)
+                    || isChanged(m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId)
+                    || isChanged(m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType)
+                    || isChanged(m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel);
+
                 ImGui::Separator();
+                ImGui::BeginDisabled(compareWithSaved && !hasChanges);
                 if(ImGui::Button("Save")) {
-                    saveRomDatabaseEditor();
+                    ImGui::OpenPopup("Confirm Save ROM Database Entry");
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+                if(ImGui::BeginPopupModal("Confirm Save ROM Database Entry", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::TextWrapped("Are you sure you want to save this entry to db.txt?");
+                    ImGui::Spacing();
+                    if(ImGui::Button("Yes", ImVec2(120, 0))) {
+                        saveRomDatabaseEditor();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if(ImGui::Button("No", ImVec2(120, 0))) {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
                 }
             }
         }
