@@ -16,15 +16,6 @@ namespace fs = std::filesystem;
 
 class BaseMapper
 {
-public:
-    enum class HardwareActionType {
-        FDS_SWITCH_DISK_SIDE,
-        FDS_EJECT_DISK,
-        FDS_INSERT_NEXT_DISK,
-        VS_INSERT_COIN,
-        VS_SERVICE_BUTTON
-    };
-
 protected:    
 
     template<BankSize bs>
@@ -241,9 +232,6 @@ public:
     virtual void onCpuWrite(uint16_t /*addr*/, uint8_t /*data*/)
     {
     }
-
-    // Optional hardware actions (FDS / VS).
-    virtual bool onHardwareAction(HardwareActionType /*type*/, int /*parameter*/ = 0) { return false; }
 
     virtual float getExpansionAudioSample()
     {
