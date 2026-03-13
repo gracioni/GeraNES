@@ -13,6 +13,7 @@
 #include "IAudioOutput.h"
 #include "DMA.h"
 #include "Console.h"
+#include "HardwareActions.h"
 
 #include "Serialization.h"
 
@@ -61,10 +62,7 @@ private:
     uint8_t m_openBus;
 
     uint32_t m_frameCount;
-    static constexpr uint8_t VS_INSERT_COIN_FRAMES = 4;
-    static constexpr uint8_t VS_SERVICE_BUTTON_FRAMES = 4;
-    uint8_t m_vsInsertCoinFrames[4] = {0, 0, 0, 0}; // slots 1..4
-    uint8_t m_vsServiceFrames[2] = {0, 0}; // service buttons 1..2
+    HardwareActions m_hardwareActions;
 
     bool m_runningLoop;
     bool m_speedBoost;
@@ -158,11 +156,10 @@ private:
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
-                        if(m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem) {
-                            if(m_vsServiceFrames[0] > 0) data |= 0x04;
-                            if(m_vsInsertCoinFrames[0] > 0) data |= 0x20;
-                            if(m_vsInsertCoinFrames[1] > 0) data |= 0x40;
-                        }
+                        data = m_hardwareActions.applyVsSystemRead4016(
+                            data,
+                            m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem
+                        );
                         data = (data&0x7F) | (m_openBus&(~0x7F));                        
                     }
                     break;
@@ -186,11 +183,10 @@ private:
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
-                        if(m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem) {
-                            if(m_vsServiceFrames[1] > 0) data |= 0x04;
-                            if(m_vsInsertCoinFrames[2] > 0) data |= 0x20;
-                            if(m_vsInsertCoinFrames[3] > 0) data |= 0x40;
-                        }
+                        data = m_hardwareActions.applyVsSystemRead4017(
+                            data,
+                            m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem
+                        );
                         data = (data&0x7F) | (m_openBus&(~0x7F));
                     }
                     break;
@@ -247,13 +243,7 @@ private:
     void onFrameStart()
     {
         m_4011WriteCounter = 0;
-
-        for(uint8_t& v : m_vsInsertCoinFrames) {
-            if(v > 0) --v;
-        }
-        for(uint8_t& v : m_vsServiceFrames) {
-            if(v > 0) --v;
-        }
+        m_hardwareActions.onFrameStart();
 
         updateCyclesPerSecond();
         signalFrameStart();
@@ -423,8 +413,7 @@ public:
         m_openBus = 0;
 
         memset(m_ram, 0, sizeof(m_ram));            
-        m_vsInsertCoinFrames[0] = m_vsInsertCoinFrames[1] = m_vsInsertCoinFrames[2] = m_vsInsertCoinFrames[3] = 0;
-        m_vsServiceFrames[0] = m_vsServiceFrames[1] = 0;
+        m_hardwareActions.reset();
     }
 
     //maxTime - seconds
@@ -859,12 +848,7 @@ public:
         SERIALIZEDATA(s, m_4011WriteCounter);
         SERIALIZEDATA(s, m_newFrame);
         SERIALIZEDATA(s, m_frameCount);
-        SERIALIZEDATA(s, m_vsInsertCoinFrames[0]);
-        SERIALIZEDATA(s, m_vsInsertCoinFrames[1]);
-        SERIALIZEDATA(s, m_vsInsertCoinFrames[2]);
-        SERIALIZEDATA(s, m_vsInsertCoinFrames[3]);
-        SERIALIZEDATA(s, m_vsServiceFrames[0]);
-        SERIALIZEDATA(s, m_vsServiceFrames[1]);
+        m_hardwareActions.serialization(s);
 
         SERIALIZEDATA(s, m_runningLoop);
     }
@@ -908,36 +892,33 @@ public:
 
     void fdsSwitchDiskSide()
     {
-        // TODO: FDS hardware actions are not wired through the bus path yet.
-        Logger::instance().log("FDS Switch Disk Side", Logger::Type::USER);
+        m_hardwareActions.fdsSwitchDiskSide();
     }
 
     void fdsEjectDisk()
     {
-        // TODO: FDS hardware actions are not wired through the bus path yet.
-        Logger::instance().log("FDS Eject Disk", Logger::Type::USER);
+        m_hardwareActions.fdsEjectDisk();
     }
 
     void fdsInsertNextDisk()
     {
-        // TODO: FDS hardware actions are not wired through the bus path yet.
-        Logger::instance().log("FDS Insert Next Disk", Logger::Type::USER);
+        m_hardwareActions.fdsInsertNextDisk();
     }
 
     void vsInsertCoin(int slot)
     {
-        if(slot < 1 || slot > 4) return;
-        if(!m_cartridge.isValid() || m_cartridge.system() != GameDatabase::System::VsSystem) return;
-        m_vsInsertCoinFrames[slot - 1] = VS_INSERT_COIN_FRAMES;
-        Logger::instance().log("VS Insert Coin " + std::to_string(slot), Logger::Type::USER);
+        m_hardwareActions.vsInsertCoin(
+            slot,
+            m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem
+        );
     }
 
     void vsServiceButton(int button)
     {
-        if(button < 1 || button > 2) return;
-        if(!m_cartridge.isValid() || m_cartridge.system() != GameDatabase::System::VsSystem) return;
-        m_vsServiceFrames[button - 1] = VS_SERVICE_BUTTON_FRAMES;
-        Logger::instance().log("VS Service Button " + std::to_string(button), Logger::Type::USER);
+        m_hardwareActions.vsServiceButton(
+            button,
+            m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem
+        );
     }
 
     Console& getConsole() {
@@ -1003,6 +984,7 @@ public:
         m_runningLoop = false;
         m_saveStateFlag = false;
         m_loadStateFlag = false;
+        m_hardwareActions.reset();
 
         m_rewind.reset();
         updateCyclesPerSecond();
