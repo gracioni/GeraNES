@@ -349,7 +349,7 @@ public:
             if((count > 0 || m_irqClearFlag) && m_irqCounter == 0 && m_enableInterrupt) {
                 m_interruptFlag = true;
             }
-        } else {
+        } else { //others, MMC3B and MMC3C
             if(m_irqCounter == 0 && m_enableInterrupt) {
                 m_interruptFlag = true;
             }
