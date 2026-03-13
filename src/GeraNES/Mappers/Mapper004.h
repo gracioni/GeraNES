@@ -46,6 +46,12 @@ protected:
     uint8_t m_cycleCounter = 0;
 
     bool m_mmc3RevAIrqs = false;
+    bool m_isMMC6 = false;
+    bool m_mmc6PrgRamEnabled = false;
+    bool m_mmc6WriteLow = false;
+    bool m_mmc6ReadLow = false;
+    bool m_mmc6WriteHigh = false;
+    bool m_mmc6ReadHigh = false;
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrBank(int bank, int addr) {
@@ -71,7 +77,9 @@ public:
             m_chrMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
         }
 
-        m_mmc3RevAIrqs = trim(cd.chip()).rfind("MMC3A", 0) == 0;
+        const std::string chip = trim(cd.chip());
+        m_mmc3RevAIrqs = chip.rfind("MMC3A", 0) == 0;
+        m_isMMC6 = chip.rfind("MMC6", 0) == 0;
     }
 
     virtual ~Mapper004()
@@ -113,6 +121,16 @@ public:
             m_chrMode = data & 0x80;
             m_prgMode = data & 0x40;
             m_addrReg = data & 0x07;            
+            if(m_isMMC6) {
+                m_mmc6PrgRamEnabled = (data & 0x20) != 0;
+                if(!m_mmc6PrgRamEnabled) {
+                    // MMC6: disabling PRG-RAM clears effective read/write permissions.
+                    m_mmc6WriteLow = false;
+                    m_mmc6ReadLow = false;
+                    m_mmc6WriteHigh = false;
+                    m_mmc6ReadHigh = false;
+                }
+            }
 
             break;
         case 0x0001:
@@ -132,8 +150,21 @@ public:
             m_mirroring = data & 0x01;
             break;
         case 0x2001:
-            m_enableWRAM = data & 0x80;
-            m_writeProtectWRAM = data & 0x40;
+            if(m_isMMC6) {
+                if(m_mmc6PrgRamEnabled) {
+                    // MMC6 PRG-RAM protect bits: HhLl (high/low area write/read)
+                    // Bit mapping in A001 (odd): HhLlxxxx
+                    // H(7)=read high, h(6)=write high, L(5)=read low, l(4)=write low
+                    m_mmc6ReadHigh = (data & 0x80) != 0;
+                    m_mmc6WriteHigh = (data & 0x40) != 0;
+                    m_mmc6ReadLow = (data & 0x20) != 0;
+                    m_mmc6WriteLow = (data & 0x10) != 0;
+                }
+            }
+            else {
+                m_enableWRAM = data & 0x80;
+                m_writeProtectWRAM = data & 0x40;
+            }
             break;
         case 0x4000: // 0xC000
             m_reloadValue = data;
@@ -229,6 +260,53 @@ public:
         return MirroringType::VERTICAL;
     }
 
+    GERANES_HOT void writeSaveRam(int addr, uint8_t data) override
+    {
+        if(!m_isMMC6) {
+            BaseMapper::writeSaveRam(addr, data);
+            return;
+        }
+
+        if(!m_mmc6PrgRamEnabled || addr < 0x1000) return;
+
+        // MMC6 internal RAM: 1KB at $7000-$73FF, mirrored in $7000-$7FFF.
+        const int off = (addr - 0x1000) & 0x3FF;
+        const bool highHalf = (off & 0x0200) != 0; // $7200-$73FF region
+        const bool readAllowed = highHalf ? m_mmc6ReadHigh : m_mmc6ReadLow;
+        const bool writeBitSet = highHalf ? m_mmc6WriteHigh : m_mmc6WriteLow;
+        // Per hardware, write-enable only matters if read-enable for that half is set.
+        if(!(readAllowed && writeBitSet)) return;
+
+        uint8_t* ram = saveRamData();
+        if(ram != nullptr && saveRamSize() > 0) {
+            ram[off & 0x3FF] = data;
+        }
+    }
+
+    GERANES_HOT uint8_t readSaveRam(int addr) override
+    {
+        if(!m_isMMC6) {
+            return BaseMapper::readSaveRam(addr);
+        }
+
+        if(!m_mmc6PrgRamEnabled || addr < 0x1000) return 0;
+
+        const int off = (addr - 0x1000) & 0x3FF;
+        const bool highHalf = (off & 0x0200) != 0;
+        const bool readAllowed = highHalf ? m_mmc6ReadHigh : m_mmc6ReadLow;
+        if(!readAllowed) {
+            // MMC6 returns open bus if neither half is readable; this core has no open-bus path here.
+            return 0;
+        }
+
+        uint8_t* ram = saveRamData();
+        if(ram != nullptr && saveRamSize() > 0) {
+            return ram[off & 0x3FF];
+        }
+
+        return 0;
+    }
+
     bool getInterruptFlag() override
     {
         return m_interruptFlag;
@@ -306,6 +384,12 @@ public:
 
         m_a12LastState = true;
         m_cycleCounter = 0;
+
+        m_mmc6PrgRamEnabled = false;
+        m_mmc6WriteLow = false;
+        m_mmc6ReadLow = false;
+        m_mmc6WriteHigh = false;
+        m_mmc6ReadHigh = false;
     }
 
     virtual void serialization(SerializationBase& s) override
@@ -338,6 +422,11 @@ public:
         
         SERIALIZEDATA(s, m_a12LastState);    
         SERIALIZEDATA(s, m_cycleCounter);
+        SERIALIZEDATA(s, m_mmc6PrgRamEnabled);
+        SERIALIZEDATA(s, m_mmc6WriteLow);
+        SERIALIZEDATA(s, m_mmc6ReadLow);
+        SERIALIZEDATA(s, m_mmc6WriteHigh);
+        SERIALIZEDATA(s, m_mmc6ReadHigh);
     }
 
 };
