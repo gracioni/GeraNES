@@ -195,12 +195,18 @@ public:
         }
 
         //try open various file formats here, currently only iNes is supported
-        m_nesCartridgeData = new _INesFormat(m_romFile);
+        _INesFormat* iNes = new _INesFormat(m_romFile);
+        m_nesCartridgeData = iNes;
 
         if(!m_nesCartridgeData->valid())
         {
+            if(iNes != nullptr && iNes->error() == "file length does not match header information") {
+                Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
+            }
             clear();
-            Logger::instance().log("Invalid ROM", Logger::Type::ERROR);
+            if(iNes == nullptr || iNes->error() != "file length does not match header information") {
+                Logger::instance().log("Invalid ROM", Logger::Type::USER);
+            }
             return false;
         }
 

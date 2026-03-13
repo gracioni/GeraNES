@@ -21,14 +21,17 @@ private:
     size_t m_CHRStartIndex;
 
     bool m_isValid;
+    std::string m_error;
 
 public:
 
     _INesFormat(RomFile& romFile) : ICartridgeData(romFile)
     {
         m_isValid = false;
+        m_error = "";
 
-        if(m_romFile.size() < 4) {
+        if(m_romFile.size() < INES_HEADER_SIZE) {
+            m_error = "invalid iNES header";
             return;
         }
 
@@ -38,10 +41,19 @@ public:
         char aux[size];
         for(int i = 0; i < size; ++i) aux[i] = m_romFile.data(i);
 
-        if(strncmp(aux, iNesBytes, size) != 0) return;
+        if(strncmp(aux, iNesBytes, size) != 0) {
+            m_error = "invalid iNES signature";
+            return;
+        }
 
         m_PRGStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0);
         m_CHRStartIndex = INES_HEADER_SIZE + (hasTrainer()?512:0) + prgSize();
+
+        const size_t expectedFileSize = m_CHRStartIndex + chrSize();
+        if(m_romFile.size() != expectedFileSize) {
+            m_error = "file length does not match header information";
+            return;
+        }
 
         m_isValid = true;
 
@@ -50,6 +62,10 @@ public:
 
     bool valid() override {
         return m_isValid;
+    }
+
+    const std::string& error() const {
+        return m_error;
     }
 
     int prgSize() override
