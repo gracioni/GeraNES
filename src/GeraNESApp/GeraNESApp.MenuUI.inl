@@ -178,6 +178,11 @@ inline void GeraNESApp::menuBar() {
                 }
             }
 
+            ImGui::Separator();
+            if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
+            {
+            }
+
             ImGui::EndMenu();
         }
 
@@ -194,6 +199,13 @@ inline void GeraNESApp::menuBar() {
                         AppSettings::instance().data.audio.audioDevice = m_audioOutput.currentDeviceName();
                     }
                 }
+                ImGui::EndMenu();
+            }
+
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Channels"))
+            {
+                drawAudioChannelDebugControls();
                 ImGui::EndMenu();
             }
 
@@ -321,7 +333,9 @@ inline void GeraNESApp::menuBar() {
                     ImGui::EndMenu();
                 }
 
-                if(ImGui::SliderFloat("Transparency", &AppSettings::instance().data.input.touchControls.transparency, 0.0f, 1.0f, "%.2f")) {
+                float transparencyPercent = AppSettings::instance().data.input.touchControls.transparency * 100.0f;
+                if(ImGui::SliderFloat("Transparency", &transparencyPercent, 0.0f, 100.0f, "%.0f%%")) {
+                    AppSettings::instance().data.input.touchControls.transparency = transparencyPercent / 100.0f;
                 }
 
                 ImGui::EndMenu();
@@ -330,28 +344,14 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Debug"))
+        if (ImGui::BeginMenu("Tools"))
         {
-            if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
-            {
-            }
-
             if (ImGui::MenuItem("Log"))
             {
                 m_showLogWindow = true;
             }
 
             ImGui::Separator();
-            if (ImGui::BeginMenu("Audio"))
-            {
-                drawAudioChannelDebugControls();
-                ImGui::EndMenu();
-            }
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("Tools"))
-        {
             if (ImGui::BeginMenu("Advanced"))
             {
                 if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
@@ -421,22 +421,33 @@ inline void GeraNESApp::applyAudioChannelVolume(const AudioChannelControl& c, fl
 
 inline void GeraNESApp::drawAudioChannelDebugControls()
 {
-    std::vector<AudioChannelControl> channels;
-    collectAudioChannelsFromJson(m_audioOutput.getAudioChannelsJson(), "nes", channels);
-    collectAudioChannelsFromJson(m_emu.getConsole().cartridge().getMapperAudioChannelsJson(), "mapper", channels);
+    std::vector<AudioChannelControl> nesChannels;
+    std::vector<AudioChannelControl> mapperChannels;
+    collectAudioChannelsFromJson(m_audioOutput.getAudioChannelsJson(), "nes", nesChannels);
+    collectAudioChannelsFromJson(m_emu.getConsole().cartridge().getMapperAudioChannelsJson(), "mapper", mapperChannels);
 
-    if(channels.empty()) {
+    if(nesChannels.empty() && mapperChannels.empty()) {
         ImGui::TextDisabled("No channel controls available.");
         return;
     }
 
-    for(auto& c : channels) {
-        float valuePercent = c.volume * 100.0f;
-        float minPercent = c.min * 100.0f;
-        float maxPercent = c.max * 100.0f;
-        std::string label = c.label + "##" + c.source + "." + c.id;
-        if(ImGui::SliderFloat(label.c_str(), &valuePercent, minPercent, maxPercent, "%.0f%%")) {
-            applyAudioChannelVolume(c, valuePercent / 100.0f);
+    auto drawChannelSliders = [&](std::vector<AudioChannelControl>& list) {
+        for(auto& c : list) {
+            float valuePercent = c.volume * 100.0f;
+            float minPercent = c.min * 100.0f;
+            float maxPercent = c.max * 100.0f;
+            std::string label = c.label + "##" + c.source + "." + c.id;
+            if(ImGui::SliderFloat(label.c_str(), &valuePercent, minPercent, maxPercent, "%.0f%%")) {
+                applyAudioChannelVolume(c, valuePercent / 100.0f);
+            }
         }
+    };
+
+    drawChannelSliders(nesChannels);
+
+    if(!nesChannels.empty() && !mapperChannels.empty()) {
+        ImGui::Separator();
     }
+
+    drawChannelSliders(mapperChannels);
 }
