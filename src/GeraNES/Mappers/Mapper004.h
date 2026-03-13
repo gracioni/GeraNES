@@ -79,7 +79,7 @@ public:
 
         const std::string chip = trim(cd.chip());
         m_mmc3RevAIrqs = chip.rfind("MMC3A", 0) == 0;
-        m_isMMC6 = chip.rfind("MMC6", 0) == 0;
+        m_isMMC6 = chip.rfind("MMC6", 0) == 0 || cd.subMapperId() == 1;
     }
 
     virtual ~Mapper004()
