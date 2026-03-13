@@ -6,6 +6,7 @@
 #include "NesCartridgeData/_INesFormat.h"
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "logger/logger.h"
+#include "util/Crc32.h"
 
 #include "Mappers/DummyMapper.h"
 
@@ -429,7 +430,7 @@ public:
         return m_mapper->setAudioChannelVolumeById(id, volume);
     }
 
-    GERANES_INLINE GameDatabase::Sistem system()
+    GERANES_INLINE GameDatabase::System system()
     {
         return m_nesCartridgeData->sistem();
     }
@@ -447,6 +448,71 @@ public:
     GERANES_INLINE bool isValid()
     {
         return m_isValid;
+    }
+
+    GERANES_INLINE bool hasCartridgeData() const
+    {
+        return m_nesCartridgeData != NULL;
+    }
+
+    GERANES_INLINE int mapperId() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->mapperId();
+    }
+
+    GERANES_INLINE int subMapperId() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->subMapperId();
+    }
+
+    GERANES_INLINE int prgSize() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->prgSize();
+    }
+
+    GERANES_INLINE int chrSize() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->chrSize();
+    }
+
+    GERANES_INLINE int chrRamSize() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->chrRamSize();
+    }
+
+    GERANES_INLINE int ramSize() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->ramSize();
+    }
+
+    GERANES_INLINE int dbSaveRamSize() const
+    {
+        if(m_nesCartridgeData == NULL) return -1;
+        return m_nesCartridgeData->saveRamSize();
+    }
+
+    GERANES_INLINE bool hasBattery() const
+    {
+        if(m_nesCartridgeData == NULL) return false;
+        return m_nesCartridgeData->hasBattery();
+    }
+
+    GERANES_INLINE std::string chip() const
+    {
+        if(m_nesCartridgeData == NULL) return "";
+        return m_nesCartridgeData->chip();
+    }
+
+    GERANES_INLINE std::string prgChrCrc32String() const
+    {
+        if(m_nesCartridgeData == NULL) return "";
+        return Crc32::toString(m_nesCartridgeData->prgChrCrc32());
     }
 
     GERANES_INLINE uint8_t* saveRamData()

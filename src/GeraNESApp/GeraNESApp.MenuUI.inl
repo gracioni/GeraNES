@@ -46,6 +46,14 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
+            if (ImGui::MenuItem("Rom Database"))
+            {
+                loadRomDatabaseEditorFromCurrentRom();
+                m_showRomDatabaseWindow = true;
+            }
+
+            ImGui::Separator();
+
             sc = m_shortcuts.get("quit");
             if( sc != nullptr) {
 

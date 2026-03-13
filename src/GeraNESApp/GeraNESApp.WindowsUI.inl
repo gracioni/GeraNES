@@ -67,6 +67,181 @@ inline void GeraNESApp::showGui()
         ImGui::End();
     }
 
+    if(m_showRomDatabaseWindow) {
+        ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::Begin("Rom Database", &m_showRomDatabaseWindow)) {
+            if(!m_romDbEditor.loaded) {
+                ImGui::TextWrapped("%s", m_romDbEditor.statusMessage.c_str());
+            }
+            else {
+                ImVec4 color = m_romDbEditor.foundInDatabase ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f) : ImVec4(0.9f, 0.7f, 0.2f, 1.0f);
+                ImGui::TextColored(color, "%s", m_romDbEditor.statusMessage.c_str());
+                ImGui::Separator();
+
+                const bool compareWithSaved = m_romDbEditor.foundInDatabase;
+                auto isChanged = [&](const std::string& a, const std::string& b) {
+                    return compareWithSaved && a != b;
+                };
+                auto pushChangedStyle = [](bool changed) {
+                    if(!changed) return;
+                    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.35f, 0.08f, 0.08f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.45f, 0.12f, 0.12f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.55f, 0.16f, 0.16f, 1.0f));
+                };
+                auto popChangedStyle = [](bool changed) {
+                    if(changed) ImGui::PopStyleColor(3);
+                };
+
+                auto drawStringEnumCombo = [&](const char* label, std::string& value, const std::vector<std::pair<const char*, const char*>>& options, bool changed) {
+                    int current = 0;
+                    for(size_t i = 0; i < options.size(); ++i) {
+                        if(value == options[i].first) {
+                            current = static_cast<int>(i);
+                            break;
+                        }
+                    }
+
+                    pushChangedStyle(changed);
+                    if(ImGui::BeginCombo(label, options[current].second)) {
+                        for(size_t i = 0; i < options.size(); ++i) {
+                            const bool selected = static_cast<int>(i) == current;
+                            if(ImGui::Selectable(options[i].second, selected)) {
+                                value = options[i].first;
+                            }
+                            if(selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    popChangedStyle(changed);
+                };
+
+                auto drawIntEnumCombo = [&](const char* label, std::string& value, const std::vector<std::pair<int, const char*>>& options, bool changed) {
+                    int parsed = 0;
+                    try { parsed = value.empty() ? options.front().first : std::stoi(value); } catch(...) { parsed = options.front().first; }
+
+                    int current = 0;
+                    for(size_t i = 0; i < options.size(); ++i) {
+                        if(parsed == options[i].first) {
+                            current = static_cast<int>(i);
+                            break;
+                        }
+                    }
+
+                    pushChangedStyle(changed);
+                    if(ImGui::BeginCombo(label, options[current].second)) {
+                        for(size_t i = 0; i < options.size(); ++i) {
+                            const bool selected = static_cast<int>(i) == current;
+                            if(ImGui::Selectable(options[i].second, selected)) {
+                                value = std::to_string(options[i].first);
+                            }
+                            if(selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    popChangedStyle(changed);
+                };
+
+                ImGui::InputText("PrgChrCrc32", &m_romDbEditor.PrgChrCrc32, ImGuiInputTextFlags_ReadOnly);
+
+                drawStringEnumCombo("System", m_romDbEditor.System, {
+                    {"", "Default"},
+                    {"NesNtsc", "NesNtsc"},
+                    {"NesPal", "NesPal"},
+                    {"Famicom", "Famicom"},
+                    {"Dendy", "Dendy"},
+                    {"VsSystem", "VsSystem"},
+                    {"Playchoice", "Playchoice"},
+                    {"FDS", "FDS"},
+                    {"FamicomNetworkSystem", "FamicomNetworkSystem"},
+                }, isChanged(m_romDbEditor.System, m_romDbSaved.System));
+
+                bool ch = false;
+                ch = isChanged(m_romDbEditor.Board, m_romDbSaved.Board); pushChangedStyle(ch); ImGui::InputText("Board", &m_romDbEditor.Board); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.PCB, m_romDbSaved.PCB); pushChangedStyle(ch); ImGui::InputText("PCB", &m_romDbEditor.PCB); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.Chip, m_romDbSaved.Chip); pushChangedStyle(ch); ImGui::InputText("Chip", &m_romDbEditor.Chip); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.Mapper, m_romDbSaved.Mapper); pushChangedStyle(ch); ImGui::InputText("Mapper", &m_romDbEditor.Mapper); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize); pushChangedStyle(ch); ImGui::InputText("PrgRomSize", &m_romDbEditor.PrgRomSize); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize); pushChangedStyle(ch); ImGui::InputText("ChrRomSize", &m_romDbEditor.ChrRomSize); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize); pushChangedStyle(ch); ImGui::InputText("ChrRamSize", &m_romDbEditor.ChrRamSize); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize); pushChangedStyle(ch); ImGui::InputText("WorkRamSize", &m_romDbEditor.WorkRamSize); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize); pushChangedStyle(ch); ImGui::InputText("SaveRamSize", &m_romDbEditor.SaveRamSize); popChangedStyle(ch);
+
+                bool hasBattery = m_romDbEditor.HasBattery == "1";
+                ch = isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery);
+                pushChangedStyle(ch);
+                if(ImGui::Checkbox("HasBattery", &hasBattery)) {
+                    m_romDbEditor.HasBattery = hasBattery ? "1" : "0";
+                }
+                popChangedStyle(ch);
+
+                drawStringEnumCombo("Mirroring", m_romDbEditor.Mirroring, {
+                    {"", "Default"},
+                    {"h", "Horizontal"},
+                    {"v", "Vertical"},
+                    {"4", "Four Screen"},
+                    {"0", "Single Screen A"},
+                    {"1", "Single Screen B"},
+                }, isChanged(m_romDbEditor.Mirroring, m_romDbSaved.Mirroring));
+
+                drawIntEnumCombo("InputType", m_romDbEditor.InputType, {
+                    {0, "Unspecified"}, {1, "StandardControllers"}, {2, "FourScore"}, {3, "FourPlayerAdapter"},
+                    {4, "VsSystem"}, {5, "VsSystemSwapped"}, {6, "VsSystemSwapAB"}, {7, "VsZapper"},
+                    {8, "Zapper"}, {9, "TwoZappers"}, {10, "BandaiHypershot"}, {11, "PowerPadSideA"},
+                    {12, "PowerPadSideB"}, {13, "FamilyTrainerSideA"}, {14, "FamilyTrainerSideB"},
+                    {15, "ArkanoidControllerNes"}, {16, "ArkanoidControllerFamicom"}, {17, "DoubleArkanoidController"},
+                    {18, "KonamiHyperShot"}, {19, "PachinkoController"}, {20, "ExcitingBoxing"},
+                    {21, "JissenMahjong"}, {22, "PartyTap"}, {23, "OekaKidsTablet"}, {24, "BarcodeBattler"},
+                    {25, "MiraclePiano"}, {26, "PokkunMoguraa"}, {27, "TopRider"}, {28, "DoubleFisted"},
+                    {29, "Famicom3dSystem"}, {30, "DoremikkoKeyboard"}, {31, "ROB"}, {32, "FamicomDataRecorder"},
+                    {33, "TurboFile"}, {34, "BattleBox"}, {35, "FamilyBasicKeyboard"}, {36, "Pec586Keyboard"},
+                    {37, "Bit79Keyboard"}, {38, "SuborKeyboard"}, {39, "SuborKeyboardMouse1"},
+                    {40, "SuborKeyboardMouse2"}, {41, "SnesMouse"}, {42, "GenericMulticart"},
+                    {43, "SnesControllers"}, {44, "RacermateBicycle"}, {45, "UForce"}
+                }, isChanged(m_romDbEditor.InputType, m_romDbSaved.InputType));
+
+                drawStringEnumCombo("BusConflicts", m_romDbEditor.BusConflicts, {
+                    {"", "Default"},
+                    {"Y", "Yes"},
+                    {"N", "No"},
+                }, isChanged(m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts));
+
+                ch = isChanged(m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId); pushChangedStyle(ch); ImGui::InputText("SubMapperId", &m_romDbEditor.SubMapperId); popChangedStyle(ch);
+
+                drawIntEnumCombo("VsSystemType", m_romDbEditor.VsSystemType, {
+                    {0, "Default"},
+                    {1, "RbiBaseballProtection"},
+                    {2, "TkoBoxingProtection"},
+                    {3, "SuperXeviousProtection"},
+                    {4, "IceClimberProtection"},
+                    {5, "VsDualSystem"},
+                    {6, "RaidOnBungelingBayProtection"},
+                }, isChanged(m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType));
+
+                drawIntEnumCombo("VsPpuModel", m_romDbEditor.VsPpuModel, {
+                    {0, "Ppu2C02"},
+                    {1, "Ppu2C03"},
+                    {2, "Ppu2C04A"},
+                    {3, "Ppu2C04B"},
+                    {4, "Ppu2C04C"},
+                    {5, "Ppu2C04D"},
+                    {6, "Ppu2C05A"},
+                    {7, "Ppu2C05B"},
+                    {8, "Ppu2C05C"},
+                    {9, "Ppu2C05D"},
+                    {10, "Ppu2C05E"},
+                }, isChanged(m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel));
+
+                ImGui::Separator();
+                if(ImGui::Button("Save")) {
+                    saveRomDatabaseEditor();
+                }
+            }
+        }
+        ImGui::End();
+    }
+
     if(m_showErrorWindow) {
         ImGui::SetNextWindowSize(ImVec2(320, 0));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));

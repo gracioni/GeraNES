@@ -66,7 +66,7 @@ public:
 
     virtual std::string chip() = 0; 
 
-    virtual GameDatabase::Sistem sistem() = 0;
+    virtual GameDatabase::System sistem() = 0;
 
     virtual GameDatabase::InputType inputType() = 0;
 

@@ -5,5 +5,6 @@
 #include <imgui_impl_sdl2.h>
 #define IMGUI_IMPL_OPENGL_LOADER_GLEW
 #include <imgui_impl_opengl3.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <imgui_internal.h>

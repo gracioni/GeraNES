@@ -87,8 +87,8 @@ public:
         return "";
     }
 
-    GameDatabase::Sistem sistem() override {
-        return GameDatabase::Sistem::NesNtsc;
+    GameDatabase::System sistem() override {
+        return GameDatabase::System::NesNtsc;
     }
 
     GameDatabase::InputType inputType() override {

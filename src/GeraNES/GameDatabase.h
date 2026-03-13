@@ -6,18 +6,20 @@
 #include <regex>
 #include <map>
 #include <cassert>
+#include <sstream>
 
 #include <functional>
 #include <vector>
 
 #include "logger/logger.h"
 #include "util/StringTrim.h"
+#include "util/Crc32.h"
 
 class GameDatabase {
 
 public:
 
-    enum class Sistem
+    enum class System
     {
         NesNtsc,
         NesPal,
@@ -151,7 +153,7 @@ public:
 
     struct Item {
         uint32_t PrgChrCrc32;
-        Sistem System;
+        System System;
         std::string Board;
         std::string PCB;
         std::string Chip;
@@ -174,23 +176,27 @@ public:
         return (uint32_t)std::stoll(str.c_str(), nullptr, 16);
     }
 
-    Sistem getGameSystem(const std::string& str)
+    System getGameSystem(const std::string& str)
     {
         if(str == "NesNtsc") {
-            return Sistem::NesNtsc;
+            return System::NesNtsc;
         } else if(str == "NesPal") {
-            return Sistem::NesPal;
+            return System::NesPal;
         } else if(str == "Famicom") {
-            return Sistem::Famicom;
+            return System::Famicom;
         } else if(str == "VsSystem") {
-            return Sistem::VsSystem;
+            return System::VsSystem;
         } else if(str == "Dendy") {
-            return Sistem::Dendy;
+            return System::Dendy;
         } else if(str == "Playchoice") {
-            return Sistem::Playchoice;
+            return System::Playchoice;
+        } else if(str == "FDS") {
+            return System::FDS;
+        } else if(str == "FamicomNetworkSystem") {
+            return System::FamicomNetworkSystem;
         }
         
-        return Sistem::Unknown;
+        return System::Unknown;
     }
 
     Battery getBattery(const std::string& str) {
@@ -271,6 +277,7 @@ private:
     }
 
     void load() {
+        m_map.clear();
         
         Logger::instance().log(std::string("(DB) Loading database"), Logger::Type::INFO);
 
@@ -346,7 +353,7 @@ private:
                 }
                 */
 
-                if(!validate(rawData.Mirroring, {"", "h", "v", "4", "1"})) {
+                if(!validate(rawData.Mirroring, {"", "h", "v", "4", "0", "1"})) {
                     std::string msg = "(DB) Invalid Mirroring value: '" + rawData.Mirroring + "' at line " + std::to_string(lineCounter);
                     Logger::instance().log(msg, Logger::Type::INFO);
                     continue;
@@ -405,6 +412,151 @@ public:
         }
 
         return nullptr;
+    }
+
+    static RawItem toRawItem(const Item& item)
+    {
+        RawItem raw;
+        raw.PrgChrCrc32 = Crc32::toString(item.PrgChrCrc32);
+
+        switch(item.System) {
+        case System::NesNtsc: raw.System = "NesNtsc"; break;
+        case System::NesPal: raw.System = "NesPal"; break;
+        case System::Famicom: raw.System = "Famicom"; break;
+        case System::Dendy: raw.System = "Dendy"; break;
+        case System::VsSystem: raw.System = "VsSystem"; break;
+        case System::Playchoice: raw.System = "Playchoice"; break;
+        case System::FDS: raw.System = "FDS"; break;
+        case System::FamicomNetworkSystem: raw.System = "FamicomNetworkSystem"; break;
+        default: raw.System = ""; break;
+        }
+
+        raw.Board = item.Board;
+        raw.PCB = item.PCB;
+        raw.Chip = item.Chip;
+        raw.Mapper = item.MapperId >= 0 ? std::to_string(item.MapperId) : "";
+        raw.PrgRomSize = item.PrgRomSize >= 0 ? std::to_string(item.PrgRomSize) : "";
+        raw.ChrRomSize = item.ChrRomSize >= 0 ? std::to_string(item.ChrRomSize) : "";
+        raw.ChrRamSize = item.ChrRamSize >= 0 ? std::to_string(item.ChrRamSize) : "";
+        raw.WorkRamSize = item.WorkRamSize >= 0 ? std::to_string(item.WorkRamSize) : "";
+        raw.SaveRamSize = item.SaveRamSize >= 0 ? std::to_string(item.SaveRamSize) : "";
+
+        switch(item.HasBattery) {
+        case Battery::Yes: raw.HasBattery = "1"; break;
+        case Battery::No: raw.HasBattery = "0"; break;
+        default: raw.HasBattery = ""; break;
+        }
+
+        switch(item.Mirroring) {
+        case MirroringType::HORIZONTAL: raw.Mirroring = "h"; break;
+        case MirroringType::VERTICAL: raw.Mirroring = "v"; break;
+        case MirroringType::FOUR_SCREEN: raw.Mirroring = "4"; break;
+        case MirroringType::SINGLE_SCREEN_A: raw.Mirroring = "0"; break;
+        case MirroringType::SINGLE_SCREEN_B: raw.Mirroring = "1"; break;
+        default: raw.Mirroring = ""; break;
+        }
+
+        raw.InputType = std::to_string(static_cast<int>(item.InputDeviceType));
+        switch(item.BusConflicts) {
+        case BusConflictType::YES: raw.BusConflicts = "Y"; break;
+        case BusConflictType::NO: raw.BusConflicts = "N"; break;
+        default: raw.BusConflicts = ""; break;
+        }
+
+        raw.SubMapperId = item.SubmapperId >= 0 ? std::to_string(item.SubmapperId) : "";
+        raw.VsSystemType = std::to_string(static_cast<int>(item.VsType));
+        raw.VsPpuModel = std::to_string(static_cast<int>(item.VsPpuModel));
+        return raw;
+    }
+
+    bool reload()
+    {
+        load();
+        return true;
+    }
+
+    bool upsertRawItem(const RawItem& raw, std::string* error = nullptr)
+    {
+        auto fail = [&](const std::string& msg) {
+            if(error) *error = msg;
+            Logger::instance().log(std::string("(DB) ") + msg, Logger::Type::ERROR);
+            return false;
+        };
+
+        auto hasInvalidChar = [](const std::string& s) {
+            return s.find(',') != std::string::npos || s.find('\n') != std::string::npos || s.find('\r') != std::string::npos;
+        };
+
+        const std::vector<std::string> fields = {
+            raw.PrgChrCrc32, raw.System, raw.Board, raw.PCB, raw.Chip, raw.Mapper, raw.PrgRomSize,
+            raw.ChrRomSize, raw.ChrRamSize, raw.WorkRamSize, raw.SaveRamSize, raw.HasBattery, raw.Mirroring,
+            raw.InputType, raw.BusConflicts, raw.SubMapperId, raw.VsSystemType, raw.VsPpuModel
+        };
+
+        for(const auto& f : fields) {
+            if(hasInvalidChar(f)) return fail("DB fields cannot contain ',', '\\n' or '\\r'");
+        }
+
+        const std::string crc = trim(raw.PrgChrCrc32);
+        if(crc.empty()) return fail("CRC cannot be empty");
+
+        const std::string filename = s_databasePath;
+        std::vector<std::string> lines;
+        {
+            std::ifstream in(filename);
+            if(in.is_open()) {
+                std::string line;
+                while(std::getline(in, line)) lines.push_back(line);
+            }
+        }
+
+        std::ostringstream oss;
+        oss
+            << trim(raw.PrgChrCrc32) << ","
+            << trim(raw.System) << ","
+            << trim(raw.Board) << ","
+            << trim(raw.PCB) << ","
+            << trim(raw.Chip) << ","
+            << trim(raw.Mapper) << ","
+            << trim(raw.PrgRomSize) << ","
+            << trim(raw.ChrRomSize) << ","
+            << trim(raw.ChrRamSize) << ","
+            << trim(raw.WorkRamSize) << ","
+            << trim(raw.SaveRamSize) << ","
+            << trim(raw.HasBattery) << ","
+            << trim(raw.Mirroring) << ","
+            << trim(raw.InputType) << ","
+            << trim(raw.BusConflicts) << ","
+            << trim(raw.SubMapperId) << ","
+            << trim(raw.VsSystemType) << ","
+            << trim(raw.VsPpuModel);
+        const std::string newLine = oss.str();
+
+        bool replaced = false;
+        for(std::string& line : lines) {
+            std::string t = trim(line);
+            if(t.empty() || t[0] == '#') continue;
+            auto p = t.find(',');
+            std::string first = p == std::string::npos ? t : t.substr(0, p);
+            if(trim(first) == crc) {
+                line = newLine;
+                replaced = true;
+                break;
+            }
+        }
+
+        if(!replaced) lines.push_back(newLine);
+
+        std::ofstream out(filename, std::ios::trunc);
+        if(!out.is_open()) return fail(std::string("Failed to open DB file for write: ") + filename);
+        for(size_t i = 0; i < lines.size(); ++i) {
+            out << lines[i];
+            if(i + 1 < lines.size()) out << "\n";
+        }
+        out.close();
+
+        reload();
+        return true;
     }
 
     std::vector<Item*> find(const std::function<bool(Item& item)>& condition) {

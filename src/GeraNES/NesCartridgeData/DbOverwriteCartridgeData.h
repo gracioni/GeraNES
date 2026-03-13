@@ -29,7 +29,7 @@ private:
 
     std::string m_chip;
 
-    GameDatabase::Sistem m_system;
+    GameDatabase::System m_system;
 
     GameDatabase::InputType m_inputType;
     GameDatabase::PpuModel m_vsPpuModel;
@@ -80,7 +80,7 @@ public:
 
         m_chip = !m_item->Chip.empty() ? m_item->Chip : m_src->chip();
 
-        m_system = m_item->System != GameDatabase::Sistem::Unknown ? m_item->System : m_src->sistem();
+        m_system = m_item->System != GameDatabase::System::Unknown ? m_item->System : m_src->sistem();
 
         m_inputType = m_item->InputDeviceType != GameDatabase::InputType::Unspecified ? m_item->InputDeviceType : m_src->inputType();
 
@@ -169,7 +169,7 @@ public:
         return m_chip;
     }
 
-    GameDatabase::Sistem sistem() override {
+    GameDatabase::System sistem() override {
         return m_system;
     }
 

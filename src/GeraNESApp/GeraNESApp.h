@@ -112,6 +112,7 @@ private:
 
     bool m_showImprovementsWindow = false;
     bool m_showAboutWindow = false;
+    bool m_showRomDatabaseWindow = false;
 
     bool m_showMenuBar = true;
 
@@ -126,6 +127,32 @@ private:
     std::string m_log = "";
     bool m_showLogWindow = false;
     UserToastNotifier m_userToast;
+
+    struct RomDatabaseEditorData {
+        bool loaded = false;
+        bool foundInDatabase = false;
+        std::string statusMessage = "No ROM loaded";
+
+        std::string PrgChrCrc32;
+        std::string System;
+        std::string Board;
+        std::string PCB;
+        std::string Chip;
+        std::string Mapper;
+        std::string PrgRomSize;
+        std::string ChrRomSize;
+        std::string ChrRamSize;
+        std::string WorkRamSize;
+        std::string SaveRamSize;
+        std::string HasBattery;
+        std::string Mirroring;
+        std::string InputType;
+        std::string BusConflicts;
+        std::string SubMapperId;
+        std::string VsSystemType;
+        std::string VsPpuModel;
+    } m_romDbEditor;
+    RomDatabaseEditorData m_romDbSaved;
 
     Uint64 m_mainLoopLastTime = 0;
 
@@ -161,6 +188,144 @@ private:
 
     std::optional<SdlCursor> m_defaultCursor;
     std::optional<SdlCursor> m_crossCursor;
+
+    static bool confirmActionDialog(const std::string& title, const std::string& message)
+    {
+        const SDL_MessageBoxButtonData buttons[] = {
+            { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
+            { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" }
+        };
+        SDL_MessageBoxData data = {};
+        data.flags = SDL_MESSAGEBOX_WARNING;
+        data.window = nullptr;
+        data.title = title.c_str();
+        data.message = message.c_str();
+        data.numbuttons = 2;
+        data.buttons = buttons;
+        data.colorScheme = nullptr;
+
+        int buttonId = 0;
+        if(SDL_ShowMessageBox(&data, &buttonId) < 0) return false;
+        return buttonId == 1;
+    }
+
+    static void setIfNegative(std::string& dst, int value)
+    {
+        dst = value >= 0 ? std::to_string(value) : "";
+    }
+
+    void loadRomDatabaseEditorFromCurrentRom()
+    {
+        m_romDbEditor = RomDatabaseEditorData();
+        m_romDbSaved = RomDatabaseEditorData();
+
+        if(!m_emu.valid()) {
+            m_romDbEditor.loaded = false;
+            m_romDbEditor.statusMessage = "No ROM loaded";
+            return;
+        }
+
+        Cartridge& cart = m_emu.getConsole().cartridge();
+        m_romDbEditor.loaded = true;
+        m_romDbEditor.PrgChrCrc32 = cart.prgChrCrc32String();
+
+        GameDatabase::Item* item = GameDatabase::instance().findByCrc(m_romDbEditor.PrgChrCrc32);
+        if(item != nullptr) {
+            m_romDbEditor.foundInDatabase = true;
+            m_romDbEditor.statusMessage = "Current ROM is in the database";
+            GameDatabase::RawItem raw = GameDatabase::toRawItem(*item);
+            m_romDbEditor.PrgChrCrc32 = raw.PrgChrCrc32;
+            m_romDbEditor.System = raw.System;
+            m_romDbEditor.Board = raw.Board;
+            m_romDbEditor.PCB = raw.PCB;
+            m_romDbEditor.Chip = raw.Chip;
+            m_romDbEditor.Mapper = raw.Mapper;
+            m_romDbEditor.PrgRomSize = raw.PrgRomSize;
+            m_romDbEditor.ChrRomSize = raw.ChrRomSize;
+            m_romDbEditor.ChrRamSize = raw.ChrRamSize;
+            m_romDbEditor.WorkRamSize = raw.WorkRamSize;
+            m_romDbEditor.SaveRamSize = raw.SaveRamSize;
+            m_romDbEditor.HasBattery = raw.HasBattery;
+            m_romDbEditor.Mirroring = raw.Mirroring;
+            m_romDbEditor.InputType = raw.InputType;
+            m_romDbEditor.BusConflicts = raw.BusConflicts;
+            m_romDbEditor.SubMapperId = raw.SubMapperId;
+            m_romDbEditor.VsSystemType = raw.VsSystemType;
+            m_romDbEditor.VsPpuModel = raw.VsPpuModel;
+            m_romDbSaved = m_romDbEditor;
+            return;
+        }
+
+        m_romDbEditor.foundInDatabase = false;
+        m_romDbEditor.statusMessage = "Current ROM is NOT in the database";
+        switch(cart.system()) {
+            case GameDatabase::System::NesNtsc: m_romDbEditor.System = "NesNtsc"; break;
+            case GameDatabase::System::NesPal: m_romDbEditor.System = "NesPal"; break;
+            case GameDatabase::System::Famicom: m_romDbEditor.System = "Famicom"; break;
+            case GameDatabase::System::Dendy: m_romDbEditor.System = "Dendy"; break;
+            case GameDatabase::System::VsSystem: m_romDbEditor.System = "VsSystem"; break;
+            case GameDatabase::System::Playchoice: m_romDbEditor.System = "Playchoice"; break;
+            case GameDatabase::System::FDS: m_romDbEditor.System = "FDS"; break;
+            default: m_romDbEditor.System = ""; break;
+        }
+
+        m_romDbEditor.Board = "";
+        m_romDbEditor.PCB = "";
+        m_romDbEditor.Chip = cart.chip();
+        setIfNegative(m_romDbEditor.Mapper, cart.mapperId());
+        setIfNegative(m_romDbEditor.PrgRomSize, cart.prgSize());
+        setIfNegative(m_romDbEditor.ChrRomSize, cart.chrSize());
+        setIfNegative(m_romDbEditor.ChrRamSize, cart.chrRamSize());
+        setIfNegative(m_romDbEditor.WorkRamSize, cart.ramSize());
+        setIfNegative(m_romDbEditor.SaveRamSize, cart.dbSaveRamSize());
+        m_romDbEditor.HasBattery = cart.hasBattery() ? "1" : "0";
+        m_romDbEditor.Mirroring = "";
+        m_romDbEditor.InputType = std::to_string(static_cast<int>(cart.inputType()));
+        m_romDbEditor.BusConflicts = "";
+        setIfNegative(m_romDbEditor.SubMapperId, cart.subMapperId());
+        m_romDbEditor.VsSystemType = "0";
+        m_romDbEditor.VsPpuModel = std::to_string(static_cast<int>(cart.vsPpuModel()));
+    }
+
+    void saveRomDatabaseEditor()
+    {
+        if(!m_romDbEditor.loaded) return;
+
+        if(!confirmActionDialog("Save ROM Database Entry",
+            "Are you sure you want to save this entry to db.txt?")) {
+            return;
+        }
+
+        GameDatabase::RawItem raw;
+        raw.PrgChrCrc32 = m_romDbEditor.PrgChrCrc32;
+        raw.System = m_romDbEditor.System;
+        raw.Board = m_romDbEditor.Board;
+        raw.PCB = m_romDbEditor.PCB;
+        raw.Chip = m_romDbEditor.Chip;
+        raw.Mapper = m_romDbEditor.Mapper;
+        raw.PrgRomSize = m_romDbEditor.PrgRomSize;
+        raw.ChrRomSize = m_romDbEditor.ChrRomSize;
+        raw.ChrRamSize = m_romDbEditor.ChrRamSize;
+        raw.WorkRamSize = m_romDbEditor.WorkRamSize;
+        raw.SaveRamSize = m_romDbEditor.SaveRamSize;
+        raw.HasBattery = m_romDbEditor.HasBattery;
+        raw.Mirroring = m_romDbEditor.Mirroring;
+        raw.InputType = m_romDbEditor.InputType;
+        raw.BusConflicts = m_romDbEditor.BusConflicts;
+        raw.SubMapperId = m_romDbEditor.SubMapperId;
+        raw.VsSystemType = m_romDbEditor.VsSystemType;
+        raw.VsPpuModel = m_romDbEditor.VsPpuModel;
+
+        std::string error;
+        if(GameDatabase::instance().upsertRawItem(raw, &error)) {
+            Logger::instance().log("ROM database entry saved", Logger::Type::USER);
+            loadRomDatabaseEditorFromCurrentRom();
+        }
+        else {
+            if(error.empty()) error = "Failed to save ROM database entry";
+            Logger::instance().log(error, Logger::Type::ERROR);
+        }
+    }
 
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           

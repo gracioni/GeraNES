@@ -447,15 +447,15 @@ public:
 
             switch(m_cartridge.system()) {
 
-                case GameDatabase::Sistem::NesPal:
+                case GameDatabase::System::NesPal:
                     m_settings.setRegion(Settings::Region::PAL);
                     break;
 
-                case GameDatabase::Sistem::NesNtsc:
+                case GameDatabase::System::NesNtsc:
                     m_settings.setRegion(Settings::Region::NTSC);
                     break;
 
-                case GameDatabase::Sistem::Dendy:
+                case GameDatabase::System::Dendy:
                     m_settings.setRegion(Settings::Region::DENDY);
                     break;
 
