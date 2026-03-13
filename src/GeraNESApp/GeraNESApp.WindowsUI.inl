@@ -94,7 +94,7 @@ inline void GeraNESApp::showGui()
                     if(changed) ImGui::PopStyleColor(3);
                 };
 
-                auto drawStringEnumCombo = [&](const char* label, std::string& value, const std::vector<std::pair<const char*, const char*>>& options, bool changed) {
+                auto drawStringEnumCombo = [&](const char* id, std::string& value, const std::vector<std::pair<const char*, const char*>>& options, bool changed) {
                     int current = 0;
                     for(size_t i = 0; i < options.size(); ++i) {
                         if(value == options[i].first) {
@@ -104,7 +104,7 @@ inline void GeraNESApp::showGui()
                     }
 
                     pushChangedStyle(changed);
-                    if(ImGui::BeginCombo(label, options[current].second)) {
+                    if(ImGui::BeginCombo(id, options[current].second)) {
                         for(size_t i = 0; i < options.size(); ++i) {
                             const bool selected = static_cast<int>(i) == current;
                             if(ImGui::Selectable(options[i].second, selected)) {
@@ -117,7 +117,7 @@ inline void GeraNESApp::showGui()
                     popChangedStyle(changed);
                 };
 
-                auto drawIntEnumCombo = [&](const char* label, std::string& value, const std::vector<std::pair<int, const char*>>& options, bool changed) {
+                auto drawIntEnumCombo = [&](const char* id, std::string& value, const std::vector<std::pair<int, const char*>>& options, bool changed) {
                     int parsed = 0;
                     try { parsed = value.empty() ? options.front().first : std::stoi(value); } catch(...) { parsed = options.front().first; }
 
@@ -130,7 +130,7 @@ inline void GeraNESApp::showGui()
                     }
 
                     pushChangedStyle(changed);
-                    if(ImGui::BeginCombo(label, options[current].second)) {
+                    if(ImGui::BeginCombo(id, options[current].second)) {
                         for(size_t i = 0; i < options.size(); ++i) {
                             const bool selected = static_cast<int>(i) == current;
                             if(ImGui::Selectable(options[i].second, selected)) {
@@ -143,94 +143,166 @@ inline void GeraNESApp::showGui()
                     popChangedStyle(changed);
                 };
 
-                ImGui::InputText("PrgChrCrc32", &m_romDbEditor.PrgChrCrc32, ImGuiInputTextFlags_ReadOnly);
-
-                drawStringEnumCombo("System", m_romDbEditor.System, {
-                    {"", "Default"},
-                    {"NesNtsc", "NesNtsc"},
-                    {"NesPal", "NesPal"},
-                    {"Famicom", "Famicom"},
-                    {"Dendy", "Dendy"},
-                    {"VsSystem", "VsSystem"},
-                    {"Playchoice", "Playchoice"},
-                    {"FDS", "FDS"},
-                    {"FamicomNetworkSystem", "FamicomNetworkSystem"},
-                }, isChanged(m_romDbEditor.System, m_romDbSaved.System));
-
                 bool ch = false;
-                ch = isChanged(m_romDbEditor.Board, m_romDbSaved.Board); pushChangedStyle(ch); ImGui::InputText("Board", &m_romDbEditor.Board); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.PCB, m_romDbSaved.PCB); pushChangedStyle(ch); ImGui::InputText("PCB", &m_romDbEditor.PCB); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.Chip, m_romDbSaved.Chip); pushChangedStyle(ch); ImGui::InputText("Chip", &m_romDbEditor.Chip); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.Mapper, m_romDbSaved.Mapper); pushChangedStyle(ch); ImGui::InputText("Mapper", &m_romDbEditor.Mapper); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId); pushChangedStyle(ch); ImGui::InputText("SubMapperId", &m_romDbEditor.SubMapperId); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize); pushChangedStyle(ch); ImGui::InputText("PrgRomSize", &m_romDbEditor.PrgRomSize); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize); pushChangedStyle(ch); ImGui::InputText("ChrRomSize", &m_romDbEditor.ChrRomSize); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize); pushChangedStyle(ch); ImGui::InputText("ChrRamSize", &m_romDbEditor.ChrRamSize); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize); pushChangedStyle(ch); ImGui::InputText("WorkRamSize", &m_romDbEditor.WorkRamSize); popChangedStyle(ch);
-                ch = isChanged(m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize); pushChangedStyle(ch); ImGui::InputText("SaveRamSize", &m_romDbEditor.SaveRamSize); popChangedStyle(ch);
-
-                bool hasBattery = m_romDbEditor.HasBattery == "1";
-                ch = isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery);
+                ch = isChanged(m_romDbEditor.PrgChrCrc32, m_romDbSaved.PrgChrCrc32);
                 pushChangedStyle(ch);
-                if(ImGui::Checkbox("HasBattery", &hasBattery)) {
-                    m_romDbEditor.HasBattery = hasBattery ? "1" : "0";
-                }
+                ImGui::InputText("PrgChrCrc32", &m_romDbEditor.PrgChrCrc32, ImGuiInputTextFlags_ReadOnly);
                 popChangedStyle(ch);
 
-                drawStringEnumCombo("Mirroring", m_romDbEditor.Mirroring, {
-                    {"", "Default"},
-                    {"h", "Horizontal"},
-                    {"v", "Vertical"},
-                    {"4", "Four Screen"},
-                    {"0", "Single Screen A"},
-                    {"1", "Single Screen B"},
-                }, isChanged(m_romDbEditor.Mirroring, m_romDbSaved.Mirroring));
+                auto drawLabelCell = [&](const char* label) {
+                    ImGui::TableNextColumn();
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(label);
+                };
+                auto drawInputTextCell = [&](const char* id, std::string& value, const std::string& savedValue) {
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1.0f);
+                    bool changed = isChanged(value, savedValue);
+                    pushChangedStyle(changed);
+                    ImGui::InputText(id, &value);
+                    popChangedStyle(changed);
+                };
+                auto drawStringEnumCell = [&](const char* id, std::string& value, const std::string& savedValue, const std::vector<std::pair<const char*, const char*>>& options) {
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1.0f);
+                    drawStringEnumCombo(id, value, options, isChanged(value, savedValue));
+                };
+                auto drawIntEnumCell = [&](const char* id, std::string& value, const std::string& savedValue, const std::vector<std::pair<int, const char*>>& options) {
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1.0f);
+                    drawIntEnumCombo(id, value, options, isChanged(value, savedValue));
+                };
+                auto drawEmptyPair = [&]() {
+                    ImGui::TableNextColumn();
+                    ImGui::TableNextColumn();
+                };
 
-                drawIntEnumCombo("InputType", m_romDbEditor.InputType, {
-                    {0, "Unspecified"}, {1, "StandardControllers"}, {2, "FourScore"}, {3, "FourPlayerAdapter"},
-                    {4, "VsSystem"}, {5, "VsSystemSwapped"}, {6, "VsSystemSwapAB"}, {7, "VsZapper"},
-                    {8, "Zapper"}, {9, "TwoZappers"}, {10, "BandaiHypershot"}, {11, "PowerPadSideA"},
-                    {12, "PowerPadSideB"}, {13, "FamilyTrainerSideA"}, {14, "FamilyTrainerSideB"},
-                    {15, "ArkanoidControllerNes"}, {16, "ArkanoidControllerFamicom"}, {17, "DoubleArkanoidController"},
-                    {18, "KonamiHyperShot"}, {19, "PachinkoController"}, {20, "ExcitingBoxing"},
-                    {21, "JissenMahjong"}, {22, "PartyTap"}, {23, "OekaKidsTablet"}, {24, "BarcodeBattler"},
-                    {25, "MiraclePiano"}, {26, "PokkunMoguraa"}, {27, "TopRider"}, {28, "DoubleFisted"},
-                    {29, "Famicom3dSystem"}, {30, "DoremikkoKeyboard"}, {31, "ROB"}, {32, "FamicomDataRecorder"},
-                    {33, "TurboFile"}, {34, "BattleBox"}, {35, "FamilyBasicKeyboard"}, {36, "Pec586Keyboard"},
-                    {37, "Bit79Keyboard"}, {38, "SuborKeyboard"}, {39, "SuborKeyboardMouse1"},
-                    {40, "SuborKeyboardMouse2"}, {41, "SnesMouse"}, {42, "GenericMulticart"},
-                    {43, "SnesControllers"}, {44, "RacermateBicycle"}, {45, "UForce"}
-                }, isChanged(m_romDbEditor.InputType, m_romDbSaved.InputType));
+                const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV;
+                if(ImGui::BeginTable("RomDbFieldsTable", 4, tableFlags)) {
+                    ImGui::TableSetupColumn("LabelA", ImGuiTableColumnFlags_WidthFixed, 115.0f);
+                    ImGui::TableSetupColumn("ValueA", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                    ImGui::TableSetupColumn("LabelB", ImGuiTableColumnFlags_WidthFixed, 115.0f);
+                    ImGui::TableSetupColumn("ValueB", ImGuiTableColumnFlags_WidthStretch, 1.0f);
 
-                drawStringEnumCombo("BusConflicts", m_romDbEditor.BusConflicts, {
-                    {"", "Default"},
-                    {"Y", "Yes"},
-                    {"N", "No"},
-                }, isChanged(m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts));
+                    ImGui::TableNextRow();
+                    drawLabelCell("System");
+                    drawStringEnumCell("##System", m_romDbEditor.System, m_romDbSaved.System, {
+                        {"", "Default"},
+                        {"NesNtsc", "NesNtsc"},
+                        {"NesPal", "NesPal"},
+                        {"Famicom", "Famicom"},
+                        {"Dendy", "Dendy"},
+                        {"VsSystem", "VsSystem"},
+                        {"Playchoice", "Playchoice"},
+                        {"FDS", "FDS"},
+                        {"FamicomNetworkSystem", "FamicomNetworkSystem"},
+                    });
+                    drawLabelCell("Mapper");
+                    drawInputTextCell("##Mapper", m_romDbEditor.Mapper, m_romDbSaved.Mapper);
 
-                drawIntEnumCombo("VsSystemType", m_romDbEditor.VsSystemType, {
-                    {0, "Default"},
-                    {1, "RbiBaseballProtection"},
-                    {2, "TkoBoxingProtection"},
-                    {3, "SuperXeviousProtection"},
-                    {4, "IceClimberProtection"},
-                    {5, "VsDualSystem"},
-                    {6, "RaidOnBungelingBayProtection"},
-                }, isChanged(m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType));
+                    ImGui::TableNextRow();
+                    drawLabelCell("SubMapperId");
+                    drawInputTextCell("##SubMapperId", m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId);
+                    drawLabelCell("Board");
+                    drawInputTextCell("##Board", m_romDbEditor.Board, m_romDbSaved.Board);
 
-                drawIntEnumCombo("VsPpuModel", m_romDbEditor.VsPpuModel, {
-                    {0, "Ppu2C02"},
-                    {1, "Ppu2C03"},
-                    {2, "Ppu2C04A"},
-                    {3, "Ppu2C04B"},
-                    {4, "Ppu2C04C"},
-                    {5, "Ppu2C04D"},
-                    {6, "Ppu2C05A"},
-                    {7, "Ppu2C05B"},
-                    {8, "Ppu2C05C"},
-                    {9, "Ppu2C05D"},
-                    {10, "Ppu2C05E"},
-                }, isChanged(m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel));
+                    ImGui::TableNextRow();
+                    drawLabelCell("PCB");
+                    drawInputTextCell("##PCB", m_romDbEditor.PCB, m_romDbSaved.PCB);
+                    drawLabelCell("Chip");
+                    drawInputTextCell("##Chip", m_romDbEditor.Chip, m_romDbSaved.Chip);
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("PrgRomSize");
+                    drawInputTextCell("##PrgRomSize", m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize);
+                    drawLabelCell("ChrRomSize");
+                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize);
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("ChrRamSize");
+                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize);
+                    drawLabelCell("WorkRamSize");
+                    drawInputTextCell("##WorkRamSize", m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize);
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("SaveRamSize");
+                    drawInputTextCell("##SaveRamSize", m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize);
+                    drawLabelCell("HasBattery");
+                    ImGui::TableNextColumn();
+                    {
+                        bool hasBattery = m_romDbEditor.HasBattery == "1";
+                        const bool changed = isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery);
+                        pushChangedStyle(changed);
+                        if(ImGui::Checkbox("##HasBattery", &hasBattery)) {
+                            m_romDbEditor.HasBattery = hasBattery ? "1" : "0";
+                        }
+                        popChangedStyle(changed);
+                    }
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("Mirroring");
+                    drawStringEnumCell("##Mirroring", m_romDbEditor.Mirroring, m_romDbSaved.Mirroring, {
+                        {"", "Default"},
+                        {"h", "Horizontal"},
+                        {"v", "Vertical"},
+                        {"4", "Four Screen"},
+                        {"0", "Single Screen A"},
+                        {"1", "Single Screen B"},
+                    });
+                    drawLabelCell("BusConflicts");
+                    drawStringEnumCell("##BusConflicts", m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts, {
+                        {"", "Default"},
+                        {"Y", "Yes"},
+                        {"N", "No"},
+                    });
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("InputType");
+                    drawIntEnumCell("##InputType", m_romDbEditor.InputType, m_romDbSaved.InputType, {
+                        {0, "Unspecified"}, {1, "StandardControllers"}, {2, "FourScore"}, {3, "FourPlayerAdapter"},
+                        {4, "VsSystem"}, {5, "VsSystemSwapped"}, {6, "VsSystemSwapAB"}, {7, "VsZapper"},
+                        {8, "Zapper"}, {9, "TwoZappers"}, {10, "BandaiHypershot"}, {11, "PowerPadSideA"},
+                        {12, "PowerPadSideB"}, {13, "FamilyTrainerSideA"}, {14, "FamilyTrainerSideB"},
+                        {15, "ArkanoidControllerNes"}, {16, "ArkanoidControllerFamicom"}, {17, "DoubleArkanoidController"},
+                        {18, "KonamiHyperShot"}, {19, "PachinkoController"}, {20, "ExcitingBoxing"},
+                        {21, "JissenMahjong"}, {22, "PartyTap"}, {23, "OekaKidsTablet"}, {24, "BarcodeBattler"},
+                        {25, "MiraclePiano"}, {26, "PokkunMoguraa"}, {27, "TopRider"}, {28, "DoubleFisted"},
+                        {29, "Famicom3dSystem"}, {30, "DoremikkoKeyboard"}, {31, "ROB"}, {32, "FamicomDataRecorder"},
+                        {33, "TurboFile"}, {34, "BattleBox"}, {35, "FamilyBasicKeyboard"}, {36, "Pec586Keyboard"},
+                        {37, "Bit79Keyboard"}, {38, "SuborKeyboard"}, {39, "SuborKeyboardMouse1"},
+                        {40, "SuborKeyboardMouse2"}, {41, "SnesMouse"}, {42, "GenericMulticart"},
+                        {43, "SnesControllers"}, {44, "RacermateBicycle"}, {45, "UForce"}
+                    });
+                    drawLabelCell("VsSystemType");
+                    drawIntEnumCell("##VsSystemType", m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType, {
+                        {0, "Default"},
+                        {1, "RbiBaseballProtection"},
+                        {2, "TkoBoxingProtection"},
+                        {3, "SuperXeviousProtection"},
+                        {4, "IceClimberProtection"},
+                        {5, "VsDualSystem"},
+                        {6, "RaidOnBungelingBayProtection"},
+                    });
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("VsPpuModel");
+                    drawIntEnumCell("##VsPpuModel", m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel, {
+                        {0, "Ppu2C02"},
+                        {1, "Ppu2C03"},
+                        {2, "Ppu2C04A"},
+                        {3, "Ppu2C04B"},
+                        {4, "Ppu2C04C"},
+                        {5, "Ppu2C04D"},
+                        {6, "Ppu2C05A"},
+                        {7, "Ppu2C05B"},
+                        {8, "Ppu2C05C"},
+                        {9, "Ppu2C05D"},
+                        {10, "Ppu2C05E"},
+                    });
+                    drawEmptyPair();
+
+                    ImGui::EndTable();
+                }
 
                 ImGui::Separator();
                 if(ImGui::Button("Save")) {
