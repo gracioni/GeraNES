@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseMapper.h"
+#include "GeraNES/util/StringTrim.h"
 
 //MMC3
 //TxROM
@@ -70,7 +71,7 @@ public:
             m_chrMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
         }
 
-        m_mmc3RevAIrqs = cd.chip().substr(0, 5).compare("MMC3A") == 0;        
+        m_mmc3RevAIrqs = trim(cd.chip()).rfind("MMC3A", 0) == 0;
     }
 
     virtual ~Mapper004()
