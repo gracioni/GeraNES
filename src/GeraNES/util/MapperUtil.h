@@ -50,6 +50,7 @@ static std::string getMapperName(int num)
     case 99: return "Nintendo Vs. System";
     case 118: return "TxSROM";
     case 119: return "TQROM";
+    case 206: return "DxROM (Namco 108)";
     case 245: return "Waixing SH2";
     }
 
