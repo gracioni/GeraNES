@@ -46,7 +46,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem("Rom Database"))
+            if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
             {
                 loadRomDatabaseEditorFromCurrentRom();
                 m_showRomDatabaseWindow = true;

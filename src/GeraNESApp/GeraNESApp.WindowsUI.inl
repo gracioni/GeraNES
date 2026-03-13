@@ -162,6 +162,7 @@ inline void GeraNESApp::showGui()
                 ch = isChanged(m_romDbEditor.PCB, m_romDbSaved.PCB); pushChangedStyle(ch); ImGui::InputText("PCB", &m_romDbEditor.PCB); popChangedStyle(ch);
                 ch = isChanged(m_romDbEditor.Chip, m_romDbSaved.Chip); pushChangedStyle(ch); ImGui::InputText("Chip", &m_romDbEditor.Chip); popChangedStyle(ch);
                 ch = isChanged(m_romDbEditor.Mapper, m_romDbSaved.Mapper); pushChangedStyle(ch); ImGui::InputText("Mapper", &m_romDbEditor.Mapper); popChangedStyle(ch);
+                ch = isChanged(m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId); pushChangedStyle(ch); ImGui::InputText("SubMapperId", &m_romDbEditor.SubMapperId); popChangedStyle(ch);
                 ch = isChanged(m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize); pushChangedStyle(ch); ImGui::InputText("PrgRomSize", &m_romDbEditor.PrgRomSize); popChangedStyle(ch);
                 ch = isChanged(m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize); pushChangedStyle(ch); ImGui::InputText("ChrRomSize", &m_romDbEditor.ChrRomSize); popChangedStyle(ch);
                 ch = isChanged(m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize); pushChangedStyle(ch); ImGui::InputText("ChrRamSize", &m_romDbEditor.ChrRamSize); popChangedStyle(ch);
@@ -206,8 +207,6 @@ inline void GeraNESApp::showGui()
                     {"Y", "Yes"},
                     {"N", "No"},
                 }, isChanged(m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts));
-
-                ch = isChanged(m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId); pushChangedStyle(ch); ImGui::InputText("SubMapperId", &m_romDbEditor.SubMapperId); popChangedStyle(ch);
 
                 drawIntEnumCombo("VsSystemType", m_romDbEditor.VsSystemType, {
                     {0, "Default"},
