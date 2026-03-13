@@ -37,12 +37,18 @@ private:
 public:
 
     DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* item) : m_src(src), m_item(item), ICartridgeData(src->romFile()) {
-               
-        m_prgSize = m_item->PrgRomSize > 0 ? m_item->PrgRomSize*1024 : m_src->prgSize();
-        m_chrSize = m_item->ChrRomSize > 0 ? m_item->ChrRomSize*1024 : m_src->chrSize();
-        m_ramSize = m_item->WorkRamSize > 0 ? m_item->WorkRamSize*1024 : m_src->ramSize();
-        m_chrRamSize = m_item->ChrRamSize > 0 ? m_item->ChrRamSize*1024 : m_src->chrRamSize();
-        m_saveRamSize = m_item->SaveRamSize > 0 ? m_item->SaveRamSize*1024 : m_src->saveRamSize();
+        auto dbSizeKbToBytes = [](int dbValueKb, int srcBytes) {
+            if(dbValueKb <= 0) return srcBytes;
+            // Backward compatibility: older UI versions saved these fields in bytes.
+            if(srcBytes > 0 && dbValueKb == srcBytes) return srcBytes;
+            return dbValueKb * 1024;
+        };
+
+        m_prgSize = dbSizeKbToBytes(m_item->PrgRomSize, m_src->prgSize());
+        m_chrSize = dbSizeKbToBytes(m_item->ChrRomSize, m_src->chrSize());
+        m_ramSize = dbSizeKbToBytes(m_item->WorkRamSize, m_src->ramSize());
+        m_chrRamSize = dbSizeKbToBytes(m_item->ChrRamSize, m_src->chrRamSize());
+        m_saveRamSize = dbSizeKbToBytes(m_item->SaveRamSize, m_src->saveRamSize());
 
         switch(m_item->HasBattery) {
             case GameDatabase::Battery::Yes: m_hasBattery = true; break;

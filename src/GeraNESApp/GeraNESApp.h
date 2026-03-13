@@ -194,6 +194,11 @@ private:
         dst = value >= 0 ? std::to_string(value) : "";
     }
 
+    static void setIfNegativeKb(std::string& dst, int bytesValue)
+    {
+        dst = bytesValue >= 0 ? std::to_string(bytesValue / 1024) : "";
+    }
+
     void loadRomDatabaseEditorFromCurrentRom()
     {
         m_romDbEditor = RomDatabaseEditorData();
@@ -253,11 +258,11 @@ private:
         m_romDbEditor.PCB = "";
         m_romDbEditor.Chip = cart.chip();
         setIfNegative(m_romDbEditor.Mapper, cart.mapperId());
-        setIfNegative(m_romDbEditor.PrgRomSize, cart.prgSize());
-        setIfNegative(m_romDbEditor.ChrRomSize, cart.chrSize());
-        setIfNegative(m_romDbEditor.ChrRamSize, cart.chrRamSize());
-        setIfNegative(m_romDbEditor.WorkRamSize, cart.ramSize());
-        setIfNegative(m_romDbEditor.SaveRamSize, cart.dbSaveRamSize());
+        setIfNegativeKb(m_romDbEditor.PrgRomSize, cart.prgSize());
+        setIfNegativeKb(m_romDbEditor.ChrRomSize, cart.chrSize());
+        setIfNegativeKb(m_romDbEditor.ChrRamSize, cart.chrRamSize());
+        setIfNegativeKb(m_romDbEditor.WorkRamSize, cart.ramSize());
+        setIfNegativeKb(m_romDbEditor.SaveRamSize, cart.dbSaveRamSize());
         m_romDbEditor.HasBattery = cart.hasBattery() ? "1" : "0";
         m_romDbEditor.Mirroring = "";
         m_romDbEditor.InputType = std::to_string(static_cast<int>(cart.inputType()));
