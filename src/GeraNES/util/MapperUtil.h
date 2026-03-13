@@ -45,6 +45,7 @@ static std::string getMapperName(int num)
     case 75: return "Konami VRC1";
     case 78: return "Irem 74HC161/32-based";
     case 79: return "NINA-003/NINA-006";
+    case 80: return "Taito X1-005";
     case 90: return "Pirate HK-SF3 chip";
     case 99: return "Nintendo Vs. System";
     case 118: return "TxSROM";
