@@ -46,14 +46,6 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
-            {
-                loadRomDatabaseEditorFromCurrentRom();
-                m_showRomDatabaseWindow = true;
-            }
-
-            ImGui::Separator();
-
             sc = m_shortcuts.get("quit");
             if( sc != nullptr) {
 
@@ -353,6 +345,20 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu("Audio"))
             {
                 drawAudioChannelDebugControls();
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Tools"))
+        {
+            if (ImGui::BeginMenu("Advanced"))
+            {
+                if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
+                {
+                    loadRomDatabaseEditorFromCurrentRom();
+                    m_showRomDatabaseWindow = true;
+                }
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();
