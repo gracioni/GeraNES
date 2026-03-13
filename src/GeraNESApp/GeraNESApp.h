@@ -248,6 +248,13 @@ private:
                 im.isPressed(m_controller2.left), im.isPressed(m_controller2.right)
             );
 
+            m_emu.setBandaiHyperShotButtons(
+                im.isPressed(m_controller2.a), im.isPressed(m_controller2.b),
+                im.isPressed(m_controller2.select), im.isPressed(m_controller2.start),
+                im.isPressed(m_controller2.up), im.isPressed(m_controller2.down),
+                im.isPressed(m_controller2.left), im.isPressed(m_controller2.right)
+            );
+
             {
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
@@ -265,6 +272,7 @@ private:
                 // allow off-screen reload on P2 (left or right).
                 m_emu.setZapper(Settings::Port::P_1, zapperX, zapperY, rightClick);
                 m_emu.setZapper(Settings::Port::P_2, zapperX, zapperY, leftClick || rightClick);
+                m_emu.setBandaiHyperShot(zapperX, zapperY, leftClick || rightClick);
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
@@ -374,7 +382,8 @@ private:
         bool inside = pointInRect(glm::vec2(mx,my), m_nesScreenRect);
 
         bool useZapper = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
-        m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
+        m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
+        m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
 
         if(!m_imGuiWantsMouse && inside && useZapper) {
             if(m_crossCursor.has_value() && !m_crossCursor->isCurrent()) {

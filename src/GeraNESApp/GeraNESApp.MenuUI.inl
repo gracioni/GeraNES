@@ -235,6 +235,18 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Expansion")) {
+                if (ImGui::MenuItem("None", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::NONE))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::NONE);
+                }
+                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
+                }
+                ImGui::EndMenu();
+            }
+
             ImGui::Separator();
 
             if (ImGui::BeginMenu("Controller")) {

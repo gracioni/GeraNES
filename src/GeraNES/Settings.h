@@ -9,7 +9,8 @@ class Settings {
 
 public:
     enum class Region { PAL, NTSC, DENDY };
-    enum class Device { CONTROLLER, ZAPPER };
+    enum class Device { CONTROLLER, ZAPPER, BANDAI_HYPERSHOT };
+    enum class ExpansionDevice { NONE, BANDAI_HYPERSHOT };
     enum class Port { P_1, P_2 };
 
 private:
@@ -22,6 +23,7 @@ private:
         {Port::P_1, Device::CONTROLLER},
         {Port::P_2, Device::CONTROLLER}
     };
+    ExpansionDevice m_expansionDevice = ExpansionDevice::NONE;
 
 public:
 
@@ -31,6 +33,7 @@ public:
         SERIALIZEDATA(s, m_overclockLines);  
         SERIALIZEDATA(s, m_disableSpriteLimit);
         serialize_map(s, m_portDevice);
+        SERIALIZEDATA(s, m_expansionDevice);
     }
 
     GERANES_INLINE void setRegion(Region r)
@@ -105,5 +108,15 @@ public:
     {
         if (auto it = m_portDevice.find(port); it != m_portDevice.end())
             it->second = device;
+    }
+
+    GERANES_INLINE ExpansionDevice getExpansionDevice() const
+    {
+        return m_expansionDevice;
+    }
+
+    GERANES_INLINE void setExpansionDevice(ExpansionDevice device)
+    {
+        m_expansionDevice = device;
     }
 };

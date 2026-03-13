@@ -8,6 +8,7 @@
 #include "APU/APU.h"
 #include "Controller.h"
 #include "Zapper.h"
+#include "BandaiHyperShot.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
 #include "DMA.h"
@@ -38,6 +39,7 @@ private:
     Controller m_controller2;
     Zapper m_zapper1;
     Zapper m_zapper2;
+    BandaiHyperShot m_bandaiHyperShot;
     Console m_console;
 
     uint32_t m_updateCyclesAcc;
@@ -134,6 +136,7 @@ private:
                     {
                         m_controller1.write(data);
                         m_controller2.write(data);
+                        m_bandaiHyperShot.write4016(data);
                         m_cartridge.onCpuWrite(addr, data);
 
                     }
@@ -143,6 +146,12 @@ private:
 
                         if(useZapper) data = m_zapper1.read();
                         else data = m_controller1.read(!m_cpu.isHalted());
+
+                        bool useBandaiHyperShot =
+                            m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
+                        if(useBandaiHyperShot) {
+                            data = static_cast<uint8_t>((data & ~0x02) | m_bandaiHyperShot.read4016(!m_cpu.isHalted()));
+                        }
                         data = (data&0x1F) | (m_openBus&(~0x1F));                        
                     }
                     break;
@@ -157,6 +166,13 @@ private:
 
                         if(useZapper) data = m_zapper2.read();
                         else data = m_controller2.read(!m_cpu.isHalted());                        
+
+                        bool useBandaiHyperShot =
+                            m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
+                        if(useBandaiHyperShot) {
+                            const uint8_t expData = m_bandaiHyperShot.read4017();
+                            data = static_cast<uint8_t>((data & ~0x18) | (expData & 0x18));
+                        }
                         data = (data&0x1F) | (m_openBus&(~0x1F));
                     }
                     break;
@@ -229,6 +245,7 @@ private:
     {
         m_zapper1.onScanlineChanged();
         m_zapper2.onScanlineChanged();
+        m_bandaiHyperShot.onScanlineChanged();
         m_cartridge.onScanlineStart(m_ppu.isActivelyRendering(), m_ppu.scanline());
     }
 
@@ -322,6 +339,7 @@ public:
     m_controller2(),
     m_zapper1(),
     m_zapper2(),
+    m_bandaiHyperShot(),
     m_rewind(*this),
     m_console(m_cpu, m_ppu, m_dma, m_apu, m_cartridge)
     {
@@ -349,6 +367,7 @@ public:
 
         m_zapper1.setPixelChecker(f);
         m_zapper2.setPixelChecker(f);
+        m_bandaiHyperShot.setPixelChecker(f);
     }
 
     ~GeraNESEmu()
@@ -448,16 +467,25 @@ public:
                 case GameDatabase::InputType::Zapper:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
                 case GameDatabase::InputType::TwoZappers:
                     setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
+                case GameDatabase::InputType::BandaiHypershot:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                     break;
 
                 default:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
             }
 
             updateCyclesPerSecond();
@@ -693,6 +721,16 @@ public:
         m_settings.setPortDevice(port, device);
     }
 
+    GERANES_INLINE Settings::ExpansionDevice getExpansionDevice() const
+    {
+        return m_settings.getExpansionDevice();
+    }
+
+    GERANES_INLINE void setExpansionDevice(Settings::ExpansionDevice device)
+    {
+        m_settings.setExpansionDevice(device);
+    }
+
     bool overclocked()
     {
         return m_settings.overclockLines() > 0;
@@ -777,6 +815,7 @@ public:
         m_controller2.serialization(s);
         m_zapper1.serialization(s);
         m_zapper2.serialization(s);
+        m_bandaiHyperShot.serialization(s);
         m_settings.serialization(s);
         m_dma.serialization(s);
 
@@ -821,8 +860,17 @@ public:
                 m_zapper2.setTrigger(trigger);
                 break;
         }
+    }
 
-        
+    void setBandaiHyperShotButtons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    {
+        m_bandaiHyperShot.setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+    }
+
+    void setBandaiHyperShot(int x, int y, bool trigger)
+    {
+        m_bandaiHyperShot.setCursorPosition(x, y);
+        m_bandaiHyperShot.setTrigger(trigger);
     }
 
     Console& getConsole() {
