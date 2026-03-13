@@ -139,8 +139,6 @@ private:
                         m_controller1.write(data);
                         m_controller2.write(data);
                         m_bandaiHyperShot.write4016(data);
-                        m_cartridge.onCpuWrite(addr, data);
-
                     }
                     else {
 
@@ -227,6 +225,13 @@ private:
             }
             break;
 
+        }
+
+        if constexpr(writeFlag) {
+            // Mapper CPU-write hooks must not see DMA writes.
+            if(!m_cpu.isHalted()) {
+                m_cartridge.onCpuWrite(static_cast<uint16_t>(addr), data);
+            }
         }
 
         if constexpr(!writeFlag)
@@ -508,6 +513,7 @@ public:
             updateCyclesPerSecond();
 
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
+            m_cartridge.reset();
             m_ppu.init();
             m_cpu.init();
             m_apu.init();
