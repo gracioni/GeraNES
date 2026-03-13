@@ -158,7 +158,7 @@ private:
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
-                        if(m_cartridge.system() == GameDatabase::System::VsSystem) {
+                        if(m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem) {
                             if(m_vsServiceFrames[0] > 0) data |= 0x04;
                             if(m_vsInsertCoinFrames[0] > 0) data |= 0x20;
                             if(m_vsInsertCoinFrames[1] > 0) data |= 0x40;
@@ -186,7 +186,7 @@ private:
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
-                        if(m_cartridge.system() == GameDatabase::System::VsSystem) {
+                        if(m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem) {
                             if(m_vsServiceFrames[1] > 0) data |= 0x04;
                             if(m_vsInsertCoinFrames[2] > 0) data |= 0x20;
                             if(m_vsInsertCoinFrames[3] > 0) data |= 0x40;
@@ -927,7 +927,7 @@ public:
     void vsInsertCoin(int slot)
     {
         if(slot < 1 || slot > 4) return;
-        if(m_cartridge.system() != GameDatabase::System::VsSystem) return;
+        if(!m_cartridge.isValid() || m_cartridge.system() != GameDatabase::System::VsSystem) return;
         m_vsInsertCoinFrames[slot - 1] = VS_INSERT_COIN_FRAMES;
         Logger::instance().log("VS Insert Coin " + std::to_string(slot), Logger::Type::USER);
     }
@@ -935,7 +935,7 @@ public:
     void vsServiceButton(int button)
     {
         if(button < 1 || button > 2) return;
-        if(m_cartridge.system() != GameDatabase::System::VsSystem) return;
+        if(!m_cartridge.isValid() || m_cartridge.system() != GameDatabase::System::VsSystem) return;
         m_vsServiceFrames[button - 1] = VS_SERVICE_BUTTON_FRAMES;
         Logger::instance().log("VS Service Button " + std::to_string(button), Logger::Type::USER);
     }
