@@ -48,6 +48,7 @@ static std::string getMapperName(int num)
     case 80: return "Taito X1-005";
     case 90: return "Pirate HK-SF3 chip";
     case 99: return "Nintendo Vs. System";
+    case 113: return "NINA-03/NINA-06 multicart";
     case 118: return "TxSROM";
     case 119: return "TQROM";
     case 206: return "DxROM (Namco 108)";
