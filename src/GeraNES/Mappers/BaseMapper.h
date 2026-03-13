@@ -56,6 +56,7 @@ private:
 
     ICartridgeData& m_cd;
     uint8_t* m_chrRam = nullptr;
+    int m_chrRamSize = 0;
     uint8_t* m_sRam = nullptr;    
 
     std::string saveRamFile() {
@@ -109,16 +110,21 @@ private:
             loadSaveRamFromFile();
         }
 
-        if(cd().chrRamSize() > 0) {
-            m_chrRam = new uint8_t[cd().chrRamSize()];
-            memset(m_chrRam, 0, cd().chrRamSize());
-        }
+        if(cd().chrRamSize() > 0) allocateChrRam(cd().chrRamSize());
     }
 
 protected:
 
     BaseMapper(ICartridgeData& cd) : m_cd(cd)
     {               
+    }
+
+    void allocateChrRam(int size)
+    {
+        if(size <= 0 || m_chrRam != nullptr) return;
+        m_chrRam = new uint8_t[size];
+        m_chrRamSize = size;
+        memset(m_chrRam, 0, size);
     }
     
 public:
@@ -263,12 +269,12 @@ public:
         bool hasChrRam = (m_chrRam != NULL);
         SERIALIZEDATA(s, hasChrRam);
         if(hasChrRam) {
-            s.array(m_chrRam, 1, cd().chrRamSize());
+            s.array(m_chrRam, 1, m_chrRamSize);
         }
     }
 
     GERANES_INLINE bool hasChrRam() const {
-        return cd().chrRamSize() > 0;
+        return (m_chrRam != nullptr) || (cd().chrRamSize() > 0);
     }
 
     GERANES_INLINE uint8_t* saveRamData()
