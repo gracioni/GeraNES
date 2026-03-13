@@ -260,8 +260,8 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("ChrRamSize");
-                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize);
+                    drawLabelCell("ChrRomSize");
+                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize);
                     drawLabelCell("VsPpuModel");
                     drawIntEnumCell("##VsPpuModel", m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel, {
                         {0, "Ppu2C02"},
@@ -288,8 +288,8 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("ChrRomSize");
-                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize);
+                    drawLabelCell("ChrRamSize");
+                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize);
                     drawEmptyPair();
 
                     ImGui::TableNextRow();
@@ -331,9 +331,20 @@ inline void GeraNESApp::showGui()
                     || isChanged(m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel);
 
                 ImGui::Separator();
+                const float saveButtonWidth = 120.0f;
+                const float removeButtonWidth = 120.0f;
+
                 ImGui::BeginDisabled(compareWithSaved && !hasChanges);
-                if(ImGui::Button("Save")) {
+                if(ImGui::Button("Save", ImVec2(saveButtonWidth, 0))) {
                     ImGui::OpenPopup("Confirm Save ROM Database Entry");
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - removeButtonWidth);
+                ImGui::BeginDisabled(!m_romDbEditor.foundInDatabase);
+                if(ImGui::Button("Remove", ImVec2(removeButtonWidth, 0))) {
+                    ImGui::OpenPopup("Confirm Remove ROM Database Entry");
                 }
                 ImGui::EndDisabled();
 
@@ -343,6 +354,21 @@ inline void GeraNESApp::showGui()
                     ImGui::Spacing();
                     if(ImGui::Button("Yes", ImVec2(120, 0))) {
                         saveRomDatabaseEditor();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if(ImGui::Button("No", ImVec2(120, 0))) {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+
+                ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+                if(ImGui::BeginPopupModal("Confirm Remove ROM Database Entry", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::TextWrapped("Are you sure you want to remove this entry from db.txt?");
+                    ImGui::Spacing();
+                    if(ImGui::Button("Yes", ImVec2(120, 0))) {
+                        removeRomDatabaseEditor();
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::SameLine();

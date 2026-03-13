@@ -307,6 +307,21 @@ private:
         }
     }
 
+    void removeRomDatabaseEditor()
+    {
+        if(!m_romDbEditor.loaded || !m_romDbEditor.foundInDatabase) return;
+
+        std::string error;
+        if(GameDatabase::instance().removeByCrc(m_romDbEditor.PrgChrCrc32, &error)) {
+            Logger::instance().log("ROM database entry removed", Logger::Type::USER);
+            loadRomDatabaseEditorFromCurrentRom();
+        }
+        else {
+            if(error.empty()) error = "Failed to remove ROM database entry";
+            Logger::instance().log(error, Logger::Type::ERROR);
+        }
+    }
+
     void updateMVP() {
         glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
         m_mvp = proj * glm::mat4(1.0f);

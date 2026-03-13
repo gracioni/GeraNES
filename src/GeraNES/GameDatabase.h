@@ -559,6 +559,61 @@ public:
         return true;
     }
 
+    bool removeByCrc(const std::string& crcValue, std::string* error = nullptr)
+    {
+        auto fail = [&](const std::string& msg) {
+            if(error) *error = msg;
+            Logger::instance().log(std::string("(DB) ") + msg, Logger::Type::ERROR);
+            return false;
+        };
+
+        const std::string crc = trim(crcValue);
+        if(crc.empty()) return fail("CRC cannot be empty");
+
+        const std::string filename = s_databasePath;
+        std::vector<std::string> lines;
+        {
+            std::ifstream in(filename);
+            if(!in.is_open()) return fail(std::string("Failed to open DB file for read: ") + filename);
+            std::string line;
+            while(std::getline(in, line)) lines.push_back(line);
+        }
+
+        std::vector<std::string> outLines;
+        outLines.reserve(lines.size());
+
+        bool removed = false;
+        for(const std::string& line : lines) {
+            std::string t = trim(line);
+            if(t.empty() || t[0] == '#') {
+                outLines.push_back(line);
+                continue;
+            }
+
+            auto p = t.find(',');
+            std::string first = p == std::string::npos ? t : t.substr(0, p);
+            if(trim(first) == crc) {
+                removed = true;
+                continue;
+            }
+
+            outLines.push_back(line);
+        }
+
+        if(!removed) return fail(std::string("DB entry not found for CRC: ") + crc);
+
+        std::ofstream out(filename, std::ios::trunc);
+        if(!out.is_open()) return fail(std::string("Failed to open DB file for write: ") + filename);
+        for(size_t i = 0; i < outLines.size(); ++i) {
+            out << outLines[i];
+            if(i + 1 < outLines.size()) out << "\n";
+        }
+        out.close();
+
+        reload();
+        return true;
+    }
+
     std::vector<Item*> find(const std::function<bool(Item& item)>& condition) {
 
         std::vector<Item*> ret;
