@@ -247,6 +247,38 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Hardware")) {
+                if (ImGui::MenuItem("FDS - Switch Disk Side")) {
+                    m_emu.fdsSwitchDiskSide();
+                }
+                if (ImGui::MenuItem("FDS - Eject Disk")) {
+                    m_emu.fdsEjectDisk();
+                }
+                if (ImGui::MenuItem("FDS - Insert Next Disk")) {
+                    m_emu.fdsInsertNextDisk();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("VS - Insert Coin 1")) {
+                    m_emu.vsInsertCoin(1);
+                }
+                if (ImGui::MenuItem("VS - Insert Coin 2")) {
+                    m_emu.vsInsertCoin(2);
+                }
+                if (ImGui::MenuItem("VS - Insert Coin 3 (DualSystem)")) {
+                    m_emu.vsInsertCoin(3);
+                }
+                if (ImGui::MenuItem("VS - Insert Coin 4 (DualSystem)")) {
+                    m_emu.vsInsertCoin(4);
+                }
+                if (ImGui::MenuItem("VS - Service Button")) {
+                    m_emu.vsServiceButton(1);
+                }
+                if (ImGui::MenuItem("VS - Service Button 2 (DualSystem)")) {
+                    m_emu.vsServiceButton(2);
+                }
+                ImGui::EndMenu();
+            }
+
             ImGui::Separator();
 
             if (ImGui::BeginMenu("Controller")) {

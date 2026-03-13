@@ -152,7 +152,9 @@ private:
                         if(useBandaiHyperShot) {
                             data = static_cast<uint8_t>((data & ~0x02) | m_bandaiHyperShot.read4016(!m_cpu.isHalted()));
                         }
-                        data = (data&0x1F) | (m_openBus&(~0x1F));                        
+
+                        data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
+                        data = (data&0x7F) | (m_openBus&(~0x7F));                        
                     }
                     break;
                 }
@@ -173,7 +175,9 @@ private:
                             const uint8_t expData = m_bandaiHyperShot.read4017();
                             data = static_cast<uint8_t>((data & ~0x18) | (expData & 0x18));
                         }
-                        data = (data&0x1F) | (m_openBus&(~0x1F));
+
+                        data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
+                        data = (data&0x7F) | (m_openBus&(~0x7F));
                     }
                     break;
                  }                
@@ -830,7 +834,6 @@ public:
 
         SERIALIZEDATA(s, m_4011WriteCounter);
         SERIALIZEDATA(s, m_newFrame);
-
         SERIALIZEDATA(s, m_frameCount);
 
         SERIALIZEDATA(s, m_runningLoop);
@@ -871,6 +874,38 @@ public:
     {
         m_bandaiHyperShot.setCursorPosition(x, y);
         m_bandaiHyperShot.setTrigger(trigger);
+    }
+
+    void fdsSwitchDiskSide()
+    {
+        m_cartridge.onHardwareAction(BaseMapper::HardwareActionType::FDS_SWITCH_DISK_SIDE);
+        Logger::instance().log("FDS Switch Disk Side", Logger::Type::USER);
+    }
+
+    void fdsEjectDisk()
+    {
+        m_cartridge.onHardwareAction(BaseMapper::HardwareActionType::FDS_EJECT_DISK);
+        Logger::instance().log("FDS Eject Disk", Logger::Type::USER);
+    }
+
+    void fdsInsertNextDisk()
+    {
+        m_cartridge.onHardwareAction(BaseMapper::HardwareActionType::FDS_INSERT_NEXT_DISK);
+        Logger::instance().log("FDS Insert Next Disk", Logger::Type::USER);
+    }
+
+    void vsInsertCoin(int slot)
+    {
+        if(slot < 1 || slot > 4) return;
+        m_cartridge.onHardwareAction(BaseMapper::HardwareActionType::VS_INSERT_COIN, slot);
+        Logger::instance().log("VS Insert Coin " + std::to_string(slot), Logger::Type::USER);
+    }
+
+    void vsServiceButton(int button)
+    {
+        if(button < 1 || button > 2) return;
+        m_cartridge.onHardwareAction(BaseMapper::HardwareActionType::VS_SERVICE_BUTTON, button);
+        Logger::instance().log("VS Service Button " + std::to_string(button), Logger::Type::USER);
     }
 
     Console& getConsole() {

@@ -409,6 +409,11 @@ public:
         m_mapper->onCpuWrite(addr, data);
     }
 
+    GERANES_INLINE bool onHardwareAction(BaseMapper::HardwareActionType type, int parameter = 0)
+    {
+        return m_mapper->onHardwareAction(type, parameter);
+    }
+
     GERANES_INLINE float getExpansionAudioSample()
     {
         return m_mapper->getExpansionAudioSample();

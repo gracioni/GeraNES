@@ -7,6 +7,10 @@ class Mapper099 : public BaseMapper
 {
 private:
     bool m_bankSelect = false; // OUT2 ($4016 bit 2)
+    static constexpr uint8_t INSERT_COIN_FRAMES = 4;
+    static constexpr uint8_t SERVICE_BUTTON_FRAMES = 4;
+    uint8_t m_insertCoinFrames[4] = {0, 0, 0, 0}; // slots 1..4
+    uint8_t m_serviceFrames[2] = {0, 0}; // service buttons 1..2
 
 public:
     Mapper099(ICartridgeData& cd) : BaseMapper(cd)
@@ -51,14 +55,71 @@ public:
         }
     }
 
+    GERANES_HOT uint8_t readMapperRegister(int addr, uint8_t openBusData = 0) override
+    {
+        // This method is also called for $4016/$4017 reads in GeraNESEmu.
+        uint8_t data = openBusData;
+        if(addr == 0x016) {
+            if(m_serviceFrames[0] > 0) data |= 0x04;
+            if(m_insertCoinFrames[0] > 0) data |= 0x20;
+            if(m_insertCoinFrames[1] > 0) data |= 0x40;
+        }
+        else if(addr == 0x017) {
+            if(m_serviceFrames[1] > 0) data |= 0x04;
+            if(m_insertCoinFrames[2] > 0) data |= 0x20;
+            if(m_insertCoinFrames[3] > 0) data |= 0x40;
+        }
+        return data;
+    }
+
+    GERANES_HOT void onScanlineStart(bool /*renderingEnabled*/, int scanline) override
+    {
+        if(scanline != 0) return;
+
+        for(uint8_t& v : m_insertCoinFrames) {
+            if(v > 0) --v;
+        }
+        for(uint8_t& v : m_serviceFrames) {
+            if(v > 0) --v;
+        }
+    }
+
+    bool onHardwareAction(HardwareActionType type, int parameter = 0) override
+    {
+        switch(type) {
+        case HardwareActionType::VS_INSERT_COIN:
+            if(parameter >= 1 && parameter <= 4) {
+                m_insertCoinFrames[parameter - 1] = INSERT_COIN_FRAMES;
+                return true;
+            }
+            return false;
+        case HardwareActionType::VS_SERVICE_BUTTON:
+            if(parameter >= 1 && parameter <= 2) {
+                m_serviceFrames[parameter - 1] = SERVICE_BUTTON_FRAMES;
+                return true;
+            }
+            return false;
+        default:
+            return false;
+        }
+    }
+
     void reset() override
     {
         m_bankSelect = false;
+        m_insertCoinFrames[0] = m_insertCoinFrames[1] = m_insertCoinFrames[2] = m_insertCoinFrames[3] = 0;
+        m_serviceFrames[0] = m_serviceFrames[1] = 0;
     }
 
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);
         SERIALIZEDATA(s, m_bankSelect);
+        SERIALIZEDATA(s, m_insertCoinFrames[0]);
+        SERIALIZEDATA(s, m_insertCoinFrames[1]);
+        SERIALIZEDATA(s, m_insertCoinFrames[2]);
+        SERIALIZEDATA(s, m_insertCoinFrames[3]);
+        SERIALIZEDATA(s, m_serviceFrames[0]);
+        SERIALIZEDATA(s, m_serviceFrames[1]);
     }
 };
