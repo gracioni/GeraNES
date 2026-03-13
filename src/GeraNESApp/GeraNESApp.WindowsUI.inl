@@ -201,45 +201,14 @@ inline void GeraNESApp::showGui()
                     drawInputTextCell("##Mapper", m_romDbEditor.Mapper, m_romDbSaved.Mapper);
 
                     ImGui::TableNextRow();
-                    drawLabelCell("SubMapperId");
-                    drawInputTextCell("##SubMapperId", m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId);
                     drawLabelCell("Board");
                     drawInputTextCell("##Board", m_romDbEditor.Board, m_romDbSaved.Board);
+                    drawLabelCell("SubMapperId");
+                    drawInputTextCell("##SubMapperId", m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId);
 
                     ImGui::TableNextRow();
                     drawLabelCell("PCB");
                     drawInputTextCell("##PCB", m_romDbEditor.PCB, m_romDbSaved.PCB);
-                    drawLabelCell("Chip");
-                    drawInputTextCell("##Chip", m_romDbEditor.Chip, m_romDbSaved.Chip);
-
-                    ImGui::TableNextRow();
-                    drawLabelCell("PrgRomSize");
-                    drawInputTextCell("##PrgRomSize", m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize);
-                    drawLabelCell("ChrRomSize");
-                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize);
-
-                    ImGui::TableNextRow();
-                    drawLabelCell("ChrRamSize");
-                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize);
-                    drawLabelCell("WorkRamSize");
-                    drawInputTextCell("##WorkRamSize", m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize);
-
-                    ImGui::TableNextRow();
-                    drawLabelCell("SaveRamSize");
-                    drawInputTextCell("##SaveRamSize", m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize);
-                    drawLabelCell("HasBattery");
-                    ImGui::TableNextColumn();
-                    {
-                        bool hasBattery = m_romDbEditor.HasBattery == "1";
-                        const bool changed = isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery);
-                        pushChangedStyle(changed);
-                        if(ImGui::Checkbox("##HasBattery", &hasBattery)) {
-                            m_romDbEditor.HasBattery = hasBattery ? "1" : "0";
-                        }
-                        popChangedStyle(changed);
-                    }
-
-                    ImGui::TableNextRow();
                     drawLabelCell("Mirroring");
                     drawStringEnumCell("##Mirroring", m_romDbEditor.Mirroring, m_romDbSaved.Mirroring, {
                         {"", "Default"},
@@ -249,14 +218,10 @@ inline void GeraNESApp::showGui()
                         {"0", "Single Screen A"},
                         {"1", "Single Screen B"},
                     });
-                    drawLabelCell("BusConflicts");
-                    drawStringEnumCell("##BusConflicts", m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts, {
-                        {"", "Default"},
-                        {"Y", "Yes"},
-                        {"N", "No"},
-                    });
 
                     ImGui::TableNextRow();
+                    drawLabelCell("Chip");
+                    drawInputTextCell("##Chip", m_romDbEditor.Chip, m_romDbSaved.Chip);
                     drawLabelCell("InputType");
                     drawIntEnumCell("##InputType", m_romDbEditor.InputType, m_romDbSaved.InputType, {
                         {0, "Unspecified"}, {1, "StandardControllers"}, {2, "FourScore"}, {3, "FourPlayerAdapter"},
@@ -273,6 +238,10 @@ inline void GeraNESApp::showGui()
                         {40, "SuborKeyboardMouse2"}, {41, "SnesMouse"}, {42, "GenericMulticart"},
                         {43, "SnesControllers"}, {44, "RacermateBicycle"}, {45, "UForce"}
                     });
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("PrgRomSize");
+                    drawInputTextCell("##PrgRomSize", m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize);
                     drawLabelCell("VsSystemType");
                     drawIntEnumCell("##VsSystemType", m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType, {
                         {0, "Default"},
@@ -285,6 +254,8 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
+                    drawLabelCell("ChrRamSize");
+                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize);
                     drawLabelCell("VsPpuModel");
                     drawIntEnumCell("##VsPpuModel", m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel, {
                         {0, "Ppu2C02"},
@@ -299,7 +270,36 @@ inline void GeraNESApp::showGui()
                         {9, "Ppu2C05D"},
                         {10, "Ppu2C05E"},
                     });
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("SaveRamSize");
+                    drawInputTextCell("##SaveRamSize", m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize);
+                    drawLabelCell("BusConflicts");
+                    drawStringEnumCell("##BusConflicts", m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts, {
+                        {"", "Default"},
+                        {"Y", "Yes"},
+                        {"N", "No"},
+                    });
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("ChrRomSize");
+                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize);
                     drawEmptyPair();
+
+                    ImGui::TableNextRow();
+                    drawLabelCell("WorkRamSize");
+                    drawInputTextCell("##WorkRamSize", m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize);
+                    drawLabelCell("HasBattery");
+                    ImGui::TableNextColumn();
+                    {
+                        bool hasBattery = m_romDbEditor.HasBattery == "1";
+                        const bool changed = isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery);
+                        pushChangedStyle(changed);
+                        if(ImGui::Checkbox("##HasBattery", &hasBattery)) {
+                            m_romDbEditor.HasBattery = hasBattery ? "1" : "0";
+                        }
+                        popChangedStyle(changed);
+                    }
 
                     ImGui::EndTable();
                 }
