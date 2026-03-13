@@ -70,12 +70,14 @@ inline void GeraNESApp::showGui()
     if(m_showRomDatabaseWindow) {
         ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::OpenPopup("Rom Database");
+    }
 
-        if(ImGui::Begin("Rom Database", &m_showRomDatabaseWindow)) {
-            if(!m_romDbEditor.loaded) {
-                ImGui::TextWrapped("%s", m_romDbEditor.statusMessage.c_str());
-            }
-            else {
+    if(ImGui::BeginPopupModal("Rom Database", &m_showRomDatabaseWindow)) {
+        if(!m_romDbEditor.loaded) {
+            ImGui::TextWrapped("%s", m_romDbEditor.statusMessage.c_str());
+        }
+        else {
                 ImVec4 color = m_romDbEditor.foundInDatabase ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f) : ImVec4(0.9f, 0.7f, 0.2f, 1.0f);
                 ImGui::TextColored(color, "%s", m_romDbEditor.statusMessage.c_str());
                 ImGui::Separator();
@@ -349,9 +351,11 @@ inline void GeraNESApp::showGui()
                     }
                     ImGui::EndPopup();
                 }
-            }
         }
-        ImGui::End();
+        ImGui::EndPopup();
+    }
+    if(!ImGui::IsPopupOpen("Rom Database")) {
+        m_showRomDatabaseWindow = false;
     }
 
     if(m_showErrorWindow) {
