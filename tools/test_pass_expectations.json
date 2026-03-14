@@ -1,0 +1,8 @@
+{
+  "passTextByRom": {
+    "dma_2007_read.nes": "96E2976E",
+    "double_2007_read.nes": "F018C287",
+    "cpu.nes": "All tests complete",
+    "official.nes": "All tests complete"
+  }
+}

@@ -53,7 +53,45 @@ def combine_output(stdout: str, stderr: str) -> str:
     return stdout or stderr or ""
 
 
-def run_tests(binary: str, roms_folder: str) -> Dict[str, object]:
+def is_default_pass_output(output: str) -> bool:
+    output_lower = output.lower()
+    return ("passed" in output_lower) or ("$01" in output)
+
+
+def load_expect_config(path: str) -> Dict[str, List[str]]:
+    if not path:
+        return {}
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    mapping: Dict[str, List[str]] = {}
+
+    if isinstance(raw, dict):
+        # Preferred shape:
+        # {"passTextByRom":{"rom.nes":"TEXT or [TEXT,...]"}}
+        source = raw.get("passTextByRom", raw)
+        if isinstance(source, dict):
+            for key, value in source.items():
+                if not isinstance(key, str):
+                    continue
+                rom_key = key.strip().lower()
+                if not rom_key:
+                    continue
+
+                if isinstance(value, str):
+                    text = value.strip()
+                    if text:
+                        mapping[rom_key] = [text]
+                elif isinstance(value, list):
+                    texts = [str(v).strip() for v in value if str(v).strip()]
+                    if texts:
+                        mapping[rom_key] = texts
+
+    return mapping
+
+
+def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -> Dict[str, object]:
     version_proc = run_command([binary, "--version"])
     version_text = (version_proc.stdout or "").strip()
     if version_proc.returncode != 0:
@@ -65,22 +103,29 @@ def run_tests(binary: str, roms_folder: str) -> Dict[str, object]:
 
     print(f"Emulator version: {version_text}", flush=True)
     print(f"ROMs found: {total}", flush=True)
+    if expect_map:
+        print(f"Custom pass-text entries: {len(expect_map)}", flush=True)
 
     for index, rom_path in enumerate(roms, start=1):
         proc = run_command([binary, "--test", rom_path])
         output = combine_output(proc.stdout, proc.stderr).strip()
+        rom_name = os.path.basename(rom_path)
+        expected_texts = expect_map.get(rom_name.lower(), [])
+        output_lower = output.lower()
+        matched_expected = any(t.lower() in output_lower for t in expected_texts)
+
         if proc.returncode == 3 and not output.strip():
             result = "timeout"
-        elif "passed" in output.lower():
+        elif is_default_pass_output(output) or matched_expected:
             result = "passed"
         else:
             result = "failed"
 
-        print(f"[{index}/{total}] {os.path.basename(rom_path)} -> {result}", flush=True)
+        print(f"[{index}/{total}] {rom_name} -> {result}", flush=True)
 
         tests.append(
             {
-                "fileName": os.path.basename(rom_path),
+                "fileName": rom_name,
                 "result": result,
                 "output": output,
             }
@@ -224,18 +269,29 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Output file path (optional). If omitted, uses default name by format.",
     )
+    parser.add_argument(
+        "--expect-config",
+        default="",
+        help=(
+            "Optional JSON file mapping ROM basename to pass marker text. "
+            "Example: {\"passTextByRom\":{\"dma_2007_read.nes\":\"96E2976E\"}}"
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
 
-    selected = sum([1 if args.json else 0, 1 if args.md else 0, 1 if args.html else 0])
-    if selected > 1:
-        print("Choose only one report format: --json, --md or --html", file=sys.stderr)
-        return 2
-
-    out_format = "html" if args.html else ("md" if args.md else "json")
+    formats: List[str] = []
+    if args.json:
+        formats.append("json")
+    if args.md:
+        formats.append("md")
+    if args.html:
+        formats.append("html")
+    if not formats:
+        formats = ["json"]
 
     try:
         binary = resolve_binary(args.bin_folder)
@@ -247,23 +303,47 @@ def main() -> int:
         print("roms-folder is not a directory.", file=sys.stderr)
         return 2
 
-    report = run_tests(binary, args.roms_folder)
+    expect_map: Dict[str, List[str]] = {}
+    if args.expect_config:
+        if not os.path.isfile(args.expect_config):
+            print("expect-config file not found.", file=sys.stderr)
+            return 2
+        try:
+            expect_map = load_expect_config(args.expect_config)
+        except Exception as e:
+            print(f"failed to parse expect-config: {e}", file=sys.stderr)
+            return 2
+
+    report = run_tests(binary, args.roms_folder, expect_map)
 
     default_out = {
         "json": "geranes_test_report.json",
         "md": "geranes_test_report.md",
         "html": "geranes_test_report.html",
     }
-    out_file = args.out if args.out else default_out[out_format]
 
-    if out_format == "md":
-        write_md(report, out_file)
-    elif out_format == "html":
-        write_html(report, out_file)
-    else:
-        write_json(report, out_file)
+    generated_files: List[str] = []
+    for out_format in formats:
+        if args.out:
+            if len(formats) == 1:
+                out_file = args.out
+            else:
+                base, _ = os.path.splitext(args.out)
+                out_file = f"{base}.{out_format}"
+        else:
+            out_file = default_out[out_format]
 
-    print(out_file, flush=True)
+        if out_format == "md":
+            write_md(report, out_file)
+        elif out_format == "html":
+            write_html(report, out_file)
+        else:
+            write_json(report, out_file)
+
+        generated_files.append(out_file)
+
+    for out_file in generated_files:
+        print(out_file, flush=True)
     return 0
 
 
