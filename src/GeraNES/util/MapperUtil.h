@@ -51,6 +51,7 @@ static std::string getMapperName(int num)
     case 113: return "NINA-03/NINA-06 multicart";
     case 118: return "TxSROM";
     case 119: return "TQROM";
+    case 185: return "CNROM (Protection)";
     case 206: return "DxROM (Namco 108)";
     case 245: return "Waixing SH2";
     }

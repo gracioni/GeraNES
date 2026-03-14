@@ -89,6 +89,9 @@ private:
             break;
         case 2:
         case 3:
+            if constexpr(!writeFlag) {
+                m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
+            }
             data = m_ppu.readWrite<writeFlag>(addr, data);
             break;
         case 4:

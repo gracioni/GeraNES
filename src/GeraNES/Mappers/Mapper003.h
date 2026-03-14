@@ -9,16 +9,25 @@ private:
 
     uint8_t m_CHRREG = 0;
     uint8_t m_CHRREGMask = 0;
+    bool m_hasBusConflicts = false;
 
 public:
 
     Mapper003(ICartridgeData& cd) : BaseMapper(cd)
     {
         m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B8K>());
+
+        // NES 2.0 Mapper 3:
+        // submapper 1 = no bus conflicts, submapper 2 = AND bus conflicts.
+        m_hasBusConflicts = (cd.subMapperId() == 2);
     }
 
-    GERANES_HOT void writePrg(int /*addr*/, uint8_t data) override
+    GERANES_HOT void writePrg(int addr, uint8_t data) override
     {
+        if(m_hasBusConflicts) {
+            data &= readPrg(addr);
+        }
+
         m_CHRREG = data&m_CHRREGMask;
     }
 
@@ -46,6 +55,7 @@ public:
 
         SERIALIZEDATA(s, m_CHRREG);
         SERIALIZEDATA(s, m_CHRREGMask);
+        SERIALIZEDATA(s, m_hasBusConflicts);
     }
 
 };
