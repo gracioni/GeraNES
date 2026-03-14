@@ -58,6 +58,7 @@ static std::string getMapperName(int num)
     case 154: return "Namcot 3453";
     case 185: return "CNROM (Protection)";
     case 206: return "DxROM (Namco 108)";
+    case 232: return "Camerica BF9096";
     case 245: return "Waixing SH2";
     }
 
