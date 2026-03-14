@@ -47,6 +47,7 @@ static std::string getMapperName(int num)
     case 79: return "NINA-003/NINA-006";
     case 80: return "Taito X1-005";
     case 82: return "Taito X1-017";
+    case 87: return "Jaleco JF-xx";
     case 88: return "Namcot 3433";
     case 91: return "Mapper 91";
     case 90: return "Pirate HK-SF3 chip";
