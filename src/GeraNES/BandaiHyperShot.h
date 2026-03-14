@@ -12,7 +12,7 @@
 class BandaiHyperShot
 {
 private:
-    static constexpr float LUMA_THRESHOLD = 200.0f;
+    static constexpr float LUMA_THRESHOLD = 50.0f;
     static constexpr int LUMA_DECAY_PER_SCANLINE = 5;
 
     uint8_t m_register = 0;
