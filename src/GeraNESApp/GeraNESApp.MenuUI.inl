@@ -219,6 +219,35 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("NSF", m_emu.isNsfLoaded()))
+        {
+            const bool isPlaying = m_emu.nsfIsPlaying();
+            const bool isPaused = m_emu.nsfIsPaused();
+            const int totalSongs = m_emu.nsfTotalSongs();
+            const int currentSong = m_emu.nsfCurrentSong();
+
+            if(ImGui::MenuItem("Play", nullptr, false, !isPlaying || isPaused)) {
+                m_emu.nsfPlay();
+            }
+            if(ImGui::MenuItem("Pause", nullptr, false, isPlaying && !isPaused)) {
+                m_emu.nsfPause();
+            }
+            if(ImGui::MenuItem("Stop")) {
+                m_emu.nsfStop();
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Track %d / %d", currentSong, totalSongs);
+            int selectedSong = currentSong;
+            if(ImGui::InputInt("Song", &selectedSong, 1, 1)) {
+                if(selectedSong < 1) selectedSong = 1;
+                if(selectedSong > totalSongs) selectedSong = totalSongs;
+                m_emu.nsfSetSong(selectedSong);
+            }
+
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("Input"))
         {
             if (ImGui::BeginMenu("Port 1")) {

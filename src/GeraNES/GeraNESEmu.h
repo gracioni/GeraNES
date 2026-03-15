@@ -67,6 +67,10 @@ private:
     bool m_runningLoop;
     bool m_speedBoost;
     bool m_paused;
+    bool m_nsfPaused;
+    bool m_nsfStopped;
+    bool m_nsfForceMute;
+    int m_nsfStartupMuteFrames;
     static constexpr int SPEED_BOOST_MULTIPLIER = 3;
 
     //do not serialize bellow atributtes
@@ -253,6 +257,13 @@ private:
         m_4011WriteCounter = 0;
         m_hardwareActions.onFrameStart();
 
+        if(m_nsfStartupMuteFrames > 0) {
+            --m_nsfStartupMuteFrames;
+            if(m_nsfStartupMuteFrames == 0) {
+                m_nsfForceMute = false;
+            }
+        }
+
         updateCyclesPerSecond();
         signalFrameStart();
     }
@@ -296,7 +307,7 @@ private:
 
         m_audioOutput.setExpansionAudioVolume(m_rewind.isRewinding() ? 0.0f : 1.0f);
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
-        m_audioOutput.render(ms, !enableAudio);
+        m_audioOutput.render(ms, !enableAudio || m_nsfForceMute);
     }
 
     GERANES_INLINE void compensateVsyncAudioDrift(uint32_t dt)
@@ -343,6 +354,27 @@ private:
 
     const std::string saveStateFileName() {
         return std::string(STATES_FOLDER) + basename(m_cartridge.romFile().fileName()) + ".s";
+    }
+
+    void nsfPrimeSilentStartup()
+    {
+        // Internal "silent track" behavior: hard-silence APU state and clear buffered audio
+        // before booting the selected track.
+        for(int a = 0x4000; a <= 0x4013; ++a) m_apu.write(a, 0x00);
+        m_apu.write(0x4015, 0x00);
+        m_audioOutput.clearAudioBuffers();
+        m_nsfForceMute = false;
+        m_nsfStartupMuteFrames = 0;
+    }
+
+    void nsfSwitchToCurrentTrack()
+    {
+        // Stable path: restart NSF driver with the newly selected track.
+        nsfPrimeSilentStartup();
+        m_cartridge.nsfSetPlaying(true);
+        reset();
+        m_nsfPaused = false;
+        m_nsfStopped = false;
     }
 
 public:
@@ -417,6 +449,10 @@ public:
         m_runningLoop = false;
         m_speedBoost = false;
         m_paused = false;
+        m_nsfPaused = false;
+        m_nsfStopped = false;
+        m_nsfForceMute = false;
+        m_nsfStartupMuteFrames = 0;
 
         m_openBus = 0;
 
@@ -930,6 +966,89 @@ public:
         );
     }
 
+    bool isNsfLoaded() const
+    {
+        return m_cartridge.isNsf();
+    }
+
+    int nsfTotalSongs() const
+    {
+        return m_cartridge.nsfTotalSongs();
+    }
+
+    int nsfCurrentSong() const
+    {
+        return m_cartridge.nsfCurrentSong();
+    }
+
+    bool nsfIsPlaying() const
+    {
+        return m_cartridge.nsfIsPlaying();
+    }
+
+    bool nsfIsPaused() const
+    {
+        return m_nsfPaused;
+    }
+
+    void nsfPlay()
+    {
+        if(m_cartridge.nsfSetPlaying(true)) {
+            if(m_nsfStopped) {
+                nsfSwitchToCurrentTrack();
+            }
+            m_nsfPaused = false;
+            m_nsfStopped = false;
+            Logger::instance().log("NSF: play", Logger::Type::USER);
+        }
+    }
+
+    void nsfStop()
+    {
+        if(m_cartridge.nsfSetPlaying(false)) {
+            m_nsfPaused = false;
+            m_nsfStopped = true;
+            m_nsfForceMute = true;
+            m_nsfStartupMuteFrames = 0;
+            Logger::instance().log("NSF: stop", Logger::Type::USER);
+        }
+    }
+
+    void nsfPause()
+    {
+        if(m_cartridge.nsfSetPlaying(false)) {
+            m_nsfPaused = true;
+            m_nsfStopped = false;
+            m_nsfForceMute = true;
+            m_nsfStartupMuteFrames = 0;
+            Logger::instance().log("NSF: pause", Logger::Type::USER);
+        }
+    }
+
+    void nsfNextSong()
+    {
+        if(m_cartridge.nsfNextSong()) {
+            nsfSwitchToCurrentTrack();
+            Logger::instance().log("NSF: next song", Logger::Type::USER);
+        }
+    }
+
+    void nsfPrevSong()
+    {
+        if(m_cartridge.nsfPrevSong()) {
+            nsfSwitchToCurrentTrack();
+            Logger::instance().log("NSF: previous song", Logger::Type::USER);
+        }
+    }
+
+    void nsfSetSong(int song1Based)
+    {
+        if(m_cartridge.nsfSetSong(song1Based)) {
+            nsfSwitchToCurrentTrack();
+            Logger::instance().log("NSF: select song " + std::to_string(song1Based), Logger::Type::USER);
+        }
+    }
+
     Console& getConsole() {
         return m_console;
     }
@@ -993,6 +1112,10 @@ public:
         m_runningLoop = false;
         m_saveStateFlag = false;
         m_loadStateFlag = false;
+        m_nsfPaused = false;
+        m_nsfStopped = false;
+        m_nsfForceMute = false;
+        m_nsfStartupMuteFrames = 0;
         m_hardwareActions.reset();
 
         m_rewind.reset();

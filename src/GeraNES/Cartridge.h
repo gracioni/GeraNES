@@ -4,6 +4,7 @@
 #include "util/MapperUtil.h"
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
+#include "NesCartridgeData/_NsfFormat.h"
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "logger/logger.h"
 #include "util/Crc32.h"
@@ -74,6 +75,7 @@
 #include "Mappers/Mapper210.h"
 #include "Mappers/Mapper232.h"
 #include "Mappers/Mapper245.h"
+#include "Mappers/MapperNSF.h"
 
 #include "RomFile.h"
 
@@ -166,6 +168,7 @@ private:
         case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
         case 232: return BaseMapper::create<Mapper232>(*m_nesCartridgeData);
         case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
+        case _NsfFormat::NSF_MAPPER_ID: return BaseMapper::create<MapperNSF>(*m_nesCartridgeData);
 
         }         
 
@@ -212,23 +215,33 @@ public:
             return false;
         }
 
-        //try open various file formats here, currently only iNes is supported
+        // Try iNES first, then NSF.
         _INesFormat* iNes = new _INesFormat(m_romFile);
-        m_nesCartridgeData = iNes;
-
-        if(!m_nesCartridgeData->valid())
-        {
-            if(iNes != nullptr && iNes->error() == "file length does not match header information") {
-                Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
-            }
-            clear();
-            if(iNes == nullptr || iNes->error() != "file length does not match header information") {
-                Logger::instance().log("Invalid ROM", Logger::Type::USER);
-            }
-            return false;
+        if(iNes->valid()) {
+            m_nesCartridgeData = iNes;
         }
+        else {
+            const bool iNesSizeMismatch = (iNes->error() == "file length does not match header information");
+            delete iNes;
+            iNes = nullptr;
 
-        // try other formats files here
+            _NsfFormat* nsf = new _NsfFormat(m_romFile);
+            if(nsf->valid()) {
+                m_nesCartridgeData = nsf;
+            }
+            else {
+                delete nsf;
+                nsf = nullptr;
+                clear();
+                if(iNesSizeMismatch) {
+                    Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
+                }
+                else {
+                    Logger::instance().log("Invalid ROM", Logger::Type::USER);
+                }
+                return false;
+            }
+        }
 
         uint32_t prgCrc = m_nesCartridgeData->prgCrc32();
         uint32_t prgChrCrc = m_nesCartridgeData->prgChrCrc32();
@@ -236,15 +249,21 @@ public:
         std::string prgCrcStr = Crc32::toString(prgCrc);
         std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
 
-        GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);        
+        // NSF is not an iNES cartridge dump, so DB header overwrite doesn't apply.
+        if(dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr) {
+            GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);
 
-        if(item != nullptr) {
-            Logger::instance().log("ROM found in database\nUsing DB header", Logger::Type::INFO);
-            m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, item);
-            m_nesCartridgeData->log("(DB)");
+            if(item != nullptr) {
+                Logger::instance().log("ROM found in database\nUsing DB header", Logger::Type::INFO);
+                m_nesCartridgeData = new DbOverwriteCartridgeData(m_nesCartridgeData, item);
+                m_nesCartridgeData->log("(DB)");
+            }
+            else {
+                Logger::instance().log("ROM not found in database\nUsing default header", Logger::Type::INFO);
+            }
         }
         else {
-            Logger::instance().log("ROM not found in database\nUsing default header", Logger::Type::INFO);
+            Logger::instance().log("NSF file detected\nUsing NSF player mapper", Logger::Type::INFO);
         }
 
         m_mapper = CreateMapper();
@@ -557,6 +576,68 @@ public:
 
     GERANES_INLINE const RomFile& romFile() {
         return m_romFile;
+    }
+
+    GERANES_INLINE bool isNsf() const
+    {
+        return m_nesCartridgeData != NULL && m_nesCartridgeData->mapperId() == _NsfFormat::NSF_MAPPER_ID;
+    }
+
+    GERANES_INLINE int nsfTotalSongs() const
+    {
+        if(!isNsf()) return 0;
+        const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
+        return mapper != nullptr ? mapper->totalSongs() : 0;
+    }
+
+    GERANES_INLINE int nsfCurrentSong() const
+    {
+        if(!isNsf()) return 0;
+        const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
+        return mapper != nullptr ? mapper->currentSong() : 0;
+    }
+
+    GERANES_INLINE bool nsfIsPlaying() const
+    {
+        if(!isNsf()) return false;
+        const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
+        return mapper != nullptr ? mapper->isPlaying() : false;
+    }
+
+    GERANES_INLINE bool nsfSetPlaying(bool playing)
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        mapper->setPlaying(playing);
+        return true;
+    }
+
+    GERANES_INLINE bool nsfSetSong(int song1Based)
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        mapper->setSong(song1Based);
+        return true;
+    }
+
+    GERANES_INLINE bool nsfNextSong()
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        mapper->nextSong();
+        return true;
+    }
+
+    GERANES_INLINE bool nsfPrevSong()
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        mapper->prevSong();
+        return true;
     }
 
     void serialization(SerializationBase& s)
