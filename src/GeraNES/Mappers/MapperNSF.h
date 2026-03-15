@@ -3,6 +3,8 @@
 #include <array>
 #include <cstring>
 #include <cstdint>
+#include <sstream>
+#include <iomanip>
 #include "BaseMapper.h"
 #include "GeraNES/NesCartridgeData/_NsfFormat.h"
 
@@ -10,14 +12,15 @@ class MapperNSF : public BaseMapper
 {
 private:
     static constexpr uint16_t DRIVER_ADDR = 0x7F00;
-    static constexpr uint16_t DRIVER_NMI_ADDR = 0x7F20;
-    static constexpr uint16_t DRIVER_IRQ_ADDR = 0x7F3F;
+    static constexpr uint16_t DRIVER_IRQ_ADDR = 0x7F40;
+    static constexpr uint16_t DRIVER_RTI_ADDR = 0x7F47;
+    static constexpr int IRQ_ACK_ADDR = 0x1FF0;
     _NsfFormat& m_nsf;
     std::array<uint8_t, 8> m_bankRegs = {0, 1, 2, 3, 4, 5, 6, 7};
     uint8_t m_songIndex = 0; // 0-based
     bool m_isPlaying = true;
-
-    static constexpr uint16_t NMI_JSR_PLAY_ADDR = static_cast<uint16_t>(DRIVER_NMI_ADDR + 5);
+    bool m_irqPending = false;
+    uint32_t m_irqCounter = 0;
 
     GERANES_INLINE uint8_t readMappedNsfData(uint16_t cpuAddr) const
     {
@@ -48,45 +51,79 @@ private:
 
     void installDriver()
     {
-        // $7F00:
-        //   sei
-        //   cld
-        //   ldx #$ff
-        //   txs
-        //   ldx #$00      ; NTSC
-        //   ldy #$00
-        //   lda #songIndex
-        //   jsr init
-        //   lda #$80
-        //   sta $2000     ; enable NMI
-        //   cli
+        // Mesen-style minimal BIOS in WRAM:
+        // $7F00 reset:
+        //   CLI
+        //   LDX #$FD
+        //   TXS
+        //   LDA #$00
+        //   STA $2000
+        //   STA $2001
+        //   LDX #$13
+        // clear_apu:
+        //   STA $4000,X
+        //   DEX
+        //   BPL clear_apu
+        //   STA $4015
+        //   LDA #$0F
+        //   STA $4015
+        //   LDA #$40
+        //   STA $4017
+        //   LDX #region
+        //   LDY #$00
+        //   LDA #songIndex
+        //   JSR init
+        //   STA $7FF0    ; clear/reload IRQ timer
         // loop:
-        //   jmp loop
+        //   JMP loop
         //
-        // $7F20 NMI handler:
-        //   pha
-        //   txa
-        //   pha
-        //   tya
-        //   pha
-        //   jsr play
-        //   pla
-        //   tay
-        //   pla
-        //   tax
-        //   pla
-        //   rti
+        // $7F10 irq:
+        //   STA $7FF0    ; clear/reload IRQ timer
+        //   JSR play
+        //   RTI
+        //
+        // $7F17:
+        //   RTI          ; NMI vector (unused)
         const uint16_t initAddr = m_nsf.initAddress();
         const uint16_t playAddr = m_nsf.playAddress();
 
         uint16_t p = DRIVER_ADDR;
-        writeDriverByte(p++, 0x78); // SEI
-        writeDriverByte(p++, 0xD8); // CLD
-        writeDriverByte(p++, 0xA2); // LDX #$FF
-        writeDriverByte(p++, 0xFF);
+        writeDriverByte(p++, 0x58); // CLI
+        writeDriverByte(p++, 0xA2); // LDX #$FD
+        writeDriverByte(p++, 0xFD);
         writeDriverByte(p++, 0x9A); // TXS
-        writeDriverByte(p++, 0xA2); // LDX #$00 (NTSC region for INIT)
+        writeDriverByte(p++, 0xA9); // LDA #$00
         writeDriverByte(p++, 0x00);
+        writeDriverByte(p++, 0x8D); // STA $2000
+        writeDriverByte(p++, 0x00);
+        writeDriverByte(p++, 0x20);
+        writeDriverByte(p++, 0x8D); // STA $2001
+        writeDriverByte(p++, 0x01);
+        writeDriverByte(p++, 0x20);
+        writeDriverByte(p++, 0xA2); // LDX #$13
+        writeDriverByte(p++, 0x13);
+        const uint16_t clearApuLoopAddr = p;
+        writeDriverByte(p++, 0x9D); // STA $4000,X
+        writeDriverByte(p++, 0x00);
+        writeDriverByte(p++, 0x40);
+        writeDriverByte(p++, 0xCA); // DEX
+        writeDriverByte(p++, 0x10); // BPL clear_apu
+        writeDriverByte(p++, static_cast<uint8_t>(clearApuLoopAddr - (p + 1)));
+        writeDriverByte(p++, 0x8D); // STA $4015
+        writeDriverByte(p++, 0x15);
+        writeDriverByte(p++, 0x40);
+        writeDriverByte(p++, 0xA9); // LDA #$0F
+        writeDriverByte(p++, 0x0F);
+        writeDriverByte(p++, 0x8D); // STA $4015
+        writeDriverByte(p++, 0x15);
+        writeDriverByte(p++, 0x40);
+        writeDriverByte(p++, 0xA9); // LDA #$40
+        writeDriverByte(p++, 0x40);
+        writeDriverByte(p++, 0x8D); // STA $4017
+        writeDriverByte(p++, 0x17);
+        writeDriverByte(p++, 0x40);
+        writeDriverByte(p++, 0xA2); // LDX #region
+        writeDriverByte(p++, m_nsf.initRegionValue());
         writeDriverByte(p++, 0xA0); // LDY #$00
         writeDriverByte(p++, 0x00);
         writeDriverByte(p++, 0xA9); // LDA #songIndex
@@ -94,40 +131,43 @@ private:
         writeDriverByte(p++, 0x20); // JSR init
         writeDriverByte(p++, static_cast<uint8_t>(initAddr & 0xFF));
         writeDriverByte(p++, static_cast<uint8_t>((initAddr >> 8) & 0xFF));
-        writeDriverByte(p++, 0xA9); // LDA #$80
-        writeDriverByte(p++, 0x80);
-        writeDriverByte(p++, 0x8D); // STA $2000
-        writeDriverByte(p++, 0x00);
-        writeDriverByte(p++, 0x20);
+        writeDriverByte(p++, 0x8D); // STA $7FF0
+        writeDriverByte(p++, static_cast<uint8_t>(IRQ_ACK_ADDR & 0xFF));
+        writeDriverByte(p++, static_cast<uint8_t>((0x6000 + IRQ_ACK_ADDR) >> 8));
         const uint16_t loopAddr = p;
         writeDriverByte(p++, 0x4C); // JMP loop
         writeDriverByte(p++, static_cast<uint8_t>(loopAddr & 0xFF));
         writeDriverByte(p++, static_cast<uint8_t>((loopAddr >> 8) & 0xFF));
 
-        p = DRIVER_NMI_ADDR;
-        writeDriverByte(p++, 0x48); // PHA
-        writeDriverByte(p++, 0x8A); // TXA
-        writeDriverByte(p++, 0x48); // PHA
-        writeDriverByte(p++, 0x98); // TYA
-        writeDriverByte(p++, 0x48); // PHA
+        p = DRIVER_IRQ_ADDR;
+        writeDriverByte(p++, 0x8D); // STA $7FF0
+        writeDriverByte(p++, static_cast<uint8_t>(IRQ_ACK_ADDR & 0xFF));
+        writeDriverByte(p++, static_cast<uint8_t>((0x6000 + IRQ_ACK_ADDR) >> 8));
         if(m_isPlaying) {
             writeDriverByte(p++, 0x20); // JSR play
             writeDriverByte(p++, static_cast<uint8_t>(playAddr & 0xFF));
             writeDriverByte(p++, static_cast<uint8_t>((playAddr >> 8) & 0xFF));
+        } else {
+            writeDriverByte(p++, 0xEA); // NOP
+            writeDriverByte(p++, 0xEA);
+            writeDriverByte(p++, 0xEA);
         }
-        else {
-            writeDriverByte(p++, 0xEA); // NOP
-            writeDriverByte(p++, 0xEA); // NOP
-            writeDriverByte(p++, 0xEA); // NOP
-        }
-        writeDriverByte(p++, 0x68); // PLA
-        writeDriverByte(p++, 0xA8); // TAY
-        writeDriverByte(p++, 0x68); // PLA
-        writeDriverByte(p++, 0xAA); // TAX
-        writeDriverByte(p++, 0x68); // PLA
         writeDriverByte(p++, 0x40); // RTI
 
-        writeDriverByte(DRIVER_IRQ_ADDR, 0x40); // RTI
+        writeDriverByte(DRIVER_RTI_ADDR, 0x40); // RTI
+    }
+
+    uint32_t getIrqReloadValue() const
+    {
+        const uint32_t speedUs = m_nsf.playSpeedNtsc();
+        const double clocks = static_cast<double>(speedUs) * (1789773.0 / 1000000.0);
+        return static_cast<uint32_t>(clocks);
+    }
+
+    void clearAndReloadIrq()
+    {
+        m_irqPending = false;
+        m_irqCounter = getIrqReloadValue();
     }
 
     void initBanks()
@@ -161,6 +201,8 @@ public:
         if(saveRamData() != nullptr && saveRamSize() > 0) {
             memset(saveRamData(), 0, saveRamSize());
         }
+        m_irqPending = false;
+        m_irqCounter = 0;
         initBanks();
         installDriver();
     }
@@ -170,8 +212,8 @@ public:
         const uint16_t cpuAddr = static_cast<uint16_t>(0x8000 + (addr & 0x7FFF));
 
         // Vectors
-        if(cpuAddr == 0xFFFA) return static_cast<uint8_t>(DRIVER_NMI_ADDR & 0xFF);
-        if(cpuAddr == 0xFFFB) return static_cast<uint8_t>((DRIVER_NMI_ADDR >> 8) & 0xFF);
+        if(cpuAddr == 0xFFFA) return static_cast<uint8_t>(DRIVER_RTI_ADDR & 0xFF);
+        if(cpuAddr == 0xFFFB) return static_cast<uint8_t>((DRIVER_RTI_ADDR >> 8) & 0xFF);
         if(cpuAddr == 0xFFFC) return static_cast<uint8_t>(DRIVER_ADDR & 0xFF);
         if(cpuAddr == 0xFFFD) return static_cast<uint8_t>((DRIVER_ADDR >> 8) & 0xFF);
         if(cpuAddr == 0xFFFE) return static_cast<uint8_t>(DRIVER_IRQ_ADDR & 0xFF);
@@ -180,12 +222,37 @@ public:
         return readMappedNsfData(cpuAddr);
     }
 
+    void cycle() override
+    {
+        if(!m_isPlaying) return;
+        if(m_irqCounter > 0) {
+            --m_irqCounter;
+            if(m_irqCounter == 0) {
+                m_irqPending = true;
+                m_irqCounter = getIrqReloadValue();
+            }
+        }
+    }
+
+    bool getInterruptFlag() override
+    {
+        return m_irqPending;
+    }
+
     void writeMapperRegister(int addr, uint8_t data) override
     {
         // NSF bankswitch registers at $5FF8-$5FFF.
         // In this core mapper regs use relative addresses ($4000-$5FFF => $0000-$1FFF).
         if(addr >= 0x1FF8 && addr <= 0x1FFF) {
             m_bankRegs[static_cast<size_t>(addr & 0x07)] = data;
+        }
+    }
+
+    void writeSaveRam(int addr, uint8_t data) override
+    {
+        BaseMapper::writeSaveRam(addr, data);
+        if(addr == IRQ_ACK_ADDR) {
+            clearAndReloadIrq();
         }
     }
 
@@ -207,16 +274,10 @@ public:
     void setPlaying(bool playing)
     {
         m_isPlaying = playing;
-        const uint16_t playAddr = m_nsf.playAddress();
-        if(m_isPlaying) {
-            writeDriverByte(NMI_JSR_PLAY_ADDR + 0, 0x20);
-            writeDriverByte(NMI_JSR_PLAY_ADDR + 1, static_cast<uint8_t>(playAddr & 0xFF));
-            writeDriverByte(NMI_JSR_PLAY_ADDR + 2, static_cast<uint8_t>((playAddr >> 8) & 0xFF));
-        }
-        else {
-            writeDriverByte(NMI_JSR_PLAY_ADDR + 0, 0xEA);
-            writeDriverByte(NMI_JSR_PLAY_ADDR + 1, 0xEA);
-            writeDriverByte(NMI_JSR_PLAY_ADDR + 2, 0xEA);
+        if(!m_isPlaying) {
+            m_irqPending = false;
+        } else if(m_irqCounter == 0) {
+            m_irqCounter = getIrqReloadValue();
         }
     }
 

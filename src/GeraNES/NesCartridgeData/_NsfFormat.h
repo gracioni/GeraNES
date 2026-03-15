@@ -23,6 +23,9 @@ private:
     uint16_t m_loadAddress = 0x8000;
     uint16_t m_initAddress = 0x8000;
     uint16_t m_playAddress = 0x8003;
+    uint16_t m_playSpeedNtsc = 16639;
+    uint16_t m_playSpeedPal = 19997;
+    uint8_t m_flags = 0;
     std::array<uint8_t, 8> m_bankInit = {0, 0, 0, 0, 0, 0, 0, 0};
 
     size_t m_prgStartIndex = NSF_HEADER_SIZE;
@@ -55,9 +58,15 @@ public:
         m_loadAddress = readLe16(m_romFile, 0x08);
         m_initAddress = readLe16(m_romFile, 0x0A);
         m_playAddress = readLe16(m_romFile, 0x0C);
+        m_playSpeedNtsc = readLe16(m_romFile, 0x6E);
+        m_playSpeedPal = readLe16(m_romFile, 0x78);
+        m_flags = m_romFile.data(0x7A);
         for(int i = 0; i < 8; ++i) {
             m_bankInit[static_cast<size_t>(i)] = m_romFile.data(0x70 + i);
         }
+
+        if(m_playSpeedNtsc == 0) m_playSpeedNtsc = 16639;
+        if(m_playSpeedPal == 0) m_playSpeedPal = 19997;
 
         if(m_loadAddress < 0x8000) {
             m_error = "NSF load address below $8000 not supported";
@@ -109,6 +118,10 @@ public:
     GERANES_INLINE uint16_t loadAddress() const { return m_loadAddress; }
     GERANES_INLINE uint16_t initAddress() const { return m_initAddress; }
     GERANES_INLINE uint16_t playAddress() const { return m_playAddress; }
+    GERANES_INLINE uint16_t playSpeedNtsc() const { return m_playSpeedNtsc; }
+    GERANES_INLINE uint16_t playSpeedPal() const { return m_playSpeedPal; }
+    GERANES_INLINE uint8_t flags() const { return m_flags; }
+    GERANES_INLINE uint8_t initRegionValue() const { return (m_flags & 0x01) ? 1 : 0; }
     GERANES_INLINE bool usesBankSwitch() const
     {
         for(uint8_t v : m_bankInit) {
@@ -121,4 +134,3 @@ public:
         return m_bankInit[static_cast<size_t>(slot & 0x07)];
     }
 };
-
