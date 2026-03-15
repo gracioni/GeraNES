@@ -125,6 +125,17 @@ public:
         return m_frameInterruptFlag || m_sample.getInterruptFlag();
     }
 
+    uint8_t getActiveChannelMask()
+    {
+        uint8_t mask = 0;
+        if(m_pulse1.getVolume() > 0) mask |= 0x01;
+        if(m_pulse2.getVolume() > 0) mask |= 0x02;
+        if(m_triangle.getVolume() > 0) mask |= 0x04;
+        if(m_noise.getVolume() > 0) mask |= 0x08;
+        if(m_sample.getBytesRemaining() > 0) mask |= 0x10;
+        return mask;
+    }
+
     uint8_t read(int addr)
     {
         uint8_t ret = 0;

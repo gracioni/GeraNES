@@ -143,15 +143,9 @@ private:
         writeDriverByte(p++, 0x8D); // STA $7FF0
         writeDriverByte(p++, static_cast<uint8_t>(IRQ_ACK_ADDR & 0xFF));
         writeDriverByte(p++, static_cast<uint8_t>((0x6000 + IRQ_ACK_ADDR) >> 8));
-        if(m_isPlaying) {
-            writeDriverByte(p++, 0x20); // JSR play
-            writeDriverByte(p++, static_cast<uint8_t>(playAddr & 0xFF));
-            writeDriverByte(p++, static_cast<uint8_t>((playAddr >> 8) & 0xFF));
-        } else {
-            writeDriverByte(p++, 0xEA); // NOP
-            writeDriverByte(p++, 0xEA);
-            writeDriverByte(p++, 0xEA);
-        }
+        writeDriverByte(p++, 0x20); // JSR play
+        writeDriverByte(p++, static_cast<uint8_t>(playAddr & 0xFF));
+        writeDriverByte(p++, static_cast<uint8_t>((playAddr >> 8) & 0xFF));
         writeDriverByte(p++, 0x40); // RTI
 
         writeDriverByte(DRIVER_RTI_ADDR, 0x40); // RTI

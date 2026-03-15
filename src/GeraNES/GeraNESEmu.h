@@ -67,11 +67,14 @@ private:
     bool m_runningLoop;
     bool m_speedBoost;
     bool m_paused;
-    bool m_nsfPaused;
-    bool m_nsfStopped;
+    enum class NsfPlaybackState { Stopped, Playing, Paused, Ended };
+    NsfPlaybackState m_nsfState;
+    bool m_nsfHeardAudio;
     bool m_nsfForceMute;
     int m_nsfStartupMuteFrames;
+    uint32_t m_nsfSilentFrames;
     static constexpr int SPEED_BOOST_MULTIPLIER = 3;
+    static constexpr uint32_t NSF_END_SILENT_FRAMES = 180;
 
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
@@ -264,6 +267,23 @@ private:
             }
         }
 
+        if(m_cartridge.isNsf() && m_nsfState == NsfPlaybackState::Playing) {
+            const bool hasActiveAudio = m_apu.getActiveChannelMask() != 0;
+            if(hasActiveAudio) {
+                m_nsfHeardAudio = true;
+                m_nsfSilentFrames = 0;
+            }
+            else if(m_nsfHeardAudio) {
+                ++m_nsfSilentFrames;
+                if(m_nsfSilentFrames >= NSF_END_SILENT_FRAMES) {
+                    m_cartridge.nsfSetPlaying(false);
+                    m_nsfState = NsfPlaybackState::Ended;
+                    m_nsfForceMute = true;
+                    m_nsfStartupMuteFrames = 0;
+                }
+            }
+        }
+
         updateCyclesPerSecond();
         signalFrameStart();
     }
@@ -372,10 +392,11 @@ private:
         nsfPrimeSilentStartup();
         reset();
         m_cartridge.nsfSetPlaying(true);
+        m_nsfState = NsfPlaybackState::Playing;
+        m_nsfHeardAudio = false;
+        m_nsfSilentFrames = 0;
         m_nsfForceMute = true;
         m_nsfStartupMuteFrames = 1;
-        m_nsfPaused = false;
-        m_nsfStopped = false;
     }
 
 public:
@@ -450,10 +471,11 @@ public:
         m_runningLoop = false;
         m_speedBoost = false;
         m_paused = false;
-        m_nsfPaused = false;
-        m_nsfStopped = false;
+        m_nsfState = NsfPlaybackState::Stopped;
+        m_nsfHeardAudio = false;
         m_nsfForceMute = false;
         m_nsfStartupMuteFrames = 0;
+        m_nsfSilentFrames = 0;
 
         m_openBus = 0;
 
@@ -558,6 +580,14 @@ public:
             m_cpu.init();
             m_apu.init();
             m_dma.init();         
+
+            if(m_cartridge.isNsf()) {
+                m_nsfState = NsfPlaybackState::Playing;
+                m_nsfHeardAudio = false;
+                m_nsfSilentFrames = 0;
+                m_nsfForceMute = false;
+                m_nsfStartupMuteFrames = 0;
+            }
 
             resetRewindSystem();
         }
@@ -984,22 +1014,29 @@ public:
 
     bool nsfIsPlaying() const
     {
-        return m_cartridge.nsfIsPlaying();
+        return m_nsfState == NsfPlaybackState::Playing;
     }
 
     bool nsfIsPaused() const
     {
-        return m_nsfPaused;
+        return m_nsfState == NsfPlaybackState::Paused;
+    }
+
+    bool nsfHasEnded() const
+    {
+        return m_nsfState == NsfPlaybackState::Ended;
     }
 
     void nsfPlay()
     {
         if(m_cartridge.nsfSetPlaying(true)) {
-            if(m_nsfStopped) {
+            if(m_nsfState == NsfPlaybackState::Stopped || m_nsfState == NsfPlaybackState::Ended) {
                 nsfSwitchToCurrentTrack();
+            } else {
+                m_nsfState = NsfPlaybackState::Playing;
+                m_nsfForceMute = false;
+                m_nsfStartupMuteFrames = 0;
             }
-            m_nsfPaused = false;
-            m_nsfStopped = false;
             Logger::instance().log("NSF: play", Logger::Type::USER);
         }
     }
@@ -1007,8 +1044,9 @@ public:
     void nsfStop()
     {
         if(m_cartridge.nsfSetPlaying(false)) {
-            m_nsfPaused = false;
-            m_nsfStopped = true;
+            m_nsfState = NsfPlaybackState::Stopped;
+            m_nsfHeardAudio = false;
+            m_nsfSilentFrames = 0;
             m_nsfForceMute = true;
             m_nsfStartupMuteFrames = 0;
             Logger::instance().log("NSF: stop", Logger::Type::USER);
@@ -1018,8 +1056,7 @@ public:
     void nsfPause()
     {
         if(m_cartridge.nsfSetPlaying(false)) {
-            m_nsfPaused = true;
-            m_nsfStopped = false;
+            m_nsfState = NsfPlaybackState::Paused;
             m_nsfForceMute = true;
             m_nsfStartupMuteFrames = 0;
             Logger::instance().log("NSF: pause", Logger::Type::USER);
@@ -1114,10 +1151,11 @@ public:
         m_saveStateFlag = false;
         m_loadStateFlag = false;
         memset(m_ram, 0, sizeof(m_ram));
-        m_nsfPaused = false;
-        m_nsfStopped = false;
+        m_nsfState = m_cartridge.isNsf() ? NsfPlaybackState::Playing : NsfPlaybackState::Stopped;
+        m_nsfHeardAudio = false;
         m_nsfForceMute = false;
         m_nsfStartupMuteFrames = 0;
+        m_nsfSilentFrames = 0;
         m_hardwareActions.reset();
 
         m_rewind.reset();
