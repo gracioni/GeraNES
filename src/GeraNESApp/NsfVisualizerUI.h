@@ -156,7 +156,7 @@ public:
 
         const char* state = isPlaying ? "PLAYING" : (isPaused ? "PAUSED" : (hasEnded ? "ENDED" : "STOPPED"));
         const std::string title = "NSF PLAYER";
-        const std::string subtitle = "Track " + std::to_string(currentSong) + " / " + std::to_string(totalSongs) + "  " + state;
+        const std::string subtitle = "Song " + std::to_string(currentSong) + " / " + std::to_string(totalSongs) + "  " + state;
 
         DrawTextOutlined(drawList, nullptr, 34.0f, ImVec2(origin.x + sidePadding, origin.y + 22.0f),
                          IM_COL32(245, 250, 255, 255), IM_COL32(0, 0, 0, 255), title.c_str());
