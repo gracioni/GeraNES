@@ -1,12 +1,10 @@
 #pragma once
 
 #include <array>
+#include <cstring>
 #include <cstdint>
-#include <sstream>
-
 #include "BaseMapper.h"
 #include "GeraNES/NesCartridgeData/_NsfFormat.h"
-#include "logger/logger.h"
 
 class MapperNSF : public BaseMapper
 {
@@ -14,7 +12,6 @@ private:
     static constexpr uint16_t DRIVER_ADDR = 0x7F00;
     static constexpr uint16_t DRIVER_NMI_ADDR = 0x7F20;
     static constexpr uint16_t DRIVER_IRQ_ADDR = 0x7F3F;
-
     _NsfFormat& m_nsf;
     std::array<uint8_t, 8> m_bankRegs = {0, 1, 2, 3, 4, 5, 6, 7};
     uint8_t m_songIndex = 0; // 0-based
@@ -146,20 +143,6 @@ private:
         }
     }
 
-    void logState(const char* prefix) const
-    {
-        std::ostringstream ss;
-        ss << prefix
-           << " song=" << (static_cast<int>(m_songIndex) + 1)
-           << "/" << static_cast<int>(m_nsf.totalSongs())
-           << " init=$" << std::hex << std::uppercase << m_nsf.initAddress()
-           << " play=$" << std::hex << std::uppercase << m_nsf.playAddress()
-           << " load=$" << std::hex << std::uppercase << m_nsf.loadAddress()
-           << " bankswitch=" << (m_nsf.usesBankSwitch() ? "on" : "off")
-           << " playing=" << (m_isPlaying ? "on" : "off");
-        Logger::instance().log(ss.str(), Logger::Type::DEBUG);
-    }
-
 public:
     MapperNSF(ICartridgeData& cd)
         : BaseMapper(cd)
@@ -175,9 +158,11 @@ public:
         else if(m_songIndex >= m_nsf.totalSongs()) {
             m_songIndex = static_cast<uint8_t>((m_nsf.startSong() > 0 ? m_nsf.startSong() : 1) - 1);
         }
+        if(saveRamData() != nullptr && saveRamSize() > 0) {
+            memset(saveRamData(), 0, saveRamSize());
+        }
         initBanks();
         installDriver();
-        logState("NSF mapper reset:");
     }
 
     uint8_t readPrg(int addr) override
@@ -233,7 +218,6 @@ public:
             writeDriverByte(NMI_JSR_PLAY_ADDR + 1, 0xEA);
             writeDriverByte(NMI_JSR_PLAY_ADDR + 2, 0xEA);
         }
-        logState("NSF setPlaying:");
     }
 
     void setSong(int song1Based)
@@ -247,7 +231,15 @@ public:
         if(clamped < 1) clamped = 1;
         if(clamped > static_cast<int>(m_nsf.totalSongs())) clamped = static_cast<int>(m_nsf.totalSongs());
         m_songIndex = static_cast<uint8_t>(clamped - 1);
-        logState("NSF setSong:");
+    }
+
+    void requestSongInit()
+    {
+    }
+
+    bool songInitPending()
+    {
+        return false;
     }
 
     void nextSong()

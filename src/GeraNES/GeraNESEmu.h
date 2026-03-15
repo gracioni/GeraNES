@@ -358,21 +358,22 @@ private:
 
     void nsfPrimeSilentStartup()
     {
-        // Internal "silent track" behavior: hard-silence APU state and clear buffered audio
-        // before booting the selected track.
+        // Clear residual sound before changing NSF state.
         for(int a = 0x4000; a <= 0x4013; ++a) m_apu.write(a, 0x00);
         m_apu.write(0x4015, 0x00);
         m_audioOutput.clearAudioBuffers();
-        m_nsfForceMute = false;
+        m_nsfForceMute = true;
         m_nsfStartupMuteFrames = 0;
     }
 
     void nsfSwitchToCurrentTrack()
     {
-        // Stable path: restart NSF driver with the newly selected track.
+        // Canonical NSF flow: re-run INIT(song) by resetting NSF runtime.
         nsfPrimeSilentStartup();
-        m_cartridge.nsfSetPlaying(true);
         reset();
+        m_cartridge.nsfSetPlaying(true);
+        m_nsfForceMute = true;
+        m_nsfStartupMuteFrames = 1;
         m_nsfPaused = false;
         m_nsfStopped = false;
     }
@@ -606,7 +607,7 @@ public:
         
 
         while(loop)
-        {           
+        {
             if(--m_cpuCyclesAcc == 0) {
 
                 m_cpuCyclesAcc = m_cpu.run();
@@ -1112,6 +1113,7 @@ public:
         m_runningLoop = false;
         m_saveStateFlag = false;
         m_loadStateFlag = false;
+        memset(m_ram, 0, sizeof(m_ram));
         m_nsfPaused = false;
         m_nsfStopped = false;
         m_nsfForceMute = false;

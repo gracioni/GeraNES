@@ -640,6 +640,23 @@ public:
         return true;
     }
 
+    GERANES_INLINE bool nsfRequestSongInit()
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        mapper->requestSongInit();
+        return true;
+    }
+
+    GERANES_INLINE bool nsfSongInitPending()
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        return mapper->songInitPending();
+    }
+
     void serialization(SerializationBase& s)
     {
         SERIALIZEDATA(s, m_isValid);
