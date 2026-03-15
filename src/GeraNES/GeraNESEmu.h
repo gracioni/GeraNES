@@ -399,6 +399,18 @@ private:
         m_nsfStartupMuteFrames = 1;
     }
 
+    void nsfResetToTrackStart(bool startPlaying)
+    {
+        nsfPrimeSilentStartup();
+        reset();
+        m_cartridge.nsfSetPlaying(startPlaying);
+        m_nsfState = startPlaying ? NsfPlaybackState::Playing : NsfPlaybackState::Stopped;
+        m_nsfHeardAudio = false;
+        m_nsfSilentFrames = 0;
+        m_nsfForceMute = true;
+        m_nsfStartupMuteFrames = startPlaying ? 1 : 0;
+    }
+
 public:
 
     SigSlot::Signal<const std::string&> signalError;
@@ -1044,11 +1056,7 @@ public:
     void nsfStop()
     {
         if(m_cartridge.nsfSetPlaying(false)) {
-            m_nsfState = NsfPlaybackState::Stopped;
-            m_nsfHeardAudio = false;
-            m_nsfSilentFrames = 0;
-            m_nsfForceMute = true;
-            m_nsfStartupMuteFrames = 0;
+            nsfResetToTrackStart(false);
             Logger::instance().log("NSF: stop", Logger::Type::USER);
         }
     }
@@ -1067,7 +1075,10 @@ public:
     {
         if(m_cartridge.nsfNextSong()) {
             nsfSwitchToCurrentTrack();
-            Logger::instance().log("NSF: next song", Logger::Type::USER);
+            Logger::instance().log(
+                "NSF: next song (" + std::to_string(nsfCurrentSong()) + "/" + std::to_string(nsfTotalSongs()) + ")",
+                Logger::Type::USER
+            );
         }
     }
 
@@ -1075,7 +1086,10 @@ public:
     {
         if(m_cartridge.nsfPrevSong()) {
             nsfSwitchToCurrentTrack();
-            Logger::instance().log("NSF: previous song", Logger::Type::USER);
+            Logger::instance().log(
+                "NSF: previous song (" + std::to_string(nsfCurrentSong()) + "/" + std::to_string(nsfTotalSongs()) + ")",
+                Logger::Type::USER
+            );
         }
     }
 
@@ -1083,7 +1097,10 @@ public:
     {
         if(m_cartridge.nsfSetSong(song1Based)) {
             nsfSwitchToCurrentTrack();
-            Logger::instance().log("NSF: select song " + std::to_string(song1Based), Logger::Type::USER);
+            Logger::instance().log(
+                "NSF: song selected (" + std::to_string(nsfCurrentSong()) + "/" + std::to_string(nsfTotalSongs()) + ")",
+                Logger::Type::USER
+            );
         }
     }
 

@@ -385,17 +385,36 @@ private:
 
             im.updateInputs();
 
+            const bool p1A = im.isPressed(m_controller1.a) || (!m_imGuiWantsMouse && m_touch->buttons().a);
+            const bool p1B = im.isPressed(m_controller1.b) || (!m_imGuiWantsMouse &&m_touch->buttons().b);
+            const bool p1Select = im.isPressed(m_controller1.select) || (!m_imGuiWantsMouse &&m_touch->buttons().select);
+            const bool p1Start = im.isPressed(m_controller1.start) || (!m_imGuiWantsMouse &&m_touch->buttons().start);
+            const bool p1Up = im.isPressed(m_controller1.up) || (!m_imGuiWantsMouse &&m_touch->buttons().up);
+            const bool p1Down = im.isPressed(m_controller1.down) || (!m_imGuiWantsMouse &&m_touch->buttons().down);
+            const bool p1Left = im.isPressed(m_controller1.left) || (!m_imGuiWantsMouse &&m_touch->buttons().left);
+            const bool p1Right = im.isPressed(m_controller1.right) || (!m_imGuiWantsMouse &&m_touch->buttons().right);
+
             // Player1
             m_emu.setController1Buttons(
-                im.isPressed(m_controller1.a) || (!m_imGuiWantsMouse && m_touch->buttons().a),
-                im.isPressed(m_controller1.b) || (!m_imGuiWantsMouse &&m_touch->buttons().b),
-                im.isPressed(m_controller1.select) || (!m_imGuiWantsMouse &&m_touch->buttons().select),
-                im.isPressed(m_controller1.start) || (!m_imGuiWantsMouse &&m_touch->buttons().start),
-                im.isPressed(m_controller1.up) || (!m_imGuiWantsMouse &&m_touch->buttons().up),
-                im.isPressed(m_controller1.down) || (!m_imGuiWantsMouse &&m_touch->buttons().down),
-                im.isPressed(m_controller1.left) || (!m_imGuiWantsMouse &&m_touch->buttons().left),
-                im.isPressed(m_controller1.right) || (!m_imGuiWantsMouse &&m_touch->buttons().right)
+                p1A,
+                p1B,
+                p1Select,
+                p1Start,
+                p1Up,
+                p1Down,
+                p1Left,
+                p1Right
             );
+
+            if(m_emu.isNsfLoaded()) {
+                if(im.isJustPressed(m_controller1.start)) {
+                    if(m_emu.nsfIsPlaying()) m_emu.nsfPause();
+                    else m_emu.nsfPlay();
+                }
+                if(im.isJustPressed(m_controller1.select)) m_emu.nsfStop();
+                if(im.isJustPressed(m_controller1.right)) m_emu.nsfNextSong();
+                if(im.isJustPressed(m_controller1.left)) m_emu.nsfPrevSong();
+            }
 
             if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
             if(im.isJustPressed(m_controller1.loadState)) m_emu.loadState();            

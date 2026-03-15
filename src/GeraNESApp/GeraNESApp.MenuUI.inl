@@ -223,16 +223,20 @@ inline void GeraNESApp::menuBar() {
         {
             const bool isPlaying = m_emu.nsfIsPlaying();
             const bool isPaused = m_emu.nsfIsPaused();
+            const bool hasEnded = m_emu.nsfHasEnded();
             const int totalSongs = m_emu.nsfTotalSongs();
             const int currentSong = m_emu.nsfCurrentSong();
+            const bool canPlay = !isPlaying || isPaused || hasEnded;
+            const bool canPause = isPlaying && !isPaused && !hasEnded;
+            const bool canStop = (isPlaying || isPaused) && !hasEnded;
 
-            if(ImGui::MenuItem("Play", nullptr, false, !isPlaying || isPaused)) {
+            if(ImGui::MenuItem("Play", nullptr, false, canPlay)) {
                 m_emu.nsfPlay();
             }
-            if(ImGui::MenuItem("Pause", nullptr, false, isPlaying && !isPaused)) {
+            if(ImGui::MenuItem("Pause", nullptr, false, canPause)) {
                 m_emu.nsfPause();
             }
-            if(ImGui::MenuItem("Stop")) {
+            if(ImGui::MenuItem("Stop", nullptr, false, canStop)) {
                 m_emu.nsfStop();
             }
 
@@ -240,9 +244,17 @@ inline void GeraNESApp::menuBar() {
             ImGui::Text("Track %d / %d", currentSong, totalSongs);
             int selectedSong = currentSong;
             if(ImGui::InputInt("Song", &selectedSong, 1, 1)) {
-                if(selectedSong < 1) selectedSong = 1;
-                if(selectedSong > totalSongs) selectedSong = totalSongs;
-                m_emu.nsfSetSong(selectedSong);
+                if(selectedSong == currentSong + 1 || (currentSong == totalSongs && selectedSong > totalSongs)) {
+                    m_emu.nsfNextSong();
+                }
+                else if(selectedSong == currentSong - 1 || (currentSong == 1 && selectedSong < 1)) {
+                    m_emu.nsfPrevSong();
+                }
+                else {
+                    if(selectedSong < 1) selectedSong = totalSongs;
+                    if(selectedSong > totalSongs) selectedSong = 1;
+                    m_emu.nsfSetSong(selectedSong);
+                }
             }
 
             ImGui::EndMenu();
