@@ -161,7 +161,7 @@ private:
                             data,
                             m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem
                         );
-                        data = (data&0x7F) | (m_openBus&(~0x7F));                        
+                        data = (data & 0x1F) | (m_openBus & 0xE0);
                     }
                     break;
                 }
@@ -188,7 +188,7 @@ private:
                             data,
                             m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::VsSystem
                         );
-                        data = (data&0x7F) | (m_openBus&(~0x7F));
+                        data = (data & 0x1F) | (m_openBus & 0xE0);
                     }
                     break;
                  }                

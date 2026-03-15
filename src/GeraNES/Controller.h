@@ -10,6 +10,7 @@ private:
 
     uint8_t m_register;
     uint8_t m_load;
+    bool m_strobe;
 
 public:
 
@@ -17,10 +18,16 @@ public:
     {
         m_load = 0;
         m_register = 0;
+        m_strobe = false;
     }
 
     uint8_t read(bool outputEnabled)
     {
+        if(m_strobe) {
+            // While strobe is high, reads always return current A button state.
+            return (m_load & 1) ? 0x01 : 0x00;
+        }
+
         uint8_t ret = (m_register & 1) ? 0x01 : 0x00;
 
         if(outputEnabled) {
@@ -33,7 +40,8 @@ public:
 
     void write(uint8_t data)
     {
-        if(data&0x01) m_register = m_load;
+        m_strobe = (data & 0x01) != 0;
+        if(m_strobe) m_register = m_load;
     }
 
     void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
@@ -53,6 +61,7 @@ public:
     {
         SERIALIZEDATA(s, m_register);
         SERIALIZEDATA(s, m_load);
+        SERIALIZEDATA(s, m_strobe);
     }
 
 };
