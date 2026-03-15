@@ -228,6 +228,7 @@ public:
         while(sampleAcc >= 1000)
         {
             float value = silenceFlag ? 0 : mix() * vol;
+            captureMixedSample(value);
 
             if(sampleSize() == 8) {
                 int temp = (value/2+0.5)*255;

@@ -68,6 +68,7 @@ CMRC_DECLARE(resources);
 
 #include "TouchControls.h"
 #include "UserToastNotifier.h"
+#include "NsfVisualizerUI.h"
 
 const std::string LOG_FILE = "log.txt";
 
@@ -127,6 +128,7 @@ private:
     std::string m_log = "";
     bool m_showLogWindow = false;
     UserToastNotifier m_userToast;
+    NsfVisualizerUI m_nsfVisualizer;
 
     struct RomDatabaseEditorData {
         bool loaded = false;
@@ -1108,6 +1110,7 @@ public:
     void collectAudioChannelsFromJson(const std::string& jsonStr, const char* source, std::vector<AudioChannelControl>& out);
     void applyAudioChannelVolume(const AudioChannelControl& c, float value);
     void drawAudioChannelDebugControls();
+    void drawNsfPlayerVisualizer();
 
     virtual void paintGL() override;
 

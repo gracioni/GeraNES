@@ -241,7 +241,7 @@ inline void GeraNESApp::menuBar() {
             }
 
             ImGui::Separator();
-            ImGui::Text("Track %d / %d", currentSong, totalSongs);
+            ImGui::Text("Song %d / %d", currentSong, totalSongs);
             int selectedSong = currentSong;
             if(ImGui::InputInt("Song", &selectedSong, 1, 1)) {
                 if(selectedSong == currentSong + 1 || (currentSong == totalSongs && selectedSong > totalSongs)) {

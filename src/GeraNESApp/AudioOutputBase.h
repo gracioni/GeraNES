@@ -4,8 +4,10 @@
 
 #include "GeraNES/IAudioOutput.h"
 #include "GeraNES/util/CircularBuffer.h"
+#include <array>
 #include <algorithm>
 #include <sstream>
+#include <vector>
 
 class AudioOutputBase : public IAudioOutput
 {
@@ -44,6 +46,10 @@ private:
     float m_userTriangleVolume = 1.0f;
     float m_userNoiseVolume = 1.0f;
     float m_userSampleVolume = 1.0f;
+    static constexpr size_t VISUALIZER_BUFFER_SIZE = 2048;
+    std::array<float, VISUALIZER_BUFFER_SIZE> m_visualizerSamples = {};
+    size_t m_visualizerWriteIndex = 0;
+    size_t m_visualizerSampleCount = 0;
 
     static float clampVolume(float v)
     {
@@ -97,6 +103,9 @@ public:
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
         m_expansionWindowSumQ = 0;
+        m_visualizerSamples.fill(0.0f);
+        m_visualizerWriteIndex = 0;
+        m_visualizerSampleCount = 0;
 
         //from https://www.nesdev.org/wiki/APU_Mixer
         m_hpFilter1.init(sampleRate, 90);
@@ -121,6 +130,33 @@ public:
     void clearAudioBuffers() override
     {
         clearBuffers();
+    }
+
+    void captureMixedSample(float sample)
+    {
+        m_visualizerSamples[m_visualizerWriteIndex] = sample;
+        m_visualizerWriteIndex = (m_visualizerWriteIndex + 1) % VISUALIZER_BUFFER_SIZE;
+        if(m_visualizerSampleCount < VISUALIZER_BUFFER_SIZE) ++m_visualizerSampleCount;
+    }
+
+    std::vector<float> getRecentMixedSamples(size_t maxSamples = 0) const override
+    {
+        const size_t available = m_visualizerSampleCount;
+        const size_t count = maxSamples == 0 ? available : std::min(maxSamples, available);
+
+        std::vector<float> out(count);
+        if(count == 0) return out;
+
+        const size_t start = (m_visualizerWriteIndex + VISUALIZER_BUFFER_SIZE - count) % VISUALIZER_BUFFER_SIZE;
+        for(size_t i = 0; i < count; ++i) {
+            out[i] = m_visualizerSamples[(start + i) % VISUALIZER_BUFFER_SIZE];
+        }
+        return out;
+    }
+
+    int outputSampleRate() const override
+    {
+        return m_outputSampleRate;
     }
 
     GERANES_INLINE_HOT float mix()

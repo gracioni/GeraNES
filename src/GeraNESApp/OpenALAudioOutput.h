@@ -196,6 +196,7 @@ public:
         while (sampleAcc >= 1000)
         {
             float value = silenceFlag ? 0 : mix() * vol;
+            captureMixedSample(value);
             ALshort sample = static_cast<ALshort>(value * 32767);
             m_bufferData.push_back(sample);
             sampleAcc -= 1000;

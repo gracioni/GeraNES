@@ -30,21 +30,23 @@ inline void GeraNESApp::paintGL()
 
     m_vao.bind();
 
-    glBindTexture(GL_TEXTURE_2D, m_texture);
+    if(!m_emu.isNsfLoaded()) {
+        glBindTexture(GL_TEXTURE_2D, m_texture);
 
-    if(m_shaderProgram.bind()) {
-        m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
-        m_shaderProgram.setUniformValue("Texture", 0);
+        if(m_shaderProgram.bind()) {
+            m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
+            m_shaderProgram.setUniformValue("Texture", 0);
 
-        m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
-        m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
-        m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)width(), (float)height()));
-        m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256, 256));
-        m_shaderProgram.setUniformValue("InputSize", glm::vec2(256, 256));
+            m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
+            m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
+            m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)width(), (float)height()));
+            m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256, 256));
+            m_shaderProgram.setUniformValue("InputSize", glm::vec2(256, 256));
 
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-        m_shaderProgram.release();
+            m_shaderProgram.release();
+        }
     }
 
     m_vao.release();

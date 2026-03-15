@@ -11,6 +11,8 @@ inline void GeraNESApp::showGui()
 
     if(lastMenuBarHeight != m_menuBarHeight) updateBuffers();
 
+    if(m_emu.isNsfLoaded()) drawNsfPlayerVisualizer();
+
     m_controllerConfigWindow.update();
 
     if(m_showImprovementsWindow) {
@@ -456,6 +458,22 @@ inline void GeraNESApp::showGui()
 
         ImGui::End();
     }
+}
+
+inline void GeraNESApp::drawNsfPlayerVisualizer()
+{
+    m_nsfVisualizer.draw(
+        m_audioOutput.getRecentMixedSamples(),
+        m_audioOutput.outputSampleRate(),
+        m_menuBarHeight,
+        width(),
+        height(),
+        m_emu.nsfCurrentSong(),
+        m_emu.nsfTotalSongs(),
+        m_emu.nsfIsPlaying(),
+        m_emu.nsfIsPaused(),
+        m_emu.nsfHasEnded()
+    );
 }
 
 inline void GeraNESApp::showOverlay()

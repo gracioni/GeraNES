@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 class IAudioOutput
 {
@@ -24,6 +25,8 @@ class IAudioOutput
     virtual void setExpansionAudioVolume(float /*volume*/) {}
     virtual void processExpansionAudioSample(float /*currentSample*/) {}
     virtual void clearAudioBuffers() {}
+    virtual std::vector<float> getRecentMixedSamples(size_t /*maxSamples*/ = 0) const { return {}; }
+    virtual int outputSampleRate() const { return 44100; }
 
     virtual std::string getAudioChannelsJson() const { return "{\"channels\":[]}"; }
     virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/) { return false; }
