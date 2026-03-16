@@ -108,7 +108,9 @@ private:
         writeDriverByte(p++, 0x40);
         writeDriverByte(p++, 0xCA); // DEX
         writeDriverByte(p++, 0x10); // BPL clear_apu
-        writeDriverByte(p++, static_cast<uint8_t>(clearApuLoopAddr - (p + 1)));
+        const uint16_t bplOperandAddr = p;
+        const int16_t bplOffset = static_cast<int16_t>(clearApuLoopAddr) - static_cast<int16_t>(bplOperandAddr + 1);
+        writeDriverByte(p++, static_cast<uint8_t>(bplOffset));
         writeDriverByte(p++, 0x8D); // STA $4015
         writeDriverByte(p++, 0x15);
         writeDriverByte(p++, 0x40);
