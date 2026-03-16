@@ -797,9 +797,8 @@ public:
         {
             auto fs = cmrc::resources::get_filesystem();
             const char* fontPath = nullptr;
-            if(fs.exists("data/fonts/DejaVuSans.ttf")) fontPath = "data/fonts/DejaVuSans.ttf";
+            if(fs.exists("resources/fonts/DejaVuSans.ttf")) fontPath = "resources/fonts/DejaVuSans.ttf";
             else if(fs.exists("fonts/DejaVuSans.ttf")) fontPath = "fonts/DejaVuSans.ttf";
-            else if(fs.exists("resources/fonts/DejaVuSans.ttf")) fontPath = "resources/fonts/DejaVuSans.ttf";
 
             if(fontPath != nullptr) {
                 auto file = fs.open(fontPath);
@@ -826,7 +825,7 @@ public:
                     Logger::instance().log(std::string("Embedded UI font loaded from cmrc: ") + fontPath, Logger::Type::INFO);
                 }
             } else {
-                Logger::instance().log("Embedded font not found in cmrc (tried data/fonts/DejaVuSans.ttf, fonts/DejaVuSans.ttf and resources/fonts/DejaVuSans.ttf).", Logger::Type::WARNING);
+                Logger::instance().log("Embedded font not found in cmrc (tried resources/fonts/DejaVuSans.ttf and fonts/DejaVuSans.ttf).", Logger::Type::WARNING);
             }
         }
 
