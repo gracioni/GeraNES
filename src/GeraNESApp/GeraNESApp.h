@@ -408,16 +408,6 @@ private:
                 p1Right
             );
 
-            if(m_emu.isNsfLoaded()) {
-                if(im.isJustPressed(m_controller1.start)) {
-                    if(m_emu.nsfIsPlaying()) m_emu.nsfPause();
-                    else m_emu.nsfPlay();
-                }
-                if(im.isJustPressed(m_controller1.select)) m_emu.nsfStop();
-                if(im.isJustPressed(m_controller1.right)) m_emu.nsfNextSong();
-                if(im.isJustPressed(m_controller1.left)) m_emu.nsfPrevSong();
-            }
-
             if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
             if(im.isJustPressed(m_controller1.loadState)) m_emu.loadState();            
 
@@ -1021,24 +1011,6 @@ public:
                 if(event.key.keysym.mod & KMOD_ALT) keyName = "Alt+" + keyName;
 
                 m_shortcuts.invokeShortcut(keyName);
-
-                if(m_emu.isNsfLoaded() && !(event.key.keysym.mod & KMOD_ALT)) {
-                    switch(event.key.keysym.sym) {
-                        case SDLK_PLUS:
-                        case SDLK_EQUALS:
-                        case SDLK_KP_PLUS:
-                            m_emu.nsfNextSong();
-                            break;
-
-                        case SDLK_MINUS:
-                        case SDLK_KP_MINUS:
-                            m_emu.nsfPrevSong();
-                            break;
-
-                        default:
-                            break;
-                    }
-                }
 
                 if(keyName == "Escape" && m_emuInputEnabled) {
                     m_showMenuBar = !m_showMenuBar;

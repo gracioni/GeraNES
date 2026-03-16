@@ -77,6 +77,71 @@ private:
     Rewind m_rewind;
     NsfPlayer m_nsfPlayer;
 
+    // NSF controller shortcuts are handled in core from P1 button edges.
+    bool m_prevNsfSelect = false;
+    bool m_prevNsfStart = false;
+    bool m_prevNsfLeft = false;
+    bool m_prevNsfRight = false;
+    bool m_pendingNsfTogglePlayPause = false;
+    bool m_pendingNsfStop = false;
+    bool m_pendingNsfNextSong = false;
+    bool m_pendingNsfPrevSong = false;
+    bool m_applyingPendingNsfActions = false;
+
+    void processNsfControllerInput(bool selectPressed, bool startPressed, bool leftPressed, bool rightPressed)
+    {
+        const bool startJustPressed = startPressed && !m_prevNsfStart;
+        const bool selectJustPressed = selectPressed && !m_prevNsfSelect;
+        const bool leftJustPressed = leftPressed && !m_prevNsfLeft;
+        const bool rightJustPressed = rightPressed && !m_prevNsfRight;
+
+        if(m_nsfPlayer.isLoaded()) {
+            if(startJustPressed) {
+                m_pendingNsfTogglePlayPause = true;
+            }
+            if(selectJustPressed) m_pendingNsfStop = true;
+            if(rightJustPressed) m_pendingNsfNextSong = true;
+            if(leftJustPressed) m_pendingNsfPrevSong = true;
+        }
+
+        m_prevNsfSelect = selectPressed;
+        m_prevNsfStart = startPressed;
+        m_prevNsfLeft = leftPressed;
+        m_prevNsfRight = rightPressed;
+    }
+
+    void applyPendingNsfControllerActions()
+    {
+        if(m_applyingPendingNsfActions) return;
+        m_applyingPendingNsfActions = true;
+
+        const bool pendingTogglePlayPause = m_pendingNsfTogglePlayPause;
+        const bool pendingStop = m_pendingNsfStop;
+        const bool pendingNextSong = m_pendingNsfNextSong;
+        const bool pendingPrevSong = m_pendingNsfPrevSong;
+
+        // Clear first to avoid reentrant re-application when an action triggers reset().
+        m_pendingNsfTogglePlayPause = false;
+        m_pendingNsfStop = false;
+        m_pendingNsfNextSong = false;
+        m_pendingNsfPrevSong = false;
+
+        if(!m_nsfPlayer.isLoaded()) {
+            m_applyingPendingNsfActions = false;
+            return;
+        }
+
+        if(pendingTogglePlayPause) {
+            if(m_nsfPlayer.isPlaying()) m_nsfPlayer.pause();
+            else m_nsfPlayer.play();
+        }
+        if(pendingStop) m_nsfPlayer.stop();
+        if(pendingNextSong) m_nsfPlayer.nextSong();
+        if(pendingPrevSong) m_nsfPlayer.prevSong();
+
+        m_applyingPendingNsfActions = false;
+    }
+
     template<bool writeFlag>
     auto busReadWrite(int addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
@@ -422,6 +487,15 @@ public:
         m_speedBoost = false;
         m_paused = false;
         m_nsfPlayer.init();
+        m_prevNsfSelect = false;
+        m_prevNsfStart = false;
+        m_prevNsfLeft = false;
+        m_prevNsfRight = false;
+        m_pendingNsfTogglePlayPause = false;
+        m_pendingNsfStop = false;
+        m_pendingNsfNextSong = false;
+        m_pendingNsfPrevSong = false;
+        m_applyingPendingNsfActions = false;
 
         m_openBus = 0;
 
@@ -639,11 +713,13 @@ public:
     }
 
     GERANES_INLINE bool update(uint32_t dt) {
+        applyPendingNsfControllerActions();
         if(m_paused) return false;
         return _update<false>(dt);
     }
 
     GERANES_INLINE bool updateUntilFrame(uint32_t dt) {
+        applyPendingNsfControllerActions();
         if(m_paused) return true;
 
         if(!m_speedBoost) {
@@ -872,6 +948,7 @@ public:
     void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
         m_controller1.setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
+        processNsfControllerInput(bSelect, bStart, bLeft, bRight);
     }
 
     void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
@@ -1071,10 +1148,6 @@ public:
     }
 
 };
-
-
-
-
 
 
 
