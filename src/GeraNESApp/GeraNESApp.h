@@ -30,7 +30,6 @@ namespace fs = std::filesystem;
 #include <functional>
 #include <iterator>
 #include <regex>
-#include <cctype>
 
 #include <glm/glm.hpp>
 
@@ -480,13 +479,12 @@ private:
 
     }
 
-    void openFile(const char* path, const char* displayPath = nullptr) {
+    void openFile(const char* path) {
 
         AppSettings::instance().data.addRecentFile(path);
         AppSettings::instance().data.setLastFolder(path);
         if(m_emu.open(path)) {
-            const char* titlePath = (displayPath != nullptr && displayPath[0] != '\0') ? displayPath : path;
-            const std::string filename = fs::path(titlePath).filename().string();
+            const std::string filename = fs::path(path).filename().string();
             setTitle((std::string("GeraNES (") + filename + ")").c_str());
             Logger::instance().log("Rom loaded", Logger::Type::USER);
         }
@@ -630,38 +628,7 @@ public:
 
     void processUploadedFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
 
-        if(fileContent == nullptr || fileSize == 0) {
-            Logger::instance().log("Invalid upload payload in processUploadedFile call", Logger::Type::ERROR);
-            return;
-        }
-
-        if(fileName == nullptr || fileName[0] == '\0') {
-            Logger::instance().log("Invalid upload filename in processUploadedFile call", Logger::Type::ERROR);
-            return;
-        }
-
-        std::string uploadedName = fileName;
-        std::string storedName = fs::path(uploadedName).filename().string();
-        if(storedName.empty()) {
-            Logger::instance().log("Invalid upload filename in processUploadedFile call", Logger::Type::ERROR);
-            return;
-        }
-        std::replace(storedName.begin(), storedName.end(), '/', '_');
-        std::replace(storedName.begin(), storedName.end(), '\\', '_');
-        for(char& ch : storedName) {
-            const unsigned char uch = static_cast<unsigned char>(ch);
-            if(std::iscntrl(uch)) ch = '_';
-        }
-        std::string ext;
-        const size_t dotPos = storedName.find_last_of('.');
-        if(dotPos != std::string::npos) {
-            ext = storedName.substr(dotPos);
-            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        }
-
-        if(ext.empty()) storedName += ".bin";
-
-        FILE* file = fopen(storedName.c_str(), "wb");
+        FILE* file = fopen(fileName, "w");
 
         if (file) {
             
@@ -669,13 +636,11 @@ public:
 
             if (written != fileSize) {
                 Logger::instance().log("Failed writing file in processUploadedFile call", Logger::Type::ERROR);
-                fclose(file);
-                return;
             }
 
             fclose(file);
 
-            openFile(storedName.c_str(), uploadedName.c_str());
+            openFile(fileName);
 
         } else {
             Logger::instance().log("Failed to open file for writing in processUploadedFile call", Logger::Type::ERROR);
