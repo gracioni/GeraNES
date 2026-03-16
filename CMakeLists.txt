@@ -219,6 +219,20 @@ FetchContent_MakeAvailable(flips)
 
 INCLUDE_DIRECTORIES(PUBLIC ${flips_SOURCE_DIR})
 
+FetchContent_Declare(
+    pffft
+    GIT_REPOSITORY https://github.com/marton78/pffft.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS TRUE
+)
+
+set(PFFFT_BUILD_TESTS OFF CACHE BOOL "Disable pffft tests" FORCE)
+set(PFFFT_BUILD_BENCHMARKS OFF CACHE BOOL "Disable pffft benchmarks" FORCE)
+set(PFFFT_BUILD_EXAMPLES OFF CACHE BOOL "Disable pffft examples" FORCE)
+set(INSTALL_PFFFT OFF CACHE BOOL "Disable pffft install target" FORCE)
+FetchContent_MakeAvailable(pffft)
+
 set(FLIPS_PATH ${flips_SOURCE_DIR})
 file(GLOB FLIPS_GLOB
     ${FLIPS_PATH}/libips.h
@@ -274,7 +288,7 @@ file(GLOB_RECURSE CPP_FILES
 )
 list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
 
-set(LIBS -static-libgcc -static-libstdc++ imgui flips glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
+set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
     set(LIBS ${LIBS} SDL2::SDL2main SDL2::SDL2-static libglew_static nfd stdc++fs)

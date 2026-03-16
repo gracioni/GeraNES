@@ -3,20 +3,29 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <complex>
 #include <string>
 #include <vector>
 
 #include "imgui_include.h"
 #include "imgui_util.h"
+#include <pffft/pffft.h>
 
 class NsfVisualizerUI
 {
 private:
-    static constexpr size_t FFT_SIZE = 512;
+    static constexpr size_t FFT_SIZE = 4096;
     static constexpr int BAR_COUNT = 56;
+    static constexpr float SPECTRUM_GAIN = 2.0f;
+    static constexpr float SPECTRUM_NORM_REF = 10.0f;
+    static constexpr float MIN_FREQ = 20.0f;
+    static constexpr float MAX_FREQ = 20000.0f;
 
     std::array<float, BAR_COUNT> m_barLevels = {};
+    PFFFT_Setup* m_fftSetup = nullptr;
+    float* m_fftInput = nullptr;
+    float* m_fftOutput = nullptr;
+    float* m_fftWork = nullptr;
+    bool m_fftReady = false;
 
     static float clamp01(float value)
     {
@@ -31,32 +40,53 @@ private:
         return current + (target - current) * alpha;
     }
 
-    static void fft(std::array<std::complex<float>, FFT_SIZE>& data)
+    static float binMagnitude(const float* spectrum, int bin)
     {
-        for(size_t i = 1, j = 0; i < FFT_SIZE; ++i) {
-            size_t bit = FFT_SIZE >> 1;
-            for(; j & bit; bit >>= 1) j ^= bit;
-            j ^= bit;
-            if(i < j) std::swap(data[i], data[j]);
-        }
-
-        for(size_t len = 2; len <= FFT_SIZE; len <<= 1) {
-            const float angle = -2.0f * 3.14159265358979323846f / static_cast<float>(len);
-            const std::complex<float> wlen(std::cos(angle), std::sin(angle));
-            for(size_t i = 0; i < FFT_SIZE; i += len) {
-                std::complex<float> w(1.0f, 0.0f);
-                for(size_t j = 0; j < len / 2; ++j) {
-                    const std::complex<float> u = data[i + j];
-                    const std::complex<float> v = data[i + j + len / 2] * w;
-                    data[i + j] = u + v;
-                    data[i + j + len / 2] = u - v;
-                    w *= wlen;
-                }
-            }
-        }
+        if(bin <= 0) return std::fabs(spectrum[0]);
+        if(bin >= static_cast<int>(FFT_SIZE / 2)) return std::fabs(spectrum[1]);
+        const float re = spectrum[2 * bin];
+        const float im = spectrum[2 * bin + 1];
+        return std::sqrt(re * re + im * im);
     }
 
 public:
+    NsfVisualizerUI()
+    {
+        m_fftSetup = pffft_new_setup(static_cast<int>(FFT_SIZE), PFFFT_REAL);
+        if(m_fftSetup == nullptr) return;
+
+        m_fftInput = static_cast<float*>(pffft_aligned_malloc(sizeof(float) * FFT_SIZE));
+        m_fftOutput = static_cast<float*>(pffft_aligned_malloc(sizeof(float) * FFT_SIZE));
+        m_fftWork = static_cast<float*>(pffft_aligned_malloc(sizeof(float) * FFT_SIZE));
+
+        if(m_fftInput == nullptr || m_fftOutput == nullptr || m_fftWork == nullptr) {
+            if(m_fftInput != nullptr) pffft_aligned_free(m_fftInput);
+            if(m_fftOutput != nullptr) pffft_aligned_free(m_fftOutput);
+            if(m_fftWork != nullptr) pffft_aligned_free(m_fftWork);
+            m_fftInput = nullptr;
+            m_fftOutput = nullptr;
+            m_fftWork = nullptr;
+            pffft_destroy_setup(m_fftSetup);
+            m_fftSetup = nullptr;
+            return;
+        }
+
+        m_fftReady = true;
+    }
+
+    ~NsfVisualizerUI()
+    {
+        if(m_fftInput != nullptr) pffft_aligned_free(m_fftInput);
+        if(m_fftOutput != nullptr) pffft_aligned_free(m_fftOutput);
+        if(m_fftWork != nullptr) pffft_aligned_free(m_fftWork);
+        if(m_fftSetup != nullptr) pffft_destroy_setup(m_fftSetup);
+    }
+
+    NsfVisualizerUI(const NsfVisualizerUI&) = delete;
+    NsfVisualizerUI& operator=(const NsfVisualizerUI&) = delete;
+    NsfVisualizerUI(NsfVisualizerUI&&) = delete;
+    NsfVisualizerUI& operator=(NsfVisualizerUI&&) = delete;
+
     void draw(const std::vector<float>& samples, int sampleRate, int topMargin, int viewportWidth, int viewportHeight,
               int currentSong, int totalSongs, bool isPlaying, bool isPaused, bool hasEnded)
     {
@@ -87,21 +117,23 @@ public:
             IM_COL32(4, 6, 12, 255),
             IM_COL32(0, 0, 0, 255));
 
-        std::array<std::complex<float>, FFT_SIZE> fftBuffer = {};
-        const size_t copyCount = std::min(samples.size(), FFT_SIZE);
-        const size_t srcOffset = samples.size() > FFT_SIZE ? samples.size() - FFT_SIZE : 0;
-        for(size_t i = 0; i < copyCount; ++i) {
-            const float t = copyCount > 1 ? static_cast<float>(i) / static_cast<float>(copyCount - 1) : 0.0f;
-            const float window = 0.5f - 0.5f * std::cos(2.0f * 3.14159265358979323846f * t);
-            fftBuffer[i] = std::complex<float>(samples[srcOffset + i] * window, 0.0f);
+        if(m_fftReady) {
+            std::fill_n(m_fftInput, FFT_SIZE, 0.0f);
+            const size_t copyCount = std::min(samples.size(), FFT_SIZE);
+            const size_t srcOffset = samples.size() > FFT_SIZE ? samples.size() - FFT_SIZE : 0;
+            for(size_t i = 0; i < copyCount; ++i) {
+                const float t = copyCount > 1 ? static_cast<float>(i) / static_cast<float>(copyCount - 1) : 0.0f;
+                const float window = 0.5f - 0.5f * std::cos(2.0f * 3.14159265358979323846f * t);
+                m_fftInput[i] = samples[srcOffset + i] * window;
+            }
+            pffft_transform_ordered(m_fftSetup, m_fftInput, m_fftOutput, m_fftWork, PFFFT_FORWARD);
         }
-
-        fft(fftBuffer);
 
         const int safeRate = std::max(sampleRate, 1);
         const float nyquist = static_cast<float>(safeRate) * 0.5f;
-        const float minFreq = 20.0f;
-        const float maxFreq = std::max(20000.0f, nyquist);
+        const float minFreq = std::max(1.0f, MIN_FREQ);
+        const float maxFreq = std::max(minFreq * 1.01f, std::min(MAX_FREQ, nyquist));
+        const int maxBin = static_cast<int>(FFT_SIZE / 2);
 
         std::array<float, BAR_COUNT> targets = {};
         for(int bar = 0; bar < BAR_COUNT; ++bar) {
@@ -110,18 +142,26 @@ public:
             const float startFreq = minFreq * std::pow(maxFreq / minFreq, a);
             const float endFreq = minFreq * std::pow(maxFreq / minFreq, b);
 
-            int startBin = static_cast<int>(std::floor(startFreq * FFT_SIZE / safeRate));
-            int endBin = static_cast<int>(std::ceil(endFreq * FFT_SIZE / safeRate));
-            startBin = std::clamp(startBin, 1, static_cast<int>(FFT_SIZE / 2) - 1);
-            endBin = std::clamp(endBin, startBin + 1, static_cast<int>(FFT_SIZE / 2));
+            float startBinF = std::clamp(startFreq * static_cast<float>(FFT_SIZE) / static_cast<float>(safeRate), 1.0f, static_cast<float>(maxBin) - 0.001f);
+            float endBinF = std::clamp(endFreq * static_cast<float>(FFT_SIZE) / static_cast<float>(safeRate), startBinF + 0.001f, static_cast<float>(maxBin));
 
             float energy = 0.0f;
-            for(int bin = startBin; bin < endBin; ++bin) {
-                energy += std::abs(fftBuffer[bin]);
+            float weightSum = 0.0f;
+            const int startBin = static_cast<int>(std::floor(startBinF));
+            const int endBin = std::min(maxBin - 1, static_cast<int>(std::ceil(endBinF)) - 1);
+            for(int bin = startBin; bin <= endBin; ++bin) {
+                const float left = std::max(startBinF, static_cast<float>(bin));
+                const float right = std::min(endBinF, static_cast<float>(bin + 1));
+                const float weight = std::max(0.0f, right - left);
+                if(weight <= 0.0f) continue;
+                if(m_fftReady) {
+                    energy += binMagnitude(m_fftOutput, bin) * weight;
+                }
+                weightSum += weight;
             }
-            energy /= static_cast<float>(std::max(1, endBin - startBin));
+            if(weightSum > 0.0f) energy /= weightSum;
 
-            const float normalized = clamp01(std::log1p(energy * 10.0f) / std::log1p(10.0f));
+            const float normalized = clamp01(std::log1p(energy * SPECTRUM_GAIN) / std::log1p(SPECTRUM_NORM_REF));
             targets[bar] = normalized;
             m_barLevels[bar] = smoothTowards(m_barLevels[bar], targets[bar]);
         }
