@@ -17,7 +17,7 @@ void emcriptenFileDialog(intptr_t handler) {
                 input = document.createElement('input');
                 input.id = '__geranes_open_rom_input';
                 input.type = 'file';
-                input.accept = '.nes,.fds,.zip,.7z';
+                input.accept = '.nes,.fds,.nsf,.zip,.7z';
                 input.style.display = 'none';
                 document.body.appendChild(input);
             }

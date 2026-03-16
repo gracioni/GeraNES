@@ -170,6 +170,34 @@
       var Module = {
         canvas: canvas,
 
+        // Avoid wasm streaming MIME issues on static hosts that don't serve
+        // application/wasm. We instantiate from ArrayBuffer directly.
+        instantiateWasm: function(imports, successCallback) {
+          const pageName = (window.location.pathname.split('/').pop() || 'GeraNES.html');
+          const wasmName = pageName.replace(/\.html?$/i, '.wasm');
+          const wasmPath = (typeof Module.locateFile === 'function')
+            ? Module.locateFile(wasmName, '')
+            : wasmName;
+
+          fetch(wasmPath, { credentials: 'same-origin' })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(`Failed to fetch WASM (${response.status})`);
+              }
+              return response.arrayBuffer();
+            })
+            .then((bytes) => WebAssembly.instantiate(bytes, imports))
+            .then((result) => {
+              successCallback(result.instance, result.module);
+            })
+            .catch((err) => {
+              console.error('WASM instantiation failed:', err);
+              Module.setStatus('Failed to load WASM');
+            });
+
+          return {};
+        },
+
         setStatus: function(text) {
           if (text) statusText.textContent = text;
         },

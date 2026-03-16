@@ -206,8 +206,9 @@ public:
         alGetSourcei(m_source, AL_BUFFERS_PROCESSED, &numProcessed);
 
         if(numProcessed > 0) {
-            alSourceUnqueueBuffers(m_source, numProcessed, nullptr);
-            m_buffersAvailable += numProcessed;
+            std::vector<ALuint> processedBuffers(static_cast<size_t>(numProcessed));
+            alSourceUnqueueBuffers(m_source, numProcessed, processedBuffers.data());
+            m_buffersAvailable = std::min<int>(static_cast<int>(N_BUFFERS), m_buffersAvailable + numProcessed);
         }        
 
         if(m_buffersAvailable > 0 && m_bufferData.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME/N_BUFFERS)  {
@@ -222,12 +223,15 @@ public:
 
         
         ALint state;
-        alGetSourcei(m_source, AL_SOURCE_STATE, &state);        
+        ALint queued = 0;
+        alGetSourcei(m_source, AL_SOURCE_STATE, &state);
+        alGetSourcei(m_source, AL_BUFFERS_QUEUED, &queued);
 
-        if (state != AL_PLAYING && m_buffersAvailable == 0)
+        // Always require a full prebuffer before (re)starting playback.
+        if(state != AL_PLAYING && queued >= static_cast<ALint>(N_BUFFERS))
         {
             alSourcePlay(m_source);
-        }        
+        }
         
     }    
 
