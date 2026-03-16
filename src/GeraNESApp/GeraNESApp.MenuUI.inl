@@ -44,10 +44,9 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            ImGui::Separator();
-
             sc = m_shortcuts.get("quit");
             if( sc != nullptr) {
+                ImGui::Separator();
 
                 if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
                 {

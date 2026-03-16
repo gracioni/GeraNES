@@ -472,7 +472,9 @@ inline void GeraNESApp::drawNsfPlayerVisualizer()
         m_emu.nsfTotalSongs(),
         m_emu.nsfIsPlaying(),
         m_emu.nsfIsPaused(),
-        m_emu.nsfHasEnded()
+        m_emu.nsfHasEnded(),
+        m_fontNsfTitle,
+        m_fontNsfSubtitle
     );
 }
 
@@ -482,15 +484,16 @@ inline void GeraNESApp::showOverlay()
 
     if(AppSettings::instance().data.debug.showFps) {
         const int fontSize = 32;
+        ImFont* fpsFont = m_fontFps != nullptr ? m_fontFps : ImGui::GetFont();
 
         std::string fpsText = std::to_string(m_fps);
-        ImVec2 fpsTextSize = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
+        ImVec2 fpsTextSize = fpsFont->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
 
         const ImVec2 pos = ImVec2(width() - fpsTextSize.x - 32, 40);
 
-        DrawTextOutlined(drawList, nullptr, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
+        DrawTextOutlined(drawList, fpsFont, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
     }
-    m_userToast.draw(drawList, static_cast<float>(width()), static_cast<float>(height()));
+    m_userToast.draw(drawList, static_cast<float>(width()), static_cast<float>(height()), m_fontToast);
 
     m_touch->draw(drawList);
 }

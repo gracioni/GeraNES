@@ -252,6 +252,7 @@ INCLUDE_DIRECTORIES(src)
 
 # Gets the list of files in the resources folder
 file(GLOB_RECURSE RESOURCES_LIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+list(APPEND RESOURCES_LIST "${CMAKE_CURRENT_SOURCE_DIR}/data/fonts/DejaVuSans.ttf")
 
 # Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RESOURCES_LIST})

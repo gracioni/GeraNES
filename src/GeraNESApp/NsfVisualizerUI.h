@@ -88,7 +88,8 @@ public:
     NsfVisualizerUI& operator=(NsfVisualizerUI&&) = delete;
 
     void draw(const std::vector<float>& samples, int sampleRate, int topMargin, int viewportWidth, int viewportHeight,
-              int currentSong, int totalSongs, bool isPlaying, bool isPaused, bool hasEnded)
+              int currentSong, int totalSongs, bool isPlaying, bool isPaused, bool hasEnded,
+              ImFont* titleFont = nullptr, ImFont* subtitleFont = nullptr)
     {
         const ImVec2 canvasPos(0.0f, static_cast<float>(topMargin));
         const ImVec2 canvasSize(static_cast<float>(viewportWidth), static_cast<float>(std::max(0, viewportHeight - topMargin)));
@@ -198,9 +199,9 @@ public:
         const std::string title = "NSF PLAYER";
         const std::string subtitle = "Song " + std::to_string(currentSong) + " / " + std::to_string(totalSongs) + "  " + state;
 
-        DrawTextOutlined(drawList, nullptr, 34.0f, ImVec2(origin.x + sidePadding, origin.y + 22.0f),
+        DrawTextOutlined(drawList, titleFont, 34.0f, ImVec2(origin.x + sidePadding, origin.y + 22.0f),
                          IM_COL32(245, 250, 255, 255), IM_COL32(0, 0, 0, 255), title.c_str());
-        DrawTextOutlined(drawList, nullptr, 20.0f, ImVec2(origin.x + sidePadding, origin.y + 62.0f),
+        DrawTextOutlined(drawList, subtitleFont, 20.0f, ImVec2(origin.x + sidePadding, origin.y + 62.0f),
                          IM_COL32(140, 210, 255, 255), IM_COL32(0, 0, 0, 255), subtitle.c_str());
 
         ImGui::End();

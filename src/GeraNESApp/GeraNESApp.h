@@ -128,6 +128,12 @@ private:
     std::string m_log = "";
     bool m_showLogWindow = false;
     UserToastNotifier m_userToast;
+
+    std::vector<uint8_t> m_embeddedUiFontData;
+    ImFont* m_fontNsfTitle = nullptr;
+    ImFont* m_fontNsfSubtitle = nullptr;
+    ImFont* m_fontToast = nullptr;
+    ImFont* m_fontFps = nullptr;
     NsfVisualizerUI m_nsfVisualizer;
 
     struct RomDatabaseEditorData {
@@ -522,9 +528,11 @@ private:
             openRom();
         }});
 
+        #ifndef __EMSCRIPTEN__
         m_shortcuts.add(ShortcutManager::Data{"quit", "Quit", "Alt+Q", [this]() {
             quit();
         }});
+        #endif
 
         m_shortcuts.add(ShortcutManager::Data{"horizontalStretch", "Horizontal Stretch", "Alt+H", [this]() {
             m_horizontalStretch = !m_horizontalStretch;
@@ -783,7 +791,44 @@ public:
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
 
-        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+        {
+            auto fs = cmrc::resources::get_filesystem();
+            const char* fontPath = nullptr;
+            if(fs.exists("data/fonts/DejaVuSans.ttf")) fontPath = "data/fonts/DejaVuSans.ttf";
+            else if(fs.exists("fonts/DejaVuSans.ttf")) fontPath = "fonts/DejaVuSans.ttf";
+            else if(fs.exists("resources/fonts/DejaVuSans.ttf")) fontPath = "resources/fonts/DejaVuSans.ttf";
+
+            if(fontPath != nullptr) {
+                auto file = fs.open(fontPath);
+                m_embeddedUiFontData.assign(file.begin(), file.end());
+
+                io.Fonts->Clear();
+                io.FontDefault = io.Fonts->AddFontDefault();
+
+                ImFontConfig cfg{};
+                cfg.FontDataOwnedByAtlas = false;
+                cfg.OversampleH = 4;
+                cfg.OversampleV = 2;
+                cfg.PixelSnapH = false;
+
+                m_fontNsfTitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 34.0f, &cfg);
+                m_fontNsfSubtitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 20.0f, &cfg);
+                m_fontToast = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 24.0f, &cfg);
+                m_fontFps = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 32.0f, &cfg);
+
+                if(m_fontNsfTitle == nullptr || m_fontNsfSubtitle == nullptr || m_fontToast == nullptr || m_fontFps == nullptr) {
+                    io.FontDefault = io.Fonts->AddFontDefault();
+                    Logger::instance().log("Embedded overlay fonts failed to load completely; using ImGui default where needed.", Logger::Type::WARNING);
+                } else {
+                    Logger::instance().log(std::string("Embedded UI font loaded from cmrc: ") + fontPath, Logger::Type::INFO);
+                }
+            } else {
+                Logger::instance().log("Embedded font not found in cmrc (tried data/fonts/DejaVuSans.ttf, fonts/DejaVuSans.ttf and resources/fonts/DejaVuSans.ttf).", Logger::Type::WARNING);
+            }
+        }
 
         ApplyImGuiTheme();
 
