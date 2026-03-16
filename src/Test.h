@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <optional>
+#include <sstream>
 #include <string>
 
 #include "GeraNES/GeraNESEmu.h"
@@ -247,7 +249,92 @@ private:
         return out.substr(begin, end - begin + 1);
     }
 
+    static bool screenTextLooksUseful(const std::string& text)
+    {
+        if(text.empty()) return false;
+
+        std::string lowered = text;
+        for(char& c : lowered) {
+            if(c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        }
+
+        if(lowered.find("passed") != std::string::npos || lowered.find("failed") != std::string::npos) {
+            return true;
+        }
+
+        int alphaCount = 0;
+        int weirdCount = 0;
+        int longAlphaRun = 0;
+        int currentAlphaRun = 0;
+
+        for(char c : text) {
+            const bool isAlpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            if(isAlpha) {
+                ++alphaCount;
+                ++currentAlphaRun;
+                if(currentAlphaRun > longAlphaRun) longAlphaRun = currentAlphaRun;
+            } else {
+                currentAlphaRun = 0;
+                if(!(c == ' ' || c == '\n' || c == '\r' || c == '\t' || (c >= '0' && c <= '9') || c == ':' || c == '-' || c == '_' || c == '/' || c == '.')) {
+                    ++weirdCount;
+                }
+            }
+        }
+
+        return alphaCount >= 12 && longAlphaRun >= 4 && weirdCount * 3 < static_cast<int>(text.size());
+    }
+
+    static std::optional<bool> parseFdsTableResult(const std::string& text)
+    {
+        if(text.empty()) return std::nullopt;
+
+        std::istringstream stream(text);
+        std::string line;
+        int matchedRows = 0;
+        int failedRows = 0;
+
+        auto isHexToken = [](const std::string& token, size_t expectedLen) -> bool {
+            if(token.size() != expectedLen) return false;
+            for(char c : token) {
+                const bool isDigit = (c >= '0' && c <= '9');
+                const bool isUpperHex = (c >= 'A' && c <= 'F');
+                const bool isLowerHex = (c >= 'a' && c <= 'f');
+                if(!(isDigit || isUpperHex || isLowerHex)) return false;
+            }
+            return true;
+        };
+
+        while(std::getline(stream, line)) {
+            std::istringstream lineStream(line);
+            std::string indexToken;
+            std::string resultToken;
+            std::string valueToken;
+            if(!(lineStream >> indexToken >> resultToken >> valueToken)) {
+                continue;
+            }
+
+            if(!isHexToken(indexToken, 2) || !isHexToken(resultToken, 1) || !isHexToken(valueToken, 2)) {
+                continue;
+            }
+
+            ++matchedRows;
+            if(resultToken != "0") {
+                ++failedRows;
+            }
+        }
+
+        if(matchedRows < 4) {
+            return std::nullopt;
+        }
+
+        return failedRows == 0;
+    }
+
 public:
+    static constexpr int RESULT_PASSED = 0;
+    static constexpr int RESULT_FAILED = -1;
+    static constexpr int RESULT_ERROR = 2;
+
     static int runHeadless(const std::string& romPath)
     {
         ErrorLogForwarder errorLogForwarder;
@@ -257,7 +344,7 @@ public:
         GeraNESEmu emu(beepAudio);
 
         if(!emu.open(romPath) || !emu.valid()) {
-            return 2;
+            return RESULT_ERROR;
         }
 
         // Do not use player speed-boost (3x). In test mode we run uncapped headless.
@@ -293,7 +380,7 @@ public:
             } else {
                 idle6000Ms += STEP_MS;
                 if(idle6000Ms >= INACTIVITY_TIMEOUT_MS) {
-                    return 3;
+                    return RESULT_FAILED;
                 }
             }
 
@@ -325,7 +412,7 @@ public:
                             failedScreenHits = 0;
                             if(passedScreenHits >= 2) {
                                 std::cout << screenText;
-                                return 0;
+                                return RESULT_PASSED;
                             }
                         }
                         else if(lowered.find("failed") != std::string::npos) {
@@ -333,18 +420,37 @@ public:
                             passedScreenHits = 0;
                             if(failedScreenHits >= 2) {
                                 std::cout << screenText;
-                                return 1;
+                                return RESULT_FAILED;
                             }
                         }
                         else {
-                            passedScreenHits = 0;
-                            failedScreenHits = 0;
+                            const std::optional<bool> fdsTableResult = parseFdsTableResult(screenText);
+                            if(fdsTableResult.has_value()) {
+                                if(*fdsTableResult) {
+                                    ++passedScreenHits;
+                                    failedScreenHits = 0;
+                                    if(passedScreenHits >= 2) {
+                                        std::cout << screenText;
+                                        return RESULT_PASSED;
+                                    }
+                                } else {
+                                    ++failedScreenHits;
+                                    passedScreenHits = 0;
+                                    if(failedScreenHits >= 2) {
+                                        std::cout << screenText;
+                                        return RESULT_FAILED;
+                                    }
+                                }
+                            } else {
+                                passedScreenHits = 0;
+                                failedScreenHits = 0;
+                            }
 
                             // No explicit Passed/Failed text: if screen output is stable for
                             // a while, treat it as end-of-test and return the captured text.
                             if(stableScreenMs >= SCREEN_SETTLE_MS) {
                                 std::cout << screenText;
-                                return 1;
+                                return RESULT_FAILED;
                             }
                         }
                     }
@@ -355,14 +461,10 @@ public:
                     if(stepsSinceLastBeep != UINT64_MAX && stepsSinceLastBeep * STEP_MS >= BEEP_SETTLE_MS) {
                         const int code = beepAudio.beepCount();
                         if(code == 1) {
-                            std::string screenText = readScreenText(emu);
-                            if(!screenText.empty()) std::cout << screenText;
-                            else std::cout << "Passed";
-                            return 0;
+                            return RESULT_PASSED;
                         }
                         if(code > 1) {
-                            std::cout << "Failed (beep code " << code << ")";
-                            return 1;
+                            return RESULT_FAILED;
                         }
                     }
 
@@ -372,15 +474,11 @@ public:
                         beepIdleMs += STEP_MS;
                         if(beepIdleMs >= BEEP_SETTLE_MS) {
                             const int code = beepAudio.beepCount();
-                            if(code <= 0) return 3;
+                            if(code <= 0) return RESULT_FAILED;
                             if(code == 1) {
-                                std::string screenText = readScreenText(emu);
-                                if(!screenText.empty()) std::cout << screenText;
-                                else std::cout << "Passed";
-                                return 0;
+                                return RESULT_PASSED;
                             }
-                            std::cout << "Failed (beep code " << code << ")";
-                            return 1;
+                            return RESULT_FAILED;
                         }
                     }
                 }
@@ -408,9 +506,9 @@ public:
             }
 
             std::cout << readOutputText(emu);
-            return static_cast<int>(status);
+            return status == 0 ? RESULT_PASSED : RESULT_FAILED;
         }
 
-        return 3;
+        return RESULT_FAILED;
     }
 };

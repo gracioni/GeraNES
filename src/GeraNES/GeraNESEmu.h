@@ -318,6 +318,11 @@ private:
     void onFrameStart()
     {
         m_4011WriteCounter = 0;
+        m_cartridge.applyExternalActions(
+            m_hardwareActions.consumeFdsPendingActions(
+                m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::FDS
+            )
+        );
         m_hardwareActions.onFrameStart();
         m_nsfPlayer.onFrameStart();
 
@@ -552,6 +557,8 @@ public:
                     break;
 
                 case GameDatabase::System::NesNtsc:
+                case GameDatabase::System::FDS:
+                case GameDatabase::System::Famicom:
                     m_settings.setRegion(Settings::Region::NTSC);
                     break;
 

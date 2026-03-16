@@ -58,9 +58,10 @@ def combine_output(stdout: str, stderr: str) -> str:
     return stdout or stderr or ""
 
 
-def is_default_pass_output(output: str) -> bool:
-    output_lower = output.lower()
-    return ("passed" in output_lower) or ("$01" in output)
+def normalize_return_code(code: int) -> int:
+    if code == 4294967295:
+        return -1
+    return code
 
 
 def load_expect_config(path: str) -> Dict[str, List[str]]:
@@ -113,19 +114,16 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
 
     for index, rom_path in enumerate(roms, start=1):
         proc = run_command([binary, "--test", rom_path])
+        return_code = normalize_return_code(proc.returncode)
         output = combine_output(proc.stdout, proc.stderr).strip()
         rom_name = os.path.basename(rom_path)
         report_path = to_report_path(rom_path, roms_folder)
-        expected_texts = expect_map.get(report_path.lower(), expect_map.get(rom_name.lower(), []))
-        output_lower = output.lower()
-        matched_expected = any(t.lower() in output_lower for t in expected_texts)
-
-        if proc.returncode == 3 and not output.strip():
-            result = "timeout"
-        elif is_default_pass_output(output) or matched_expected:
+        if return_code == 0:
             result = "passed"
-        else:
+        elif return_code == -1:
             result = "failed"
+        else:
+            result = "error"
 
         print(f"[{index}/{total}] {report_path} -> {result}", flush=True)
 
@@ -133,6 +131,7 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
             {
                 "fileName": report_path,
                 "result": result,
+                "returnCode": return_code,
                 "output": output,
             }
         )
@@ -169,8 +168,8 @@ def write_md(report: Dict[str, object], out_path: str) -> None:
         result_raw = str(test.get("result", "")).strip().lower()
         if result_raw == "passed":
             result = '<span style="color: green;"><strong>passed</strong></span>'
-        elif result_raw == "timeout":
-            result = '<span style="color: orange;"><strong>timeout</strong></span>'
+        elif result_raw == "error":
+            result = '<span style="color: orange;"><strong>error</strong></span>'
         else:
             result = '<span style="color: red;"><strong>failed</strong></span>'
         lines.append(f"- **{file_name}**: {result}")
@@ -203,7 +202,7 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
     parts.append(".status{font-weight:700;}")
     parts.append(".passed{color:#198754;}")
     parts.append(".failed{color:#c1121f;}")
-    parts.append(".timeout{color:#d97706;}")
+    parts.append(".error{color:#d97706;}")
     parts.append("details{margin-top:6px;}")
     parts.append("summary{cursor:pointer;user-select:none;}")
     parts.append("pre{margin:8px 0 0 0;padding:10px;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;overflow:auto;white-space:pre;}")
@@ -220,18 +219,23 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
         result_raw = str(test.get("result", "")).strip().lower()
         if result_raw == "passed":
             status_class = "passed"
-        elif result_raw == "timeout":
-            status_class = "timeout"
+        elif result_raw == "error":
+            status_class = "error"
         else:
             status_class = "failed"
+        return_code = html.escape(str(test.get("returnCode", "")))
         output_raw = str(test.get("output", ""))
         output_norm = output_raw.replace("\r\n", "\n").replace("\r", "\n")
         output_html = html.escape(output_norm)
 
         parts.append("<section class=\"test\">")
+        code_suffix = ""
+        if result_raw != "passed":
+            code_suffix = f" (code: {return_code})"
         parts.append(
             f"<p class=\"head\"><span class=\"name\">{file_name}</span>: "
-            f"<span class=\"status {status_class}\">{html.escape(result_raw)}</span></p>"
+            f"<span class=\"status {status_class}\">{html.escape(result_raw)}</span>"
+            f"{code_suffix}</p>"
         )
         parts.append("<details>")
         parts.append("<summary>show output</summary>")

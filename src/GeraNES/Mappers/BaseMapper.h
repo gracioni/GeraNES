@@ -239,6 +239,10 @@ public:
     {
     }
 
+    virtual void applyExternalActions(uint8_t /*pending*/)
+    {
+    }
+
     virtual float getExpansionAudioSample()
     {
         return 0.0f;

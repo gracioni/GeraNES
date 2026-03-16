@@ -4,6 +4,7 @@
 #include "util/MapperUtil.h"
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
+#include "NesCartridgeData/_FdsFormat.h"
 #include "NesCartridgeData/_NsfFormat.h"
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "logger/logger.h"
@@ -34,6 +35,7 @@
 #include "Mappers/Mapper017.h"
 #include "Mappers/Mapper018.h"
 #include "Mappers/Mapper019.h"
+#include "Mappers/Mapper020.h"
 #include "Mappers/Mapper021.h"
 #include "Mappers/Mapper022.h"
 #include "Mappers/Mapper023.h"
@@ -127,6 +129,7 @@ private:
         case 17: return BaseMapper::create<Mapper017>(*m_nesCartridgeData);
         case 18: return BaseMapper::create<Mapper018>(*m_nesCartridgeData);
         case 19: return BaseMapper::create<Mapper019>(*m_nesCartridgeData);
+        case 20: return BaseMapper::create<Mapper020>(*m_nesCartridgeData);
         case 21: return BaseMapper::create<Mapper021>(*m_nesCartridgeData);
         case 22: return BaseMapper::create<Mapper022>(*m_nesCartridgeData);
         case 23: return BaseMapper::create<Mapper023>(*m_nesCartridgeData);
@@ -215,7 +218,7 @@ public:
             return false;
         }
 
-        // Try iNES first, then NSF.
+        // Try iNES first, then FDS, then NSF.
         _INesFormat* iNes = new _INesFormat(m_romFile);
         if(iNes->valid()) {
             m_nesCartridgeData = iNes;
@@ -225,21 +228,40 @@ public:
             delete iNes;
             iNes = nullptr;
 
-            _NsfFormat* nsf = new _NsfFormat(m_romFile);
-            if(nsf->valid()) {
-                m_nesCartridgeData = nsf;
+            _FdsFormat* fds = new _FdsFormat(m_romFile);
+            if(fds->valid()) {
+                m_nesCartridgeData = fds;
             }
             else {
-                delete nsf;
-                nsf = nullptr;
-                clear();
-                if(iNesSizeMismatch) {
-                    Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
+                const std::string fdsError = fds->error();
+                delete fds;
+                fds = nullptr;
+
+                if(fs::path(filename).extension() == ".fds") {
+                    clear();
+                    Logger::instance().log(
+                        fdsError.empty() ? "Invalid FDS image" : fdsError,
+                        Logger::Type::ERROR
+                    );
+                    return false;
+                }
+
+                _NsfFormat* nsf = new _NsfFormat(m_romFile);
+                if(nsf->valid()) {
+                    m_nesCartridgeData = nsf;
                 }
                 else {
-                    Logger::instance().log("Invalid ROM", Logger::Type::USER);
+                    delete nsf;
+                    nsf = nullptr;
+                    clear();
+                    if(iNesSizeMismatch) {
+                        Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
+                    }
+                    else {
+                        Logger::instance().log("Invalid ROM", Logger::Type::USER);
+                    }
+                    return false;
                 }
-                return false;
             }
         }
 
@@ -250,7 +272,8 @@ public:
         std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
 
         // NSF is not an iNES cartridge dump, so DB header overwrite doesn't apply.
-        if(dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr) {
+        if(dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr &&
+           dynamic_cast<_FdsFormat*>(m_nesCartridgeData) == nullptr) {
             GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);
 
             if(item != nullptr) {
@@ -263,7 +286,11 @@ public:
             }
         }
         else {
-            Logger::instance().log("NSF file detected\nUsing NSF player mapper", Logger::Type::INFO);
+            if(dynamic_cast<_FdsFormat*>(m_nesCartridgeData) != nullptr) {
+                Logger::instance().log("FDS file detected\nUsing FDS mapper", Logger::Type::INFO);
+            } else {
+                Logger::instance().log("NSF file detected\nUsing NSF player mapper", Logger::Type::INFO);
+            }
         }
 
         m_mapper = CreateMapper();
@@ -472,6 +499,11 @@ public:
     GERANES_INLINE bool setMapperAudioChannelVolumeById(const std::string& id, float volume)
     {
         return m_mapper->setAudioChannelVolumeById(id, volume);
+    }
+
+    GERANES_INLINE void applyExternalActions(uint8_t pending)
+    {
+        m_mapper->applyExternalActions(pending);
     }
 
     GERANES_INLINE GameDatabase::System system()
