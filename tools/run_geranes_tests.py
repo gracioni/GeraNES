@@ -46,6 +46,11 @@ def discover_roms(roms_folder: str) -> List[str]:
     return roms
 
 
+def to_report_path(rom_path: str, roms_folder: str) -> str:
+    rel_path = os.path.relpath(rom_path, roms_folder)
+    return rel_path.replace("\\", "/")
+
+
 def combine_output(stdout: str, stderr: str) -> str:
     if stdout and stderr:
         sep = "" if stdout.endswith("\n") else "\n"
@@ -110,7 +115,8 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
         proc = run_command([binary, "--test", rom_path])
         output = combine_output(proc.stdout, proc.stderr).strip()
         rom_name = os.path.basename(rom_path)
-        expected_texts = expect_map.get(rom_name.lower(), [])
+        report_path = to_report_path(rom_path, roms_folder)
+        expected_texts = expect_map.get(report_path.lower(), expect_map.get(rom_name.lower(), []))
         output_lower = output.lower()
         matched_expected = any(t.lower() in output_lower for t in expected_texts)
 
@@ -121,11 +127,11 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
         else:
             result = "failed"
 
-        print(f"[{index}/{total}] {rom_name} -> {result}", flush=True)
+        print(f"[{index}/{total}] {report_path} -> {result}", flush=True)
 
         tests.append(
             {
-                "fileName": rom_name,
+                "fileName": report_path,
                 "result": result,
                 "output": output,
             }
