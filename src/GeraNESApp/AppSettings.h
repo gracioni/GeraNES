@@ -25,6 +25,23 @@ class AppSettings {
 
 public:
 
+    static fs::path& storageDirectory()
+    {
+        static fs::path path = fs::current_path();
+        return path;
+    }
+
+    static void setStorageDirectory(const fs::path& path)
+    {
+        if(path.empty()) return;
+        storageDirectory() = path;
+    }
+
+    static fs::path settingsFilePath()
+    {
+        return storageDirectory() / "settings.json";
+    }
+
     struct Improvements {   
 
         bool disableSpritesLimit = false;
@@ -150,7 +167,6 @@ public:
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps)
     };
 
-    const char* FILENAME = "settings.json";
     const int MAX_RECENT_FILES = 10;    
 
     struct Data {
@@ -196,7 +212,7 @@ public:
         }
 
         void sanitizeDefaults() {
-            if(lastFolder == "") lastFolder = fs::current_path().string();
+            if(lastFolder == "") lastFolder = AppSettings::storageDirectory().string();
         }
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, video, audio, debug)
@@ -213,7 +229,7 @@ public:
 
         Logger::instance().log("Loading settings...", Logger::Type::INFO);
 
-        std::ifstream file(FILENAME);
+        std::ifstream file(settingsFilePath());
 
         if(file.is_open()) {
             nlohmann::json auxData = nlohmann::json::parse(file);
@@ -239,7 +255,7 @@ public:
   
     void save() {
         Logger::instance().log("Saving settings...", Logger::Type::INFO);
-        std::ofstream file(FILENAME);
+        std::ofstream file(settingsFilePath());
         file << std::setw(4) << nlohmann::json(data);
     }  
 };

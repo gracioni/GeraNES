@@ -16,6 +16,7 @@
 #include "GeraNES/GameDatabase.h"
 #include "GeraNES/PPU.h"
 #include "GeraNES/Serialization.h"
+#include "GeraNES/util/FileUtil.h"
 #include "GeraNESApp/AudioOutputBase.h"
 #include "logger/logger.h"
 
@@ -253,6 +254,7 @@ GeraNESEmu g_emu(g_audio);
 
 std::array<uint32_t, PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT> g_videoFrame{};
 std::string g_tempRomPath;
+std::string g_systemDirectory;
 
 bool g_gameLoaded = false;
 uint32_t g_frameTimeMs = 16;
@@ -330,6 +332,17 @@ void registerCoreOptions()
 }
 
 void updateTimingFromRegion();
+
+void configureFirmwareSearchPaths()
+{
+    clearExtraBinarySearchPaths();
+
+    if(g_systemDirectory.empty()) return;
+
+    const std::filesystem::path base(g_systemDirectory);
+    addExtraBinarySearchPath(base);
+    addExtraBinarySearchPath(base / "geranes");
+}
 
 void registerInputDescriptors()
 {
@@ -765,6 +778,17 @@ RETRO_API void retro_init(void)
 
     applyCoreOptions();
     configureDatabasePath();
+    if(g_environmentCb != nullptr) {
+        const char* systemDir = nullptr;
+        if(g_environmentCb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &systemDir) && systemDir != nullptr) {
+            g_systemDirectory = systemDir;
+        } else {
+            g_systemDirectory.clear();
+        }
+    } else {
+        g_systemDirectory.clear();
+    }
+    configureFirmwareSearchPaths();
     g_audio.init();
 }
 
@@ -925,6 +949,8 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
         g_emu.close();
         g_gameLoaded = false;
     }
+
+    configureFirmwareSearchPaths();
 
     g_audio.reset();
     g_portInputModes[0] = PortInputMode::Controller;

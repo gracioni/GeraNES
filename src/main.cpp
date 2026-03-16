@@ -31,12 +31,15 @@ int main(int argc, char* argv[]) {
             const std::filesystem::path exeDir = exePath.parent_path();
             if(!exeDir.empty()) {
                 std::filesystem::current_path(exeDir);
+                AppSettings::setStorageDirectory(exeDir);
             }
         }
     }
     catch(...) {
         // Keep startup resilient; fallback to current process working directory.
     }
+
+    AppSettings::setStorageDirectory(std::filesystem::current_path());
 
     if(argc >= 2 && std::string(argv[1]) == "--version") {
         std::cout << GERANES_VERSION << std::endl;

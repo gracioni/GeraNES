@@ -688,7 +688,14 @@ public:
         NFD_Init();     
 
         nfdchar_t *outPath;
-        nfdfilteritem_t filterItem[] = { { "NES/NSF", "nes,nsf,zip" }, "Patch", "ips,ups,bps" };
+        nfdfilteritem_t filterItem[] = {
+            { "Supported Files", "nes,nsf,fds,zip,ips,ups,bps" },
+            { "NES", "nes" },
+            { "NSF", "nsf" },
+            { "FDS", "fds" },
+            { "ZIP", "zip" },
+            { "Patch", "ips,ups,bps" }
+        };
 
         nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t),
             (AppSettings::instance().data.getLastFolder()).c_str());
