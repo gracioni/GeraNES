@@ -343,7 +343,7 @@ public:
             m_irqCounter--;
         }
 
-        if(m_mmc3RevAIrqs) {
+        if(m_mmc3RevAIrqs || m_isMMC6) {
 
             //MMC3 Revision A behavior
             if((count > 0 || m_irqClearFlag) && m_irqCounter == 0 && m_enableInterrupt) {
