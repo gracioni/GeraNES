@@ -9,6 +9,11 @@
 
 int main(int argc, char* argv[]) {
     const std::filesystem::path originalCwd = std::filesystem::current_path();
+    std::filesystem::path testRomPath;
+    if(argc >= 3 && std::string(argv[1]) == "--test" && argv[2] && argv[2][0] != '\0') {
+        const std::filesystem::path inputTestRomPath = argv[2];
+        testRomPath = inputTestRomPath.is_absolute() ? inputTestRomPath : (originalCwd / inputTestRomPath).lexically_normal();
+    }
     struct CwdRestoreGuard {
         std::filesystem::path path;
         ~CwdRestoreGuard() {
@@ -39,7 +44,7 @@ int main(int argc, char* argv[]) {
     }
 
     if(argc >= 3 && std::string(argv[1]) == "--test") {
-        return Test::runHeadless(argv[2]);
+        return Test::runHeadless(testRomPath.empty() ? std::string(argv[2]) : testRomPath.string());
     }
 
     GeraNESApp app;

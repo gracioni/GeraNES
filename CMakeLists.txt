@@ -198,14 +198,16 @@ if (TARGET yogatests)
     set_target_properties(yogatests PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
-# Some toolchains (notably newer Clang/Emscripten combinations) can promote
-# gtest char8_t conversion warnings to errors. Keep this scoped to vendored
-# gtest targets so project warnings policy remains unchanged.
-if (TARGET gtest)
-    target_compile_options(gtest PRIVATE -Wno-character-conversion -Wno-error=character-conversion)
-endif()
-if (TARGET gtest_main)
-    target_compile_options(gtest_main PRIVATE -Wno-character-conversion -Wno-error=character-conversion)
+# Some Clang-based toolchains can promote gtest char8_t conversion warnings
+# to errors. Keep this scoped to vendored gtest targets and avoid passing
+# unsupported warning flags to GCC/MinGW.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if (TARGET gtest)
+        target_compile_options(gtest PRIVATE -Wno-character-conversion -Wno-error=character-conversion)
+    endif()
+    if (TARGET gtest_main)
+        target_compile_options(gtest_main PRIVATE -Wno-character-conversion -Wno-error=character-conversion)
+    endif()
 endif()
 
 FetchContent_Declare(
@@ -227,11 +229,27 @@ FetchContent_Declare(
     GIT_PROGRESS TRUE
 )
 
-set(PFFFT_BUILD_TESTS OFF CACHE BOOL "Disable pffft tests" FORCE)
-set(PFFFT_BUILD_BENCHMARKS OFF CACHE BOOL "Disable pffft benchmarks" FORCE)
-set(PFFFT_BUILD_EXAMPLES OFF CACHE BOOL "Disable pffft examples" FORCE)
-set(INSTALL_PFFFT OFF CACHE BOOL "Disable pffft install target" FORCE)
-FetchContent_MakeAvailable(pffft)
+FetchContent_GetProperties(pffft)
+if(NOT pffft_POPULATED)
+    FetchContent_Populate(pffft)
+endif()
+
+add_library(PFFFT STATIC
+    ${pffft_SOURCE_DIR}/src/pffft.c
+    ${pffft_SOURCE_DIR}/src/pffft_common.c
+)
+add_library(PFFFT::PFFFT ALIAS PFFFT)
+target_include_directories(PFFFT
+    PUBLIC
+        ${pffft_SOURCE_DIR}/include
+    PRIVATE
+        ${pffft_SOURCE_DIR}/src
+        ${pffft_SOURCE_DIR}/include/pffft
+)
+target_compile_definitions(PFFFT PUBLIC PFFFT_STATIC_DEFINE)
+if(NOT MSVC)
+    target_link_libraries(PFFFT PUBLIC m)
+endif()
 
 set(FLIPS_PATH ${flips_SOURCE_DIR})
 file(GLOB FLIPS_GLOB
