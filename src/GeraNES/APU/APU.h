@@ -28,8 +28,10 @@ class APU
 
     bool m_jitter;
 
-    const int mode0Delays[6] = {7457, 7456, 7458, 7457, 1, 1 };
-    const int mode1Delays[5] = {7457, 7456, 7458, 7457, 7453};
+    const int mode0DelaysNtsc[6] = {7457, 7456, 7458, 7457, 1, 1 };
+    const int mode1DelaysNtsc[5] = {7457, 7456, 7458, 7457, 7453};
+    const int mode0DelaysPal[6] = {8313, 8314, 8312, 8313, 1, 1};
+    const int mode1DelaysPal[5] = {8313, 8314, 8312, 8314, 8312};
     int m_nextDelay;
 
     PulseChannel m_pulse1;
@@ -43,6 +45,16 @@ class APU
     uint8_t m_writeChannelsData;
 
 public:   
+
+    GERANES_INLINE const int* mode0Delays() const
+    {
+        return m_settings.region() == Settings::Region::PAL ? mode0DelaysPal : mode0DelaysNtsc;
+    }
+
+    GERANES_INLINE const int* mode1Delays() const
+    {
+        return m_settings.region() == Settings::Region::PAL ? mode1DelaysPal : mode1DelaysNtsc;
+    }
 
     void serialization(SerializationBase& s)
     {
@@ -99,7 +111,7 @@ public:
         m_interruptInhibitFlag = true;
 
         m_frameStep = 0;
-        m_nextDelay = mode0Delays[0];
+        m_nextDelay = mode0Delays()[0];
         m_jitter = false;
 
         m_frameInterruptFlag = false;
@@ -174,8 +186,8 @@ public:
             m_interruptInhibitFlag = data&0x40;
             m_frameStep = 0;
 
-            if(!m_mode) m_nextDelay = mode0Delays[m_frameStep];
-            else m_nextDelay = mode1Delays[m_frameStep];
+            if(!m_mode) m_nextDelay = mode0Delays()[m_frameStep];
+            else m_nextDelay = mode1Delays()[m_frameStep];
 
             m_nextDelay += (m_jitter ? 3 : 4);
 
@@ -313,7 +325,7 @@ public:
                     break;
                 }
 
-                m_nextDelay = mode0Delays[m_frameStep];
+                m_nextDelay = mode0Delays()[m_frameStep];
 
             }
 
@@ -328,32 +340,32 @@ public:
                     updateEnvelopsAndLinearCounters();
                     updateAudioOutput();
                     m_frameStep++;
-                    m_nextDelay = mode1Delays[m_frameStep];
+                    m_nextDelay = mode1Delays()[m_frameStep];
                     break;
                 case 1:
                     updateEnvelopsAndLinearCounters();
                     updateLengthCountersAndSweeps();
                     updateAudioOutput();
                     m_frameStep++;
-                    m_nextDelay = mode1Delays[m_frameStep];
+                    m_nextDelay = mode1Delays()[m_frameStep];
                     break;
                 case 2:
                     updateEnvelopsAndLinearCounters();
                     updateAudioOutput();
                     m_frameStep++;
-                    m_nextDelay = mode1Delays[m_frameStep];
+                    m_nextDelay = mode1Delays()[m_frameStep];
                     break;
                 case 3:
                     //do nothing
                     m_frameStep++;
-                    m_nextDelay = mode1Delays[m_frameStep];
+                    m_nextDelay = mode1Delays()[m_frameStep];
                     break;
                 case 4:
                     updateEnvelopsAndLinearCounters();
                     updateLengthCountersAndSweeps();
                     updateAudioOutput();
                     m_frameStep = 0;
-                    m_nextDelay = mode1Delays[m_frameStep] + (m_jitter ? 0 : 1);
+                    m_nextDelay = mode1Delays()[m_frameStep] + (m_jitter ? 0 : 1);
                     break;
                 }
             }
