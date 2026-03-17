@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef ENABLE_NFS_PLAYER
+
 #include <array>
 #include <cstring>
 #include <cstdint>
@@ -281,7 +283,7 @@ public:
         return false;
     }
 
-    bool consumeInstructionRedirect(uint16_t& cpuAddr) override
+    bool consumeNsfPlayerInstructionRedirect(uint16_t& cpuAddr) override
     {
         if(!m_isPlaying || !m_initDone || m_playInFlight || !m_playRequestPending) {
             return false;
@@ -306,3 +308,5 @@ public:
         else --m_songIndex;
     }
 };
+
+#endif

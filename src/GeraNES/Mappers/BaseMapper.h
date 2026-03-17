@@ -239,10 +239,12 @@ public:
     {
     }
 
-    virtual bool consumeInstructionRedirect(uint16_t& /*cpuAddr*/)
+#ifdef ENABLE_NFS_PLAYER
+    virtual bool consumeNsfPlayerInstructionRedirect(uint16_t& /*cpuAddr*/)
     {
         return false;
     }
+#endif
 
     virtual void applyExternalActions(uint8_t /*pending*/)
     {

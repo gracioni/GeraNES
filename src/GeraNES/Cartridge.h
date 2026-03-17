@@ -5,7 +5,9 @@
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
 #include "NesCartridgeData/_FdsFormat.h"
+#ifdef ENABLE_NFS_PLAYER
 #include "NesCartridgeData/_NsfFormat.h"
+#endif
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
 #include "logger/logger.h"
 #include "util/Crc32.h"
@@ -77,7 +79,9 @@
 #include "Mappers/Mapper210.h"
 #include "Mappers/Mapper232.h"
 #include "Mappers/Mapper245.h"
+#ifdef ENABLE_NFS_PLAYER
 #include "Mappers/MapperNSF.h"
+#endif
 
 #include "RomFile.h"
 
@@ -171,7 +175,9 @@ private:
         case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
         case 232: return BaseMapper::create<Mapper232>(*m_nesCartridgeData);
         case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
+#ifdef ENABLE_NFS_PLAYER
         case _NsfFormat::NSF_MAPPER_ID: return BaseMapper::create<MapperNSF>(*m_nesCartridgeData);
+#endif
 
         }         
 
@@ -246,6 +252,7 @@ public:
                     return false;
                 }
 
+#ifdef ENABLE_NFS_PLAYER
                 _NsfFormat* nsf = new _NsfFormat(m_romFile);
                 if(nsf->valid()) {
                     m_nesCartridgeData = nsf;
@@ -262,6 +269,16 @@ public:
                     }
                     return false;
                 }
+#else
+                clear();
+                if(iNesSizeMismatch) {
+                    Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
+                }
+                else {
+                    Logger::instance().log("Invalid ROM", Logger::Type::USER);
+                }
+                return false;
+#endif
             }
         }
 
@@ -272,7 +289,10 @@ public:
         std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
 
         // NSF is not an iNES cartridge dump, so DB header overwrite doesn't apply.
-        if(dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr &&
+        if(
+#ifdef ENABLE_NFS_PLAYER
+           dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr &&
+#endif
            dynamic_cast<_FdsFormat*>(m_nesCartridgeData) == nullptr) {
             GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);
 
@@ -288,9 +308,12 @@ public:
         else {
             if(dynamic_cast<_FdsFormat*>(m_nesCartridgeData) != nullptr) {
                 Logger::instance().log("FDS file detected\nUsing FDS mapper", Logger::Type::INFO);
-            } else {
+            }
+#ifdef ENABLE_NFS_PLAYER
+            else {
                 Logger::instance().log("NSF file detected\nUsing NSF player mapper", Logger::Type::INFO);
             }
+#endif
         }
 
         m_mapper = CreateMapper();
@@ -486,10 +509,12 @@ public:
         m_mapper->onCpuWrite(addr, data);
     }
 
-    GERANES_INLINE bool consumeInstructionRedirect(uint16_t& cpuAddr)
+#ifdef ENABLE_NFS_PLAYER
+    GERANES_INLINE bool consumeNsfPlayerInstructionRedirect(uint16_t& cpuAddr)
     {
-        return m_mapper->consumeInstructionRedirect(cpuAddr);
+        return m_mapper->consumeNsfPlayerInstructionRedirect(cpuAddr);
     }
+#endif
 
     GERANES_INLINE float getExpansionAudioSample()
     {
@@ -617,81 +642,123 @@ public:
 
     GERANES_INLINE bool isNsf() const
     {
+#ifdef ENABLE_NFS_PLAYER
         return m_nesCartridgeData != NULL && m_nesCartridgeData->mapperId() == _NsfFormat::NSF_MAPPER_ID;
+#else
+        return false;
+#endif
     }
 
     GERANES_INLINE int nsfTotalSongs() const
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return 0;
         const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
         return mapper != nullptr ? mapper->totalSongs() : 0;
+#else
+        return 0;
+#endif
     }
 
     GERANES_INLINE int nsfCurrentSong() const
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return 0;
         const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
         return mapper != nullptr ? mapper->currentSong() : 0;
+#else
+        return 0;
+#endif
     }
 
     GERANES_INLINE bool nsfIsPlaying() const
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
         return mapper != nullptr ? mapper->isPlaying() : false;
+#else
+        return false;
+#endif
     }
 
     GERANES_INLINE bool nsfSetPlaying(bool playing)
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         mapper->setPlaying(playing);
         return true;
+#else
+        (void)playing;
+        return false;
+#endif
     }
 
     GERANES_INLINE bool nsfSetSong(int song1Based)
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         mapper->setSong(song1Based);
         return true;
+#else
+        (void)song1Based;
+        return false;
+#endif
     }
 
     GERANES_INLINE bool nsfNextSong()
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         mapper->nextSong();
         return true;
+#else
+        return false;
+#endif
     }
 
     GERANES_INLINE bool nsfPrevSong()
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         mapper->prevSong();
         return true;
+#else
+        return false;
+#endif
     }
 
     GERANES_INLINE bool nsfRequestSongInit()
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         mapper->requestSongInit();
         return true;
+#else
+        return false;
+#endif
     }
 
     GERANES_INLINE bool nsfSongInitPending()
     {
+#ifdef ENABLE_NFS_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         return mapper->songInitPending();
+#else
+        return false;
+#endif
     }
 
     void serialization(SerializationBase& s)

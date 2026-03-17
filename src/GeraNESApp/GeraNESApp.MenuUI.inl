@@ -218,6 +218,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+#ifdef ENABLE_NFS_PLAYER
         if (ImGui::BeginMenu("NSF", m_emu.isNsfLoaded()))
         {
             const bool isPlaying = m_emu.nsfIsPlaying();
@@ -258,6 +259,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::EndMenu();
         }
+#endif
 
         if (ImGui::BeginMenu("Input"))
         {

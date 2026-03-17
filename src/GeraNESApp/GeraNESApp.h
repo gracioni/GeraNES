@@ -68,7 +68,9 @@ CMRC_DECLARE(resources);
 
 #include "TouchControls.h"
 #include "UserToastNotifier.h"
+#ifdef ENABLE_NFS_PLAYER
 #include "NsfVisualizerUI.h"
+#endif
 
 const std::string LOG_FILE = "log.txt";
 
@@ -134,7 +136,9 @@ private:
     ImFont* m_fontNsfSubtitle = nullptr;
     ImFont* m_fontToast = nullptr;
     ImFont* m_fontFps = nullptr;
+#ifdef ENABLE_NFS_PLAYER
     NsfVisualizerUI m_nsfVisualizer;
+#endif
 
     struct RomDatabaseEditorData {
         bool loaded = false;
@@ -688,6 +692,7 @@ public:
         NFD_Init();     
 
         nfdchar_t *outPath;
+#ifdef ENABLE_NFS_PLAYER
         nfdfilteritem_t filterItem[] = {
             { "Supported Files", "nes,nsf,fds,zip,ips,ups,bps" },
             { "NES", "nes" },
@@ -696,6 +701,15 @@ public:
             { "ZIP", "zip" },
             { "Patch", "ips,ups,bps" }
         };
+#else
+        nfdfilteritem_t filterItem[] = {
+            { "Supported Files", "nes,fds,zip,ips,ups,bps" },
+            { "NES", "nes" },
+            { "FDS", "fds" },
+            { "ZIP", "zip" },
+            { "Patch", "ips,ups,bps" }
+        };
+#endif
 
         nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t),
             (AppSettings::instance().data.getLastFolder()).c_str());
@@ -820,12 +834,18 @@ public:
                 cfg.OversampleV = 2;
                 cfg.PixelSnapH = false;
 
+#ifdef ENABLE_NFS_PLAYER
                 m_fontNsfTitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 34.0f, &cfg);
                 m_fontNsfSubtitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 20.0f, &cfg);
+#endif
                 m_fontToast = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 24.0f, &cfg);
                 m_fontFps = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 32.0f, &cfg);
 
-                if(m_fontNsfTitle == nullptr || m_fontNsfSubtitle == nullptr || m_fontToast == nullptr || m_fontFps == nullptr) {
+                if(
+#ifdef ENABLE_NFS_PLAYER
+                    m_fontNsfTitle == nullptr || m_fontNsfSubtitle == nullptr ||
+#endif
+                    m_fontToast == nullptr || m_fontFps == nullptr) {
                     io.FontDefault = io.Fonts->AddFontDefault();
                     Logger::instance().log("Embedded overlay fonts failed to load completely; using ImGui default where needed.", Logger::Type::WARNING);
                 } else {
@@ -1133,7 +1153,9 @@ public:
     void collectAudioChannelsFromJson(const std::string& jsonStr, const char* source, std::vector<AudioChannelControl>& out);
     void applyAudioChannelVolume(const AudioChannelControl& c, float value);
     void drawAudioChannelDebugControls();
+#ifdef ENABLE_NFS_PLAYER
     void drawNsfPlayerVisualizer();
+#endif
 
     virtual void paintGL() override;
 

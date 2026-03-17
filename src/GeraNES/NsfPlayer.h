@@ -1,7 +1,10 @@
 #pragma once
 
-#include <cstdint>
 #include <functional>
+
+#ifdef ENABLE_NFS_PLAYER
+
+#include <cstdint>
 #include <string>
 
 #include "Cartridge.h"
@@ -224,3 +227,39 @@ public:
         }
     }
 };
+
+#else
+
+class Cartridge;
+class APU;
+class IAudioOutput;
+
+class NsfPlayer
+{
+public:
+    enum class PlaybackState { Stopped, Playing, Paused, Ended };
+
+    NsfPlayer(Cartridge&, APU&, IAudioOutput&, std::function<void()>)
+    {
+    }
+
+    void init() {}
+    void onOpen() {}
+    void onEmulatorReset() {}
+    void onFrameStart() {}
+    bool isLoaded() const { return false; }
+    int totalSongs() const { return 0; }
+    int currentSong() const { return 0; }
+    bool isPlaying() const { return false; }
+    bool isPaused() const { return false; }
+    bool hasEnded() const { return false; }
+    bool forceMute() const { return false; }
+    void play() {}
+    void stop() {}
+    void pause() {}
+    void nextSong() {}
+    void prevSong() {}
+    void setSong(int) {}
+};
+
+#endif

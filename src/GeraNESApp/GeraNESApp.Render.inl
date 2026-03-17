@@ -30,7 +30,13 @@ inline void GeraNESApp::paintGL()
 
     m_vao.bind();
 
-    if(!m_emu.isNsfLoaded()) {
+    if(
+#ifdef ENABLE_NFS_PLAYER
+       !m_emu.isNsfLoaded()
+#else
+       true
+#endif
+    ) {
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
         if(m_shaderProgram.bind()) {
