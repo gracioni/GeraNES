@@ -136,9 +136,17 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
             }
         )
 
+    passed_count = sum(1 for test in tests if test.get("result") == "passed")
+    total_count = len(tests)
+
     return {
         "emulatorVersion": version_text,
         "generatedAtUtc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "summary": {
+            "passed": passed_count,
+            "total": total_count,
+            "label": f"Passed ({passed_count}/{total_count})",
+        },
         "tests": tests,
     }
 
@@ -151,12 +159,16 @@ def write_json(report: Dict[str, object], out_path: str) -> None:
 def write_md(report: Dict[str, object], out_path: str) -> None:
     version = str(report.get("emulatorVersion", "unknown"))
     generated_at = str(report.get("generatedAtUtc", ""))
+    summary = report.get("summary", {})
+    summary_label = str(summary.get("label", "Passed (0/0)")) if isinstance(summary, dict) else "Passed (0/0)"
     tests = report.get("tests", [])
     if not isinstance(tests, list):
         tests = []
 
     lines: List[str] = []
     lines.append("# GeraNES Test Report")
+    lines.append("")
+    lines.append(f"## {summary_label}")
     lines.append("")
     lines.append(f"- Emulator version: `{version}`")
     lines.append(f"- Generated at (UTC): `{generated_at}`")
@@ -181,6 +193,8 @@ def write_md(report: Dict[str, object], out_path: str) -> None:
 def write_html(report: Dict[str, object], out_path: str) -> None:
     version = html.escape(str(report.get("emulatorVersion", "unknown")))
     generated_at = html.escape(str(report.get("generatedAtUtc", "")))
+    summary = report.get("summary", {})
+    summary_label = html.escape(str(summary.get("label", "Passed (0/0)"))) if isinstance(summary, dict) else "Passed (0/0)"
     tests = report.get("tests", [])
     if not isinstance(tests, list):
         tests = []
@@ -210,6 +224,7 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
     parts.append("</head>")
     parts.append("<body>")
     parts.append("<h1>GeraNES Test Report</h1>")
+    parts.append(f"<h2>{summary_label}</h2>")
     parts.append(f"<p class=\"meta\">Emulator version: <strong>{version}</strong><br>Generated at (UTC): <strong>{generated_at}</strong></p>")
 
     for test in tests:
