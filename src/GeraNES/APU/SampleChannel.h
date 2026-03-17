@@ -42,6 +42,7 @@ private:
     bool m_directControlFlag;
 
     bool m_sampleBufferFilled;
+    int m_enableReloadDelay;
 
     void readSample(bool reload)
     {
@@ -102,6 +103,7 @@ public:
         SERIALIZEDATA(s, m_directControlFlag);
 
         SERIALIZEDATA(s, m_sampleBufferFilled);   
+        SERIALIZEDATA(s, m_enableReloadDelay);
 
     }
 
@@ -138,6 +140,8 @@ public:
 
         m_cpuCycleCounter = 0;
         m_directControlFlag = false;
+
+        m_enableReloadDelay = 0;
 
     }
 
@@ -212,11 +216,21 @@ public:
     {
         if(status)
         {
-            if(getBytesRemaining() == 0) reload(false);
+            if(getBytesRemaining() == 0) {
+                m_currentAddr = m_sampleAddr;
+                m_bytesRemaining = m_sampleLength;
+
+                // Enabling DMC via $4015 does not start the first load DMA
+                // immediately; hardware delays it by a couple of APU cycles.
+                if(!m_sampleBufferFilled && m_bytesRemaining > 0) {
+                    m_enableReloadDelay = 2;
+                }
+            }
         }
         else
         {
             m_bytesRemaining  = 0;
+            m_enableReloadDelay = 0;
             //will silence when stop playing the remaining bits of the shift register
         }
 
@@ -227,6 +241,12 @@ public:
     {
         if(m_cpuCycleCounter < NTSC_DMC_PERIOD_TABLE[0])  m_cpuCycleCounter++;
         else m_directControlFlag = false;   
+
+        if(m_enableReloadDelay > 0 && --m_enableReloadDelay == 0) {
+            if(!m_sampleBufferFilled && m_bytesRemaining > 0) {
+                readSample(false);
+            }
+        }
 
         if( --m_periodCounter == 0)
         {
