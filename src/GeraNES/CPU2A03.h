@@ -95,7 +95,6 @@ private:
     bool m_dmcAbortPending = false;
     uint16_t m_dmcDmaAddr = 0;
     uint16_t m_dmaPrevReadAddr = 0;
-    uint8_t m_inputClockConflictMask = 0;
 
     uint16_t m_pc;
     uint8_t m_sp;
@@ -388,7 +387,6 @@ public:
         m_dmcAbortPending = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
-        m_inputClockConflictMask = 0;
 
         m_resetRequest = false;
         m_dmaReadInProgress = false;
@@ -1194,7 +1192,6 @@ public:
         m_dmcAbortPending = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
-        m_inputClockConflictMask = 0;
         m_dmaReadInProgress = false;
         m_dmaReadInputClockMask = 0;
  
@@ -1344,11 +1341,6 @@ public:
         return value;
     }
 
-    void suppressNextInputClock(uint16_t addr)
-    {
-        m_inputClockConflictMask |= inputClockMaskForAddr(addr);
-    }
-
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
     }
@@ -1374,7 +1366,10 @@ public:
 
             case 0x4016:
             case 0x4017:
-                value = dmaBusRead(dmaAddr, false);
+                value = dmaBusRead(internalAddr, !skipInputRead && m_dmaPrevReadAddr != internalAddr);
+                if(!isSameAddress) {
+                    dmaBusRead(dmaAddr, false);
+                }
                 break;
 
             default:
@@ -1394,11 +1389,13 @@ public:
 
         bool enableInternalRegReads = (readAddress & 0xFFE0) == 0x4000;
         const bool controllerReadAddress = readAddress == 0x4016 || readAddress == 0x4017;
+        const bool skipDummyReads = controllerReadAddress;
         const bool dmcControllerGetConflict =
             enableInternalRegReads &&
             m_dmcDmaRunning &&
             controllerReadAddress &&
             ((m_dmcDmaAddr & 0x1F) == (readAddress & 0x1F));
+        m_dmaPrevReadAddr = readAddress;
 
         auto startDmaCycle = [&]() {
             if(m_dmcAbortPending) {
@@ -1415,7 +1412,9 @@ public:
         };
 
         startDmaCycle();
-        dmaBusRead(readAddress, !controllerReadAddress || !dmcControllerGetConflict);
+        if(!(m_dmcAbortPending && skipDummyReads)) {
+            dmaBusRead(readAddress, !controllerReadAddress || !dmcControllerGetConflict);
+        }
         endCycle();
 
         if(m_dmcAbortPending) {
@@ -1447,7 +1446,9 @@ public:
                     m_oamDmaCounter++;
                 } else {
                     startDmaCycle();
-                    dmaBusRead(readAddress, !controllerReadAddress);
+                    if(!skipDummyReads) {
+                        dmaBusRead(readAddress, true);
+                    }
                     endCycle();
                 }
             } else {
@@ -1461,7 +1462,9 @@ public:
                     }
                 } else {
                     startDmaCycle();
-                    dmaBusRead(readAddress, !controllerReadAddress);
+                    if(!skipDummyReads) {
+                        dmaBusRead(readAddress, true);
+                    }
                     endCycle();
                 }
             }
@@ -1499,21 +1502,14 @@ public:
         }
     }
 
-    bool isConflictingWith4016() const {
-        return m_dmcDmaRunning;
-    }
-
     bool isDmaInputClockEnabled(uint16_t addr) const
     {
         return m_dmaReadInProgress && (m_dmaReadInputClockMask & inputClockMaskForAddr(addr)) != 0;
     }
 
-    bool consumeInputClockConflict(uint16_t addr)
+    bool isDmaReadInProgress() const
     {
-        const uint8_t mask = inputClockMaskForAddr(addr);
-        const bool conflicted = (m_inputClockConflictMask & mask) != 0;
-        m_inputClockConflictMask &= ~mask;
-        return conflicted;
+        return m_dmaReadInProgress;
     }
     
     GERANES_INLINE_HOT void reset() {
@@ -1598,7 +1594,6 @@ public:
         SERIALIZEDATA(s, m_dmcAbortPending);
         SERIALIZEDATA(s, m_dmcDmaAddr);
         SERIALIZEDATA(s, m_dmaPrevReadAddr);
-        SERIALIZEDATA(s, m_inputClockConflictMask);
     }
 
     uint16_t busAddr() {  

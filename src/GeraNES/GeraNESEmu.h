@@ -228,7 +228,7 @@ private:
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
                         bool outputEnabled =
                             !sequentialControllerRead &&
-                            (m_cpu.isDmaInputClockEnabled(0x4016) || !m_cpu.consumeInputClockConflict(0x4016));
+                            (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4016));
 
                         if(useZapper) data = m_zapper1.read();
                         else data = m_controller1.read(outputEnabled);
@@ -257,7 +257,7 @@ private:
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
                         bool outputEnabled =
                             !sequentialControllerRead &&
-                            (m_cpu.isDmaInputClockEnabled(0x4017) || !m_cpu.consumeInputClockConflict(0x4017));
+                            (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4017));
 
                         if(useZapper) data = m_zapper2.read();
                         else data = m_controller2.read(outputEnabled);                        
