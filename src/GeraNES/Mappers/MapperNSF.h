@@ -13,15 +13,17 @@ class MapperNSF : public BaseMapper
 {
 private:
     static constexpr uint16_t DRIVER_ADDR = 0x7F00;
-    static constexpr uint16_t DRIVER_IRQ_ADDR = 0x7F40;
-    static constexpr uint16_t DRIVER_RTI_ADDR = 0x7F47;
-    static constexpr int IRQ_ACK_ADDR = 0x1FF0;
+    static constexpr uint16_t DRIVER_PLAY_ADDR = 0x7F40;
+    static constexpr int PLAY_ACK_REG = 0x1FF6;
+    static constexpr int INIT_DONE_REG = 0x1FF7;
     _NsfFormat& m_nsf;
     std::array<uint8_t, 8> m_bankRegs = {0, 1, 2, 3, 4, 5, 6, 7};
     uint8_t m_songIndex = 0; // 0-based
     bool m_isPlaying = true;
-    bool m_irqPending = false;
-    uint32_t m_irqCounter = 0;
+    bool m_initDone = false;
+    bool m_playRequestPending = false;
+    bool m_playInFlight = false;
+    uint32_t m_playCounter = 0;
 
     GERANES_INLINE uint8_t readMappedNsfData(uint16_t cpuAddr) const
     {
@@ -74,17 +76,15 @@ private:
         //   LDY #$00
         //   LDA #songIndex
         //   JSR init
-        //   STA $7FF0    ; clear/reload IRQ timer
+        //   LDA #$01
+        //   STA $5FF7    ; mark init completed
         // loop:
         //   JMP loop
         //
-        // $7F10 irq:
-        //   STA $7FF0    ; clear/reload IRQ timer
+        // $7F40 play:
         //   JSR play
-        //   RTI
-        //
-        // $7F17:
-        //   RTI          ; NMI vector (unused)
+        //   STA $5FF6    ; clear/reload IRQ timer
+        //   JMP loop
         const uint16_t initAddr = m_nsf.initAddress();
         const uint16_t playAddr = m_nsf.playAddress();
         auto emitDriverByte = [this](uint16_t cpuAddr, uint8_t value) {
@@ -112,30 +112,29 @@ private:
         resetDriver.ldyImm(0x00);
         resetDriver.ldaImm(m_songIndex);
         resetDriver.jsr(initAddr);
-        resetDriver.staAbs(static_cast<uint16_t>(0x6000 + IRQ_ACK_ADDR));
+        resetDriver.ldaImm(0x01);
+        resetDriver.staAbs(static_cast<uint16_t>(0x4000 + INIT_DONE_REG));
         const uint16_t loopAddr = resetDriver.position();
         resetDriver.jmp(loopAddr);
 
-        NesAssembler irqDriver(emitDriverByte, DRIVER_IRQ_ADDR);
-        irqDriver.staAbs(static_cast<uint16_t>(0x6000 + IRQ_ACK_ADDR));
-        irqDriver.jsr(playAddr);
-        irqDriver.rti();
-
-        NesAssembler nmiDriver(emitDriverByte, DRIVER_RTI_ADDR);
-        nmiDriver.rti();
+        NesAssembler playDriver(emitDriverByte, DRIVER_PLAY_ADDR);
+        playDriver.jsr(playAddr);
+        playDriver.ldaImm(0x00);
+        playDriver.staAbs(static_cast<uint16_t>(0x4000 + PLAY_ACK_REG));
+        playDriver.jmp(loopAddr);
     }
 
-    uint32_t getIrqReloadValue() const
+    uint32_t getPlayReloadValue() const
     {
         const uint32_t speedUs = m_nsf.playSpeedNtsc();
         const double clocks = static_cast<double>(speedUs) * (1789773.0 / 1000000.0);
         return static_cast<uint32_t>(clocks);
     }
 
-    void clearAndReloadIrq()
+    void clearAndReloadPlayTimer()
     {
-        m_irqPending = false;
-        m_irqCounter = getIrqReloadValue();
+        m_playRequestPending = false;
+        m_playCounter = getPlayReloadValue();
     }
 
     void initBanks()
@@ -169,8 +168,10 @@ public:
         if(saveRamData() != nullptr && saveRamSize() > 0) {
             memset(saveRamData(), 0, saveRamSize());
         }
-        m_irqPending = false;
-        m_irqCounter = 0;
+        m_initDone = false;
+        m_playRequestPending = false;
+        m_playInFlight = false;
+        m_playCounter = 0;
         initBanks();
         installDriver();
     }
@@ -180,35 +181,46 @@ public:
         const uint16_t cpuAddr = static_cast<uint16_t>(0x8000 + (addr & 0x7FFF));
 
         // Vectors
-        if(cpuAddr == 0xFFFA) return static_cast<uint8_t>(DRIVER_RTI_ADDR & 0xFF);
-        if(cpuAddr == 0xFFFB) return static_cast<uint8_t>((DRIVER_RTI_ADDR >> 8) & 0xFF);
         if(cpuAddr == 0xFFFC) return static_cast<uint8_t>(DRIVER_ADDR & 0xFF);
         if(cpuAddr == 0xFFFD) return static_cast<uint8_t>((DRIVER_ADDR >> 8) & 0xFF);
-        if(cpuAddr == 0xFFFE) return static_cast<uint8_t>(DRIVER_IRQ_ADDR & 0xFF);
-        if(cpuAddr == 0xFFFF) return static_cast<uint8_t>((DRIVER_IRQ_ADDR >> 8) & 0xFF);
 
         return readMappedNsfData(cpuAddr);
     }
 
     void cycle() override
     {
-        if(!m_isPlaying) return;
-        if(m_irqCounter > 0) {
-            --m_irqCounter;
-            if(m_irqCounter == 0) {
-                m_irqPending = true;
-                m_irqCounter = getIrqReloadValue();
+        if(!m_isPlaying || !m_initDone || m_playInFlight) return;
+        if(m_playCounter > 0) {
+            --m_playCounter;
+            if(m_playCounter == 0) {
+                m_playRequestPending = true;
             }
         }
     }
 
     bool getInterruptFlag() override
     {
-        return m_irqPending;
+        return false;
     }
 
     void writeMapperRegister(int addr, uint8_t data) override
     {
+        if(addr == PLAY_ACK_REG) {
+            m_playInFlight = false;
+            if(m_isPlaying) {
+                clearAndReloadPlayTimer();
+            }
+            return;
+        }
+
+        if(addr == INIT_DONE_REG) {
+            m_initDone = true;
+            if(m_isPlaying && !m_playInFlight) {
+                clearAndReloadPlayTimer();
+            }
+            return;
+        }
+
         // NSF bankswitch registers at $5FF8-$5FFF.
         // In this core mapper regs use relative addresses ($4000-$5FFF => $0000-$1FFF).
         if(addr >= 0x1FF8 && addr <= 0x1FFF) {
@@ -219,9 +231,6 @@ public:
     void writeSaveRam(int addr, uint8_t data) override
     {
         BaseMapper::writeSaveRam(addr, data);
-        if(addr == IRQ_ACK_ADDR) {
-            clearAndReloadIrq();
-        }
     }
 
     GERANES_INLINE int totalSongs() const
@@ -243,9 +252,10 @@ public:
     {
         m_isPlaying = playing;
         if(!m_isPlaying) {
-            m_irqPending = false;
-        } else if(m_irqCounter == 0) {
-            m_irqCounter = getIrqReloadValue();
+            m_playRequestPending = false;
+            m_playCounter = 0;
+        } else if(m_initDone && !m_playInFlight && m_playCounter == 0 && !m_playRequestPending) {
+            clearAndReloadPlayTimer();
         }
     }
 
@@ -269,6 +279,18 @@ public:
     bool songInitPending()
     {
         return false;
+    }
+
+    bool consumePlayRequest(uint16_t& cpuAddr)
+    {
+        if(!m_isPlaying || !m_initDone || m_playInFlight || !m_playRequestPending) {
+            return false;
+        }
+
+        m_playRequestPending = false;
+        m_playInFlight = true;
+        cpuAddr = DRIVER_PLAY_ADDR;
+        return true;
     }
 
     void nextSong()

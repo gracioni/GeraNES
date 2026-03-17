@@ -689,6 +689,14 @@ public:
         return mapper->songInitPending();
     }
 
+    GERANES_INLINE bool nsfConsumePlayRequest(uint16_t& cpuAddr)
+    {
+        if(!isNsf()) return false;
+        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
+        if(mapper == nullptr) return false;
+        return mapper->consumePlayRequest(cpuAddr);
+    }
+
     void serialization(SerializationBase& s)
     {
         SERIALIZEDATA(s, m_isValid);
