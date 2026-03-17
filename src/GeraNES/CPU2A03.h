@@ -11,8 +11,6 @@
 #include "APU/APU.h"
 #include "Cartridge.h"
 
-class DMA;
-
 #include "signal/signal.h"
 
 const uint8_t DO_NOT_POOL_INTS = 0xFF;
@@ -82,6 +80,21 @@ private:
 
     Ibus& m_bus;
     Console& m_console;
+
+    // DMA state (CPU-integrated, Mesen-like pending DMA on CPU read)
+    bool m_dmaNeedHalt = false;
+    bool m_dmaNeedDummyRead = false;
+
+    bool m_oamDmaTransfer = false;
+    uint8_t m_oamDmaPage = 0;
+    uint16_t m_oamDmaCounter = 0;
+    uint8_t m_oamDmaReadAddr = 0;
+    uint8_t m_oamDmaData = 0;
+
+    bool m_dmcDmaRunning = false;
+    bool m_dmcAbortPending = false;
+    uint16_t m_dmcDmaAddr = 0;
+    uint16_t m_dmaPrevReadAddr = 0;
 
     uint16_t m_pc;
     uint8_t m_sp;
@@ -360,6 +373,18 @@ public:
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
+
+        m_dmaNeedHalt = false;
+        m_dmaNeedDummyRead = false;
+        m_oamDmaTransfer = false;
+        m_oamDmaPage = 0;
+        m_oamDmaCounter = 0;
+        m_oamDmaReadAddr = 0;
+        m_oamDmaData = 0;
+        m_dmcDmaRunning = false;
+        m_dmcAbortPending = false;
+        m_dmcDmaAddr = 0;
+        m_dmaPrevReadAddr = 0;
 
         m_resetRequest = false;
     }
@@ -1151,6 +1176,18 @@ public:
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
+
+        m_dmaNeedHalt = false;
+        m_dmaNeedDummyRead = false;
+        m_oamDmaTransfer = false;
+        m_oamDmaPage = 0;
+        m_oamDmaCounter = 0;
+        m_oamDmaReadAddr = 0;
+        m_oamDmaData = 0;
+        m_dmcDmaRunning = false;
+        m_dmcAbortPending = false;
+        m_dmcDmaAddr = 0;
+        m_dmaPrevReadAddr = 0;
  
         uint8_t low = 0, high = 0;
 
@@ -1282,6 +1319,170 @@ public:
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
     }
+
+    uint8_t processDmaRead(uint16_t dmaAddr, bool enableInternalRegReads, bool skipInputRead)
+    {
+        if(!enableInternalRegReads) {
+            m_dmaPrevReadAddr = dmaAddr;
+            return m_bus.read(dmaAddr);
+        }
+
+        uint16_t internalAddr = static_cast<uint16_t>(0x4000 | (dmaAddr & 0x1F));
+        bool isSameAddress = internalAddr == dmaAddr;
+        uint8_t value = 0;
+
+        switch(internalAddr) {
+            case 0x4015:
+                value = m_bus.read(internalAddr);
+                if(!isSameAddress) {
+                    m_bus.read(dmaAddr);
+                }
+                break;
+
+            case 0x4016:
+            case 0x4017:
+                if(skipInputRead || m_dmaPrevReadAddr == internalAddr) {
+                    value = m_bus.read(dmaAddr);
+                } else {
+                    value = m_bus.read(internalAddr);
+                    if(!isSameAddress) {
+                        m_bus.read(dmaAddr);
+                    }
+                }
+                break;
+
+            default:
+                value = m_bus.read(dmaAddr);
+                break;
+        }
+
+        m_dmaPrevReadAddr = internalAddr;
+        return value;
+    }
+
+    void processPendingDma(uint16_t readAddress)
+    {
+        if(!m_dmaNeedHalt || m_writeCycle) {
+            return;
+        }
+
+        bool enableInternalRegReads = (readAddress & 0xFFE0) == 0x4000;
+        bool skipDummyReads = (readAddress == 0x4016 || readAddress == 0x4017);
+        bool skipFirstInputClock = false;
+        if(enableInternalRegReads && m_dmcDmaRunning && (readAddress == 0x4016 || readAddress == 0x4017)) {
+            if((m_dmcDmaAddr & 0x1F) == (readAddress & 0x1F)) {
+                skipFirstInputClock = true;
+            }
+        }
+
+        auto startDmaCycle = [&]() {
+            if(m_dmcAbortPending) {
+                m_dmcDmaRunning = false;
+                m_dmcAbortPending = false;
+                m_dmaNeedDummyRead = false;
+                m_dmaNeedHalt = false;
+            } else if(m_dmaNeedHalt) {
+                m_dmaNeedHalt = false;
+            } else if(m_dmaNeedDummyRead) {
+                m_dmaNeedDummyRead = false;
+            }
+            beginCycle();
+        };
+
+        startDmaCycle();
+        if(!(m_dmcAbortPending && skipDummyReads) && !skipFirstInputClock) {
+            m_bus.read(readAddress);
+        }
+        endCycle();
+
+        if(m_dmcAbortPending) {
+            m_dmcDmaRunning = false;
+            m_dmcAbortPending = false;
+            if(!m_oamDmaTransfer) {
+                m_dmaNeedDummyRead = false;
+                m_dmaNeedHalt = false;
+                return;
+            }
+        }
+
+        while(m_dmcDmaRunning || m_oamDmaTransfer) {
+            const bool getCycle = isDmaGetCycle();
+            if(getCycle) {
+                if(m_dmcDmaRunning && !m_dmaNeedHalt && !m_dmaNeedDummyRead) {
+                    startDmaCycle();
+                    const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads, skipDummyReads);
+                    endCycle();
+                    m_dmcDmaRunning = false;
+                    m_dmcAbortPending = false;
+                    m_console.apu().getSampleChannel().loadSampleBuffer(value);
+                } else if(m_oamDmaTransfer) {
+                    startDmaCycle();
+                    const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);
+                    m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads, skipDummyReads);
+                    endCycle();
+                    m_oamDmaReadAddr++;
+                    m_oamDmaCounter++;
+                } else {
+                    startDmaCycle();
+                    if(!skipDummyReads) {
+                        m_bus.read(readAddress);
+                    }
+                    endCycle();
+                }
+            } else {
+                if(m_oamDmaTransfer && (m_oamDmaCounter & 0x01)) {
+                    startDmaCycle();
+                    m_bus.write(0x2004, m_oamDmaData);
+                    endCycle();
+                    m_oamDmaCounter++;
+                    if(m_oamDmaCounter == 0x200) {
+                        m_oamDmaTransfer = false;
+                    }
+                } else {
+                    startDmaCycle();
+                    if(!skipDummyReads) {
+                        m_bus.read(readAddress);
+                    }
+                    endCycle();
+                }
+            }
+        }
+    }
+
+    void startOamDma(uint16_t addr) {
+        m_oamDmaTransfer = true;
+        m_oamDmaPage = static_cast<uint8_t>(addr >> 8);
+        m_oamDmaCounter = 0;
+        m_oamDmaReadAddr = 0;
+        m_dmaNeedHalt = true;
+    }
+
+    void startDmcDma(uint16_t addr, bool /*reload*/) {
+        m_dmcDmaAddr = addr;
+        m_dmcDmaRunning = true;
+        m_dmaNeedDummyRead = true;
+        m_dmaNeedHalt = true;
+    }
+
+    void cancelDmcDma() {
+        if(!m_dmcDmaRunning) {
+            return;
+        }
+
+        if(m_dmaNeedHalt) {
+            m_dmcDmaRunning = false;
+            m_dmaNeedDummyRead = false;
+            if(!m_oamDmaTransfer) {
+                m_dmaNeedHalt = false;
+            }
+        } else {
+            m_dmcAbortPending = true;
+        }
+    }
+
+    bool isConflictingWith4016() const {
+        return m_dmcDmaRunning;
+    }
     
     GERANES_INLINE_HOT void reset() {
         m_resetRequest = true;
@@ -1354,6 +1555,17 @@ public:
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
+        SERIALIZEDATA(s, m_dmaNeedHalt);
+        SERIALIZEDATA(s, m_dmaNeedDummyRead);
+        SERIALIZEDATA(s, m_oamDmaTransfer);
+        SERIALIZEDATA(s, m_oamDmaPage);
+        SERIALIZEDATA(s, m_oamDmaCounter);
+        SERIALIZEDATA(s, m_oamDmaReadAddr);
+        SERIALIZEDATA(s, m_oamDmaData);
+        SERIALIZEDATA(s, m_dmcDmaRunning);
+        SERIALIZEDATA(s, m_dmcAbortPending);
+        SERIALIZEDATA(s, m_dmcDmaAddr);
+        SERIALIZEDATA(s, m_dmaPrevReadAddr);
     }
 
     uint16_t busAddr() {  
@@ -1394,12 +1606,9 @@ public:
 
 
 };
-
-#include "DMA.h"
-
 GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
     m_pendingBusAddr = addr;
-    m_console.dma().tryStartPendingLoadOnCpuRead();
+    processPendingDma(addr);
 
     beginCycle();
 
@@ -1449,7 +1658,6 @@ GERANES_INLINE_HOT void CPU2A03::beginCycle() {
 
     if(!m_console.ppu().inOverclockLines()){
         m_console.apu().processDmcControlDelays();
-        m_console.dma().cycle();
         m_console.apu().cycle();                           
     }
    

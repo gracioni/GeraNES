@@ -11,7 +11,6 @@
 #include "BandaiHyperShot.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
-#include "DMA.h"
 #include "Console.h"
 #include "HardwareActions.h"
 #include "NsfPlayer.h"
@@ -35,7 +34,6 @@ private:
     CPU2A03 m_cpu;
     PPU m_ppu;
     APU m_apu;
-    DMA m_dma;
     uint8_t m_ram[0x800]; //2K
     Controller m_controller1;
     Controller m_controller2;
@@ -195,7 +193,7 @@ private:
                     if constexpr(writeFlag)
                     {
                         uint16_t addr = static_cast<uint16_t>(data) << 8;
-                        m_dma.OAMRequest(addr);
+                        m_cpu.startOamDma(addr);
                     }
                     break;
                 }
@@ -222,16 +220,19 @@ private:
                         m_bandaiHyperShot.write4016(data);
                     }
                     else {
-
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
 
+                        // Check for DMC DMA conflict with $4016 read
+                        bool dmcConflict = m_cpu.isConflictingWith4016();
+                        bool outputEnabled = !m_cpu.isHalted() && !dmcConflict;
+
                         if(useZapper) data = m_zapper1.read();
-                        else data = m_controller1.read(!m_cpu.isHalted());
+                        else data = m_controller1.read(outputEnabled);
 
                         bool useBandaiHyperShot =
                             m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
                         if(useBandaiHyperShot) {
-                            data = static_cast<uint8_t>((data & ~0x02) | m_bandaiHyperShot.read4016(!m_cpu.isHalted()));
+                            data = static_cast<uint8_t>((data & ~0x02) | m_bandaiHyperShot.read4016(outputEnabled));
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
@@ -360,11 +361,11 @@ private:
     }
 
     void onDMCRequest(uint16_t addr, bool reload) {
-        m_dma.dmcRequest(addr, reload);
+        m_cpu.startDmcDma(addr, reload);
     }
 
     void onDMCCancelRequest() {
-        m_dma.cancelDmcRequest();
+        m_cpu.cancelDmcDma();
     }
 
     void resyncAudioAfterStateLoad()
@@ -448,7 +449,6 @@ public:
     m_cpu(*this, m_console),
     m_ppu(m_settings, m_cartridge),
     m_apu(m_audioOutput,m_settings),
-    m_dma(*this, m_apu.getSampleChannel(), m_cpu),
     m_controller1(),
     m_controller2(),
     m_zapper1(),
@@ -456,7 +456,7 @@ public:
     m_bandaiHyperShot(),
     m_rewind(*this),
     m_nsfPlayer(m_cartridge, m_apu, m_audioOutput, [this]() { this->reset(); }),
-    m_console(m_cpu, m_ppu, m_dma, m_apu, m_cartridge)
+    m_console(m_cpu, m_ppu, m_apu, m_cartridge)
     {
         init();
 
@@ -624,8 +624,6 @@ public:
             m_ppu.init();
             m_cpu.init();
             m_apu.init();
-            m_dma.init();         
-
             m_nsfPlayer.onOpen();
 
             resetRewindSystem();
@@ -951,8 +949,6 @@ public:
         m_zapper2.serialization(s);
         m_bandaiHyperShot.serialization(s);
         m_settings.serialization(s);
-        m_dma.serialization(s);
-
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
@@ -1144,7 +1140,6 @@ public:
         if(!m_cartridge.isValid()) return;
 
         m_cartridge.reset();
-        m_dma.init();
         m_apu.reset();
         m_ppu.init();
 
