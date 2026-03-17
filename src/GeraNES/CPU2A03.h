@@ -10,7 +10,6 @@
 #include "PPU.h"
 #include "APU/APU.h"
 #include "Cartridge.h"
-#include "AccuracyTrace.h"
 
 class DMA;
 

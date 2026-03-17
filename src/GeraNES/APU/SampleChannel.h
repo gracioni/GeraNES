@@ -5,7 +5,6 @@
 #include "GeraNES/Serialization.h"
 #include "GeraNES/Settings.h"
 #include "GeraNES/IAudioOutput.h"
-#include "GeraNES/AccuracyTrace.h"
 
 #include "signal/signal.h"
 
@@ -48,12 +47,6 @@ private:
 
     void readSample(bool reload)
     {
-        AccuracyTrace::log(
-            std::string("DMC readSample reload=") + (reload ? "1" : "0") +
-            " addr=" + std::to_string(m_currentAddr | 0x8000) +
-            " bytesRemaining=" + std::to_string(m_bytesRemaining) +
-            " bufferFilled=" + std::to_string(m_sampleBufferFilled ? 1 : 0)
-        );
         dmcRequest(m_currentAddr | 0x8000, reload);
     }
 
@@ -253,17 +246,11 @@ public:
     void processControlDelays()
     {
         if(m_disableDelay > 0 && --m_disableDelay == 0) {
-            AccuracyTrace::log(
-                "DMC disableDelayExpired bytesRemaining=" + std::to_string(m_bytesRemaining)
-            );
             m_bytesRemaining = 0;
             dmcCancelRequest();
         }
 
         if(m_enableReloadDelay > 0 && --m_enableReloadDelay == 0) {
-            AccuracyTrace::log(
-                "DMC enableDelayExpired bytesRemaining=" + std::to_string(m_bytesRemaining)
-            );
             if(!m_sampleBufferFilled && m_bytesRemaining > 0) {
                 readSample(false);
             }
@@ -340,11 +327,6 @@ public:
            m_shiftCounter == 1 &&
            m_periodCounter < 2)
         {
-            AccuracyTrace::log(
-                "DMC endSampleAbortGlitch shiftCounter=" + std::to_string(m_shiftCounter) +
-                " periodCounter=" + std::to_string(m_periodCounter)
-            );
-
             m_currentAddr = m_sampleAddr;
             m_bytesRemaining = m_sampleLength;
             m_disableDelay = 3;

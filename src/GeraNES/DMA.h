@@ -2,7 +2,6 @@
 
 #include "IBus.h"
 #include "APU/APU.h"
-#include "AccuracyTrace.h"
 
 class CPU2A03;
 
@@ -54,7 +53,8 @@ private:
         }
 
         const uint16_t addr = m_cpu.pendingBusAddr();
-        return addr >= 0x2000 && addr <= 0x3FFF;
+        return (addr >= 0x2000 && addr <= 0x3FFF) ||
+               (addr >= 0x4000 && addr <= 0x401F);
     }
 
     void clearPendingDmcRequest()
@@ -65,22 +65,9 @@ private:
         m_dmcAbortPending = false;
     }
 
-    void logDmcStart() const
-    {
-        AccuracyTrace::log(
-            std::string("DMA START_DMC reload=") + (isReloadDmcRequest() ? "1" : "0") +
-            " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-            " get=" + std::to_string(m_cpu.isDmaGetCycle() ? 1 : 0) +
-            " pendingBusAddr=" + std::to_string(m_cpu.pendingBusAddr()) +
-            " lastBusAddr=" + std::to_string(m_cpu.lastBusAddr()) +
-            " visibleBusAddr=" + std::to_string(m_cpu.visibleBusAddr())
-        );
-    }
-
     void beginDmcHalt()
     {
         m_dmcHaltAddr = m_cpu.dmcHaltBusAddr();
-        logDmcStart();
         m_cpu.halt(1);
         m_state = State::DUMMY;
     }
@@ -91,10 +78,6 @@ private:
             return false;
         }
 
-        AccuracyTrace::log(
-            "DMA READ sample cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-            " dmcAddr=" + std::to_string(m_dmcAddr)
-        );
         m_data = m_bus.read(m_dmcAddr);
         m_sampleChannel.loadSampleBuffer(m_data);
         --m_dmcCounter;
@@ -163,16 +146,6 @@ public:
     }
 
     void dmcRequest(uint16_t addr, bool reload) {
-        AccuracyTrace::log(
-            std::string("DMA REQUEST reload=") + (reload ? "1" : "0") +
-            " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-            " state=" + std::to_string(static_cast<int>(m_state)) +
-            " get=" + std::to_string(m_cpu.isDmaGetCycle() ? 1 : 0) +
-            " pendingBusAddr=" + std::to_string(m_cpu.pendingBusAddr()) +
-            " lastBusAddr=" + std::to_string(m_cpu.lastBusAddr()) +
-            " visibleBusAddr=" + std::to_string(m_cpu.visibleBusAddr())
-        );
-
         if(m_state == State::NONE) {
             m_state = State::START_DMC;
             m_deferredDmcStart = DeferredDmcStart::NONE;
@@ -193,11 +166,6 @@ public:
     }
 
     void cancelDmcRequest() {
-        AccuracyTrace::log(
-            "DMA CANCEL cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-            " state=" + std::to_string(static_cast<int>(m_state))
-        );
-
         if(!hasPendingDmcRequest()) {
             return;
         }
@@ -246,12 +214,6 @@ inline void DMA::cycle()
 
     case State::DUMMY:
 
-        AccuracyTrace::log(
-            "DMA DUMMY cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-            " pendingBusAddr=" + std::to_string(m_cpu.pendingBusAddr()) +
-            " lastBusAddr=" + std::to_string(m_cpu.lastBusAddr()) +
-            " visibleBusAddr=" + std::to_string(m_cpu.visibleBusAddr())
-        );
         m_cpu.halt(1);
 
         m_bus.read(m_dmcHaltAddr);

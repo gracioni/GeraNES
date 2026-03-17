@@ -15,7 +15,6 @@
 #include "Console.h"
 #include "HardwareActions.h"
 #include "NsfPlayer.h"
-#include "AccuracyTrace.h"
 
 #include "Serialization.h"
 
@@ -164,13 +163,6 @@ private:
             }
             data = m_ppu.readWrite<writeFlag>(addr, data);
             if constexpr(!writeFlag) {
-                if((addr & 0x2007) == 0x2002) {
-                    AccuracyTrace::log(
-                        "BUS R $2002 data=" + std::to_string(data) +
-                        " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-                        " halted=" + std::to_string(m_cpu.isHalted() ? 1 : 0)
-                    );
-                }
             }
             break;
         case 4:
@@ -211,11 +203,6 @@ private:
                 case 0x4015: //APU
                 {
                     if constexpr(writeFlag) {
-                        AccuracyTrace::log(
-                            "BUS W $4015 data=" + std::to_string(data) +
-                            " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-                            " halted=" + std::to_string(m_cpu.isHalted() ? 1 : 0)
-                        );
                         m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
                     }
                     else {
@@ -573,8 +560,7 @@ public:
     bool open(const std::string& filename)
     {
         m_audioOutput.clearAudioBuffers();
-        m_ppu.clearFramebuffer();      
-        AccuracyTrace::reset();
+        m_ppu.clearFramebuffer();
 
         bool result = m_cartridge.open(filename);
 
