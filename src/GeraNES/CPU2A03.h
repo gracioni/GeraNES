@@ -106,6 +106,8 @@ private:
     unsigned int m_cyclesCounter;
     uint8_t m_opcode;
     uint16_t m_addr;
+    uint8_t m_addrIndexHigh;
+    bool m_addrPageCross;
 
     bool m_nmiSignal;
     bool m_irqSignal;
@@ -132,6 +134,7 @@ private:
     bool m_writeCycle;
 
     bool m_resetRequest;
+    bool m_instructionWasHalted;
 
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
     {
@@ -175,6 +178,7 @@ private:
 
     GERANES_INLINE_HOT void getAddrImmediate()
     {
+        m_addrPageCross = false;
         m_addr = m_pc++;
     }
 
@@ -183,11 +187,14 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
+        m_addrIndexHigh = high;
+        m_addrPageCross = false;
         m_addr = MAKE16(low, high);
     }
 
     GERANES_INLINE_HOT void getAddrZeroPage()
     {
+        m_addrPageCross = false;
         m_addr = readMemory(m_pc++);
     }
 
@@ -196,9 +203,11 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
+        m_addrIndexHigh = high;
         m_addr = MAKE16(low, high); 
 
         const bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
+        m_addrPageCross = pageCross;
 
         //dummy read
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
@@ -211,9 +220,11 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
+        m_addrIndexHigh = high;
         m_addr = MAKE16(low, high);
 
         const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+        m_addrPageCross = pageCross;
 
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
         
@@ -222,6 +233,7 @@ private:
 
     GERANES_INLINE_HOT void getAddrZeroPageX()
     {
+        m_addrPageCross = false;
         m_addr = readMemory(m_pc++);
         readMemory(m_addr); //dummy read
         m_addr = (uint8_t)(m_addr+m_x);
@@ -230,6 +242,7 @@ private:
 
     GERANES_INLINE_HOT void getAddrZeroPageY()
     {
+        m_addrPageCross = false;
         m_addr = readMemory(m_pc++);
         readMemory(m_addr); //dummy read
         m_addr = (uint8_t)(m_addr+m_y);
@@ -243,6 +256,8 @@ private:
         const uint8_t iLow = readMemory(MAKE16(low,high));
         const uint8_t iHigh = readMemory(MAKE16(low+1,high));
 
+        m_addrIndexHigh = iHigh;
+        m_addrPageCross = false;
         m_addr = MAKE16(iLow, iHigh);
     }
 
@@ -255,6 +270,8 @@ private:
         const uint8_t iLow = readMemory(value);
         const uint8_t iHigh = readMemory((uint8_t)(value+1));
 
+        m_addrIndexHigh = iHigh;
+        m_addrPageCross = false;
         m_addr = MAKE16(iLow, iHigh); 
     }
 
@@ -265,9 +282,11 @@ private:
         const uint8_t low = readMemory(value);
         const uint8_t high = readMemory((uint8_t)(value+1));
 
+        m_addrIndexHigh = high;
         m_addr = MAKE16(low, high);
 
         const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
+        m_addrPageCross = pageCross;
 
         //dummy read
         if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
@@ -277,6 +296,7 @@ private:
 
     GERANES_INLINE_HOT void getAddrRelative()
     {
+        m_addrPageCross = false;
         m_addr = m_pc++;
     }
 
@@ -330,6 +350,7 @@ public:
 
         m_runCount = 0;
         m_writeCycle = false;
+        m_instructionWasHalted = false;
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
@@ -1024,9 +1045,14 @@ public:
 
     GERANES_INLINE_HOT void U_AXA()
     {
-        //"This opcode stores the result of A AND X AND the high byte of the target address of the operand +1 in memory."
-        // This may not be the actual behavior, but the read/write operations are needed for proper cycle counting
-        writeMemory(m_addr, ((m_addr >> 8) + 1) & m_a & m_x);
+        const uint8_t highMask = static_cast<uint8_t>(m_addrIndexHigh + 1);
+        const uint8_t value = m_instructionWasHalted
+            ? static_cast<uint8_t>(m_a & m_x)
+            : static_cast<uint8_t>(highMask & m_a & m_x);
+        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+            ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
+            : m_addr;
+        writeMemory(targetAddr, value);
     }
 
     GERANES_INLINE_HOT void U_TAS()
@@ -1035,28 +1061,36 @@ public:
         // pointer, then AND stack pointer with the high byte of the
         // target address of the argument + 1. Store result in memory."
         m_sp = m_x & m_a;
-        writeMemory(m_addr, m_sp & ((m_addr >> 8) + 1));
+        const uint8_t highMask = static_cast<uint8_t>(m_addrIndexHigh + 1);
+        const uint8_t value = m_instructionWasHalted
+            ? m_sp
+            : static_cast<uint8_t>(m_sp & highMask);
+        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+            ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
+            : m_addr;
+        writeMemory(targetAddr, value);
     }
 
     GERANES_INLINE_HOT void U_SYA()
     {
-
-        const uint8_t addrHigh = m_addr >> 8;
-        const uint8_t addrLow = m_addr & 0xFF;
-        const uint8_t value = m_y & (addrHigh + 1);
-
-        // From here: http://forums.nesdev.com/viewtopic.php?f=3&t=3831&start=30
-        // Unsure if this is accurate or not
-        //"the target address for e.g. SYA becomes ((y & (addr_high + 1)) << 8) | addr_low instead of the normal ((addr_high + 1) << 8) | addr_low"
-        writeMemory(((m_y & (addrHigh + 1)) << 8) | addrLow, value);
+        const uint8_t value = m_instructionWasHalted
+            ? m_y
+            : static_cast<uint8_t>(m_y & (m_addrIndexHigh + 1));
+        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+            ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
+            : m_addr;
+        writeMemory(targetAddr, value);
     }
 
     GERANES_INLINE_HOT void U_SXA()
     {
-        const uint8_t addrHigh = m_addr >> 8;
-        const uint8_t addrLow = m_addr & 0xFF;
-        const uint8_t value = m_x & (addrHigh + 1);
-        writeMemory(((m_x & (addrHigh + 1)) << 8) | addrLow, value);
+        const uint8_t value = m_instructionWasHalted
+            ? m_x
+            : static_cast<uint8_t>(m_x & (m_addrIndexHigh + 1));
+        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+            ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
+            : m_addr;
+        writeMemory(targetAddr, value);
     }
 
     GERANES_INLINE_HOT void U_LAS()
@@ -1082,6 +1116,8 @@ public:
 
         m_cyclesCounter = 0;
         m_addr = 0;
+        m_addrIndexHigh = 0;
+        m_addrPageCross = false;
         m_opcode = 0;
 
         m_nmiSignal = false;
@@ -1097,6 +1133,7 @@ public:
 
         m_runCount = 0;
         m_writeCycle = false;
+        m_instructionWasHalted = false;
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
@@ -1237,6 +1274,9 @@ public:
         m_runCount = 0;
         m_currentInstructionCycle = 0;        
         m_addr = 0;
+        m_addrIndexHigh = 0;
+        m_addrPageCross = false;
+        m_instructionWasHalted = false;
 
         if(m_resetRequest) {
             m_resetRequest = false;
@@ -1270,6 +1310,7 @@ public:
         beginCycle();
 
         while(m_haltCycles > 0) {     
+            m_instructionWasHalted = true;
             endCycle();
             m_haltCycles--;
             beginCycle();
