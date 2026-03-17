@@ -1009,6 +1009,14 @@ public:
         updateZeroAndNegativeFlags(m_a);
     }
 
+    GERANES_INLINE_HOT void U_ANE()
+    {
+        // ANE/XAA has unstable "magic" behavior on hardware. For the cases we
+        // can verify reliably, A & X & immediate matches the documented result.
+        m_a = static_cast<uint8_t>(m_a & m_x & readMemory(m_addr));
+        updateZeroAndNegativeFlags(m_a);
+    }
+
     GERANES_INLINE_HOT void TAY()
     {
         dummyRead();
@@ -1430,7 +1438,7 @@ inline constexpr std::array<OpFunc, 256> OPCODE_TABLE = {
 /*0x50*/ &CPU2A03::BVC,     &CPU2A03::EOR,     &CPU2A03::U_HLT,  &CPU2A03::U_SRE,  &CPU2A03::U_DOP,  &CPU2A03::EOR,     &CPU2A03::LSR,     &CPU2A03::U_SRE,  &CPU2A03::CLI,     &CPU2A03::EOR,     &CPU2A03::NOP,         &CPU2A03::U_SRE,  &CPU2A03::U_DOP,  &CPU2A03::EOR,     &CPU2A03::LSR,     &CPU2A03::U_SRE,
 /*0x60*/ &CPU2A03::RTS,     &CPU2A03::ADC,     &CPU2A03::U_HLT,  &CPU2A03::U_RRA,  &CPU2A03::U_DOP,  &CPU2A03::ADC,     &CPU2A03::ROR,     &CPU2A03::U_RRA,  &CPU2A03::PLA,     &CPU2A03::ADC,     &CPU2A03::ROR_implied, &CPU2A03::U_ARR, &CPU2A03::JMP,    &CPU2A03::ADC,     &CPU2A03::ROR,     &CPU2A03::U_RRA,
 /*0x70*/ &CPU2A03::BVS,     &CPU2A03::ADC,     &CPU2A03::U_HLT,  &CPU2A03::U_RRA,  &CPU2A03::U_DOP,  &CPU2A03::ADC,     &CPU2A03::ROR,     &CPU2A03::U_RRA,  &CPU2A03::SEI,     &CPU2A03::ADC,     &CPU2A03::NOP,         &CPU2A03::U_RRA,  &CPU2A03::U_DOP,  &CPU2A03::ADC,     &CPU2A03::ROR,     &CPU2A03::U_RRA,
-/*0x80*/ &CPU2A03::U_DOP,    &CPU2A03::STA,     &CPU2A03::U_DOP,  &CPU2A03::U_SAX,  &CPU2A03::STY,    &CPU2A03::STA,     &CPU2A03::STX,     &CPU2A03::U_SAX,  &CPU2A03::DEY,     &CPU2A03::U_DOP,    &CPU2A03::TXA,         &CPU2A03::U_UNK, &CPU2A03::STY,    &CPU2A03::STA,     &CPU2A03::STX,     &CPU2A03::U_SAX,
+/*0x80*/ &CPU2A03::U_DOP,    &CPU2A03::STA,     &CPU2A03::U_DOP,  &CPU2A03::U_SAX,  &CPU2A03::STY,    &CPU2A03::STA,     &CPU2A03::STX,     &CPU2A03::U_SAX,  &CPU2A03::DEY,     &CPU2A03::U_DOP,    &CPU2A03::TXA,         &CPU2A03::U_ANE, &CPU2A03::STY,    &CPU2A03::STA,     &CPU2A03::STX,     &CPU2A03::U_SAX,
 /*0x90*/ &CPU2A03::BCC,     &CPU2A03::STA,     &CPU2A03::U_HLT,  &CPU2A03::U_AXA,  &CPU2A03::STY,    &CPU2A03::STA,     &CPU2A03::STX,     &CPU2A03::U_SAX,  &CPU2A03::TYA,     &CPU2A03::STA,     &CPU2A03::TXS,         &CPU2A03::U_TAS, &CPU2A03::U_SYA,   &CPU2A03::STA,     &CPU2A03::U_SXA,   &CPU2A03::U_AXA,
 /*0xA0*/ &CPU2A03::LDY,     &CPU2A03::LDA,     &CPU2A03::LDX,    &CPU2A03::U_LAX,  &CPU2A03::LDY,    &CPU2A03::LDA,     &CPU2A03::LDX,     &CPU2A03::U_LAX,  &CPU2A03::TAY,     &CPU2A03::LDA,     &CPU2A03::TAX,         &CPU2A03::U_ATX, &CPU2A03::LDY,    &CPU2A03::LDA,     &CPU2A03::LDX,     &CPU2A03::U_LAX,
 /*0xB0*/ &CPU2A03::BCS,     &CPU2A03::LDA,     &CPU2A03::U_HLT,  &CPU2A03::U_LAX,  &CPU2A03::LDY,    &CPU2A03::LDA,     &CPU2A03::LDX,     &CPU2A03::U_LAX,  &CPU2A03::CLV,     &CPU2A03::LDA,     &CPU2A03::TSX,         &CPU2A03::U_LAS, &CPU2A03::LDY,    &CPU2A03::LDA,     &CPU2A03::LDX,     &CPU2A03::U_LAX,
