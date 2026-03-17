@@ -147,6 +147,8 @@ private:
     {
         if constexpr(!writeFlag) data = m_openBus;
 
+        bool updateOpenBusOnRead = true;
+
         switch(addr>>12)
         {
         case 0:
@@ -177,6 +179,9 @@ private:
                          }
                     }
                 }
+                else {
+                    data = m_openBus;
+                }
 
             }
             else if(addr < 0x4018) {
@@ -198,6 +203,8 @@ private:
                     if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data);
                     else {
                         data = m_apu.read(addr&0x3FFF);
+                        data = static_cast<uint8_t>((data & ~0x20) | (m_openBus & 0x20));
+                        updateOpenBusOnRead = false;
                     }
                     break;
                  }
@@ -261,11 +268,9 @@ private:
                  }                
 
                 }
-
-                m_openBus = 0x40; //I dont know if this is right XD
             }
             else if( addr < 0x4020) { //unallocated IO space
-                m_openBus = data;
+                data = m_openBus;
             }
             else {
 
@@ -298,10 +303,14 @@ private:
         }
 
         if constexpr(writeFlag) {
+            m_openBus = data;
             // Mapper CPU-write hooks must not see DMA writes.
             if(!m_cpu.isHalted()) {
                 m_cartridge.onCpuWrite(static_cast<uint16_t>(addr), data);
             }
+        }
+        else if(updateOpenBusOnRead) {
+            m_openBus = data;
         }
 
         if constexpr(!writeFlag)

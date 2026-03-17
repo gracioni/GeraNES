@@ -651,9 +651,18 @@ public:
 
     GERANES_INLINE_HOT void JSR()
     {
-        dummyRead();
-        push16(m_pc - 1);
-        m_pc = m_addr;
+        const uint8_t low = readMemory(m_pc++);
+
+        // JSR does an internal stack read before pushing the return address.
+        readMemory(static_cast<uint16_t>(0x0100 | m_sp));
+
+        // After fetching the low byte, PC points to the high operand byte.
+        // That value is the return address that RTS will later increment.
+        push(static_cast<uint8_t>(m_pc >> 8));
+        push(static_cast<uint8_t>(m_pc & 0xFF));
+
+        const uint8_t high = readMemory(m_pc++);
+        m_pc = MAKE16(low, high);
     }
 
     GERANES_INLINE_HOT void loadReg(uint8_t &reg)
@@ -1161,7 +1170,9 @@ public:
             case AddrMode::IndX: getAddrIndirectX(); break;
             case AddrMode::IndY: getAddrIndirectY(false); break;
             case AddrMode::IndYW: getAddrIndirectY(true); break;
-            case AddrMode::Abs: getAddrAbsolute(); break;
+            case AddrMode::Abs:
+                if(m_opcode != 0x20) getAddrAbsolute();
+                break;
             case AddrMode::AbsX: getAddrAbsoluteX(false); break;
             case AddrMode::AbsXW: getAddrAbsoluteX(true); break;
             case AddrMode::AbsY: getAddrAbsoluteY(false); break;
