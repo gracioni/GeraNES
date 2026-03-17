@@ -7,6 +7,7 @@
 #include <iomanip>
 #include "BaseMapper.h"
 #include "GeraNES/NesCartridgeData/_NsfFormat.h"
+#include "GeraNES/util/NesAssembler.h"
 
 class MapperNSF : public BaseMapper
 {
@@ -86,71 +87,42 @@ private:
         //   RTI          ; NMI vector (unused)
         const uint16_t initAddr = m_nsf.initAddress();
         const uint16_t playAddr = m_nsf.playAddress();
+        auto emitDriverByte = [this](uint16_t cpuAddr, uint8_t value) {
+            writeDriverByte(cpuAddr, value);
+        };
 
-        uint16_t p = DRIVER_ADDR;
-        writeDriverByte(p++, 0x58); // CLI
-        writeDriverByte(p++, 0xA2); // LDX #$FD
-        writeDriverByte(p++, 0xFD);
-        writeDriverByte(p++, 0x9A); // TXS
-        writeDriverByte(p++, 0xA9); // LDA #$00
-        writeDriverByte(p++, 0x00);
-        writeDriverByte(p++, 0x8D); // STA $2000
-        writeDriverByte(p++, 0x00);
-        writeDriverByte(p++, 0x20);
-        writeDriverByte(p++, 0x8D); // STA $2001
-        writeDriverByte(p++, 0x01);
-        writeDriverByte(p++, 0x20);
-        writeDriverByte(p++, 0xA2); // LDX #$13
-        writeDriverByte(p++, 0x13);
-        const uint16_t clearApuLoopAddr = p;
-        writeDriverByte(p++, 0x9D); // STA $4000,X
-        writeDriverByte(p++, 0x00);
-        writeDriverByte(p++, 0x40);
-        writeDriverByte(p++, 0xCA); // DEX
-        writeDriverByte(p++, 0x10); // BPL clear_apu
-        const uint16_t bplOperandAddr = p;
-        const int16_t bplOffset = static_cast<int16_t>(clearApuLoopAddr) - static_cast<int16_t>(bplOperandAddr + 1);
-        writeDriverByte(p++, static_cast<uint8_t>(bplOffset));
-        writeDriverByte(p++, 0x8D); // STA $4015
-        writeDriverByte(p++, 0x15);
-        writeDriverByte(p++, 0x40);
-        writeDriverByte(p++, 0xA9); // LDA #$0F
-        writeDriverByte(p++, 0x0F);
-        writeDriverByte(p++, 0x8D); // STA $4015
-        writeDriverByte(p++, 0x15);
-        writeDriverByte(p++, 0x40);
-        writeDriverByte(p++, 0xA9); // LDA #$40
-        writeDriverByte(p++, 0x40);
-        writeDriverByte(p++, 0x8D); // STA $4017
-        writeDriverByte(p++, 0x17);
-        writeDriverByte(p++, 0x40);
-        writeDriverByte(p++, 0xA2); // LDX #region
-        writeDriverByte(p++, m_nsf.initRegionValue());
-        writeDriverByte(p++, 0xA0); // LDY #$00
-        writeDriverByte(p++, 0x00);
-        writeDriverByte(p++, 0xA9); // LDA #songIndex
-        writeDriverByte(p++, m_songIndex);
-        writeDriverByte(p++, 0x20); // JSR init
-        writeDriverByte(p++, static_cast<uint8_t>(initAddr & 0xFF));
-        writeDriverByte(p++, static_cast<uint8_t>((initAddr >> 8) & 0xFF));
-        writeDriverByte(p++, 0x8D); // STA $7FF0
-        writeDriverByte(p++, static_cast<uint8_t>(IRQ_ACK_ADDR & 0xFF));
-        writeDriverByte(p++, static_cast<uint8_t>((0x6000 + IRQ_ACK_ADDR) >> 8));
-        const uint16_t loopAddr = p;
-        writeDriverByte(p++, 0x4C); // JMP loop
-        writeDriverByte(p++, static_cast<uint8_t>(loopAddr & 0xFF));
-        writeDriverByte(p++, static_cast<uint8_t>((loopAddr >> 8) & 0xFF));
+        NesAssembler resetDriver(emitDriverByte, DRIVER_ADDR);
+        resetDriver.cli();
+        resetDriver.ldxImm(0xFD);
+        resetDriver.txs();
+        resetDriver.ldaImm(0x00);
+        resetDriver.staAbs(0x2000);
+        resetDriver.staAbs(0x2001);
+        resetDriver.ldxImm(0x13);
+        const uint16_t clearApuLoopAddr = resetDriver.position();
+        resetDriver.staAbsX(0x4000);
+        resetDriver.dex();
+        resetDriver.bpl(clearApuLoopAddr);
+        resetDriver.staAbs(0x4015);
+        resetDriver.ldaImm(0x0F);
+        resetDriver.staAbs(0x4015);
+        resetDriver.ldaImm(0x40);
+        resetDriver.staAbs(0x4017);
+        resetDriver.ldxImm(m_nsf.initRegionValue());
+        resetDriver.ldyImm(0x00);
+        resetDriver.ldaImm(m_songIndex);
+        resetDriver.jsr(initAddr);
+        resetDriver.staAbs(static_cast<uint16_t>(0x6000 + IRQ_ACK_ADDR));
+        const uint16_t loopAddr = resetDriver.position();
+        resetDriver.jmp(loopAddr);
 
-        p = DRIVER_IRQ_ADDR;
-        writeDriverByte(p++, 0x8D); // STA $7FF0
-        writeDriverByte(p++, static_cast<uint8_t>(IRQ_ACK_ADDR & 0xFF));
-        writeDriverByte(p++, static_cast<uint8_t>((0x6000 + IRQ_ACK_ADDR) >> 8));
-        writeDriverByte(p++, 0x20); // JSR play
-        writeDriverByte(p++, static_cast<uint8_t>(playAddr & 0xFF));
-        writeDriverByte(p++, static_cast<uint8_t>((playAddr >> 8) & 0xFF));
-        writeDriverByte(p++, 0x40); // RTI
+        NesAssembler irqDriver(emitDriverByte, DRIVER_IRQ_ADDR);
+        irqDriver.staAbs(static_cast<uint16_t>(0x6000 + IRQ_ACK_ADDR));
+        irqDriver.jsr(playAddr);
+        irqDriver.rti();
 
-        writeDriverByte(DRIVER_RTI_ADDR, 0x40); // RTI
+        NesAssembler nmiDriver(emitDriverByte, DRIVER_RTI_ADDR);
+        nmiDriver.rti();
     }
 
     uint32_t getIrqReloadValue() const

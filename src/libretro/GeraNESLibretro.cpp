@@ -1048,8 +1048,4 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
     return cart.saveRamSize();
 
     return 0;
-
 }
-
-
-
