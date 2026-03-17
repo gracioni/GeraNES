@@ -155,6 +155,7 @@ private:
     uint8_t m_dmaReadInputClockMask = 0;
     bool m_lastReadHadDma = false;
     bool m_indexedDummyReadHadDma = false;
+    bool m_suppressInstructionCycleAccounting = false;
 
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
     {
@@ -388,6 +389,7 @@ public:
         m_instructionWasHalted = false;
         m_lastReadHadDma = false;
         m_indexedDummyReadHadDma = false;
+        m_suppressInstructionCycleAccounting = false;
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
@@ -1199,6 +1201,7 @@ public:
         m_instructionWasHalted = false;
         m_lastReadHadDma = false;
         m_indexedDummyReadHadDma = false;
+        m_suppressInstructionCycleAccounting = false;
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
@@ -1301,7 +1304,7 @@ public:
 
     GERANES_INLINE void phi2(bool nmiState, bool irqState) {
         
-        if(m_poolIntsAtCycle == m_currentInstructionCycle) {
+        if(!m_suppressInstructionCycleAccounting && m_poolIntsAtCycle == m_currentInstructionCycle) {
             checkInterrupts();
         }
 
@@ -1322,7 +1325,9 @@ public:
 
         m_irqStep = irqState;
 
-        m_currentInstructionCycle++; 
+        if(!m_suppressInstructionCycleAccounting) {
+            m_currentInstructionCycle++;
+        }
     }
 
 
@@ -1445,6 +1450,7 @@ public:
             } else if(m_dmaNeedDummyRead) {
                 m_dmaNeedDummyRead = false;
             }
+            m_suppressInstructionCycleAccounting = true;
             beginCycle();
         };
 
@@ -1453,6 +1459,7 @@ public:
             dmaBusRead(readAddress, !controllerReadAddress || !dmcControllerGetConflict);
         }
         endCycle();
+        m_suppressInstructionCycleAccounting = false;
 
         if(m_dmcAbortPending) {
             m_dmcDmaRunning = false;
@@ -1471,6 +1478,7 @@ public:
                     startDmaCycle();
                     const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads, false);
                     endCycle();
+                    m_suppressInstructionCycleAccounting = false;
                     m_dmcDmaRunning = false;
                     m_dmcAbortPending = false;
                     m_console.apu().getSampleChannel().loadSampleBuffer(value);
@@ -1479,6 +1487,7 @@ public:
                     const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);
                     m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads, false);
                     endCycle();
+                    m_suppressInstructionCycleAccounting = false;
                     m_oamDmaReadAddr++;
                     m_oamDmaCounter++;
                 } else {
@@ -1487,12 +1496,14 @@ public:
                         dmaBusRead(readAddress, true);
                     }
                     endCycle();
+                    m_suppressInstructionCycleAccounting = false;
                 }
             } else {
                 if(m_oamDmaTransfer && (m_oamDmaCounter & 0x01)) {
                     startDmaCycle();
                     m_bus.write(0x2004, m_oamDmaData);
                     endCycle();
+                    m_suppressInstructionCycleAccounting = false;
                     m_oamDmaCounter++;
                     if(m_oamDmaCounter == 0x200) {
                         m_oamDmaTransfer = false;
@@ -1503,6 +1514,7 @@ public:
                         dmaBusRead(readAddress, true);
                     }
                     endCycle();
+                    m_suppressInstructionCycleAccounting = false;
                 }
             }
         }
