@@ -281,7 +281,7 @@ public:
         return false;
     }
 
-    bool consumePlayRequest(uint16_t& cpuAddr)
+    bool consumeInstructionRedirect(uint16_t& cpuAddr) override
     {
         if(!m_isPlaying || !m_initDone || m_playInFlight || !m_playRequestPending) {
             return false;

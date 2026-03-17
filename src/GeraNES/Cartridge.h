@@ -486,6 +486,11 @@ public:
         m_mapper->onCpuWrite(addr, data);
     }
 
+    GERANES_INLINE bool consumeInstructionRedirect(uint16_t& cpuAddr)
+    {
+        return m_mapper->consumeInstructionRedirect(cpuAddr);
+    }
+
     GERANES_INLINE float getExpansionAudioSample()
     {
         return m_mapper->getExpansionAudioSample();
@@ -687,14 +692,6 @@ public:
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
         return mapper->songInitPending();
-    }
-
-    GERANES_INLINE bool nsfConsumePlayRequest(uint16_t& cpuAddr)
-    {
-        if(!isNsf()) return false;
-        auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
-        if(mapper == nullptr) return false;
-        return mapper->consumePlayRequest(cpuAddr);
     }
 
     void serialization(SerializationBase& s)

@@ -239,6 +239,11 @@ public:
     {
     }
 
+    virtual bool consumeInstructionRedirect(uint16_t& /*cpuAddr*/)
+    {
+        return false;
+    }
+
     virtual void applyExternalActions(uint8_t /*pending*/)
     {
     }

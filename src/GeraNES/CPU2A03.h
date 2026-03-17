@@ -1239,9 +1239,9 @@ public:
             m_interrupt = Interrupt::NONE;
         }
         else {
-            uint16_t nsfPlayAddr = 0;
-            if(m_console.cartridge().nsfConsumePlayRequest(nsfPlayAddr)) {
-                m_pc = nsfPlayAddr;
+            uint16_t redirectAddr = 0;
+            if(m_console.cartridge().consumeInstructionRedirect(redirectAddr)) {
+                m_pc = redirectAddr;
             }
             m_opcode = readMemory(m_pc++);                       
             m_poolIntsAtCycle = OPCODE_INT_POOL_CYCLE_TABLE[m_opcode];
