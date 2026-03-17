@@ -95,6 +95,7 @@ private:
     bool m_dmcAbortPending = false;
     uint16_t m_dmcDmaAddr = 0;
     uint16_t m_dmaPrevReadAddr = 0;
+    uint8_t m_inputClockConflictMask = 0;
 
     uint16_t m_pc;
     uint8_t m_sp;
@@ -151,6 +152,8 @@ private:
 
     bool m_resetRequest;
     bool m_instructionWasHalted;
+    bool m_dmaReadInProgress = false;
+    uint8_t m_dmaReadInputClockMask = 0;
 
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
     {
@@ -385,8 +388,11 @@ public:
         m_dmcAbortPending = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
+        m_inputClockConflictMask = 0;
 
         m_resetRequest = false;
+        m_dmaReadInProgress = false;
+        m_dmaReadInputClockMask = 0;
     }
 
     GERANES_INLINE_HOT void ADC()
@@ -1188,6 +1194,9 @@ public:
         m_dmcAbortPending = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
+        m_inputClockConflictMask = 0;
+        m_dmaReadInProgress = false;
+        m_dmaReadInputClockMask = 0;
  
         uint8_t low = 0, high = 0;
 
@@ -1308,12 +1317,36 @@ public:
         return m_writeCycle;
     }
 
-    GERANES_INLINE bool isOddCycle() {
-        return m_cyclesCounter%2 != 0;
+    GERANES_INLINE bool isOddCycle() const {
+        return (m_cyclesCounter & 0x01) != 0;
     }
 
     GERANES_INLINE bool isDmaGetCycle() const {
-        return m_console.apu().isDmaGetCycle();
+        return isOddCycle();
+    }
+
+    GERANES_INLINE uint8_t inputClockMaskForAddr(uint16_t addr) const
+    {
+        switch(addr) {
+            case 0x4016: return 0x01;
+            case 0x4017: return 0x02;
+            default: return 0x00;
+        }
+    }
+
+    uint8_t dmaBusRead(uint16_t addr, bool enableInputClock)
+    {
+        m_dmaReadInProgress = true;
+        m_dmaReadInputClockMask = enableInputClock ? inputClockMaskForAddr(addr) : 0x00;
+        const uint8_t value = m_bus.read(addr);
+        m_dmaReadInProgress = false;
+        m_dmaReadInputClockMask = 0x00;
+        return value;
+    }
+
+    void suppressNextInputClock(uint16_t addr)
+    {
+        m_inputClockConflictMask |= inputClockMaskForAddr(addr);
     }
 
     GERANES_INLINE bool isHalted() {
@@ -1324,7 +1357,7 @@ public:
     {
         if(!enableInternalRegReads) {
             m_dmaPrevReadAddr = dmaAddr;
-            return m_bus.read(dmaAddr);
+            return dmaBusRead(dmaAddr, false);
         }
 
         uint16_t internalAddr = static_cast<uint16_t>(0x4000 | (dmaAddr & 0x1F));
@@ -1333,26 +1366,19 @@ public:
 
         switch(internalAddr) {
             case 0x4015:
-                value = m_bus.read(internalAddr);
+                value = dmaBusRead(internalAddr, false);
                 if(!isSameAddress) {
-                    m_bus.read(dmaAddr);
+                    dmaBusRead(dmaAddr, false);
                 }
                 break;
 
             case 0x4016:
             case 0x4017:
-                if(skipInputRead || m_dmaPrevReadAddr == internalAddr) {
-                    value = m_bus.read(dmaAddr);
-                } else {
-                    value = m_bus.read(internalAddr);
-                    if(!isSameAddress) {
-                        m_bus.read(dmaAddr);
-                    }
-                }
+                value = dmaBusRead(dmaAddr, false);
                 break;
 
             default:
-                value = m_bus.read(dmaAddr);
+                value = dmaBusRead(dmaAddr, false);
                 break;
         }
 
@@ -1367,13 +1393,12 @@ public:
         }
 
         bool enableInternalRegReads = (readAddress & 0xFFE0) == 0x4000;
-        bool skipDummyReads = (readAddress == 0x4016 || readAddress == 0x4017);
-        bool skipFirstInputClock = false;
-        if(enableInternalRegReads && m_dmcDmaRunning && (readAddress == 0x4016 || readAddress == 0x4017)) {
-            if((m_dmcDmaAddr & 0x1F) == (readAddress & 0x1F)) {
-                skipFirstInputClock = true;
-            }
-        }
+        const bool controllerReadAddress = readAddress == 0x4016 || readAddress == 0x4017;
+        const bool dmcControllerGetConflict =
+            enableInternalRegReads &&
+            m_dmcDmaRunning &&
+            controllerReadAddress &&
+            ((m_dmcDmaAddr & 0x1F) == (readAddress & 0x1F));
 
         auto startDmaCycle = [&]() {
             if(m_dmcAbortPending) {
@@ -1390,9 +1415,7 @@ public:
         };
 
         startDmaCycle();
-        if(!(m_dmcAbortPending && skipDummyReads) && !skipFirstInputClock) {
-            m_bus.read(readAddress);
-        }
+        dmaBusRead(readAddress, !controllerReadAddress || !dmcControllerGetConflict);
         endCycle();
 
         if(m_dmcAbortPending) {
@@ -1410,7 +1433,7 @@ public:
             if(getCycle) {
                 if(m_dmcDmaRunning && !m_dmaNeedHalt && !m_dmaNeedDummyRead) {
                     startDmaCycle();
-                    const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads, skipDummyReads);
+                    const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads, false);
                     endCycle();
                     m_dmcDmaRunning = false;
                     m_dmcAbortPending = false;
@@ -1418,15 +1441,13 @@ public:
                 } else if(m_oamDmaTransfer) {
                     startDmaCycle();
                     const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);
-                    m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads, skipDummyReads);
+                    m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads, false);
                     endCycle();
                     m_oamDmaReadAddr++;
                     m_oamDmaCounter++;
                 } else {
                     startDmaCycle();
-                    if(!skipDummyReads) {
-                        m_bus.read(readAddress);
-                    }
+                    dmaBusRead(readAddress, !controllerReadAddress);
                     endCycle();
                 }
             } else {
@@ -1440,9 +1461,7 @@ public:
                     }
                 } else {
                     startDmaCycle();
-                    if(!skipDummyReads) {
-                        m_bus.read(readAddress);
-                    }
+                    dmaBusRead(readAddress, !controllerReadAddress);
                     endCycle();
                 }
             }
@@ -1482,6 +1501,19 @@ public:
 
     bool isConflictingWith4016() const {
         return m_dmcDmaRunning;
+    }
+
+    bool isDmaInputClockEnabled(uint16_t addr) const
+    {
+        return m_dmaReadInProgress && (m_dmaReadInputClockMask & inputClockMaskForAddr(addr)) != 0;
+    }
+
+    bool consumeInputClockConflict(uint16_t addr)
+    {
+        const uint8_t mask = inputClockMaskForAddr(addr);
+        const bool conflicted = (m_inputClockConflictMask & mask) != 0;
+        m_inputClockConflictMask &= ~mask;
+        return conflicted;
     }
     
     GERANES_INLINE_HOT void reset() {
@@ -1566,6 +1598,7 @@ public:
         SERIALIZEDATA(s, m_dmcAbortPending);
         SERIALIZEDATA(s, m_dmcDmaAddr);
         SERIALIZEDATA(s, m_dmaPrevReadAddr);
+        SERIALIZEDATA(s, m_inputClockConflictMask);
     }
 
     uint16_t busAddr() {  

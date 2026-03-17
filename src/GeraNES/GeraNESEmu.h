@@ -59,6 +59,7 @@ private:
     int m_vsyncAudioSkipMsDebt;
 
     uint8_t m_openBus;
+    uint16_t m_prevControllerReadAddr;
 
     uint32_t m_frameCount;
     HardwareActions m_hardwareActions;
@@ -146,6 +147,10 @@ private:
         if constexpr(!writeFlag) data = m_openBus;
 
         bool updateOpenBusOnRead = true;
+        const bool sequentialControllerRead =
+            !writeFlag &&
+            addr == m_prevControllerReadAddr &&
+            (addr == 0x4016 || addr == 0x4017);
 
         switch(addr>>12)
         {
@@ -221,10 +226,9 @@ private:
                     }
                     else {
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
-
-                        // Check for DMC DMA conflict with $4016 read
-                        bool dmcConflict = m_cpu.isConflictingWith4016();
-                        bool outputEnabled = !m_cpu.isHalted() && !dmcConflict;
+                        bool outputEnabled =
+                            !sequentialControllerRead &&
+                            (m_cpu.isDmaInputClockEnabled(0x4016) || !m_cpu.consumeInputClockConflict(0x4016));
 
                         if(useZapper) data = m_zapper1.read();
                         else data = m_controller1.read(outputEnabled);
@@ -251,9 +255,12 @@ private:
                     else {
 
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
+                        bool outputEnabled =
+                            !sequentialControllerRead &&
+                            (m_cpu.isDmaInputClockEnabled(0x4017) || !m_cpu.consumeInputClockConflict(0x4017));
 
                         if(useZapper) data = m_zapper2.read();
-                        else data = m_controller2.read(!m_cpu.isHalted());                        
+                        else data = m_controller2.read(outputEnabled);                        
 
                         bool useBandaiHyperShot =
                             m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
@@ -317,6 +324,10 @@ private:
         else if(updateOpenBusOnRead) {
             m_openBus = data;
         }
+
+        m_prevControllerReadAddr = (!writeFlag && (addr == 0x4016 || addr == 0x4017))
+            ? static_cast<uint16_t>(addr)
+            : 0xFFFF;
 
         if constexpr(!writeFlag)
             return data;
@@ -521,6 +532,7 @@ public:
         m_applyingPendingNsfActions = false;
 
         m_openBus = 0;
+        m_prevControllerReadAddr = 0xFFFF;
 
         memset(m_ram, 0, sizeof(m_ram));            
         m_hardwareActions.reset();
@@ -1151,6 +1163,7 @@ public:
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
         m_openBus = 0;
+        m_prevControllerReadAddr = 0xFFFF;
         m_4011WriteCounter = 0;
         m_newFrame = false;
         m_frameCount = 0;
