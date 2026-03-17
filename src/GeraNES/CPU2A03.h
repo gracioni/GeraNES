@@ -153,6 +153,8 @@ private:
     bool m_instructionWasHalted;
     bool m_dmaReadInProgress = false;
     uint8_t m_dmaReadInputClockMask = 0;
+    bool m_lastReadHadDma = false;
+    bool m_indexedDummyReadHadDma = false;
 
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
     {
@@ -226,9 +228,13 @@ private:
 
         const bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
         m_addrPageCross = pageCross;
+        m_indexedDummyReadHadDma = false;
 
         //dummy read
-        if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
+        if(pageCross || dummyRead) {
+            readMemory( (m_addr & 0xFF00) | ((m_addr+m_x) & 0xFF) );
+            m_indexedDummyReadHadDma = m_lastReadHadDma;
+        }
 
         m_addr += m_x;
     }
@@ -243,8 +249,12 @@ private:
 
         const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
         m_addrPageCross = pageCross;
+        m_indexedDummyReadHadDma = false;
 
-        if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(pageCross || dummyRead) {
+            readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+            m_indexedDummyReadHadDma = m_lastReadHadDma;
+        }
         
         m_addr += m_y;
     }
@@ -305,9 +315,13 @@ private:
 
         const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
         m_addrPageCross = pageCross;
+        m_indexedDummyReadHadDma = false;
 
         //dummy read
-        if(pageCross || dummyRead) readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+        if(pageCross || dummyRead) {
+            readMemory( (m_addr & 0xFF00) | ((m_addr+m_y) & 0xFF) );
+            m_indexedDummyReadHadDma = m_lastReadHadDma;
+        }
 
         m_addr += m_y;
     }
@@ -372,6 +386,8 @@ public:
         m_runCount = 0;
         m_writeCycle = false;
         m_instructionWasHalted = false;
+        m_lastReadHadDma = false;
+        m_indexedDummyReadHadDma = false;
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
@@ -1089,10 +1105,11 @@ public:
     GERANES_INLINE_HOT void U_AXA()
     {
         const uint8_t highMask = static_cast<uint8_t>(m_addrIndexHigh + 1);
-        const uint8_t value = m_instructionWasHalted
+        const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
+        const uint8_t value = hadDmaOnIndexedDummyRead
             ? static_cast<uint8_t>(m_a & m_x)
             : static_cast<uint8_t>(highMask & m_a & m_x);
-        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+        const uint16_t targetAddr = (m_addrPageCross && !hadDmaOnIndexedDummyRead)
             ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
             : m_addr;
         writeMemory(targetAddr, value);
@@ -1105,10 +1122,11 @@ public:
         // target address of the argument + 1. Store result in memory."
         m_sp = m_x & m_a;
         const uint8_t highMask = static_cast<uint8_t>(m_addrIndexHigh + 1);
-        const uint8_t value = m_instructionWasHalted
+        const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
+        const uint8_t value = hadDmaOnIndexedDummyRead
             ? m_sp
             : static_cast<uint8_t>(m_sp & highMask);
-        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+        const uint16_t targetAddr = (m_addrPageCross && !hadDmaOnIndexedDummyRead)
             ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
             : m_addr;
         writeMemory(targetAddr, value);
@@ -1116,10 +1134,11 @@ public:
 
     GERANES_INLINE_HOT void U_SYA()
     {
-        const uint8_t value = m_instructionWasHalted
+        const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
+        const uint8_t value = hadDmaOnIndexedDummyRead
             ? m_y
             : static_cast<uint8_t>(m_y & (m_addrIndexHigh + 1));
-        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+        const uint16_t targetAddr = (m_addrPageCross && !hadDmaOnIndexedDummyRead)
             ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
             : m_addr;
         writeMemory(targetAddr, value);
@@ -1127,10 +1146,11 @@ public:
 
     GERANES_INLINE_HOT void U_SXA()
     {
-        const uint8_t value = m_instructionWasHalted
+        const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
+        const uint8_t value = hadDmaOnIndexedDummyRead
             ? m_x
             : static_cast<uint8_t>(m_x & (m_addrIndexHigh + 1));
-        const uint16_t targetAddr = (m_addrPageCross && !m_instructionWasHalted)
+        const uint16_t targetAddr = (m_addrPageCross && !hadDmaOnIndexedDummyRead)
             ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
             : m_addr;
         writeMemory(targetAddr, value);
@@ -1177,6 +1197,8 @@ public:
         m_runCount = 0;
         m_writeCycle = false;
         m_instructionWasHalted = false;
+        m_lastReadHadDma = false;
+        m_indexedDummyReadHadDma = false;
 
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
@@ -1651,7 +1673,9 @@ public:
 };
 GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
     m_pendingBusAddr = addr;
+    const unsigned int cyclesBeforeDma = m_cyclesCounter;
     processPendingDma(addr);
+    m_lastReadHadDma = m_cyclesCounter != cyclesBeforeDma;
 
     beginCycle();
 
