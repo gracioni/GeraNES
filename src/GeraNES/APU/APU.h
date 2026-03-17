@@ -46,6 +46,11 @@ class APU
 
 public:   
 
+    GERANES_INLINE bool isDmaGetCycle() const
+    {
+        return m_jitter;
+    }
+
     GERANES_INLINE const int* mode0Delays() const
     {
         return m_settings.region() == Settings::Region::PAL ? mode0DelaysPal : mode0DelaysNtsc;
@@ -88,6 +93,11 @@ public:
 
     SampleChannel& getSampleChannel() {
         return m_sample;
+    }
+
+    void processDmcControlDelays()
+    {
+        m_sample.processControlDelays();
     }
 
     const std::string init()
@@ -170,8 +180,13 @@ public:
         return ret;
     }    
 
-    void write(int addr, uint8_t data)
+    void write(int addr, uint8_t data, bool cpuOddCycle = false)
     {
+        if(addr == 0x15) {
+            writeChannels(addr, data, cpuOddCycle);
+            return;
+        }
+
         if(addr < 0x17) {
             m_writeChannelsFlag = true;
             m_writeChannelsAddr = addr;
@@ -204,7 +219,7 @@ public:
 
     }
 
-    void writeChannels(int addr, uint8_t data) {
+    void writeChannels(int addr, uint8_t data, bool cpuOddCycle = false) {
 
         switch(addr) {
 
@@ -218,7 +233,7 @@ public:
                 m_pulse2.setEnabled(data&0x02);
                 m_triangle.setEnabled(data&0x04);
                 m_noise.setEnabled(data&0x08);
-                m_sample.setEnabled(data&0x10);
+                m_sample.setEnabled(data&0x10, cpuOddCycle);
                 break;
         }
 

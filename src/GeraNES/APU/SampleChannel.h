@@ -5,6 +5,7 @@
 #include "GeraNES/Serialization.h"
 #include "GeraNES/Settings.h"
 #include "GeraNES/IAudioOutput.h"
+#include "GeraNES/AccuracyTrace.h"
 
 #include "signal/signal.h"
 
@@ -43,11 +44,17 @@ private:
 
     bool m_sampleBufferFilled;
     int m_enableReloadDelay;
+    int m_disableDelay;
 
     void readSample(bool reload)
     {
+        AccuracyTrace::log(
+            std::string("DMC readSample reload=") + (reload ? "1" : "0") +
+            " addr=" + std::to_string(m_currentAddr | 0x8000) +
+            " bytesRemaining=" + std::to_string(m_bytesRemaining) +
+            " bufferFilled=" + std::to_string(m_sampleBufferFilled ? 1 : 0)
+        );
         dmcRequest(m_currentAddr | 0x8000, reload);
-        m_currentAddr = (m_currentAddr + 1) & 0x7FFF;
     }
 
     void updateDeltaCounter(uint8_t data) {
@@ -81,6 +88,7 @@ private:
 public:
 
     SigSlot::Signal<uint16_t, bool> dmcRequest;
+    SigSlot::Signal<> dmcCancelRequest;
 
     void serialization(SerializationBase& s)
     {
@@ -104,6 +112,7 @@ public:
 
         SERIALIZEDATA(s, m_sampleBufferFilled);   
         SERIALIZEDATA(s, m_enableReloadDelay);
+        SERIALIZEDATA(s, m_disableDelay);
 
     }
 
@@ -142,6 +151,7 @@ public:
         m_directControlFlag = false;
 
         m_enableReloadDelay = 0;
+        m_disableDelay = 0;
 
     }
 
@@ -212,41 +222,58 @@ public:
         m_interruptFlag = state;
     }
 
-    void setEnabled(bool status)
+    void setEnabled(bool status, bool cpuOddCycle)
     {
         if(status)
         {
+            m_disableDelay = 0;
+
             if(getBytesRemaining() == 0) {
                 m_currentAddr = m_sampleAddr;
                 m_bytesRemaining = m_sampleLength;
 
-                // Enabling DMC via $4015 does not start the first load DMA
-                // immediately; hardware delays it by a couple of APU cycles.
                 if(!m_sampleBufferFilled && m_bytesRemaining > 0) {
-                    m_enableReloadDelay = 2;
+                    m_enableReloadDelay = cpuOddCycle ? 3 : 2;
                 }
             }
         }
         else
         {
-            m_bytesRemaining  = 0;
             m_enableReloadDelay = 0;
+
+            if(m_disableDelay == 0) {
+                m_disableDelay = cpuOddCycle ? 3 : 2;
+            }
             //will silence when stop playing the remaining bits of the shift register
         }
 
         m_interruptFlag = false;
     }
 
-    void cycle()
+    void processControlDelays()
     {
-        if(m_cpuCycleCounter < NTSC_DMC_PERIOD_TABLE[0])  m_cpuCycleCounter++;
-        else m_directControlFlag = false;   
+        if(m_disableDelay > 0 && --m_disableDelay == 0) {
+            AccuracyTrace::log(
+                "DMC disableDelayExpired bytesRemaining=" + std::to_string(m_bytesRemaining)
+            );
+            m_bytesRemaining = 0;
+            dmcCancelRequest();
+        }
 
         if(m_enableReloadDelay > 0 && --m_enableReloadDelay == 0) {
+            AccuracyTrace::log(
+                "DMC enableDelayExpired bytesRemaining=" + std::to_string(m_bytesRemaining)
+            );
             if(!m_sampleBufferFilled && m_bytesRemaining > 0) {
                 readSample(false);
             }
         }
+    }
+
+    void cycle()
+    {
+        if(m_cpuCycleCounter < NTSC_DMC_PERIOD_TABLE[0])  m_cpuCycleCounter++;
+        else m_directControlFlag = false;
 
         if( --m_periodCounter == 0)
         {
@@ -281,13 +308,17 @@ public:
 
         m_sampleBufferFilled = true;
 
+        m_currentAddr = (m_currentAddr + 1) & 0x7FFF;
+
         updateDeltaCounter(data);
 
         m_audioGenerator.addSample( (m_deltaCounter-0.5*127.0)/127.0 );
 
         if(m_bytesRemaining > 0) --m_bytesRemaining;
 
-        if(m_bytesRemaining == 0) {
+        const bool sampleEnded = m_bytesRemaining == 0;
+
+        if(sampleEnded) {
 
             switch(m_playMode)
             {
@@ -301,6 +332,22 @@ public:
                 m_interruptFlag = true;
                 break;
             }
+        }
+
+        if(sampleEnded &&
+           m_sampleLength == 1 &&
+           (m_playMode & 0x40) == 0 &&
+           m_shiftCounter == 1 &&
+           m_periodCounter < 2)
+        {
+            AccuracyTrace::log(
+                "DMC endSampleAbortGlitch shiftCounter=" + std::to_string(m_shiftCounter) +
+                " periodCounter=" + std::to_string(m_periodCounter)
+            );
+
+            m_currentAddr = m_sampleAddr;
+            m_bytesRemaining = m_sampleLength;
+            m_disableDelay = 3;
         }
 
 

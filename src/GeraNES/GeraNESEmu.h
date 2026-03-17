@@ -15,6 +15,7 @@
 #include "Console.h"
 #include "HardwareActions.h"
 #include "NsfPlayer.h"
+#include "AccuracyTrace.h"
 
 #include "Serialization.h"
 
@@ -162,6 +163,15 @@ private:
                 m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
             }
             data = m_ppu.readWrite<writeFlag>(addr, data);
+            if constexpr(!writeFlag) {
+                if((addr & 0x2007) == 0x2002) {
+                    AccuracyTrace::log(
+                        "BUS R $2002 data=" + std::to_string(data) +
+                        " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
+                        " halted=" + std::to_string(m_cpu.isHalted() ? 1 : 0)
+                    );
+                }
+            }
             break;
         case 4:
         case 5:
@@ -169,7 +179,7 @@ private:
 
                 if constexpr(writeFlag) {
 
-                    m_apu.write(addr&0x3FFF, data);
+                    m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
 
                     //disable overclock when the game generate PCM audio
                     if(addr == 0x4011){
@@ -200,7 +210,14 @@ private:
 
                 case 0x4015: //APU
                 {
-                    if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data);
+                    if constexpr(writeFlag) {
+                        AccuracyTrace::log(
+                            "BUS W $4015 data=" + std::to_string(data) +
+                            " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
+                            " halted=" + std::to_string(m_cpu.isHalted() ? 1 : 0)
+                        );
+                        m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
+                    }
                     else {
                         data = m_apu.read(addr&0x3FFF);
                         data = static_cast<uint8_t>((data & ~0x20) | (m_openBus & 0x20));
@@ -242,7 +259,7 @@ private:
 
                 case 0x4017: //controller 2
                 {
-                    if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data);
+                    if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
                     else {
 
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
@@ -359,6 +376,10 @@ private:
         m_dma.dmcRequest(addr, reload);
     }
 
+    void onDMCCancelRequest() {
+        m_dma.cancelDmcRequest();
+    }
+
     void resyncAudioAfterStateLoad()
     {
         // Audio output internals (wave generators/FIFOs) are not part of save states.
@@ -458,6 +479,7 @@ public:
         m_ppu.signalFrameReady.bind(&GeraNESEmu::onFrameReady, this);
         m_ppu.signalScanlineStart.bind(&GeraNESEmu::onScanlineStart, this);
         m_apu.getSampleChannel().dmcRequest.bind(&GeraNESEmu::onDMCRequest, this);
+        m_apu.getSampleChannel().dmcCancelRequest.bind(&GeraNESEmu::onDMCCancelRequest, this);
 
         auto f = [&](int x, int y){
 
@@ -552,6 +574,7 @@ public:
     {
         m_audioOutput.clearAudioBuffers();
         m_ppu.clearFramebuffer();      
+        AccuracyTrace::reset();
 
         bool result = m_cartridge.open(filename);
 

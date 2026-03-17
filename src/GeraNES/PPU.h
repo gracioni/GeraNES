@@ -194,7 +194,6 @@ private:
 
     bool m_overclockFrame;
 
-    int m_ignoreVideoRamReadCycles;
     bool m_needUpdateState;
     bool m_needIncVideoRam;
 
@@ -431,7 +430,6 @@ public:
 
         m_overclockFrame = false;
 
-        m_ignoreVideoRamReadCycles = 0;
         m_needUpdateState = false;
         m_needIncVideoRam = false;
 
@@ -580,13 +578,7 @@ public:
         {
             if constexpr(writeFlag) writePPUDATA(data);
             else {
-
-                if(m_ignoreVideoRamReadCycles > 0) {
-                    openBusMask = 0xFF;
-                }
-                else {
-                    data = readPPUDATA();
-                }
+                data = readPPUDATA();
 
                 if(isOnPaletteAddr()) {
                     data &= 0x3F; //the 2 high bits are open and they should be from decay value
@@ -1563,8 +1555,6 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE uint8_t readPPUDATA()
     {
         uint8_t ret;
-
-        m_ignoreVideoRamReadCycles = 6;          
         
         if(isOnPaletteAddr()) {
             ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
@@ -1666,14 +1656,6 @@ yyy NNYY YYYX XXXX
         if(m_needIncVideoRam) {
             m_needIncVideoRam = false;
             incVideoRamAddr();
-        }
-
-        if(m_ignoreVideoRamReadCycles > 0) {
-            --m_ignoreVideoRamReadCycles;
-
-            if(m_ignoreVideoRamReadCycles > 0) {
-                m_needUpdateState = true;
-            }
         }
 
         if(m_updateA12Delay > 0) {
@@ -1940,7 +1922,6 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_visibleLine);
         SERIALIZEDATA(s, m_renderLine);
 
-        SERIALIZEDATA(s, m_ignoreVideoRamReadCycles);
         SERIALIZEDATA(s, m_needUpdateState);
         SERIALIZEDATA(s, m_needIncVideoRam);
 

@@ -10,6 +10,7 @@
 #include "PPU.h"
 #include "APU/APU.h"
 #include "Cartridge.h"
+#include "AccuracyTrace.h"
 
 class DMA;
 
@@ -106,6 +107,9 @@ private:
     unsigned int m_cyclesCounter;
     uint8_t m_opcode;
     uint16_t m_addr;
+    uint16_t m_pendingBusAddr;
+    uint16_t m_lastBusAddr;
+    bool m_lastBusWasWrite;
     uint8_t m_addrIndexHigh;
     bool m_addrPageCross;
 
@@ -331,6 +335,9 @@ public:
         m_cyclesCounter = 0;
 
         m_addr = 0;
+        m_pendingBusAddr = 0;
+        m_lastBusAddr = 0;
+        m_lastBusWasWrite = false;
         m_opcode = 0;
 
         m_a = 0;
@@ -1269,6 +1276,10 @@ public:
         return m_cyclesCounter%2 != 0;
     }
 
+    GERANES_INLINE bool isDmaGetCycle() const {
+        return m_console.apu().isDmaGetCycle();
+    }
+
     GERANES_INLINE bool isHalted() {
         return m_haltCycles > 0;
     }
@@ -1313,40 +1324,9 @@ public:
         return m_runCount;
     }
 
-    GERANES_INLINE_HOT uint8_t readMemory(uint16_t addr) {
+    GERANES_INLINE_HOT uint8_t readMemory(uint16_t addr);
 
-        beginCycle();
-
-        while(m_haltCycles > 0) {     
-            m_instructionWasHalted = true;
-            endCycle();
-            m_haltCycles--;
-            beginCycle();
-        }
-
-        uint8_t ret =  m_bus.read(addr);
-        
-        endCycle();        
-        
-        return ret;
-    }
-
-    GERANES_INLINE_HOT void writeMemory(uint16_t addr, uint8_t value) {
-
-        m_writeCycle = true;
-
-        beginCycle();
-
-        assert(!isHalted());
-
-        assert(isOpcodeWriteCycle());
-
-        m_bus.write(addr, value);   
-        
-        endCycle();
-
-        m_writeCycle = false;
-    }
+    GERANES_INLINE_HOT void writeMemory(uint16_t addr, uint8_t value);
 
     void beginCycle();
 
@@ -1363,6 +1343,9 @@ public:
         SERIALIZEDATA(s, m_cyclesCounter);
         SERIALIZEDATA(s, m_opcode);
         SERIALIZEDATA(s, m_addr);
+        SERIALIZEDATA(s, m_pendingBusAddr);
+        SERIALIZEDATA(s, m_lastBusAddr);
+        SERIALIZEDATA(s, m_lastBusWasWrite);
         SERIALIZEDATA(s, m_nmiSignal);
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
@@ -1378,10 +1361,86 @@ public:
         return m_addr;
     }
 
+    uint16_t lastBusAddr() const {
+        return m_lastBusAddr;
+    }
+
+    uint16_t pendingBusAddr() const {
+        return m_pendingBusAddr;
+    }
+
+    uint16_t visibleBusAddr() const {
+        return m_pendingBusAddr != 0 ? m_pendingBusAddr : m_lastBusAddr;
+    }
+
+    uint16_t dmcHaltBusAddr() const {
+        const auto isSensitiveRegisterAddr = [](uint16_t addr) {
+            return (addr >= 0x2000 && addr <= 0x3FFF) || (addr >= 0x4000 && addr <= 0x401F);
+        };
+
+        if(isSensitiveRegisterAddr(m_pendingBusAddr)) {
+            return m_pendingBusAddr;
+        }
+
+        if(!m_lastBusWasWrite && isSensitiveRegisterAddr(m_lastBusAddr)) {
+            return m_lastBusAddr;
+        }
+
+        return visibleBusAddr();
+    }
+
+    unsigned int cycleCounter() const {
+        return m_cyclesCounter;
+    }
+
 
 };
 
 #include "DMA.h"
+
+GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
+    m_pendingBusAddr = addr;
+    m_console.dma().tryStartPendingLoadOnCpuRead();
+
+    beginCycle();
+
+    while(m_haltCycles > 0) {
+        m_instructionWasHalted = true;
+        endCycle();
+        m_haltCycles--;
+        beginCycle();
+    }
+
+    uint8_t ret =  m_bus.read(addr);
+    m_lastBusAddr = addr;
+    m_lastBusWasWrite = false;
+    m_pendingBusAddr = 0;
+
+    endCycle();
+
+    return ret;
+}
+
+GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
+
+    m_writeCycle = true;
+    m_pendingBusAddr = addr;
+
+    beginCycle();
+
+    assert(!isHalted());
+
+    assert(isOpcodeWriteCycle());
+
+    m_bus.write(addr, value);
+    m_lastBusAddr = addr;
+    m_lastBusWasWrite = true;
+    m_pendingBusAddr = 0;
+
+    endCycle();
+
+    m_writeCycle = false;
+}
 
 GERANES_INLINE_HOT void CPU2A03::beginCycle() {
 
@@ -1390,6 +1449,7 @@ GERANES_INLINE_HOT void CPU2A03::beginCycle() {
     //CPU   --1-------2---1-------2---1-------2---1---...
 
     if(!m_console.ppu().inOverclockLines()){
+        m_console.apu().processDmcControlDelays();
         m_console.dma().cycle();
         m_console.apu().cycle();                           
     }
