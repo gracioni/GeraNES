@@ -1331,6 +1331,11 @@ public:
         }
     }
 
+    GERANES_INLINE uint8_t controllerOpenBusMask(uint16_t /*addr*/) const
+    {
+        return 0xE0;
+    }
+
     uint8_t dmaBusRead(uint16_t addr, bool enableInputClock)
     {
         m_dmaReadInProgress = true;
@@ -1366,9 +1371,19 @@ public:
 
             case 0x4016:
             case 0x4017:
-                value = dmaBusRead(internalAddr, !skipInputRead && m_dmaPrevReadAddr != internalAddr);
+                if(skipInputRead || m_dmaPrevReadAddr == internalAddr) {
+                    value = dmaBusRead(internalAddr, false);
+                } else {
+                    value = dmaBusRead(internalAddr, true);
+                }
+
                 if(!isSameAddress) {
-                    dmaBusRead(dmaAddr, false);
+                    const uint8_t externalValue = dmaBusRead(dmaAddr, false);
+                    const uint8_t obMask = controllerOpenBusMask(internalAddr);
+                    value = static_cast<uint8_t>(
+                        (externalValue & obMask) |
+                        ((value & ~obMask) & (externalValue & ~obMask))
+                    );
                 }
                 break;
 
