@@ -204,7 +204,7 @@ private:
                         m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
                     }
                     else {
-                        data = m_apu.read(addr&0x3FFF);
+                        data = m_apu.read(addr&0x3FFF, (m_cpu.cycleCounter() & 0x01) != 0);
                         data = static_cast<uint8_t>((data & ~0x20) | (m_openBus & 0x20));
                         updateOpenBusOnRead = false;
                     }

@@ -25,6 +25,7 @@ class APU
     int m_frameStep;
 
     bool m_frameInterruptFlag;
+    uint8_t m_frameInterruptClearDelay;
 
     bool m_jitter;
 
@@ -68,6 +69,7 @@ public:
 
         SERIALIZEDATA(s, m_frameStep);
         SERIALIZEDATA(s, m_frameInterruptFlag);
+        SERIALIZEDATA(s, m_frameInterruptClearDelay);
 
         SERIALIZEDATA(s, m_jitter);
         SERIALIZEDATA(s, m_nextDelay);
@@ -125,6 +127,7 @@ public:
         m_jitter = false;
 
         m_frameInterruptFlag = false;
+        m_frameInterruptClearDelay = 0;
 
         //After reset or power-up, APU acts as if $4017 were written with $00 from
         //9 to 12 clocks before first instruction begins.
@@ -158,7 +161,7 @@ public:
         return mask;
     }
 
-    uint8_t read(int addr)
+    uint8_t read(int addr, bool cpuOddCycle = false)
     {
         uint8_t ret = 0;
 
@@ -174,7 +177,11 @@ public:
             if(m_frameInterruptFlag) ret |= 0x40;
             if(m_sample.getInterruptFlag()) ret |= 0x80;
 
-            m_frameInterruptFlag = false;
+            if(m_frameInterruptFlag) {
+                // AccuracyCoin test 6/7: the flag clears on the next APU "get" cycle,
+                // not immediately on the CPU read that observed it.
+                m_frameInterruptClearDelay = cpuOddCycle ? 2 : 1;
+            }
         }
 
         return ret;
@@ -212,7 +219,10 @@ public:
                 updateLengthCountersAndSweeps();
             }
 
-            if(m_interruptInhibitFlag) m_frameInterruptFlag = false;
+            if(m_interruptInhibitFlag) {
+                m_frameInterruptFlag = false;
+                m_frameInterruptClearDelay = 0;
+            }
             break;
 
         }
@@ -302,6 +312,10 @@ public:
 
     void cycle()
     {
+        if(m_frameInterruptClearDelay > 0 && --m_frameInterruptClearDelay == 0) {
+            m_frameInterruptFlag = false;
+        }
+
         if(m_mode == 0) {
 
             if(--m_nextDelay == 0) {
