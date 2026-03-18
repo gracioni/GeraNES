@@ -219,10 +219,9 @@ public:
     {
         if(status)
         {
-            const bool wasDisablePending = m_disableDelay > 0;
             m_disableDelay = 0;
 
-            if(getBytesRemaining() == 0 || wasDisablePending) {
+            if(getBytesRemaining() == 0) {
                 m_enableReloadDelay = cpuOddCycle ? 3 : 2;
             }
 
@@ -331,7 +330,9 @@ public:
         {
             m_currentAddr = m_sampleAddr;
             m_bytesRemaining = m_sampleLength;
-            m_disableDelay = 3;
+            // The control-delay queue runs before the APU clock on each CPU cycle here,
+            // so the implicit-abort path needs one fewer cycle than the Mesen-side literal.
+            m_disableDelay = 2;
         }
 
 

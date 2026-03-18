@@ -93,6 +93,8 @@ private:
 
     bool m_dmcDmaRunning = false;
     bool m_dmcAbortPending = false;
+    bool m_dmcSingleCycleAbortPending = false;
+    bool m_dmcLastRequestWasReload = false;
     uint16_t m_dmcDmaAddr = 0;
     uint16_t m_dmaPrevReadAddr = 0;
 
@@ -403,6 +405,8 @@ public:
         m_oamDmaData = 0;
         m_dmcDmaRunning = false;
         m_dmcAbortPending = false;
+        m_dmcSingleCycleAbortPending = false;
+        m_dmcLastRequestWasReload = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
 
@@ -1215,6 +1219,8 @@ public:
         m_oamDmaData = 0;
         m_dmcDmaRunning = false;
         m_dmcAbortPending = false;
+        m_dmcSingleCycleAbortPending = false;
+        m_dmcLastRequestWasReload = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
         m_dmaReadInProgress = false;
@@ -1429,6 +1435,23 @@ public:
 
     void processPendingDma(uint16_t readAddress)
     {
+        if(m_dmcSingleCycleAbortPending) {
+            if(m_writeCycle) {
+                m_dmcSingleCycleAbortPending = false;
+                return;
+            }
+
+            m_suppressInstructionCycleAccounting = true;
+            beginCycle();
+            endCycle();
+            m_suppressInstructionCycleAccounting = false;
+            m_dmcSingleCycleAbortPending = false;
+
+            if(!m_oamDmaTransfer) {
+                return;
+            }
+        }
+
         if(!m_dmaNeedHalt || m_writeCycle) {
             return;
         }
@@ -1537,9 +1560,10 @@ public:
         m_dmaNeedHalt = true;
     }
 
-    void startDmcDma(uint16_t addr, bool /*reload*/) {
+    void startDmcDma(uint16_t addr, bool reload) {
         m_dmcDmaAddr = addr;
         m_dmcDmaRunning = true;
+        m_dmcLastRequestWasReload = reload;
         m_dmaNeedDummyRead = true;
         m_dmaNeedHalt = true;
     }
@@ -1550,11 +1574,12 @@ public:
         }
 
         if(m_dmaNeedHalt) {
+            if(m_dmcLastRequestWasReload) {
+                m_dmcSingleCycleAbortPending = true;
+            }
             m_dmcDmaRunning = false;
             m_dmaNeedDummyRead = false;
-            if(!m_oamDmaTransfer) {
-                m_dmaNeedHalt = false;
-            }
+            m_dmaNeedHalt = false;
         } else {
             m_dmcAbortPending = true;
         }
@@ -1650,6 +1675,8 @@ public:
         SERIALIZEDATA(s, m_oamDmaData);
         SERIALIZEDATA(s, m_dmcDmaRunning);
         SERIALIZEDATA(s, m_dmcAbortPending);
+        SERIALIZEDATA(s, m_dmcSingleCycleAbortPending);
+        SERIALIZEDATA(s, m_dmcLastRequestWasReload);
         SERIALIZEDATA(s, m_dmcDmaAddr);
         SERIALIZEDATA(s, m_dmaPrevReadAddr);
     }
