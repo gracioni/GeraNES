@@ -147,11 +147,6 @@ private:
         if constexpr(!writeFlag) data = m_openBus;
 
         bool updateOpenBusOnRead = true;
-        const bool sequentialControllerRead =
-            !writeFlag &&
-            addr == m_prevControllerReadAddr &&
-            (addr == 0x4016 || addr == 0x4017);
-
         switch(addr>>12)
         {
         case 0:
@@ -227,7 +222,6 @@ private:
                     else {
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
                         bool outputEnabled =
-                            !sequentialControllerRead &&
                             (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4016));
 
                         if(useZapper) data = m_zapper1.read();
@@ -256,7 +250,6 @@ private:
 
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
                         bool outputEnabled =
-                            !sequentialControllerRead &&
                             (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4017));
 
                         if(useZapper) data = m_zapper2.read();
