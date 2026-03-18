@@ -41,7 +41,13 @@ public:
     void write(uint8_t data)
     {
         m_strobe = (data & 0x01) != 0;
-        if(m_strobe) m_register = m_load;
+    }
+
+    void onCpuGetToPutTransition()
+    {
+        if(m_strobe) {
+            m_register = m_load;
+        }
     }
 
     void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)

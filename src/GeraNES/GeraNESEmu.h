@@ -442,6 +442,17 @@ private:
 
 public:
 
+    uint8_t getOpenBus() const override
+    {
+        return m_openBus;
+    }
+
+    void onCpuGetToPutTransition() override
+    {
+        m_controller1.onCpuGetToPutTransition();
+        m_controller2.onCpuGetToPutTransition();
+    }
+
     SigSlot::Signal<const std::string&> signalError;
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady;

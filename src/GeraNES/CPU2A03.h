@@ -1381,6 +1381,9 @@ public:
     {
         if(!enableInternalRegReads) {
             m_dmaPrevReadAddr = dmaAddr;
+            if(dmaAddr >= 0x4000 && dmaAddr <= 0x401F) {
+                return m_bus.getOpenBus();
+            }
             return dmaBusRead(dmaAddr, false);
         }
 
@@ -1765,6 +1768,10 @@ inline void CPU2A03::endCycle() {
     m_console.ppu().ppuCyclePAL(); 
 
     m_console.ppu().ppuCycle();    
+
+    if(isOddCycle()) {
+        m_bus.onCpuGetToPutTransition();
+    }
 
     m_runCount++;
 

@@ -279,7 +279,8 @@ public:
 
             m_sampleBufferFilled = false;
 
-            if(m_bytesRemaining > 0) {
+            // A $4015 enable write delays DMC activation by 2/3 CPU cycles.
+            if(m_bytesRemaining > 0 && m_enableReloadDelay == 0) {
                 readSample(true);
             }
             
