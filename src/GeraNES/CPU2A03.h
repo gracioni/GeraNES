@@ -514,16 +514,20 @@ public:
 
         if (condition)
         {
-            const uint16_t value = m_pc;
-            m_pc += offset;
+            const uint16_t oldPc = m_pc;
+            const uint16_t newPc = static_cast<uint16_t>(m_pc + offset);
 
-            dummyRead();
+            // Cycle 3 always dummy-reads the byte after the operand.
+            readMemory(oldPc);
 
-            if ((value ^ m_pc) & 0xFF00)
+            if ((oldPc ^ newPc) & 0xFF00)
             {
                 m_poolIntsAtCycle = 3;
-                dummyRead();
+                // Cycle 4 dummy-reads the temporary PC before correcting the high byte.
+                readMemory(static_cast<uint16_t>((oldPc & 0xFF00) | (newPc & 0x00FF)));
             }
+
+            m_pc = newPc;
         }
     }
 
