@@ -1109,21 +1109,13 @@ yyy NN YYYYY XXXXX
 
         else if(m_scanline == FRAME_VBLANK_START_LINE)
         {
-            //Reading one PPU clock before reads it as clear and never sets the flag or generates NMI for that frame.
-            //Reading on the same PPU clock or one later reads it as set, clears it, and suppresses the NMI for that frame
-
-            //1 cycle before -> m_lastPPUSTATUSReadCycle == VBLANK_CYCLE
-
             if(m_cycle == VBLANK_CYCLE) {
-                if( m_lastPPUSTATUSReadCycle != VBLANK_CYCLE) m_VBlankHasStarted = true; //suppression?
-
+                if(m_lastPPUSTATUSReadCycle != VBLANK_CYCLE) m_VBlankHasStarted = true;
             }
         }
 
         if(++m_cycle == 341) {
-
             m_lastPPUSTATUSReadCycle = -1;
-
             m_cycle = 0;
 
             if(++m_scanline == FRAME_NUMBER_OF_LINES) {
@@ -1418,7 +1410,6 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE uint8_t readPPUSTATUS(bool notifyMapper = true)
     {
         uint8_t ret = 0x00;
-
         m_lastPPUSTATUSReadCycle = m_cycle;
 
         if(m_VBlankHasStarted) ret |= 0x80;
@@ -1430,9 +1421,8 @@ yyy NN YYYYY XXXXX
         if(m_spriteOverflow) ret |= 0x20;
 
         m_VBlankHasStarted = false;
+        m_interruptFlag = false;
         m_reg_w = false;
-
-        ret |= m_lastWrite & 0x1F; //5 least significant bits
 
         return ret;
     }
