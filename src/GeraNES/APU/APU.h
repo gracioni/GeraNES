@@ -44,6 +44,7 @@ class APU
     bool m_writeChannelsFlag;
     int m_writeChannelsAddr;
     uint8_t m_writeChannelsData;
+    uint8_t m_last4017Value;
 
 public:   
 
@@ -83,6 +84,7 @@ public:
         SERIALIZEDATA(s, m_writeChannelsFlag);
         SERIALIZEDATA(s, m_writeChannelsAddr);
         SERIALIZEDATA(s, m_writeChannelsData);
+        SERIALIZEDATA(s, m_last4017Value);
     }
 
     APU(IAudioOutput& audioOutput, Settings& settings) :
@@ -106,12 +108,13 @@ public:
     {
         m_audioOutput.init();
 
-        reset();
+        powerOnReset();
 
         return "";
     }
 
-    void reset()
+private:
+    void powerOnReset()
     {
         m_pulse1.init();
         m_pulse2.init();
@@ -128,14 +131,49 @@ public:
 
         m_frameInterruptFlag = false;
         m_frameInterruptClearDelay = 0;
+        m_writeChannelsFlag = false;
+        m_writeChannelsAddr = 0;
+        m_writeChannelsData = 0;
+        m_last4017Value = 0x00;
 
         //After reset or power-up, APU acts as if $4017 were written with $00 from
         //9 to 12 clocks before first instruction begins.
-        write(0x0017, 0x00);
-        for(int i = 0; i < 12; i++ ) cycle();
+        write(0x0017, m_last4017Value);
+        for(int i = 0; i < 6; i++ ) cycle();
 
         m_audioOutput.clearAudioBuffers();
         // Mapper expansion audio is fed at CPU-cycle rate.
+        m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
+        m_audioOutput.setExpansionAudioVolume(1.0f);
+    }
+
+public:
+    void reset()
+    {
+        m_pulse1.setEnabled(false);
+        m_pulse2.setEnabled(false);
+        m_triangle.setEnabled(false);
+        m_noise.setEnabled(false);
+        m_sample.reset();
+
+        m_frameStep = 0;
+        m_nextDelay = mode0Delays()[0];
+        m_jitter = false;
+
+        m_frameInterruptFlag = false;
+        m_frameInterruptClearDelay = 0;
+        m_writeChannelsFlag = false;
+        m_writeChannelsAddr = 0;
+        m_writeChannelsData = 0;
+
+        // On reset, the frame counter behaves as if the last mode value were
+        // written again shortly before execution resumes. The IRQ inhibit bit
+        // is not reliably preserved by hardware, so only the mode bit is
+        // restored here.
+        write(0x0017, m_last4017Value & 0x80);
+        for(int i = 0; i < 3; i++ ) cycle();
+
+        m_audioOutput.clearAudioBuffers();
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
     }
@@ -204,6 +242,7 @@ public:
         switch(addr) {
 
         case 0x17:
+            m_last4017Value = data & 0xC0;
             m_mode = data&0x80;
             m_interruptInhibitFlag = data&0x40;
             m_frameStep = 0;

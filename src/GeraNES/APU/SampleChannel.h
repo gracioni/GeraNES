@@ -174,6 +174,25 @@ public:
 
     }
 
+    void reset()
+    {
+        m_sampleBufferFilled = false;
+        m_enabled = false;
+        m_currentAddr = m_sampleAddr;
+        m_bytesRemaining = 0;
+        m_shiftCounter = 1;
+        m_interruptFlag = false;
+        m_cpuCycleCounter = 0;
+        m_directControlFlag = false;
+        m_enableReloadDelay = 0;
+        m_disableDelay = 0;
+        m_dmaRequestCooldown = 0;
+        m_pendingDmaRequest = false;
+        m_pendingDmaReload = false;
+        m_pendingDmaLoopDisabled = false;
+        m_lastLoadedByteCameFromNonLoopingDma = false;
+    }
+
     void write(int addr, uint8_t data)
     {
         switch(addr)
