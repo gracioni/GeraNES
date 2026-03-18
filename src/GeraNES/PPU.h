@@ -122,6 +122,7 @@ private:
 
     int m_overflowBugCounter;
     bool m_sprite0Added;
+    bool m_corruptOamRow[32];
 
     //Rendering position
     int m_currentY;
@@ -432,6 +433,7 @@ public:
 
         m_needUpdateState = false;
         m_needIncVideoRam = false;
+        memset(m_corruptOamRow, 0, sizeof(m_corruptOamRow));
 
         m_tileAddr = 0;
 
@@ -711,20 +713,14 @@ yyy NN YYYYY XXXXX
             m_secondaryOam[(m_cycle-1) >> 1] = 0xFF;
         }
         else if(m_cycle == 256) {
-
-            m_spritesInThisLine = 0; //emulator way of do this, not the real ppu behavior
-
-            for(int i = 0; i < 64; i++) {
-  
-                const int& spriteY = (int)m_primaryOam[i << 2] + 1;
-
-                if( (m_currentY >= spriteY) && (m_currentY < (spriteY+(m_spriteSize8x16?16:8))) ) {  
-                    m_spritesIndexesInThisLine[m_spritesInThisLine++] = i << 2;
-                }
+            // The PPU has just finished evaluating sprites for the next scanline.
+            // Count the sprites from secondary OAM itself instead of rescanning
+            // primary OAM in "emulator space".
+            m_spritesInThisLine = static_cast<int>((m_secondaryOamAddr + 3) >> 2);
+            if(m_spritesInThisLine > 8) {
+                m_spritesInThisLine = 8;
             }
 
-            //-----------------------------------------------------------------------------
-            
             m_testSprite0HitInThisLine = m_sprite0Added;
         }
         else {
@@ -770,9 +766,18 @@ yyy NN YYYYY XXXXX
                             m_oamAddrM++;
                             m_secondaryOamAddr++;
 
-                            if(m_oamAddrN == 0) {
+                            if(m_cycle == 66) {
 							    m_sprite0Added = true;
 							}
+
+                            if(m_oamAddrM >= 4) {
+                                m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
+                                m_oamAddrM = 0;
+
+                                if(m_oamAddrN == 0) {
+                                    m_oamCopyDone = true;
+                                }
+                            }
 
                             //Note: Using "(m_secondaryOamAddr & 0x03) == 0" instead of "m_oamAddrM == 0" is required
 							//to replicate a hardware bug noticed in oam_flicker_test_reenable when disabling & re-enabling
@@ -780,18 +785,21 @@ yyy NN YYYYY XXXXX
 							if((m_secondaryOamAddr & 0x03) == 0) {
 								//Done copying all 4 bytes
 								m_spriteInRange = false;
-								m_oamAddrM = 0;
 
-								m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
-								if(m_oamAddrN == 0) {
-									m_oamCopyDone = true;
-								}
+                                if(m_oamAddrM != 0) {
+                                    bool inRange = m_scanline >= m_oamCopyBuffer &&
+                                                   m_scanline < m_oamCopyBuffer + (m_spriteSize8x16 ? 16 : 8);
+                                    if(!inRange) {
+                                        m_oamAddrM = 0;
+                                    }
+                                }
 							}
                         }
                         else {
 
                             //Nothing to copy, skip to next sprite
 							m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
+                            m_oamAddrM = 0;
 							if(m_oamAddrN == 0) {
 								m_oamCopyDone = true;
 							}
@@ -840,6 +848,30 @@ yyy NN YYYYY XXXXX
         }    
 
     }    
+
+    GERANES_INLINE void setOamCorruptionFlags()
+    {
+        if(m_cycle >= 0 && m_cycle < 64) {
+            m_corruptOamRow[m_cycle >> 1] = true;
+        }
+        else if(m_cycle >= 256 && m_cycle < 320) {
+            const uint8_t base = static_cast<uint8_t>((m_cycle - 256) >> 3);
+            const uint8_t offset = static_cast<uint8_t>(std::min(3, (m_cycle - 256) & 0x07));
+            m_corruptOamRow[base * 4 + offset] = true;
+        }
+    }
+
+    GERANES_INLINE void processOamCorruption()
+    {
+        for(int i = 0; i < 32; i++) {
+            if(m_corruptOamRow[i]) {
+                if(i > 0) {
+                    memcpy(m_primaryOam + i * 8, m_primaryOam, 8);
+                }
+                m_corruptOamRow[i] = false;
+            }
+        }
+    }
 
     GERANES_INLINE uint8_t getSpritePixelFake(const Sprite* sprite, int xOnScreen)
     {
@@ -975,6 +1007,10 @@ yyy NN YYYYY XXXXX
         m_visibleLine = m_scanline < 240;
         m_renderLine = m_preLine || m_visibleLine;
 
+        if(m_preLine && isRenderingEnabled()) {
+            processOamCorruption();
+        }
+
         if(m_scanline < 240) {
 
             if(m_scanline == 0) {
@@ -1084,6 +1120,10 @@ yyy NN YYYYY XXXXX
             }
 
             if(m_preLine) {
+                if(m_cycle <= 8 && isRenderingEnabled() && m_oamAddr >= 0x08) {
+                    //"If OAMADDR is not less than eight when rendering starts, the eight bytes starting at OAMADDR & $F8 are copied to the first eight bytes of OAM."
+                    m_primaryOam[m_cycle - 1] = m_primaryOam[(m_oamAddr & 0xF8) + (m_cycle - 1)];
+                }
 
                 if(m_cycle >= 280 && m_cycle <= 304) { //280 to 304 copy each tick
                     if(m_prevCycleRenderingEnabled) copyVY();
@@ -1179,7 +1219,7 @@ yyy NN YYYYY XXXXX
             return;
         }
 
-        int fetchedSpriteCount = static_cast<int>(m_secondaryOamAddr >> 2);
+        int fetchedSpriteCount = static_cast<int>((m_secondaryOamAddr + 3) >> 2);
         if(fetchedSpriteCount > 8) {
             fetchedSpriteCount = 8;
         }
@@ -1476,7 +1516,7 @@ yyy NN YYYYY XXXXX
         } else {
             //"Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0-239, provided either sprite or background rendering is enabled) do not modify values in OAM, 
             //but do perform a glitchy increment of OAMADDR, bumping only the high 6 bits"
-            m_oamAddr = ((m_oamAddr + 1) & 0xFC) | (m_oamAddr & 0x3);
+            m_oamAddr = static_cast<uint8_t>((m_oamAddr + 4) & 0xFC);
         }
     
     }
@@ -1587,12 +1627,19 @@ yyy NNYY YYYX XXXX
 
         //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
         if(m_prevCycleRenderingEnabled != m_renderingEnabled) {
+            const bool wasRenderingEnabled = m_prevCycleRenderingEnabled;
+            const bool renderingEnabledNow = m_renderingEnabled;
 
             m_prevCycleRenderingEnabled = m_renderingEnabled;
 
+            if(m_scanline < 240 && renderingEnabledNow) {
+                processOamCorruption();
+            }
+
             if(m_renderLine) {
 
-                 if(!m_prevCycleRenderingEnabled) {    
+                 if(wasRenderingEnabled && !renderingEnabledNow) {
+                    setOamCorruptionFlags();
 
                     //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
                     //setBusAddress(m_reg_v & 0x3FFF); //break hard drivin
