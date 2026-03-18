@@ -836,7 +836,7 @@ public:
 
     GERANES_INLINE_HOT void NOP()
     {
-        readMemory(m_addr);
+        dummyRead();
     }
 
     GERANES_INLINE_HOT void U_DOP()
@@ -867,7 +867,7 @@ public:
     GERANES_INLINE_HOT void PLA()
     {
         dummyRead();
-        dummyRead(); // GERA REMOVER timing erro
+        readMemory(static_cast<uint16_t>(0x0100 | m_sp));
         m_a = pull();
         updateZeroAndNegativeFlags(m_a);
     }
@@ -875,7 +875,7 @@ public:
     GERANES_INLINE_HOT void PLP()
     {
         dummyRead();
-        dummyRead();
+        readMemory(static_cast<uint16_t>(0x0100 | m_sp));
         m_status = pull();
     }
 
@@ -1005,7 +1005,7 @@ public:
     GERANES_INLINE_HOT void RTI()
     {
         dummyRead();
-        dummyRead();
+        readMemory(static_cast<uint16_t>(0x0100 | m_sp));
         m_status = pull();
         m_pc = pull16();
     }
@@ -1013,9 +1013,10 @@ public:
     GERANES_INLINE_HOT void RTS()
     {
         dummyRead();
-        dummyRead();
-        dummyRead();
-        m_pc = pull16() + 1;
+        readMemory(static_cast<uint16_t>(0x0100 | m_sp));
+        m_pc = pull16();
+        readMemory(m_pc);
+        m_pc++;
     }
 
     GERANES_INLINE_HOT void SBC()
