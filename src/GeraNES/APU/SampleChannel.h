@@ -1,9 +1,6 @@
 #pragma once
 
 #include <array>
-#include <cstdlib>
-#include <fstream>
-#include <string>
 
 #include "GeraNES/Serialization.h"
 #include "GeraNES/Settings.h"
@@ -14,25 +11,6 @@
 class SampleChannel
 {
 private:
-    static inline bool dmaTraceEnabled()
-    {
-        static const bool enabled = []() {
-            const char* value = std::getenv("GERANES_DMA_TRACE");
-            return value && value[0] != '\0' && value[0] != '0';
-        }();
-        return enabled;
-    }
-
-    static inline void dmaTrace(const std::string& message)
-    {
-        if(!dmaTraceEnabled()) {
-            return;
-        }
-
-        std::ofstream out("implicit_dma_abort_trace.log", std::ios::app);
-        out << "[DMC] " << message << '\n';
-    }
-
     static constexpr std::array<uint16_t, 16> NTSC_DMC_PERIOD_TABLE = {
         428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
     };
@@ -78,28 +56,10 @@ private:
             m_pendingDmaRequest = true;
             m_pendingDmaReload = m_pendingDmaReload || reload;
             m_pendingDmaLoopDisabled = m_pendingDmaLoopDisabled || ((m_playMode & 0x40) == 0);
-            dmaTrace(
-                "readSample deferred reload=" + std::to_string(reload ? 1 : 0) +
-                " cooldown=" + std::to_string(m_dmaRequestCooldown) +
-                " bytesRemaining=" + std::to_string(m_bytesRemaining) +
-                " shiftCounter=" + std::to_string(m_shiftCounter) +
-                " periodCounter=" + std::to_string(m_periodCounter)
-            );
             return;
         }
 
         m_pendingDmaLoopDisabled = ((m_playMode & 0x40) == 0);
-
-        if(reload || m_disableDelay > 0) {
-            dmaTrace(
-                "readSample reload=" + std::to_string(reload ? 1 : 0) +
-                " bytesRemaining=" + std::to_string(m_bytesRemaining) +
-                " shiftCounter=" + std::to_string(m_shiftCounter) +
-                " periodCounter=" + std::to_string(m_periodCounter) +
-                " enableDelay=" + std::to_string(m_enableReloadDelay) +
-                " disableDelay=" + std::to_string(m_disableDelay)
-            );
-        }
         dmcRequest(m_currentAddr | 0x8000, reload);
     }
 
@@ -283,17 +243,6 @@ public:
 
     void setEnabled(bool status, bool cpuOddCycle)
     {
-        dmaTrace(
-            std::string("setEnabled status=") + std::to_string(status ? 1 : 0) +
-            " cpuOddCycle=" + std::to_string(cpuOddCycle ? 1 : 0) +
-            " bytesRemaining=" + std::to_string(m_bytesRemaining) +
-            " shiftCounter=" + std::to_string(m_shiftCounter) +
-            " periodCounter=" + std::to_string(m_periodCounter) +
-            " sampleBufferFilled=" + std::to_string(m_sampleBufferFilled ? 1 : 0) +
-            " enableDelay=" + std::to_string(m_enableReloadDelay) +
-            " disableDelay=" + std::to_string(m_disableDelay)
-        );
-
         if(status)
         {
             const bool disableWasPending = m_disableDelay > 0;
@@ -332,13 +281,6 @@ public:
                 m_pendingDmaRequest = false;
                 m_pendingDmaReload = false;
                 m_pendingDmaLoopDisabled = false;
-                dmaTrace(
-                    "dmaCooldownExpired bytesRemaining=" + std::to_string(m_bytesRemaining) +
-                    " shiftCounter=" + std::to_string(m_shiftCounter) +
-                    " periodCounter=" + std::to_string(m_periodCounter) +
-                    " reload=" + std::to_string(reload ? 1 : 0) +
-                    " loopDisabled=" + std::to_string(loopDisabled ? 1 : 0)
-                );
                 m_pendingDmaLoopDisabled = loopDisabled;
                 readSample(reload);
             } else {
@@ -349,11 +291,6 @@ public:
         }
 
         if(m_disableDelay > 0 && --m_disableDelay == 0) {
-            dmaTrace(
-                "disableDelayExpired bytesRemaining=" + std::to_string(m_bytesRemaining) +
-                " shiftCounter=" + std::to_string(m_shiftCounter) +
-                " periodCounter=" + std::to_string(m_periodCounter)
-            );
             m_enabled = false;
             m_bytesRemaining = 0;
             dmcCancelRequest();
@@ -383,14 +320,6 @@ public:
     void clockDMC() {
 
         if(--m_shiftCounter == 0) {
-            dmaTrace(
-                "clockDMC shiftReset bytesRemaining=" + std::to_string(m_bytesRemaining) +
-                " periodCounter=" + std::to_string(m_periodCounter) +
-                " sampleBufferFilled=" + std::to_string(m_sampleBufferFilled ? 1 : 0) +
-                " enableDelay=" + std::to_string(m_enableReloadDelay) +
-                " disableDelay=" + std::to_string(m_disableDelay)
-            );
-
             m_shiftCounter = 8;        
 
             m_sampleBufferFilled = false;
@@ -410,15 +339,6 @@ public:
 
     void loadSampleBuffer(uint8_t data) {
         const uint16_t bytesRemainingBeforeLoad = m_bytesRemaining;
-
-        dmaTrace(
-            "loadSampleBuffer begin data=" + std::to_string(data) +
-            " bytesRemaining=" + std::to_string(m_bytesRemaining) +
-            " shiftCounter=" + std::to_string(m_shiftCounter) +
-            " periodCounter=" + std::to_string(m_periodCounter) +
-            " sampleBufferFilled=" + std::to_string(m_sampleBufferFilled ? 1 : 0) +
-            " playMode=" + std::to_string(m_playMode)
-        );
 
         m_sampleBufferFilled = true;
         m_dmaRequestCooldown = 4;
@@ -441,14 +361,7 @@ public:
             m_sampleLength == 1 &&
             m_shiftCounter == 1 &&
             m_lastLoadedByteCameFromNonLoopingDma;
-
         if(sampleEnded) {
-            dmaTrace(
-                "loadSampleBuffer sampleEnded shiftCounter=" + std::to_string(m_shiftCounter) +
-                " periodCounter=" + std::to_string(m_periodCounter) +
-                " playMode=" + std::to_string(m_playMode)
-            );
-
             if(m_enabled) {
                 switch(m_playMode)
                 {
@@ -469,13 +382,6 @@ public:
 
         if(implicitAbortSpecialCase)
         {
-            dmaTrace(
-                "implicitAbortSpecialCase bytesRemaining=" + std::to_string(m_bytesRemaining) +
-                " shiftCounter=" + std::to_string(m_shiftCounter) +
-                " periodCounter=" + std::to_string(m_periodCounter) +
-                " currentAddr=" + std::to_string(m_currentAddr) +
-                " sampleAddr=" + std::to_string(m_sampleAddr)
-            );
             m_currentAddr = m_sampleAddr;
             m_bytesRemaining = m_sampleLength;
             dmcImplicitAbortRequest();

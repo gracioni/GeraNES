@@ -1,9 +1,6 @@
 #pragma once
 
 #include <array>
-#include <cstdlib>
-#include <fstream>
-#include <string>
 
 #include "defines.h"
 #include "IBus.h"
@@ -76,26 +73,6 @@ inline constexpr std::array<AddrMode, 256> addrMode = {
 class CPU2A03
 {
 private:
-
-    static inline bool dmaTraceEnabled()
-    {
-        static const bool enabled = []() {
-            const char* value = std::getenv("GERANES_DMA_TRACE");
-            return value && value[0] != '\0' && value[0] != '0';
-        }();
-        return enabled;
-    }
-
-    static inline void dmaTrace(const std::string& message)
-    {
-        if(!dmaTraceEnabled()) {
-            return;
-        }
-
-        std::ofstream out("implicit_dma_abort_trace.log", std::ios::app);
-        out << "[CPU] " << message << '\n';
-    }
-
     const uint16_t NMI_VECTOR = 0xFFFA;
     const uint16_t IRQ_VECTOR = 0xFFFE;
     const uint16_t BRK_VECTOR = 0xFFFE;
@@ -1464,20 +1441,10 @@ public:
     {
         if(m_dmcSingleCycleAbortPending) {
             if(m_writeCycle) {
-                dmaTrace(
-                    "singleCycleAbortSkippedOnWrite cpuCycle=" + std::to_string(m_cyclesCounter) +
-                    " instructionCycle=" + std::to_string(m_currentInstructionCycle) +
-                    " readAddress=" + std::to_string(readAddress)
-                );
                 m_dmcSingleCycleAbortPending = false;
                 return;
             }
 
-            dmaTrace(
-                "singleCycleAbortConsumed cpuCycle=" + std::to_string(m_cyclesCounter) +
-                " instructionCycle=" + std::to_string(m_currentInstructionCycle) +
-                " readAddress=" + std::to_string(readAddress)
-            );
             m_suppressInstructionCycleAccounting = true;
             beginCycle();
             endCycle();
@@ -1598,15 +1565,6 @@ public:
     }
 
     void startDmcDma(uint16_t addr, bool reload) {
-        if(reload || m_dmcSingleCycleAbortPending || m_dmcAbortPending) {
-            dmaTrace(
-                "startDmcDma reload=" + std::to_string(reload ? 1 : 0) +
-                " addr=" + std::to_string(addr) +
-                " cpuCycle=" + std::to_string(m_cyclesCounter) +
-                " instructionCycle=" + std::to_string(m_currentInstructionCycle) +
-                " writeCycle=" + std::to_string(m_writeCycle ? 1 : 0)
-            );
-        }
         m_dmcDmaAddr = addr;
         m_dmcDmaRunning = true;
         m_dmcLastRequestWasReload = reload;
@@ -1616,45 +1574,22 @@ public:
 
     void cancelDmcDma() {
         if(!m_dmcDmaRunning) {
-            dmaTrace(
-                "cancelDmcDma ignored cpuCycle=" + std::to_string(m_cyclesCounter) +
-                " instructionCycle=" + std::to_string(m_currentInstructionCycle)
-            );
             return;
         }
 
         if(m_dmaNeedHalt) {
             if(m_dmcLastRequestWasReload) {
-                dmaTrace(
-                    "cancelDmcDma->singleCycleAbort cpuCycle=" + std::to_string(m_cyclesCounter) +
-                    " instructionCycle=" + std::to_string(m_currentInstructionCycle) +
-                    " writeCycle=" + std::to_string(m_writeCycle ? 1 : 0)
-                );
                 m_dmcSingleCycleAbortPending = true;
-            } else {
-                dmaTrace(
-                    "cancelDmcDma preHaltCancel cpuCycle=" + std::to_string(m_cyclesCounter) +
-                    " instructionCycle=" + std::to_string(m_currentInstructionCycle)
-                );
             }
             m_dmcDmaRunning = false;
             m_dmaNeedDummyRead = false;
             m_dmaNeedHalt = false;
         } else {
-            dmaTrace(
-                "cancelDmcDma postHaltAbort cpuCycle=" + std::to_string(m_cyclesCounter) +
-                " instructionCycle=" + std::to_string(m_currentInstructionCycle)
-            );
             m_dmcAbortPending = true;
         }
     }
 
     void scheduleImplicitDmcSingleCycleAbort() {
-        dmaTrace(
-            "scheduleImplicitDmcSingleCycleAbort cpuCycle=" + std::to_string(m_cyclesCounter) +
-            " instructionCycle=" + std::to_string(m_currentInstructionCycle) +
-            " writeCycle=" + std::to_string(m_writeCycle ? 1 : 0)
-        );
         m_dmcSingleCycleAbortPending = true;
         m_dmcDmaRunning = false;
         m_dmcAbortPending = false;

@@ -21,8 +21,6 @@
 #include "logger/logger.h"
 
 #include "Rewind.h"
-#include <cstdlib>
-#include <fstream>
 
 class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
@@ -88,25 +86,6 @@ private:
     bool m_pendingNsfNextSong = false;
     bool m_pendingNsfPrevSong = false;
     bool m_applyingPendingNsfActions = false;
-
-    static inline bool dmaTraceEnabled()
-    {
-        static const bool enabled = []() {
-            const char* value = std::getenv("GERANES_DMA_TRACE");
-            return value && value[0] != '\0' && value[0] != '0';
-        }();
-        return enabled;
-    }
-
-    static inline void dmaTrace(const std::string& message)
-    {
-        if(!dmaTraceEnabled()) {
-            return;
-        }
-
-        std::ofstream out("implicit_dma_abort_trace.log", std::ios::app);
-        out << "[EMU] " << message << '\n';
-    }
 
     void processNsfControllerInput(bool selectPressed, bool startPressed, bool leftPressed, bool rightPressed)
     {
@@ -335,14 +314,6 @@ private:
                 m_cartridge.onCpuWrite(static_cast<uint16_t>(addr), data);
             }
 
-            if(addr == 0x4010 || addr == 0x4015 || (addr >= 0x500 && addr < 0x550)) {
-                dmaTrace(
-                    "write addr=" + std::to_string(addr) +
-                    " data=" + std::to_string(data) +
-                    " cpuCycle=" + std::to_string(m_cpu.cycleCounter()) +
-                    " instructionCycle=" + std::to_string(m_cpu.currentInstructionCycle())
-                );
-            }
         }
         else if(updateOpenBusOnRead) {
             m_openBus = data;
