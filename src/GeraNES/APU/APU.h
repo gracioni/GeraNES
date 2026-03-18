@@ -3,7 +3,6 @@
 #include "GeraNES/defines.h"
 #include "GeraNES/Serialization.h"
 #include "GeraNES/Settings.h"
-#include "GeraNES/CPU2A03.h"
 
 #include "GeraNES/IAudioOutput.h"
 
@@ -46,12 +45,8 @@ class APU
     uint8_t m_writeChannelsData;
     uint8_t m_last4017Value;
 
-public:   
+public:
 
-    GERANES_INLINE bool isDmaGetCycle() const
-    {
-        return m_jitter;
-    }
 
     GERANES_INLINE const int* mode0Delays() const
     {
