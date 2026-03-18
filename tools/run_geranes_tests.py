@@ -217,6 +217,8 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
     parts.append(".passed{color:#198754;}")
     parts.append(".failed{color:#c1121f;}")
     parts.append(".error{color:#d97706;}")
+    parts.append(".filters{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:0 0 16px 0;padding:10px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;}")
+    parts.append(".filters label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;}")
     parts.append("details{margin-top:6px;}")
     parts.append("summary{cursor:pointer;user-select:none;}")
     parts.append("pre{margin:8px 0 0 0;padding:10px;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;overflow:auto;white-space:pre;}")
@@ -226,6 +228,12 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
     parts.append("<h1>GeraNES Test Report</h1>")
     parts.append(f"<h2>{summary_label}</h2>")
     parts.append(f"<p class=\"meta\">Emulator version: <strong>{version}</strong><br>Generated at (UTC): <strong>{generated_at}</strong></p>")
+    parts.append("<form class=\"filters\">")
+    parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"all\" checked> all</label>")
+    parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"passed\"> passed</label>")
+    parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"failed\"> failed</label>")
+    parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"error\"> error</label>")
+    parts.append("</form>")
 
     for test in tests:
         if not isinstance(test, dict):
@@ -243,7 +251,7 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
         output_norm = output_raw.replace("\r\n", "\n").replace("\r", "\n")
         output_html = html.escape(output_norm)
 
-        parts.append("<section class=\"test\">")
+        parts.append(f"<section class=\"test\" data-status=\"{html.escape(result_raw)}\">")
         code_suffix = ""
         if result_raw != "passed":
             code_suffix = f" (code: {return_code})"
@@ -258,6 +266,19 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
         parts.append("</details>")
         parts.append("</section>")
 
+    parts.append("<script>")
+    parts.append("const radios=document.querySelectorAll('input[name=\"status-filter\"]');")
+    parts.append("const testsEls=document.querySelectorAll('.test');")
+    parts.append("function applyFilter(value){")
+    parts.append("for(const el of testsEls){")
+    parts.append("el.hidden=value!=='all'&&el.dataset.status!==value;")
+    parts.append("}")
+    parts.append("}")
+    parts.append("for(const radio of radios){")
+    parts.append("radio.addEventListener('change',()=>applyFilter(radio.value));")
+    parts.append("}")
+    parts.append("applyFilter('all');")
+    parts.append("</script>")
     parts.append("</body>")
     parts.append("</html>")
 
