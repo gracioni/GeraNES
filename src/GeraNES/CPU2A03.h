@@ -1414,6 +1414,7 @@ public:
                         (externalValue & obMask) |
                         (value & ~obMask)
                     );
+                    m_bus.setOpenBus(value);
                 }
                 break;
 

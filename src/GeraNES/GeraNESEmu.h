@@ -447,6 +447,11 @@ public:
         return m_openBus;
     }
 
+    void setOpenBus(uint8_t data) override
+    {
+        m_openBus = data;
+    }
+
     void onCpuGetToPutTransition() override
     {
         m_controller1.onCpuGetToPutTransition();
