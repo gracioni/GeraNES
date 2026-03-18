@@ -147,7 +147,7 @@ public:
 
     GERANES_INLINE_HOT bool getInterruptFlag()
     {
-        return m_frameInterruptFlag || m_sample.getInterruptFlag();
+        return ((!m_interruptInhibitFlag) && m_frameInterruptFlag) || m_sample.getInterruptFlag();
     }
 
     uint8_t getActiveChannelMask()
@@ -338,18 +338,18 @@ public:
                     m_frameStep++;
                     break;
                 case 3:
-                    if(!m_interruptInhibitFlag) m_frameInterruptFlag = true;
+                    m_frameInterruptFlag = true;
                     m_frameStep++;
                     break;
                 case 4:
                     updateEnvelopsAndLinearCounters();
                     updateLengthCountersAndSweeps();
                     updateAudioOutput();
-                    if(!m_interruptInhibitFlag) m_frameInterruptFlag = true;
+                    m_frameInterruptFlag = true;
                     m_frameStep++;
                     break;
                 case 5:
-                    if(!m_interruptInhibitFlag) m_frameInterruptFlag = true;
+                    m_frameInterruptFlag = !m_interruptInhibitFlag;
                     m_frameStep=0;
                     break;
                 }

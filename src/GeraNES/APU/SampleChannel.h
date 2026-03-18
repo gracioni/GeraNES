@@ -219,15 +219,16 @@ public:
     {
         if(status)
         {
+            const bool wasDisablePending = m_disableDelay > 0;
             m_disableDelay = 0;
+
+            if(getBytesRemaining() == 0 || wasDisablePending) {
+                m_enableReloadDelay = cpuOddCycle ? 3 : 2;
+            }
 
             if(getBytesRemaining() == 0) {
                 m_currentAddr = m_sampleAddr;
                 m_bytesRemaining = m_sampleLength;
-
-                if(!m_sampleBufferFilled && m_bytesRemaining > 0) {
-                    m_enableReloadDelay = cpuOddCycle ? 3 : 2;
-                }
             }
         }
         else
