@@ -1183,11 +1183,11 @@ public:
 
     GERANES_INLINE_HOT void resetSequence()
     {
-        m_sp = 0xFD;
-        m_status = 0x24;
-        m_a = m_x = m_y = 0;
+        m_sp = static_cast<uint8_t>(m_sp - 3);
+        m_flags.irq = true;
+        m_flags.brk = false;
+        m_flags.unused = true;
 
-        m_cyclesCounter = 0;
         m_addr = 0;
         m_addrIndexHigh = 0;
         m_addrPageCross = false;

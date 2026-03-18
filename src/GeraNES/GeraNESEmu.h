@@ -1185,7 +1185,6 @@ public:
         m_runningLoop = false;
         m_saveStateFlag = false;
         m_loadStateFlag = false;
-        memset(m_ram, 0, sizeof(m_ram));
         m_nsfPlayer.onEmulatorReset();
         m_hardwareActions.reset();
 
