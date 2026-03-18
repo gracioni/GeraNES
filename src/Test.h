@@ -506,7 +506,7 @@ public:
             }
 
             std::cout << readOutputText(emu);
-            return status == 0 ? RESULT_PASSED : RESULT_FAILED;
+            return status == 0 ? RESULT_PASSED : static_cast<int>(status);
         }
 
         return RESULT_FAILED;
