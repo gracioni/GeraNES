@@ -107,7 +107,7 @@ private:
     uint16_t m_addr;
     uint16_t m_pendingBusAddr;
     uint16_t m_lastBusAddr;
-    bool m_lastBusWasWrite;
+    uint16_t m_visibleBusAddr;
     uint8_t m_addrIndexHigh;
     bool m_addrPageCross;
 
@@ -351,7 +351,7 @@ public:
         m_addr = 0;
         m_pendingBusAddr = 0;
         m_lastBusAddr = 0;
-        m_lastBusWasWrite = false;
+        m_visibleBusAddr = 0;
         m_opcode = 0;
 
         m_a = 0;
@@ -1405,7 +1405,7 @@ public:
         SERIALIZEDATA(s, m_addr);
         SERIALIZEDATA(s, m_pendingBusAddr);
         SERIALIZEDATA(s, m_lastBusAddr);
-        SERIALIZEDATA(s, m_lastBusWasWrite);
+        SERIALIZEDATA(s, m_visibleBusAddr);
         SERIALIZEDATA(s, m_nmiSignal);
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
@@ -1431,23 +1431,11 @@ public:
     }
 
     uint16_t visibleBusAddr() const {
-        return m_pendingBusAddr != 0 ? m_pendingBusAddr : m_lastBusAddr;
-    }
-
-    static bool isSensitiveRegisterAddr(uint16_t addr) {
-        return (addr >= 0x2000 && addr <= 0x3FFF) || (addr >= 0x4000 && addr <= 0x401F);
+        return m_visibleBusAddr;
     }
 
     uint16_t dmcHaltBusAddr() const {
-        if(isSensitiveRegisterAddr(m_pendingBusAddr)) {
-            return m_pendingBusAddr;
-        }
-
-        if(!m_lastBusWasWrite && isSensitiveRegisterAddr(m_lastBusAddr)) {
-            return m_lastBusAddr;
-        }
-
-        return visibleBusAddr();
+        return m_visibleBusAddr;
     }
 
     unsigned int cycleCounter() const {
@@ -1462,6 +1450,7 @@ public:
 };
 GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
     m_pendingBusAddr = addr;
+    m_visibleBusAddr = addr;
     const unsigned int cyclesBeforeDma = m_cyclesCounter;
     m_dma.processPending(
         addr,
@@ -1481,7 +1470,6 @@ GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
 
     uint8_t ret =  m_bus.read(addr);
     m_lastBusAddr = addr;
-    m_lastBusWasWrite = false;
     m_pendingBusAddr = 0;
 
     endCycle();
@@ -1493,6 +1481,7 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
 
     m_writeCycle = true;
     m_pendingBusAddr = addr;
+    m_visibleBusAddr = addr;
 
     beginCycle();
 
@@ -1502,7 +1491,6 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
 
     m_bus.write(addr, value);
     m_lastBusAddr = addr;
-    m_lastBusWasWrite = true;
     m_pendingBusAddr = 0;
 
     endCycle();
