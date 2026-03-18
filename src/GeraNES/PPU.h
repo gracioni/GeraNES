@@ -1034,6 +1034,11 @@ yyy NN YYYYY XXXXX
             
 
         }
+        else if(m_preLine) {
+            // Sprite flags are cleared at the start of the pre-render scanline.
+            m_spriteOverflow = false;
+            m_sprite0Hit = false;
+        }
         else if(m_scanline == 240) {
             //At the start of vblank, the bus address is set back to VideoRamAddr.
             //According to Visual NES, this occurs on scanline 240, cycle 1, but is done here on cycle 0 for performance reasons
@@ -1129,8 +1134,6 @@ yyy NN YYYYY XXXXX
                     if(m_prevCycleRenderingEnabled) copyVY();
                 }
                 else if(m_cycle == VBLANK_CYCLE){
-                    m_spriteOverflow = false;
-                    m_sprite0Hit = false;
                     m_VBlankHasStarted = false;
                 }
 
