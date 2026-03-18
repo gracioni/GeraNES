@@ -120,7 +120,7 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
         report_path = to_report_path(rom_path, roms_folder)
         if return_code == 0:
             result = "passed"
-        elif return_code == -1:
+        elif return_code > 0:
             result = "failed"
         else:
             result = "error"

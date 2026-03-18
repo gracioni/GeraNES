@@ -493,7 +493,7 @@ public:
             if(status == 0x81) {
                 if(!resetArmed) {
                     resetArmed = true;
-                    resetCountdownMs = 100;
+                    resetCountdownMs = 500;
                 } else {
                     resetCountdownMs -= static_cast<int>(STEP_MS);
                 }
