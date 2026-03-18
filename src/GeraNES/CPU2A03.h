@@ -1412,7 +1412,7 @@ public:
                     const uint8_t obMask = controllerOpenBusMask(internalAddr);
                     value = static_cast<uint8_t>(
                         (externalValue & obMask) |
-                        ((value & ~obMask) & (externalValue & ~obMask))
+                        (value & ~obMask)
                     );
                 }
                 break;
@@ -1443,12 +1443,7 @@ public:
         m_dmaPrevReadAddr = readAddress;
 
         auto startDmaCycle = [&]() {
-            if(m_dmcAbortPending) {
-                m_dmcDmaRunning = false;
-                m_dmcAbortPending = false;
-                m_dmaNeedDummyRead = false;
-                m_dmaNeedHalt = false;
-            } else if(m_dmaNeedHalt) {
+            if(m_dmaNeedHalt) {
                 m_dmaNeedHalt = false;
             } else if(m_dmaNeedDummyRead) {
                 m_dmaNeedDummyRead = false;
@@ -1479,6 +1474,16 @@ public:
             if(getCycle) {
                 if(m_dmcDmaRunning && !m_dmaNeedHalt && !m_dmaNeedDummyRead) {
                     startDmaCycle();
+                    if(m_dmcAbortPending) {
+                        if(!skipDummyReads) {
+                            dmaBusRead(readAddress, true);
+                        }
+                        endCycle();
+                        m_suppressInstructionCycleAccounting = false;
+                        m_dmcDmaRunning = false;
+                        m_dmcAbortPending = false;
+                        continue;
+                    }
                     const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads, false);
                     endCycle();
                     m_suppressInstructionCycleAccounting = false;
