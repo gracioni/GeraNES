@@ -43,11 +43,6 @@ private:
         }
     }
 
-    GERANES_INLINE uint8_t controllerOpenBusMask(uint16_t /*addr*/) const
-    {
-        return 0xE0;
-    }
-
     uint8_t dmaBusRead(uint16_t addr, bool enableInputClock)
     {
         m_dmaReadInProgress = true;
@@ -90,7 +85,7 @@ private:
 
                 if(!isSameAddress) {
                     const uint8_t externalValue = dmaBusRead(dmaAddr, false);
-                    const uint8_t obMask = controllerOpenBusMask(internalAddr);
+                    constexpr uint8_t obMask = 0xE0;
                     value = static_cast<uint8_t>(
                         (externalValue & obMask) |
                         (value & ~obMask)
