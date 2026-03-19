@@ -22,6 +22,12 @@
 
 #include "Rewind.h"
 
+enum class AccessType
+{
+    Read,
+    Write
+};
+
 class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
 private:
@@ -141,33 +147,34 @@ private:
         m_applyingPendingNsfActions = false;
     }
 
-    template<bool writeFlag>
-    auto busReadWrite(int addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
+    template<AccessType accessType>
+    auto accessBus(int addr, uint8_t data = 0) -> std::conditional_t<accessType == AccessType::Write, void, uint8_t>
     {
-        if constexpr(!writeFlag) data = m_openBus;
+        if constexpr(accessType == AccessType::Read) data = m_openBus;
 
         bool updateOpenBusOnRead = true;
         switch(addr>>12)
         {
         case 0:
         case 1:
-            if constexpr(writeFlag) m_ram[addr&0x7FF] = data;
+            if constexpr(accessType == AccessType::Write) m_ram[addr&0x7FF] = data;
             else data = m_ram[addr&0x7FF];
             break;
         case 2:
         case 3:
-            if constexpr(!writeFlag) {
+            if constexpr(accessType == AccessType::Read) {
                 m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
+                data = m_ppu.readWrite<false>(addr, data);
             }
-            data = m_ppu.readWrite<writeFlag>(addr, data);
-            if constexpr(!writeFlag) {
+            else {
+                m_ppu.readWrite<true>(addr, data);
             }
             break;
         case 4:
         case 5:
             if(addr < 0x4014) { //APU registers
 
-                if constexpr(writeFlag) {
+                if constexpr(accessType == AccessType::Write) {
 
                     m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
 
@@ -190,7 +197,7 @@ private:
                 //DMA transfer
                 case 0x4014: //acess: write only
                 {
-                    if constexpr(writeFlag)
+                    if constexpr(accessType == AccessType::Write)
                     {
                         uint16_t addr = static_cast<uint16_t>(data) << 8;
                         m_cpu.startOamDma(addr);
@@ -200,7 +207,7 @@ private:
 
                 case 0x4015: //APU
                 {
-                    if constexpr(writeFlag) {
+                    if constexpr(accessType == AccessType::Write) {
                         m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
                     }
                     else {
@@ -213,7 +220,7 @@ private:
 
                 case 0x4016: //controller 1
                 {
-                    if constexpr(writeFlag)
+                    if constexpr(accessType == AccessType::Write)
                     {
                         m_controller1.write(data);
                         m_controller2.write(data);
@@ -245,7 +252,7 @@ private:
 
                 case 0x4017: //controller 2
                 {
-                    if constexpr(writeFlag) m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
+                    if constexpr(accessType == AccessType::Write) m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
                     else {
 
                         bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
@@ -279,7 +286,7 @@ private:
             }
             else {
 
-                if constexpr(writeFlag) {
+                if constexpr(accessType == AccessType::Write) {
                     m_cartridge.writeMapperRegister(addr&0x1FFF, data);
                 }
                 else {
@@ -293,12 +300,12 @@ private:
 
         case 6:
         case 7:
-            if constexpr(writeFlag) m_cartridge.writeSaveRam(addr&0x1FFF, data);
+            if constexpr(accessType == AccessType::Write) m_cartridge.writeSaveRam(addr&0x1FFF, data);
             else data = m_cartridge.readSaveRam(addr&0x1FFF);
             break;
 
         default: // >= 8
-            if constexpr(writeFlag) m_cartridge.writePrg(addr&0x7FFF, data);
+            if constexpr(accessType == AccessType::Write) m_cartridge.writePrg(addr&0x7FFF, data);
             else {
                 m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
                 data = m_cartridge.readPrg(addr&0x7FFF);
@@ -307,7 +314,7 @@ private:
 
         }
 
-        if constexpr(writeFlag) {
+        if constexpr(accessType == AccessType::Write) {
             m_openBus = data;
             // Mapper CPU-write hooks must not see DMA writes.
             m_cartridge.onCpuWrite(static_cast<uint16_t>(addr), data);
@@ -318,11 +325,11 @@ private:
             m_openBus = data;
         }
 
-        m_prevControllerReadAddr = (!writeFlag && (addr == 0x4016 || addr == 0x4017))
+        m_prevControllerReadAddr = (accessType == AccessType::Read && (addr == 0x4016 || addr == 0x4017))
             ? static_cast<uint16_t>(addr)
             : 0xFFFF;
 
-        if constexpr(!writeFlag)
+        if constexpr(accessType == AccessType::Read)
             return data;
     }
 
@@ -665,13 +672,13 @@ public:
 
     GERANES_HOT uint8_t read(int addr) override
     {
-        return busReadWrite<false>(addr);
+        return accessBus<AccessType::Read>(addr);
     }
 
     GERANES_HOT void write(int addr, uint8_t data) override
     {
-        busReadWrite<true>(addr,data);
-    }        
+        accessBus<AccessType::Write>(addr,data);
+    }
 
     /**
      * Return true on new frame
