@@ -1486,26 +1486,15 @@ yyy NN YYYYY XXXXX
                 }
                 break;
             case 4:
-                setupPpuReadAddress(getSpritePatternAddress(*sprite, false));
+                {
+                    const uint16_t patternAddr = getSpritePatternAddress(*sprite, false);
+                    setupPpuReadAddress(patternAddr);
+                }
                 break;
             case 5:
                 {
                     const uint8_t value = completePpuRead(getSpritePatternAddress(*sprite, false));
                     entry.lowByte = (hasSpriteData && sprite->y != 0xFF) ? value : 0;
-                }
-
-                // Preserve old approximate A12 behavior used by MMC3 IRQ timing.
-                // This must happen after readPpuMemory(), otherwise that call overwrites
-                // the pending delayed A12 state for this cycle.
-                {
-                    bool a12High = false;
-                    if(m_spriteSize8x16) {
-                        a12High = (sprite->indexInPatternTable & 0x01) != 0;
-                    }
-                    else {
-                        a12High = m_sprite8x8PatternTableAddress;
-                    }
-                    setBusAddress(static_cast<uint16_t>(m_busAddress | (a12High ? 0x1000 : 0x0000)));
                 }
                 break;
             case 6:
@@ -1966,7 +1955,7 @@ yyy NNYY YYYX XXXX
                     setOamCorruptionFlags();
 
                     //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
-                    setBusAddress(m_reg_v & 0x3FFF);
+                    //setBusAddress(m_reg_v & 0x3FFF); //breaks hard drivin
                     
                     if(m_cycle >= 65 && m_cycle <= 256) {
                         //Disabling rendering during OAM evaluation will trigger a glitch causing the current address to be incremented by 1
