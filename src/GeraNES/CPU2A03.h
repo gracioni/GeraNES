@@ -105,8 +105,6 @@ private:
     unsigned int m_cyclesCounter;
     uint8_t m_opcode;
     uint16_t m_addr;
-    uint16_t m_lastBusAddr;
-    uint16_t m_busAddr;
     uint8_t m_addrIndexHigh;
     bool m_addrPageCross;
 
@@ -348,8 +346,7 @@ public:
         m_cyclesCounter = 0;
 
         m_addr = 0;
-        m_lastBusAddr = 0;
-        m_busAddr = 0;
+
         m_opcode = 0;
 
         m_a = 0;
@@ -1401,8 +1398,6 @@ public:
         SERIALIZEDATA(s, m_cyclesCounter);
         SERIALIZEDATA(s, m_opcode);
         SERIALIZEDATA(s, m_addr);
-        SERIALIZEDATA(s, m_lastBusAddr);
-        SERIALIZEDATA(s, m_busAddr);
         SERIALIZEDATA(s, m_nmiSignal);
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
@@ -1413,26 +1408,6 @@ public:
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
         m_dma.serialization(s);
-    }
-
-    uint16_t busAddr() {  
-        return m_addr;
-    }
-
-    uint16_t lastBusAddr() const {
-        return m_lastBusAddr;
-    }
-
-    uint16_t pendingBusAddr() const {
-        return m_busAddr;
-    }
-
-    uint16_t visibleBusAddr() const {
-        return m_busAddr;
-    }
-
-    uint16_t dmcHaltBusAddr() const {
-        return m_busAddr;
     }
 
     unsigned int cycleCounter() const {
@@ -1446,7 +1421,7 @@ public:
 
 };
 GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
-    m_busAddr = addr;
+
     const unsigned int cyclesBeforeDma = m_cyclesCounter;
     m_dma.processPending(
         addr,
@@ -1465,7 +1440,6 @@ GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
     }
 
     uint8_t ret =  m_bus.read(addr);
-    m_lastBusAddr = addr;
 
     endCycle();
 
@@ -1475,7 +1449,6 @@ GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
 GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
 
     m_writeCycle = true;
-    m_busAddr = addr;
 
     beginCycle();
 
@@ -1484,7 +1457,6 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
     assert(isOpcodeWriteCycle());
 
     m_bus.write(addr, value);
-    m_lastBusAddr = addr;
 
     endCycle();
 
