@@ -85,7 +85,7 @@ inline void DMA::processPending(
                 m_dmcDmaRunning = false;
                 m_dmcAbortPending = false;
                 m_dmcInitialLoadPhasePending = false;
-                m_console.apu().getSampleChannel().loadSampleBuffer(value);
+                m_console.apu().getSampleChannel().reloadShiftRegister(value);
             } else if(m_oamDmaTransfer) {
                 startDmaCycle(cpu);
                 const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);

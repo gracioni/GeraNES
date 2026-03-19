@@ -23,7 +23,7 @@ private:
 
     uint8_t m_playMode = 0;
     uint16_t m_currentAddr = 0;
-    int m_deltaCounter = 64;
+    uint8_t m_deltaCounter = 64;
     uint16_t m_sampleAddr = 0;
     uint16_t m_sampleLength = 0;
     uint16_t m_bytesRemaining = 0;
@@ -44,8 +44,6 @@ private:
     int m_enableReloadDelay = 0;
     int m_disableDelay = 0;
 
-    float m_sample = m_deltaCounter;
-
     GERANES_INLINE bool loopEnabled() const
     {
         return (m_playMode & 0x40) != 0;
@@ -64,9 +62,9 @@ private:
         return NTSC_DMC_PERIOD_TABLE[m_periodIndex];
     }
 
-    GERANES_INLINE float normalizedOutput() const
+    GERANES_INLINE float normalizedOutput(uint8_t data) const
     {
-        return (m_sample - 0.5f * 127.0f) / 127.0f;
+        return (data - 0.5f * 127.0f) / 127.0f;
     }
 
     void requestSample(bool reload)
@@ -147,7 +145,6 @@ public:
         SERIALIZEDATA(s, m_enabled);
         SERIALIZEDATA(s, m_enableReloadDelay);
         SERIALIZEDATA(s, m_disableDelay);
-        SERIALIZEDATA(s, m_sample);
     }
 
     SampleChannel(Settings& settings, IAudioOutput& audioOutput)
@@ -222,8 +219,7 @@ public:
                 float cpuClock = m_settings.CPUClockHz();
                 float period = (m_cpuCycleCounter + 1) / (8 * 2 * (cpuClock / 16.0f));
                 
-                m_sample = m_deltaCounter;
-                m_audioGenerator.addSampleDirect(period, normalizedOutput());
+                m_audioGenerator.addSampleDirect(period, m_deltaCounter);
             }
 
             m_cpuCycleCounter = 0;
@@ -317,10 +313,10 @@ public:
         return m_bytesRemaining;
     }
 
-    void loadSampleBuffer(uint8_t data)
+    void reloadShiftRegister(uint8_t data)
     {
-        updateSample(data);
-        m_audioGenerator.addSample(normalizedOutput());
+        uint8_t sample = shiftRegisterDataToSample(data);
+        m_audioGenerator.addSample(normalizedOutput(sample));
 
         const uint16_t bytesRemainingBeforeLoad = m_bytesRemaining;
 
@@ -354,23 +350,26 @@ public:
         }
     }
 
-    void updateSample(uint8_t data) {
+    uint8_t shiftRegisterDataToSample(uint8_t data) {
 
+        int sample = 0;
         uint8_t shift =  data;
 
         for(int c = 0; c < 8; ++c)
         {
             if (shift & 1)
             {
-                m_sample += 2*8;
-                if (m_sample > 127) m_sample = 127;
+                sample += 2*8;
+                if (sample > 127) sample = 127;
             }
             else {
-                m_sample -= 2*8;
-                if(m_sample < 0) m_sample = 0;
+                sample -= 2*8;
+                if(sample < 0) sample = 0;
             }
 
             shift >>= 1;
         }
+
+        return sample;
     }
 };
