@@ -118,8 +118,6 @@ private:
 
     enum class Interrupt {NONE, NMI, IRQ} m_interrupt;
 
-    int m_haltCycles;
-
     int m_currentInstructionCycle;
 
     uint8_t m_poolIntsAtCycle;
@@ -131,7 +129,6 @@ private:
     bool m_writeCycle;
 
     bool m_resetRequest;
-    bool m_instructionWasHalted;
     bool m_lastReadHadDma = false;
     bool m_indexedDummyReadHadDma = false;
     DMA m_dma;
@@ -358,11 +355,8 @@ public:
 
         m_poolIntsAtCycle = DO_NOT_POOL_INTS;
 
-        m_haltCycles = 0;
-
         m_runCount = 0;
         m_writeCycle = false;
-        m_instructionWasHalted = false;
         m_lastReadHadDma = false;
         m_indexedDummyReadHadDma = false;
 
@@ -1160,11 +1154,8 @@ public:
 
         m_poolIntsAtCycle = DO_NOT_POOL_INTS;
 
-        m_haltCycles = 0;
-
         m_runCount = 0;
         m_writeCycle = false;
-        m_instructionWasHalted = false;
         m_lastReadHadDma = false;
         m_indexedDummyReadHadDma = false;
 
@@ -1286,22 +1277,12 @@ public:
         }
     }
 
-
-    GERANES_INLINE void halt(int cycles)
-    {
-        m_haltCycles += cycles;
-    }
-
     GERANES_INLINE bool isOddCycle() const {
         return (m_cyclesCounter & 0x01) != 0;
     }
 
     GERANES_INLINE bool isDmaGetCycle() const {
         return isOddCycle();
-    }
-
-    GERANES_INLINE bool isHalted() {
-        return m_haltCycles > 0;
     }
 
     void startOamDma(uint16_t addr) {
@@ -1341,7 +1322,6 @@ public:
         m_addr = 0;
         m_addrHigh = 0;
         m_addrPageCross = false;
-        m_instructionWasHalted = false;
 
         if(m_resetRequest) {
             m_resetRequest = false;
@@ -1394,7 +1374,6 @@ public:
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
         SERIALIZEDATA(s, m_irqStep);
-        SERIALIZEDATA(s, m_haltCycles);
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
@@ -1417,13 +1396,6 @@ GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
 
     beginCycle();
 
-    while(m_haltCycles > 0) {
-        m_instructionWasHalted = true;
-        endCycle<false>();
-        m_haltCycles--;
-        beginCycle();
-    }
-
     uint8_t ret =  m_bus.read(addr);
 
     endCycle<false>();
@@ -1441,8 +1413,6 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
     );
 
     beginCycle();
-
-    assert(!isHalted());
 
     assert(m_writeCycle);
 
@@ -1469,18 +1439,16 @@ GERANES_INLINE_HOT void CPU2A03::beginCycle() {
 template<bool IsDmaCycle>
 inline void CPU2A03::endCycle() {
 
-    if(!isHalted()) phi1();
+    phi1();
 
     m_console.ppu().ppuCycle();      
 
     m_console.ppu().ppuCycle();
-
-    if(!isHalted()) {
-        phi2<IsDmaCycle>(
-            m_console.ppu().getInterruptFlag(),
-            m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
-        );
-    }
+    
+    phi2<IsDmaCycle>(
+        m_console.ppu().getInterruptFlag(),
+        m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
+    );    
 
     if(!m_console.ppu().inOverclockLines()) {       
         m_console.cartridge().cycle();

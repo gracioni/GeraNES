@@ -310,9 +310,8 @@ private:
         if constexpr(writeFlag) {
             m_openBus = data;
             // Mapper CPU-write hooks must not see DMA writes.
-            if(!m_cpu.isHalted()) {
-                m_cartridge.onCpuWrite(static_cast<uint16_t>(addr), data);
-            }
+            m_cartridge.onCpuWrite(static_cast<uint16_t>(addr), data);
+            
 
         }
         else if(updateOpenBusOnRead) {
