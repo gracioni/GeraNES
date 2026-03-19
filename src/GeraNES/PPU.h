@@ -172,6 +172,10 @@ private:
     bool m_reg_w;
 
     uint8_t m_dataLatch;
+    bool m_pendingDataLatchUpdate;
+    uint8_t m_pendingDataLatchDelay;
+    uint16_t m_pendingDataLatchAddr;
+    bool m_pendingDataLatchUseBusAddress;
     uint8_t m_lastWrite;
 
     int m_debugCursorX = 0;
@@ -281,8 +285,18 @@ private:
         if(addr < 0x2000)
         {
             m_cartridge.setPpuFetchSource(m_isSpritePatternFetch);
-            if constexpr(writeFlag) m_cartridge.writeChr(addr,data);
-            else return m_cartridge.readChr(addr);
+            if constexpr(writeFlag) {
+                m_cartridge.writeChr(addr,data);
+            }
+            else {
+                uint8_t value = m_cartridge.readChr(addr);
+                if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+                    m_dataLatch = value;
+                    m_pendingDataLatchUpdate = false;
+                    m_pendingDataLatchUseBusAddress = false;
+                }
+                return value;
+            }
         }
 
         else if(addr < 0x3F00)
@@ -291,8 +305,18 @@ private:
 
             uint8_t addrIndex = (addr-0x2000) >> 10; //0-3 index without mirroring
 
-            if constexpr(writeFlag) writeNameTable(addrIndex,addr,data);
-            else return readNameTable(addrIndex,addr);
+            if constexpr(writeFlag) {
+                writeNameTable(addrIndex,addr,data);
+            }
+            else {
+                uint8_t value = readNameTable(addrIndex,addr);
+                if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+                    m_dataLatch = value;
+                    m_pendingDataLatchUpdate = false;
+                    m_pendingDataLatchUseBusAddress = false;
+                }
+                return value;
+            }
         }
 
         else // addr < 0x4000
@@ -304,8 +328,18 @@ private:
             else if(addr == 0x3F18) addr = 0x3F08;
             else if(addr == 0x3F1C) addr = 0x3F0C;
 
-            if constexpr(writeFlag) m_palette[addr - 0x3F00] = data;
-            else return m_palette[addr - 0x3F00];
+            if constexpr(writeFlag) {
+                m_palette[addr - 0x3F00] = data;
+            }
+            else {
+                uint8_t value = m_palette[addr - 0x3F00];
+                if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+                    m_dataLatch = value;
+                    m_pendingDataLatchUpdate = false;
+                    m_pendingDataLatchUseBusAddress = false;
+                }
+                return value;
+            }
         }
 
         if constexpr(!writeFlag)
@@ -409,9 +443,25 @@ public:
         m_spriteFetchCount = 0;
         memset(m_spriteFetchEntries, 0, sizeof(m_spriteFetchEntries));
         memset(m_spriteRenderEntries, 0, sizeof(m_spriteRenderEntries));
+        memset(m_secondaryOam, 0xFF, sizeof(m_secondaryOam));
+        memset(m_primaryOam, 0, sizeof(m_primaryOam));
+        memset(m_spritesIndexesInThisLine, 0, sizeof(m_spritesIndexesInThisLine));
+        memset(m_corruptOamRow, 0, sizeof(m_corruptOamRow));
 
         m_oamAddr = 0;
+        m_oamCopyBuffer = 0xFF;
+        m_oamCopyDone = false;
+        m_secondaryOamAddr = 0;
+        m_spriteInRange = false;
+        m_oamAddrN = 0;
+        m_oamAddrM = 0;
+        m_overflowBugCounter = 0;
+        m_sprite0Added = false;
         m_dataLatch = 0;
+        m_pendingDataLatchUpdate = false;
+        m_pendingDataLatchDelay = 0;
+        m_pendingDataLatchAddr = 0;
+        m_pendingDataLatchUseBusAddress = false;
         m_lastWrite = 0;
 
         m_currentPixelColorIndex = 0;
@@ -439,6 +489,9 @@ public:
         m_interruptFlag = false;
 
         m_tileAddr = 0;
+        m_paletteOffset = 0;
+        m_lowTileByte = 0;
+        m_highTileByte = 0;
         m_paletteOffset = 0;
         m_lowTileByte = 0;
         m_highTileByte = 0;
@@ -1186,6 +1239,13 @@ yyy NN YYYYY XXXXX
                     case 256: incrementVY(); break;
                     case 257: copyVX(); break;
                 }
+
+                if(m_cycle == 337) {
+                    fetchNameTableByte();
+                }
+                else if(m_cycle == 339) {
+                    fetchAttributeTableByte();
+                }
             }
 
             if(m_visibleLine && visibleCycle && (m_prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
@@ -1221,10 +1281,6 @@ yyy NN YYYYY XXXXX
                 {
                     if(m_oddFrameFlag && isRenderingEnabled()) m_cycle++;
                     m_oddFrameFlag = !m_oddFrameFlag;
-                }
-
-                if(m_cycle == 337 || m_cycle == 339) {
-                    fetchNameTableByte();  //unused NT fetch
                 }
 
             }
@@ -1327,7 +1383,7 @@ yyy NN YYYYY XXXXX
         switch(fetchCycle) {
 
             case 0: readPpuMemory(getNameTableAddr()); break;
-            case 2: readPpuMemory(getAttributeTableAddr()); break;
+            case 2: readPpuMemory(getNameTableAddr()); break;
             case 4:
                 if(!hasSpriteData || sprite->y == 0xFF) {
                     entry.lowByte = 0;
@@ -1567,17 +1623,47 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE uint8_t readOAMDATA()
     {
-        const int delay = 1; //read2004.nes
-
         uint8_t ret = m_primaryOam[m_oamAddr];
 
         if (m_renderLine && isRenderingEnabled()) {
-            if(m_cycle >= (257+delay) && m_cycle <= (320+delay)) {
-                uint8_t step = ((m_cycle - (257+delay)) % 8) > 3 ? 3 : ((m_cycle - (257+delay)) % 8);
-                uint8_t addr = (m_cycle - (257+delay)) / 8 * 4 + step;
-                ret = m_secondaryOam[addr];
-            } else {
-                ret = m_oamCopyBuffer;
+            int sampleCycle = m_cycle - 1;
+            if(sampleCycle < 0) {
+                sampleCycle += 341;
+            }
+
+            if(sampleCycle == 0) {
+                ret = m_secondaryOam[0];
+            }
+            else if(sampleCycle >= 1 && sampleCycle <= 64) {
+                ret = 0xFF;
+            }
+            else if(sampleCycle >= 65 && sampleCycle <= 256) {
+                if(!m_oamCopyDone) {
+                    ret = m_oamCopyBuffer;
+                }
+                else if(sampleCycle & 0x01) {
+                    ret = m_primaryOam[m_oamAddr];
+                }
+                else {
+                    ret = m_secondaryOam[m_secondaryOamAddr & 0x1F];
+                }
+            }
+            else if(sampleCycle >= 257 && sampleCycle <= 320) {
+                int spriteIndex = (sampleCycle - 257) / 8;
+                if(spriteIndex < m_spritesInThisLine && spriteIndex < 8) {
+                    int phase = (sampleCycle - 257) & 0x07;
+                    int step = phase > 3 ? 3 : phase;
+                    ret = m_secondaryOam[(spriteIndex << 2) + step];
+                }
+                else if(sampleCycle == 273) {
+                    ret = m_secondaryOam[m_secondaryOamAddr & 0x1F];
+                }
+                else {
+                    ret = 0xFF;
+                }
+            }
+            else {
+                ret = m_secondaryOam[0];
             }
         }
 
@@ -1681,16 +1767,31 @@ yyy NNYY YYYX XXXX
         
         if(isOnPaletteAddr()) {
             ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
-            m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
+            if(m_renderLine && isRenderingEnabled()) {
+                m_pendingDataLatchUpdate = true;
+                m_pendingDataLatchDelay = 0;
+                m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x2FFF);
+                m_pendingDataLatchUseBusAddress = false;
+            }
+            else {
+                m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
+            }
         }     
         else {
             ret = m_dataLatch;
-            m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
+            if(m_renderLine && isRenderingEnabled()) {
+                m_pendingDataLatchUpdate = true;
+                m_pendingDataLatchDelay = 0;
+                m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x3FFF);
+                m_pendingDataLatchUseBusAddress = false;
+            }
+            else {
+                m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
+            }
         }     
 
         m_needUpdateState = true;
         m_needIncVideoRam = true;        
-        
 
         return ret;
     }
@@ -1791,6 +1892,22 @@ yyy NNYY YYYX XXXX
         if(m_needIncVideoRam) {
             m_needIncVideoRam = false;
             incVideoRamAddr();
+        }
+
+        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay > 0) {
+            --m_pendingDataLatchDelay;
+            m_needUpdateState = true;
+        }
+
+        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+            if(!m_renderLine || !isRenderingEnabled()) {
+                m_dataLatch = readPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
+                m_pendingDataLatchUpdate = false;
+                m_pendingDataLatchUseBusAddress = false;
+            }
+            else {
+                m_needUpdateState = true;
+            }
         }
 
         if(m_updateA12Delay > 0) {
@@ -2052,6 +2169,10 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_reg_w);
 
         SERIALIZEDATA(s, m_dataLatch);
+        SERIALIZEDATA(s, m_pendingDataLatchUpdate);
+        SERIALIZEDATA(s, m_pendingDataLatchDelay);
+        SERIALIZEDATA(s, m_pendingDataLatchAddr);
+        SERIALIZEDATA(s, m_pendingDataLatchUseBusAddress);
         SERIALIZEDATA(s, m_lastWrite);        
 
         SERIALIZEDATA(s, m_tileAddr);
