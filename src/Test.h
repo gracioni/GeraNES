@@ -506,6 +506,28 @@ public:
             }
 
             std::cout << readOutputText(emu);
+            if(status != 0 && romPath.find("07-$2007-Stress-Test.nes") != std::string::npos) {
+                std::ostringstream dump;
+                dump << "\n[$500]\n";
+                for(int i = 0; i < 0x100; ++i) {
+                    if(i != 0 && (i % 16) == 0) dump << '\n';
+                    if(i != 0 && (i % 16) != 0) dump << ' ';
+                    dump << std::hex << std::uppercase;
+                    const uint8_t value = emu.read(0x500 + i);
+                    if(value < 0x10) dump << '0';
+                    dump << static_cast<int>(value);
+                }
+                dump << "\n[$600]\n";
+                for(int i = 0; i < 0x55; ++i) {
+                    if(i != 0 && (i % 16) == 0) dump << '\n';
+                    if(i != 0 && (i % 16) != 0) dump << ' ';
+                    dump << std::hex << std::uppercase;
+                    const uint8_t value = emu.read(0x600 + i);
+                    if(value < 0x10) dump << '0';
+                    dump << static_cast<int>(value);
+                }
+                std::cout << dump.str() << '\n';
+            }
             return status == 0 ? RESULT_PASSED : static_cast<int>(status);
         }
 

@@ -6,6 +6,8 @@
 #include "Cartridge.h"
 
 #include "Serialization.h"
+#include <cstdlib>
+#include <fstream>
 
 const int VBLANK_CYCLE = 1;
 
@@ -176,6 +178,11 @@ private:
     uint8_t m_pendingDataLatchDelay;
     uint16_t m_pendingDataLatchAddr;
     bool m_pendingDataLatchUseBusAddress;
+    bool m_deferredDataLatchArmPending;
+    bool m_deferredDataLatchStart;
+    uint8_t m_deferredDataLatchStartDelay;
+    bool m_deferredVideoRamIncrementArmPending;
+    uint8_t m_deferredVideoRamIncrementDelay;
     uint8_t m_lastWrite;
 
     int m_debugCursorX = 0;
@@ -223,11 +230,13 @@ private:
     bool m_skipBgReloadOnce;
     bool m_forceSpriteXZeroThisLine;
     bool m_forceSpriteXZeroNextLine;
+    uint16_t m_firstSpriteFetchV;
 
     int m_update_reg_v_delay;
     uint16_t m_update_reg_v_value;
 
     uint16_t m_busAddress;
+    uint8_t m_busAddressLowLatch;
     int m_updateA12Delay;
     bool m_isSpritePatternFetch;
     bool m_currentReadAffectsBus;
@@ -268,7 +277,7 @@ private:
         }
     }
 
-    template<bool writeFlag, bool affectsTheBus>
+    template<bool writeFlag, bool affectsTheBus, bool updateBusAddress = true>
     GERANES_HOT auto readWritePpuMemory(uint16_t addr, uint8_t data = 0) -> std::conditional_t<writeFlag, void, uint8_t>
     {
         m_currentReadAffectsBus = affectsTheBus;
@@ -277,7 +286,7 @@ private:
             m_cartridge.onPpuRead(addr & 0x3FFF);
         }
 
-        if constexpr (affectsTheBus)
+        if constexpr (affectsTheBus && updateBusAddress)
             setBusAddress(addr);
 
         addr &= 0x3FFF; //mirror 0x0000-0x3FFF when addr >= 0x4000        
@@ -291,6 +300,7 @@ private:
             else {
                 uint8_t value = m_cartridge.readChr(addr);
                 if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+                    tracePpudata("LATCH sc=", m_scanline, " cy=", m_cycle, " src=CHR addr=0x", std::hex, addr, " val=0x", static_cast<int>(value), " v=0x", m_reg_v, std::dec);
                     m_dataLatch = value;
                     m_pendingDataLatchUpdate = false;
                     m_pendingDataLatchUseBusAddress = false;
@@ -311,6 +321,7 @@ private:
             else {
                 uint8_t value = readNameTable(addrIndex,addr);
                 if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+                    tracePpudata("LATCH sc=", m_scanline, " cy=", m_cycle, " src=NT addr=0x", std::hex, addr, " val=0x", static_cast<int>(value), " v=0x", m_reg_v, std::dec);
                     m_dataLatch = value;
                     m_pendingDataLatchUpdate = false;
                     m_pendingDataLatchUseBusAddress = false;
@@ -334,6 +345,7 @@ private:
             else {
                 uint8_t value = m_palette[addr - 0x3F00];
                 if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+                    tracePpudata("LATCH sc=", m_scanline, " cy=", m_cycle, " src=PAL addr=0x", std::hex, addr, " val=0x", static_cast<int>(value), " v=0x", m_reg_v, std::dec);
                     m_dataLatch = value;
                     m_pendingDataLatchUpdate = false;
                     m_pendingDataLatchUseBusAddress = false;
@@ -351,6 +363,25 @@ private:
         return readWritePpuMemory<false, true>(addr);
     }
 
+    GERANES_INLINE uint8_t completePpuRead(uint16_t /*addr*/)
+    {
+        const uint16_t latchedAddr = static_cast<uint16_t>((m_busAddress & 0x3F00) | m_busAddressLowLatch);
+        return readWritePpuMemory<false, true, false>(latchedAddr);
+    }
+
+    GERANES_INLINE void setupPpuReadAddress(uint16_t addr)
+    {
+        m_busAddressLowLatch = static_cast<uint8_t>(addr & 0x00FF);
+        setBusAddress(addr);
+        if(m_deferredDataLatchStart) {
+            m_deferredDataLatchStart = false;
+            m_pendingDataLatchUpdate = true;
+            m_pendingDataLatchDelay = 1;
+            m_pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+            tracePpudata("ARM sc=", m_scanline, " cy=", m_cycle, " addr=0x", std::hex, (addr & 0x3FFF), " v=0x", m_reg_v, std::dec);
+        }
+    }
+
     GERANES_INLINE void writePpuMemory(int addr, uint8_t data)
     {
         readWritePpuMemory<true, true>(addr,data);
@@ -364,6 +395,29 @@ private:
     GERANES_INLINE void fakeWritePpuMemory(int addr, uint8_t data)
     {
         readWritePpuMemory<true, false>(addr,data);
+    }
+
+    GERANES_INLINE bool ppudataTraceEnabled()
+    {
+        static const bool enabled = std::getenv("GERANES_PPU2007_TRACE") != nullptr;
+        return enabled;
+    }
+
+    GERANES_INLINE std::ofstream& ppudataTraceFile()
+    {
+        static std::ofstream file("ppu2007_trace.log", std::ios::trunc);
+        return file;
+    }
+
+    template<typename... Args>
+    GERANES_INLINE void tracePpudata(Args&&... args)
+    {
+        if(!ppudataTraceEnabled()) {
+            return;
+        }
+
+        auto& file = ppudataTraceFile();
+        (file << ... << args) << '\n';
     }
 
     //index 0-3
@@ -432,6 +486,7 @@ public:
         m_skipBgReloadOnce = false;
         m_forceSpriteXZeroThisLine = false;
         m_forceSpriteXZeroNextLine = false;
+        m_firstSpriteFetchV = 0;
 
         //PPUSTATUS
         m_VBlankHasStarted = false;
@@ -462,6 +517,11 @@ public:
         m_pendingDataLatchDelay = 0;
         m_pendingDataLatchAddr = 0;
         m_pendingDataLatchUseBusAddress = false;
+        m_deferredDataLatchArmPending = false;
+        m_deferredDataLatchStart = false;
+        m_deferredDataLatchStartDelay = 0;
+        m_deferredVideoRamIncrementArmPending = false;
+        m_deferredVideoRamIncrementDelay = 0;
         m_lastWrite = 0;
 
         m_currentPixelColorIndex = 0;
@@ -526,6 +586,7 @@ public:
         m_update_reg_v_value = 0;
 
         m_busAddress = 0;
+        m_busAddressLowLatch = 0;
         m_updateA12Delay = 0;
         m_isSpritePatternFetch = false;
         m_currentReadAffectsBus = true;
@@ -1227,24 +1288,39 @@ yyy NN YYYYY XXXXX
                     shiftTileData();
 
                     switch(m_cycle%8) {
-                        case 1: fetchNameTableByte(); break;                        
-                        case 3: fetchAttributeTableByte(); break;
-                        case 5: fetchLowTileByte(); break;
-                        case 7: fetchHighTileByte(); break;
-                        case 0: storeTileData(); incrementVX(); break; 
+                        case 1: setupNameTableByte(); break;
+                        case 2: fetchNameTableByte(); break;
+                        case 3: setupAttributeTableByte(); break;
+                        case 4: fetchAttributeTableByte(); break;
+                        case 5: setupLowTileByte(); break;
+                        case 6: fetchLowTileByte(); break;
+                        case 7: setupHighTileByte(); break;
+                        case 0: fetchHighTileByte(); storeTileData(); incrementVX(); break; 
                     }
                 }
                 
                 switch(m_cycle) {
                     case 256: incrementVY(); break;
-                    case 257: copyVX(); break;
+                    case 257:
+                        m_firstSpriteFetchV = m_reg_v;
+                        copyVX();
+                        break;
                 }
 
                 if(m_cycle == 337) {
+                    setupNameTableByte();
+                }
+                else if(m_cycle == 338) {
                     fetchNameTableByte();
                 }
                 else if(m_cycle == 339) {
-                    fetchAttributeTableByte();
+                    setupNameTableByte();
+                }
+                else if(m_cycle == 340) {
+                    fetchNameTableByte();
+                }
+                else if(m_cycle == 0) {
+                    setupLowTileByte();
                 }
             }
 
@@ -1309,18 +1385,14 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE uint16_t getSpritePatternAddress(const Sprite& sprite, bool highPlane)
     {
         const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
-        int spriteScanline = m_preLine ? 6 : (m_scanline + 1);
-        if(spriteScanline >= FRAME_NUMBER_OF_LINES) {
-            spriteScanline = 0;
-        }
-
-        int row = spriteScanline - (static_cast<int>(sprite.y) + 1);
-        if(row < 0 || row >= spriteHeight) {
-            return 0;
-        }
+        const uint8_t spriteScanline = static_cast<uint8_t>(m_preLine ? 6 : (m_scanline + 1));
+        uint8_t row = static_cast<uint8_t>(spriteScanline - static_cast<uint8_t>(sprite.y + 1));
 
         if(sprite.attrib & 0x80) {
-            row = (spriteHeight - 1) - row;
+            row = static_cast<uint8_t>((spriteHeight - 1) - (row & (spriteHeight - 1)));
+        }
+        else {
+            row = static_cast<uint8_t>(row & (spriteHeight - 1));
         }
 
         uint16_t base = 0;
@@ -1330,7 +1402,7 @@ yyy NN YYYYY XXXXX
             tileIndex = static_cast<uint16_t>(sprite.indexInPatternTable & 0xFE);
             if(row >= 8) {
                 tileIndex++;
-                row -= 8;
+                row = static_cast<uint8_t>(row - 8);
             }
         }
         else {
@@ -1382,15 +1454,44 @@ yyy NN YYYYY XXXXX
 
         switch(fetchCycle) {
 
-            case 0: readPpuMemory(getNameTableAddr()); break;
-            case 2: readPpuMemory(getNameTableAddr()); break;
-            case 4:
-                if(!hasSpriteData || sprite->y == 0xFF) {
-                    entry.lowByte = 0;
-                    readPpuMemory(0);
+            case 0:
+                if(spriteIndex == 0) {
+                    setupPpuReadAddress(static_cast<uint16_t>(0x2000 | (m_firstSpriteFetchV & 0x0F00) | ((m_reg_v + 2) & 0x00FF)));
                 }
                 else {
-                    entry.lowByte = readPpuMemory(getSpritePatternAddress(*sprite, false));
+                    setupPpuReadAddress(getNameTableAddr());
+                }
+                break;
+            case 1:
+                if(spriteIndex == 0) {
+                    const uint8_t value = completePpuRead(static_cast<uint16_t>(0x2000 | (m_firstSpriteFetchV & 0x0F00) | ((m_reg_v + 2) & 0x00FF)));
+                    tracePpudata("SPR sc=", m_scanline, " cy=", m_cycle, " idx=", spriteIndex, " fc=1 val=0x", std::hex, static_cast<int>(value), " bus=0x", m_busAddress, " latch=0x", static_cast<int>(m_busAddressLowLatch), " v=0x", m_reg_v, std::dec);
+                }
+                else {
+                    const uint8_t value = completePpuRead(getNameTableAddr());
+                    if(spriteIndex < 2) {
+                        tracePpudata("SPR sc=", m_scanline, " cy=", m_cycle, " idx=", spriteIndex, " fc=1 val=0x", std::hex, static_cast<int>(value), " bus=0x", m_busAddress, " latch=0x", static_cast<int>(m_busAddressLowLatch), " v=0x", m_reg_v, std::dec);
+                    }
+                }
+                break;
+            case 2:
+                setupPpuReadAddress(getNameTableAddr());
+                break;
+            case 3:
+                {
+                    const uint8_t value = completePpuRead(getNameTableAddr());
+                    if(spriteIndex < 2) {
+                        tracePpudata("SPR sc=", m_scanline, " cy=", m_cycle, " idx=", spriteIndex, " fc=3 val=0x", std::hex, static_cast<int>(value), " bus=0x", m_busAddress, " latch=0x", static_cast<int>(m_busAddressLowLatch), " v=0x", m_reg_v, std::dec);
+                    }
+                }
+                break;
+            case 4:
+                setupPpuReadAddress(getSpritePatternAddress(*sprite, false));
+                break;
+            case 5:
+                {
+                    const uint8_t value = completePpuRead(getSpritePatternAddress(*sprite, false));
+                    entry.lowByte = (hasSpriteData && sprite->y != 0xFF) ? value : 0;
                 }
 
                 // Preserve old approximate A12 behavior used by MMC3 IRQ timing.
@@ -1408,13 +1509,15 @@ yyy NN YYYYY XXXXX
                 }
                 break;
             case 6:
-                if(!hasSpriteData || sprite->y == 0xFF) {
-                    entry.highByte = 0;
-                    readPpuMemory(0);
-                }
-                else {
-                    entry.highByte = readPpuMemory(getSpritePatternAddress(*sprite, true));
+                setupPpuReadAddress(getSpritePatternAddress(*sprite, true));
+                break;
+            case 7:
+                {
+                    const uint8_t value = completePpuRead(getSpritePatternAddress(*sprite, true));
+                    entry.highByte = (hasSpriteData && sprite->y != 0xFF) ? value : 0;
+                    if(hasSpriteData && sprite->y != 0xFF) {
                     m_spriteFetchCount = static_cast<uint8_t>(spriteIndex + 1);
+                    }
                 }
                 break;
         }
@@ -1764,12 +1867,13 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE uint8_t readPPUDATA()
     {
         uint8_t ret;
+        const bool activelyRendering = m_renderLine && isRenderingEnabled();
         
         if(isOnPaletteAddr()) {
             ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
-            if(m_renderLine && isRenderingEnabled()) {
-                m_pendingDataLatchUpdate = true;
-                m_pendingDataLatchDelay = 0;
+            if(activelyRendering) {
+                m_deferredDataLatchArmPending = true;
+                m_deferredVideoRamIncrementArmPending = true;
                 m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x2FFF);
                 m_pendingDataLatchUseBusAddress = false;
             }
@@ -1779,9 +1883,9 @@ yyy NNYY YYYX XXXX
         }     
         else {
             ret = m_dataLatch;
-            if(m_renderLine && isRenderingEnabled()) {
-                m_pendingDataLatchUpdate = true;
-                m_pendingDataLatchDelay = 0;
+            if(activelyRendering) {
+                m_deferredDataLatchArmPending = true;
+                m_deferredVideoRamIncrementArmPending = true;
                 m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x3FFF);
                 m_pendingDataLatchUseBusAddress = false;
             }
@@ -1791,12 +1895,31 @@ yyy NNYY YYYX XXXX
         }     
 
         m_needUpdateState = true;
-        m_needIncVideoRam = true;        
+        if(!activelyRendering) {
+            m_needIncVideoRam = true;
+        }
 
         return ret;
     }
 
+    GERANES_INLINE void onCpuAccessPPUDATAEnd()
+    {
+        if(m_deferredDataLatchArmPending) {
+            m_deferredDataLatchArmPending = false;
+            m_deferredDataLatchStartDelay = 1;
+            tracePpudata("CPUEND sc=", m_scanline, " cy=", m_cycle, " v=0x", std::hex, m_reg_v, std::dec);
+        }
+
+        if(m_deferredVideoRamIncrementArmPending) {
+            m_deferredVideoRamIncrementArmPending = false;
+            m_deferredVideoRamIncrementDelay = 1;
+        }
+
+        m_needUpdateState = true;
+    }
+
     void incVideoRamAddr() {
+        const uint16_t oldV = m_reg_v;
 
         if( !m_renderLine || !isRenderingEnabled()) {
 
@@ -1813,6 +1936,8 @@ yyy NNYY YYYX XXXX
             incrementVX();
             incrementVY();
         }
+
+        tracePpudata("INCV sc=", m_scanline, " cy=", m_cycle, " old=0x", std::hex, oldV, " new=0x", m_reg_v, std::dec);
     }
 
     GERANES_HOT void updateState() {
@@ -1841,7 +1966,7 @@ yyy NNYY YYYX XXXX
                     setOamCorruptionFlags();
 
                     //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
-                    //setBusAddress(m_reg_v & 0x3FFF); //break hard drivin
+                    setBusAddress(m_reg_v & 0x3FFF);
                     
                     if(m_cycle >= 65 && m_cycle <= 256) {
                         //Disabling rendering during OAM evaluation will trigger a glitch causing the current address to be incremented by 1
@@ -1886,10 +2011,26 @@ yyy NNYY YYYX XXXX
             }
         }
 
-        //Delay vram address increment by 1 ppu cycle after a read/write to 2007
-		//This allows the full_palette tests to properly display single-pixel glitches 
-		//that display the "wrong" color on the screen until the increment occurs (matches hardware)
-        if(m_needIncVideoRam) {
+        const bool applyPendingVideoRamIncrement = m_needIncVideoRam;
+        if(m_deferredVideoRamIncrementDelay > 0) {
+            --m_deferredVideoRamIncrementDelay;
+            if(m_deferredVideoRamIncrementDelay == 0) {
+                m_needIncVideoRam = true;
+                m_needUpdateState = true;
+            }
+        }
+
+        if(m_deferredDataLatchStartDelay > 0) {
+            --m_deferredDataLatchStartDelay;
+            if(m_deferredDataLatchStartDelay == 0) {
+                m_deferredDataLatchStart = true;
+            }
+            else {
+                m_needUpdateState = true;
+            }
+        }
+
+        if(applyPendingVideoRamIncrement) {
             m_needIncVideoRam = false;
             incVideoRamAddr();
         }
@@ -1901,7 +2042,7 @@ yyy NNYY YYYX XXXX
 
         if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
             if(!m_renderLine || !isRenderingEnabled()) {
-                m_dataLatch = readPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
+                m_dataLatch = fakeReadPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
                 m_pendingDataLatchUpdate = false;
                 m_pendingDataLatchUseBusAddress = false;
             }
@@ -1933,7 +2074,12 @@ yyy NNYY YYYX XXXX
         }
 
         m_needUpdateState = true;
-        m_needIncVideoRam = true;
+        if(m_renderLine && isRenderingEnabled()) {
+            m_deferredVideoRamIncrementArmPending = true;
+        }
+        else {
+            m_needIncVideoRam = true;
+        }
     }
 
     GERANES_INLINE void fillFramebuffer(uint32_t color)
@@ -2030,12 +2176,18 @@ yyy NNYY YYYX XXXX
         return address;
     }
 
+    GERANES_INLINE void setupNameTableByte() {
+        m_isSpritePatternFetch = false;
+        m_cartridge.setPpuFetchSource(false);
+        setupPpuReadAddress(getNameTableAddr());
+    }
+
     GERANES_INLINE void fetchNameTableByte() {
         // Background tile fetch source for mapper CHR/NT substitution.
         m_isSpritePatternFetch = false;
         m_cartridge.setPpuFetchSource(false);
         uint16_t address = getNameTableAddr();
-        uint8_t tileIndex = readPpuMemory(address);
+        uint8_t tileIndex = completePpuRead(address);
 
         int fineY = (m_reg_v >> 12) & 7;
         int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
@@ -2048,6 +2200,12 @@ yyy NNYY YYYX XXXX
         return address;
     }
 
+    GERANES_INLINE void setupAttributeTableByte() {
+        m_isSpritePatternFetch = false;
+        m_cartridge.setPpuFetchSource(false);
+        setupPpuReadAddress(getAttributeTableAddr());
+    }
+
     GERANES_INLINE void fetchAttributeTableByte() {
         // Background tile fetch source for mapper CHR/NT substitution.
         m_isSpritePatternFetch = false;
@@ -2055,17 +2213,27 @@ yyy NNYY YYYX XXXX
 
         int address = getAttributeTableAddr();
         int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
-        m_paletteOffset = ((readPpuMemory(address) >> shift) & 3) << 2;
+        m_paletteOffset = ((completePpuRead(address) >> shift) & 3) << 2;
     }
 
     GERANES_INLINE void fetchLowTileByte() {
         m_isSpritePatternFetch = false;
-        m_lowTileByte = readPpuMemory(m_tileAddr);        
+        m_lowTileByte = completePpuRead(m_tileAddr);        
+    }
+
+    GERANES_INLINE void setupLowTileByte() {
+        m_isSpritePatternFetch = false;
+        setupPpuReadAddress(m_tileAddr);
     }
 
     GERANES_INLINE void fetchHighTileByte() {
         m_isSpritePatternFetch = false;
-        m_highTileByte = readPpuMemory(m_tileAddr + 8);        
+        m_highTileByte = completePpuRead(m_tileAddr + 8);        
+    }
+
+    GERANES_INLINE void setupHighTileByte() {
+        m_isSpritePatternFetch = false;
+        setupPpuReadAddress(static_cast<uint16_t>(m_tileAddr + 8));
     }
 
     GERANES_INLINE static uint8_t reverseByte(uint8_t value)
@@ -2173,7 +2341,12 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_pendingDataLatchDelay);
         SERIALIZEDATA(s, m_pendingDataLatchAddr);
         SERIALIZEDATA(s, m_pendingDataLatchUseBusAddress);
-        SERIALIZEDATA(s, m_lastWrite);        
+        SERIALIZEDATA(s, m_deferredDataLatchArmPending);
+        SERIALIZEDATA(s, m_deferredDataLatchStart);
+        SERIALIZEDATA(s, m_deferredDataLatchStartDelay);
+        SERIALIZEDATA(s, m_deferredVideoRamIncrementArmPending);
+        SERIALIZEDATA(s, m_deferredVideoRamIncrementDelay);
+        SERIALIZEDATA(s, m_lastWrite);
 
         SERIALIZEDATA(s, m_tileAddr);
         SERIALIZEDATA(s, m_paletteOffset);
@@ -2209,11 +2382,13 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_staleBgShiftActive);
         SERIALIZEDATA(s, m_forceSpriteXZeroThisLine);
         SERIALIZEDATA(s, m_forceSpriteXZeroNextLine);
+        SERIALIZEDATA(s, m_firstSpriteFetchV);
 
         SERIALIZEDATA(s, m_update_reg_v_delay);
         SERIALIZEDATA(s, m_update_reg_v_value);
 
         SERIALIZEDATA(s, m_busAddress);
+        SERIALIZEDATA(s, m_busAddressLowLatch);
         SERIALIZEDATA(s, m_updateA12Delay);
         SERIALIZEDATA(s, m_isSpritePatternFetch);
         SERIALIZEDATA(s, m_currentReadAffectsBus);

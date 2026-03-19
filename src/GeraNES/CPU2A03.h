@@ -121,6 +121,7 @@ private:
     int m_currentInstructionCycle;
 
     uint8_t m_poolIntsAtCycle;
+    bool m_ppuDataAccessEndPending;
 
     //Do not serialize variables below
 
@@ -354,6 +355,7 @@ public:
         m_irqStep = false;
 
         m_poolIntsAtCycle = DO_NOT_POOL_INTS;
+        m_ppuDataAccessEndPending = false;
 
         m_runCount = 0;
         m_writeCycle = false;
@@ -1377,6 +1379,7 @@ public:
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
+        SERIALIZEDATA(s, m_ppuDataAccessEndPending);
         m_dma.serialization(s);
     }
 
@@ -1397,6 +1400,7 @@ GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
     beginCycle();
 
     uint8_t ret =  m_bus.read(addr);
+    m_ppuDataAccessEndPending = (addr & 0x2007) == 0x2007;
 
     endCycle<false>();
 
@@ -1417,7 +1421,6 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
     assert(m_writeCycle);
 
     m_bus.write(addr, value);
-
     endCycle<false>();
 
     m_writeCycle = false;
@@ -1444,11 +1447,16 @@ inline void CPU2A03::endCycle() {
     m_console.ppu().ppuCycle();      
 
     m_console.ppu().ppuCycle();
-    
+
     phi2<IsDmaCycle>(
         m_console.ppu().getInterruptFlag(),
         m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
     );    
+
+    if(m_ppuDataAccessEndPending) {
+        m_ppuDataAccessEndPending = false;
+        m_console.ppu().onCpuAccessPPUDATAEnd();
+    }
 
     if(!m_console.ppu().inOverclockLines()) {       
         m_console.cartridge().cycle();
