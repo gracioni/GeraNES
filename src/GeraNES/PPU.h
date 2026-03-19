@@ -1736,7 +1736,7 @@ yyy NNYY YYYX XXXX
 
             if(m_renderLine) {
 
-                 if(wasRenderingEnabled && !renderingEnabledNow) {
+                if(wasRenderingEnabled && !renderingEnabledNow) {
                     setOamCorruptionFlags();
 
                     //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
@@ -1969,6 +1969,8 @@ yyy NNYY YYYX XXXX
         m_bgPatternHighShift = static_cast<uint16_t>((m_bgPatternHighShift & 0xFF00) | m_highTileByte);
         m_bgAttribLowLatch = (m_paletteOffset & 0x04) != 0;
         m_bgAttribHighLatch = (m_paletteOffset & 0x08) != 0;
+        m_bgAttribLowShift = static_cast<uint16_t>((m_bgAttribLowShift & 0xFF00) | (m_bgAttribLowLatch ? 0x00FF : 0x0000));
+        m_bgAttribHighShift = static_cast<uint16_t>((m_bgAttribHighShift & 0xFF00) | (m_bgAttribHighLatch ? 0x00FF : 0x0000));
         m_staleBgShiftActive = false;
     }
 
@@ -1976,9 +1978,8 @@ yyy NNYY YYYX XXXX
         m_bgPatternLowShift <<= 1;
         m_bgPatternHighShift <<= 1;
         m_bgPatternHighShift |= 0x01;
-
-        m_bgAttribLowShift = static_cast<uint16_t>((m_bgAttribLowShift << 1) | (m_bgAttribLowLatch ? 0x01 : 0x00));
-        m_bgAttribHighShift = static_cast<uint16_t>((m_bgAttribHighShift << 1) | (m_bgAttribHighLatch ? 0x01 : 0x00));
+        m_bgAttribLowShift <<= 1;
+        m_bgAttribHighShift <<= 1;
     }
 
     GERANES_INLINE uint32_t fetchTileData() {
