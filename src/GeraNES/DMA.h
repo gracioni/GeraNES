@@ -108,15 +108,13 @@ private:
     }
 
     template<typename CpuType>
-    void startDmaCycle(CpuType& cpu, bool& suppressInstructionCycleAccounting)
+    void startDmaCycle(CpuType& cpu)
     {
         if(m_dmaNeedHalt) {
             m_dmaNeedHalt = false;
         } else if(m_dmaNeedDummyRead) {
             m_dmaNeedDummyRead = false;
         }
-
-        suppressInstructionCycleAccounting = true;
         cpu.beginCycle();
     }
 
@@ -201,8 +199,7 @@ public:
 
     void processPending(
         uint16_t readAddress,
-        bool writeCycle,
-        bool& suppressInstructionCycleAccounting
+        bool writeCycle
     );
 
     void serialization(SerializationBase& s)
