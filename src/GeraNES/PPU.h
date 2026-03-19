@@ -6,8 +6,6 @@
 #include "Cartridge.h"
 
 #include "Serialization.h"
-#include <cstdlib>
-#include <fstream>
 
 const int VBLANK_CYCLE = 1;
 
@@ -300,7 +298,6 @@ private:
             else {
                 uint8_t value = m_cartridge.readChr(addr);
                 if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-                    tracePpudata("LATCH sc=", m_scanline, " cy=", m_cycle, " src=CHR addr=0x", std::hex, addr, " val=0x", static_cast<int>(value), " v=0x", m_reg_v, std::dec);
                     m_dataLatch = value;
                     m_pendingDataLatchUpdate = false;
                     m_pendingDataLatchUseBusAddress = false;
@@ -321,7 +318,6 @@ private:
             else {
                 uint8_t value = readNameTable(addrIndex,addr);
                 if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-                    tracePpudata("LATCH sc=", m_scanline, " cy=", m_cycle, " src=NT addr=0x", std::hex, addr, " val=0x", static_cast<int>(value), " v=0x", m_reg_v, std::dec);
                     m_dataLatch = value;
                     m_pendingDataLatchUpdate = false;
                     m_pendingDataLatchUseBusAddress = false;
@@ -345,7 +341,6 @@ private:
             else {
                 uint8_t value = m_palette[addr - 0x3F00];
                 if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-                    tracePpudata("LATCH sc=", m_scanline, " cy=", m_cycle, " src=PAL addr=0x", std::hex, addr, " val=0x", static_cast<int>(value), " v=0x", m_reg_v, std::dec);
                     m_dataLatch = value;
                     m_pendingDataLatchUpdate = false;
                     m_pendingDataLatchUseBusAddress = false;
@@ -378,7 +373,6 @@ private:
             m_pendingDataLatchUpdate = true;
             m_pendingDataLatchDelay = 1;
             m_pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
-            tracePpudata("ARM sc=", m_scanline, " cy=", m_cycle, " addr=0x", std::hex, (addr & 0x3FFF), " v=0x", m_reg_v, std::dec);
         }
     }
 
@@ -395,29 +389,6 @@ private:
     GERANES_INLINE void fakeWritePpuMemory(int addr, uint8_t data)
     {
         readWritePpuMemory<true, false>(addr,data);
-    }
-
-    GERANES_INLINE bool ppudataTraceEnabled()
-    {
-        static const bool enabled = std::getenv("GERANES_PPU2007_TRACE") != nullptr;
-        return enabled;
-    }
-
-    GERANES_INLINE std::ofstream& ppudataTraceFile()
-    {
-        static std::ofstream file("ppu2007_trace.log", std::ios::trunc);
-        return file;
-    }
-
-    template<typename... Args>
-    GERANES_INLINE void tracePpudata(Args&&... args)
-    {
-        if(!ppudataTraceEnabled()) {
-            return;
-        }
-
-        auto& file = ppudataTraceFile();
-        (file << ... << args) << '\n';
     }
 
     //index 0-3
@@ -1464,26 +1435,17 @@ yyy NN YYYYY XXXXX
                 break;
             case 1:
                 if(spriteIndex == 0) {
-                    const uint8_t value = completePpuRead(static_cast<uint16_t>(0x2000 | (m_firstSpriteFetchV & 0x0F00) | ((m_reg_v + 2) & 0x00FF)));
-                    tracePpudata("SPR sc=", m_scanline, " cy=", m_cycle, " idx=", spriteIndex, " fc=1 val=0x", std::hex, static_cast<int>(value), " bus=0x", m_busAddress, " latch=0x", static_cast<int>(m_busAddressLowLatch), " v=0x", m_reg_v, std::dec);
+                    completePpuRead(static_cast<uint16_t>(0x2000 | (m_firstSpriteFetchV & 0x0F00) | ((m_reg_v + 2) & 0x00FF)));
                 }
                 else {
-                    const uint8_t value = completePpuRead(getNameTableAddr());
-                    if(spriteIndex < 2) {
-                        tracePpudata("SPR sc=", m_scanline, " cy=", m_cycle, " idx=", spriteIndex, " fc=1 val=0x", std::hex, static_cast<int>(value), " bus=0x", m_busAddress, " latch=0x", static_cast<int>(m_busAddressLowLatch), " v=0x", m_reg_v, std::dec);
-                    }
+                    completePpuRead(getNameTableAddr());
                 }
                 break;
             case 2:
                 setupPpuReadAddress(getNameTableAddr());
                 break;
             case 3:
-                {
-                    const uint8_t value = completePpuRead(getNameTableAddr());
-                    if(spriteIndex < 2) {
-                        tracePpudata("SPR sc=", m_scanline, " cy=", m_cycle, " idx=", spriteIndex, " fc=3 val=0x", std::hex, static_cast<int>(value), " bus=0x", m_busAddress, " latch=0x", static_cast<int>(m_busAddressLowLatch), " v=0x", m_reg_v, std::dec);
-                    }
-                }
+                completePpuRead(getNameTableAddr());
                 break;
             case 4:
                 {
@@ -1896,7 +1858,6 @@ yyy NNYY YYYX XXXX
         if(m_deferredDataLatchArmPending) {
             m_deferredDataLatchArmPending = false;
             m_deferredDataLatchStartDelay = 1;
-            tracePpudata("CPUEND sc=", m_scanline, " cy=", m_cycle, " v=0x", std::hex, m_reg_v, std::dec);
         }
 
         if(m_deferredVideoRamIncrementArmPending) {
@@ -1926,7 +1887,6 @@ yyy NNYY YYYX XXXX
             incrementVY();
         }
 
-        tracePpudata("INCV sc=", m_scanline, " cy=", m_cycle, " old=0x", std::hex, oldV, " new=0x", m_reg_v, std::dec);
     }
 
     GERANES_HOT void updateState() {
