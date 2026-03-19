@@ -225,7 +225,6 @@ private:
     bool m_prevCycleRenderingEnabled;
     bool m_spriteRenderClockingActiveThisLine;
     bool m_staleBgShiftActive;
-    bool m_skipBgReloadOnce;
     bool m_forceSpriteXZeroThisLine;
     bool m_forceSpriteXZeroNextLine;
     uint16_t m_firstSpriteFetchV;
@@ -454,7 +453,6 @@ public:
         m_prevCycleRenderingEnabled = m_renderingEnabled;
         m_spriteRenderClockingActiveThisLine = m_prevCycleRenderingEnabled;
         m_staleBgShiftActive = false;
-        m_skipBgReloadOnce = false;
         m_forceSpriteXZeroThisLine = false;
         m_forceSpriteXZeroNextLine = false;
         m_firstSpriteFetchV = 0;
@@ -1253,7 +1251,6 @@ yyy NN YYYYY XXXXX
             }            
             
             if(m_prevCycleRenderingEnabled) {
-         
                 if(bgFetchCycles) {
 
                     shiftTileData();
@@ -1902,7 +1899,6 @@ yyy NNYY YYYX XXXX
 
             if(!wasRenderingEnabled && renderingEnabledNow && m_renderLine) {
                 m_staleBgShiftActive = true;
-                m_skipBgReloadOnce = true;
             }
 
             if(m_scanline < 240 && renderingEnabledNow) {
@@ -2194,11 +2190,6 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void storeTileData() {
-        if(m_skipBgReloadOnce) {
-            m_skipBgReloadOnce = false;
-            return;
-        }
-
         m_bgPatternLowShift = static_cast<uint16_t>((m_bgPatternLowShift & 0xFF00) | m_lowTileByte);
         m_bgPatternHighShift = static_cast<uint16_t>((m_bgPatternHighShift & 0xFF00) | m_highTileByte);
         m_bgAttribLowLatch = (m_paletteOffset & 0x04) != 0;
