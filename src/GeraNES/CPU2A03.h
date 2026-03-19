@@ -120,8 +120,6 @@ private:
 
     int m_haltCycles;
 
-    int m_extraCycles;
-
     int m_currentInstructionCycle;
 
     uint8_t m_poolIntsAtCycle;
@@ -361,7 +359,6 @@ public:
         m_poolIntsAtCycle = DO_NOT_POOL_INTS;
 
         m_haltCycles = 0;
-        m_extraCycles = 0;
 
         m_runCount = 0;
         m_writeCycle = false;
@@ -1164,7 +1161,6 @@ public:
         m_poolIntsAtCycle = DO_NOT_POOL_INTS;
 
         m_haltCycles = 0;
-        m_extraCycles = 0;
 
         m_runCount = 0;
         m_writeCycle = false;
@@ -1296,11 +1292,6 @@ public:
         m_haltCycles += cycles;
     }
 
-    GERANES_INLINE bool isOpcodeWriteCycle() {
-        //return ((OPCODE_WRITE_CYCLES_TABLE[m_opcode] >> m_currentInstructionCycle) & 0x01) != 0;
-        return m_writeCycle;
-    }
-
     GERANES_INLINE bool isOddCycle() const {
         return (m_cyclesCounter & 0x01) != 0;
     }
@@ -1404,7 +1395,6 @@ public:
         SERIALIZEDATA(s, m_irqSignal);
         SERIALIZEDATA(s, m_irqStep);
         SERIALIZEDATA(s, m_haltCycles);
-        SERIALIZEDATA(s, m_extraCycles);
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
@@ -1414,11 +1404,6 @@ public:
     unsigned int cycleCounter() const {
         return m_cyclesCounter;
     }
-
-    int currentInstructionCycle() const {
-        return m_currentInstructionCycle;
-    }
-
 
 };
 GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
@@ -1454,7 +1439,7 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
 
     assert(!isHalted());
 
-    assert(isOpcodeWriteCycle());
+    assert(m_writeCycle);
 
     m_bus.write(addr, value);
 

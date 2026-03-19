@@ -5,7 +5,6 @@
 #include "defines.h"
 #include "IBus.h"
 #include "Console.h"
-#include "APU/APU.h"
 #include "Serialization.h"
 
 class DMA
@@ -57,7 +56,7 @@ private:
         return value;
     }
 
-    uint8_t processDmaRead(uint16_t dmaAddr, bool enableInternalRegReads, bool skipInputRead)
+    uint8_t processDmaRead(uint16_t dmaAddr, bool enableInternalRegReads)
     {
         if(!enableInternalRegReads) {
             m_dmaPrevReadAddr = dmaAddr;
@@ -81,7 +80,7 @@ private:
 
             case 0x4016:
             case 0x4017:
-                if(skipInputRead || m_dmaPrevReadAddr == internalAddr) {
+                if(m_dmaPrevReadAddr == internalAddr) {
                     value = dmaBusRead(internalAddr, false);
                 } else {
                     value = dmaBusRead(internalAddr, true);

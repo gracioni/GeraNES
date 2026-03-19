@@ -1,5 +1,7 @@
 #pragma once
 
+#include "APU/APU.h"
+
 inline void DMA::processPending(
     uint16_t readAddress,
     bool writeCycle
@@ -66,7 +68,7 @@ inline void DMA::processPending(
                     m_dmcAbortPending = false;
                     continue;
                 }
-                const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads, false);
+                const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads);
                 cpu.endCycle<true>();
                 m_dmcDmaRunning = false;
                 m_dmcAbortPending = false;
@@ -74,7 +76,7 @@ inline void DMA::processPending(
             } else if(m_oamDmaTransfer) {
                 startDmaCycle(cpu);
                 const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);
-                m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads, false);
+                m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads);
                 cpu.endCycle<true>();
                 m_oamDmaReadAddr++;
                 m_oamDmaCounter++;
