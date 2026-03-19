@@ -21,7 +21,7 @@ inline void DMA::processPending(
         }
 
         cpu.beginCycle();
-        cpu.endCycle<true>();
+        cpu.endCycle<DmaCycle::Yes>();
         m_dmcSingleCycleAbortPending = false;
 
         if(!m_oamDmaTransfer) {
@@ -54,7 +54,7 @@ inline void DMA::processPending(
     if(!(m_dmcAbortPending && skipDummyReads)) {
         dmaBusRead(readAddress, !controllerReadAddress || !dmcControllerGetConflict);
     }
-    cpu.endCycle<true>();
+    cpu.endCycle<DmaCycle::Yes>();
 
     if(m_dmcAbortPending) {
         m_dmcDmaRunning = false;
@@ -75,13 +75,13 @@ inline void DMA::processPending(
                     if(!skipDummyReads) {
                         dmaBusRead(readAddress, true);
                     }
-                    cpu.endCycle<true>();
+                    cpu.endCycle<DmaCycle::Yes>();
                     m_dmcDmaRunning = false;
                     m_dmcAbortPending = false;
                     continue;
                 }
                 const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads);
-                cpu.endCycle<true>();
+                cpu.endCycle<DmaCycle::Yes>();
                 m_dmcDmaRunning = false;
                 m_dmcAbortPending = false;
                 m_dmcInitialLoadPhasePending = false;
@@ -90,7 +90,7 @@ inline void DMA::processPending(
                 startDmaCycle(cpu);
                 const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);
                 m_oamDmaData = processDmaRead(sourceAddr, enableInternalRegReads);
-                cpu.endCycle<true>();
+                cpu.endCycle<DmaCycle::Yes>();
                 m_oamDmaReadAddr++;
                 m_oamDmaCounter++;
             } else {
@@ -98,13 +98,13 @@ inline void DMA::processPending(
                 if(!skipDummyReads) {
                     dmaBusRead(readAddress, true);
                 }
-                cpu.endCycle<true>();
+                cpu.endCycle<DmaCycle::Yes>();
             }
         } else {
             if(m_oamDmaTransfer && (m_oamDmaCounter & 0x01)) {
                 startDmaCycle(cpu);
                 m_bus.write(0x2004, m_oamDmaData);
-                cpu.endCycle<true>();
+                cpu.endCycle<DmaCycle::Yes>();
                 m_oamDmaCounter++;
                 if(m_oamDmaCounter == 0x200) {
                     m_oamDmaTransfer = false;
@@ -114,7 +114,7 @@ inline void DMA::processPending(
                 if(!skipDummyReads) {
                     dmaBusRead(readAddress, true);
                 }
-                cpu.endCycle<true>();
+                cpu.endCycle<DmaCycle::Yes>();
             }
         }
     }

@@ -49,6 +49,18 @@ enum class AddrMode
     AbsX, AbsXW, AbsY, AbsYW
 };
 
+enum class DmaCycle
+{
+    No,
+    Yes
+};
+
+enum class BusAccess
+{
+    No,
+    Yes
+};
+
 typedef AddrMode M;
 
 inline constexpr std::array<AddrMode, 256> addrMode = {
@@ -121,7 +133,6 @@ private:
     int m_currentInstructionCycle;
 
     uint8_t m_poolIntsAtCycle;
-    bool m_ppuDataAccessEndPending;
 
     //Do not serialize variables below
 
@@ -355,7 +366,6 @@ public:
         m_irqStep = false;
 
         m_poolIntsAtCycle = DO_NOT_POOL_INTS;
-        m_ppuDataAccessEndPending = false;
 
         m_runCount = 0;
         m_writeCycle = false;
@@ -1170,17 +1180,17 @@ public:
 
         beginCycle();
         low = m_bus.read(0xFFFC);
-        endCycle<false>();
+        endCycle<DmaCycle::No, BusAccess::Yes>(0xFFFC, false);
 
         beginCycle();
         high = m_bus.read(0xFFFD);
-        endCycle<false>();
+        endCycle<DmaCycle::No, BusAccess::Yes>(0xFFFD, false);
 
         m_pc = MAKE16(low, high);
 
         for (int i = 0; i < 5; ++i) {
             beginCycle();
-            endCycle<false>();
+            endCycle<>();
         }
     }
 
@@ -1358,8 +1368,8 @@ public:
 
     void beginCycle();
 
-    template<bool IsDmaCycle = false>
-    void endCycle();  
+    template<DmaCycle IsDmaCycle = DmaCycle::No, BusAccess BusAccessed = BusAccess::No>
+    void endCycle(uint16_t addr = 0, bool write = false);  
 
     void serialization(SerializationBase& s)
     {
@@ -1379,7 +1389,6 @@ public:
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
-        SERIALIZEDATA(s, m_ppuDataAccessEndPending);
         m_dma.serialization(s);
     }
 
@@ -1400,9 +1409,8 @@ GERANES_INLINE_HOT uint8_t CPU2A03::readMemory(uint16_t addr) {
     beginCycle();
 
     uint8_t ret =  m_bus.read(addr);
-    m_ppuDataAccessEndPending = (addr & 0x2007) == 0x2007;
 
-    endCycle<false>();
+    endCycle<DmaCycle::No, BusAccess::Yes>(addr, false);
 
     return ret;
 }
@@ -1421,7 +1429,7 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
     assert(m_writeCycle);
 
     m_bus.write(addr, value);
-    endCycle<false>();
+    endCycle<DmaCycle::No, BusAccess::Yes>(addr, true);
 
     m_writeCycle = false;
 }
@@ -1439,8 +1447,8 @@ GERANES_INLINE_HOT void CPU2A03::beginCycle() {
    
 }
 
-template<bool IsDmaCycle>
-inline void CPU2A03::endCycle() {
+template<DmaCycle IsDmaCycle, BusAccess BusAccessed>
+inline void CPU2A03::endCycle(uint16_t addr, bool write) {
 
     phi1();
 
@@ -1448,14 +1456,18 @@ inline void CPU2A03::endCycle() {
 
     m_console.ppu().ppuCycle();
 
-    phi2<IsDmaCycle>(
+    phi2<IsDmaCycle == DmaCycle::Yes>(
         m_console.ppu().getInterruptFlag(),
         m_console.apu().getInterruptFlag() || m_console.cartridge().getInterruptFlag()
     );    
 
-    if(m_ppuDataAccessEndPending) {
-        m_ppuDataAccessEndPending = false;
-        m_console.ppu().onCpuAccessPPUDATAEnd();
+    const bool getToPutTransition = isOddCycle();
+    if constexpr(BusAccessed == BusAccess::Yes) {
+        m_bus.onCpuBusAccessEnd(addr, write);
+    }
+
+    if(getToPutTransition) {
+        m_bus.onCpuGetToPutTransition();
     }
 
     if(!m_console.ppu().inOverclockLines()) {       
@@ -1466,10 +1478,6 @@ inline void CPU2A03::endCycle() {
     m_console.ppu().ppuCyclePAL(); 
 
     m_console.ppu().ppuCycle();    
-
-    if(isOddCycle()) {
-        m_bus.onCpuGetToPutTransition();
-    }
 
     m_runCount++;
 

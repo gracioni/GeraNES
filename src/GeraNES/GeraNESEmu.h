@@ -456,6 +456,11 @@ public:
         m_openBus = data;
     }
 
+    void onCpuBusAccessEnd(int addr, bool write) override
+    {
+        m_ppu.onCpuBusAccessEnd(static_cast<uint16_t>(addr), write);
+    }
+
     void onCpuGetToPutTransition() override
     {
         m_controller1.onCpuGetToPutTransition();

@@ -1850,8 +1850,12 @@ yyy NNYY YYYX XXXX
         return ret;
     }
 
-    GERANES_INLINE void onCpuAccessPPUDATAEnd()
+    GERANES_INLINE void onCpuBusAccessEnd(uint16_t addr, bool /*write*/)
     {
+        if((addr & 0x2007) != 0x2007) {
+            return;
+        }
+
         if(m_deferredDataLatchArmPending) {
             m_deferredDataLatchArmPending = false;
             m_deferredDataLatchStartDelay = 1;
