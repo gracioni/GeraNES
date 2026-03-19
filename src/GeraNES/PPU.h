@@ -153,7 +153,16 @@ private:
         uint8_t highByte;
         bool sprite0;
     };
+    struct SpriteRenderEntry {
+        uint8_t xCounter;
+        uint8_t attr;
+        uint8_t lowShift;
+        uint8_t highShift;
+        bool sprite0;
+        bool active;
+    };
     SpriteFetchEntry m_spriteFetchEntries[8];
+    SpriteRenderEntry m_spriteRenderEntries[8];
     uint8_t m_spriteFetchCount;
 
     //write/read internal regs
@@ -173,6 +182,12 @@ private:
     uint8_t m_paletteOffset;
     uint8_t m_lowTileByte;
     uint8_t m_highTileByte;
+    uint16_t m_bgPatternLowShift;
+    uint16_t m_bgPatternHighShift;
+    uint16_t m_bgAttribLowShift;
+    uint16_t m_bgAttribHighShift;
+    bool m_bgAttribLowLatch;
+    bool m_bgAttribHighLatch;
     uint64_t m_tileData;
 
     int m_lastPPUSTATUSReadCycle; //record the cycle when ppustatus is read
@@ -199,6 +214,11 @@ private:
     bool m_needIncVideoRam;
 
     bool m_prevCycleRenderingEnabled;
+    bool m_spriteRenderClockingActiveThisLine;
+    bool m_staleBgShiftActive;
+    bool m_skipBgReloadOnce;
+    bool m_forceSpriteXZeroThisLine;
+    bool m_forceSpriteXZeroNextLine;
 
     int m_update_reg_v_delay;
     uint16_t m_update_reg_v_value;
@@ -373,6 +393,11 @@ public:
 
         m_renderingEnabled = m_spritesEnabled || m_backgroundEnabled;
         m_prevCycleRenderingEnabled = m_renderingEnabled;
+        m_spriteRenderClockingActiveThisLine = m_prevCycleRenderingEnabled;
+        m_staleBgShiftActive = false;
+        m_skipBgReloadOnce = false;
+        m_forceSpriteXZeroThisLine = false;
+        m_forceSpriteXZeroNextLine = false;
 
         //PPUSTATUS
         m_VBlankHasStarted = false;
@@ -383,12 +408,19 @@ public:
         m_testSprite0HitInThisLine = false;
         m_spriteFetchCount = 0;
         memset(m_spriteFetchEntries, 0, sizeof(m_spriteFetchEntries));
+        memset(m_spriteRenderEntries, 0, sizeof(m_spriteRenderEntries));
 
         m_oamAddr = 0;
         m_dataLatch = 0;
         m_lastWrite = 0;
 
         m_currentPixelColorIndex = 0;
+        m_bgPatternLowShift = 0;
+        m_bgPatternHighShift = 0;
+        m_bgAttribLowShift = 0;
+        m_bgAttribHighShift = 0;
+        m_bgAttribLowLatch = false;
+        m_bgAttribHighLatch = false;
 
         m_scanline = 0;
         m_cycle = 0;
@@ -653,9 +685,13 @@ public:
     {
         if(!m_showBackgroundLeftmost8Pixels && m_currentX <8) return;
 
-        int data = fetchTileData() >> ((7 - m_reg_x) << 2);
-
-        m_currentPixelColorIndex = uint8_t(data & 0x0F);
+        const uint16_t mask = static_cast<uint16_t>(0x8000 >> m_reg_x);
+        uint8_t color = 0;
+        if(m_bgPatternLowShift & mask) color |= 0x01;
+        if(m_bgPatternHighShift & mask) color |= 0x02;
+        if(m_bgAttribLowShift & mask) color |= 0x04;
+        if(m_bgAttribHighShift & mask) color |= 0x08;
+        m_currentPixelColorIndex = color;
     }
 
     //for name tables debug x:0-255 y:0-480
@@ -899,11 +935,13 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE_HOT void renderSpritesPixel()
     {
         if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
-        if(m_currentY == 0) return;
 
         int paletteIndex = 0;
         bool isPixelBehind = false;
-        const int indexedSpritesCount = (m_spritesInThisLine > 64) ? 64 : m_spritesInThisLine;
+        int indexedSpritesCount = (m_spritesInThisLine > 64) ? 64 : m_spritesInThisLine;
+        if(m_spriteFetchCount > indexedSpritesCount) {
+            indexedSpritesCount = m_spriteFetchCount;
+        }
 
         bool spritesAsMask = false;
         if(m_settings.spriteLimitDisabled() && indexedSpritesCount >= 8) {
@@ -925,15 +963,13 @@ yyy NN YYYYY XXXXX
             if(i < 8) {
                 if(i >= m_spriteFetchCount) continue;
 
-                const SpriteFetchEntry& sprite = m_spriteFetchEntries[i];
-
-                if(m_currentX < sprite.x || m_currentX >= sprite.x + 8) {
+                SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
+                if(!sprite.active || sprite.xCounter != 0) {
                     continue;
                 }
 
-                int pixelX = m_currentX - sprite.x;
-                int bit = (sprite.attr & 0x40) ? pixelX : (7 - pixelX);
-                int color = ((sprite.lowByte >> bit) & 0x01) | (((sprite.highByte >> bit) & 0x01) << 1);
+                int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
+                            ((sprite.highShift & 0x80) ? 0x02 : 0x00);
                 if(color == 0) {
                     continue;
                 }
@@ -966,6 +1002,24 @@ yyy NN YYYYY XXXXX
         if((paletteIndex & 0x03) != 0) {
             if((m_currentPixelColorIndex & 0x03) == 0 || !isPixelBehind) {
                 m_currentPixelColorIndex = static_cast<uint8_t>(paletteIndex);
+            }
+        }
+    }
+
+    GERANES_INLINE_HOT void clockSpriteRenderers()
+    {
+        for(int i = 0; i < m_spriteFetchCount && i < 8; i++) {
+            SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
+            if(!sprite.active) {
+                continue;
+            }
+
+            if(sprite.xCounter > 0) {
+                sprite.xCounter--;
+            }
+            else {
+                sprite.lowShift <<= 1;
+                sprite.highShift <<= 1;
             }
         }
     }
@@ -1006,7 +1060,25 @@ yyy NN YYYYY XXXXX
         m_preLine = (m_scanline == FRAME_VBLANK_END_LINE);
         m_visibleLine = m_scanline < 240;
         m_renderLine = m_preLine || m_visibleLine;
+        m_spriteRenderClockingActiveThisLine = m_prevCycleRenderingEnabled;
+        m_forceSpriteXZeroThisLine = m_forceSpriteXZeroNextLine;
+        m_forceSpriteXZeroNextLine = false;
 
+        for(int i = 0; i < 8; i++) {
+            SpriteRenderEntry& entry = m_spriteRenderEntries[i];
+            const SpriteFetchEntry& fetched = m_spriteFetchEntries[i];
+            entry.xCounter = m_forceSpriteXZeroThisLine ? 0 : fetched.x;
+            entry.attr = fetched.attr;
+            entry.lowShift = fetched.lowByte;
+            entry.highShift = fetched.highByte;
+            entry.sprite0 = fetched.sprite0;
+            entry.active = i < m_spriteFetchCount;
+
+            if(entry.active && (entry.attr & 0x40) != 0) {
+                entry.lowShift = reverseByte(entry.lowShift);
+                entry.highShift = reverseByte(entry.highShift);
+            }
+        }
         if(m_preLine && isRenderingEnabled()) {
             processOamCorruption();
         }
@@ -1099,7 +1171,7 @@ yyy NN YYYYY XXXXX
          
                 if(bgFetchCycles) {
 
-                    m_tileData <<= 4;
+                    shiftTileData();
 
                     switch(m_cycle%8) {
                         case 1: fetchNameTableByte(); break;                        
@@ -1116,12 +1188,20 @@ yyy NN YYYYY XXXXX
                 }
             }
 
+            if(m_visibleLine && visibleCycle && (m_prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
+                clockSpriteRenderers();
+            }
+
             if(isRenderingEnabled()) {
                 //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
 			    if(spriteFetchCycles) {
                     m_oamAddr = 0;
                     fetchSprites();
                 }
+            }
+
+            if(m_cycle == 339 && !m_prevCycleRenderingEnabled) {
+                m_forceSpriteXZeroNextLine = true;
             }
 
             if(m_preLine) {
@@ -1173,7 +1253,7 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE uint16_t getSpritePatternAddress(const Sprite& sprite, bool highPlane)
     {
         const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
-        int spriteScanline = m_scanline + 1;
+        int spriteScanline = m_preLine ? 6 : (m_scanline + 1);
         if(spriteScanline >= FRAME_NUMBER_OF_LINES) {
             spriteScanline = 0;
         }
@@ -1204,6 +1284,13 @@ yyy NN YYYYY XXXXX
         return static_cast<uint16_t>(base + (tileIndex << 4) + row + (highPlane ? 8 : 0));
     }
 
+    GERANES_INLINE bool isSpriteInRangeForScanline(const Sprite& sprite, int scanline) const
+    {
+        const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
+        const int spriteY = static_cast<int>(sprite.y) + 1;
+        return scanline >= spriteY && scanline < spriteY + spriteHeight;
+    }
+
     void fetchSprites() {
         // Mapper hooks must classify sprite-cycle PPU reads as sprite-source.
         m_isSpritePatternFetch = true;
@@ -1222,17 +1309,20 @@ yyy NN YYYYY XXXXX
             return;
         }
 
-        int fetchedSpriteCount = static_cast<int>((m_secondaryOamAddr + 3) >> 2);
+        int fetchedSpriteCount = m_preLine ? 8 : static_cast<int>((m_secondaryOamAddr + 3) >> 2);
         if(fetchedSpriteCount > 8) {
             fetchedSpriteCount = 8;
         }
         bool hasSpriteData = spriteIndex < fetchedSpriteCount;
 
         Sprite* sprite = (Sprite*)&m_secondaryOam[spriteIndex << 2];
+        if(hasSpriteData && m_preLine) {
+            hasSpriteData = isSpriteInRangeForScanline(*sprite, 5);
+        }
         SpriteFetchEntry& entry = m_spriteFetchEntries[spriteIndex];
         entry.x = hasSpriteData ? sprite->x : 0xFF;
         entry.attr = hasSpriteData ? sprite->attrib : 0;
-        entry.sprite0 = hasSpriteData && (spriteIndex == 0) && m_testSprite0HitInThisLine;
+        entry.sprite0 = hasSpriteData && (spriteIndex == 0) && (m_testSprite0HitInThisLine || m_preLine);
 
         switch(fetchCycle) {
 
@@ -1635,6 +1725,11 @@ yyy NNYY YYYX XXXX
 
             m_prevCycleRenderingEnabled = m_renderingEnabled;
 
+            if(!wasRenderingEnabled && renderingEnabledNow && m_renderLine) {
+                m_staleBgShiftActive = true;
+                m_skipBgReloadOnce = true;
+            }
+
             if(m_scanline < 240 && renderingEnabledNow) {
                 processOamCorruption();
             }
@@ -1856,17 +1951,34 @@ yyy NNYY YYYX XXXX
         m_highTileByte = readPpuMemory(m_tileAddr + 8);        
     }
 
+    GERANES_INLINE static uint8_t reverseByte(uint8_t value)
+    {
+        value = static_cast<uint8_t>(((value & 0xF0) >> 4) | ((value & 0x0F) << 4));
+        value = static_cast<uint8_t>(((value & 0xCC) >> 2) | ((value & 0x33) << 2));
+        value = static_cast<uint8_t>(((value & 0xAA) >> 1) | ((value & 0x55) << 1));
+        return value;
+    }
+
     GERANES_INLINE void storeTileData() {
-        uint64_t data = 0;
-        for(int i= 0; i < 8; i++) {
-            int p1 = (m_lowTileByte & 0x80) >> 7;
-            int p2 = (m_highTileByte & 0x80) >> 6;
-            m_lowTileByte <<= 1;
-            m_highTileByte <<= 1;
-            data <<= 4;
-            data |= uint32_t(m_paletteOffset | p1 | p2);
+        if(m_skipBgReloadOnce) {
+            m_skipBgReloadOnce = false;
+            return;
         }
-        m_tileData |= data;
+
+        m_bgPatternLowShift = static_cast<uint16_t>((m_bgPatternLowShift & 0xFF00) | m_lowTileByte);
+        m_bgPatternHighShift = static_cast<uint16_t>((m_bgPatternHighShift & 0xFF00) | m_highTileByte);
+        m_bgAttribLowLatch = (m_paletteOffset & 0x04) != 0;
+        m_bgAttribHighLatch = (m_paletteOffset & 0x08) != 0;
+        m_staleBgShiftActive = false;
+    }
+
+    GERANES_INLINE void shiftTileData() {
+        m_bgPatternLowShift <<= 1;
+        m_bgPatternHighShift <<= 1;
+        m_bgPatternHighShift |= 0x01;
+
+        m_bgAttribLowShift = static_cast<uint16_t>((m_bgAttribLowShift << 1) | (m_bgAttribLowLatch ? 0x01 : 0x00));
+        m_bgAttribHighShift = static_cast<uint16_t>((m_bgAttribHighShift << 1) | (m_bgAttribHighLatch ? 0x01 : 0x00));
     }
 
     GERANES_INLINE uint32_t fetchTileData() {
@@ -1945,6 +2057,12 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_paletteOffset);
         SERIALIZEDATA(s, m_lowTileByte);
         SERIALIZEDATA(s, m_highTileByte);
+        SERIALIZEDATA(s, m_bgPatternLowShift);
+        SERIALIZEDATA(s, m_bgPatternHighShift);
+        SERIALIZEDATA(s, m_bgAttribLowShift);
+        SERIALIZEDATA(s, m_bgAttribHighShift);
+        SERIALIZEDATA(s, m_bgAttribLowLatch);
+        SERIALIZEDATA(s, m_bgAttribHighLatch);
         SERIALIZEDATA(s, m_tileData);
 
         SERIALIZEDATA(s, m_lastPPUSTATUSReadCycle);
@@ -1966,6 +2084,9 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_needIncVideoRam);
 
         SERIALIZEDATA(s, m_prevCycleRenderingEnabled);
+        SERIALIZEDATA(s, m_staleBgShiftActive);
+        SERIALIZEDATA(s, m_forceSpriteXZeroThisLine);
+        SERIALIZEDATA(s, m_forceSpriteXZeroNextLine);
 
         SERIALIZEDATA(s, m_update_reg_v_delay);
         SERIALIZEDATA(s, m_update_reg_v_value);
