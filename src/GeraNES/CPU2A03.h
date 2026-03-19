@@ -1435,6 +1435,11 @@ GERANES_INLINE_HOT void CPU2A03::writeMemory(uint16_t addr, uint8_t value) {
 
     m_writeCycle = true;
 
+    m_dma.processPending(
+        addr,
+        m_writeCycle
+    );
+
     beginCycle();
 
     assert(!isHalted());

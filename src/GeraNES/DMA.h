@@ -25,6 +25,8 @@ private:
     bool m_dmcDmaRunning = false;
     bool m_dmcAbortPending = false;
     bool m_dmcSingleCycleAbortPending = false;
+    uint8_t m_dmcSingleCycleAbortDelay = 0;
+    bool m_dmcInitialLoadPhasePending = false;
     bool m_dmcLastRequestWasReload = false;
     uint16_t m_dmcDmaAddr = 0;
     uint16_t m_dmaPrevReadAddr = 0;
@@ -134,6 +136,8 @@ public:
         m_dmcDmaRunning = false;
         m_dmcAbortPending = false;
         m_dmcSingleCycleAbortPending = false;
+        m_dmcSingleCycleAbortDelay = 0;
+        m_dmcInitialLoadPhasePending = false;
         m_dmcLastRequestWasReload = false;
         m_dmcDmaAddr = 0;
         m_dmaPrevReadAddr = 0;
@@ -154,6 +158,7 @@ public:
     {
         m_dmcDmaAddr = addr;
         m_dmcDmaRunning = true;
+        m_dmcInitialLoadPhasePending = !reload;
         m_dmcLastRequestWasReload = reload;
         m_dmaNeedDummyRead = true;
         m_dmaNeedHalt = true;
@@ -168,8 +173,10 @@ public:
         if(m_dmaNeedHalt) {
             if(m_dmcLastRequestWasReload) {
                 m_dmcSingleCycleAbortPending = true;
+                m_dmcSingleCycleAbortDelay = 0;
             }
             m_dmcDmaRunning = false;
+            m_dmcInitialLoadPhasePending = false;
             m_dmaNeedDummyRead = false;
             m_dmaNeedHalt = false;
         } else {
@@ -180,7 +187,9 @@ public:
     void scheduleImplicitDmcSingleCycleAbort()
     {
         m_dmcSingleCycleAbortPending = true;
+        m_dmcSingleCycleAbortDelay = 1;
         m_dmcDmaRunning = false;
+        m_dmcInitialLoadPhasePending = false;
         m_dmcAbortPending = false;
         m_dmaNeedDummyRead = false;
         m_dmaNeedHalt = false;
@@ -213,6 +222,8 @@ public:
         SERIALIZEDATA(s, m_dmcDmaRunning);
         SERIALIZEDATA(s, m_dmcAbortPending);
         SERIALIZEDATA(s, m_dmcSingleCycleAbortPending);
+        SERIALIZEDATA(s, m_dmcSingleCycleAbortDelay);
+        SERIALIZEDATA(s, m_dmcInitialLoadPhasePending);
         SERIALIZEDATA(s, m_dmcLastRequestWasReload);
         SERIALIZEDATA(s, m_dmcDmaAddr);
         SERIALIZEDATA(s, m_dmaPrevReadAddr);

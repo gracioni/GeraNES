@@ -8,8 +8,13 @@ inline void DMA::processPending(
 )
 {
     CPU2A03& cpu = m_console.cpu();
+    const bool getCycleNow = cpu.isDmaGetCycle();
 
     if(m_dmcSingleCycleAbortPending) {
+        if(m_dmcSingleCycleAbortDelay > 0) {
+            --m_dmcSingleCycleAbortDelay;
+            return;
+        }
         if(writeCycle) {
             m_dmcSingleCycleAbortPending = false;
             return;
@@ -22,6 +27,13 @@ inline void DMA::processPending(
         if(!m_oamDmaTransfer) {
             return;
         }
+    }
+
+    if(m_dmcDmaRunning && m_dmaNeedHalt && m_dmcInitialLoadPhasePending) {
+        if(!getCycleNow) {
+            return;
+        }
+        m_dmcInitialLoadPhasePending = false;
     }
 
     if(!m_dmaNeedHalt || writeCycle) {
@@ -72,6 +84,7 @@ inline void DMA::processPending(
                 cpu.endCycle<true>();
                 m_dmcDmaRunning = false;
                 m_dmcAbortPending = false;
+                m_dmcInitialLoadPhasePending = false;
                 m_console.apu().getSampleChannel().loadSampleBuffer(value);
             } else if(m_oamDmaTransfer) {
                 startDmaCycle(cpu);
