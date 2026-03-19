@@ -105,7 +105,7 @@ private:
     unsigned int m_cyclesCounter;
     uint8_t m_opcode;
     uint16_t m_addr;
-    uint8_t m_addrIndexHigh;
+    uint8_t m_addrHigh;
     bool m_addrPageCross;
 
     bool m_nmiSignal;
@@ -190,7 +190,7 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
-        m_addrIndexHigh = high;
+        m_addrHigh = high;
         m_addrPageCross = false;
         m_addr = MAKE16(low, high);
     }
@@ -206,7 +206,7 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
-        m_addrIndexHigh = high;
+        m_addrHigh = high;
         m_addr = MAKE16(low, high); 
 
         const bool pageCross = (m_addr ^ (m_addr+m_x)) & 0xFF00;
@@ -227,7 +227,7 @@ private:
         const uint8_t low = readMemory(m_pc++);
         const uint8_t high = readMemory(m_pc++);
 
-        m_addrIndexHigh = high;
+        m_addrHigh = high;
         m_addr = MAKE16(low, high);
 
         const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
@@ -267,7 +267,7 @@ private:
         const uint8_t iLow = readMemory(MAKE16(low,high));
         const uint8_t iHigh = readMemory(MAKE16(low+1,high));
 
-        m_addrIndexHigh = iHigh;
+        m_addrHigh = iHigh;
         m_addrPageCross = false;
         m_addr = MAKE16(iLow, iHigh);
     }
@@ -281,7 +281,7 @@ private:
         const uint8_t iLow = readMemory(value);
         const uint8_t iHigh = readMemory((uint8_t)(value+1));
 
-        m_addrIndexHigh = iHigh;
+        m_addrHigh = iHigh;
         m_addrPageCross = false;
         m_addr = MAKE16(iLow, iHigh); 
     }
@@ -293,7 +293,7 @@ private:
         const uint8_t low = readMemory(value);
         const uint8_t high = readMemory((uint8_t)(value+1));
 
-        m_addrIndexHigh = high;
+        m_addrHigh = high;
         m_addr = MAKE16(low, high);
 
         const bool pageCross = (m_addr ^ (m_addr+m_y)) & 0xFF00;
@@ -1078,7 +1078,7 @@ public:
 
     GERANES_INLINE_HOT void U_AXA()
     {
-        const uint8_t highMask = static_cast<uint8_t>(m_addrIndexHigh + 1);
+        const uint8_t highMask = static_cast<uint8_t>(m_addrHigh + 1);
         const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
         const uint8_t value = hadDmaOnIndexedDummyRead
             ? static_cast<uint8_t>(m_a & m_x)
@@ -1095,7 +1095,7 @@ public:
         // pointer, then AND stack pointer with the high byte of the
         // target address of the argument + 1. Store result in memory."
         m_sp = m_x & m_a;
-        const uint8_t highMask = static_cast<uint8_t>(m_addrIndexHigh + 1);
+        const uint8_t highMask = static_cast<uint8_t>(m_addrHigh + 1);
         const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
         const uint8_t value = hadDmaOnIndexedDummyRead
             ? m_sp
@@ -1111,7 +1111,7 @@ public:
         const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
         const uint8_t value = hadDmaOnIndexedDummyRead
             ? m_y
-            : static_cast<uint8_t>(m_y & (m_addrIndexHigh + 1));
+            : static_cast<uint8_t>(m_y & (m_addrHigh + 1));
         const uint16_t targetAddr = (m_addrPageCross && !hadDmaOnIndexedDummyRead)
             ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
             : m_addr;
@@ -1123,7 +1123,7 @@ public:
         const bool hadDmaOnIndexedDummyRead = m_indexedDummyReadHadDma;
         const uint8_t value = hadDmaOnIndexedDummyRead
             ? m_x
-            : static_cast<uint8_t>(m_x & (m_addrIndexHigh + 1));
+            : static_cast<uint8_t>(m_x & (m_addrHigh + 1));
         const uint16_t targetAddr = (m_addrPageCross && !hadDmaOnIndexedDummyRead)
             ? MAKE16(static_cast<uint8_t>(m_addr & 0xFF), value)
             : m_addr;
@@ -1153,7 +1153,7 @@ public:
         m_flags.unused = true;
 
         m_addr = 0;
-        m_addrIndexHigh = 0;
+        m_addrHigh = 0;
         m_addrPageCross = false;
         m_opcode = 0;
 
@@ -1348,7 +1348,7 @@ public:
         m_runCount = 0;
         m_currentInstructionCycle = 0;        
         m_addr = 0;
-        m_addrIndexHigh = 0;
+        m_addrHigh = 0;
         m_addrPageCross = false;
         m_instructionWasHalted = false;
 
