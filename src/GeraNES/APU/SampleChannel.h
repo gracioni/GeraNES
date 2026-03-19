@@ -44,7 +44,7 @@ private:
     int m_enableReloadDelay = 0;
     int m_disableDelay = 0;
 
-    int m_fakeSample = m_deltaCounter;
+    float m_sample = m_deltaCounter;
 
     GERANES_INLINE bool loopEnabled() const
     {
@@ -66,7 +66,7 @@ private:
 
     GERANES_INLINE float normalizedOutput() const
     {
-        return (m_fakeSample - 0.5f * 127.0f) / 127.0f;
+        return (m_sample - 0.5f * 127.0f) / 127.0f;
     }
 
     void requestSample(bool reload)
@@ -98,8 +98,6 @@ private:
             } else if(m_deltaCounter >= 2) {
                 m_deltaCounter -= 2;
             }
-
-            // a real dmc would be updated here
         }
 
         m_shiftRegister >>= 1;
@@ -149,6 +147,7 @@ public:
         SERIALIZEDATA(s, m_enabled);
         SERIALIZEDATA(s, m_enableReloadDelay);
         SERIALIZEDATA(s, m_disableDelay);
+        SERIALIZEDATA(s, m_sample);
     }
 
     SampleChannel(Settings& settings, IAudioOutput& audioOutput)
@@ -223,7 +222,7 @@ public:
                 float cpuClock = m_settings.CPUClockHz();
                 float period = (m_cpuCycleCounter + 1) / (8 * 2 * (cpuClock / 16.0f));
                 
-                m_fakeSample = m_deltaCounter;
+                m_sample = m_deltaCounter;
                 m_audioGenerator.addSampleDirect(period, normalizedOutput());
             }
 
@@ -320,9 +319,8 @@ public:
 
     void loadSampleBuffer(uint8_t data)
     {
-        updateFakeSample(data);
+        updateSample(data);
         m_audioGenerator.addSample(normalizedOutput());
-
 
         const uint16_t bytesRemainingBeforeLoad = m_bytesRemaining;
 
@@ -356,7 +354,7 @@ public:
         }
     }
 
-    void updateFakeSample(uint8_t data) {
+    void updateSample(uint8_t data) {
 
         uint8_t shift =  data;
 
@@ -364,12 +362,12 @@ public:
         {
             if (shift & 1)
             {
-                m_fakeSample += 2*8;
-                if (m_fakeSample > 127) m_fakeSample = 127;
+                m_sample += 2*8;
+                if (m_sample > 127) m_sample = 127;
             }
             else {
-                m_fakeSample -= 2*8;
-                if(m_fakeSample < 0) m_fakeSample = 0;
+                m_sample -= 2*8;
+                if(m_sample < 0) m_sample = 0;
             }
 
             shift >>= 1;
