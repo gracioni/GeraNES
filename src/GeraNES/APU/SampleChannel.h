@@ -219,7 +219,7 @@ public:
                 float cpuClock = m_settings.CPUClockHz();
                 float period = (m_cpuCycleCounter + 1) / (8 * 2 * (cpuClock / 16.0f));
                 
-                m_audioGenerator.addSampleDirect(period, m_deltaCounter);
+                m_audioGenerator.addSampleDirect(period, normalizedOutput(m_deltaCounter));
             }
 
             m_cpuCycleCounter = 0;
