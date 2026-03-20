@@ -171,6 +171,16 @@ public:
         return m_sample;
     }
 
+    float getMixWeight() const
+    {
+        return m_soundDisable ? 0.0f : 1;
+    }
+
+    float getOutputGain() const
+    {
+        return 1;
+    }
+
     std::string getAudioChannelsJson() const
     {
         std::ostringstream ss;

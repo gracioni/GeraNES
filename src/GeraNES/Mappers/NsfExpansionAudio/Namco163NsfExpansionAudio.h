@@ -52,6 +52,16 @@ public:
         return m_audio.getSample();
     }
 
+    float getMixWeight() const override
+    {
+        return m_audio.getMixWeight();
+    }
+
+    float getOutputGain() const override
+    {
+        return m_audio.getOutputGain();
+    }
+
     std::string getAudioChannelsJson() const override
     {
         return m_audio.getAudioChannelsJson();

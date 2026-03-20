@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
 
 #include <array>
 #include <memory>
@@ -268,6 +268,16 @@ public:
     float getExpansionAudioSample() override
     {
         return m_audio != nullptr ? m_audio->getSample() : 0.0f;
+    }
+
+    float getMixWeight() const override
+    {
+        return m_audio != nullptr ? m_audio->getMixWeight() : 0.0f;
+    }
+
+    float getExpansionOutputGain() const override
+    {
+        return m_audio != nullptr ? m_audio->getOutputGain() : 1.0f;
     }
 
     std::string getAudioChannelsJson() const override

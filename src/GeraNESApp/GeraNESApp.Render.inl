@@ -31,7 +31,7 @@ inline void GeraNESApp::paintGL()
     m_vao.bind();
 
     if(
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
        !m_emu.isNsfLoaded()
 #else
        true

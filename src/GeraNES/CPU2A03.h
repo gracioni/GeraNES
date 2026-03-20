@@ -1347,7 +1347,7 @@ public:
             m_interrupt = Interrupt::NONE;
         }
         else {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
             uint16_t nsfPlayerRedirectAddr = 0;
             if(m_console.cartridge().consumeNsfPlayerInstructionRedirect(nsfPlayerRedirectAddr)) {
                 m_pc = nsfPlayerRedirectAddr;
@@ -1472,7 +1472,9 @@ inline void CPU2A03::endCycle(uint16_t addr, bool write) {
 
     if(!m_console.ppu().inOverclockLines()) {       
         m_console.cartridge().cycle();
-        m_console.apu().processExpansionAudioSample(m_console.cartridge().getExpansionAudioSample());
+        m_console.apu().processExpansionAudioSample(
+            m_console.cartridge().getExpansionAudioSample() * m_console.cartridge().getExpansionOutputGain(),
+            m_console.cartridge().getMixWeight());
     }       
 
     m_console.ppu().ppuCyclePAL(); 

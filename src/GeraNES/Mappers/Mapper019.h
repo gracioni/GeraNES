@@ -214,7 +214,17 @@ public:
 
     GERANES_HOT float getExpansionAudioSample() override
     {
-        return m_audio.getSample() * m_subMapperMixGain;
+        return m_audio.getSample();
+    }
+
+    float getMixWeight() const override
+    {
+        return m_audio.getMixWeight();
+    }
+
+    float getExpansionOutputGain() const override
+    {
+        return m_subMapperMixGain;
     }
 
     std::string getAudioChannelsJson() const override

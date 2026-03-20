@@ -11,7 +11,7 @@ inline void GeraNESApp::showGui()
 
     if(lastMenuBarHeight != m_menuBarHeight) updateBuffers();
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
     if(m_emu.isNsfLoaded()) drawNsfPlayerVisualizer();
 #endif
 
@@ -462,7 +462,7 @@ inline void GeraNESApp::showGui()
     }
 }
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
 inline void GeraNESApp::drawNsfPlayerVisualizer()
 {
     m_nsfVisualizer.draw(

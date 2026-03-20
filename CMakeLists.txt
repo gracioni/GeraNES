@@ -326,7 +326,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})
 target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE ENABLE_NFS_PLAYER=1)
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE ENABLE_NSF_PLAYER=1)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
 
 set(LIBRETRO_CORE_NAME "geranes_libretro")

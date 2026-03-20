@@ -16,6 +16,8 @@ public:
     virtual uint8_t readRegister(uint16_t cpuAddr, uint8_t openBusData) = 0;
     virtual void writeRegister(uint16_t cpuAddr, uint8_t data) = 0;
     virtual float getSample() const = 0;
+    virtual float getMixWeight() const = 0;
+    virtual float getOutputGain() const = 0;
     virtual std::string getAudioChannelsJson() const = 0;
     virtual bool setAudioChannelVolumeById(const std::string& id, float volume) = 0;
     virtual void serialization(SerializationBase& s) = 0;

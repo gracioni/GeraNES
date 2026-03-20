@@ -161,6 +161,11 @@ public:
         return m_sample;
     }
 
+    float getMixWeight() const
+    {
+        return 3.0f;
+    }
+
     std::string getAudioChannelsJson() const
     {
         std::ostringstream ss;

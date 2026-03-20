@@ -23,7 +23,7 @@ class IAudioOutput
     virtual void addSampleDirect(float /*period*/, float /*sample*/){}
     virtual void setExpansionSourceRateHz(int /*rateHz*/) {}
     virtual void setExpansionAudioVolume(float /*volume*/) {}
-    virtual void processExpansionAudioSample(float /*currentSample*/) {}
+    virtual void processExpansionAudioSample(float /*currentSample*/, float /*mixWeight*/) {}
     virtual void clearAudioBuffers() {}
     virtual std::vector<float> getRecentMixedSamples(size_t /*maxSamples*/ = 0) const { return {}; }
     virtual int outputSampleRate() const { return 44100; }

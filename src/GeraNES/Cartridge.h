@@ -5,7 +5,7 @@
 #include "NesCartridgeData/ICartridgeData.h"
 #include "NesCartridgeData/_INesFormat.h"
 #include "NesCartridgeData/_FdsFormat.h"
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
 #include "NesCartridgeData/_NsfFormat.h"
 #endif
 #include "NesCartridgeData/DbOverwriteCartridgeData.h"
@@ -79,7 +79,7 @@
 #include "Mappers/Mapper210.h"
 #include "Mappers/Mapper232.h"
 #include "Mappers/Mapper245.h"
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
 #include "Mappers/MapperNSF.h"
 #endif
 
@@ -175,7 +175,7 @@ private:
         case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
         case 232: return BaseMapper::create<Mapper232>(*m_nesCartridgeData);
         case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         case _NsfFormat::NSF_MAPPER_ID: return BaseMapper::create<MapperNSF>(*m_nesCartridgeData);
 #endif
 
@@ -252,7 +252,7 @@ public:
                     return false;
                 }
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
                 _NsfFormat* nsf = new _NsfFormat(m_romFile);
                 if(nsf->valid()) {
                     m_nesCartridgeData = nsf;
@@ -290,7 +290,7 @@ public:
 
         // NSF is not an iNES cartridge dump, so DB header overwrite doesn't apply.
         if(
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
            dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr &&
 #endif
            dynamic_cast<_FdsFormat*>(m_nesCartridgeData) == nullptr) {
@@ -309,7 +309,7 @@ public:
             if(dynamic_cast<_FdsFormat*>(m_nesCartridgeData) != nullptr) {
                 Logger::instance().log("FDS file detected\nUsing FDS mapper", Logger::Type::INFO);
             }
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
             else {
                 Logger::instance().log("NSF file detected\nUsing NSF player mapper", Logger::Type::INFO);
             }
@@ -519,7 +519,7 @@ public:
         m_mapper->onCpuWrite(addr, data);
     }
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
     GERANES_INLINE bool consumeNsfPlayerInstructionRedirect(uint16_t& cpuAddr)
     {
         return m_mapper->consumeNsfPlayerInstructionRedirect(cpuAddr);
@@ -534,6 +534,16 @@ public:
     GERANES_INLINE float getExpansionAudioSample()
     {
         return m_mapper->getExpansionAudioSample();
+    }
+
+    GERANES_INLINE float getMixWeight() const
+    {
+        return m_mapper->getMixWeight();
+    }
+
+    GERANES_INLINE float getExpansionOutputGain() const
+    {
+        return m_mapper->getExpansionOutputGain();
     }
 
     GERANES_INLINE std::string getMapperAudioChannelsJson() const
@@ -657,7 +667,7 @@ public:
 
     GERANES_INLINE bool isNsf() const
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         return m_nesCartridgeData != NULL && m_nesCartridgeData->mapperId() == _NsfFormat::NSF_MAPPER_ID;
 #else
         return false;
@@ -666,7 +676,7 @@ public:
 
     GERANES_INLINE int nsfTotalSongs() const
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return 0;
         const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
         return mapper != nullptr ? mapper->totalSongs() : 0;
@@ -677,7 +687,7 @@ public:
 
     GERANES_INLINE int nsfCurrentSong() const
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return 0;
         const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
         return mapper != nullptr ? mapper->currentSong() : 0;
@@ -688,7 +698,7 @@ public:
 
     GERANES_INLINE bool nsfIsPlaying() const
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         const auto* mapper = dynamic_cast<const MapperNSF*>(m_mapper);
         return mapper != nullptr ? mapper->isPlaying() : false;
@@ -699,7 +709,7 @@ public:
 
     GERANES_INLINE bool nsfSetPlaying(bool playing)
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
@@ -713,7 +723,7 @@ public:
 
     GERANES_INLINE bool nsfSetSong(int song1Based)
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
@@ -727,7 +737,7 @@ public:
 
     GERANES_INLINE bool nsfNextSong()
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
@@ -740,7 +750,7 @@ public:
 
     GERANES_INLINE bool nsfPrevSong()
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
@@ -753,7 +763,7 @@ public:
 
     GERANES_INLINE bool nsfRequestSongInit()
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;
@@ -766,7 +776,7 @@ public:
 
     GERANES_INLINE bool nsfSongInitPending()
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!isNsf()) return false;
         auto* mapper = dynamic_cast<MapperNSF*>(m_mapper);
         if(mapper == nullptr) return false;

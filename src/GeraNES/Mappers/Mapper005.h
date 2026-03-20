@@ -1404,6 +1404,11 @@ public:
         return m_expansionAudioSample;
     }
 
+    float getMixWeight() const override
+    {
+        return m_mmc5Audio.getMixWeight();
+    }
+
     std::string getAudioChannelsJson() const override
     {
         std::ostringstream ss;

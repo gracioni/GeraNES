@@ -23,8 +23,10 @@ private:
     SampleDirect m_sampleDirect;
     // Expansion audio: CPU-domain samples are downsampled and queued to FIFO.
     CircularBuffer<float> m_expansionFifo { 4096, CircularBuffer<float>::GROW };
+    CircularBuffer<float> m_expansionMixWeightFifo { 4096, CircularBuffer<float>::GROW };
     float m_expansionVolume = 1.0f;
     float m_expansionLastSample = 0.0f;
+    float m_expansionLastMixWeight = 0.0f;
     bool m_expansionPlaybackStarted = false;
     static constexpr size_t EXPANSION_PREBUFFER_MS = 3;
     static constexpr size_t EXPANSION_TARGET_BUFFER_MS = 6;
@@ -34,6 +36,7 @@ private:
     uint64_t m_expansionPhaseAcc = 0; // [0, m_expansionSourceRateHz)
     int64_t m_expansionWindowWeight = 0; // weighted by output-rate units
     int64_t m_expansionWindowSumQ = 0;   // fixed-point weighted sum
+    int64_t m_expansionWindowMixWeightSumQ = 0;
     static constexpr int64_t EXPANSION_Q_SCALE = 1 << 20;
     int m_outputSampleRate = 44100;
 
@@ -70,8 +73,10 @@ private:
         return static_cast<size_t>(std::max<uint64_t>(1ULL, samples));
     }
 
-    float mixExpansionAudio()
+    float mixExpansionAudio(float& mixWeight)
     {
+        mixWeight = 0.0f;
+
         if(!m_expansionPlaybackStarted) {
             if(m_expansionFifo.size() >= expansionPrebufferSamples()) {
                 m_expansionPlaybackStarted = true;
@@ -93,10 +98,14 @@ private:
             if(!m_expansionFifo.empty()) {
                 m_expansionLastSample = m_expansionFifo.read();
             }
+            if(!m_expansionMixWeightFifo.empty()) {
+                m_expansionLastMixWeight = m_expansionMixWeightFifo.read();
+            }
             m_expansionConsumeAcc -= 1.0;
         }
 
         // If FIFO starves, hold last value to avoid sharp discontinuity.
+        mixWeight = std::max(0.0f, m_expansionLastMixWeight);
         return m_expansionLastSample * m_expansionVolume;
     }
 
@@ -125,14 +134,17 @@ public:
         m_sample.init(sampleRate);
         m_sampleDirect.init(sampleRate);
         m_expansionFifo.clear();
+        m_expansionMixWeightFifo.clear();
         m_expansionVolume = 1.0f;
         m_expansionLastSample = 0.0f;
+        m_expansionLastMixWeight = 0.0f;
         m_expansionPlaybackStarted = false;
         m_expansionConsumeRate = 1.0;
         m_expansionConsumeAcc = 0.0;
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
         m_expansionWindowSumQ = 0;
+        m_expansionWindowMixWeightSumQ = 0;
         m_visualizerSamples.fill(0.0f);
         m_visualizerWriteIndex = 0;
         m_visualizerSampleCount = 0;
@@ -148,13 +160,16 @@ public:
         m_sampleDirect.clearBuffer();
         m_sample.clearBuffer();
         m_expansionFifo.clear();
+        m_expansionMixWeightFifo.clear();
         m_expansionLastSample = 0.0f;
+        m_expansionLastMixWeight = 0.0f;
         m_expansionPlaybackStarted = false;
         m_expansionConsumeRate = 1.0;
         m_expansionConsumeAcc = 0.0;
         m_expansionPhaseAcc = 0;
         m_expansionWindowWeight = 0;
         m_expansionWindowSumQ = 0;
+        m_expansionWindowMixWeightSumQ = 0;
     }
 
     void clearAudioBuffers() override
@@ -192,8 +207,9 @@ public:
     GERANES_INLINE_HOT float mix()
     {
         float ret = 0;
-
-        const float sum = 0.5f+0.5f+0.5f+1.0f+1.5f+1.5f+1.0f;
+        float expansionMixWeight = 0.0f;
+        const float expansionRaw = mixExpansionAudio(expansionMixWeight);
+        const float sum = 0.5f + 0.5f + 0.5f + 1.0f + 1.5f + 1.5f + expansionMixWeight;
 
         //empirical values 
         ret += 0.5f/sum*m_pulseWave1.get()*m_userPulse1Volume;
@@ -202,7 +218,9 @@ public:
         ret += 1.0f/sum*m_noise.get()*m_userNoiseVolume;
         ret += 1.5f/sum*m_sample.get()*m_userSampleVolume;
         ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
-        ret += 1.0f/sum*mixExpansionAudio();
+        if(expansionMixWeight > 0.0f) {
+            ret += expansionMixWeight / sum * expansionRaw;
+        }
 
         ret = m_hpFilter1.apply(ret);
         ret = m_hpFilter2.apply(ret);
@@ -270,9 +288,10 @@ public:
         m_expansionVolume = clampVolume(volume);
     }
 
-    void processExpansionAudioSample(float currentSample) override
+    void processExpansionAudioSample(float currentSample, float mixWeight) override
     {
         const int64_t sampleQ = static_cast<int64_t>(currentSample * static_cast<float>(EXPANSION_Q_SCALE));
+        const int64_t mixWeightQ = static_cast<int64_t>(std::max(0.0f, mixWeight) * static_cast<float>(EXPANSION_Q_SCALE));
         const uint64_t outRate = static_cast<uint64_t>(std::max(1, m_outputSampleRate));
         const uint64_t srcRate = static_cast<uint64_t>(m_expansionSourceRateHz);
 
@@ -282,6 +301,7 @@ public:
         if(m_expansionPhaseAcc < srcRate) {
             m_expansionWindowWeight += static_cast<int64_t>(outRate);
             m_expansionWindowSumQ += sampleQ * static_cast<int64_t>(outRate);
+            m_expansionWindowMixWeightSumQ += mixWeightQ * static_cast<int64_t>(outRate);
             return;
         }
 
@@ -291,6 +311,7 @@ public:
 
         m_expansionWindowWeight += static_cast<int64_t>(inWindowUnits);
         m_expansionWindowSumQ += sampleQ * static_cast<int64_t>(inWindowUnits);
+        m_expansionWindowMixWeightSumQ += mixWeightQ * static_cast<int64_t>(inWindowUnits);
 
         if(m_expansionWindowWeight > 0) {
             const float averaged = static_cast<float>(
@@ -298,11 +319,17 @@ public:
                 static_cast<double>(m_expansionWindowWeight) /
                 static_cast<double>(EXPANSION_Q_SCALE));
             m_expansionFifo.write(averaged);
+            const float averagedMixWeight = static_cast<float>(
+                static_cast<double>(m_expansionWindowMixWeightSumQ) /
+                static_cast<double>(m_expansionWindowWeight) /
+                static_cast<double>(EXPANSION_Q_SCALE));
+            m_expansionMixWeightFifo.write(std::max(0.0f, averagedMixWeight));
         }
 
         // Keep only leftover proportional time/value for next output sample window.
         m_expansionWindowWeight = static_cast<int64_t>(excess);
         m_expansionWindowSumQ = sampleQ * static_cast<int64_t>(excess);
+        m_expansionWindowMixWeightSumQ = mixWeightQ * static_cast<int64_t>(excess);
         m_expansionPhaseAcc = excess;
     }
 

@@ -470,7 +470,7 @@ private:
 
     void preloadNsfMemory()
     {
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
         if(!m_cartridge.isNsf()) {
             return;
         }

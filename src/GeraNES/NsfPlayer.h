@@ -2,7 +2,7 @@
 
 #include <functional>
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
 
 #include <cstdint>
 #include <string>

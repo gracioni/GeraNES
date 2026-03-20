@@ -278,6 +278,11 @@ public:
         return m_sample;
     }
 
+    float getMixWeight() const
+    {
+        return 3.0f;
+    }
+
     void setPulse1Volume(float v) { m_volPulse1 = std::clamp(v, 0.0f, 1.0f); }
     void setPulse2Volume(float v) { m_volPulse2 = std::clamp(v, 0.0f, 1.0f); }
     void setPcmVolume(float v) { m_volPcm = std::clamp(v, 0.0f, 1.0f); }

@@ -173,9 +173,9 @@ public:
         m_audioOutput.setExpansionAudioVolume(1.0f);
     }
 
-    GERANES_INLINE void processExpansionAudioSample(float currentSample)
+    GERANES_INLINE void processExpansionAudioSample(float currentSample, float mixWeight)
     {
-        m_audioOutput.processExpansionAudioSample(currentSample);
+        m_audioOutput.processExpansionAudioSample(currentSample, mixWeight);
     }
 
     GERANES_INLINE_HOT bool getInterruptFlag()

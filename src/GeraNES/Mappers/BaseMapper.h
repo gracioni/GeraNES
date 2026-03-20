@@ -249,7 +249,7 @@ public:
     {
     }
 
-#ifdef ENABLE_NFS_PLAYER
+#ifdef ENABLE_NSF_PLAYER
     virtual bool consumeNsfPlayerInstructionRedirect(uint16_t& /*cpuAddr*/)
     {
         return false;
@@ -267,6 +267,16 @@ public:
     virtual float getExpansionAudioSample()
     {
         return 0.0f;
+    }
+
+    virtual float getMixWeight() const
+    {
+        return 0.0f;
+    }
+
+    virtual float getExpansionOutputGain() const
+    {
+        return 1.0f;
     }
 
     virtual std::string getAudioChannelsJson() const
