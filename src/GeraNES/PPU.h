@@ -175,13 +175,11 @@ private:
     bool m_pendingDataLatchUpdate;
     uint8_t m_pendingDataLatchDelay;
     uint16_t m_pendingDataLatchAddr;
-    bool m_pendingDataLatchUseBusAddress;
     bool m_deferredDataLatchArmPending;
     bool m_deferredDataLatchStart;
     uint8_t m_deferredDataLatchStartDelay;
     bool m_deferredVideoRamIncrementArmPending;
     uint8_t m_deferredVideoRamIncrementDelay;
-    uint8_t m_lastWrite;
 
     int m_debugCursorX = 0;
     int m_debugCursorY = 0;
@@ -296,11 +294,7 @@ private:
             }
             else {
                 uint8_t value = m_cartridge.readChr(addr);
-                if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-                    m_dataLatch = value;
-                    m_pendingDataLatchUpdate = false;
-                    m_pendingDataLatchUseBusAddress = false;
-                }
+                commitPendingDataLatch(value);
                 return value;
             }
         }
@@ -316,11 +310,7 @@ private:
             }
             else {
                 uint8_t value = readNameTable(addrIndex,addr);
-                if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-                    m_dataLatch = value;
-                    m_pendingDataLatchUpdate = false;
-                    m_pendingDataLatchUseBusAddress = false;
-                }
+                commitPendingDataLatch(value);
                 return value;
             }
         }
@@ -339,11 +329,7 @@ private:
             }
             else {
                 uint8_t value = m_palette[addr - 0x3F00];
-                if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-                    m_dataLatch = value;
-                    m_pendingDataLatchUpdate = false;
-                    m_pendingDataLatchUseBusAddress = false;
-                }
+                commitPendingDataLatch(value);
                 return value;
             }
         }
@@ -388,6 +374,14 @@ private:
     GERANES_INLINE void fakeWritePpuMemory(int addr, uint8_t data)
     {
         readWritePpuMemory<true, false>(addr,data);
+    }
+
+    GERANES_INLINE void commitPendingDataLatch(uint8_t value)
+    {
+        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+            m_dataLatch = value;
+            m_pendingDataLatchUpdate = false;
+        }
     }
 
     //index 0-3
@@ -485,13 +479,11 @@ public:
         m_pendingDataLatchUpdate = false;
         m_pendingDataLatchDelay = 0;
         m_pendingDataLatchAddr = 0;
-        m_pendingDataLatchUseBusAddress = false;
         m_deferredDataLatchArmPending = false;
         m_deferredDataLatchStart = false;
         m_deferredDataLatchStartDelay = 0;
         m_deferredVideoRamIncrementArmPending = false;
         m_deferredVideoRamIncrementDelay = 0;
-        m_lastWrite = 0;
 
         m_currentPixelColorIndex = 0;
         m_bgPatternLowShift = 0;
@@ -1736,7 +1728,7 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE void writeOAMDATA(uint8_t data)
     {
-        if((!m_renderLine && (m_settings.region() != Settings::Region::PAL || m_renderLine)) || !isRenderingEnabled()) {
+        if(!m_renderLine || !isRenderingEnabled()) {
             if((m_oamAddr & 0x03) == 0x02) {
                 //"The three unimplemented bits of each sprite's byte 2 do not exist in the PPU and always read back as 0 on PPU revisions that allow reading PPU OAM through OAMDATA ($2004)"
                 data &= 0xE3;
@@ -1823,7 +1815,6 @@ yyy NNYY YYYX XXXX
                 m_deferredDataLatchArmPending = true;
                 m_deferredVideoRamIncrementArmPending = true;
                 m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x2FFF);
-                m_pendingDataLatchUseBusAddress = false;
             }
             else {
                 m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
@@ -1835,7 +1826,6 @@ yyy NNYY YYYX XXXX
                 m_deferredDataLatchArmPending = true;
                 m_deferredVideoRamIncrementArmPending = true;
                 m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x3FFF);
-                m_pendingDataLatchUseBusAddress = false;
             }
             else {
                 m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
@@ -1993,7 +1983,6 @@ yyy NNYY YYYX XXXX
             if(!m_renderLine || !isRenderingEnabled()) {
                 m_dataLatch = fakeReadPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
                 m_pendingDataLatchUpdate = false;
-                m_pendingDataLatchUseBusAddress = false;
             }
             else {
                 m_needUpdateState = true;
@@ -2013,8 +2002,6 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE void writePPUDATA(uint8_t data)
     {
-        m_lastWrite = data;
-
         if(isOnPaletteAddr()) {
             fakeWritePpuMemory(m_reg_v, data); //palette
         }
@@ -2284,13 +2271,11 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_pendingDataLatchUpdate);
         SERIALIZEDATA(s, m_pendingDataLatchDelay);
         SERIALIZEDATA(s, m_pendingDataLatchAddr);
-        SERIALIZEDATA(s, m_pendingDataLatchUseBusAddress);
         SERIALIZEDATA(s, m_deferredDataLatchArmPending);
         SERIALIZEDATA(s, m_deferredDataLatchStart);
         SERIALIZEDATA(s, m_deferredDataLatchStartDelay);
         SERIALIZEDATA(s, m_deferredVideoRamIncrementArmPending);
         SERIALIZEDATA(s, m_deferredVideoRamIncrementDelay);
-        SERIALIZEDATA(s, m_lastWrite);
 
         SERIALIZEDATA(s, m_tileAddr);
         SERIALIZEDATA(s, m_paletteOffset);
