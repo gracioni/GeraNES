@@ -3,11 +3,12 @@
 #ifdef ENABLE_NFS_PLAYER
 
 #include <array>
+#include <memory>
 #include <cstring>
 #include <cstdint>
-#include <sstream>
-#include <iomanip>
 #include "BaseMapper.h"
+#include "NsfExpansionAudio/NsfExpansionAudioFactory.h"
+#include "NsfExpansionAudio/NsfExpansionAudio.h"
 #include "GeraNES/NesCartridgeData/_NsfFormat.h"
 #include "GeraNES/util/NesAssembler.h"
 
@@ -26,6 +27,8 @@ private:
     bool m_playRequestPending = false;
     bool m_playInFlight = false;
     uint32_t m_playCounter = 0;
+    std::unique_ptr<NsfExpansionAudio> m_audioOwner;
+    NsfExpansionAudio* m_audio = nullptr;
 
     GERANES_INLINE uint8_t readMappedNsfData(uint16_t cpuAddr) const
     {
@@ -35,9 +38,14 @@ private:
         if(m_nsf.usesBankSwitch()) {
             const int slot = rel >> 12; // 4KB slot in $8000-$FFFF
             const int bank = static_cast<int>(m_bankRegs[static_cast<size_t>(slot)]) & 0xFF;
+            const int padding = static_cast<int>(m_nsf.loadAddress() & 0x0FFF);
             const int offset = (bank << 12) | (rel & 0x0FFF);
-            if(offset >= 0 && offset < m_nsf.prgSize()) {
-                return m_nsf.readPrg(offset);
+            const int payloadOffset = offset - padding;
+            if(payloadOffset < 0) {
+                return 0;
+            }
+            if(payloadOffset < m_nsf.prgSize()) {
+                return m_nsf.readPrg(payloadOffset);
             }
             return 0;
         }
@@ -156,6 +164,8 @@ public:
     MapperNSF(ICartridgeData& cd)
         : BaseMapper(cd)
         , m_nsf(*dynamic_cast<_NsfFormat*>(&cd))
+        , m_audioOwner(NsfExpansionAudioFactory::createForNsf(m_nsf.soundChipFlags()))
+        , m_audio(m_audioOwner.get())
     {
     }
 
@@ -174,6 +184,9 @@ public:
         m_playRequestPending = false;
         m_playInFlight = false;
         m_playCounter = 0;
+        if(m_audio != nullptr) {
+            m_audio->reset(1789773);
+        }
         initBanks();
         installDriver();
     }
@@ -191,6 +204,10 @@ public:
 
     void cycle() override
     {
+        if(m_audio != nullptr) {
+            m_audio->clock();
+        }
+
         if(!m_isPlaying || !m_initDone || m_playInFlight) return;
         if(m_playCounter > 0) {
             --m_playCounter;
@@ -205,8 +222,22 @@ public:
         return false;
     }
 
+    uint8_t readMapperRegister(int addr, uint8_t openBusData) override
+    {
+        if(m_audio != nullptr && m_audio->handlesRegister(addr)) {
+            return m_audio->readRegister(addr, openBusData);
+        }
+
+        return openBusData;
+    }
+
     void writeMapperRegister(int addr, uint8_t data) override
     {
+        if(m_audio != nullptr && m_audio->handlesRegister(addr)) {
+            m_audio->writeRegister(addr, data);
+            return;
+        }
+
         if(addr == PLAY_ACK_REG) {
             m_playInFlight = false;
             if(m_isPlaying) {
@@ -233,6 +264,36 @@ public:
     void writeSaveRam(int addr, uint8_t data) override
     {
         BaseMapper::writeSaveRam(addr, data);
+    }
+
+    float getExpansionAudioSample() override
+    {
+        return m_audio != nullptr ? m_audio->getSample() : 0.0f;
+    }
+
+    std::string getAudioChannelsJson() const override
+    {
+        return m_audio != nullptr ? m_audio->getAudioChannelsJson() : "{\"channels\":[]}";
+    }
+
+    bool setAudioChannelVolumeById(const std::string& id, float volume) override
+    {
+        return m_audio != nullptr && m_audio->setAudioChannelVolumeById(id, volume);
+    }
+
+    void serialization(SerializationBase& s) override
+    {
+        BaseMapper::serialization(s);
+        s.array(m_bankRegs.data(), 1, static_cast<int>(m_bankRegs.size()));
+        SERIALIZEDATA(s, m_songIndex);
+        SERIALIZEDATA(s, m_isPlaying);
+        SERIALIZEDATA(s, m_initDone);
+        SERIALIZEDATA(s, m_playRequestPending);
+        SERIALIZEDATA(s, m_playInFlight);
+        SERIALIZEDATA(s, m_playCounter);
+        if(m_audio != nullptr) {
+            m_audio->serialization(s);
+        }
     }
 
     GERANES_INLINE int totalSongs() const
@@ -293,6 +354,38 @@ public:
         m_playInFlight = true;
         cpuAddr = DRIVER_PLAY_ADDR;
         return true;
+    }
+
+    void preloadNsfMemory(uint8_t* cpuRam, size_t cpuRamSize) override
+    {
+        if(cpuRam == nullptr || cpuRamSize == 0) {
+            return;
+        }
+
+        const uint16_t loadAddr = m_nsf.loadAddress();
+        if(loadAddr >= 0x8000) {
+            return;
+        }
+
+        const size_t lowSegmentSize = std::min<size_t>(
+            static_cast<size_t>(0x8000 - loadAddr),
+            static_cast<size_t>(m_nsf.prgSize())
+        );
+
+        uint8_t* const workRam = saveRamData();
+        const size_t workRamSize = saveRamSize();
+
+        for(size_t i = 0; i < lowSegmentSize; ++i) {
+            const uint16_t targetAddr = static_cast<uint16_t>(loadAddr + i);
+            const uint8_t value = m_nsf.readPrg(static_cast<int>(i));
+
+            if(targetAddr < 0x2000) {
+                cpuRam[targetAddr & static_cast<uint16_t>(cpuRamSize - 1)] = value;
+            }
+            else if(targetAddr >= 0x6000 && targetAddr < 0x8000 && workRam != nullptr && workRamSize > 0) {
+                workRam[targetAddr - 0x6000] = value;
+            }
+        }
     }
 
     void nextSong()

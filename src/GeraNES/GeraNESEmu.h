@@ -451,6 +451,18 @@ private:
         return std::string(STATES_FOLDER) + basename(m_cartridge.romFile().fileName()) + ".s";
     }
 
+    void preloadNsfMemory()
+    {
+#ifdef ENABLE_NFS_PLAYER
+        if(!m_cartridge.isNsf()) {
+            return;
+        }
+
+        memset(m_ram, 0, sizeof(m_ram));
+        m_cartridge.preloadNsfMemory(m_ram, sizeof(m_ram));
+#endif
+    }
+
 public:
 
     uint8_t getOpenBus() const override
@@ -659,6 +671,7 @@ public:
 
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_cartridge.reset();
+            preloadNsfMemory();
             m_ppu.init();
             m_cpu.init();
             m_apu.init();
@@ -1178,6 +1191,7 @@ public:
         if(!m_cartridge.isValid()) return;
 
         m_cartridge.reset();
+        preloadNsfMemory();
         m_apu.reset();
         m_ppu.init();
 

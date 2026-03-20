@@ -244,6 +244,10 @@ public:
     {
         return false;
     }
+
+    virtual void preloadNsfMemory(uint8_t* /*cpuRam*/, size_t /*cpuRamSize*/)
+    {
+    }
 #endif
 
     virtual void applyExternalActions(uint8_t /*pending*/)

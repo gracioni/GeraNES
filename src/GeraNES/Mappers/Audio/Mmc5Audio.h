@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 
-#include "../Serialization.h"
-#include "../APU/APUCommon.h"
+#include "../../Serialization.h"
+#include "../../APU/APUCommon.h"
 
 class Mmc5Audio
 {

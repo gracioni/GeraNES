@@ -7,7 +7,7 @@
 #include <cmath>
 
 #include "BaseMapper.h"
-#include "Mmc5Audio.h"
+#include "Audio/Mmc5Audio.h"
 #include "../APU/APUCommon.h"
 #define GERANES_M005_AUDIO_DEBUG 0
 

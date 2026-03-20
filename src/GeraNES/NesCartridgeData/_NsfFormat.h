@@ -26,6 +26,7 @@ private:
     uint16_t m_playSpeedNtsc = 16639;
     uint16_t m_playSpeedPal = 19997;
     uint8_t m_flags = 0;
+    uint8_t m_soundChipFlags = 0;
     std::array<uint8_t, 8> m_bankInit = {0, 0, 0, 0, 0, 0, 0, 0};
 
     size_t m_prgStartIndex = NSF_HEADER_SIZE;
@@ -61,6 +62,7 @@ public:
         m_playSpeedNtsc = readLe16(m_romFile, 0x6E);
         m_playSpeedPal = readLe16(m_romFile, 0x78);
         m_flags = m_romFile.data(0x7A);
+        m_soundChipFlags = m_romFile.data(0x7B);
         for(int i = 0; i < 8; ++i) {
             m_bankInit[static_cast<size_t>(i)] = m_romFile.data(0x70 + i);
         }
@@ -121,7 +123,9 @@ public:
     GERANES_INLINE uint16_t playSpeedNtsc() const { return m_playSpeedNtsc; }
     GERANES_INLINE uint16_t playSpeedPal() const { return m_playSpeedPal; }
     GERANES_INLINE uint8_t flags() const { return m_flags; }
+    GERANES_INLINE uint8_t soundChipFlags() const { return m_soundChipFlags; }
     GERANES_INLINE uint8_t initRegionValue() const { return (m_flags & 0x01) ? 1 : 0; }
+    GERANES_INLINE bool usesMmc5Audio() const { return (m_soundChipFlags & 0x08) != 0; }
     GERANES_INLINE bool usesBankSwitch() const
     {
         for(uint8_t v : m_bankInit) {

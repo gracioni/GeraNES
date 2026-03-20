@@ -514,6 +514,11 @@ public:
     {
         return m_mapper->consumeNsfPlayerInstructionRedirect(cpuAddr);
     }
+
+    GERANES_INLINE void preloadNsfMemory(uint8_t* cpuRam, size_t cpuRamSize)
+    {
+        m_mapper->preloadNsfMemory(cpuRam, cpuRamSize);
+    }
 #endif
 
     GERANES_INLINE float getExpansionAudioSample()
