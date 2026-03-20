@@ -7,7 +7,7 @@
 #include "Audio/Namco163Audio.h"
 
 #ifndef GERANES_M019_SUBMAPPER5_GAIN
-#define GERANES_M019_SUBMAPPER5_GAIN 2.0f
+#define GERANES_M019_SUBMAPPER5_GAIN 6.0f
 #endif
 
 class Mapper019 : public BaseMapper
@@ -32,7 +32,7 @@ private:
 
     Namco163Audio m_audio;
     bool m_subMapper5Mix = false;
-    float m_subMapperMixGain = 1.0f;
+    float m_subMapperMixGain = 8.0f;
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readChrRam(int bank, int addr)

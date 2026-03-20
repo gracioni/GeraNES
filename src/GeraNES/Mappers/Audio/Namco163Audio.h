@@ -173,12 +173,12 @@ public:
 
     float getMixWeight() const
     {
-        return m_soundDisable ? 0.0f : 1;
+        return m_soundDisable ? 0.0f : 0.5f;
     }
 
     float getOutputGain() const
     {
-        return 1;
+        return 4;
     }
 
     std::string getAudioChannelsJson() const
