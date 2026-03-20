@@ -888,6 +888,7 @@ public:
     GERANES_INLINE_HOT void renderPixel()
     {
         m_currentPixelColorIndex = 0;
+        const bool renderingEnabled = m_renderingEnabled;
 
         if(m_backgroundEnabled) renderBackgroundPixel();
         if(m_spritesEnabled) renderSpritesPixel();
@@ -895,7 +896,7 @@ public:
         uint8_t value;
 
         //if reg v is pointing to the palette
-        if(!isRenderingEnabled() && isOnPaletteAddr()) {
+        if(!renderingEnabled && isOnPaletteAddr()) {
             value  = fakeReadPpuMemory(m_reg_v)&0x3F;
         }
         else {
@@ -980,6 +981,8 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE_HOT void evaluateSprites()
     {       
+        const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
+
         if(m_cycle < 65) {
             m_oamCopyBuffer = 0xFF;
             m_secondaryOam[(m_cycle-1) >> 1] = 0xFF;
@@ -1025,7 +1028,7 @@ yyy NN YYYYY XXXXX
                 }
                 else {
 
-                    if(!m_spriteInRange && m_scanline >= m_oamCopyBuffer && m_scanline < m_oamCopyBuffer + (m_spriteSize8x16 ? 16 : 8)) {
+                    if(!m_spriteInRange && m_scanline >= m_oamCopyBuffer && m_scanline < m_oamCopyBuffer + spriteHeight) {
                         m_spriteInRange = true;
                     }                    
 
@@ -1056,11 +1059,11 @@ yyy NN YYYYY XXXXX
 							//rendering on a single scanline
 							if((m_secondaryOamAddr & 0x03) == 0) {
 								//Done copying all 4 bytes
-								m_spriteInRange = false;
+                                m_spriteInRange = false;
 
                                 if(m_oamAddrM != 0) {
                                     bool inRange = m_scanline >= m_oamCopyBuffer &&
-                                                   m_scanline < m_oamCopyBuffer + (m_spriteSize8x16 ? 16 : 8);
+                                                   m_scanline < m_oamCopyBuffer + spriteHeight;
                                     if(!inRange) {
                                         m_oamAddrM = 0;
                                     }
@@ -1428,7 +1431,7 @@ yyy NN YYYYY XXXXX
 
                     shiftTileData();
 
-                    switch(m_cycle%8) {
+                    switch(m_cycle & 0x07) {
                         case 1: setupNameTableByte(); break;
                         case 2: fetchNameTableByte(); break;
                         case 3: setupAttributeTableByte(); break;
@@ -2198,11 +2201,11 @@ yyy NNYY YYYX XXXX
         // Background tile fetch source for mapper CHR/NT substitution.
         m_isSpritePatternFetch = false;
         m_cartridge.setPpuFetchSource(false);
-        uint16_t address = getNameTableAddr();
-        uint8_t tileIndex = completePpuRead(address);
+        const uint16_t address = getNameTableAddr();
+        const uint8_t tileIndex = completePpuRead(address);
 
-        int fineY = (m_reg_v >> 12) & 7;
-        int table = m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
+        const int fineY = (m_reg_v >> 12) & 7;
+        const int table = static_cast<int>(m_backgroundPatternTableAddress) << 12;
 
         m_tileAddr = table + (tileIndex << 4) + fineY;
     }
@@ -2223,8 +2226,8 @@ yyy NNYY YYYX XXXX
         m_isSpritePatternFetch = false;
         m_cartridge.setPpuFetchSource(false);
 
-        int address = getAttributeTableAddr();
-        int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
+        const int address = getAttributeTableAddr();
+        const int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
         m_paletteOffset = ((completePpuRead(address) >> shift) & 3) << 2;
     }
 
