@@ -120,10 +120,10 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
         report_path = to_report_path(rom_path, roms_folder)
         if return_code == 0:
             result = "passed"
-        elif return_code > 0:
-            result = "failed"
+        elif return_code == -1:
+            result = "timeout"
         else:
-            result = "error"
+            result = "failed" if return_code > 0 else "timeout"
 
         print(f"[{index}/{total}] {report_path} -> {result}", flush=True)
 
@@ -180,10 +180,12 @@ def write_md(report: Dict[str, object], out_path: str) -> None:
         result_raw = str(test.get("result", "")).strip().lower()
         if result_raw == "passed":
             result = '<span style="color: green;"><strong>passed</strong></span>'
-        elif result_raw == "error":
-            result = '<span style="color: orange;"><strong>error</strong></span>'
-        else:
+        elif result_raw == "timeout":
+            result = '<span style="color: orange;"><strong>timeout</strong></span>'
+        elif result_raw == "failed":
             result = '<span style="color: red;"><strong>failed</strong></span>'
+        else:
+            result = '<span style="color: orange;"><strong>timeout</strong></span>'
         lines.append(f"- **{file_name}**: {result}")
 
     with open(out_path, "w", encoding="utf-8") as f:
@@ -216,7 +218,7 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
     parts.append(".status{font-weight:700;}")
     parts.append(".passed{color:#198754;}")
     parts.append(".failed{color:#c1121f;}")
-    parts.append(".error{color:#d97706;}")
+    parts.append(".timeout{color:#b45309;}")
     parts.append(".filters{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:0 0 16px 0;padding:10px 12px;border:1px solid #ddd;border-radius:8px;background:#fff;}")
     parts.append(".filters label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;}")
     parts.append("details{margin-top:6px;}")
@@ -232,7 +234,7 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
     parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"all\" checked> all</label>")
     parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"passed\"> passed</label>")
     parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"failed\"> failed</label>")
-    parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"error\"> error</label>")
+    parts.append("<label><input type=\"radio\" name=\"status-filter\" value=\"timeout\"> timeout</label>")
     parts.append("</form>")
 
     for test in tests:
@@ -242,10 +244,12 @@ def write_html(report: Dict[str, object], out_path: str) -> None:
         result_raw = str(test.get("result", "")).strip().lower()
         if result_raw == "passed":
             status_class = "passed"
-        elif result_raw == "error":
-            status_class = "error"
-        else:
+        elif result_raw == "timeout":
+            status_class = "timeout"
+        elif result_raw == "failed":
             status_class = "failed"
+        else:
+            status_class = "timeout"
         return_code = html.escape(str(test.get("returnCode", "")))
         output_raw = str(test.get("output", ""))
         output_norm = output_raw.replace("\r\n", "\n").replace("\r", "\n")
@@ -326,6 +330,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_output_path(args_out: str, out_format: str, multiple_formats: bool, default_name: str) -> str:
+    if not args_out:
+        return default_name
+
+    is_directory_hint = args_out.endswith(os.sep) or args_out.endswith("/") or args_out.endswith("\\")
+    if is_directory_hint or os.path.isdir(args_out):
+        return os.path.join(args_out, default_name)
+
+    if multiple_formats:
+        base, _ = os.path.splitext(args_out)
+        return f"{base}.{out_format}"
+
+    return args_out
+
+
 def main() -> int:
     args = parse_args()
 
@@ -370,14 +389,12 @@ def main() -> int:
 
     generated_files: List[str] = []
     for out_format in formats:
-        if args.out:
-            if len(formats) == 1:
-                out_file = args.out
-            else:
-                base, _ = os.path.splitext(args.out)
-                out_file = f"{base}.{out_format}"
-        else:
-            out_file = default_out[out_format]
+        out_file = resolve_output_path(
+            args.out,
+            out_format,
+            len(formats) > 1,
+            default_out[out_format],
+        )
 
         if out_format == "md":
             write_md(report, out_file)
@@ -390,6 +407,13 @@ def main() -> int:
 
     for out_file in generated_files:
         print(out_file, flush=True)
+
+    summary = report.get("summary", {})
+    if isinstance(summary, dict):
+        passed = int(summary.get("passed", 0))
+        total = int(summary.get("total", 0))
+        print(f"Passed ROMs: {passed}/{total}", flush=True)
+
     return 0
 
 

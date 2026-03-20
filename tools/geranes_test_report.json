@@ -1,0 +1,1925 @@
+{
+  "emulatorVersion": "1.7.2",
+  "generatedAtUtc": "2026-03-20T04:23:17.750605+00:00",
+  "summary": {
+    "passed": 319,
+    "total": 319,
+    "label": "Passed (319/319)"
+  },
+  "tests": [
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/01-ROM-is-not-writable.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/02-RAM-Mirroring.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/03-PC-Wraparound.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/04-The-Decimal-Flag.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/05-The-B-Flag.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/06-Dummy-read-cycles.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/07-Dummy-write-cycles.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/08-Open-Bus.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/01-CPU-Behavior/09-All-NOP-instructions.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/02-Addressing-mode-wraparound/01-Absolute-Indexed.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/02-Addressing-mode-wraparound/02-Zero-Page-Indexed.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/02-Addressing-mode-wraparound/03-Indirect.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/02-Addressing-mode-wraparound/04-Indirect,-X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/02-Addressing-mode-wraparound/05-Indirect,-Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/02-Addressing-mode-wraparound/06-Relative.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/01-$03-SLO-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/02-$07-SLO-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/03-$0F-SLO-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/04-$13-SLO-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/05-$17-SLO-zeropage,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/06-$1B-SLO-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/03-Unofficial-Instructions-SLO/07-$1F-SLO-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/01-$23-RLA-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/02-$27-RLA-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/03-$2F-RLA-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/04-$33-RLA-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/05-$37-RLA-zeropage,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/06-$3B-RLA-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/04-Unofficial-Instructions-RLA/07-$3F-RLA-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/01-$43-SRE-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/02-$47-SRE-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/03-$4F-SRE-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/04-$53-SRE-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/05-$57-SRE-zeropage,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/06-$5B-SRE-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/05-Unofficial-Instructions-SRE/07-$5F-SRE-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/01-$63-RRA-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/02-$67-RRA-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/03-$6F-RRA-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/04-$73-RRA-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/05-$77-RRA-zeropage,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/06-$7B-RRA-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/06-Unofficial-Instructions-RRA/07-$7F-RRA-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/01-$83-SAX-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/02-$87-SAX-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/03-$8F-SAX-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/04-$97-SAX-zeropage,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/05-$A3-LAX-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/06-$A7-LAX-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/07-$AF-LAX-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/08-$B3-LAX-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/09-$B7-LAX-zeropage,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/07-Unofficial-Instructions-AX/10-$BF-LAX-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/01-$C3-DCP-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/02-$C7-DCP-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/03-$CF-DCP-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/04-$D3-DCP-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/05-$D7-DCP-zeropage,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/06-$DB-DCP-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/08-Unofficial-Instructions-DCP/07-$DF-DCP-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/01-$E3-ISC-indirect,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/02-$E7-ISC-zeropage.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/03-$EF-ISC-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/04-$F3-ISC-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/05-$F7-ISC-zeropage,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/06-$FB-ISC-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/09-Unofficial-Instructions-ISC/07-$FF-ISC-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/10-Unofficial-Instructions-SH/01-$93-SHA-indirect,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/10-Unofficial-Instructions-SH/02-$9F-SHA-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/10-Unofficial-Instructions-SH/03-$9B-SHS-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/10-Unofficial-Instructions-SH/04-$9C-SHY-absolute,X.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/10-Unofficial-Instructions-SH/05-$9E-SHX-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/10-Unofficial-Instructions-SH/06-$BB-LAE-absolute,Y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/01-$0B-ANC-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/02-$2B-ANC-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/03-$4B-ASR-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/04-$6B-ARR-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/05-$8B-ANE-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/06-$AB-LXA-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/07-$CB-AXS-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/11-Unofficial-Immediates/08-$EB-SBC-Immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/12-CPU-Interrupts/01-Interrupt-flag-latency.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/12-CPU-Interrupts/02-NMI-Overlap-BRK.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/12-CPU-Interrupts/03-NMI-Overlap-IRQ.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/01-DMA-+-Open-Bus.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/02-DMA-+-$2002-Read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/03-DMA-+-$2007-Read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/04-DMA-+-$2007-Write.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/05-DMA-+-$4015-Read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/06-DMA-+-$4016-Read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/07-DMC-DMA-Bus-Conflicts.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/08-DMC-DMA-+-OAM-DMA.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/09-Explicit-DMA-Abort.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/13-APU-Registers-and-DMA-tests/10-Implicit-DMA-Abort.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/01-Length-Counter.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/02-Length-Table.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/03-Frame-Counter-IRQ.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/04-Frame-Counter-4-step.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/05-Frame-Counter-5-step.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/06-Delta-Modulation-Channel.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/07-APU-Register-Activation.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/08-Controller-Strobing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/14-APU-Tests/09-Controller-Clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/01-CHR-ROM-is-not-writable.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/02-PPU-Register-Mirroring.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/03-PPU-Register-Open-Bus.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/04-PPU-Read-Buffer.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/05-Palette-RAM-Quirks.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/06-Rendering-Flag-Behavior.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/16-PPU-Behavior/07-$2007-read-w-rendering.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/01-VBlank-beginning.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/02-VBlank-end.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/03-NMI-Control.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/04-NMI-Timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/05-NMI-Suppression.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/06-NMI-at-VBlank-end.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/17-PPU-VBlank-Timing/07-NMI-disabled-at-VBlank.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/01-Sprite-overflow-behavior.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/02-Sprite-0-Hit-behavior.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/03-$2002-flag-timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/04-Suddenly-Resize-Sprite.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/05-Arbitrary-Sprite-zero.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/06-Misaligned-OAM-behavior.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/07-Address-$2004-behavior.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/08-OAM-Corruption.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/18-Sprite-Evaluation/09-INC-$4014.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/01-Attributes-As-Tiles.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/02-t-Register-Quirks.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/03-Stale-BG-Shift-Registers.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/04-BG-Serial-In.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/05-Sprites-On-Scanline-0.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/06-$2004-Stress-Test.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/19-PPU-Misc/07-$2007-Stress-Test.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/20-CPU-Behavior-2/01-Instruction-Timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/20-CPU-Behavior-2/02-Implied-Dummy-Reads.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/20-CPU-Behavior-2/03-Branch-Dummy-Reads.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "accuracy-coin/20-CPU-Behavior-2/04-JSR-Edge-Cases.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Passed"
+    },
+    {
+      "fileName": "apu_reset/4015_cleared.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "4015_cleared\n\nPassed"
+    },
+    {
+      "fileName": "apu_reset/4017_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Delay after effective $4017 write: 10\n\n4017_timing\n\nPassed"
+    },
+    {
+      "fileName": "apu_reset/4017_written.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "4017_written\n\nPassed"
+    },
+    {
+      "fileName": "apu_reset/irq_flag_cleared.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "irq_flag_cleared\n\nPassed"
+    },
+    {
+      "fileName": "apu_reset/len_ctrs_enabled.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "len_ctrs_enabled\n\nPassed"
+    },
+    {
+      "fileName": "apu_reset/works_immediately.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "works_immediately\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/apu_test.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "8-dmc_rates\n\nPassed\nAll 8 tests passed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/1-len_ctr.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "1-len_ctr\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/2-len_table.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "2-len_table\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/3-irq_flag.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "3-irq_flag\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/4-jitter.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "4-jitter\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/5-len_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "5-len_timing\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/6-irq_flag_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "6-irq_flag_timing\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/7-dmc_basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "7-dmc_basics\n\nPassed"
+    },
+    {
+      "fileName": "apu_test/rom_singles/8-dmc_rates.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "8-dmc_rates\n\nPassed"
+    },
+    {
+      "fileName": "blargg_nes_cpu_test5/cpu.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "blargg_nes_cpu_test5/official.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "blargg_ppu_tests_2005.09.15b/palette_ram.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "blargg_ppu_tests_2005.09.15b/power_up_palette.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "blargg_ppu_tests_2005.09.15b/sprite_ram.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "blargg_ppu_tests_2005.09.15b/vram_access.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "branch_timing_tests/1.Branch_Basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "BRANCH TIMING BASICS\n\nPASSED"
+    },
+    {
+      "fileName": "branch_timing_tests/2.Backward_Branch.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "BACKWARD BRANCH TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "branch_timing_tests/3.Forward_Branch.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "FORWARD BRANCH TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "cpu_dummy_writes/cpu_dummy_writes_oam.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "TEST: cpu_dummy_writes_oam\nThis program verifies that the\nCPU does 2x writes properly.\nAny read-modify-write opcode\nshould first write the origi-\nnal value; then the calculated\nvalue exactly 1 cycle later.\n\nRequirement: OAM memory reads\nMUST be reliable. This is\noften the case on emulators,\nbut NOT on the real NES.\nNevertheless, this test can be\nused to see if the CPU in the\nemulator is built properly.\n\nTesting OAM.  The screen will go blank for a moment now.\nOK; Verifying opcodes...\n0E2E4E6ECEEE 1E3E5E7EDEFE \n0F2F4F6FCFEF 1F3F5F7FDFFF \n03234363C3E3 13335373D3F3 \n1B3B5B7BDBFB              \n\nPassed"
+    },
+    {
+      "fileName": "cpu_dummy_writes/cpu_dummy_writes_ppumem.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "TEST: cpu_dummy_writes_ppumem\nThis program verifies that the\nCPU does 2x writes properly.\nAny read-modify-write opcode\nshould first write the origi-\nnal value; then the calculated\nvalue exactly 1 cycle later.\n\nVerifying open bus behavior.\n      W- W- WR W- W- W- W- WR\n2000+ 0  1  2  3  4  5  6  7 \n  R0: 0- 0- 00 0- 0- 0- 0- 00\n  R1: 0- 0- 00 0- 0- 0- 0- 00\n  R3: 0- 0- 00 0- 0- 0- 0- 00\n  R5: 0- 0- 00 0- 0- 0- 0- 00\n  R6: 0- 0- 00 0- 0- 0- 0- 00\nOK; Verifying opcodes...\n0E2E4E6ECEEE 1E3E5E7EDEFE \n0F2F4F6FCFEF 1F3F5F7FDFFF \n03234363C3E3 13335373D3F3 \n1B3B5B7BDBFB              \n\nPassed"
+    },
+    {
+      "fileName": "cpu_exec_space/test_cpu_exec_space_apu.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "TEST: test_cpu_exec_space_apu\nThis program verifies that the\nCPU can execute code from any\npossible location that it can\naddress, including I/O space.\n\nIn this test, it is also\nverified that not only all\nwrite-only APU I/O ports\nreturn the open bus, but\nalso the unallocated I/O\nspace in $4018..$40FF.\n\n0022 4000 4001 4002 4003 4004 4005 4006 4007 4008 4009 400A 400B 400C 400D 400E 400F 4010 4011 4012 4013 4014 4016 4017 4018 4019 401A 401B 401C 401D 401E 401F 4020 4021 4022 4023 4024 4025 4026 4027 4028 4029 402A 402B 402C 402D 402E 402F 4030 4031 4032 4033 4034 4035 4036 4037 4038 4039 403A 403B 403C 403D 403E 403F 4040 4041 4042 4043 4044 4045 4046 4047 4048 4049 404A 404B 404C 404D 404E 404F 4050 4051 4052 4053 4054 4055 4056 4057 4058 4059 405A 405B 405C 405D 405E 405F 4060 4061 4062 4063 4064 4065 4066 4067 4068 4069 406A 406B 406C 406D 406E 406F 4070 4071 4072 4073 4074 4075 4076 4077 4078 4079 407A 407B 407C 407D 407E 407F 4080 4081 4082 4083 4084 4085 4086 4087 4088 4089 408A 408B 408C 408D 408E 408F 4090 4091 4092 4093 4094 4095 4096 4097 4098 4099 409A 409B 409C 409D 409E 409F 40A0 40A1 40A2 40A3 40A4 40A5 40A6 40A7 40A8 40A9 40AA 40AB 40AC 40AD 40AE 40AF 40B0 40B1 40B2 40B3 40B4 40B5 40B6 40B7 40B8 40B9 40BA 40BB 40BC 40BD 40BE 40BF 40C0 40C1 40C2 40C3 40C4 40C5 40C6 40C7 40C8 40C9 40CA 40CB 40CC 40CD 40CE 40CF 40D0 40D1 40D2 40D3 40D4 40D5 40D6 40D7 40D8 40D9 40DA 40DB 40DC 40DD 40DE 40DF 40E0 40E1 40E2 40E3 40E4 40E5 40E6 40E7 40E8 40E9 40EA 40EB 40EC 40ED 40EE 40EF 40F0 40F1 40F2 40F3 40F4 40F5 40F6 40F7 40F8 40F9 40FA 40FB 40FC 40FD 40FE 40FF \nPassed"
+    },
+    {
+      "fileName": "cpu_exec_space/test_cpu_exec_space_ppuio.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "TEST:test_cpu_exec_space_ppuio\nThis program verifies that the\nCPU can execute code from any\npossible location that it can\naddress, including I/O space.\n\nIn addition, it will be tested\nthat an RTS instruction does a\ndummy read of the byte that\nimmediately follows the\ninstructions.\n\nJSR+RTS TEST OK\nJMP+RTS TEST OK\nRTS+RTS TEST OK\nJMP+RTI TEST OK\nJMP+BRK TEST OK\n\nPassed"
+    },
+    {
+      "fileName": "cpu_interrupts_v2/cpu_interrupts.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "test_jmp\nT+ CK PC\n00 02 04 \n01 01 04 \n02 03 07 \n03 02 07 \n04 01 07 \n05 02 08 \n06 01 08 \n07 03 08 \n08 02 08 \n09 01 08 \n\ntest_branch_not_taken\nT+ CK PC\n00 02 04 \n01 01 04 \n02 02 06 \n03 01 06 \n04 02 07 \n05 01 07 \n06 04 0A \n07 03 0A \n08 02 0A \n09 01 0A \n\ntest_branch_taken_pagecross\nT+ CK PC\n00 02 0D \n01 01 0D \n02 04 00 \n03 03 00 \n04 02 00 \n05 01 00 \n06 04 03 \n07 03 03 \n08 02 03 \n09 01 03 \n\ntest_branch_taken\nT+ CK PC\n00 02 04 \n01 01 04 \n02 03 07 \n03 02 07 \n04 05 0A \n05 04 0A \n06 03 0A \n07 02 0A \n08 01 0A \n09 03 0A \n\n\n5-branch_delays_irq\n\nPassed\nAll 5 tests passed"
+    },
+    {
+      "fileName": "cpu_interrupts_v2/rom_singles/1-cli_latency.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "1-cli_latency\n\nPassed"
+    },
+    {
+      "fileName": "cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "NMI BRK 00\n27  36  00 \n26  36  00 \n26  36  00 \n36  00  00 \n36  00  00 \n36  00  00 \n36  00  00 \n36  00  00 \n27  36  00 \n27  36  00 \n\n2-nmi_and_brk\n\nPassed"
+    },
+    {
+      "fileName": "cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "NMI BRK\n23  00 \n21  00 \n21  00 \n20  00 \n20  00 \n20  00 \n20  00 \n20  00 \n20  00 \n20  00 \n25  20 \n25  20 \n\n3-nmi_and_irq\n\nPassed"
+    },
+    {
+      "fileName": "cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "0 +0\n1 +1\n1 +2\n2 +3\n2 +4\n4 +5\n4 +6\n7 +7\n7 +8\n7 +9\n7 +10\n8 +11\n8 +12\n8 +13\n...\n8 +524\n8 +525\n8 +526\n9 +527\n\n4-irq_and_dma\n\nPassed"
+    },
+    {
+      "fileName": "cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "test_jmp\nT+ CK PC\n00 02 04 \n01 01 04 \n02 03 07 \n03 02 07 \n04 01 07 \n05 02 08 \n06 01 08 \n07 03 08 \n08 02 08 \n09 01 08 \n\ntest_branch_not_taken\nT+ CK PC\n00 02 04 \n01 01 04 \n02 02 06 \n03 01 06 \n04 02 07 \n05 01 07 \n06 04 0A \n07 03 0A \n08 02 0A \n09 01 0A \n\ntest_branch_taken_pagecross\nT+ CK PC\n00 02 0D \n01 01 0D \n02 04 00 \n03 03 00 \n04 02 00 \n05 01 00 \n06 04 03 \n07 03 03 \n08 02 03 \n09 01 03 \n\ntest_branch_taken\nT+ CK PC\n00 02 04 \n01 01 04 \n02 03 07 \n03 02 07 \n04 05 0A \n05 04 0A \n06 03 0A \n07 02 0A \n08 01 0A \n09 03 0A \n\n\n5-branch_delays_irq\n\nPassed"
+    },
+    {
+      "fileName": "cpu_reset/ram_after_reset.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "ram_after_reset\n\nPassed"
+    },
+    {
+      "fileName": "cpu_reset/registers.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "A  X  Y  P  S\n34 56 78 FF 0F \n\nregisters\n\nPassed"
+    },
+    {
+      "fileName": "cpu_timing_test6/cpu_timing_test.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "6502 TIMING TEST (16 SECONDS)\n\nOFFICIAL INSTRUCTIONS ONLY\n\nPASSED"
+    },
+    {
+      "fileName": "dmc_dma_during_read4/dma_2007_read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "dmc_dma_during_read4/dma_2007_write.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "11 11 AA 33 44 55 66 77\n11 11 AA 33 44 55 66 77\n11 11 AA 33 44 55 66 77\n11 11 AA 33 44 55 66 77\n11 11 AA 33 44 55 66 77\n\ndma_2007_write\nPassed"
+    },
+    {
+      "fileName": "dmc_dma_during_read4/dma_4016_read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08 08 07 08 08\ndma_4016_read\nPassed"
+    },
+    {
+      "fileName": "dmc_dma_during_read4/double_2007_read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "dmc_dma_during_read4/read_write_2007.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "33 11 22 33 09 55 66 77\n33 11 22 33 09 55 66 77\n\nread_write_2007\nPassed"
+    },
+    {
+      "fileName": "dmc_tests/buffer_retained.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "dmc_tests/latency.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "dmc_tests/status.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "dmc_tests/status_irq.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "fdsirqtests/fdsirqtests.fds",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "fdsirqtests/fdsirqtestsV7_patched.fds",
+      "result": "passed",
+      "returnCode": 0,
+      "output": ""
+    },
+    {
+      "fileName": "instr_misc/instr_misc.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-dummy_reads_apu\n\nPassed\nAll 4 tests passed"
+    },
+    {
+      "fileName": "instr_misc/rom_singles/01-abs_x_wrap.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "01-abs_x_wrap\n\nPassed"
+    },
+    {
+      "fileName": "instr_misc/rom_singles/02-branch_wrap.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "02-branch_wrap\n\nPassed"
+    },
+    {
+      "fileName": "instr_misc/rom_singles/03-dummy_reads.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "03-dummy_reads\n\nPassed"
+    },
+    {
+      "fileName": "instr_misc/rom_singles/04-dummy_reads_apu.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-dummy_reads_apu\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/all_instrs.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "All 15 tests passed"
+    },
+    {
+      "fileName": "instr_test-v3/official_only.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "All 15 tests passed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/01-implied.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "01-implied\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/02-immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "02-immediate\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/03-zero_page.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "03-zero_page\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/04-zp_xy.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-zp_xy\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/05-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "05-absolute\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/06-abs_xy.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "06-abs_xy\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/07-ind_x.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "07-ind_x\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/08-ind_y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08-ind_y\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/09-branches.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "09-branches\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/10-stack.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "10-stack\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/11-jmp_jsr.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "11-jmp_jsr\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/12-rts.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "12-rts\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/13-rti.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "13-rti\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/14-brk.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "14-brk\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v3/rom_singles/15-special.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "15-special\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/all_instrs.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "All 16 tests passed"
+    },
+    {
+      "fileName": "instr_test-v5/official_only.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "All 16 tests passed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/01-basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "01-basics\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/02-implied.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "02-implied\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/03-immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "03-immediate\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/04-zero_page.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-zero_page\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/05-zp_xy.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "05-zp_xy\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/06-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "06-absolute\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/07-abs_xy.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "07-abs_xy\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/08-ind_x.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08-ind_x\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/09-ind_y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "09-ind_y\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/10-branches.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "10-branches\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/11-stack.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "11-stack\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/12-jmp_jsr.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "12-jmp_jsr\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/13-rts.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "13-rts\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/14-rti.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "14-rti\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/15-brk.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "15-brk\n\nPassed"
+    },
+    {
+      "fileName": "instr_test-v5/rom_singles/16-special.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "16-special\n\nPassed"
+    },
+    {
+      "fileName": "instr_timing/instr_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "2-branch_timing\n\nPassed\nAll 2 tests passed"
+    },
+    {
+      "fileName": "instr_timing/rom_singles/1-instr_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "Instruction timing test\n\nTakes about 25 seconds. Doesn't time the 8 branches and 12 illegal instructions.\n\nOfficial instructions...\n\nNOPs and alternate SBC...\n\nUnofficial instructions...\n\n1-instr_timing\n\nPassed"
+    },
+    {
+      "fileName": "instr_timing/rom_singles/2-branch_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "2-branch_timing\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_irq_tests/1.Clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "MMC3 IRQ COUNTER\n\nPASSED"
+    },
+    {
+      "fileName": "mmc3_irq_tests/2.Details.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "MMC3 IRQ COUNTER DETAILS\n\nPASSED"
+    },
+    {
+      "fileName": "mmc3_irq_tests/3.A12_clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "MMC3 IRQ COUNTER A12\n\nPASSED"
+    },
+    {
+      "fileName": "mmc3_irq_tests/4.Scanline_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "MMC3 IRQ TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "mmc3_irq_tests/5.MMC3_rev_A.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "MMC3 IRQ COUNTER REVISION A\n\nPASSED"
+    },
+    {
+      "fileName": "mmc3_irq_tests/6.MMC3_rev_B.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "MMC3 IRQ COUNTER REVISION B\n\nPASSED"
+    },
+    {
+      "fileName": "mmc3_test/1-clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "1-clocking\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test/2-details.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "2-details\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test/3-A12_clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "3-A12_clocking\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test/4-scanline_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "4-scanline_timing\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test/5-MMC3.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "5-MMC3\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test/6-MMC6.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "6-MMC6\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test_2/rom_singles/1-clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "1-clocking\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test_2/rom_singles/2-details.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "2-details\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test_2/rom_singles/3-A12_clocking.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "3-A12_clocking\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test_2/rom_singles/4-scanline_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "4-scanline_timing\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test_2/rom_singles/5-MMC3.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "5-MMC3\n\nPassed"
+    },
+    {
+      "fileName": "mmc3_test_2/rom_singles/6-MMC3_alt.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "6-MMC3_alt\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/01-implied.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "01-implied\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/02-immediate.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "02-immediate\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/03-zero_page.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "03-zero_page\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/04-zp_xy.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-zp_xy\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/05-absolute.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "05-absolute\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/06-abs_xy.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "06-abs_xy\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/07-ind_x.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "07-ind_x\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/08-ind_y.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08-ind_y\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/09-branches.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "09-branches\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/10-stack.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "10-stack\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/nsf_singles/11-special.nsf",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "11-special\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/01-implied.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "01-implied\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/02-immediate.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "02-immediate\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/03-zero_page.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "03-zero_page\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/04-zp_xy.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-zp_xy\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/05-absolute.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "05-absolute\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/06-abs_xy.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "06-abs_xy\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/07-ind_x.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "07-ind_x\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/08-ind_y.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08-ind_y\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/09-branches.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "09-branches\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/10-stack.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "10-stack\n\nPassed"
+    },
+    {
+      "fileName": "nes_instr_test/rom_singles/11-special.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "11-special\n\nPassed"
+    },
+    {
+      "fileName": "oam_read/oam_read.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n\noam_read\n\nPassed"
+    },
+    {
+      "fileName": "oam_stress/oam_stress.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n\noam_stress\n\nPassed"
+    },
+    {
+      "fileName": "pal_apu_tests/01.len_ctr.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU LENGTH COUNTER\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/02.len_table.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU LENGTH TABLE\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/03.irq_flag.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU FRAME IRQ FLAG\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/04.clock_jitter.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU CLOCK JITTER\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/05.len_timing_mode0.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU MODE 0 LENGTH TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/06.len_timing_mode1.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU MODE 1 LENGTH TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/07.irq_flag_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU FRAME IRQ FLAG TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/08.irq_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU FRAME IRQ TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/10.len_halt_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU LENGTH HALT TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "pal_apu_tests/11.len_reload_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "APU LENGTH RELOAD TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "ppu_open_bus/ppu_open_bus.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "ppu_open_bus\n\nPassed"
+    },
+    {
+      "fileName": "ppu_read_buffer/test_ppu_read_buffer.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "TEST:test_ppu_read_buffer\n-----------------------------\nTesting basic PPU memory I/O.\nPerforming tests that combine\nsprite 0 hit flag, $4014 DMA\nand the RAM mirroring...\nGraphical artifacts during\nthis test are OK and expected.\n\n              Hi   No-Hi\nDirect poke   OK   OK  \nDMA with ROM   OK   OK  \nDMA + PPU bus OK   OK  \nDMA with RAM  \n\n-----------------------------\n This next test wil take a while.\n In order to distract you with\n entertainment, art is provided.\n Contemplate on the art while\n the test is in progress.\n\n\n\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/ppu_vbl_nmi.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08 08 09 07 \n10-even_odd_timing\n\nPassed\nAll 10 tests passed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/01-vbl_basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "01-vbl_basics\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "T+ 1 2\n00 - V\n01 - V\n02 - V\n03 - V\n04 - -\n05 V -\n06 V -\n07 V -\n08 V -\n\n02-vbl_set_time\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "00 V\n01 V\n02 V\n03 V\n04 V\n05 V\n06 -\n07 -\n08 -\n\n03-vbl_clear_time\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/04-nmi_control.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "04-nmi_control\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/05-nmi_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "00 4\n01 4\n02 4\n03 3\n04 3\n05 3\n06 3\n07 3\n08 3\n09 2\n\n05-nmi_timing\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/06-suppression.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "00 - N\n01 - N\n02 - N\n03 - N\n04 - -\n05 V -\n06 V -\n07 V N\n08 V N\n09 V N\n\n06-suppression\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "00 N\n01 N\n02 N\n03 N\n04 N\n05 -\n06 -\n07 -\n08 -\n\n07-nmi_on_timing\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "03 -\n04 -\n05 -\n06 -\n07 N\n08 N\n09 N\n0A N\n0B N\n0C N\n\n08-nmi_off_timing\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "00 01 01 02 \n09-even_odd_frames\n\nPassed"
+    },
+    {
+      "fileName": "ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "08 08 09 07 \n10-even_odd_timing\n\nPassed"
+    },
+    {
+      "fileName": "sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "T+ Clocks (decimal)\n00 527\n01 528\n02 527\n03 528\n04 527\n05 526\n06 525\n07 526\n08 525\n09 526\n0A 525\n0B 526\n0C 525\n0D 526\n0E 525\n0F 526\n\nSPRDMA and DMC DMA\n\nPassed"
+    },
+    {
+      "fileName": "sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "T+ Clocks (decimal)\n00 525\n01 526\n02 525\n03 526\n04 524\n05 525\n06 526\n07 527\n08 527\n09 528\n0A 526\n0B 527\n0C 527\n0D 528\n0E 527\n0F 528\n\nSPRDMA and DMC DMA\n\nPassed"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/01.basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT BASICS\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/02.alignment.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT ALIGNMENT\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/03.corners.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT CORNERS\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/04.flip.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT FLIPPING\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/05.left_clip.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT LEFT CLIPPING\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/06.right_edge.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT RIGHT EDGE\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/07.screen_bottom.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT SCREEN BOTTOM\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/08.double_height.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT DOUBLE HEIGHT\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/09.timing_basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/10.timing_order.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT ORDER\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_hit_tests_2005.10.05/11.edge_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE HIT EDGE TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_overflow_tests/1.Basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE OVERFLOW BASICS\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_overflow_tests/2.Details.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE OVERFLOW DETAILS\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_overflow_tests/3.Timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE OVERFLOW TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_overflow_tests/4.Obscure.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE OVERFLOW OBSCURE\n\nPASSED"
+    },
+    {
+      "fileName": "sprite_overflow_tests/5.Emulator.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "SPRITE OVERFLOW EMULATION\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/1.frame_basics.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "PPU FRAME BASICS\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/2.vbl_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "VBL TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/3.even_odd_frames.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "EVEN ODD FRAMES\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/4.vbl_clear_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "VBL CLEAR TIMING\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/5.nmi_suppression.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "NMI SUPPRESSION\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/6.nmi_disable.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "NMI DISABLE\n\nPASSED"
+    },
+    {
+      "fileName": "vbl_nmi_timing/7.nmi_timing.nes",
+      "result": "passed",
+      "returnCode": 0,
+      "output": "NMI TIMING\n\nPASSED"
+    }
+  ]
+}
