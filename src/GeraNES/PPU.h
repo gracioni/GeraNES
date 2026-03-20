@@ -413,13 +413,6 @@ private:
         m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
     }
 
-    GERANES_INLINE void scheduleImmediateVideoRamIncrementIfNeeded(bool activelyRendering)
-    {
-        if(!activelyRendering) {
-            m_needIncVideoRam = true;
-        }
-    }
-
     GERANES_INLINE void syncRenderingEnabledFlag()
     {
         const bool targetRenderingEnabled = m_backgroundEnabled || m_spritesEnabled;
@@ -1292,6 +1285,8 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE_HOT void onScanlineStart()
     {
+        const bool renderingEnabled = m_renderingEnabled;
+
         if(m_settings.overclockLines() > 0) {
             if(m_overclockFrame && m_scanline >= 241 && m_scanline < FRAME_VBLANK_START_LINE)
                 m_inOverclockLines = true;
@@ -1322,7 +1317,7 @@ yyy NN YYYYY XXXXX
                 entry.highShift = reverseByte(entry.highShift);
             }
         }
-        if(m_preLine && isRenderingEnabled()) {
+        if(m_preLine && renderingEnabled) {
             processOamCorruption();
         }
 
@@ -1377,7 +1372,11 @@ yyy NN YYYYY XXXXX
     GERANES_HOT void ppuCycle()
     {        
         if(m_cycle == 0) onScanlineStart();
-        m_cartridge.onPpuCycle(m_scanline, m_cycle, m_renderLine && m_prevCycleRenderingEnabled, m_preLine);
+        const bool renderingEnabled = m_renderingEnabled;
+        const bool prevCycleRenderingEnabled = m_prevCycleRenderingEnabled;
+        const bool renderLineWithPrevRendering = m_renderLine && prevCycleRenderingEnabled;
+
+        m_cartridge.onPpuCycle(m_scanline, m_cycle, renderLineWithPrevRendering, m_preLine);
 
         if(!m_interruptFlag) {
             if(m_VBlankHasStarted && m_NMIOnVBlank) {
@@ -1392,16 +1391,16 @@ yyy NN YYYYY XXXXX
 
         if(m_renderLine) {
 
-            bool preFetchCycle = m_cycle >= 321 && m_cycle <= 336;
-            bool spriteFetchCycles = m_cycle >= 257 && m_cycle <= 320;
-            bool visibleCycle = m_cycle >= 1 && m_cycle <= 256;
-            bool bgFetchCycles = preFetchCycle || visibleCycle;
+            const bool preFetchCycle = m_cycle >= 321 && m_cycle <= 336;
+            const bool spriteFetchCycles = m_cycle >= 257 && m_cycle <= 320;
+            const bool visibleCycle = m_cycle >= 1 && m_cycle <= 256;
+            const bool bgFetchCycles = preFetchCycle || visibleCycle;
 
             if(m_visibleLine && visibleCycle) {
                 renderPixel();
             }            
 
-            if(m_visibleLine && isRenderingEnabled()) {
+            if(m_visibleLine && renderingEnabled) {
 
                 if(m_cycle == 321) {
                     m_oamCopyBuffer = m_secondaryOam[0];
@@ -1410,7 +1409,7 @@ yyy NN YYYYY XXXXX
                 if(visibleCycle) evaluateSprites();
             }            
             
-            if(m_prevCycleRenderingEnabled) {
+            if(prevCycleRenderingEnabled) {
                 if(bgFetchCycles) {
 
                     shiftTileData();
@@ -1452,11 +1451,11 @@ yyy NN YYYYY XXXXX
                 }
             }
 
-            if(m_visibleLine && visibleCycle && (m_prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
+            if(m_visibleLine && visibleCycle && (prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
                 clockSpriteRenderers();
             }
 
-            if(isRenderingEnabled()) {
+            if(renderingEnabled) {
                 //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
 			    if(spriteFetchCycles) {
                     m_oamAddr = 0;
@@ -1464,12 +1463,12 @@ yyy NN YYYYY XXXXX
                 }
             }
 
-            if(m_cycle == 339 && !m_prevCycleRenderingEnabled) {
+            if(m_cycle == 339 && !prevCycleRenderingEnabled) {
                 m_forceSpriteXZeroNextLine = true;
             }
 
             if(m_preLine) {
-                if(m_cycle <= 8 && isRenderingEnabled() && m_oamAddr >= 0x08) {
+                if(m_cycle <= 8 && renderingEnabled && m_oamAddr >= 0x08) {
                     //"If OAMADDR is not less than eight when rendering starts, the eight bytes starting at OAMADDR & $F8 are copied to the first eight bytes of OAM."
                     m_primaryOam[m_cycle - 1] = m_primaryOam[(m_oamAddr & 0xF8) + (m_cycle - 1)];
                 }
@@ -1483,7 +1482,7 @@ yyy NN YYYYY XXXXX
 
                 else if(m_cycle == 339 && m_settings.region() == Settings::Region::NTSC /*&& GetPpuModel() == PpuModel::Ppu2C02*/) //only NTSC has skip cycle in odd frames
                 {
-                    if(m_oddFrameFlag && isRenderingEnabled()) m_cycle++;
+                    if(m_oddFrameFlag && renderingEnabled) m_cycle++;
                     m_oddFrameFlag = !m_oddFrameFlag;
                 }
 
