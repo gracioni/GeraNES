@@ -41,7 +41,7 @@ public:
         m_region = r;
     }
 
-    GERANES_INLINE Region region()
+    GERANES_INLINE Region region() const
     {
         return m_region;
     }

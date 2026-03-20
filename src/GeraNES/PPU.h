@@ -210,9 +210,6 @@ private:
     int FRAME_NUMBER_OF_LINES;
     int FRAME_VBLANK_START_LINE;
     int FRAME_VBLANK_END_LINE;
-    bool m_PALFlag;
-    int m_PALCounter;
-
     bool m_inOverclockLines;
 
     bool m_preLine;
@@ -687,9 +684,6 @@ public:
         FRAME_VBLANK_START_LINE = 241;
         FRAME_VBLANK_END_LINE = 261;
 
-        m_PALFlag = false;
-        m_PALCounter = 5;
-
         m_inOverclockLines = false;
 
         m_preLine = false;
@@ -715,7 +709,14 @@ public:
 
         updateSettings();        
 
-        for(int i = 0; i < 15; i++) cycle(); //need this for read2004.nes
+        for(int i = 0; i < 15; i++) {
+            ppuCycle();
+            ppuCycle();
+            ppuCycle();
+            if(m_settings.region() == Settings::Region::PAL && (i % 5) == 0) {
+                ppuCycle();
+            }
+        } //need this for read2004.nes
        
         /* read2004.nes output
         FF FF FF FF AA AA 01 01 10 10
@@ -761,26 +762,25 @@ public:
                 FRAME_VBLANK_START_LINE = 241;
                 FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+20;
                 FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+1;
-                m_PALFlag = false;
-                m_PALCounter = 0;              
                 break;
                 
             case Settings::Region::PAL:                
                 FRAME_VBLANK_START_LINE = 241;
                 FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+70;
                 FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+1;
-                m_PALFlag = true;
-                m_PALCounter = 0;
                 break;
 
             case Settings::Region::DENDY:
                 FRAME_VBLANK_START_LINE = 241;
                 FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+20;
                 FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+51;
-                m_PALFlag = false;
-                m_PALCounter = 0; 
                 break;
         }
+    }
+
+    Settings::Region region() const
+    {
+        return m_settings.region();
     }
 
     //NES adress space
@@ -1272,29 +1272,6 @@ yyy NN YYYYY XXXXX
             else {
                 sprite.lowShift <<= 1;
                 sprite.highShift <<= 1;
-            }
-        }
-    }
-
-    //called every cpu cycle
-    GERANES_INLINE_HOT void cycle()
-    {
-        ppuCycle();
-        ppuCycle();
-        ppuCycle();
-
-        ppuCyclePAL();
-    }
-
-    GERANES_INLINE void ppuCyclePAL()
-    {
-        if(m_PALFlag) { //3.2 ppu cycles / cpu cycle
-
-            if(m_PALCounter > 0) --m_PALCounter;
-
-            if(m_PALCounter == 0){
-                m_PALCounter = 5;
-                ppuCycle();
             }
         }
     }
@@ -2376,8 +2353,6 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, FRAME_NUMBER_OF_LINES);
         SERIALIZEDATA(s, FRAME_VBLANK_START_LINE);
         SERIALIZEDATA(s, FRAME_VBLANK_END_LINE);
-        SERIALIZEDATA(s, m_PALFlag);
-        SERIALIZEDATA(s, m_PALCounter);
         SERIALIZEDATA(s, m_inOverclockLines);
         SERIALIZEDATA(s, m_preLine);
         SERIALIZEDATA(s, m_visibleLine);

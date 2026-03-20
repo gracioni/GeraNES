@@ -143,6 +143,8 @@ private:
     bool m_resetRequest;
     bool m_lastReadHadDma = false;
     bool m_indexedDummyReadHadDma = false;
+    Settings::Region m_ppuTimingRegion = Settings::Region::NTSC;
+    uint8_t m_ppuLateCycleRemainder = 0;
     DMA m_dma;
 
     GERANES_INLINE_HOT uint16_t MAKE16(uint8_t low, uint8_t high)
@@ -331,6 +333,38 @@ private:
         m_irqSignal = m_irqStep;
     }
 
+    GERANES_INLINE void resetPpuTimingPhase(Settings::Region region)
+    {
+        m_ppuTimingRegion = region;
+        m_ppuLateCycleRemainder = region == Settings::Region::PAL ? 4 : 0;
+    }
+
+    GERANES_INLINE void syncPpuTimingRegion()
+    {
+        const Settings::Region currentRegion = m_console.ppu().region();
+        if(currentRegion != m_ppuTimingRegion) {
+            resetPpuTimingPhase(currentRegion);
+        }
+    }
+
+    GERANES_INLINE_HOT void stepLatePpuCycles()
+    {
+        syncPpuTimingRegion();
+
+        int lateCycles = 1;
+        if(m_ppuTimingRegion == Settings::Region::PAL) {
+            ++m_ppuLateCycleRemainder;
+            if(m_ppuLateCycleRemainder >= 5) {
+                m_ppuLateCycleRemainder -= 5;
+                ++lateCycles;
+            }
+        }
+
+        while(lateCycles-- > 0) {
+            m_console.ppu().ppuCycle();
+        }
+    }
+
 
 public:
 
@@ -376,6 +410,7 @@ public:
         m_interrupt = Interrupt::NONE;
 
         m_resetRequest = false;
+        resetPpuTimingPhase(m_console.ppu().region());
         m_dma.init();
     }
 
@@ -1174,6 +1209,7 @@ public:
         m_currentInstructionCycle = 0;
         m_interrupt = Interrupt::NONE;
 
+        resetPpuTimingPhase(m_console.ppu().region());
         m_dma.init();
  
         uint8_t low = 0, high = 0;
@@ -1389,6 +1425,8 @@ public:
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
+        SERIALIZEDATA(s, m_ppuTimingRegion);
+        SERIALIZEDATA(s, m_ppuLateCycleRemainder);
         m_dma.serialization(s);
     }
 
@@ -1477,9 +1515,7 @@ inline void CPU2A03::endCycle(uint16_t addr, bool write) {
             m_console.cartridge().getMixWeight());
     }       
 
-    m_console.ppu().ppuCyclePAL(); 
-
-    m_console.ppu().ppuCycle();    
+    stepLatePpuCycles();
 
     m_runCount++;
 
