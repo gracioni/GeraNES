@@ -315,7 +315,14 @@ private:
             break;
 
         default: // >= 8
-            if constexpr(accessType == AccessType::Write) m_cartridge.writePrg(addr&0x7FFF, data);
+            if constexpr(accessType == AccessType::Write) {
+                if(m_cartridge.isNsf()) {
+                    m_cartridge.writeMapperRegisterAbsolute(static_cast<uint16_t>(addr), data);
+                }
+                else {
+                    m_cartridge.writePrg(addr&0x7FFF, data);
+                }
+            }
             else {
                 m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
                 data = m_cartridge.readPrg(addr&0x7FFF);

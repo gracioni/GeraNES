@@ -164,6 +164,7 @@ public:
     MapperNSF(ICartridgeData& cd)
         : BaseMapper(cd)
         , m_nsf(*dynamic_cast<_NsfFormat*>(&cd))
+        , m_songIndex(static_cast<uint8_t>((m_nsf.startSong() > 0 ? m_nsf.startSong() : 1) - 1))
         , m_audioOwner(NsfExpansionAudioFactory::createForNsf(m_nsf.soundChipFlags()))
         , m_audio(m_audioOwner.get())
     {
