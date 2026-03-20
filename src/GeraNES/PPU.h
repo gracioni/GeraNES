@@ -709,6 +709,7 @@ public:
 
         updateSettings();        
 
+        //warm up the PPU by running some cycles
         for(int i = 0; i < 15; i++) {
             ppuCycle();
             ppuCycle();
