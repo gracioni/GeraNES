@@ -10,8 +10,8 @@
 class Mmc5NsfExpansionAudio : public NsfExpansionAudio
 {
 private:
-    static constexpr int AUDIO_REG_START = 0x1000; // $5000
-    static constexpr int AUDIO_REG_END = 0x1015;   // $5015
+    static constexpr uint16_t AUDIO_REG_START = 0x5000;
+    static constexpr uint16_t AUDIO_REG_END = 0x5015;
 
     Mmc5Audio m_audio;
     std::array<uint8_t, 0x3F6> m_ram = {};
@@ -32,48 +32,48 @@ public:
         m_audio.clock();
     }
 
-    bool handlesRegister(int addr) const override
+    bool handlesRegister(uint16_t cpuAddr) const override
     {
-        return (addr >= AUDIO_REG_START && addr <= AUDIO_REG_END) ||
-               addr == 0x1205 ||
-               addr == 0x1206 ||
-               (addr >= 0x1C00 && addr <= 0x1FF5);
+        return (cpuAddr >= AUDIO_REG_START && cpuAddr <= AUDIO_REG_END) ||
+               cpuAddr == 0x5205 ||
+               cpuAddr == 0x5206 ||
+               (cpuAddr >= 0x5C00 && cpuAddr <= 0x5FF5);
     }
 
-    uint8_t readRegister(int addr, uint8_t openBusData) override
+    uint8_t readRegister(uint16_t cpuAddr, uint8_t openBusData) override
     {
-        switch(addr) {
-        case 0x1015:
+        switch(cpuAddr) {
+        case 0x5015:
             return m_audio.readStatus();
-        case 0x1205:
+        case 0x5205:
             return static_cast<uint8_t>((m_mulA * m_mulB) & 0xFF);
-        case 0x1206:
+        case 0x5206:
             return static_cast<uint8_t>(((m_mulA * m_mulB) >> 8) & 0xFF);
         default:
-            if(addr >= 0x1C00 && addr <= 0x1FF5) {
-                return m_ram[static_cast<size_t>(addr - 0x1C00)];
+            if(cpuAddr >= 0x5C00 && cpuAddr <= 0x5FF5) {
+                return m_ram[static_cast<size_t>(cpuAddr - 0x5C00)];
             }
             return openBusData;
         }
     }
 
-    void writeRegister(int addr, uint8_t data) override
+    void writeRegister(uint16_t cpuAddr, uint8_t data) override
     {
-        if(addr >= AUDIO_REG_START && addr <= AUDIO_REG_END) {
-            m_audio.writeRegister(static_cast<uint16_t>(addr + 0x4000), data);
+        if(cpuAddr >= AUDIO_REG_START && cpuAddr <= AUDIO_REG_END) {
+            m_audio.writeRegister(cpuAddr, data);
             return;
         }
 
-        switch(addr) {
-        case 0x1205:
+        switch(cpuAddr) {
+        case 0x5205:
             m_mulA = data;
             return;
-        case 0x1206:
+        case 0x5206:
             m_mulB = data;
             return;
         default:
-            if(addr >= 0x1C00 && addr <= 0x1FF5) {
-                m_ram[static_cast<size_t>(addr - 0x1C00)] = data;
+            if(cpuAddr >= 0x5C00 && cpuAddr <= 0x5FF5) {
+                m_ram[static_cast<size_t>(cpuAddr - 0x5C00)] = data;
             }
             return;
         }

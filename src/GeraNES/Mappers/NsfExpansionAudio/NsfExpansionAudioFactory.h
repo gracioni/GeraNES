@@ -4,7 +4,10 @@
 #include <sstream>
 
 #include "NsfExpansionAudio.h"
+#include "Vrc6NsfExpansionAudio.h"
 #include "Mmc5NsfExpansionAudio.h"
+#include "Namco163NsfExpansionAudio.h"
+#include "Sunsoft5BNsfExpansionAudio.h"
 #include "logger/logger.h"
 
 class NsfExpansionAudioFactory
@@ -26,9 +29,21 @@ public:
         std::unique_ptr<NsfExpansionAudio> audio;
         uint8_t unsupportedFlags = soundChipFlags;
 
-        if((soundChipFlags & CHIP_MMC5) != 0) {
+        if((soundChipFlags & CHIP_VRC6) != 0) {
+            audio = std::make_unique<Vrc6NsfExpansionAudio>();
+            unsupportedFlags = static_cast<uint8_t>(unsupportedFlags & ~CHIP_VRC6);
+        }
+        else if((soundChipFlags & CHIP_MMC5) != 0) {
             audio = std::make_unique<Mmc5NsfExpansionAudio>();
             unsupportedFlags = static_cast<uint8_t>(unsupportedFlags & ~CHIP_MMC5);
+        }
+        else if((soundChipFlags & CHIP_N163) != 0) {
+            audio = std::make_unique<Namco163NsfExpansionAudio>();
+            unsupportedFlags = static_cast<uint8_t>(unsupportedFlags & ~CHIP_N163);
+        }
+        else if((soundChipFlags & CHIP_S5B) != 0) {
+            audio = std::make_unique<Sunsoft5BNsfExpansionAudio>();
+            unsupportedFlags = static_cast<uint8_t>(unsupportedFlags & ~CHIP_S5B);
         }
 
         if(unsupportedFlags != 0) {
@@ -47,11 +62,8 @@ public:
             Logger::instance().log(ss.str(), Logger::Type::WARNING);
         }
 
-        (void)CHIP_VRC6;
         (void)CHIP_VRC7;
         (void)CHIP_FDS;
-        (void)CHIP_N163;
-        (void)CHIP_S5B;
 
         return audio;
     }

@@ -400,6 +400,16 @@ public:
         return m_mapper->readMapperRegister(addr,openBusData);
     }
 
+    GERANES_INLINE void writeMapperRegisterAbsolute(uint16_t addr, uint8_t data)
+    {
+        m_mapper->writeMapperRegisterAbsolute(addr, data);
+    }
+
+    GERANES_INLINE uint8_t readMapperRegisterAbsolute(uint16_t addr, uint8_t openBusData)
+    {
+        return m_mapper->readMapperRegisterAbsolute(addr, openBusData);
+    }
+
     GERANES_INLINE MirroringType getMirroringType()
     {
         return m_mapper->mirroringType();

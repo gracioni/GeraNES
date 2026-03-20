@@ -222,23 +222,23 @@ public:
         return false;
     }
 
-    uint8_t readMapperRegister(int addr, uint8_t openBusData) override
+    uint8_t readMapperRegisterAbsolute(uint16_t cpuAddr, uint8_t openBusData) override
     {
-        if(m_audio != nullptr && m_audio->handlesRegister(addr)) {
-            return m_audio->readRegister(addr, openBusData);
+        if(m_audio != nullptr && m_audio->handlesRegister(cpuAddr)) {
+            return m_audio->readRegister(cpuAddr, openBusData);
         }
 
         return openBusData;
     }
 
-    void writeMapperRegister(int addr, uint8_t data) override
+    void writeMapperRegisterAbsolute(uint16_t cpuAddr, uint8_t data) override
     {
-        if(m_audio != nullptr && m_audio->handlesRegister(addr)) {
-            m_audio->writeRegister(addr, data);
+        if(m_audio != nullptr && m_audio->handlesRegister(cpuAddr)) {
+            m_audio->writeRegister(cpuAddr, data);
             return;
         }
 
-        if(addr == PLAY_ACK_REG) {
+        if(cpuAddr == static_cast<uint16_t>(0x4000 + PLAY_ACK_REG)) {
             m_playInFlight = false;
             if(m_isPlaying) {
                 clearAndReloadPlayTimer();
@@ -246,7 +246,7 @@ public:
             return;
         }
 
-        if(addr == INIT_DONE_REG) {
+        if(cpuAddr == static_cast<uint16_t>(0x4000 + INIT_DONE_REG)) {
             m_initDone = true;
             if(m_isPlaying && !m_playInFlight) {
                 clearAndReloadPlayTimer();
@@ -254,10 +254,8 @@ public:
             return;
         }
 
-        // NSF bankswitch registers at $5FF8-$5FFF.
-        // In this core mapper regs use relative addresses ($4000-$5FFF => $0000-$1FFF).
-        if(addr >= 0x1FF8 && addr <= 0x1FFF) {
-            m_bankRegs[static_cast<size_t>(addr & 0x07)] = data;
+        if(cpuAddr >= 0x5FF8 && cpuAddr <= 0x5FFF) {
+            m_bankRegs[static_cast<size_t>(cpuAddr & 0x07)] = data;
         }
     }
 

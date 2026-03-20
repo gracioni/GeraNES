@@ -287,10 +287,20 @@ private:
             else {
 
                 if constexpr(accessType == AccessType::Write) {
-                    m_cartridge.writeMapperRegister(addr&0x1FFF, data);
+                    if(m_cartridge.isNsf()) {
+                        m_cartridge.writeMapperRegisterAbsolute(static_cast<uint16_t>(addr), data);
+                    }
+                    else {
+                        m_cartridge.writeMapperRegister(addr&0x1FFF, data);
+                    }
                 }
                 else {
-                    data = m_cartridge.readMapperRegister(addr&0x1FFF,data);
+                    if(m_cartridge.isNsf()) {
+                        data = m_cartridge.readMapperRegisterAbsolute(static_cast<uint16_t>(addr), data);
+                    }
+                    else {
+                        data = m_cartridge.readMapperRegister(addr&0x1FFF,data);
+                    }
                 }
 
                 m_openBus = data;

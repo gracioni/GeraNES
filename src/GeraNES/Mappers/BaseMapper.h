@@ -155,6 +155,16 @@ public:
 
     virtual uint8_t readMapperRegister(int /*addr*/, uint8_t openBusData) { return openBusData; }
 
+    virtual void writeMapperRegisterAbsolute(uint16_t addr, uint8_t data)
+    {
+        writeMapperRegister(addr & 0x1FFF, data);
+    }
+
+    virtual uint8_t readMapperRegisterAbsolute(uint16_t addr, uint8_t openBusData)
+    {
+        return readMapperRegister(addr & 0x1FFF, openBusData);
+    }
+
     virtual void setA12State(bool /*state*/){}
 
     virtual void cycle(){ } //cpu cycle

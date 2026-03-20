@@ -1,9 +1,8 @@
 #pragma once
 
 #include "BaseMapper.h"
-#include <algorithm>
 #include <cstring>
-#include <sstream>
+#include "Audio/Vrc6Audio.h"
 
 //VRC6a
 class Mapper024 : public BaseMapper
@@ -28,110 +27,7 @@ private:
 
     int16_t m_prescaler = 0;
 
-    // VRC6 expansion audio (2 pulse + 1 saw)
-    uint8_t m_pulseRegs[2][3] = {{0, 0, 0}, {0, 0, 0}};
-    uint16_t m_pulseTimer[2] = {0, 0};
-    uint8_t m_pulseStep[2] = {0, 0}; // 16-step sequence
-
-    uint8_t m_sawRegs[3] = {0, 0, 0};
-    uint16_t m_sawTimer = 0;
-    uint8_t m_sawPhase = 0; // 0..13
-    uint8_t m_sawAccumulator = 0;
-
-    float m_expansionAudioSample = 0.0f;
-    float m_audioChannelVolPulse1 = 1.0f;
-    float m_audioChannelVolPulse2 = 1.0f;
-    float m_audioChannelVolSaw = 1.0f;
-
-    GERANES_INLINE uint16_t pulsePeriod(int ch) const
-    {
-        return static_cast<uint16_t>(
-            static_cast<uint16_t>(m_pulseRegs[ch][1]) |
-            (static_cast<uint16_t>(m_pulseRegs[ch][2] & 0x0F) << 8));
-    }
-
-    GERANES_INLINE bool pulseEnabled(int ch) const
-    {
-        return (m_pulseRegs[ch][2] & 0x80) != 0;
-    }
-
-    GERANES_INLINE float pulseOutput(int ch) const
-    {
-        if(!pulseEnabled(ch)) return 0.0f;
-
-        const int volume = static_cast<int>(m_pulseRegs[ch][0] & 0x0F);
-        if(volume == 0) return 0.0f;
-
-        const bool gateMode = (m_pulseRegs[ch][0] & 0x80) != 0;
-        const uint8_t duty = static_cast<uint8_t>((m_pulseRegs[ch][0] >> 4) & 0x07);
-
-        bool high = gateMode;
-        if(!gateMode) {
-            high = m_pulseStep[ch] <= duty;
-        }
-
-        const float sample = high ? (static_cast<float>(volume) / 15.0f) : 0.0f;
-        return sample * 2.0f - 1.0f;
-    }
-
-    GERANES_INLINE uint16_t sawPeriod() const
-    {
-        return static_cast<uint16_t>(
-            static_cast<uint16_t>(m_sawRegs[1]) |
-            (static_cast<uint16_t>(m_sawRegs[2] & 0x0F) << 8));
-    }
-
-    GERANES_INLINE bool sawEnabled() const
-    {
-        return (m_sawRegs[2] & 0x80) != 0;
-    }
-
-    GERANES_INLINE float sawOutput() const
-    {
-        if(!sawEnabled()) return 0.0f;
-        const float out = static_cast<float>(m_sawAccumulator & 0x1F) / 31.0f;
-        return out * 2.0f - 1.0f;
-    }
-
-    GERANES_INLINE void tickExpansionAudio()
-    {
-        for(int ch = 0; ch < 2; ++ch) {
-            if(m_pulseTimer[ch] == 0) {
-                m_pulseTimer[ch] = static_cast<uint16_t>(pulsePeriod(ch) + 1);
-                m_pulseStep[ch] = static_cast<uint8_t>((m_pulseStep[ch] + 1) & 0x0F);
-            }
-            else {
-                --m_pulseTimer[ch];
-            }
-        }
-
-        if(m_sawTimer == 0) {
-            m_sawTimer = static_cast<uint16_t>(sawPeriod() + 1);
-            if(sawEnabled()) {
-                m_sawPhase = static_cast<uint8_t>((m_sawPhase + 1) % 14);
-                if(m_sawPhase == 0) {
-                    m_sawAccumulator = 0;
-                }
-                else if((m_sawPhase & 0x01) == 0) {
-                    const uint8_t rate = static_cast<uint8_t>(m_sawRegs[0] & 0x3F);
-                    m_sawAccumulator = static_cast<uint8_t>((m_sawAccumulator + rate) & 0xFF);
-                }
-            }
-            else {
-                m_sawPhase = 0;
-                m_sawAccumulator = 0;
-            }
-        }
-        else {
-            --m_sawTimer;
-        }
-
-        const float p1 = pulseOutput(0) * m_audioChannelVolPulse1;
-        const float p2 = pulseOutput(1) * m_audioChannelVolPulse2;
-        const float saw = sawOutput() * m_audioChannelVolSaw;
-
-        m_expansionAudioSample = std::clamp((p1 + p2 + saw) / 3.0f, -1.0f, 1.0f);
-    }
+    Vrc6Audio m_audio;
 
     GERANES_INLINE uint8_t chrRegIndexFor1kSlot(uint8_t slot) const
     {
@@ -174,22 +70,13 @@ protected:
         case 0x1000:
         case 0x1001:
         case 0x1002:
-            //sound pulse 1
-            m_pulseRegs[0][addr - 0x1000] = data;
-            break;
-
         case 0x2000:
         case 0x2001:
         case 0x2002:
-            //sound pulse 2
-            m_pulseRegs[1][addr - 0x2000] = data;
-            break;
-
         case 0x3000:
         case 0x3001:
         case 0x3002:
-            //sound sawtooth
-            m_sawRegs[addr - 0x3000] = data;
+            m_audio.writeRegister(addr, data);
             break;
 
         case 0x3003:
@@ -300,27 +187,17 @@ public:
 
     GERANES_HOT float getExpansionAudioSample() override
     {
-        return m_expansionAudioSample;
+        return m_audio.getSample();
     }
 
     std::string getAudioChannelsJson() const override
     {
-        std::ostringstream ss;
-        ss << "{\"channels\":["
-           << "{\"id\":\"vrc6.pulse1\",\"label\":\"VRC6 Pulse 1\",\"volume\":" << m_audioChannelVolPulse1 << ",\"min\":0.0,\"max\":1.0},"
-           << "{\"id\":\"vrc6.pulse2\",\"label\":\"VRC6 Pulse 2\",\"volume\":" << m_audioChannelVolPulse2 << ",\"min\":0.0,\"max\":1.0},"
-           << "{\"id\":\"vrc6.saw\",\"label\":\"VRC6 Saw\",\"volume\":" << m_audioChannelVolSaw << ",\"min\":0.0,\"max\":1.0}"
-           << "]}";
-        return ss.str();
+        return m_audio.getAudioChannelsJson();
     }
 
     bool setAudioChannelVolumeById(const std::string& id, float volume) override
     {
-        const float v = std::clamp(volume, 0.0f, 1.0f);
-        if(id == "vrc6.pulse1") { m_audioChannelVolPulse1 = v; return true; }
-        if(id == "vrc6.pulse2") { m_audioChannelVolPulse2 = v; return true; }
-        if(id == "vrc6.saw") { m_audioChannelVolSaw = v; return true; }
-        return false;
+        return m_audio.setAudioChannelVolumeById(id, volume);
     }
 
     void reset() override
@@ -338,22 +215,12 @@ public:
         m_PRGReg[1] = 0;
         memset(m_CHRReg, 0, sizeof(m_CHRReg));
 
-        memset(m_pulseRegs, 0, sizeof(m_pulseRegs));
-        memset(m_pulseTimer, 0, sizeof(m_pulseTimer));
-        memset(m_pulseStep, 0, sizeof(m_pulseStep));
-        memset(m_sawRegs, 0, sizeof(m_sawRegs));
-        m_sawTimer = 0;
-        m_sawPhase = 0;
-        m_sawAccumulator = 0;
-        m_expansionAudioSample = 0.0f;
-        m_audioChannelVolPulse1 = 1.0f;
-        m_audioChannelVolPulse2 = 1.0f;
-        m_audioChannelVolSaw = 1.0f;
+        m_audio.reset();
     }
 
     GERANES_HOT void cycle() override
     {
-        tickExpansionAudio();
+        m_audio.clock();
 
         if(!m_IRQEnable) return;
 
@@ -400,19 +267,7 @@ public:
 
         SERIALIZEDATA(s, m_prescaler);
 
-        s.array(reinterpret_cast<uint8_t*>(m_pulseRegs), 1, static_cast<int>(sizeof(m_pulseRegs)));
-        s.array(reinterpret_cast<uint8_t*>(m_pulseTimer), sizeof(uint16_t), 2);
-        s.array(reinterpret_cast<uint8_t*>(m_pulseStep), 1, 2);
-
-        s.array(m_sawRegs, 1, 3);
-        SERIALIZEDATA(s, m_sawTimer);
-        SERIALIZEDATA(s, m_sawPhase);
-        SERIALIZEDATA(s, m_sawAccumulator);
-
-        SERIALIZEDATA(s, m_expansionAudioSample);
-        SERIALIZEDATA(s, m_audioChannelVolPulse1);
-        SERIALIZEDATA(s, m_audioChannelVolPulse2);
-        SERIALIZEDATA(s, m_audioChannelVolSaw);
+        m_audio.serialization(s);
     }
 
 };

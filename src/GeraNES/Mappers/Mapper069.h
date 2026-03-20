@@ -2,10 +2,10 @@
 
 #include <memory>
 #include <algorithm>
-#include <sstream>
 #include <cstring>
 
 #include "BaseMapper.h"
+#include "Audio/Sunsoft5BAudio.h"
 
 //Sunsoft FME-7 5A and 5B
 
@@ -37,39 +37,7 @@ private:
 
     uint8_t command = 0;
 
-    // Sunsoft 5B (AY-3-8910 compatible) audio
-    uint8_t m_audioSelectedReg = 0;
-    uint8_t m_audioRegs[16] = {0};
-    int m_audioClockDiv = 8; // AY clock ~= CPU/8 for expected pitch
-    int m_audioClockCounter = 0;
-
-    uint16_t m_toneCounter[3] = {1, 1, 1};
-    bool m_toneOutput[3] = {true, true, true};
-
-    uint16_t m_noiseCounter = 1;
-    uint32_t m_noiseLfsr = 1;
-    bool m_noiseOutput = true;
-
-    uint16_t m_envCounter = 1;
-    uint8_t m_envVolume = 0;
-    bool m_envAttack = false;
-    bool m_envContinue = false;
-    bool m_envAlternate = false;
-    bool m_envHold = false;
-    bool m_envHolding = false;
-    int m_envDirection = 1;
-
-    float m_expansionAudioSample = 0.0f;
-    float m_audioChannelVolA = 1.0f;
-    float m_audioChannelVolB = 1.0f;
-    float m_audioChannelVolC = 1.0f;
-
-    static constexpr float VOLUME_TABLE[16] = {
-        0.0f, 0.0045f, 0.0071f, 0.0106f,
-        0.0159f, 0.0240f, 0.0345f, 0.0500f,
-        0.0709f, 0.1000f, 0.1414f, 0.1995f,
-        0.2818f, 0.3981f, 0.5623f, 1.0f
-    };
+    Sunsoft5BAudio m_audio;
 
     void setPRGRAMSize(uint32_t newSize) {
         if(newSize == 0) newSize = 0x2000;
@@ -86,125 +54,6 @@ private:
         m_currentRAMSize = newSize;
         m_PRGRAM = std::move(aux);
     }
-
-    GERANES_INLINE uint16_t tonePeriod(int ch) const
-    {
-        const uint16_t p = static_cast<uint16_t>(
-            (m_audioRegs[ch * 2] | ((m_audioRegs[ch * 2 + 1] & 0x0F) << 8)));
-        return (p == 0) ? 1 : p;
-    }
-
-    GERANES_INLINE uint16_t noisePeriod() const
-    {
-        const uint16_t p = static_cast<uint16_t>(m_audioRegs[6] & 0x1F);
-        return (p == 0) ? 1 : p;
-    }
-
-    GERANES_INLINE uint16_t envPeriod() const
-    {
-        const uint16_t p = static_cast<uint16_t>(m_audioRegs[11] | (m_audioRegs[12] << 8));
-        return (p == 0) ? 1 : p;
-    }
-
-    void restartEnvelope()
-    {
-        const uint8_t shape = m_audioRegs[13] & 0x0F;
-        m_envContinue = (shape & 0x08) != 0;
-        m_envAttack = (shape & 0x04) != 0;
-        m_envAlternate = (shape & 0x02) != 0;
-        m_envHold = (shape & 0x01) != 0;
-        m_envHolding = false;
-        m_envCounter = envPeriod();
-        m_envVolume = m_envAttack ? 0 : 15;
-        m_envDirection = m_envAttack ? 1 : -1;
-    }
-
-    void tickEnvelope()
-    {
-        if(m_envHolding) return;
-
-        if(--m_envCounter > 0) return;
-        m_envCounter = envPeriod();
-
-        int next = static_cast<int>(m_envVolume) + m_envDirection;
-        if(next >= 0 && next <= 15) {
-            m_envVolume = static_cast<uint8_t>(next);
-            return;
-        }
-
-        if(!m_envContinue) {
-            m_envVolume = 0;
-            m_envHolding = true;
-            return;
-        }
-
-        if(m_envHold) {
-            m_envVolume = m_envAttack ? 15 : 0;
-            m_envHolding = true;
-            return;
-        }
-
-        if(m_envAlternate) {
-            m_envDirection = -m_envDirection;
-            m_envAttack = !m_envAttack;
-        }
-
-        m_envVolume = m_envAttack ? 0 : 15;
-    }
-
-    void tickPSG()
-    {
-        for(int ch = 0; ch < 3; ++ch) {
-            if(--m_toneCounter[ch] == 0) {
-                m_toneCounter[ch] = tonePeriod(ch);
-                m_toneOutput[ch] = !m_toneOutput[ch];
-            }
-        }
-
-        if(--m_noiseCounter == 0) {
-            m_noiseCounter = noisePeriod();
-            const uint32_t feedback = (m_noiseLfsr ^ (m_noiseLfsr >> 3)) & 0x01;
-            m_noiseLfsr = (m_noiseLfsr >> 1) | (feedback << 16);
-            m_noiseOutput = (m_noiseLfsr & 0x01) != 0;
-        }
-
-        tickEnvelope();
-
-        const uint8_t mixer = m_audioRegs[7];
-
-        float mix = 0.0f;
-        const float gains[3] = {m_audioChannelVolA, m_audioChannelVolB, m_audioChannelVolC};
-        for(int ch = 0; ch < 3; ++ch) {
-            const bool toneDisabled = ((mixer >> ch) & 0x01) != 0;
-            const bool noiseDisabled = ((mixer >> (ch + 3)) & 0x01) != 0;
-            const bool toneOk = toneDisabled || m_toneOutput[ch];
-            const bool noiseOk = noiseDisabled || m_noiseOutput;
-            if(!(toneOk && noiseOk)) continue;
-
-            const uint8_t volReg = m_audioRegs[8 + ch];
-            const uint8_t volIndex = ((volReg & 0x10) != 0) ? m_envVolume : (volReg & 0x0F);
-            mix += VOLUME_TABLE[volIndex] * gains[ch];
-        }
-
-        // 3 channels normalized to [-1, 1]
-        m_expansionAudioSample = (mix / 3.0f) * 2.0f - 1.0f;
-        m_expansionAudioSample = std::clamp(m_expansionAudioSample, -1.0f, 1.0f);
-    }
-
-    void writeAudioData(uint8_t data)
-    {
-        const uint8_t reg = m_audioSelectedReg & 0x0F;
-        m_audioRegs[reg] = data;
-
-        switch(reg) {
-            case 13:
-                restartEnvelope();
-                break;
-            default:
-                break;
-        }
-    }
-
 
     template<BankSize bs>
     GERANES_INLINE uint8_t readCHRRAM(int bank, int addr)
@@ -243,7 +92,7 @@ public:
         setPRGRAMSize(m_currentRAMSize);
         m_PRGREGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B8K>());
         m_CHRREGMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
-        restartEnvelope();
+        m_audio.reset();
     }
 
     void reset() override
@@ -263,21 +112,7 @@ public:
         m_IRQCounterEnable = false;
         m_IRQCounter = 0;
 
-        m_audioSelectedReg = 0;
-        memset(m_audioRegs, 0, sizeof(m_audioRegs));
-        m_audioClockCounter = 0;
-
-        m_toneCounter[0] = m_toneCounter[1] = m_toneCounter[2] = 1;
-        m_toneOutput[0] = m_toneOutput[1] = m_toneOutput[2] = true;
-        m_noiseCounter = 1;
-        m_noiseLfsr = 1;
-        m_noiseOutput = true;
-        restartEnvelope();
-
-        m_expansionAudioSample = 0.0f;
-        m_audioChannelVolA = 1.0f;
-        m_audioChannelVolB = 1.0f;
-        m_audioChannelVolC = 1.0f;
+        m_audio.reset();
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -331,10 +166,10 @@ public:
             }
         }
         else if(addr < 0x6000) {
-            m_audioSelectedReg = data & 0x0F;
+            m_audio.writeAddress(data);
         }
         else {
-            writeAudioData(data);
+            m_audio.writeData(data);
         }
 
     }
@@ -379,10 +214,7 @@ public:
             --m_IRQCounter;
         }
 
-        if(++m_audioClockCounter >= m_audioClockDiv) {
-            m_audioClockCounter = 0;
-            tickPSG();
-        }
+        m_audio.clock();
     }
 
     GERANES_HOT bool getInterruptFlag() override {
@@ -391,27 +223,17 @@ public:
 
     GERANES_HOT float getExpansionAudioSample() override
     {
-        return m_expansionAudioSample;
+        return m_audio.getSample();
     }
 
     std::string getAudioChannelsJson() const override
     {
-        std::ostringstream os;
-        os << "{\"channels\":["
-           << "{\"id\":\"sunsoft5b.a\",\"label\":\"Sunsoft 5B A\",\"volume\":" << m_audioChannelVolA << ",\"min\":0.0,\"max\":1.0},"
-           << "{\"id\":\"sunsoft5b.b\",\"label\":\"Sunsoft 5B B\",\"volume\":" << m_audioChannelVolB << ",\"min\":0.0,\"max\":1.0},"
-           << "{\"id\":\"sunsoft5b.c\",\"label\":\"Sunsoft 5B C\",\"volume\":" << m_audioChannelVolC << ",\"min\":0.0,\"max\":1.0}"
-           << "]}";
-        return os.str();
+        return m_audio.getAudioChannelsJson();
     }
 
     bool setAudioChannelVolumeById(const std::string& id, float volume) override
     {
-        const float v = std::clamp(volume, 0.0f, 1.0f);
-        if(id == "sunsoft5b.a") { m_audioChannelVolA = v; return true; }
-        if(id == "sunsoft5b.b") { m_audioChannelVolB = v; return true; }
-        if(id == "sunsoft5b.c") { m_audioChannelVolC = v; return true; }
-        return false;
+        return m_audio.setAudioChannelVolumeById(id, volume);
     }
 
     GERANES_HOT void writeSaveRam(int addr, uint8_t data) override
@@ -456,27 +278,7 @@ public:
 
         SERIALIZEDATA(s, command);
 
-        SERIALIZEDATA(s, m_audioSelectedReg);
-        s.array(m_audioRegs, 1, 16);
-        SERIALIZEDATA(s, m_audioClockDiv);
-        SERIALIZEDATA(s, m_audioClockCounter);
-        s.array(reinterpret_cast<uint8_t*>(m_toneCounter), sizeof(uint16_t), 3);
-        s.array(reinterpret_cast<uint8_t*>(m_toneOutput), 1, 3);
-        SERIALIZEDATA(s, m_noiseCounter);
-        SERIALIZEDATA(s, m_noiseLfsr);
-        SERIALIZEDATA(s, m_noiseOutput);
-        SERIALIZEDATA(s, m_envCounter);
-        SERIALIZEDATA(s, m_envVolume);
-        SERIALIZEDATA(s, m_envAttack);
-        SERIALIZEDATA(s, m_envContinue);
-        SERIALIZEDATA(s, m_envAlternate);
-        SERIALIZEDATA(s, m_envHold);
-        SERIALIZEDATA(s, m_envHolding);
-        SERIALIZEDATA(s, m_envDirection);
-        SERIALIZEDATA(s, m_expansionAudioSample);
-        SERIALIZEDATA(s, m_audioChannelVolA);
-        SERIALIZEDATA(s, m_audioChannelVolB);
-        SERIALIZEDATA(s, m_audioChannelVolC);
+        m_audio.serialization(s);
 
     }
 
