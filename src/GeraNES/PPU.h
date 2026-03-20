@@ -1168,6 +1168,16 @@ yyy NN YYYYY XXXXX
         return (uint8_t)(getColorLowBitsInPatternTable(index, spriteXToDraw, spriteLineToDraw & 0x07) | ((sprite->attrib & 0x03) << 2));
     }
 
+    GERANES_INLINE const Sprite& primaryOamSprite(uint8_t addr) const
+    {
+        return *reinterpret_cast<const Sprite*>(&m_primaryOam[addr]);
+    }
+
+    GERANES_INLINE const Sprite& secondaryOamSprite(int spriteIndex) const
+    {
+        return *reinterpret_cast<const Sprite*>(&m_secondaryOam[spriteIndex << 2]);
+    }
+
     GERANES_INLINE_HOT void renderSpritesPixel()
     {
         if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
@@ -1179,58 +1189,60 @@ yyy NN YYYYY XXXXX
             indexedSpritesCount = m_spriteFetchCount;
         }
 
+        const bool spriteLimitDisabled = m_settings.spriteLimitDisabled();
         bool spritesAsMask = false;
-        if(m_settings.spriteLimitDisabled() && indexedSpritesCount >= 8) {
-            const Sprite* first = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[0]];
+        if(spriteLimitDisabled && indexedSpritesCount >= 8) {
+            const Sprite& first = primaryOamSprite(m_spritesIndexesInThisLine[0]);
             int i = 1;
             for(; i < 8; i++) {
-                const Sprite* other = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
-                if(first->y != other->y && first->indexInPatternTable != other->indexInPatternTable) break;
+                const Sprite& other = primaryOamSprite(m_spritesIndexesInThisLine[i]);
+                if(first.y != other.y && first.indexInPatternTable != other.indexInPatternTable) break;
             }
             spritesAsMask = i == 8;
         }
 
         int maxSprites = indexedSpritesCount;
-        if(!m_settings.spriteLimitDisabled() || spritesAsMask) {
+        if(!spriteLimitDisabled || spritesAsMask) {
             if(maxSprites > 8) maxSprites = 8;
         }
 
-        for(int i = 0; i < maxSprites; i++) {
-            if(i < 8) {
-                if(i >= m_spriteFetchCount) continue;
-
-                SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
-                if(!sprite.active || sprite.xCounter != 0) {
-                    continue;
-                }
-
-                int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
-                            ((sprite.highShift & 0x80) ? 0x02 : 0x00);
-                if(color == 0) {
-                    continue;
-                }
-
-                paletteIndex = color | ((sprite.attr & 0x03) << 2);
-
-                if(sprite.sprite0 && m_backgroundEnabled &&
-                   (m_currentPixelColorIndex & 0x03) != 0 &&
-                   (paletteIndex & 0x03) != 0 && m_currentX != 255) {
-                    m_sprite0Hit = true;
-                }
-
-                paletteIndex = 0x10 + paletteIndex;
-                isPixelBehind = (sprite.attr & 0x20) != 0;
-                break;
+        const int renderedSpriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
+        const int renderedSpriteLimit = (maxSprites < renderedSpriteCount) ? maxSprites : renderedSpriteCount;
+        for(int i = 0; i < renderedSpriteLimit; i++) {
+            SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
+            if(!sprite.active || sprite.xCounter != 0) {
+                continue;
             }
-            else {
-                const Sprite* sprite = (Sprite*)&m_primaryOam[m_spritesIndexesInThisLine[i]];
-                if(m_currentX < sprite->x || m_currentX >= sprite->x + 8) continue;
 
-                uint8_t low = getSpritePixelFake(sprite, m_currentX);
+            const int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
+                              ((sprite.highShift & 0x80) ? 0x02 : 0x00);
+            if(color == 0) {
+                continue;
+            }
+
+            paletteIndex = color | ((sprite.attr & 0x03) << 2);
+
+            if(sprite.sprite0 && m_backgroundEnabled &&
+               (m_currentPixelColorIndex & 0x03) != 0 &&
+               m_currentX != 255) {
+                m_sprite0Hit = true;
+            }
+
+            paletteIndex = 0x10 + paletteIndex;
+            isPixelBehind = (sprite.attr & 0x20) != 0;
+            break;
+        }
+
+        if(paletteIndex == 0 && maxSprites > 8) {
+            for(int i = 8; i < maxSprites; i++) {
+                const Sprite& sprite = primaryOamSprite(m_spritesIndexesInThisLine[i]);
+                if(m_currentX < sprite.x || m_currentX >= sprite.x + 8) continue;
+
+                const uint8_t low = getSpritePixelFake(&sprite, m_currentX);
                 if((low & 0x03) == 0) continue;
 
                 paletteIndex = 0x10 + low;
-                isPixelBehind = (sprite->attrib & 0x20) != 0;
+                isPixelBehind = (sprite.attrib & 0x20) != 0;
                 break;
             }
         }
@@ -1244,7 +1256,8 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE_HOT void clockSpriteRenderers()
     {
-        for(int i = 0; i < m_spriteFetchCount && i < 8; i++) {
+        const int spriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
+        for(int i = 0; i < spriteCount; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
             if(!sprite.active) {
                 continue;
@@ -1302,6 +1315,7 @@ yyy NN YYYYY XXXXX
         m_forceSpriteXZeroThisLine = m_forceSpriteXZeroNextLine;
         m_forceSpriteXZeroNextLine = false;
 
+        const int activeSpriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
         for(int i = 0; i < 8; i++) {
             SpriteRenderEntry& entry = m_spriteRenderEntries[i];
             const SpriteFetchEntry& fetched = m_spriteFetchEntries[i];
@@ -1310,7 +1324,7 @@ yyy NN YYYYY XXXXX
             entry.lowShift = fetched.lowByte;
             entry.highShift = fetched.highByte;
             entry.sprite0 = fetched.sprite0;
-            entry.active = i < m_spriteFetchCount;
+            entry.active = i < activeSpriteCount;
 
             if(entry.active && (entry.attr & 0x40) != 0) {
                 entry.lowShift = reverseByte(entry.lowShift);
@@ -1552,14 +1566,15 @@ yyy NN YYYYY XXXXX
         m_cartridge.setPpuFetchSource(true);
 
         const int startCycle = 257;
-        const int spriteIndex = (m_cycle - startCycle) / 8;
+        const int cycleOffset = m_cycle - startCycle;
+        const int spriteIndex = cycleOffset >> 3;
 
         if(m_cycle == startCycle) {
             m_spriteFetchCount = 0;
             memset(m_spriteFetchEntries, 0, sizeof(m_spriteFetchEntries));
         }
 
-        int fetchCycle = (m_cycle - startCycle) % 8;
+        const int fetchCycle = cycleOffset & 0x07;
         if(spriteIndex < 0 || spriteIndex >= 8) {
             return;
         }
@@ -1568,16 +1583,17 @@ yyy NN YYYYY XXXXX
         if(fetchedSpriteCount > 8) {
             fetchedSpriteCount = 8;
         }
-        bool hasSpriteData = spriteIndex < fetchedSpriteCount;
-
-        Sprite* sprite = (Sprite*)&m_secondaryOam[spriteIndex << 2];
+        const bool spriteSlotValid = spriteIndex < fetchedSpriteCount;
+        const Sprite& sprite = secondaryOamSprite(spriteIndex);
+        bool hasSpriteData = spriteSlotValid;
         if(hasSpriteData && m_preLine) {
-            hasSpriteData = isSpriteInRangeForScanline(*sprite, 5);
+            hasSpriteData = isSpriteInRangeForScanline(sprite, 5);
         }
         SpriteFetchEntry& entry = m_spriteFetchEntries[spriteIndex];
-        entry.x = hasSpriteData ? sprite->x : 0xFF;
-        entry.attr = hasSpriteData ? sprite->attrib : 0;
+        entry.x = hasSpriteData ? sprite.x : 0xFF;
+        entry.attr = hasSpriteData ? sprite.attrib : 0;
         entry.sprite0 = hasSpriteData && (spriteIndex == 0) && (m_testSprite0HitInThisLine || m_preLine);
+        const uint16_t nameTableAddr = getNameTableAddr();
 
         switch(fetchCycle) {
 
@@ -1586,7 +1602,7 @@ yyy NN YYYYY XXXXX
                     setupPpuReadAddress(static_cast<uint16_t>(0x2000 | (m_firstSpriteFetchV & 0x0F00) | ((m_reg_v + 2) & 0x00FF)));
                 }
                 else {
-                    setupPpuReadAddress(getNameTableAddr());
+                    setupPpuReadAddress(nameTableAddr);
                 }
                 break;
             case 1:
@@ -1594,36 +1610,36 @@ yyy NN YYYYY XXXXX
                     completePpuRead(static_cast<uint16_t>(0x2000 | (m_firstSpriteFetchV & 0x0F00) | ((m_reg_v + 2) & 0x00FF)));
                 }
                 else {
-                    completePpuRead(getNameTableAddr());
+                    completePpuRead(nameTableAddr);
                 }
                 break;
             case 2:
-                setupPpuReadAddress(getNameTableAddr());
+                setupPpuReadAddress(nameTableAddr);
                 break;
             case 3:
-                completePpuRead(getNameTableAddr());
+                completePpuRead(nameTableAddr);
                 break;
             case 4:
                 {
-                    const uint16_t patternAddr = getSpritePatternAddress(*sprite, false);
+                    const uint16_t patternAddr = getSpritePatternAddress(sprite, false);
                     setupPpuReadAddress(patternAddr);
                 }
                 break;
             case 5:
                 {
-                    const uint8_t value = completePpuRead(getSpritePatternAddress(*sprite, false));
-                    entry.lowByte = (hasSpriteData && sprite->y != 0xFF) ? value : 0;
+                    const uint8_t value = completePpuRead(getSpritePatternAddress(sprite, false));
+                    entry.lowByte = (hasSpriteData && sprite.y != 0xFF) ? value : 0;
                 }
                 break;
             case 6:
-                setupPpuReadAddress(getSpritePatternAddress(*sprite, true));
+                setupPpuReadAddress(getSpritePatternAddress(sprite, true));
                 break;
             case 7:
                 {
-                    const uint8_t value = completePpuRead(getSpritePatternAddress(*sprite, true));
-                    entry.highByte = (hasSpriteData && sprite->y != 0xFF) ? value : 0;
-                    if(hasSpriteData && sprite->y != 0xFF) {
-                    m_spriteFetchCount = static_cast<uint8_t>(spriteIndex + 1);
+                    const uint8_t value = completePpuRead(getSpritePatternAddress(sprite, true));
+                    entry.highByte = (hasSpriteData && sprite.y != 0xFF) ? value : 0;
+                    if(hasSpriteData && sprite.y != 0xFF) {
+                        m_spriteFetchCount = static_cast<uint8_t>(spriteIndex + 1);
                     }
                 }
                 break;
