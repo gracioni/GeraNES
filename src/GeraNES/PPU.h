@@ -395,6 +395,152 @@ private:
         m_pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
     }
 
+    GERANES_INLINE void scheduleImmediateVideoRamIncrementIfNeeded(bool activelyRendering)
+    {
+        if(!activelyRendering) {
+            m_needIncVideoRam = true;
+        }
+    }
+
+    GERANES_INLINE void syncRenderingEnabledFlag()
+    {
+        const bool targetRenderingEnabled = m_backgroundEnabled || m_spritesEnabled;
+        if(m_renderingEnabled != targetRenderingEnabled) {
+            m_renderingEnabled = targetRenderingEnabled;
+            m_needUpdateState = true;
+        }
+    }
+
+    GERANES_INLINE void handleRenderingEnabledTransition()
+    {
+        if(m_prevCycleRenderingEnabled == m_renderingEnabled) {
+            return;
+        }
+
+        const bool wasRenderingEnabled = m_prevCycleRenderingEnabled;
+        const bool renderingEnabledNow = m_renderingEnabled;
+
+        m_prevCycleRenderingEnabled = m_renderingEnabled;
+
+        if(!wasRenderingEnabled && renderingEnabledNow && m_renderLine) {
+            m_staleBgShiftActive = true;
+        }
+
+        if(m_scanline < 240 && renderingEnabledNow) {
+            processOamCorruption();
+        }
+
+        if(!m_renderLine || !wasRenderingEnabled || renderingEnabledNow) {
+            return;
+        }
+
+        setOamCorruptionFlags();
+
+        // When rendering is disabled midscreen, hardware can perturb OAM evaluation state.
+        if(m_cycle >= 65 && m_cycle <= 256) {
+            // The address increment can be delayed by 1 PPU cycle depending on odd/even timing.
+            // In practice the externally visible effect is an increment by 1 after rendering stops.
+            m_oamAddr++;
+
+            // Keep N/M in sync to replicate the misalignment bug observed by oam_flicker_test_reenable.
+            m_oamAddrN = (m_oamAddr >> 2) & 0x3F;
+            m_oamAddrM = m_oamAddr & 0x03;
+        }
+    }
+
+    GERANES_INLINE void updateDeferredRegV()
+    {
+        if(m_update_reg_v_delay <= 0) {
+            return;
+        }
+
+        --m_update_reg_v_delay;
+        if(m_update_reg_v_delay != 0) {
+            m_needUpdateState = true;
+            return;
+        }
+
+        m_reg_v = m_update_reg_v_value;
+
+        if(!isActivelyRendering()) {
+            // Only update the bus address when not rendering; needed for MMC3 IRQ timing.
+            setBusAddress(m_reg_v & 0x3FFF);
+        }
+    }
+
+    GERANES_INLINE void updateDeferredVideoRamIncrement()
+    {
+        if(m_deferredVideoRamIncrementDelay <= 0) {
+            return;
+        }
+
+        --m_deferredVideoRamIncrementDelay;
+        if(m_deferredVideoRamIncrementDelay == 0) {
+            m_needIncVideoRam = true;
+            m_needUpdateState = true;
+        }
+    }
+
+    GERANES_INLINE void updateDeferredDataLatchArm()
+    {
+        if(m_deferredDataLatchStartDelay <= 0) {
+            return;
+        }
+
+        --m_deferredDataLatchStartDelay;
+        if(m_deferredDataLatchStartDelay == 0) {
+            m_deferredDataLatchStart = true;
+        }
+        else {
+            m_needUpdateState = true;
+        }
+    }
+
+    GERANES_INLINE void applyPendingVideoRamIncrement(bool wasPending)
+    {
+        if(!wasPending) {
+            return;
+        }
+
+        m_needIncVideoRam = false;
+        incVideoRamAddr();
+    }
+
+    GERANES_INLINE void updatePendingDataLatch()
+    {
+        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay > 0) {
+            --m_pendingDataLatchDelay;
+            m_needUpdateState = true;
+        }
+
+        if(!m_pendingDataLatchUpdate || m_pendingDataLatchDelay != 0) {
+            return;
+        }
+
+        if(!isActivelyRendering()) {
+            m_dataLatch = fakeReadPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
+            m_pendingDataLatchUpdate = false;
+        }
+        else {
+            m_needUpdateState = true;
+        }
+    }
+
+    GERANES_INLINE void updateA12Delay()
+    {
+        if(m_updateA12Delay <= 0) {
+            return;
+        }
+
+        --m_updateA12Delay;
+        if(m_updateA12Delay == 0) {
+            m_cartridge.setA12State(m_busAddress & 0x1000);
+        }
+        else {
+            m_needUpdateState = true;
+        }
+    }
+
     //index 0-3
     GERANES_INLINE_HOT void writeNameTable(uint8_t addrIndex, uint16_t addr, uint8_t data)
     {
@@ -1891,122 +2037,17 @@ yyy NNYY YYYX XXXX
 
     GERANES_HOT void updateState() {
 
-        m_needUpdateState = false;        
+        m_needUpdateState = false;
+        const bool pendingVideoRamIncrement = m_needIncVideoRam;
 
-        //Rendering enabled flag is apparently set with a 1 cycle delay (i.e setting it at cycle 5 will render cycle 6 like cycle 5 and then take the new settings for cycle 7)
-        if(m_prevCycleRenderingEnabled != m_renderingEnabled) {
-            const bool wasRenderingEnabled = m_prevCycleRenderingEnabled;
-            const bool renderingEnabledNow = m_renderingEnabled;
-
-            m_prevCycleRenderingEnabled = m_renderingEnabled;
-
-            if(!wasRenderingEnabled && renderingEnabledNow && m_renderLine) {
-                m_staleBgShiftActive = true;
-            }
-
-            if(m_scanline < 240 && renderingEnabledNow) {
-                processOamCorruption();
-            }
-
-            if(m_renderLine) {
-
-                if(wasRenderingEnabled && !renderingEnabledNow) {
-                    setOamCorruptionFlags();
-
-                    //When rendering is disabled midscreen, set the vram bus back to the value of 'v'
-                    //setBusAddress(m_reg_v & 0x3FFF); //breaks hard drivin
-                    
-                    if(m_cycle >= 65 && m_cycle <= 256) {
-                        //Disabling rendering during OAM evaluation will trigger a glitch causing the current address to be incremented by 1
-                        //The increment can be "delayed" by 1 PPU cycle depending on whether or not rendering is disabled on an even/odd cycle
-                        //e.g, if rendering is disabled on an even cycle, the following PPU cycle will increment the address by 5 (instead of 4)
-                        //     if rendering is disabled on an odd cycle, the increment will wait until the next odd cycle (at which point it will be incremented by 1)
-                        //In practice, there is no way to see the difference, so we just increment by 1 at the end of the next cycle after rendering was disabled
-                        m_oamAddr++;
-
-                        //Also corrupt H/L to replicate a bug found in oam_flicker_test_reenable when rendering is disabled around scanlines 128-136
-                        //Reenabling the causes the OAM evaluation to restart misaligned, and ends up generating a single sprite that's offset by 1
-                        //such that it's Y=tile index, index = attributes, attributes = x, and X = the next sprite's Y value
-                        m_oamAddrN = (m_oamAddr >> 2) & 0x3F;
-                        m_oamAddrM = m_oamAddr & 0x03;
-                        
-                    }
-                }
-            }
-        }
-
-        if(m_renderingEnabled != (m_backgroundEnabled || m_spritesEnabled)) {
-            m_renderingEnabled = m_backgroundEnabled || m_spritesEnabled;
-            m_needUpdateState = true;
-        }
-
-        if(m_update_reg_v_delay > 0) {
-            m_update_reg_v_delay--;
-            if(m_update_reg_v_delay == 0) {
-   
-                m_reg_v = m_update_reg_v_value;
-
-                if( !m_renderLine || !isRenderingEnabled()) {
-                    //Only set the VRAM address on the bus if the PPU is not rendering
-                    //More info here: https://forums.nesdev.com/viewtopic.php?p=132145#p132145
-                    //Trigger bus address change when setting the vram address - needed by MMC3 IRQ counter
-                    //"4) Should be clocked when A12 changes to 1 via $2006 write"
-                    setBusAddress(m_reg_v & 0x3FFF);
-                }
-
-            } else {
-                m_needUpdateState = true;
-            }
-        }
-
-        const bool applyPendingVideoRamIncrement = m_needIncVideoRam;
-        if(m_deferredVideoRamIncrementDelay > 0) {
-            --m_deferredVideoRamIncrementDelay;
-            if(m_deferredVideoRamIncrementDelay == 0) {
-                m_needIncVideoRam = true;
-                m_needUpdateState = true;
-            }
-        }
-
-        if(m_deferredDataLatchStartDelay > 0) {
-            --m_deferredDataLatchStartDelay;
-            if(m_deferredDataLatchStartDelay == 0) {
-                m_deferredDataLatchStart = true;
-            }
-            else {
-                m_needUpdateState = true;
-            }
-        }
-
-        if(applyPendingVideoRamIncrement) {
-            m_needIncVideoRam = false;
-            incVideoRamAddr();
-        }
-
-        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay > 0) {
-            --m_pendingDataLatchDelay;
-            m_needUpdateState = true;
-        }
-
-        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-            if(!isActivelyRendering()) {
-                m_dataLatch = fakeReadPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
-                m_pendingDataLatchUpdate = false;
-            }
-            else {
-                m_needUpdateState = true;
-            }
-        }
-
-        if(m_updateA12Delay > 0) {
-            --m_updateA12Delay;
-
-            if(m_updateA12Delay == 0)
-                m_cartridge.setA12State(m_busAddress&0x1000);
-            else
-                m_needUpdateState = true;
-        }    
-
+        handleRenderingEnabledTransition();
+        syncRenderingEnabledFlag();
+        updateDeferredRegV();
+        updateDeferredVideoRamIncrement();
+        updateDeferredDataLatchArm();
+        applyPendingVideoRamIncrement(pendingVideoRamIncrement);
+        updatePendingDataLatch();
+        updateA12Delay();
     }
 
     GERANES_INLINE void writePPUDATA(uint8_t data)
