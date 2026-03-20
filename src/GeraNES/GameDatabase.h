@@ -153,7 +153,7 @@ public:
 
     struct Item {
         uint32_t PrgChrCrc32;
-        System System;
+        System ConsoleSystem;
         std::string Board;
         std::string PCB;
         std::string Chip;
@@ -362,7 +362,7 @@ private:
                 Item data;
 
                 data.PrgChrCrc32 = getCrc32(rawData.PrgChrCrc32);
-                data.System = getGameSystem(rawData.System);
+                data.ConsoleSystem = getGameSystem(rawData.System);
                 data.Board = rawData.Board;
                 data.PCB = rawData.PCB;
                 data.Chip = rawData.Chip;
@@ -419,7 +419,7 @@ public:
         RawItem raw;
         raw.PrgChrCrc32 = Crc32::toString(item.PrgChrCrc32);
 
-        switch(item.System) {
+        switch(item.ConsoleSystem) {
         case System::NesNtsc: raw.System = "NesNtsc"; break;
         case System::NesPal: raw.System = "NesPal"; break;
         case System::Famicom: raw.System = "Famicom"; break;

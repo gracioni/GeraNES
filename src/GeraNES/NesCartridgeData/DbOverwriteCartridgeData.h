@@ -86,7 +86,7 @@ public:
 
         m_chip = !m_item->Chip.empty() ? m_item->Chip : m_src->chip();
 
-        m_system = m_item->System != GameDatabase::System::Unknown ? m_item->System : m_src->sistem();
+        m_system = m_item->ConsoleSystem != GameDatabase::System::Unknown ? m_item->ConsoleSystem : m_src->sistem();
 
         m_inputType = m_item->InputDeviceType != GameDatabase::InputType::Unspecified ? m_item->InputDeviceType : m_src->inputType();
 
