@@ -274,6 +274,8 @@ file(GLOB_RECURSE RESOURCES_LIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
 # Add the resource files using the list obtained
 cmrc_add_resource_library(resources ${RESOURCES_LIST})
 cmrc_add_resource_library(libretro_db_assets "${CMAKE_CURRENT_SOURCE_DIR}/data/db.txt")
+set_target_properties(resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(libretro_db_assets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Copy data folder to build
 if(EMSCRIPTEN)
