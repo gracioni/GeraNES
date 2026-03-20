@@ -384,6 +384,17 @@ private:
         }
     }
 
+    GERANES_INLINE void armDeferredVideoRamIncrement()
+    {
+        m_deferredVideoRamIncrementArmPending = true;
+    }
+
+    GERANES_INLINE void armDeferredDataLatch(uint16_t addr)
+    {
+        m_deferredDataLatchArmPending = true;
+        m_pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+    }
+
     //index 0-3
     GERANES_INLINE_HOT void writeNameTable(uint8_t addrIndex, uint16_t addr, uint8_t data)
     {
@@ -1728,7 +1739,7 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE void writeOAMDATA(uint8_t data)
     {
-        if(!m_renderLine || !isRenderingEnabled()) {
+        if(!isActivelyRendering()) {
             if((m_oamAddr & 0x03) == 0x02) {
                 //"The three unimplemented bits of each sprite's byte 2 do not exist in the PPU and always read back as 0 on PPU revisions that allow reading PPU OAM through OAMDATA ($2004)"
                 data &= 0xE3;
@@ -1807,14 +1818,13 @@ yyy NNYY YYYX XXXX
     GERANES_INLINE uint8_t readPPUDATA()
     {
         uint8_t ret;
-        const bool activelyRendering = m_renderLine && isRenderingEnabled();
+        const bool activelyRendering = isActivelyRendering();
         
         if(isOnPaletteAddr()) {
             ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
             if(activelyRendering) {
-                m_deferredDataLatchArmPending = true;
-                m_deferredVideoRamIncrementArmPending = true;
-                m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x2FFF);
+                armDeferredDataLatch(static_cast<uint16_t>(m_reg_v & 0x2FFF));
+                armDeferredVideoRamIncrement();
             }
             else {
                 m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
@@ -1823,9 +1833,8 @@ yyy NNYY YYYX XXXX
         else {
             ret = m_dataLatch;
             if(activelyRendering) {
-                m_deferredDataLatchArmPending = true;
-                m_deferredVideoRamIncrementArmPending = true;
-                m_pendingDataLatchAddr = static_cast<uint16_t>(m_reg_v & 0x3FFF);
+                armDeferredDataLatch(static_cast<uint16_t>(m_reg_v & 0x3FFF));
+                armDeferredVideoRamIncrement();
             }
             else {
                 m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
@@ -1862,7 +1871,7 @@ yyy NNYY YYYX XXXX
     void incVideoRamAddr() {
         const uint16_t oldV = m_reg_v;
 
-        if( !m_renderLine || !isRenderingEnabled()) {
+        if(!isActivelyRendering()) {
 
             m_reg_v+=m_VRAMAddressIncrement;
             m_reg_v &= 0x7FFF;
@@ -1980,7 +1989,7 @@ yyy NNYY YYYX XXXX
         }
 
         if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
-            if(!m_renderLine || !isRenderingEnabled()) {
+            if(!isActivelyRendering()) {
                 m_dataLatch = fakeReadPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
                 m_pendingDataLatchUpdate = false;
             }
@@ -2010,8 +2019,8 @@ yyy NNYY YYYX XXXX
         }
 
         m_needUpdateState = true;
-        if(m_renderLine && isRenderingEnabled()) {
-            m_deferredVideoRamIncrementArmPending = true;
+        if(isActivelyRendering()) {
+            armDeferredVideoRamIncrement();
         }
         else {
             m_needIncVideoRam = true;
