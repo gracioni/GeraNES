@@ -70,6 +70,36 @@ private:
         return static_cast<size_t>(std::max<uint64_t>(1ULL, samples));
     }
 
+    float mixExpansionAudio()
+    {
+        if(!m_expansionPlaybackStarted) {
+            if(m_expansionFifo.size() >= expansionPrebufferSamples()) {
+                m_expansionPlaybackStarted = true;
+            }
+        }
+
+        if(!m_expansionPlaybackStarted) {
+            return 0.0f;
+        }
+
+        const double fifoError = static_cast<double>(
+            static_cast<int64_t>(m_expansionFifo.size()) - static_cast<int64_t>(expansionTargetBufferSamples()));
+
+        // Keep FIFO around target size to reduce starvation/overfill over long runs.
+        m_expansionConsumeRate = std::clamp(1.0 + fifoError * 0.00002, 0.995, 1.005);
+        m_expansionConsumeAcc += m_expansionConsumeRate;
+
+        while(m_expansionConsumeAcc >= 1.0) {
+            if(!m_expansionFifo.empty()) {
+                m_expansionLastSample = m_expansionFifo.read();
+            }
+            m_expansionConsumeAcc -= 1.0;
+        }
+
+        // If FIFO starves, hold last value to avoid sharp discontinuity.
+        return m_expansionLastSample * m_expansionVolume;
+    }
+
 public:
 
     AudioOutputBase()
@@ -172,28 +202,7 @@ public:
         ret += 1.0f/sum*m_noise.get()*m_userNoiseVolume;
         ret += 1.5f/sum*m_sample.get()*m_userSampleVolume;
         ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
-        float expansionRaw = 0.0f;
-        if(!m_expansionPlaybackStarted) {
-            if(m_expansionFifo.size() >= expansionPrebufferSamples()) {
-                m_expansionPlaybackStarted = true;
-            }
-        }
-        if(m_expansionPlaybackStarted) {
-            const double fifoError = static_cast<double>(
-                static_cast<int64_t>(m_expansionFifo.size()) - static_cast<int64_t>(expansionTargetBufferSamples()));
-            // Keep FIFO around target size to reduce starvation/overfill over long runs.
-            m_expansionConsumeRate = std::clamp(1.0 + fifoError * 0.00002, 0.995, 1.005);
-            m_expansionConsumeAcc += m_expansionConsumeRate;
-            while(m_expansionConsumeAcc >= 1.0) {
-                if(!m_expansionFifo.empty()) {
-                    m_expansionLastSample = m_expansionFifo.read();
-                }
-                m_expansionConsumeAcc -= 1.0;
-            }
-            // If FIFO starves, hold last value to avoid sharp discontinuity.
-            expansionRaw = m_expansionLastSample * m_expansionVolume;
-        }
-        ret += 1.0f/sum*expansionRaw;
+        ret += 1.0f/sum*mixExpansionAudio();
 
         ret = m_hpFilter1.apply(ret);
         ret = m_hpFilter2.apply(ret);
