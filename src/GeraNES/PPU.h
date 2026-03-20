@@ -171,15 +171,19 @@ private:
     uint16_t m_reg_t;
     bool m_reg_w;
 
+    struct DeferredPpuIoState {
+        bool pendingDataLatchUpdate = false;
+        uint8_t pendingDataLatchDelay = 0;
+        uint16_t pendingDataLatchAddr = 0;
+        bool deferredDataLatchArmPending = false;
+        bool deferredDataLatchStart = false;
+        uint8_t deferredDataLatchStartDelay = 0;
+        bool deferredVideoRamIncrementArmPending = false;
+        uint8_t deferredVideoRamIncrementDelay = 0;
+    };
+
     uint8_t m_dataLatch;
-    bool m_pendingDataLatchUpdate;
-    uint8_t m_pendingDataLatchDelay;
-    uint16_t m_pendingDataLatchAddr;
-    bool m_deferredDataLatchArmPending;
-    bool m_deferredDataLatchStart;
-    uint8_t m_deferredDataLatchStartDelay;
-    bool m_deferredVideoRamIncrementArmPending;
-    uint8_t m_deferredVideoRamIncrementDelay;
+    DeferredPpuIoState m_deferredPpuIo;
 
     int m_debugCursorX = 0;
     int m_debugCursorY = 0;
@@ -284,7 +288,7 @@ private:
         if constexpr (affectsTheBus && updateBusAddress)
             setBusAddress(addr);
 
-        addr &= 0x3FFF; //mirror 0x0000-0x3FFF when addr >= 0x4000        
+        addr = normalizePpuAddress(addr);
 
         if(addr < 0x2000)
         {
@@ -301,15 +305,14 @@ private:
 
         else if(addr < 0x3F00)
         {
-            addr &= 0x2FFF;
-
-            uint8_t addrIndex = (addr-0x2000) >> 10; //0-3 index without mirroring
+            const uint16_t nameTableAddr = normalizeNameTableAddress(addr);
+            uint8_t addrIndex = (nameTableAddr - 0x2000) >> 10; //0-3 index without mirroring
 
             if constexpr(writeFlag) {
-                writeNameTable(addrIndex,addr,data);
+                writeNameTable(addrIndex, nameTableAddr, data);
             }
             else {
-                uint8_t value = readNameTable(addrIndex,addr);
+                uint8_t value = readNameTable(addrIndex, nameTableAddr);
                 commitPendingDataLatch(value);
                 return value;
             }
@@ -317,18 +320,13 @@ private:
 
         else // addr < 0x4000
         {
-            addr &= 0x3F1F; //mirror till 0x4000-1
-
-            if(addr == 0x3F10) addr = 0x3F00;
-            else if(addr == 0x3F14) addr = 0x3F04;
-            else if(addr == 0x3F18) addr = 0x3F08;
-            else if(addr == 0x3F1C) addr = 0x3F0C;
+            const uint16_t paletteAddr = normalizePaletteAddress(addr);
 
             if constexpr(writeFlag) {
-                m_palette[addr - 0x3F00] = data;
+                m_palette[paletteAddr - 0x3F00] = data;
             }
             else {
-                uint8_t value = m_palette[addr - 0x3F00];
+                uint8_t value = m_palette[paletteAddr - 0x3F00];
                 commitPendingDataLatch(value);
                 return value;
             }
@@ -353,11 +351,11 @@ private:
     {
         m_busAddressLowLatch = static_cast<uint8_t>(addr & 0x00FF);
         setBusAddress(addr);
-        if(m_deferredDataLatchStart) {
-            m_deferredDataLatchStart = false;
-            m_pendingDataLatchUpdate = true;
-            m_pendingDataLatchDelay = 1;
-            m_pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+        if(m_deferredPpuIo.deferredDataLatchStart) {
+            m_deferredPpuIo.deferredDataLatchStart = false;
+            m_deferredPpuIo.pendingDataLatchUpdate = true;
+            m_deferredPpuIo.pendingDataLatchDelay = 1;
+            m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
         }
     }
 
@@ -376,23 +374,43 @@ private:
         readWritePpuMemory<true, false>(addr,data);
     }
 
+    GERANES_INLINE uint16_t normalizePpuAddress(uint16_t addr) const
+    {
+        return static_cast<uint16_t>(addr & 0x3FFF);
+    }
+
+    GERANES_INLINE uint16_t normalizeNameTableAddress(uint16_t addr) const
+    {
+        return static_cast<uint16_t>(normalizePpuAddress(addr) & 0x2FFF);
+    }
+
+    GERANES_INLINE uint16_t normalizePaletteAddress(uint16_t addr) const
+    {
+        uint16_t normalized = static_cast<uint16_t>(normalizePpuAddress(addr) & 0x3F1F);
+        if(normalized == 0x3F10) return 0x3F00;
+        if(normalized == 0x3F14) return 0x3F04;
+        if(normalized == 0x3F18) return 0x3F08;
+        if(normalized == 0x3F1C) return 0x3F0C;
+        return normalized;
+    }
+
     GERANES_INLINE void commitPendingDataLatch(uint8_t value)
     {
-        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay == 0) {
+        if(m_deferredPpuIo.pendingDataLatchUpdate && m_deferredPpuIo.pendingDataLatchDelay == 0) {
             m_dataLatch = value;
-            m_pendingDataLatchUpdate = false;
+            m_deferredPpuIo.pendingDataLatchUpdate = false;
         }
     }
 
     GERANES_INLINE void armDeferredVideoRamIncrement()
     {
-        m_deferredVideoRamIncrementArmPending = true;
+        m_deferredPpuIo.deferredVideoRamIncrementArmPending = true;
     }
 
     GERANES_INLINE void armDeferredDataLatch(uint16_t addr)
     {
-        m_deferredDataLatchArmPending = true;
-        m_pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+        m_deferredPpuIo.deferredDataLatchArmPending = true;
+        m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
     }
 
     GERANES_INLINE void scheduleImmediateVideoRamIncrementIfNeeded(bool activelyRendering)
@@ -470,12 +488,12 @@ private:
 
     GERANES_INLINE void updateDeferredVideoRamIncrement()
     {
-        if(m_deferredVideoRamIncrementDelay <= 0) {
+        if(m_deferredPpuIo.deferredVideoRamIncrementDelay <= 0) {
             return;
         }
 
-        --m_deferredVideoRamIncrementDelay;
-        if(m_deferredVideoRamIncrementDelay == 0) {
+        --m_deferredPpuIo.deferredVideoRamIncrementDelay;
+        if(m_deferredPpuIo.deferredVideoRamIncrementDelay == 0) {
             m_needIncVideoRam = true;
             m_needUpdateState = true;
         }
@@ -483,13 +501,13 @@ private:
 
     GERANES_INLINE void updateDeferredDataLatchArm()
     {
-        if(m_deferredDataLatchStartDelay <= 0) {
+        if(m_deferredPpuIo.deferredDataLatchStartDelay <= 0) {
             return;
         }
 
-        --m_deferredDataLatchStartDelay;
-        if(m_deferredDataLatchStartDelay == 0) {
-            m_deferredDataLatchStart = true;
+        --m_deferredPpuIo.deferredDataLatchStartDelay;
+        if(m_deferredPpuIo.deferredDataLatchStartDelay == 0) {
+            m_deferredPpuIo.deferredDataLatchStart = true;
         }
         else {
             m_needUpdateState = true;
@@ -508,18 +526,18 @@ private:
 
     GERANES_INLINE void updatePendingDataLatch()
     {
-        if(m_pendingDataLatchUpdate && m_pendingDataLatchDelay > 0) {
-            --m_pendingDataLatchDelay;
+        if(m_deferredPpuIo.pendingDataLatchUpdate && m_deferredPpuIo.pendingDataLatchDelay > 0) {
+            --m_deferredPpuIo.pendingDataLatchDelay;
             m_needUpdateState = true;
         }
 
-        if(!m_pendingDataLatchUpdate || m_pendingDataLatchDelay != 0) {
+        if(!m_deferredPpuIo.pendingDataLatchUpdate || m_deferredPpuIo.pendingDataLatchDelay != 0) {
             return;
         }
 
         if(!isActivelyRendering()) {
-            m_dataLatch = fakeReadPpuMemory(m_pendingDataLatchAddr & 0x3FFF);
-            m_pendingDataLatchUpdate = false;
+            m_dataLatch = fakeReadPpuMemory(m_deferredPpuIo.pendingDataLatchAddr & 0x3FFF);
+            m_deferredPpuIo.pendingDataLatchUpdate = false;
         }
         else {
             m_needUpdateState = true;
@@ -633,14 +651,7 @@ public:
         m_overflowBugCounter = 0;
         m_sprite0Added = false;
         m_dataLatch = 0;
-        m_pendingDataLatchUpdate = false;
-        m_pendingDataLatchDelay = 0;
-        m_pendingDataLatchAddr = 0;
-        m_deferredDataLatchArmPending = false;
-        m_deferredDataLatchStart = false;
-        m_deferredDataLatchStartDelay = 0;
-        m_deferredVideoRamIncrementArmPending = false;
-        m_deferredVideoRamIncrementDelay = 0;
+        m_deferredPpuIo = {};
 
         m_currentPixelColorIndex = 0;
         m_bgPatternLowShift = 0;
@@ -2001,14 +2012,14 @@ yyy NNYY YYYX XXXX
             return;
         }
 
-        if(m_deferredDataLatchArmPending) {
-            m_deferredDataLatchArmPending = false;
-            m_deferredDataLatchStartDelay = 1;
+        if(m_deferredPpuIo.deferredDataLatchArmPending) {
+            m_deferredPpuIo.deferredDataLatchArmPending = false;
+            m_deferredPpuIo.deferredDataLatchStartDelay = 1;
         }
 
-        if(m_deferredVideoRamIncrementArmPending) {
-            m_deferredVideoRamIncrementArmPending = false;
-            m_deferredVideoRamIncrementDelay = 1;
+        if(m_deferredPpuIo.deferredVideoRamIncrementArmPending) {
+            m_deferredPpuIo.deferredVideoRamIncrementArmPending = false;
+            m_deferredPpuIo.deferredVideoRamIncrementDelay = 1;
         }
 
         m_needUpdateState = true;
@@ -2318,14 +2329,14 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_reg_w);
 
         SERIALIZEDATA(s, m_dataLatch);
-        SERIALIZEDATA(s, m_pendingDataLatchUpdate);
-        SERIALIZEDATA(s, m_pendingDataLatchDelay);
-        SERIALIZEDATA(s, m_pendingDataLatchAddr);
-        SERIALIZEDATA(s, m_deferredDataLatchArmPending);
-        SERIALIZEDATA(s, m_deferredDataLatchStart);
-        SERIALIZEDATA(s, m_deferredDataLatchStartDelay);
-        SERIALIZEDATA(s, m_deferredVideoRamIncrementArmPending);
-        SERIALIZEDATA(s, m_deferredVideoRamIncrementDelay);
+        SERIALIZEDATA(s, m_deferredPpuIo.pendingDataLatchUpdate);
+        SERIALIZEDATA(s, m_deferredPpuIo.pendingDataLatchDelay);
+        SERIALIZEDATA(s, m_deferredPpuIo.pendingDataLatchAddr);
+        SERIALIZEDATA(s, m_deferredPpuIo.deferredDataLatchArmPending);
+        SERIALIZEDATA(s, m_deferredPpuIo.deferredDataLatchStart);
+        SERIALIZEDATA(s, m_deferredPpuIo.deferredDataLatchStartDelay);
+        SERIALIZEDATA(s, m_deferredPpuIo.deferredVideoRamIncrementArmPending);
+        SERIALIZEDATA(s, m_deferredPpuIo.deferredVideoRamIncrementDelay);
 
         SERIALIZEDATA(s, m_tileAddr);
         SERIALIZEDATA(s, m_paletteOffset);
