@@ -21,7 +21,7 @@ Try the web version [HERE](https://racionisoft.com/geranes/GeraNES.html)!
 
 Generated reports are available here:
 
-- [Mapper coverage (HTML)](tools/generated/mapper_coverage.html)
-- [Test report (HTML)](tools/generated/geranes_test_report.html)
+- [Mapper coverage](https://gracioni.github.io/GeraNES/tools/generated/mapper_coverage.html)
+- [Test report](https://gracioni.github.io/GeraNES/tools/generated/geranes_test_report.html)
 
 You can refresh both reports with `tools/update_reports.sh`.
