@@ -4,3 +4,5 @@ build*/
 *.o
 *.dll
 *.so
+
+__pycache__/
