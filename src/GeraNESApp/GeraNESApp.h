@@ -813,6 +813,7 @@ public:
         ImGui::CreateContext();
 
         ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
         {
