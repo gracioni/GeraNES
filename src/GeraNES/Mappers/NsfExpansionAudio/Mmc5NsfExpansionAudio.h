@@ -5,9 +5,9 @@
 #include <sstream>
 
 #include "../Audio/Mmc5Audio.h"
-#include "NsfExpansionAudio.h"
+#include "NsfExpansionAudioBase.h"
 
-class Mmc5NsfExpansionAudio : public NsfExpansionAudio
+class Mmc5NsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
     static constexpr uint16_t AUDIO_REG_START = 0x5000;

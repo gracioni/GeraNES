@@ -8,7 +8,7 @@
 #include <cstdint>
 #include "BaseMapper.h"
 #include "NsfExpansionAudio/NsfExpansionAudioFactory.h"
-#include "NsfExpansionAudio/NsfExpansionAudio.h"
+#include "NsfExpansionAudio/NsfExpansionAudioBase.h"
 #include "GeraNES/NesCartridgeData/_NsfFormat.h"
 #include "GeraNES/util/NesAssembler.h"
 
@@ -27,8 +27,8 @@ private:
     bool m_playRequestPending = false;
     bool m_playInFlight = false;
     uint32_t m_playCounter = 0;
-    std::unique_ptr<NsfExpansionAudio> m_audioOwner;
-    NsfExpansionAudio* m_audio = nullptr;
+    std::unique_ptr<NsfExpansionAudioBase> m_audioOwner;
+    NsfExpansionAudioBase* m_audio = nullptr;
 
     GERANES_INLINE uint8_t readMappedNsfData(uint16_t cpuAddr) const
     {

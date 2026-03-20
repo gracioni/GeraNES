@@ -1,9 +1,9 @@
 #pragma once
 
 #include "../Audio/Sunsoft5BAudio.h"
-#include "NsfExpansionAudio.h"
+#include "NsfExpansionAudioBase.h"
 
-class Sunsoft5BNsfExpansionAudio : public NsfExpansionAudio
+class Sunsoft5BNsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
     Sunsoft5BAudio m_audio;

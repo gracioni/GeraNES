@@ -3,7 +3,7 @@
 #include <memory>
 #include <sstream>
 
-#include "NsfExpansionAudio.h"
+#include "NsfExpansionAudioBase.h"
 #include "Vrc6NsfExpansionAudio.h"
 #include "Mmc5NsfExpansionAudio.h"
 #include "Namco163NsfExpansionAudio.h"
@@ -13,7 +13,7 @@
 class NsfExpansionAudioFactory
 {
 public:
-    static std::unique_ptr<NsfExpansionAudio> createForNsf(uint8_t soundChipFlags)
+    static std::unique_ptr<NsfExpansionAudioBase> createForNsf(uint8_t soundChipFlags)
     {
         constexpr uint8_t CHIP_VRC6 = 0x01;
         constexpr uint8_t CHIP_VRC7 = 0x02;
@@ -26,7 +26,7 @@ public:
             return nullptr;
         }
 
-        std::unique_ptr<NsfExpansionAudio> audio;
+        std::unique_ptr<NsfExpansionAudioBase> audio;
         uint8_t unsupportedFlags = soundChipFlags;
 
         if((soundChipFlags & CHIP_VRC6) != 0) {

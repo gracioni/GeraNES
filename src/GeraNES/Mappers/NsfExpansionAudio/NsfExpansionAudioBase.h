@@ -5,10 +5,10 @@
 
 #include "../../Serialization.h"
 
-class NsfExpansionAudio
+class NsfExpansionAudioBase
 {
 public:
-    virtual ~NsfExpansionAudio() = default;
+    virtual ~NsfExpansionAudioBase() = default;
 
     virtual void reset(int cpuClockHz) = 0;
     virtual void clock() = 0;

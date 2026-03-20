@@ -1,9 +1,9 @@
 #pragma once
 
 #include "../Audio/Namco163Audio.h"
-#include "NsfExpansionAudio.h"
+#include "NsfExpansionAudioBase.h"
 
-class Namco163NsfExpansionAudio : public NsfExpansionAudio
+class Namco163NsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
     Namco163Audio m_audio;

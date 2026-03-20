@@ -1,9 +1,9 @@
 #pragma once
 
 #include "../Audio/Vrc6Audio.h"
-#include "NsfExpansionAudio.h"
+#include "NsfExpansionAudioBase.h"
 
-class Vrc6NsfExpansionAudio : public NsfExpansionAudio
+class Vrc6NsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
     Vrc6Audio m_audio;
