@@ -9,7 +9,7 @@
 // - no mapper-controlled mirroring
 class Mapper206 : public BaseMapper
 {
-private:
+protected:
     uint8_t m_bankSelect = 0;
 
     // CHR regs: [0..1]=2KB banks, [2..5]=1KB banks
