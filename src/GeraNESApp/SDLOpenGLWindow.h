@@ -1,6 +1,19 @@
 #pragma once
 
 #include <SDL.h>
+#ifdef _WIN32
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <SDL_syswm.h>
+    #include <windows.h>
+    #ifdef ERROR
+        #undef ERROR
+    #endif
+#endif
 
 #include "CppGL/GLHeaders.h"
 
@@ -25,6 +38,16 @@ private:
     bool m_quit = false;
     int m_lastDrawableW = 0;
     int m_lastDrawableH = 0;
+#ifdef _WIN32
+    HWND m_hwnd = nullptr;
+    WNDPROC m_prevWndProc = nullptr;
+    bool m_windowsNativePumpEnabled = true;
+    bool m_inNativeMoveSizeLoop = false;
+    bool m_inNativeCaptionHold = false;
+    Uint64 m_lastNativeMoveSizePumpTick = 0;
+    static constexpr Uint64 NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS = 16;
+    static constexpr UINT_PTR NATIVE_MOVE_SIZE_TIMER_ID = 0x474E4553; // 'GNES'
+#endif
 
     void swapBuffers() {
         SDL_GL_SwapWindow(m_window);
@@ -100,6 +123,149 @@ private:
 
     }
 
+#ifdef _WIN32
+    static constexpr const wchar_t* WINDOW_PROP_NAME = L"GeraNES.SDLOpenGLWindow.Instance";
+
+    static LRESULT CALLBACK windowsSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    {
+        auto* self = reinterpret_cast<SDLOpenGLWindow*>(GetPropW(hwnd, WINDOW_PROP_NAME));
+        if(self == nullptr || self->m_prevWndProc == nullptr) {
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        }
+        return self->handleWindowsMessage(hwnd, msg, wParam, lParam);
+    }
+
+    LRESULT handleWindowsMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+    {
+        if(!m_windowsNativePumpEnabled) {
+            return CallWindowProcW(m_prevWndProc, hwnd, msg, wParam, lParam);
+        }
+
+        switch(msg) {
+            case WM_NCLBUTTONDOWN:
+                if(wParam == HTCAPTION) {
+                    m_inNativeCaptionHold = true;
+                    m_lastNativeMoveSizePumpTick = 0;
+                    SetTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID, static_cast<UINT>(NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS), nullptr);
+                    nativeMoveSizeLoopStep(true);
+                }
+                break;
+
+            case WM_NCLBUTTONUP:
+            case WM_CAPTURECHANGED:
+                if(m_inNativeCaptionHold && !m_inNativeMoveSizeLoop) {
+                    KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
+                    m_lastNativeMoveSizePumpTick = 0;
+                }
+                m_inNativeCaptionHold = false;
+                break;
+
+            case WM_ENTERSIZEMOVE:
+                m_inNativeMoveSizeLoop = true;
+                m_inNativeCaptionHold = false;
+                m_lastNativeMoveSizePumpTick = 0;
+                SetTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID, static_cast<UINT>(NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS), nullptr);
+                nativeMoveSizeLoopStep(true);
+                break;
+
+            case WM_EXITSIZEMOVE:
+                m_inNativeMoveSizeLoop = false;
+                m_lastNativeMoveSizePumpTick = 0;
+                KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
+                nativeMoveSizeLoopStep(true);
+                break;
+
+            case WM_MOVING:
+            case WM_SIZING:
+            case WM_PAINT:
+                if(m_inNativeMoveSizeLoop) {
+                    nativeMoveSizeLoopStep(false);
+                }
+                break;
+
+            case WM_TIMER:
+                if((m_inNativeMoveSizeLoop || m_inNativeCaptionHold) && wParam == NATIVE_MOVE_SIZE_TIMER_ID) {
+                    nativeMoveSizeLoopStep(false);
+                    return 0;
+                }
+                break;
+
+            case WM_CLOSE:
+            case WM_DESTROY:
+            case WM_NCDESTROY:
+                m_inNativeMoveSizeLoop = false;
+                m_inNativeCaptionHold = false;
+                m_lastNativeMoveSizePumpTick = 0;
+                KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
+                break;
+        }
+
+        return CallWindowProcW(m_prevWndProc, hwnd, msg, wParam, lParam);
+    }
+
+    void nativeMoveSizeLoopStep(bool force)
+    {
+        if(m_window == NULL || m_context == NULL) return;
+
+        const Uint64 now = SDL_GetTicks64();
+        if(!force && m_lastNativeMoveSizePumpTick != 0 &&
+           (now - m_lastNativeMoveSizePumpTick) < NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS) {
+            return;
+        }
+
+        m_lastNativeMoveSizePumpTick = now;
+        SDL_GL_MakeCurrent(m_window, m_context);
+        syncDrawableSize(true);
+        paintGL();
+        swapBuffers();
+    }
+
+    void installWindowsSubclass()
+    {
+        if(m_window == NULL) return;
+
+        SDL_SysWMinfo wmInfo;
+        SDL_VERSION(&wmInfo.version);
+        if(!SDL_GetWindowWMInfo(m_window, &wmInfo)) return;
+        if(wmInfo.subsystem != SDL_SYSWM_WINDOWS) return;
+
+        m_hwnd = wmInfo.info.win.window;
+        if(m_hwnd == nullptr) return;
+
+        SetPropW(m_hwnd, WINDOW_PROP_NAME, this);
+        m_prevWndProc = reinterpret_cast<WNDPROC>(
+            SetWindowLongPtrW(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&windowsSubclassProc))
+        );
+    }
+
+    void removeWindowsSubclass()
+    {
+        if(m_hwnd != nullptr) {
+            KillTimer(m_hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
+            if(m_prevWndProc != nullptr) {
+                SetWindowLongPtrW(m_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(m_prevWndProc));
+            }
+            RemovePropW(m_hwnd, WINDOW_PROP_NAME);
+        }
+
+        m_hwnd = nullptr;
+        m_prevWndProc = nullptr;
+        m_inNativeMoveSizeLoop = false;
+        m_inNativeCaptionHold = false;
+        m_lastNativeMoveSizePumpTick = 0;
+    }
+
+    void stopWindowsNativePump()
+    {
+        if(m_hwnd != nullptr) {
+            KillTimer(m_hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
+        }
+        m_inNativeMoveSizeLoop = false;
+        m_inNativeCaptionHold = false;
+        m_lastNativeMoveSizePumpTick = 0;
+    }
+#endif
+
 public:
 
     #ifdef __EMSCRIPTEN__
@@ -133,6 +299,10 @@ public:
         syncDrawableSize(false);
 
         initGL();
+
+        #ifdef _WIN32
+            installWindowsSubclass();
+        #endif
 
         return true;
     }
@@ -191,6 +361,9 @@ public:
     }
 
     virtual ~SDLOpenGLWindow() {
+        #ifdef _WIN32
+            removeWindowsSubclass();
+        #endif
         if(m_context != NULL) SDL_GL_DeleteContext(m_context);                   
         if(m_window != NULL) SDL_DestroyWindow(m_window);
         SDL_Quit();
@@ -205,8 +378,27 @@ public:
     }
 
     void quit() {
+#ifdef _WIN32
+        stopWindowsNativePump();
+#endif
         m_quit = true;
     }
+
+#ifdef _WIN32
+    void setWindowsNativePumpEnabled(bool enabled)
+    {
+        if(m_windowsNativePumpEnabled == enabled) return;
+        m_windowsNativePumpEnabled = enabled;
+        if(!enabled) {
+            stopWindowsNativePump();
+        }
+    }
+#else
+    void setWindowsNativePumpEnabled(bool enabled)
+    {
+        (void)enabled;
+    }
+#endif
 
     bool isFullScreen() {
 

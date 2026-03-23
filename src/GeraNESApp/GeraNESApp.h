@@ -20,7 +20,17 @@ namespace fs = std::filesystem;
 #ifdef __EMSCRIPTEN__
     #include "EmscriptenUtil.h"
 #else
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
     #include <nfd.h>
+    #include <nfd_sdl2.h>
+    #ifdef ERROR
+        #undef ERROR
+    #endif
 #endif
 
 #include <vector>
@@ -677,6 +687,7 @@ public:
     }
 
     virtual ~GeraNESApp() {
+        m_emu.shutdown();
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();
@@ -685,18 +696,25 @@ public:
     void openRom() {
 
         #ifndef __EMSCRIPTEN__
-        if(isFullScreen()) minimizeWindow();
-        #endif
+        const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+            const bool shouldResume = !emu.paused();
+            if(shouldResume) {
+                emu.togglePaused();
+            }
+            return shouldResume;
+        });
+        setWindowsNativePumpEnabled(false);
 
-        #ifdef __EMSCRIPTEN__
-            emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
-        #else
+        const bool restoreAfterDialog = isFullScreen();
+#ifndef _WIN32
+        if(restoreAfterDialog) minimizeWindow();
+#endif
 
         NFD_Init();     
 
-        nfdchar_t *outPath;
+        nfdu8char_t *outPath = nullptr;
 #ifdef ENABLE_NSF_PLAYER
-        nfdfilteritem_t filterItem[] = {
+        nfdu8filteritem_t filterItem[] = {
             { "Supported Files", "nes,nsf,fds,zip,ips,ups,bps" },
             { "NES", "nes" },
             { "NSF", "nsf" },
@@ -705,7 +723,7 @@ public:
             { "Patch", "ips,ups,bps" }
         };
 #else
-        nfdfilteritem_t filterItem[] = {
+        nfdu8filteritem_t filterItem[] = {
             { "Supported Files", "nes,fds,zip,ips,ups,bps" },
             { "NES", "nes" },
             { "FDS", "fds" },
@@ -713,14 +731,20 @@ public:
             { "Patch", "ips,ups,bps" }
         };
 #endif
+        nfdopendialogu8args_t args = {};
+        args.filterList = filterItem;
+        args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
+        args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+        if(!NFD_GetNativeWindowFromSDLWindow(sdlWindow(), &args.parentWindow)) {
+            Logger::instance().log(std::string("Failed to resolve native parent window for file dialog: ") + SDL_GetError(), Logger::Type::WARNING);
+        }
 
-        nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, sizeof(filterItem)/sizeof(nfdfilteritem_t),
-            (AppSettings::instance().data.getLastFolder()).c_str());
+        nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
         if (result == NFD_OKAY)
         {
             openFile(outPath);                        
-            NFD_FreePath(outPath);
+            NFD_FreePathU8(outPath);
         }
         else if (result == NFD_CANCEL)
         {
@@ -732,10 +756,19 @@ public:
         }
 
         NFD_Quit();
+        setWindowsNativePumpEnabled(true);
 
+        m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+            if(resumeAfterDialog && emu.paused()) {
+                emu.togglePaused();
+            }
+        });
+
+        #else
+            emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
         #endif
 
-        if(m_fullScreen) restoreWindow();
+        if(restoreAfterDialog) restoreWindow();
     } 
 
     void updateVSyncConfig() {

@@ -101,6 +101,7 @@ private:
     mutable std::mutex m_workerReadyMutex;
     std::condition_variable m_workerReadyCv;
     bool m_workerReady = false;
+    std::atomic<bool> m_shutdownStarted{false};
     std::jthread m_workerThread;
     SigSlot::Signal<InputState> m_signalInputState;
     SigSlot::Signal<std::function<void(GeraNESEmu&)>> m_signalCommand;
@@ -248,7 +249,26 @@ public:
 #endif
     }
 
-    ~EmulationHost() = default;
+    ~EmulationHost()
+    {
+        shutdown();
+    }
+
+    void shutdown()
+    {
+#ifdef __EMSCRIPTEN__
+        return;
+#else
+        if(m_shutdownStarted.exchange(true)) {
+            return;
+        }
+
+        if(m_workerThread.joinable()) {
+            m_workerThread.request_stop();
+            m_workerThread.join();
+        }
+#endif
+    }
 
     void setPendingInput(const InputState& input)
     {
