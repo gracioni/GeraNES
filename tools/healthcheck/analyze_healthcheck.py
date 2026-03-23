@@ -21,6 +21,7 @@ from typing import Any
 
 
 REPORT_FILE_NAME = "healthcheck_report.json"
+STARTUP_INPUT_ONLY_SECONDS = 20.0
 COMMON_OCR_WORDS = {
     "START", "PRESS", "PUSH", "OPTION", "OPTIONS", "GAME", "PLAYER", "PLAY",
     "MEGA", "MAN", "CAPCOM", "NINTENDO", "LICENSED", "CONTINUE", "STAGE",
@@ -242,7 +243,7 @@ def analyze_inputs(events: list[dict[str, Any]]) -> dict[str, Any]:
     for event in events:
         emu_seconds = to_float(event.get("emuSeconds"))
         buttons = str(event.get("buttons", ""))
-        if emu_seconds > 30.0:
+        if emu_seconds > STARTUP_INPUT_ONLY_SECONDS:
             continue
         buttons_set = {ch for ch in buttons if ch != "-"}
         if not buttons_set.issubset(startup_allowed):
@@ -447,6 +448,9 @@ def build_checks(
     text_analysis: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], str]:
     checks: list[dict[str, Any]] = []
+    healthcheck_status = str(run_data.get("status", "ok"))
+    open_succeeded = bool(run_data.get("openSucceeded", healthcheck_status == "ok"))
+    failure_reason = str(run_data.get("failureReason", ""))
     shot_count = to_int(shot_analysis.get("shotCount"))
     max_duplicate_run = to_int(shot_analysis.get("maxDuplicateRun"))
     average_changed_pixels = to_float(shot_analysis.get("averageChangedPixels"))
@@ -459,6 +463,20 @@ def build_checks(
     missing_files = shot_analysis.get("missingFiles", [])
     if not isinstance(missing_files, list):
         missing_files = []
+
+    checks.append(make_check(
+        "rom_opened",
+        "ROM opened successfully",
+        open_succeeded,
+        "The emulator opened the ROM successfully."
+        if open_succeeded else
+        (failure_reason or "The emulator failed to open the ROM."),
+        "error",
+        {
+            "status": healthcheck_status,
+            "failureReason": failure_reason,
+        },
+    ))
 
     boot_ok = (
         shot_count > 0
@@ -484,11 +502,12 @@ def build_checks(
         "startup_input_constraint",
         "Startup input constraint",
         startup_inputs_ok,
-        "The first 30 seconds used only Start, A and B."
+        f"The first {int(STARTUP_INPUT_ONLY_SECONDS)} seconds used only Start, A and B."
         if startup_inputs_ok else
-        "Buttons outside Start/A/B were detected during the first 30 seconds.",
+        f"Buttons outside Start/A/B were detected during the first {int(STARTUP_INPUT_ONLY_SECONDS)} seconds.",
         "error",
         {
+            "startupInputOnlySeconds": STARTUP_INPUT_ONLY_SECONDS,
             "invalidStartupSamples": input_analysis.get("invalidStartupSamples", []),
         },
     ))
@@ -713,6 +732,11 @@ def analyze_healthcheck(healthcheck_dir: Path) -> dict[str, Any]:
             "logLineCount": to_int(log_analysis.get("lineCount")),
         },
         "analysis": {
+            "healthcheck": {
+                "status": str(run_data.get("status", "ok")),
+                "openSucceeded": bool(run_data.get("openSucceeded", True)),
+                "failureReason": str(run_data.get("failureReason", "")),
+            },
             "boot": {
                 "firstMeaningfulFrameSeconds": shot_analysis.get("firstMeaningfulFrameSeconds"),
                 "earlyMeaningfulShotCount": shot_analysis.get("earlyMeaningfulShotCount"),

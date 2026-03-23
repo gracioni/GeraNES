@@ -38,6 +38,8 @@ public:
     };
 
 private:
+    static constexpr uint32_t FIRST_SCREENSHOT_DELAY_MS = 100;
+
     struct Buttons
     {
         bool a = false;
@@ -323,6 +325,47 @@ private:
         return out;
     }
 
+    static void writeArtifacts(
+        const std::filesystem::path& outputRoot,
+        const nlohmann::json& run,
+        const std::vector<nlohmann::json>& events,
+        const std::vector<nlohmann::json>& shots,
+        const std::vector<std::string>& logEntries)
+    {
+        {
+            std::ofstream out(outputRoot / "run.json", std::ios::binary | std::ios::trunc);
+            out << run.dump(2);
+        }
+
+        {
+            std::ofstream out(outputRoot / "events.jsonl", std::ios::binary | std::ios::trunc);
+            for(const auto& event : events) {
+                out << event.dump() << "\n";
+            }
+        }
+
+        {
+            std::ofstream out(outputRoot / "metrics.csv", std::ios::binary | std::ios::trunc);
+            out << "frame,emu_seconds,file,hash_fnv64,unique_colors,changed_pixels_since_last_shot,buttons\n";
+            for(const auto& shot : shots) {
+                out << shot["frame"].get<uint32_t>() << ","
+                    << shot["emuSeconds"].get<double>() << ","
+                    << shot["file"].get<std::string>() << ","
+                    << shot["hashFnv64"].get<uint64_t>() << ","
+                    << shot["uniqueColors"].get<uint32_t>() << ","
+                    << shot["changedPixelsSinceLastShot"].get<uint32_t>() << ","
+                    << shot["buttons"].get<std::string>() << "\n";
+            }
+        }
+
+        {
+            std::ofstream out(outputRoot / "log.txt", std::ios::binary | std::ios::trunc);
+            for(const std::string& line : logEntries) {
+                out << line << "\n";
+            }
+        }
+    }
+
 public:
     static int runHeadless(const Options& options)
     {
@@ -343,9 +386,27 @@ public:
 
         LogCollector logCollector;
         Logger::instance().signalLog.bind(&LogCollector::onLog, &logCollector);
+        std::vector<nlohmann::json> shots;
+        std::vector<nlohmann::json> events;
 
         GeraNESEmu emu(DummyAudioOutput::instance());
         if(!emu.open(options.romPath) || !emu.valid()) {
+            nlohmann::json run = {
+                {"romPath", romPath.string()},
+                {"seed", options.seed},
+                {"simSeconds", options.simSeconds},
+                {"screenshotIntervalSeconds", options.screenshotIntervalSeconds},
+                {"fps", 0},
+                {"totalFrames", 0},
+                {"emulatorVersion", GERANES_VERSION},
+                {"status", "open_failed"},
+                {"openSucceeded", false},
+                {"failureReason", "ROM file size/header mismatch or emulator failed to open the ROM."},
+                {"shots", shots},
+                {"logLineCount", logCollector.entries.size()}
+            };
+            writeArtifacts(outputRoot, run, events, shots, logCollector.entries);
+            std::cout << (outputRoot / "run.json").string() << std::endl;
             return 2;
         }
 
@@ -359,11 +420,12 @@ public:
         const uint32_t fps = std::max<uint32_t>(1, emu.getFPS());
         const uint32_t totalFrames = options.simSeconds * fps;
         const uint32_t shotEveryFrames = std::max<uint32_t>(1, options.screenshotIntervalSeconds * fps);
+        const uint32_t firstShotFrame = std::max<uint32_t>(
+            1,
+            (fps * FIRST_SCREENSHOT_DELAY_MS) / 1000u
+        );
 
         std::vector<uint32_t> prevFrame;
-        std::vector<nlohmann::json> shots;
-        std::vector<nlohmann::json> events;
-
         for(uint32_t frame = 1; frame <= totalFrames; ++frame) {
             const Buttons& buttons = input.buttonsForFrame(frame, fps);
             const std::string buttonsLabel = buttonsToString(buttons);
@@ -387,7 +449,7 @@ public:
                 break;
             }
 
-            if(frame == 1 || frame == totalFrames || (frame % shotEveryFrames) == 0) {
+            if((frame >= firstShotFrame && (frame % shotEveryFrames) == 0) || frame == totalFrames) {
                 const uint32_t* framebuffer = emu.getFramebuffer();
                 std::ostringstream fileName;
                 fileName << "frame_" << std::setw(6) << std::setfill('0') << frame << ".png";
@@ -428,42 +490,13 @@ public:
             {"fps", fps},
             {"totalFrames", totalFrames},
             {"emulatorVersion", GERANES_VERSION},
+            {"status", "ok"},
+            {"openSucceeded", true},
             {"shots", shots},
             {"logLineCount", logCollector.entries.size()}
         };
 
-        {
-            std::ofstream out(outputRoot / "run.json", std::ios::binary | std::ios::trunc);
-            out << run.dump(2);
-        }
-
-        {
-            std::ofstream out(outputRoot / "events.jsonl", std::ios::binary | std::ios::trunc);
-            for(const auto& event : events) {
-                out << event.dump() << "\n";
-            }
-        }
-
-        {
-            std::ofstream out(outputRoot / "metrics.csv", std::ios::binary | std::ios::trunc);
-            out << "frame,emu_seconds,file,hash_fnv64,unique_colors,changed_pixels_since_last_shot,buttons\n";
-            for(const auto& shot : shots) {
-                out << shot["frame"].get<uint32_t>() << ","
-                    << shot["emuSeconds"].get<double>() << ","
-                    << shot["file"].get<std::string>() << ","
-                    << shot["hashFnv64"].get<uint64_t>() << ","
-                    << shot["uniqueColors"].get<uint32_t>() << ","
-                    << shot["changedPixelsSinceLastShot"].get<uint32_t>() << ","
-                    << shot["buttons"].get<std::string>() << "\n";
-            }
-        }
-
-        {
-            std::ofstream out(outputRoot / "log.txt", std::ios::binary | std::ios::trunc);
-            for(const std::string& line : logCollector.entries) {
-                out << line << "\n";
-            }
-        }
+        writeArtifacts(outputRoot, run, events, shots, logCollector.entries);
 
         std::cout << (outputRoot / "run.json").string() << std::endl;
         return 0;
