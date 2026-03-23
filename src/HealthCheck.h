@@ -18,6 +18,11 @@
 #include "logger/logger.h"
 #include "signal/signal.h"
 
+extern "C" {
+    void* tdefl_write_image_to_png_file_in_memory(const void* pImage, int w, int h, int num_chans, size_t* pLen_out);
+    void mz_free(void* p);
+}
+
 class HealthCheck
 {
 public:
@@ -197,22 +202,34 @@ private:
         return changed;
     }
 
-    static bool writePpm(const std::filesystem::path& path, const uint32_t* framebuffer)
+    static bool writePng(const std::filesystem::path& path, const uint32_t* framebuffer)
     {
-        std::ofstream out(path, std::ios::binary | std::ios::trunc);
-        if(!out.is_open()) return false;
-
-        out << "P6\n" << PPU::SCREEN_WIDTH << " " << PPU::SCREEN_HEIGHT << "\n255\n";
+        std::vector<uint8_t> rgb(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT * 3);
         for(int i = 0; i < PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT; ++i) {
             const uint32_t pixel = framebuffer[i];
-            const char rgb[3] = {
-                static_cast<char>(pixel & 0xFF),
-                static_cast<char>((pixel >> 8) & 0xFF),
-                static_cast<char>((pixel >> 16) & 0xFF),
-            };
-            out.write(rgb, 3);
+            rgb[(i * 3) + 0] = static_cast<uint8_t>(pixel & 0xFF);
+            rgb[(i * 3) + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);
+            rgb[(i * 3) + 2] = static_cast<uint8_t>((pixel >> 16) & 0xFF);
         }
 
+        size_t pngSize = 0;
+        void* pngData = tdefl_write_image_to_png_file_in_memory(
+            rgb.data(),
+            PPU::SCREEN_WIDTH,
+            PPU::SCREEN_HEIGHT,
+            3,
+            &pngSize
+        );
+        if(pngData == nullptr || pngSize == 0) return false;
+
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        if(!out.is_open()) {
+            mz_free(pngData);
+            return false;
+        }
+
+        out.write(static_cast<const char*>(pngData), static_cast<std::streamsize>(pngSize));
+        mz_free(pngData);
         return out.good();
     }
 
@@ -290,9 +307,9 @@ public:
             if(frame == 1 || frame == totalFrames || (frame % shotEveryFrames) == 0) {
                 const uint32_t* framebuffer = emu.getFramebuffer();
                 std::ostringstream fileName;
-                fileName << "frame_" << std::setw(6) << std::setfill('0') << frame << ".ppm";
+                fileName << "frame_" << std::setw(6) << std::setfill('0') << frame << ".png";
                 const fs::path screenshotPath = outputRoot / "frames" / fileName.str();
-                writePpm(screenshotPath, framebuffer);
+                writePng(screenshotPath, framebuffer);
 
                 const uint64_t hash = framebufferHash(framebuffer);
                 const uint32_t colors = uniqueColorCount(framebuffer);
