@@ -333,10 +333,31 @@ if(MINGW)
     target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wa,-mbig-obj)
 endif()
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
+if(MINGW)
+    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
+        -Wl,-Bstatic
+        -lstdc++
+        -lgcc
+        -lwinpthread
+        -Wl,-Bdynamic
+    )
+endif()
 if(WIN32)
     set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
         WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>
     )
+endif()
+if(MINGW)
+    get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(MINGW_WINPTHREAD_DLL "${MINGW_BIN_DIR}/libwinpthread-1.dll")
+    if(EXISTS "${MINGW_WINPTHREAD_DLL}")
+        add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MINGW_WINPTHREAD_DLL}"
+                "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>/libwinpthread-1.dll"
+        )
+    endif()
 endif()
 
 set(LIBRETRO_CORE_NAME "geranes_libretro")

@@ -29,7 +29,7 @@ void SigSlotBase::erase_binding(const std::shared_ptr<Binding>& b)
 {
     auto pos = std::find(_bindings.begin(), _bindings.end(), b);
     if(pos == _bindings.end()) {
-        //throw std::runtime_error("Specified binding was not found");
+        return;
     }
     _bindings.erase(pos);
 }

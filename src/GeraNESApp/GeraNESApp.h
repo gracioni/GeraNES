@@ -20,17 +20,7 @@ namespace fs = std::filesystem;
 #ifdef __EMSCRIPTEN__
     #include "EmscriptenUtil.h"
 #else
-    #ifndef WIN32_LEAN_AND_MEAN
-        #define WIN32_LEAN_AND_MEAN
-    #endif
-    #ifndef NOMINMAX
-        #define NOMINMAX
-    #endif
     #include <nfd.h>
-    #include <nfd_sdl2.h>
-    #ifdef ERROR
-        #undef ERROR
-    #endif
 #endif
 
 #include <vector>
@@ -735,9 +725,10 @@ public:
         args.filterList = filterItem;
         args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
         args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
-        if(!NFD_GetNativeWindowFromSDLWindow(sdlWindow(), &args.parentWindow)) {
-            Logger::instance().log(std::string("Failed to resolve native parent window for file dialog: ") + SDL_GetError(), Logger::Type::WARNING);
-        }
+#ifdef _WIN32
+        args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+        args.parentWindow.handle = nativeWindowHandle();
+#endif
 
         nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 

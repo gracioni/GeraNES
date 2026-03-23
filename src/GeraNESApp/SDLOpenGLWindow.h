@@ -377,6 +377,15 @@ public:
         return m_window;
     }
 
+    void* nativeWindowHandle() const
+    {
+#ifdef _WIN32
+        return m_hwnd;
+#else
+        return nullptr;
+#endif
+    }
+
     void quit() {
 #ifdef _WIN32
         stopWindowsNativePump();
