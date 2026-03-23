@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BaseMapper.h"
-#include "util/Crc32.h"
+#include "GeraNES/util/Crc32.h"
 
 class Mapper053 : public BaseMapper
 {

@@ -7,7 +7,7 @@
 
 class Mapper064 : public BaseMapper
 {
-private:
+protected:
 
     bool m_CHRMode = false;
     bool m_PRGMode = false;
@@ -48,6 +48,45 @@ private:
     bool m_a12LastState = false;
 
     uint8_t m_cycleCounter = 0;
+
+    GERANES_INLINE uint8_t currentChrBank1k(uint8_t slot) const
+    {
+        slot &= 0x03;
+
+        if(!m_CHRMode && !m_CHR1KMode) {
+            switch(slot) {
+            case 0:
+            case 1: return m_CHRReg0;
+            case 2: return m_CHRReg1;
+            default: return static_cast<uint8_t>(m_CHRReg2 + (slot - 2));
+            }
+        }
+
+        if(!m_CHRMode && m_CHR1KMode) {
+            switch(slot) {
+            case 0: return m_CHRReg0;
+            case 1: return m_CHRReg6;
+            case 2: return m_CHRReg1;
+            default: return m_CHRReg7;
+            }
+        }
+
+        if(m_CHRMode && !m_CHR1KMode) {
+            switch(slot) {
+            case 0: return m_CHRReg2;
+            case 1: return m_CHRReg3;
+            case 2: return m_CHRReg4;
+            default: return m_CHRReg5;
+            }
+        }
+
+        switch(slot) {
+        case 0: return m_CHRReg2;
+        case 1: return m_CHRReg3;
+        case 2: return m_CHRReg4;
+        default: return m_CHRReg5;
+        }
+    }
 
 public:
 

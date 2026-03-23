@@ -19,6 +19,13 @@ protected:
         ChipAddress = 6
     };
 
+    enum class EepromType : uint8_t
+    {
+        None = 0,
+        X24C01 = 1,
+        C24C02 = 2
+    };
+
     uint8_t m_PRGMask = 0;
     uint8_t m_CHRMask = 0;
 
@@ -31,7 +38,7 @@ protected:
     uint16_t m_IRQReload = 0;
     bool m_IRQFlag = false;
 
-    bool m_hasEeprom24C02 = false;
+    EepromType m_eepromType = EepromType::None;
     std::array<uint8_t, 256> m_eepromData = {};
     EepromMode m_eepromMode = EepromMode::Idle;
     EepromMode m_eepromNextMode = EepromMode::Idle;
@@ -76,9 +83,18 @@ protected:
         return cd().mapperId() == 153 || cd().numberOfPRGBanks<BankSize::B16K>() >= 0x20;
     }
 
+    GERANES_INLINE size_t eepromStorageSize() const
+    {
+        switch(m_eepromType) {
+        case EepromType::X24C01: return 128;
+        case EepromType::C24C02: return 256;
+        default: return 0;
+        }
+    }
+
     GERANES_INLINE uint8_t* eepromDataPtr()
     {
-        if(saveRamData() != nullptr && saveRamSize() >= m_eepromData.size()) {
+        if(saveRamData() != nullptr && saveRamSize() >= eepromStorageSize()) {
             return saveRamData();
         }
         return m_eepromData.data();
@@ -97,7 +113,7 @@ protected:
         }
     }
 
-    void writeEepromBit(uint8_t& dest, uint8_t value)
+    void writeEepromBitMsb(uint8_t& dest, uint8_t value)
     {
         if(m_eepromCounter < 8) {
             const uint8_t mask = static_cast<uint8_t>(~(1u << (7 - m_eepromCounter)));
@@ -106,7 +122,16 @@ protected:
         }
     }
 
-    void readEepromBit()
+    void writeEepromBitLsb(uint8_t& dest, uint8_t value)
+    {
+        if(m_eepromCounter < 8) {
+            const uint8_t mask = static_cast<uint8_t>(~(1u << m_eepromCounter));
+            dest = static_cast<uint8_t>((dest & mask) | (value << m_eepromCounter));
+            ++m_eepromCounter;
+        }
+    }
+
+    void readEepromBitMsb()
     {
         if(m_eepromCounter < 8) {
             m_eepromOutput = (m_eepromLatch & (1 << (7 - m_eepromCounter))) ? 1 : 0;
@@ -114,10 +139,16 @@ protected:
         }
     }
 
-    void writeEeprom(uint8_t scl, uint8_t sda)
+    void readEepromBitLsb()
     {
-        if(!m_hasEeprom24C02) return;
+        if(m_eepromCounter < 8) {
+            m_eepromOutput = (m_eepromLatch & (1 << m_eepromCounter)) ? 1 : 0;
+            ++m_eepromCounter;
+        }
+    }
 
+    void writeEeprom24C02(uint8_t scl, uint8_t sda)
+    {
         uint8_t* data = eepromDataPtr();
 
         if(m_eepromPrevScl && scl && sda < m_eepromPrevSda) {
@@ -135,19 +166,19 @@ protected:
                 break;
 
             case EepromMode::ChipAddress:
-                writeEepromBit(m_eepromChipAddress, sda);
+                writeEepromBitMsb(m_eepromChipAddress, sda);
                 break;
 
             case EepromMode::Address:
-                writeEepromBit(m_eepromAddress, sda);
+                writeEepromBitMsb(m_eepromAddress, sda);
                 break;
 
             case EepromMode::Read:
-                readEepromBit();
+                readEepromBitMsb();
                 break;
 
             case EepromMode::Write:
-                writeEepromBit(m_eepromLatch, sda);
+                writeEepromBitMsb(m_eepromLatch, sda);
                 break;
 
             case EepromMode::SendAck:
@@ -229,9 +260,116 @@ protected:
         m_eepromPrevSda = sda;
     }
 
+    void writeEeprom24C01(uint8_t scl, uint8_t sda)
+    {
+        uint8_t* data = eepromDataPtr();
+
+        if(m_eepromPrevScl && scl && sda < m_eepromPrevSda) {
+            m_eepromMode = EepromMode::Address;
+            m_eepromAddress = 0;
+            m_eepromCounter = 0;
+            m_eepromOutput = 1;
+        }
+        else if(m_eepromPrevScl && scl && sda > m_eepromPrevSda) {
+            m_eepromMode = EepromMode::Idle;
+            m_eepromOutput = 1;
+        }
+        else if(scl > m_eepromPrevScl) {
+            switch(m_eepromMode) {
+            default:
+                break;
+
+            case EepromMode::Address:
+                if(m_eepromCounter < 7) {
+                    writeEepromBitLsb(m_eepromAddress, sda);
+                }
+                else if(m_eepromCounter == 7) {
+                    m_eepromCounter = 8;
+
+                    if(sda) {
+                        m_eepromNextMode = EepromMode::Read;
+                        m_eepromLatch = data[m_eepromAddress & 0x7F];
+                    }
+                    else {
+                        m_eepromNextMode = EepromMode::Write;
+                    }
+                }
+                break;
+
+            case EepromMode::SendAck:
+                m_eepromOutput = 0;
+                break;
+
+            case EepromMode::Read:
+                readEepromBitLsb();
+                break;
+
+            case EepromMode::Write:
+                writeEepromBitLsb(m_eepromLatch, sda);
+                break;
+
+            case EepromMode::WaitAck:
+                if(!sda) {
+                    m_eepromNextMode = EepromMode::Idle;
+                }
+                break;
+
+            default:
+                break;
+            }
+        }
+        else if(scl < m_eepromPrevScl) {
+            switch(m_eepromMode) {
+            case EepromMode::Address:
+                if(m_eepromCounter == 8) {
+                    m_eepromMode = EepromMode::SendAck;
+                    m_eepromOutput = 1;
+                }
+                break;
+
+            case EepromMode::SendAck:
+                m_eepromMode = m_eepromNextMode;
+                m_eepromCounter = 0;
+                m_eepromOutput = 1;
+                break;
+
+            case EepromMode::Read:
+                if(m_eepromCounter == 8) {
+                    m_eepromMode = EepromMode::WaitAck;
+                    m_eepromAddress = static_cast<uint8_t>((m_eepromAddress + 1) & 0x7F);
+                }
+                break;
+
+            case EepromMode::Write:
+                if(m_eepromCounter == 8) {
+                    m_eepromMode = EepromMode::SendAck;
+                    m_eepromNextMode = EepromMode::Idle;
+                    data[m_eepromAddress & 0x7F] = m_eepromLatch;
+                    m_eepromAddress = static_cast<uint8_t>((m_eepromAddress + 1) & 0x7F);
+                }
+                break;
+
+            default:
+                break;
+            }
+        }
+
+        m_eepromPrevScl = scl;
+        m_eepromPrevSda = sda;
+    }
+
+    void writeEeprom(uint8_t scl, uint8_t sda)
+    {
+        switch(m_eepromType) {
+        case EepromType::C24C02: writeEeprom24C02(scl, sda); break;
+        case EepromType::X24C01: writeEeprom24C01(scl, sda); break;
+        default: break;
+        }
+    }
+
     virtual void handleRegisterD(uint8_t data)
     {
-        if(m_hasEeprom24C02) {
+        if(m_eepromType != EepromType::None) {
             const uint8_t scl = static_cast<uint8_t>((data >> 5) & 0x01);
             const uint8_t sda = static_cast<uint8_t>((data >> 6) & 0x01);
             writeEeprom(scl, sda);
@@ -308,8 +446,13 @@ public:
             m_CHRMask = calculateMask(cd.numberOfCHRBanks<BankSize::B1K>());
         }
 
-        m_hasEeprom24C02 = (cd.mapperId() == 16)
-            && (cd.subMapperId() == 0 || (cd.subMapperId() == 5 && cd.saveRamSize() >= 256));
+        if(cd.mapperId() == 159) {
+            m_eepromType = EepromType::X24C01;
+        }
+        else if((cd.mapperId() == 16)
+            && (cd.subMapperId() == 0 || (cd.subMapperId() == 5 && cd.saveRamSize() >= 256))) {
+            m_eepromType = EepromType::C24C02;
+        }
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -348,7 +491,7 @@ public:
 
     GERANES_HOT uint8_t readMapperRegister(int /*addr*/, uint8_t openBusData) override
     {
-        if(!m_hasEeprom24C02) return openBusData;
+        if(m_eepromType == EepromType::None) return openBusData;
         return static_cast<uint8_t>((openBusData & 0xE7) | (m_eepromOutput << 4));
     }
 
@@ -398,7 +541,7 @@ public:
         m_eepromPrevScl = 0;
         m_eepromPrevSda = 1;
 
-        if(saveRamData() == nullptr || saveRamSize() < m_eepromData.size()) {
+        if(saveRamData() == nullptr || saveRamSize() < eepromStorageSize()) {
             m_eepromData.fill(0x00);
         }
     }
@@ -418,9 +561,9 @@ public:
         SERIALIZEDATA(s, m_IRQReload);
         SERIALIZEDATA(s, m_IRQFlag);
 
-        SERIALIZEDATA(s, m_hasEeprom24C02);
-        if(saveRamData() == nullptr || saveRamSize() < m_eepromData.size()) {
-            s.array(m_eepromData.data(), 1, static_cast<int>(m_eepromData.size()));
+        SERIALIZEDATA(s, m_eepromType);
+        if(saveRamData() == nullptr || saveRamSize() < eepromStorageSize()) {
+            s.array(m_eepromData.data(), 1, eepromStorageSize());
         }
 
         SERIALIZEDATA(s, m_eepromMode);
