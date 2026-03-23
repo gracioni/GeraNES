@@ -549,14 +549,17 @@ private:
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"saveState", "Save State", "Alt+S", [this]() {
+            if(!m_emu.valid()) return;
             m_emu.saveState();
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
+            if(!m_emu.valid()) return;
             m_emu.loadState();
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
+            if(!m_emu.valid()) return;
             m_emu.togglePaused();
         }});
     }
@@ -687,6 +690,8 @@ public:
 
         #ifndef __EMSCRIPTEN__
         const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+            if(!emu.valid()) return false;
+
             const bool shouldResume = !emu.paused();
             if(shouldResume) {
                 emu.togglePaused();

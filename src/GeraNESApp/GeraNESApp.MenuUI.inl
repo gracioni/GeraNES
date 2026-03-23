@@ -59,10 +59,11 @@ inline void GeraNESApp::menuBar() {
 
         if (ImGui::BeginMenu("Emulator"))
         {
+            const bool hasRomLoaded = m_emu.valid();
             auto sc = m_shortcuts.get("saveState");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, hasRomLoaded))
                 {
                     sc->action();
                 }
@@ -71,7 +72,7 @@ inline void GeraNESApp::menuBar() {
             sc = m_shortcuts.get("loadState");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, hasRomLoaded))
                 {
                     sc->action();
                 }
@@ -85,7 +86,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::BeginMenu("Region")) {
+            if (ImGui::BeginMenu("Region", hasRomLoaded)) {
 
                 if(ImGui::MenuItem("NTSC", nullptr, m_emu.region() == Settings::Region::NTSC)) {
                     m_emu.setRegion(Settings::Region::NTSC);
@@ -102,13 +103,13 @@ inline void GeraNESApp::menuBar() {
 
             auto pauseShortcut = m_shortcuts.get("pause");
             const char* pauseKey = (pauseShortcut != nullptr) ? pauseShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem("Pause", pauseKey, m_emu.paused())) {
+            if(ImGui::MenuItem("Pause", pauseKey, m_emu.paused(), hasRomLoaded)) {
                 m_emu.togglePaused();
             }
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem("Reset")) {
+            if(ImGui::MenuItem("Reset", nullptr, false, hasRomLoaded)) {
                 m_emu.reset();
             }
 

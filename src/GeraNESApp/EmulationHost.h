@@ -488,9 +488,11 @@ public:
     void setRegion(Settings::Region region)
     {
 #ifdef __EMSCRIPTEN__
+        if(!m_emu.valid()) return;
         m_emu.setRegion(region);
 #else
         postCommand([=](GeraNESEmu& emu) {
+            if(!emu.valid()) return;
             emu.setRegion(region);
         });
 #endif
@@ -509,9 +511,11 @@ public:
     void togglePaused()
     {
 #ifdef __EMSCRIPTEN__
+        if(!m_emu.valid()) return;
         m_emu.togglePaused();
 #else
         postCommand([](GeraNESEmu& emu) {
+            if(!emu.valid()) return;
             emu.togglePaused();
         });
 #endif
@@ -520,9 +524,11 @@ public:
     void reset()
     {
 #ifdef __EMSCRIPTEN__
+        if(!m_emu.valid()) return;
         m_emu.reset();
 #else
         postCommand([](GeraNESEmu& emu) {
+            if(!emu.valid()) return;
             emu.reset();
         });
 #endif
@@ -530,12 +536,18 @@ public:
 
     void saveState()
     {
-        postCommand([](GeraNESEmu& emu) { emu.saveState(); });
+        postCommand([](GeraNESEmu& emu) {
+            if(!emu.valid()) return;
+            emu.saveState();
+        });
     }
 
     void loadState()
     {
-        postCommand([](GeraNESEmu& emu) { emu.loadState(); });
+        postCommand([](GeraNESEmu& emu) {
+            if(!emu.valid()) return;
+            emu.loadState();
+        });
     }
 
     std::optional<Settings::Device> getPortDevice(Settings::Port port) const
