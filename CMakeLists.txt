@@ -340,6 +340,7 @@ set(LIBRETRO_CORE_NAME "geranes_libretro")
 
 add_library(${LIBRETRO_CORE_NAME} SHARED
     src/libretro/GeraNESLibretro.cpp
+    src/GeraNES/ThirdParty/emu2413.cpp
     src/signal/signal.cpp
     src/zip/zip.c
 )

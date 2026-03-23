@@ -100,6 +100,8 @@
 #include "Mappers/Mapper081.h"
 #include "Mappers/Mapper082.h"
 #include "Mappers/Mapper083.h"
+#include "Mappers/Mapper084.h"
+#include "Mappers/Mapper085.h"
 #include "Mappers/Mapper086.h"
 #include "Mappers/Mapper087.h"
 #include "Mappers/Mapper088.h"
@@ -112,14 +114,20 @@
 #include "Mappers/Mapper095.h"
 #include "Mappers/Mapper096.h"
 #include "Mappers/Mapper097.h"
+#include "Mappers/Mapper098.h"
+#include "Mappers/Mapper100.h"
+#include "Mappers/Mapper109.h"
+#include "Mappers/Mapper110.h"
 #include "Mappers/Mapper099.h"
 #include "Mappers/Mapper101.h"
+#include "Mappers/Mapper102.h"
 #include "Mappers/Mapper103.h"
 #include "Mappers/Mapper104.h"
 #include "Mappers/Mapper105.h"
 #include "Mappers/Mapper106.h"
 #include "Mappers/Mapper107.h"
 #include "Mappers/Mapper108.h"
+#include "Mappers/Mapper111.h"
 #include "Mappers/Mapper112.h"
 #include "Mappers/Mapper113.h"
 #include "Mappers/Mapper114.h"
@@ -132,8 +140,13 @@
 #include "Mappers/Mapper121.h"
 #include "Mappers/Mapper122.h"
 #include "Mappers/Mapper123.h"
+#include "Mappers/Mapper124.h"
 #include "Mappers/Mapper125.h"
 #include "Mappers/Mapper126.h"
+#include "Mappers/Mapper127.h"
+#include "Mappers/Mapper128.h"
+#include "Mappers/Mapper129.h"
+#include "Mappers/Mapper130.h"
 #include "Mappers/Mapper131.h"
 #include "Mappers/Mapper132.h"
 #include "Mappers/Mapper133.h"
@@ -166,6 +179,7 @@
 #include "Mappers/Mapper160.h"
 #include "Mappers/Mapper161.h"
 #include "Mappers/Mapper162.h"
+#include "Mappers/Mapper163.h"
 #include "Mappers/Mapper164.h"
 #include "Mappers/Mapper165.h"
 #include "Mappers/Mapper166.h"
@@ -178,6 +192,7 @@
 #include "Mappers/Mapper173.h"
 #include "Mappers/Mapper174.h"
 #include "Mappers/Mapper175.h"
+#include "Mappers/Mapper176.h"
 #include "Mappers/Mapper177.h"
 #include "Mappers/Mapper178.h"
 #include "Mappers/Mapper179.h"
@@ -186,6 +201,7 @@
 #include "Mappers/Mapper182.h"
 #include "Mappers/Mapper184.h"
 #include "Mappers/Mapper185.h"
+#include "Mappers/Mapper186.h"
 #include "Mappers/Mapper187.h"
 #include "Mappers/Mapper188.h"
 #include "Mappers/Mapper189.h"
@@ -195,6 +211,7 @@
 #include "Mappers/Mapper193.h"
 #include "Mappers/Mapper194.h"
 #include "Mappers/Mapper195.h"
+#include "Mappers/Mapper196.h"
 #include "Mappers/Mapper197.h"
 #include "Mappers/Mapper198.h"
 #include "Mappers/Mapper199.h"
@@ -236,6 +253,7 @@
 #include "Mappers/Mapper236.h"
 #include "Mappers/Mapper237.h"
 #include "Mappers/Mapper238.h"
+#include "Mappers/Mapper239.h"
 #include "Mappers/Mapper240.h"
 #include "Mappers/Mapper241.h"
 #include "Mappers/Mapper242.h"
@@ -243,6 +261,7 @@
 #include "Mappers/Mapper244.h"
 #include "Mappers/Mapper245.h"
 #include "Mappers/Mapper246.h"
+#include "Mappers/Mapper247.h"
 #include "Mappers/Mapper248.h"
 #include "Mappers/Mapper249.h"
 #include "Mappers/Mapper250.h"
@@ -366,6 +385,8 @@ private:
         case 81: return BaseMapper::create<Mapper081>(*m_nesCartridgeData);
         case 82: return BaseMapper::create<Mapper082>(*m_nesCartridgeData);
         case 83: return BaseMapper::create<Mapper083>(*m_nesCartridgeData);
+        case 84: return BaseMapper::create<Mapper084>(*m_nesCartridgeData);
+        case 85: return BaseMapper::create<Mapper085>(*m_nesCartridgeData);
         case 86: return BaseMapper::create<Mapper086>(*m_nesCartridgeData);
         case 87: return BaseMapper::create<Mapper087>(*m_nesCartridgeData);
         case 88: return BaseMapper::create<Mapper088>(*m_nesCartridgeData);
@@ -378,14 +399,20 @@ private:
         case 95: return BaseMapper::create<Mapper095>(*m_nesCartridgeData);
         case 96: return BaseMapper::create<Mapper096>(*m_nesCartridgeData);
         case 97: return BaseMapper::create<Mapper097>(*m_nesCartridgeData);
+        case 98: return BaseMapper::create<Mapper098>(*m_nesCartridgeData);
         case 99: return BaseMapper::create<Mapper099>(*m_nesCartridgeData);
+        case 100: return BaseMapper::create<Mapper100>(*m_nesCartridgeData);
         case 101: return BaseMapper::create<Mapper101>(*m_nesCartridgeData);
+        case 102: return BaseMapper::create<Mapper102>(*m_nesCartridgeData);
         case 103: return BaseMapper::create<Mapper103>(*m_nesCartridgeData);
         case 104: return BaseMapper::create<Mapper104>(*m_nesCartridgeData);
         case 105: return BaseMapper::create<Mapper105>(*m_nesCartridgeData);
         case 106: return BaseMapper::create<Mapper106>(*m_nesCartridgeData);
         case 107: return BaseMapper::create<Mapper107>(*m_nesCartridgeData);
         case 108: return BaseMapper::create<Mapper108>(*m_nesCartridgeData);
+        case 109: return BaseMapper::create<Mapper109>(*m_nesCartridgeData);
+        case 110: return BaseMapper::create<Mapper110>(*m_nesCartridgeData);
+        case 111: return BaseMapper::create<Mapper111>(*m_nesCartridgeData);
         case 112: return BaseMapper::create<Mapper112>(*m_nesCartridgeData);
         case 113: return BaseMapper::create<Mapper113>(*m_nesCartridgeData);
         case 114: return BaseMapper::create<Mapper114>(*m_nesCartridgeData);
@@ -398,8 +425,13 @@ private:
         case 121: return BaseMapper::create<Mapper121>(*m_nesCartridgeData);
         case 122: return BaseMapper::create<Mapper122>(*m_nesCartridgeData);
         case 123: return BaseMapper::create<Mapper123>(*m_nesCartridgeData);
+        case 124: return BaseMapper::create<Mapper124>(*m_nesCartridgeData);
         case 125: return BaseMapper::create<Mapper125>(*m_nesCartridgeData);
         case 126: return BaseMapper::create<Mapper126>(*m_nesCartridgeData);
+        case 127: return BaseMapper::create<Mapper127>(*m_nesCartridgeData);
+        case 128: return BaseMapper::create<Mapper128>(*m_nesCartridgeData);
+        case 129: return BaseMapper::create<Mapper129>(*m_nesCartridgeData);
+        case 130: return BaseMapper::create<Mapper130>(*m_nesCartridgeData);
         case 131: return BaseMapper::create<Mapper131>(*m_nesCartridgeData);
         case 132: return BaseMapper::create<Mapper132>(*m_nesCartridgeData);
         case 133: return BaseMapper::create<Mapper133>(*m_nesCartridgeData);
@@ -432,6 +464,7 @@ private:
         case 160: return BaseMapper::create<Mapper160>(*m_nesCartridgeData);
         case 161: return BaseMapper::create<Mapper161>(*m_nesCartridgeData);
         case 162: return BaseMapper::create<Mapper162>(*m_nesCartridgeData);
+        case 163: return BaseMapper::create<Mapper163>(*m_nesCartridgeData);
         case 164: return BaseMapper::create<Mapper164>(*m_nesCartridgeData);
         case 165: return BaseMapper::create<Mapper165>(*m_nesCartridgeData);
         case 166: return BaseMapper::create<Mapper166>(*m_nesCartridgeData);
@@ -444,6 +477,7 @@ private:
         case 173: return BaseMapper::create<Mapper173>(*m_nesCartridgeData);
         case 174: return BaseMapper::create<Mapper174>(*m_nesCartridgeData);
         case 175: return BaseMapper::create<Mapper175>(*m_nesCartridgeData);
+        case 176: return BaseMapper::create<Mapper176>(*m_nesCartridgeData);
         case 177: return BaseMapper::create<Mapper177>(*m_nesCartridgeData);
         case 178: return BaseMapper::create<Mapper178>(*m_nesCartridgeData);
         case 179: return BaseMapper::create<Mapper179>(*m_nesCartridgeData);
@@ -452,6 +486,7 @@ private:
         case 182: return BaseMapper::create<Mapper182>(*m_nesCartridgeData);
         case 184: return BaseMapper::create<Mapper184>(*m_nesCartridgeData);
         case 185: return BaseMapper::create<Mapper185>(*m_nesCartridgeData);
+        case 186: return BaseMapper::create<Mapper186>(*m_nesCartridgeData);
         case 187: return BaseMapper::create<Mapper187>(*m_nesCartridgeData);
         case 188: return BaseMapper::create<Mapper188>(*m_nesCartridgeData);
         case 189: return BaseMapper::create<Mapper189>(*m_nesCartridgeData);
@@ -461,6 +496,7 @@ private:
         case 193: return BaseMapper::create<Mapper193>(*m_nesCartridgeData);
         case 194: return BaseMapper::create<Mapper194>(*m_nesCartridgeData);
         case 195: return BaseMapper::create<Mapper195>(*m_nesCartridgeData);
+        case 196: return BaseMapper::create<Mapper196>(*m_nesCartridgeData);
         case 197: return BaseMapper::create<Mapper197>(*m_nesCartridgeData);
         case 198: return BaseMapper::create<Mapper198>(*m_nesCartridgeData);
         case 199: return BaseMapper::create<Mapper199>(*m_nesCartridgeData);
@@ -502,6 +538,7 @@ private:
         case 236: return BaseMapper::create<Mapper236>(*m_nesCartridgeData);
         case 237: return BaseMapper::create<Mapper237>(*m_nesCartridgeData);
         case 238: return BaseMapper::create<Mapper238>(*m_nesCartridgeData);
+        case 239: return BaseMapper::create<Mapper239>(*m_nesCartridgeData);
         case 240: return BaseMapper::create<Mapper240>(*m_nesCartridgeData);
         case 241: return BaseMapper::create<Mapper241>(*m_nesCartridgeData);
         case 242: return BaseMapper::create<Mapper242>(*m_nesCartridgeData);
@@ -509,6 +546,7 @@ private:
         case 244: return BaseMapper::create<Mapper244>(*m_nesCartridgeData);
         case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
         case 246: return BaseMapper::create<Mapper246>(*m_nesCartridgeData);
+        case 247: return BaseMapper::create<Mapper247>(*m_nesCartridgeData);
         case 248: return BaseMapper::create<Mapper248>(*m_nesCartridgeData);
         case 249: return BaseMapper::create<Mapper249>(*m_nesCartridgeData);
         case 250: return BaseMapper::create<Mapper250>(*m_nesCartridgeData);
