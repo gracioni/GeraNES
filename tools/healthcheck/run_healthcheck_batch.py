@@ -155,6 +155,11 @@ def can_resume_entry(entry: dict[str, Any]) -> bool:
     return True
 
 
+def has_existing_healthcheck_artifacts(output_dir: Path) -> bool:
+    has_content, _ = has_minimum_generated_content(output_dir)
+    return has_content
+
+
 def has_minimum_generated_content(output_dir: Path) -> tuple[bool, str]:
     required_files = [
         output_dir / "run.json",
@@ -305,18 +310,29 @@ def main() -> int:
             print("  skipped: duplicate ROM stem would collide in output folder", flush=True)
             continue
 
-        proc = run_command([
-            str(binary),
-            "--healthcheck",
-            str(rom_path),
-            str(output_root),
-            "--seed",
-            str(args.seed),
-            "--sim-seconds",
-            str(args.sim_seconds),
-            "--shot-interval",
-            str(args.shot_interval),
-        ])
+        reused_existing_artifacts = False
+        if has_existing_healthcheck_artifacts(output_dir):
+            reused_existing_artifacts = True
+            proc = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+            print("  reusing existing healthcheck artifacts", flush=True)
+        else:
+            proc = run_command([
+                str(binary),
+                "--healthcheck",
+                str(rom_path),
+                str(output_root),
+                "--seed",
+                str(args.seed),
+                "--sim-seconds",
+                str(args.sim_seconds),
+                "--shot-interval",
+                str(args.shot_interval),
+            ])
 
         has_content, content_reason = has_minimum_generated_content(output_dir)
         if proc.returncode != 0 and not has_content:
@@ -414,6 +430,8 @@ def main() -> int:
             "softCheckFailures": decision.get("softCheckFailures", []),
             "reportPath": str(output_dir / analyzer.REPORT_FILE_NAME),
         }
+        if reused_existing_artifacts:
+            entry["reusedExistingArtifacts"] = True
         if proc.returncode != 0:
             entry["returnCode"] = proc.returncode
             entry["processOutput"] = normalize_process_output(proc).strip()

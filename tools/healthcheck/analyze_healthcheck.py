@@ -463,6 +463,14 @@ def build_checks(
     missing_files = shot_analysis.get("missingFiles", [])
     if not isinstance(missing_files, list):
         missing_files = []
+    has_stable_but_valid_screen = (
+        shot_count > 0
+        and max_duplicate_run >= 4
+        and first_meaningful_frame_seconds is not None
+        and dark_shot_count == 0
+        and near_blank_shot_count == 0
+        and average_unique_colors >= 6.0
+    )
 
     checks.append(make_check(
         "rom_opened",
@@ -526,17 +534,20 @@ def build_checks(
         },
     ))
 
-    screen_consistency_ok = shot_count == 0 or max_duplicate_run < 4
+    screen_consistency_ok = shot_count == 0 or max_duplicate_run < 4 or has_stable_but_valid_screen
     checks.append(make_check(
         "screen_consistency",
         "Screen consistency",
         screen_consistency_ok,
         "There was no excessively long run of identical screenshots."
-        if screen_consistency_ok else
+        if shot_count == 0 or max_duplicate_run < 4 else
+        "Screenshots became stable, but the screen still looks like valid rendered content."
+        if has_stable_but_valid_screen else
         "Many consecutive screenshots were identical, suggesting a freeze or visual loop.",
         "warning",
         {
             "maxDuplicateRun": max_duplicate_run,
+            "hasStableButValidScreen": has_stable_but_valid_screen,
         },
     ))
 
