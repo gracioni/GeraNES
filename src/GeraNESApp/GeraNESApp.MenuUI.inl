@@ -191,11 +191,11 @@ inline void GeraNESApp::menuBar() {
 
                 for(int i = 0; i < m_audioDevices.size(); i++) {
 
-                    bool checked = m_audioOutput.currentDeviceName() == m_audioDevices[i].c_str();
+                    bool checked = m_emu.currentAudioDeviceName() == m_audioDevices[i];
 
                     if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
-                        m_audioOutput.config(m_audioDevices[i]);
-                        AppSettings::instance().data.audio.audioDevice = m_audioOutput.currentDeviceName();
+                        m_emu.configAudioDevice(m_audioDevices[i]);
+                        AppSettings::instance().data.audio.audioDevice = m_audioDevices[i];
                     }
                 }
                 ImGui::EndMenu();
@@ -208,10 +208,10 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            float volumePercent = m_audioOutput.getVolume() * 100.0f;
+            float volumePercent = m_emu.getAudioVolume() * 100.0f;
             if(ImGui::SliderFloat("Volume", &volumePercent, 0.0f, 100.0f, "%.0f%%")) {
                 float volume = volumePercent / 100.0f;
-                m_audioOutput.setVolume(volume);
+                m_emu.setAudioVolume(volume);
                 AppSettings::instance().data.audio.volume = volume;
             }
 
@@ -452,12 +452,14 @@ inline void GeraNESApp::collectAudioChannelsFromJson(const std::string& jsonStr,
 inline void GeraNESApp::applyAudioChannelVolume(const AudioChannelControl& c, float value)
 {
     if(c.source == "nes") {
-        m_audioOutput.setAudioChannelVolumeById(c.id, value);
+        m_emu.setAudioChannelVolumeById(c.id, value);
         return;
     }
 
     if(c.source == "mapper") {
-        m_emu.getConsole().cartridge().setMapperAudioChannelVolumeById(c.id, value);        
+        m_emu.withExclusiveAccess([&](auto& emu) {
+            emu.getConsole().cartridge().setMapperAudioChannelVolumeById(c.id, value);
+        });
     }
 }
 
@@ -465,8 +467,10 @@ inline void GeraNESApp::drawAudioChannelDebugControls()
 {
     std::vector<AudioChannelControl> nesChannels;
     std::vector<AudioChannelControl> mapperChannels;
-    collectAudioChannelsFromJson(m_audioOutput.getAudioChannelsJson(), "nes", nesChannels);
-    collectAudioChannelsFromJson(m_emu.getConsole().cartridge().getMapperAudioChannelsJson(), "mapper", mapperChannels);
+    collectAudioChannelsFromJson(m_emu.getAudioChannelsJson(), "nes", nesChannels);
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        collectAudioChannelsFromJson(emu.getConsole().cartridge().getMapperAudioChannelsJson(), "mapper", mapperChannels);
+    });
 
     if(nesChannels.empty() && mapperChannels.empty()) {
         ImGui::TextDisabled("No channel controls available.");

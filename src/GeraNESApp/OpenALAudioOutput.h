@@ -103,17 +103,17 @@ public:
         return 16; // OpenAL typically uses 16-bit samples
     }
 
-    void restart()
+    void restart() override
     {
         config(m_currentDeviceName);
     }
 
-    const std::string& currentDeviceName()
+    const std::string& currentDeviceName() const override
     {
         return m_currentDeviceName;
     }
 
-    std::vector<std::string> getAudioList()
+    std::vector<std::string> getAudioList() const override
     {
         std::vector<std::string> ret;
         const ALCchar* devices = alcGetString(nullptr, ALC_DEVICE_SPECIFIER);
@@ -125,7 +125,7 @@ public:
         return ret;
     }
 
-    bool config(const std::string& deviceName)
+    bool config(const std::string& deviceName) override
     {
         turnOff();
 
@@ -235,12 +235,12 @@ public:
         
     }    
 
-    void setVolume(float volume)
+    void setVolume(float volume) override
     {
         m_volume = volume;
     }
 
-    float getVolume()
+    float getVolume() const override
     {
         return m_volume;
     }

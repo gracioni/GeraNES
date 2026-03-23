@@ -21,7 +21,6 @@ class SDLAudioOutput : public AudioOutputBase
 {
 
 private:
-
     SDL_AudioDeviceID m_device = 0;
     std::string m_currentDeviceName = "";
 
@@ -82,12 +81,11 @@ public:
         return spec.format & 0xFF;       
     }
 
-    const std::string& currentDeviceName() {
+    const std::string& currentDeviceName() const override {
         return m_currentDeviceName;
     }
 
-    std::vector<std::string> getAudioList() {
-
+    std::vector<std::string> getAudioList() const override {
         std::vector<std::string> ret;
 
         int num = SDL_GetNumAudioDevices(0); // 1 input, 0 output
@@ -99,11 +97,11 @@ public:
         return ret;
     }
 
-    void restart() {
+    void restart() override {
         config(m_currentDeviceName);
     }
 
-    bool config(const std::string& deviceName)
+    bool config(const std::string& deviceName) override
     {
         turnOff();
 
@@ -215,7 +213,6 @@ public:
     
     void render(uint32_t dt, bool silenceFlag) override
     {    
-
         if(m_device == 0){
             turnOff();
             return;
@@ -260,11 +257,11 @@ public:
 
     } 
     
-    void setVolume(float volume) {
+    void setVolume(float volume) override {
         m_volume = volume;
     }
 
-    float getVolume() {
+    float getVolume() const override {
         return m_volume;
     }
 

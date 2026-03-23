@@ -5,6 +5,11 @@
 #include <memory>
 #include <functional>
 #include <algorithm>
+#include <atomic>
+#include <cstddef>
+#include <mutex>
+#include <queue>
+#include <thread>
 
 #include <vector>
 #include <list>
@@ -21,12 +26,21 @@ class SigSlotBase;
 class SigSlotBase 
 {
     public:
+        SigSlotBase();
         virtual ~SigSlotBase();
 
         void add_binding(const std::shared_ptr<Binding>& b);
         virtual void erase_binding(const std::shared_ptr<Binding>& b);
+
+        void move_to_current_thread();
+        bool in_owner_thread() const;
+        void enqueue_call(std::function<void()> fn);
+        size_t dispatch_queued_calls(size_t maxCalls = static_cast<size_t>(-1));
     private:
         std::list<std::shared_ptr<Binding>> _bindings;
+        std::thread::id _ownerThreadId;
+        mutable std::mutex _queuedCallsMutex;
+        std::queue<std::function<void()>> _queuedCalls;
 };
 
 
@@ -42,12 +56,14 @@ class Binding: public std::enable_shared_from_this<Binding>
         static std::shared_ptr<Binding> create(SigSlotBase* em, SigSlotBase* recv);
 
         void unbind();
+        bool is_active() const;
 
     private:
         Binding(SigSlotBase* emitter, SigSlotBase* receiver);
 
         SigSlotBase* _emitter;
         SigSlotBase* _receiver;
+        std::atomic<bool> _active {true};
 };
 
 template <typename... _ArgTypes>
@@ -73,6 +89,53 @@ class Signal: public SigSlotBase
 
             _slots.push_back(_Binding_Fun(
                        binding, [=](_ArgTypes... args){(inst->*slot)(args...);}));
+
+            inst->add_binding(binding);
+            add_binding(binding);
+        }
+
+        template <typename _Class>
+        void bind_queued(void(_Class::* slot)(_ArgTypes...), _Class* inst)
+        {
+            std::shared_ptr<Binding> binding = Binding::create(this, inst);
+            std::weak_ptr<Binding> weakBinding = binding;
+
+            _slots.push_back(_Binding_Fun(
+                binding,
+                [=](_ArgTypes... args) {
+                    inst->enqueue_call([=]() {
+                        auto locked = weakBinding.lock();
+                        if(!locked || !locked->is_active()) return;
+                        (inst->*slot)(args...);
+                    });
+                }));
+
+            inst->add_binding(binding);
+            add_binding(binding);
+        }
+
+        template <typename _Class>
+        void bind_auto(void(_Class::* slot)(_ArgTypes...), _Class* inst)
+        {
+            std::shared_ptr<Binding> binding = Binding::create(this, inst);
+            std::weak_ptr<Binding> weakBinding = binding;
+
+            _slots.push_back(_Binding_Fun(
+                binding,
+                [=](_ArgTypes... args) {
+                    if(inst->in_owner_thread()) {
+                        auto locked = weakBinding.lock();
+                        if(!locked || !locked->is_active()) return;
+                        (inst->*slot)(args...);
+                        return;
+                    }
+
+                    inst->enqueue_call([=]() {
+                        auto locked = weakBinding.lock();
+                        if(!locked || !locked->is_active()) return;
+                        (inst->*slot)(args...);
+                    });
+                }));
 
             inst->add_binding(binding);
             add_binding(binding);

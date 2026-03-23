@@ -27,6 +27,12 @@ class IAudioOutput
     virtual void clearAudioBuffers() {}
     virtual std::vector<float> getRecentMixedSamples(size_t /*maxSamples*/ = 0) const { return {}; }
     virtual int outputSampleRate() const { return 44100; }
+    virtual std::vector<std::string> getAudioList() const { return {}; }
+    virtual const std::string& currentDeviceName() const { static const std::string empty; return empty; }
+    virtual bool config(const std::string& /*deviceName*/) { return true; }
+    virtual void restart() {}
+    virtual void setVolume(float /*volume*/) {}
+    virtual float getVolume() const { return 1.0f; }
 
     virtual std::string getAudioChannelsJson() const { return "{\"channels\":[]}"; }
     virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/) { return false; }

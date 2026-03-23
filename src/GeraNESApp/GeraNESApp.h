@@ -40,7 +40,7 @@ namespace fs = std::filesystem;
 #include "CppGL/CppGL.h"
 #include "SDLOpenGLWindow.h"
 
-#include "GeraNES/GeraNESEmu.h"
+#include "GeraNESApp/EmulationHost.h"
 
 #include "GeraNES/defines.h"
 
@@ -100,7 +100,7 @@ private:
 
     AudioOutput m_audioOutput;
 
-    GeraNESEmu m_emu;
+    EmulationHost m_emu;
 
     ControllerInfo m_controller1;
     ControllerInfo m_controller2; 
@@ -222,66 +222,68 @@ private:
             return;
         }
 
-        Cartridge& cart = m_emu.getConsole().cartridge();
-        m_romDbEditor.loaded = true;
-        m_romDbEditor.PrgChrCrc32 = cart.prgChrCrc32String();
+        m_emu.withExclusiveAccess([&](auto& emu) {
+            Cartridge& cart = emu.getConsole().cartridge();
+            m_romDbEditor.loaded = true;
+            m_romDbEditor.PrgChrCrc32 = cart.prgChrCrc32String();
 
-        GameDatabase::Item* item = GameDatabase::instance().findByCrc(m_romDbEditor.PrgChrCrc32);
-        if(item != nullptr) {
-            m_romDbEditor.foundInDatabase = true;
-            m_romDbEditor.statusMessage = "Current ROM is in the database";
-            GameDatabase::RawItem raw = GameDatabase::toRawItem(*item);
-            m_romDbEditor.PrgChrCrc32 = raw.PrgChrCrc32;
-            m_romDbEditor.System = raw.System;
-            m_romDbEditor.Board = raw.Board;
-            m_romDbEditor.PCB = raw.PCB;
-            m_romDbEditor.Chip = raw.Chip;
-            m_romDbEditor.Mapper = raw.Mapper;
-            m_romDbEditor.PrgRomSize = raw.PrgRomSize;
-            m_romDbEditor.ChrRomSize = raw.ChrRomSize;
-            m_romDbEditor.ChrRamSize = raw.ChrRamSize;
-            m_romDbEditor.WorkRamSize = raw.WorkRamSize;
-            m_romDbEditor.SaveRamSize = raw.SaveRamSize;
-            m_romDbEditor.HasBattery = raw.HasBattery;
-            m_romDbEditor.Mirroring = raw.Mirroring;
-            m_romDbEditor.InputType = raw.InputType;
-            m_romDbEditor.BusConflicts = raw.BusConflicts;
-            m_romDbEditor.SubMapperId = raw.SubMapperId;
-            m_romDbEditor.VsSystemType = raw.VsSystemType;
-            m_romDbEditor.VsPpuModel = raw.VsPpuModel;
-            m_romDbSaved = m_romDbEditor;
-            return;
-        }
+            GameDatabase::Item* item = GameDatabase::instance().findByCrc(m_romDbEditor.PrgChrCrc32);
+            if(item != nullptr) {
+                m_romDbEditor.foundInDatabase = true;
+                m_romDbEditor.statusMessage = "Current ROM is in the database";
+                GameDatabase::RawItem raw = GameDatabase::toRawItem(*item);
+                m_romDbEditor.PrgChrCrc32 = raw.PrgChrCrc32;
+                m_romDbEditor.System = raw.System;
+                m_romDbEditor.Board = raw.Board;
+                m_romDbEditor.PCB = raw.PCB;
+                m_romDbEditor.Chip = raw.Chip;
+                m_romDbEditor.Mapper = raw.Mapper;
+                m_romDbEditor.PrgRomSize = raw.PrgRomSize;
+                m_romDbEditor.ChrRomSize = raw.ChrRomSize;
+                m_romDbEditor.ChrRamSize = raw.ChrRamSize;
+                m_romDbEditor.WorkRamSize = raw.WorkRamSize;
+                m_romDbEditor.SaveRamSize = raw.SaveRamSize;
+                m_romDbEditor.HasBattery = raw.HasBattery;
+                m_romDbEditor.Mirroring = raw.Mirroring;
+                m_romDbEditor.InputType = raw.InputType;
+                m_romDbEditor.BusConflicts = raw.BusConflicts;
+                m_romDbEditor.SubMapperId = raw.SubMapperId;
+                m_romDbEditor.VsSystemType = raw.VsSystemType;
+                m_romDbEditor.VsPpuModel = raw.VsPpuModel;
+                m_romDbSaved = m_romDbEditor;
+                return;
+            }
 
-        m_romDbEditor.foundInDatabase = false;
-        m_romDbEditor.statusMessage = "Current ROM is NOT in the database";
-        switch(cart.system()) {
-            case GameDatabase::System::NesNtsc: m_romDbEditor.System = "NesNtsc"; break;
-            case GameDatabase::System::NesPal: m_romDbEditor.System = "NesPal"; break;
-            case GameDatabase::System::Famicom: m_romDbEditor.System = "Famicom"; break;
-            case GameDatabase::System::Dendy: m_romDbEditor.System = "Dendy"; break;
-            case GameDatabase::System::VsSystem: m_romDbEditor.System = "VsSystem"; break;
-            case GameDatabase::System::Playchoice: m_romDbEditor.System = "Playchoice"; break;
-            case GameDatabase::System::FDS: m_romDbEditor.System = "FDS"; break;
-            default: m_romDbEditor.System = ""; break;
-        }
+            m_romDbEditor.foundInDatabase = false;
+            m_romDbEditor.statusMessage = "Current ROM is NOT in the database";
+            switch(cart.system()) {
+                case GameDatabase::System::NesNtsc: m_romDbEditor.System = "NesNtsc"; break;
+                case GameDatabase::System::NesPal: m_romDbEditor.System = "NesPal"; break;
+                case GameDatabase::System::Famicom: m_romDbEditor.System = "Famicom"; break;
+                case GameDatabase::System::Dendy: m_romDbEditor.System = "Dendy"; break;
+                case GameDatabase::System::VsSystem: m_romDbEditor.System = "VsSystem"; break;
+                case GameDatabase::System::Playchoice: m_romDbEditor.System = "Playchoice"; break;
+                case GameDatabase::System::FDS: m_romDbEditor.System = "FDS"; break;
+                default: m_romDbEditor.System = ""; break;
+            }
 
-        m_romDbEditor.Board = "";
-        m_romDbEditor.PCB = "";
-        m_romDbEditor.Chip = cart.chip();
-        setIfNegative(m_romDbEditor.Mapper, cart.mapperId());
-        setIfNegativeKb(m_romDbEditor.PrgRomSize, cart.prgSize());
-        setIfNegativeKb(m_romDbEditor.ChrRomSize, cart.chrSize());
-        setIfNegativeKb(m_romDbEditor.ChrRamSize, cart.chrRamSize());
-        setIfNegativeKb(m_romDbEditor.WorkRamSize, cart.ramSize());
-        setIfNegativeKb(m_romDbEditor.SaveRamSize, cart.dbSaveRamSize());
-        m_romDbEditor.HasBattery = cart.hasBattery() ? "1" : "0";
-        m_romDbEditor.Mirroring = "";
-        m_romDbEditor.InputType = std::to_string(static_cast<int>(cart.inputType()));
-        m_romDbEditor.BusConflicts = "";
-        setIfNegative(m_romDbEditor.SubMapperId, cart.subMapperId());
-        m_romDbEditor.VsSystemType = "0";
-        m_romDbEditor.VsPpuModel = std::to_string(static_cast<int>(cart.vsPpuModel()));
+            m_romDbEditor.Board = "";
+            m_romDbEditor.PCB = "";
+            m_romDbEditor.Chip = cart.chip();
+            setIfNegative(m_romDbEditor.Mapper, cart.mapperId());
+            setIfNegativeKb(m_romDbEditor.PrgRomSize, cart.prgSize());
+            setIfNegativeKb(m_romDbEditor.ChrRomSize, cart.chrSize());
+            setIfNegativeKb(m_romDbEditor.ChrRamSize, cart.chrRamSize());
+            setIfNegativeKb(m_romDbEditor.WorkRamSize, cart.ramSize());
+            setIfNegativeKb(m_romDbEditor.SaveRamSize, cart.dbSaveRamSize());
+            m_romDbEditor.HasBattery = cart.hasBattery() ? "1" : "0";
+            m_romDbEditor.Mirroring = "";
+            m_romDbEditor.InputType = std::to_string(static_cast<int>(cart.inputType()));
+            m_romDbEditor.BusConflicts = "";
+            setIfNegative(m_romDbEditor.SubMapperId, cart.subMapperId());
+            m_romDbEditor.VsSystemType = "0";
+            m_romDbEditor.VsPpuModel = std::to_string(static_cast<int>(cart.vsPpuModel()));
+        });
     }
 
     void saveRomDatabaseEditor()
@@ -369,21 +371,21 @@ private:
         }
 
         m_log += msgType + msg + "\n";
-        
+
         size_t needed = m_log.size() + 1;
         if (m_logBuf.capacity() < needed) {
             m_logBuf.reserve( std::max(needed, m_logBuf.capacity() * 2) );
         }
 
         m_logBuf.resize(needed);
-        memcpy(m_logBuf.data(), m_log.c_str(), needed);        
+        memcpy(m_logBuf.data(), m_log.c_str(), needed);
     }
 
     std::tuple<int, int> getNesCursor(int screenX, int screenY) {
 
-        int nesX = ((screenX - m_nesScreenRect.min.x) * m_emu.getConsole().ppu().SCREEN_WIDTH) / m_nesScreenRect.getWidth();
+        int nesX = ((screenX - m_nesScreenRect.min.x) * PPU::SCREEN_WIDTH) / m_nesScreenRect.getWidth();
         int clipTop = m_clipHeightValue;
-        int visibleNES = m_emu.getConsole().ppu().SCREEN_HEIGHT - 2*m_clipHeightValue;
+        int visibleNES = PPU::SCREEN_HEIGHT - 2*m_clipHeightValue;
         int nesY = clipTop + ((screenY - m_nesScreenRect.min.y) * visibleNES) / m_nesScreenRect.getHeight();
 
         return std::make_tuple(nesX, nesY);
@@ -406,36 +408,23 @@ private:
             const bool p1Left = im.isPressed(m_controller1.left) || (!m_imGuiWantsMouse &&m_touch->buttons().left);
             const bool p1Right = im.isPressed(m_controller1.right) || (!m_imGuiWantsMouse &&m_touch->buttons().right);
 
-            // Player1
-            m_emu.setController1Buttons(
-                p1A,
-                p1B,
-                p1Select,
-                p1Start,
-                p1Up,
-                p1Down,
-                p1Left,
-                p1Right
-            );
-
             if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
             if(im.isJustPressed(m_controller1.loadState)) m_emu.loadState();            
 
-            // Player 2
-            m_emu.setController2Buttons(
-                im.isPressed(m_controller2.a), im.isPressed(m_controller2.b),
-                im.isPressed(m_controller2.select), im.isPressed(m_controller2.start),
-                im.isPressed(m_controller2.up), im.isPressed(m_controller2.down),
-                im.isPressed(m_controller2.left), im.isPressed(m_controller2.right)
-            );
+            const bool p2A = im.isPressed(m_controller2.a);
+            const bool p2B = im.isPressed(m_controller2.b);
+            const bool p2Select = im.isPressed(m_controller2.select);
+            const bool p2Start = im.isPressed(m_controller2.start);
+            const bool p2Up = im.isPressed(m_controller2.up);
+            const bool p2Down = im.isPressed(m_controller2.down);
+            const bool p2Left = im.isPressed(m_controller2.left);
+            const bool p2Right = im.isPressed(m_controller2.right);
 
-            m_emu.setBandaiHyperShotButtons(
-                im.isPressed(m_controller2.a), im.isPressed(m_controller2.b),
-                im.isPressed(m_controller2.select), im.isPressed(m_controller2.start),
-                im.isPressed(m_controller2.up), im.isPressed(m_controller2.down),
-                im.isPressed(m_controller2.left), im.isPressed(m_controller2.right)
-            );
-
+            int zapperX = -1;
+            int zapperY = -1;
+            bool p1ZapperTrigger = false;
+            bool p2ZapperTrigger = false;
+            bool bandaiTrigger = false;
             {
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
@@ -446,35 +435,49 @@ private:
                 const bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
                 const bool rightClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT));
 
-                const int zapperX = rightClick ? -1 : nesX;
-                const int zapperY = rightClick ? -1 : nesY;
-
-                // Right click = off-screen shot. Keep previous trigger mapping for P1 and
-                // allow off-screen reload on P2 (left or right).
-                m_emu.setZapper(Settings::Port::P_1, zapperX, zapperY, rightClick);
-                m_emu.setZapper(Settings::Port::P_2, zapperX, zapperY, leftClick || rightClick);
-                m_emu.setBandaiHyperShot(zapperX, zapperY, leftClick || rightClick);
+                zapperX = rightClick ? -1 : nesX;
+                zapperY = rightClick ? -1 : nesY;
+                p1ZapperTrigger = rightClick;
+                p2ZapperTrigger = leftClick || rightClick;
+                bandaiTrigger = leftClick || rightClick;
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
             if(im.isJustPressed(m_controller2.loadState)) m_emu.loadState();
 
-            // Rewind
-            m_emu.setRewind(
+            EmulationHost::InputState inputState;
+            inputState.p1A = p1A;
+            inputState.p1B = p1B;
+            inputState.p1Select = p1Select;
+            inputState.p1Start = p1Start;
+            inputState.p1Up = p1Up;
+            inputState.p1Down = p1Down;
+            inputState.p1Left = p1Left;
+            inputState.p1Right = p1Right;
+            inputState.p2A = p2A;
+            inputState.p2B = p2B;
+            inputState.p2Select = p2Select;
+            inputState.p2Start = p2Start;
+            inputState.p2Up = p2Up;
+            inputState.p2Down = p2Down;
+            inputState.p2Left = p2Left;
+            inputState.p2Right = p2Right;
+            inputState.zapperX = zapperX;
+            inputState.zapperY = zapperY;
+            inputState.zapperP1Trigger = p1ZapperTrigger;
+            inputState.zapperP2Trigger = p2ZapperTrigger;
+            inputState.bandaiTrigger = bandaiTrigger;
+            inputState.rewind =
                 im.isPressed(m_controller1.rewind) ||
                 im.isPressed(m_controller2.rewind) ||
-                m_touch->buttons().rewind
-            );
-
-            // Hold-to-speed (fast forward)
-            m_emu.setSpeedBoost(
+                m_touch->buttons().rewind;
+            inputState.speedBoost =
                 im.isPressed(m_controller1.speed) ||
-                im.isPressed(m_controller2.speed)
-            );
+                im.isPressed(m_controller2.speed);
+            m_emu.setPendingInput(inputState);
         }
         else {
-            m_emu.setRewind(false);
-            m_emu.setSpeedBoost(false);
+            m_emu.setPendingInput({});
         }
 
     }
@@ -499,9 +502,10 @@ private:
 
         auto cfg = AppSettings::instance().data;
 
-        m_audioOutput.config(cfg.audio.audioDevice);      
-        cfg.audio.audioDevice = m_audioOutput.currentDeviceName(); 
-        m_audioOutput.setVolume(cfg.audio.volume);
+        m_emu.configAudioDevice(cfg.audio.audioDevice);
+        m_emu.setAudioVolume(cfg.audio.volume);
+        m_audioDevices = m_emu.getAudioList();
+        cfg.audio.audioDevice = m_emu.currentAudioDeviceName();
         
         cfg.input.getControllerInfo(0, m_controller1);
         cfg.input.getControllerInfo(1, m_controller2);
@@ -587,13 +591,12 @@ public:
         std::ofstream file(LOG_FILE);
         file.close();
 
-        Logger::instance().signalLog.bind(&GeraNESApp::onLog, this);
-        m_emu.signalFrameStart.bind(&GeraNESApp::onFrameStart, this);    
+        Logger::instance().signalLog.bind_auto(&GeraNESApp::onLog, this);
 
         m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
         m_controllerConfigWindow.signalClose.bind(&GeraNESApp::onCaptureEnd, this);
 
-        m_audioDevices = m_audioOutput.getAudioList();
+        m_audioDevices = m_emu.getAudioList();
 
         syncSettings();
 
@@ -651,7 +654,7 @@ public:
     }
 
     void restartAudioModule() {
-        m_audioOutput.restart();
+        m_emu.restartAudio();
     }
 
     void onSessionImportComplete() {
@@ -1124,6 +1127,8 @@ public:
         if(dt == 0) return;
 
         m_touch->update(dt);
+        onFrameStart();
+        dispatch_queued_calls();
 
         m_mainLoopLastTime = tempTime;
  
