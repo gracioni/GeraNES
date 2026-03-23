@@ -133,7 +133,9 @@
 #include "Mappers/Mapper159.h"
 #include "Mappers/Mapper174.h"
 #include "Mappers/Mapper201.h"
+#include "Mappers/Mapper203.h"
 #include "Mappers/Mapper152.h"
+#include "Mappers/Mapper204.h"
 #include "Mappers/Mapper180.h"
 #include "Mappers/Mapper185.h"
 #include "Mappers/Mapper189.h"
@@ -142,14 +144,32 @@
 #include "Mappers/Mapper211.h"
 #include "Mappers/Mapper210.h"
 #include "Mappers/Mapper212.h"
+#include "Mappers/Mapper213.h"
+#include "Mappers/Mapper214.h"
+#include "Mappers/Mapper216.h"
+#include "Mappers/Mapper221.h"
+#include "Mappers/Mapper222.h"
+#include "Mappers/Mapper225.h"
 #include "Mappers/Mapper226.h"
 #include "Mappers/Mapper227.h"
+#include "Mappers/Mapper229.h"
+#include "Mappers/Mapper230.h"
+#include "Mappers/Mapper231.h"
 #include "Mappers/Mapper232.h"
 #include "Mappers/Mapper233.h"
+#include "Mappers/Mapper234.h"
+#include "Mappers/Mapper240.h"
+#include "Mappers/Mapper241.h"
 #include "Mappers/Mapper242.h"
 #include "Mappers/Mapper244.h"
 #include "Mappers/Mapper245.h"
 #include "Mappers/Mapper246.h"
+#include "Mappers/Mapper249.h"
+#include "Mappers/Mapper250.h"
+#include "Mappers/Mapper252.h"
+#include "Mappers/Mapper253.h"
+#include "Mappers/Mapper254.h"
+#include "Mappers/Mapper255.h"
 #ifdef ENABLE_NSF_PLAYER
 #include "Mappers/MapperNSF.h"
 #endif
@@ -294,6 +314,8 @@ private:
         case 159: return BaseMapper::create<Mapper159>(*m_nesCartridgeData);
         case 174: return BaseMapper::create<Mapper174>(*m_nesCartridgeData);
         case 201: return BaseMapper::create<Mapper201>(*m_nesCartridgeData);
+        case 203: return BaseMapper::create<Mapper203>(*m_nesCartridgeData);
+        case 204: return BaseMapper::create<Mapper204>(*m_nesCartridgeData);
         case 180: return BaseMapper::create<Mapper180>(*m_nesCartridgeData);
         case 185: return BaseMapper::create<Mapper185>(*m_nesCartridgeData);
         case 189: return BaseMapper::create<Mapper189>(*m_nesCartridgeData);
@@ -302,14 +324,32 @@ private:
         case 211: return BaseMapper::create<Mapper211>(*m_nesCartridgeData);
         case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
         case 212: return BaseMapper::create<Mapper212>(*m_nesCartridgeData);
+        case 213: return BaseMapper::create<Mapper213>(*m_nesCartridgeData);
+        case 214: return BaseMapper::create<Mapper214>(*m_nesCartridgeData);
+        case 216: return BaseMapper::create<Mapper216>(*m_nesCartridgeData);
+        case 221: return BaseMapper::create<Mapper221>(*m_nesCartridgeData);
+        case 222: return BaseMapper::create<Mapper222>(*m_nesCartridgeData);
+        case 225: return BaseMapper::create<Mapper225>(*m_nesCartridgeData);
         case 226: return BaseMapper::create<Mapper226>(*m_nesCartridgeData);
         case 227: return BaseMapper::create<Mapper227>(*m_nesCartridgeData);
+        case 229: return BaseMapper::create<Mapper229>(*m_nesCartridgeData);
+        case 230: return BaseMapper::create<Mapper230>(*m_nesCartridgeData);
+        case 231: return BaseMapper::create<Mapper231>(*m_nesCartridgeData);
         case 232: return BaseMapper::create<Mapper232>(*m_nesCartridgeData);
         case 233: return BaseMapper::create<Mapper233>(*m_nesCartridgeData);
+        case 234: return BaseMapper::create<Mapper234>(*m_nesCartridgeData);
+        case 240: return BaseMapper::create<Mapper240>(*m_nesCartridgeData);
+        case 241: return BaseMapper::create<Mapper241>(*m_nesCartridgeData);
         case 242: return BaseMapper::create<Mapper242>(*m_nesCartridgeData);
         case 244: return BaseMapper::create<Mapper244>(*m_nesCartridgeData);
         case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
         case 246: return BaseMapper::create<Mapper246>(*m_nesCartridgeData);
+        case 249: return BaseMapper::create<Mapper249>(*m_nesCartridgeData);
+        case 250: return BaseMapper::create<Mapper250>(*m_nesCartridgeData);
+        case 252: return BaseMapper::create<Mapper252>(*m_nesCartridgeData);
+        case 253: return BaseMapper::create<Mapper253>(*m_nesCartridgeData);
+        case 254: return BaseMapper::create<Mapper254>(*m_nesCartridgeData);
+        case 255: return BaseMapper::create<Mapper255>(*m_nesCartridgeData);
 #ifdef ENABLE_NSF_PLAYER
         case _NsfFormat::NSF_MAPPER_ID: return BaseMapper::create<MapperNSF>(*m_nesCartridgeData);
 #endif
