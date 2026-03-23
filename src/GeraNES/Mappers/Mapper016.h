@@ -276,9 +276,6 @@ protected:
         }
         else if(scl > m_eepromPrevScl) {
             switch(m_eepromMode) {
-            default:
-                break;
-
             case EepromMode::Address:
                 if(m_eepromCounter < 7) {
                     writeEepromBitLsb(m_eepromAddress, sda);

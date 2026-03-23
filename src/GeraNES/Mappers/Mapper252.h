@@ -153,7 +153,7 @@ public:
     void serialization(SerializationBase& s) override
     {
         BaseMapper::serialization(s);
-        s.array(m_chrReg, 2, 8);
+        s.array(reinterpret_cast<uint8_t*>(m_chrReg), 2, 8);
         s.array(m_prgReg, 1, 2);
         SERIALIZEDATA(s, m_prgMask);
         SERIALIZEDATA(s, m_chr1kBanks);

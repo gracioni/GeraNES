@@ -116,6 +116,6 @@ public:
         Mapper004::serialization(s);
         s.array(m_exRegs, 1, 3);
         s.array(m_prgPages, 1, 4);
-        s.array(m_chrPages, 2, 8);
+        s.array(reinterpret_cast<uint8_t*>(m_chrPages), 2, 8);
     }
 };

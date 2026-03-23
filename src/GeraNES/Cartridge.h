@@ -133,6 +133,7 @@
 #include "Mappers/Mapper122.h"
 #include "Mappers/Mapper123.h"
 #include "Mappers/Mapper125.h"
+#include "Mappers/Mapper126.h"
 #include "Mappers/Mapper131.h"
 #include "Mappers/Mapper132.h"
 #include "Mappers/Mapper133.h"
