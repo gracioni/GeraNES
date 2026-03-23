@@ -1,0 +1,219 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GeraNES v1.7.2 mapper coverage</title>
+  <style>
+    :root {
+      --bg: #f6f4ee;
+      --panel: #fffdf8;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --grid: #d6d3d1;
+      --implemented-bg: #1f9d55;
+      --implemented-border: #167c43;
+      --missing-bg: #f3f4f6;
+      --missing-border: #d1d5db;
+      --missing-text: #6b7280;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, #ffffff 0%, transparent 32%),
+        linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px 14px 30px;
+    }
+
+    .hero {
+      background: var(--panel);
+      border: 1px solid #e7e5e4;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 10px 35px rgba(15, 23, 42, 0.06);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.45rem, 2.5vw, 2.1rem);
+      line-height: 1.05;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .meta {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      color: var(--text);
+      font-size: 0.85rem;
+      border: 1px solid #e5e7eb;
+    }
+
+    .legend {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+    }
+
+    .legend-swatch.implemented {
+      background: var(--implemented-bg);
+      border-color: var(--implemented-border);
+    }
+
+    .legend-swatch.missing {
+      background: var(--missing-bg);
+      border-color: var(--missing-border);
+    }
+
+    .grid {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(16, minmax(0, 1fr));
+      gap: 3px;
+    }
+
+    .cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 25px;
+      border-radius: 7px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      border: 1px solid var(--grid);
+      user-select: none;
+      font-size: clamp(0.54rem, 0.82vw, 0.7rem);
+      text-decoration: none;
+      line-height: 1;
+      padding: 3px 0;
+      transition: transform 0.08s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    }
+
+    .cell:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+    }
+
+    .cell.implemented {
+      background: var(--implemented-bg);
+      border-color: var(--implemented-border);
+      color: white;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+
+    .cell.missing {
+      background: var(--missing-bg);
+      border-color: var(--missing-border);
+      color: var(--missing-text);
+    }
+
+    .footer {
+      margin-top: 18px;
+      padding: 14px 16px;
+      background: var(--panel);
+      border: 1px solid #e7e5e4;
+      border-radius: 14px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 0.9rem;
+      box-shadow: 0 10px 35px rgba(15, 23, 42, 0.05);
+    }
+
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      background: #f3f4f6;
+      padding: 0.15em 0.35em;
+      border-radius: 6px;
+      color: #111827;
+    }
+
+    a {
+      color: #0f766e;
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        padding: 14px 8px 20px;
+      }
+
+      .grid {
+        gap: 2px;
+      }
+
+      .cell {
+        min-height: 21px;
+        border-radius: 5px;
+        font-size: 0.48rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>GeraNES v1.7.2 mapper coverage</h1>
+      <p>Visual coverage grid inspired by the NESdev iNES plane 0 mapper table.</p>
+      <div class="meta">
+        <div class="pill">Implemented: <strong>210</strong></div>
+        <div class="pill">Range: <strong>000-255</strong></div>
+        <div class="pill"><a href="https://www.nesdev.org/wiki/Mapper">NESdev reference</a></div>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch implemented"></span> Implemented</div>
+        <div class="legend-item"><span class="legend-swatch missing"></span> Not implemented</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_000" title="Mapper 000 - implemented">000</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_001" title="Mapper 001 - implemented">001</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_002" title="Mapper 002 - implemented">002</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_003" title="Mapper 003 - implemented">003</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_004" title="Mapper 004 - implemented">004</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_005" title="Mapper 005 - implemented">005</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_006" title="Mapper 006 - implemented">006</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_007" title="Mapper 007 - implemented">007</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_008" title="Mapper 008 - implemented">008</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_009" title="Mapper 009 - implemented">009</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_010" title="Mapper 010 - implemented">010</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_011" title="Mapper 011 - implemented">011</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_012" title="Mapper 012 - implemented">012</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_013" title="Mapper 013 - implemented">013</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_014" title="Mapper 014 - implemented">014</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_015" title="Mapper 015 - implemented">015</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_016" title="Mapper 016 - implemented">016</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_017" title="Mapper 017 - implemented">017</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_018" title="Mapper 018 - implemented">018</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_019" title="Mapper 019 - implemented">019</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_020" title="Mapper 020 - implemented">020</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_021" title="Mapper 021 - implemented">021</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_022" title="Mapper 022 - implemented">022</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_023" title="Mapper 023 - implemented">023</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_024" title="Mapper 024 - implemented">024</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_025" title="Mapper 025 - implemented">025</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_026" title="Mapper 026 - implemented">026</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_027" title="Mapper 027 - implemented">027</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_028" title="Mapper 028 - implemented">028</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_029" title="Mapper 029 - implemented">029</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_030" title="Mapper 030 - implemented">030</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_031" title="Mapper 031 - implemented">031</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_032" title="Mapper 032 - implemented">032</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_033" title="Mapper 033 - implemented">033</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_034" title="Mapper 034 - implemented">034</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_035" title="Mapper 035 - implemented">035</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_036" title="Mapper 036 - implemented">036</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_037" title="Mapper 037 - implemented">037</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_038" title="Mapper 038 - implemented">038</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_039" title="Mapper 039 - implemented">039</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_040" title="Mapper 040 - implemented">040</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_041" title="Mapper 041 - implemented">041</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_042" title="Mapper 042 - implemented">042</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_043" title="Mapper 043 - implemented">043</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_044" title="Mapper 044 - implemented">044</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_045" title="Mapper 045 - implemented">045</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_046" title="Mapper 046 - implemented">046</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_047" title="Mapper 047 - implemented">047</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_048" title="Mapper 048 - implemented">048</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_049" title="Mapper 049 - implemented">049</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_050" title="Mapper 050 - implemented">050</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_051" title="Mapper 051 - implemented">051</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_052" title="Mapper 052 - implemented">052</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_053" title="Mapper 053 - implemented">053</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_054" title="Mapper 054 - implemented">054</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_055" title="Mapper 055 - implemented">055</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_056" title="Mapper 056 - implemented">056</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_057" title="Mapper 057 - implemented">057</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_058" title="Mapper 058 - implemented">058</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_059" title="Mapper 059 - implemented">059</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_060" title="Mapper 060 - implemented">060</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_061" title="Mapper 061 - implemented">061</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_062" title="Mapper 062 - implemented">062</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_063" title="Mapper 063 - implemented">063</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_064" title="Mapper 064 - implemented">064</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_065" title="Mapper 065 - implemented">065</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_066" title="Mapper 066 - implemented">066</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_067" title="Mapper 067 - implemented">067</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_068" title="Mapper 068 - implemented">068</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_069" title="Mapper 069 - implemented">069</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_070" title="Mapper 070 - implemented">070</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_071" title="Mapper 071 - implemented">071</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_072" title="Mapper 072 - implemented">072</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_073" title="Mapper 073 - implemented">073</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_074" title="Mapper 074 - implemented">074</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_075" title="Mapper 075 - implemented">075</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_076" title="Mapper 076 - implemented">076</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_077" title="Mapper 077 - implemented">077</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_078" title="Mapper 078 - implemented">078</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_079" title="Mapper 079 - implemented">079</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_080" title="Mapper 080 - implemented">080</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_081" title="Mapper 081 - implemented">081</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_082" title="Mapper 082 - implemented">082</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_083" title="Mapper 083 - implemented">083</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_084" title="Mapper 084 - not implemented">084</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_085" title="Mapper 085 - not implemented">085</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_086" title="Mapper 086 - implemented">086</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_087" title="Mapper 087 - implemented">087</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_088" title="Mapper 088 - implemented">088</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_089" title="Mapper 089 - implemented">089</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_090" title="Mapper 090 - implemented">090</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_091" title="Mapper 091 - implemented">091</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_092" title="Mapper 092 - implemented">092</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_093" title="Mapper 093 - implemented">093</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_094" title="Mapper 094 - implemented">094</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_095" title="Mapper 095 - implemented">095</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_096" title="Mapper 096 - implemented">096</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_097" title="Mapper 097 - implemented">097</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_098" title="Mapper 098 - not implemented">098</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_099" title="Mapper 099 - implemented">099</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_100" title="Mapper 100 - not implemented">100</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_101" title="Mapper 101 - implemented">101</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_102" title="Mapper 102 - not implemented">102</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_103" title="Mapper 103 - implemented">103</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_104" title="Mapper 104 - implemented">104</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_105" title="Mapper 105 - implemented">105</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_106" title="Mapper 106 - implemented">106</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_107" title="Mapper 107 - implemented">107</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_108" title="Mapper 108 - implemented">108</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_109" title="Mapper 109 - not implemented">109</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_110" title="Mapper 110 - not implemented">110</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_111" title="Mapper 111 - not implemented">111</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_112" title="Mapper 112 - implemented">112</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_113" title="Mapper 113 - implemented">113</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_114" title="Mapper 114 - implemented">114</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_115" title="Mapper 115 - implemented">115</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_116" title="Mapper 116 - implemented">116</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_117" title="Mapper 117 - implemented">117</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_118" title="Mapper 118 - implemented">118</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_119" title="Mapper 119 - implemented">119</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_120" title="Mapper 120 - implemented">120</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_121" title="Mapper 121 - implemented">121</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_122" title="Mapper 122 - not implemented">122</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_123" title="Mapper 123 - implemented">123</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_124" title="Mapper 124 - not implemented">124</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_125" title="Mapper 125 - implemented">125</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_126" title="Mapper 126 - implemented">126</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_127" title="Mapper 127 - not implemented">127</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_128" title="Mapper 128 - not implemented">128</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_129" title="Mapper 129 - not implemented">129</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_130" title="Mapper 130 - not implemented">130</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_131" title="Mapper 131 - not implemented">131</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_132" title="Mapper 132 - implemented">132</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_133" title="Mapper 133 - implemented">133</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_134" title="Mapper 134 - implemented">134</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_135" title="Mapper 135 - not implemented">135</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_136" title="Mapper 136 - implemented">136</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_137" title="Mapper 137 - implemented">137</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_138" title="Mapper 138 - implemented">138</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_139" title="Mapper 139 - implemented">139</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_140" title="Mapper 140 - implemented">140</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_141" title="Mapper 141 - implemented">141</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_142" title="Mapper 142 - implemented">142</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_143" title="Mapper 143 - implemented">143</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_144" title="Mapper 144 - implemented">144</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_145" title="Mapper 145 - implemented">145</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_146" title="Mapper 146 - implemented">146</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_147" title="Mapper 147 - implemented">147</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_148" title="Mapper 148 - implemented">148</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_149" title="Mapper 149 - implemented">149</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_150" title="Mapper 150 - implemented">150</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_151" title="Mapper 151 - implemented">151</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_152" title="Mapper 152 - implemented">152</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_153" title="Mapper 153 - implemented">153</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_154" title="Mapper 154 - implemented">154</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_155" title="Mapper 155 - implemented">155</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_156" title="Mapper 156 - implemented">156</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_157" title="Mapper 157 - not implemented">157</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_158" title="Mapper 158 - implemented">158</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_159" title="Mapper 159 - implemented">159</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_160" title="Mapper 160 - not implemented">160</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_161" title="Mapper 161 - not implemented">161</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_162" title="Mapper 162 - implemented">162</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_163" title="Mapper 163 - not implemented">163</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_164" title="Mapper 164 - implemented">164</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_165" title="Mapper 165 - implemented">165</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_166" title="Mapper 166 - implemented">166</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_167" title="Mapper 167 - implemented">167</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_168" title="Mapper 168 - implemented">168</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_169" title="Mapper 169 - not implemented">169</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_170" title="Mapper 170 - implemented">170</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_171" title="Mapper 171 - implemented">171</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_172" title="Mapper 172 - implemented">172</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_173" title="Mapper 173 - implemented">173</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_174" title="Mapper 174 - implemented">174</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_175" title="Mapper 175 - implemented">175</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_176" title="Mapper 176 - not implemented">176</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_177" title="Mapper 177 - implemented">177</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_178" title="Mapper 178 - implemented">178</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_179" title="Mapper 179 - implemented">179</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_180" title="Mapper 180 - implemented">180</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_181" title="Mapper 181 - not implemented">181</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_182" title="Mapper 182 - implemented">182</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_183" title="Mapper 183 - implemented">183</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_184" title="Mapper 184 - implemented">184</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_185" title="Mapper 185 - implemented">185</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_186" title="Mapper 186 - not implemented">186</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_187" title="Mapper 187 - not implemented">187</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_188" title="Mapper 188 - not implemented">188</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_189" title="Mapper 189 - implemented">189</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_190" title="Mapper 190 - not implemented">190</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_191" title="Mapper 191 - implemented">191</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_192" title="Mapper 192 - implemented">192</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_193" title="Mapper 193 - implemented">193</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_194" title="Mapper 194 - implemented">194</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_195" title="Mapper 195 - implemented">195</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_196" title="Mapper 196 - not implemented">196</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_197" title="Mapper 197 - implemented">197</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_198" title="Mapper 198 - not implemented">198</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_199" title="Mapper 199 - not implemented">199</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_200" title="Mapper 200 - implemented">200</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_201" title="Mapper 201 - implemented">201</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_202" title="Mapper 202 - implemented">202</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_203" title="Mapper 203 - implemented">203</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_204" title="Mapper 204 - implemented">204</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_205" title="Mapper 205 - not implemented">205</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_206" title="Mapper 206 - implemented">206</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_207" title="Mapper 207 - implemented">207</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_208" title="Mapper 208 - not implemented">208</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_209" title="Mapper 209 - implemented">209</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_210" title="Mapper 210 - implemented">210</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_211" title="Mapper 211 - implemented">211</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_212" title="Mapper 212 - implemented">212</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_213" title="Mapper 213 - implemented">213</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_214" title="Mapper 214 - implemented">214</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_215" title="Mapper 215 - not implemented">215</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_216" title="Mapper 216 - implemented">216</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_217" title="Mapper 217 - not implemented">217</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_218" title="Mapper 218 - implemented">218</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_219" title="Mapper 219 - not implemented">219</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_220" title="Mapper 220 - not implemented">220</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_221" title="Mapper 221 - implemented">221</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_222" title="Mapper 222 - implemented">222</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_223" title="Mapper 223 - not implemented">223</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_224" title="Mapper 224 - not implemented">224</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_225" title="Mapper 225 - implemented">225</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_226" title="Mapper 226 - implemented">226</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_227" title="Mapper 227 - implemented">227</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_228" title="Mapper 228 - implemented">228</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_229" title="Mapper 229 - implemented">229</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_230" title="Mapper 230 - implemented">230</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_231" title="Mapper 231 - implemented">231</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_232" title="Mapper 232 - implemented">232</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_233" title="Mapper 233 - implemented">233</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_234" title="Mapper 234 - implemented">234</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_235" title="Mapper 235 - not implemented">235</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_236" title="Mapper 236 - not implemented">236</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_237" title="Mapper 237 - not implemented">237</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_238" title="Mapper 238 - not implemented">238</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_239" title="Mapper 239 - not implemented">239</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_240" title="Mapper 240 - implemented">240</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_241" title="Mapper 241 - implemented">241</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_242" title="Mapper 242 - implemented">242</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_243" title="Mapper 243 - implemented">243</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_244" title="Mapper 244 - implemented">244</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_245" title="Mapper 245 - implemented">245</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_246" title="Mapper 246 - implemented">246</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_247" title="Mapper 247 - not implemented">247</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_248" title="Mapper 248 - not implemented">248</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_249" title="Mapper 249 - implemented">249</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_250" title="Mapper 250 - implemented">250</a><a class="cell missing" href="https://www.nesdev.org/wiki/INES_Mapper_251" title="Mapper 251 - not implemented">251</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_252" title="Mapper 252 - implemented">252</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_253" title="Mapper 253 - implemented">253</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_254" title="Mapper 254 - implemented">254</a><a class="cell implemented" href="https://www.nesdev.org/wiki/INES_Mapper_255" title="Mapper 255 - implemented">255</a>
+    </section>
+
+    <section class="footer">
+      <div><strong>Implemented mapper IDs:</strong></div>
+      <div>000, 001, 002, 003, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022, 023, 024, 025, 026, 027, 028, 029, 030, 031, 032, 033, 034, 035, 036, 037, 038, 039, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 050, 051, 052, 053, 054, 055, 056, 057, 058, 059, 060, 061, 062, 063, 064, 065, 066, 067, 068, 069, 070, 071, 072, 073, 074, 075, 076, 077, 078, 079, 080, 081, 082, 083, 086, 087, 088, 089, 090, 091, 092, 093, 094, 095, 096, 097, 099, 101, 103, 104, 105, 106, 107, 108, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 123, 125, 126, 132, 133, 134, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 158, 159, 162, 164, 165, 166, 167, 168, 170, 171, 172, 173, 174, 175, 177, 178, 179, 180, 182, 183, 184, 185, 189, 191, 192, 193, 194, 195, 197, 200, 201, 202, 203, 204, 206, 207, 209, 210, 211, 212, 213, 214, 216, 218, 221, 222, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 240, 241, 242, 243, 244, 245, 246, 249, 250, 252, 253, 254, 255</div>
+      <div style="margin-top: 10px;">Generated from files matching <code>MapperNNN.h</code> in <code>src/GeraNES/Mappers</code>.</div>
+    </section>
+  </div>
+</body>
+</html>
