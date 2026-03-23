@@ -66,10 +66,21 @@ private:
     class DeterministicInputGenerator
     {
     private:
+        static constexpr int MENU_TAP_FRAMES = 10;
+
+        enum class Phase
+        {
+            Idle,
+            Startup,
+            Menu,
+            Explore,
+        };
+
         uint32_t m_state = 0;
         Buttons m_buttons;
         int m_framesRemaining = 0;
-        bool m_startupMode = true;
+        Phase m_phase = Phase::Idle;
+        bool m_releaseNextFrame = false;
 
         uint32_t nextU32()
         {
@@ -95,30 +106,62 @@ private:
             clearButtons();
 
             const uint32_t roll = nextU32() % 100;
-            if(roll < 25) {
+            if(roll < 20) {
                 m_buttons.start = true;
             } else {
                 if(roll < 70) m_buttons.a = true;
                 if(roll >= 35) m_buttons.b = true;
             }
-
-            m_framesRemaining = nextRange(2, 12);
+            m_framesRemaining = 1;
+            m_releaseNextFrame = true;
         }
 
-        void generateNextAction()
+        void generateMenuAction()
         {
             clearButtons();
 
             const uint32_t roll = nextU32() % 100;
-            if(roll < 12) {
+            if(roll < 22) {
                 m_buttons.start = true;
-                m_framesRemaining = nextRange(2, 6);
-                return;
+            }
+            else if(roll < 44) {
+                m_buttons.a = true;
+                if((nextU32() % 100) < 25) m_buttons.b = true;
+            }
+            else if(roll < 50) {
+                m_buttons.b = true;
+            }
+            else {
+                const uint32_t directionRoll = nextU32() % 4;
+                switch(directionRoll) {
+                case 0: m_buttons.up = true; break;
+                case 1: m_buttons.down = true; break;
+                case 2: m_buttons.left = true; break;
+                case 3: m_buttons.right = true; break;
+                }
+
+                if((nextU32() % 100) < 30) {
+                    m_buttons.a = true;
+                }
             }
 
-            if(roll < 18) {
+            m_framesRemaining = MENU_TAP_FRAMES;
+            m_releaseNextFrame = true;
+        }
+
+        void generateExploreAction()
+        {
+            clearButtons();
+
+            const uint32_t roll = nextU32() % 100;
+            if(roll < 10) {
+                m_buttons.start = true;
+                m_framesRemaining = nextRange(1, 2);
+                return;
+            }
+            if(roll < 14) {
                 m_buttons.select = true;
-                m_framesRemaining = nextRange(2, 6);
+                m_framesRemaining = nextRange(1, 2);
                 return;
             }
 
@@ -135,10 +178,10 @@ private:
             }
 
             const uint32_t actionRoll = nextU32() % 100;
-            if(actionRoll < 40) m_buttons.a = true;
-            if(actionRoll >= 20 && actionRoll < 55) m_buttons.b = true;
+            if(actionRoll < 50) m_buttons.a = true;
+            if(actionRoll >= 25 && actionRoll < 60) m_buttons.b = true;
 
-            m_framesRemaining = nextRange(8, 90);
+            m_framesRemaining = nextRange(2, 12);
         }
 
     public:
@@ -149,17 +192,49 @@ private:
 
         const Buttons& buttonsForFrame(uint32_t frame, uint32_t fps)
         {
-            const bool startupMode = frame <= (30u * std::max<uint32_t>(1, fps));
-            if(startupMode != m_startupMode) {
-                m_startupMode = startupMode;
+            const uint32_t initialNoInputFrames = 3u * std::max<uint32_t>(1, fps);
+            if(frame <= initialNoInputFrames) {
+                m_phase = Phase::Idle;
                 m_framesRemaining = 0;
+                m_releaseNextFrame = false;
+                clearButtons();
+                return m_buttons;
+            }
+
+            Phase targetPhase = Phase::Explore;
+            if(frame <= (20u * fps)) {
+                targetPhase = Phase::Startup;
+            } else if(frame <= (45u * fps)) {
+                targetPhase = Phase::Menu;
+            }
+
+            if(targetPhase != m_phase) {
+                m_phase = targetPhase;
+                m_framesRemaining = 0;
+                m_releaseNextFrame = false;
             }
 
             if(m_framesRemaining <= 0) {
-                if(m_startupMode) {
+                if(m_releaseNextFrame) {
+                    clearButtons();
+                    m_framesRemaining = nextRange(2, 6);
+                    m_releaseNextFrame = false;
+                    return m_buttons;
+                }
+
+                switch(m_phase) {
+                case Phase::Idle:
+                    clearButtons();
+                    break;
+                case Phase::Startup:
                     generateStartupAction();
-                } else {
-                    generateNextAction();
+                    break;
+                case Phase::Menu:
+                    generateMenuAction();
+                    break;
+                case Phase::Explore:
+                    generateExploreAction();
+                    break;
                 }
             }
             --m_framesRemaining;
@@ -252,6 +327,7 @@ public:
     static int runHeadless(const Options& options)
     {
         namespace fs = std::filesystem;
+        constexpr uint32_t HEADLESS_STEP_MS = 1;
 
         if(options.romPath.empty() || options.outDir.empty()) {
             std::cerr << "HealthCheck requires romPath and outDir." << std::endl;
@@ -302,7 +378,14 @@ public:
                 buttons.right
             );
             emu.setController2Buttons(false, false, false, false, false, false, false, false);
-            emu.updateUntilFrame(0);
+
+            const uint32_t prevFrameCount = emu.frameCount();
+            while(emu.valid() && emu.frameCount() == prevFrameCount) {
+                emu.update(HEADLESS_STEP_MS);
+            }
+            if(!emu.valid()) {
+                break;
+            }
 
             if(frame == 1 || frame == totalFrames || (frame % shotEveryFrames) == 0) {
                 const uint32_t* framebuffer = emu.getFramebuffer();

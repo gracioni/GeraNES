@@ -11,6 +11,19 @@
 
 namespace
 {
+    std::filesystem::path resolveInputPath(const std::filesystem::path& originalCwd, const char* rawPath)
+    {
+        if(rawPath == nullptr || rawPath[0] == '\0') {
+            return {};
+        }
+
+        const std::filesystem::path inputPath(rawPath);
+        const std::filesystem::path resolved = inputPath.is_absolute()
+            ? inputPath
+            : (originalCwd / inputPath);
+        return resolved.lexically_normal();
+    }
+
     void printHelp()
     {
         std::cout
@@ -58,10 +71,19 @@ namespace
 int main(int argc, char* argv[]) {
     const std::filesystem::path originalCwd = std::filesystem::current_path();
     std::filesystem::path testRomPath;
-    if(argc >= 3 && std::string(argv[1]) == "--test" && argv[2] && argv[2][0] != '\0') {
-        const std::filesystem::path inputTestRomPath = argv[2];
-        testRomPath = inputTestRomPath.is_absolute() ? inputTestRomPath : (originalCwd / inputTestRomPath).lexically_normal();
+    std::filesystem::path healthcheckRomPath;
+    std::filesystem::path healthcheckOutDir;
+    if(argc >= 2) {
+        const std::string command = argv[1];
+        if(command == "--test" && argc >= 3) {
+            testRomPath = resolveInputPath(originalCwd, argv[2]);
+        }
+        else if(command == "--healthcheck" && argc >= 4) {
+            healthcheckRomPath = resolveInputPath(originalCwd, argv[2]);
+            healthcheckOutDir = resolveInputPath(originalCwd, argv[3]);
+        }
     }
+
     struct CwdRestoreGuard {
         std::filesystem::path path;
         ~CwdRestoreGuard() {
@@ -110,8 +132,8 @@ int main(int argc, char* argv[]) {
         }
 
         HealthCheck::Options options;
-        options.romPath = argv[2];
-        options.outDir = argv[3];
+        options.romPath = healthcheckRomPath.empty() ? std::string(argv[2]) : healthcheckRomPath.string();
+        options.outDir = healthcheckOutDir.empty() ? std::string(argv[3]) : healthcheckOutDir.string();
 
         for(int i = 4; i < argc; ++i) {
             const std::string arg = argv[i];
