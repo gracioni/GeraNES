@@ -215,6 +215,7 @@ private:
     std::optional<SdlCursor> m_defaultCursor;
     std::optional<SdlCursor> m_crossCursor;
     std::optional<SdlCursor> m_sizeWECursor;
+    static constexpr std::array<const char*, 12> POWER_PAD_DEFAULT_KEYS = {"1","2","3","4","Q","W","E","R","A","S","D","F"};
 
     static void setIfNegative(std::string& dst, int value)
     {
@@ -499,6 +500,12 @@ private:
             const bool p2Down = im.isPressed(m_controller2.down);
             const bool p2Left = im.isPressed(m_controller2.left);
             const bool p2Right = im.isPressed(m_controller2.right);
+            std::array<bool, 12> p1PowerPadButtons = {};
+            std::array<bool, 12> p2PowerPadButtons = {};
+            for(size_t i = 0; i < POWER_PAD_DEFAULT_KEYS.size(); ++i) {
+                p1PowerPadButtons[i] = im.isPressed(POWER_PAD_DEFAULT_KEYS[i]);
+                p2PowerPadButtons[i] = im.isPressed(POWER_PAD_DEFAULT_KEYS[i]);
+            }
 
             int zapperX = -1;
             int zapperY = -1;
@@ -599,6 +606,8 @@ private:
             inputState.p2Down = p2Down;
             inputState.p2Left = p2Left;
             inputState.p2Right = p2Right;
+            inputState.p1PowerPadButtons = p1PowerPadButtons;
+            inputState.p2PowerPadButtons = p2PowerPadButtons;
             inputState.zapperX = zapperX;
             inputState.zapperY = zapperY;
             inputState.mouseDeltaX = mouseDeltaX;

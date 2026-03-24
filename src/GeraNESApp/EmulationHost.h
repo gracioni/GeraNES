@@ -39,6 +39,8 @@ public:
         bool p2Down = false;
         bool p2Left = false;
         bool p2Right = false;
+        std::array<bool, 12> p1PowerPadButtons = {};
+        std::array<bool, 12> p2PowerPadButtons = {};
 
         int zapperX = -1;
         int zapperY = -1;
@@ -92,6 +94,8 @@ private:
         const InputState input = m_pendingInput;
         m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right);
         m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
+        m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
         m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
@@ -148,6 +152,8 @@ private:
         const InputState input = m_pendingInput;
         m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right);
         m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
+        m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
         m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);

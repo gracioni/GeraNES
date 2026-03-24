@@ -8,6 +8,7 @@
 #include "APU/APU.h"
 #include "Controller.h"
 #include "Zapper.h"
+#include "PowerPad.h"
 #include "ArkanoidControllerNes.h"
 #include "ArkanoidControllerFamicom.h"
 #include "SnesMouse.h"
@@ -108,6 +109,10 @@ private:
                 return std::make_unique<Controller>();
             case Settings::Device::SNES_MOUSE:
                 return std::make_unique<SnesMouse>();
+            case Settings::Device::POWER_PAD_SIDE_A:
+                return std::make_unique<PowerPad>(false);
+            case Settings::Device::POWER_PAD_SIDE_B:
+                return std::make_unique<PowerPad>(true);
         }
 
         return std::make_unique<Controller>();
@@ -140,6 +145,16 @@ private:
                 return dynamic_cast<const Controller*>(device) != nullptr;
             case Settings::Device::SNES_MOUSE:
                 return dynamic_cast<const SnesMouse*>(device) != nullptr;
+            case Settings::Device::POWER_PAD_SIDE_A:
+            {
+                const auto* powerPad = dynamic_cast<const PowerPad*>(device);
+                return powerPad != nullptr && !powerPad->isSideB();
+            }
+            case Settings::Device::POWER_PAD_SIDE_B:
+            {
+                const auto* powerPad = dynamic_cast<const PowerPad*>(device);
+                return powerPad != nullptr && powerPad->isSideB();
+            }
         }
 
         return false;
@@ -779,6 +794,18 @@ public:
                     setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                     break;
 
+                case GameDatabase::InputType::PowerPadSideA:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
+                case GameDatabase::InputType::PowerPadSideB:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
                 case GameDatabase::InputType::ArkanoidControllerNes:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
@@ -1248,6 +1275,21 @@ public:
             device->addRelativeMotion(deltaX, deltaY);
             device->setTrigger(leftButton);
             device->setSecondaryTrigger(rightButton);
+        }
+    }
+
+    void setPowerPadButtons(Settings::Port port, const std::array<bool, 12>& buttons)
+    {
+        const auto deviceType = m_settings.getPortDevice(port);
+        if(deviceType != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) &&
+           deviceType != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) {
+            return;
+        }
+
+        IControllerPortDevice* device =
+            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+        if(device) {
+            device->setPowerPadButtons(buttons);
         }
     }
 

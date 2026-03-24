@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <array>
 
 #include "Serialization.h"
 
@@ -55,6 +56,11 @@ public:
     virtual void setSecondaryTrigger(bool pressed)
     {
         (void)pressed;
+    }
+
+    virtual void setPowerPadButtons(const std::array<bool, 12>& buttons)
+    {
+        (void)buttons;
     }
 
     virtual void setPixelChecker(std::function<float(int, int)> func)
