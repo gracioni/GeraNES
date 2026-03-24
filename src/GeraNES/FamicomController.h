@@ -20,6 +20,10 @@ public:
 
     void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight) override
     {
+        if(m_hasMic) {
+            m_microphoneEnabled = bSelect;
+        }
+
         NesStandardController::setButtonsStatus(
             bA,
             bB,
@@ -30,6 +34,11 @@ public:
             bLeft,
             bRight
         );
+    }
+
+    uint8_t extraRead4016Bits() const override
+    {
+        return (m_hasMic && m_microphoneEnabled) ? 0x04 : 0x00;
     }
 
     void setMicrophoneEnabled(bool enabled)

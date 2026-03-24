@@ -120,11 +120,31 @@ private:
         return isNesMultitapActive() || isFamicomMultitapActive();
     }
 
-    std::unique_ptr<IControllerPortDevice> createPortDevice(Settings::Device device)
+    bool isFamicomLikeSystem() const
+    {
+        auto& cartridge = const_cast<Cartridge&>(m_cartridge);
+
+        if(!cartridge.hasCartridgeData()) {
+            return false;
+        }
+
+        const auto system = cartridge.system();
+        return system == GameDatabase::System::Famicom || system == GameDatabase::System::FDS;
+    }
+
+    Settings::Device standardPortDeviceForCurrentSystem() const
+    {
+        return isFamicomLikeSystem() ? Settings::Device::FAMICOM_CONTROLLER
+                                     : Settings::Device::CONTROLLER;
+    }
+
+    std::unique_ptr<IControllerPortDevice> createPortDevice(Settings::Port port, Settings::Device device)
     {
         switch(device) {
             case Settings::Device::CONTROLLER:
                 return std::make_unique<NesStandardController>();
+            case Settings::Device::FAMICOM_CONTROLLER:
+                return std::make_unique<FamicomController>(port == Settings::Port::P_2);
             case Settings::Device::ZAPPER:
                 return std::make_unique<Zapper>();
             case Settings::Device::ARKANOID_CONTROLLER:
@@ -141,7 +161,7 @@ private:
                 return std::make_unique<PowerPad>(true);
         }
 
-        return std::make_unique<NesStandardController>();
+        return createPortDevice(port, standardPortDeviceForCurrentSystem());
     }
 
     std::unique_ptr<IExpansionDevice> createExpansionDevice(Settings::ExpansionDevice device)
@@ -149,6 +169,8 @@ private:
         switch(device) {
             case Settings::ExpansionDevice::NONE:
                 return nullptr;
+            case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM:
+                return std::make_unique<FamicomExpansionStandardController>();
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
                 return std::make_unique<BandaiHyperShot>();
             case Settings::ExpansionDevice::KONAMI_HYPERSHOT:
@@ -164,11 +186,17 @@ private:
         return nullptr;
     }
 
-    bool matchesPortDeviceType(const IControllerPortDevice* device, Settings::Device type) const
+    bool matchesPortDeviceType(Settings::Port port, const IControllerPortDevice* device, Settings::Device type) const
     {
         switch(type) {
             case Settings::Device::CONTROLLER:
-                return dynamic_cast<const NesStandardController*>(device) != nullptr;
+                return dynamic_cast<const NesStandardController*>(device) != nullptr &&
+                       dynamic_cast<const FamicomController*>(device) == nullptr;
+            case Settings::Device::FAMICOM_CONTROLLER:
+            {
+                const auto* famicom = dynamic_cast<const FamicomController*>(device);
+                return famicom != nullptr && famicom->hasMic() == (port == Settings::Port::P_2);
+            }
             case Settings::Device::ZAPPER:
                 return dynamic_cast<const Zapper*>(device) != nullptr;
             case Settings::Device::ARKANOID_CONTROLLER:
@@ -199,6 +227,8 @@ private:
         switch(type) {
             case Settings::ExpansionDevice::NONE:
                 return device == nullptr;
+            case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM:
+                return dynamic_cast<const FamicomExpansionStandardController*>(device) != nullptr;
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
                 return dynamic_cast<const BandaiHyperShot*>(device) != nullptr;
             case Settings::ExpansionDevice::KONAMI_HYPERSHOT:
@@ -239,15 +269,15 @@ private:
 
     void recreatePortDevice(Settings::Port port)
     {
-        const Settings::Device device = m_settings.getPortDevice(port).value_or(Settings::Device::CONTROLLER);
+        const Settings::Device device = m_settings.getPortDevice(port).value_or(standardPortDeviceForCurrentSystem());
         IControllerPortDevice* currentDevice =
             (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-        if(matchesPortDeviceType(currentDevice, device)) {
+        if(matchesPortDeviceType(port, currentDevice, device)) {
             updateInputDevicePixelCheckers();
             return;
         }
 
-        std::unique_ptr<IControllerPortDevice> instance = createPortDevice(device);
+        std::unique_ptr<IControllerPortDevice> instance = createPortDevice(port, device);
         if(port == Settings::Port::P_1) m_portDevice1 = std::move(instance);
         else m_portDevice2 = std::move(instance);
         updateInputDevicePixelCheckers();
@@ -448,6 +478,10 @@ private:
 
                         if(m_expansionDevice && !isAnyMultitapActive()) {
                             data = static_cast<uint8_t>((data & ~0x02) | m_expansionDevice->read4016(outputEnabled));
+                        }
+
+                        if(!isAnyMultitapActive() && m_portDevice2) {
+                            data = static_cast<uint8_t>(data | m_portDevice2->extraRead4016Bits());
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
@@ -889,7 +923,7 @@ public:
 
                 case GameDatabase::InputType::VsZapper:
                 case GameDatabase::InputType::Zapper:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
                     setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
@@ -901,56 +935,62 @@ public:
                     break;
 
                 case GameDatabase::InputType::BandaiHypershot:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                     break;
 
                 case GameDatabase::InputType::KonamiHyperShot:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
                     break;
 
+                case GameDatabase::InputType::StandardControllers:
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
                 case GameDatabase::InputType::PowerPadSideA:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
                     setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
                 case GameDatabase::InputType::PowerPadSideB:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
                     setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
                 case GameDatabase::InputType::FamilyTrainerSideA:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
                     break;
 
                 case GameDatabase::InputType::FamilyTrainerSideB:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
                     break;
 
                 case GameDatabase::InputType::ArkanoidControllerNes:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
                     setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
                 case GameDatabase::InputType::ArkanoidControllerFamicom:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                     break;
 
                 case GameDatabase::InputType::SnesMouse:
                     setPortDevice(Settings::Port::P_1, Settings::Device::SNES_MOUSE);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
@@ -961,14 +1001,14 @@ public:
                     break;
 
                 case GameDatabase::InputType::DoubleArkanoidController:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
                     setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                     setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                     break;
 
                 default:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
             }
 
@@ -1376,6 +1416,9 @@ public:
     {
         if(m_fourScore) m_fourScore->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
         else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM && m_expansionDevice) {
+            m_expansionDevice->setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        }
     }
 
     void setController4Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)

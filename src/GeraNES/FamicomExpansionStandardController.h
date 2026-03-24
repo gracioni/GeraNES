@@ -9,6 +9,11 @@ private:
     NesStandardController m_controller;
 
 public:
+    uint8_t read4017(bool) override
+    {
+        return 0x00;
+    }
+
     void write4016(uint8_t data) override
     {
         m_controller.write(data);

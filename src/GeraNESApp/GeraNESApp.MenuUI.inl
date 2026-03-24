@@ -278,14 +278,17 @@ inline void GeraNESApp::menuBar() {
 
             auto drawControllerPortConfigItem = [this](Settings::Port port)
             {
-                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::CONTROLLER)) {
+                const auto device = m_emu.getPortDevice(port);
+                if(device != std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
+                   device != std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER)) {
                     return;
                 }
 
                 ImGui::Separator();
                 if(ImGui::MenuItem("Config...")) {
-                    if(port == Settings::Port::P_1) m_inputBindingConfigWindow.show("Controller 1", m_controller1);
-                    else m_inputBindingConfigWindow.show("Controller 2", m_controller2);
+                    const bool famicomController = device == std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER);
+                    if(port == Settings::Port::P_1) m_inputBindingConfigWindow.show(famicomController ? "Famicom Controller 1" : "Standard Controller 1", m_controller1);
+                    else m_inputBindingConfigWindow.show(famicomController ? "Famicom Controller 2" : "Standard Controller 2", m_controller2);
                 }
             };
 
@@ -360,7 +363,8 @@ inline void GeraNESApp::menuBar() {
             };
 
             if (ImGui::BeginMenu("Port 1", !anyMultitapActive)) {
-                drawControllerPortMenuItem("Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
+                drawControllerPortMenuItem("Standard Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
+                drawControllerPortMenuItem("Famicom Controller", Settings::Port::P_1, Settings::Device::FAMICOM_CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_A);
                 drawControllerPortMenuItem("Power Pad (Side B)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_B);
@@ -376,7 +380,8 @@ inline void GeraNESApp::menuBar() {
             }
 
             if (ImGui::BeginMenu("Port 2", !anyMultitapActive)) {
-                drawControllerPortMenuItem("Controller", Settings::Port::P_2, Settings::Device::CONTROLLER);
+                drawControllerPortMenuItem("Standard Controller", Settings::Port::P_2, Settings::Device::CONTROLLER);
+                drawControllerPortMenuItem("Famicom Controller", Settings::Port::P_2, Settings::Device::FAMICOM_CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
                 drawControllerPortMenuItem("Power Pad (Side B)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
@@ -395,6 +400,10 @@ inline void GeraNESApp::menuBar() {
                 if (ImGui::MenuItem("None", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::NONE))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::NONE);
+                }
+                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM);
                 }
                 if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT))
                 {
@@ -429,6 +438,12 @@ inline void GeraNESApp::menuBar() {
                         m_powerPadConfigWindow.show("Family Trainer Config", m_powerPadInfo);
                     }
                 }
+                if(m_emu.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+                    ImGui::Separator();
+                    if(ImGui::MenuItem("Config...")) {
+                        m_inputBindingConfigWindow.show("Standard Controller 3", m_controller3);
+                    }
+                }
                 drawKonamiHyperShotConfigItem();
                 ImGui::EndMenu();
             }
@@ -444,10 +459,10 @@ inline void GeraNESApp::menuBar() {
 
                         if(nesFourScoreEnabled) {
                             ImGui::Separator();
-                            drawMultitapControllerConfigItem("Controller 1", m_controller1);
-                            drawMultitapControllerConfigItem("Controller 2", m_controller2);
-                            drawMultitapControllerConfigItem("Controller 3", m_controller3);
-                            drawMultitapControllerConfigItem("Controller 4", m_controller4);
+                            drawMultitapControllerConfigItem("Standard Controller 1", m_controller1);
+                            drawMultitapControllerConfigItem("Standard Controller 2", m_controller2);
+                            drawMultitapControllerConfigItem("Standard Controller 3", m_controller3);
+                            drawMultitapControllerConfigItem("Standard Controller 4", m_controller4);
                         }
 
                         ImGui::EndMenu();
@@ -465,10 +480,10 @@ inline void GeraNESApp::menuBar() {
 
                         if(famicomHoriEnabled) {
                             ImGui::Separator();
-                            drawMultitapControllerConfigItem("Controller 1", m_controller1);
-                            drawMultitapControllerConfigItem("Controller 2", m_controller2);
-                            drawMultitapControllerConfigItem("Controller 3", m_controller3);
-                            drawMultitapControllerConfigItem("Controller 4", m_controller4);
+                            drawMultitapControllerConfigItem("Standard Controller 1", m_controller1);
+                            drawMultitapControllerConfigItem("Standard Controller 2", m_controller2);
+                            drawMultitapControllerConfigItem("Standard Controller 3", m_controller3);
+                            drawMultitapControllerConfigItem("Standard Controller 4", m_controller4);
                         }
 
                         ImGui::EndMenu();

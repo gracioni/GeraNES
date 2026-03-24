@@ -69,6 +69,11 @@ public:
         (void)pressed;
     }
 
+    virtual uint8_t extraRead4016Bits() const
+    {
+        return 0x00;
+    }
+
     virtual void setPowerPadButtons(const std::array<bool, 12>& buttons)
     {
         (void)buttons;
