@@ -122,10 +122,8 @@ public:
         float ret = 0;
         float expansionMixWeight = 0.0f;
         const float expansionRaw = mixExpansionAudio(expansionMixWeight);
-        const float sampleWeight = m_rewinding ? 0.0f : 1.5f;
-        const float sampleDirectWeight = m_rewinding ? 0.0f : 1.5f;
         const float effectiveExpansionMixWeight = m_rewinding ? 0.0f : expansionMixWeight;
-        const float sum = 0.5f + 0.5f + 0.5f + 1.0f + sampleWeight + sampleDirectWeight + effectiveExpansionMixWeight;
+        const float sum = 0.5f + 0.5f + 0.5f + 1.0f + 1.5f + 1.5f + expansionMixWeight;
 
         //empirical values 
         ret += 0.5f/sum*m_pulseWave1.get()*m_userPulse1Volume;
