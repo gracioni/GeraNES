@@ -71,6 +71,56 @@ inline void GeraNESApp::showGui()
         ImGui::End();
     }
 
+    if(m_showArkanoidNesConfigWindow) {
+        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::Begin("Arkanoid Controller Config (NES)", &m_showArkanoidNesConfigWindow, ImGuiWindowFlags_NoResize)) {
+            ImGui::TextWrapped("The NES Arkanoid paddle uses the mouse absolute X position based on the NES display center and the window DPI.");
+            ImGui::TextWrapped("Center - range maps to the minimum knob value and center + range maps to the maximum.");
+            ImGui::Separator();
+
+            float halfRangeCm = AppSettings::instance().data.input.arkanoid.nesHalfRangeCm;
+            ImGui::SetNextItemWidth(120.0f);
+            if(ImGui::InputFloat("Half Range (cm)", &halfRangeCm, 0.5f, 1.0f, "%.1f")) {
+                AppSettings::instance().data.input.arkanoid.nesHalfRangeCm = std::clamp(halfRangeCm, 0.5f, 50.0f);
+            }
+
+            const float dpiX = std::max(1.0f, GetWindowDPI().x);
+            const float rangePx = (AppSettings::instance().data.input.arkanoid.nesHalfRangeCm / 2.54f) * dpiX;
+            ImGui::Text("Display DPI X: %.1f", dpiX);
+            ImGui::Text("Half Range: %.1f px", rangePx);
+            ImGui::Text("Full Range: %.1f cm", AppSettings::instance().data.input.arkanoid.nesHalfRangeCm * 2.0f);
+        }
+
+        ImGui::End();
+    }
+
+    if(m_showArkanoidFamicomConfigWindow) {
+        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::Begin("Arkanoid Controller Config (Famicom)", &m_showArkanoidFamicomConfigWindow, ImGuiWindowFlags_NoResize)) {
+            ImGui::TextWrapped("The Famicom Arkanoid paddle uses the mouse absolute X position based on the NES display center and the window DPI.");
+            ImGui::TextWrapped("Center - range maps to the minimum knob value and center + range maps to the maximum.");
+            ImGui::Separator();
+
+            float halfRangeCm = AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm;
+            ImGui::SetNextItemWidth(120.0f);
+            if(ImGui::InputFloat("Half Range (cm)", &halfRangeCm, 0.5f, 1.0f, "%.1f")) {
+                AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm = std::clamp(halfRangeCm, 0.5f, 50.0f);
+            }
+
+            const float dpiX = std::max(1.0f, GetWindowDPI().x);
+            const float rangePx = (AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm / 2.54f) * dpiX;
+            ImGui::Text("Display DPI X: %.1f", dpiX);
+            ImGui::Text("Half Range: %.1f px", rangePx);
+            ImGui::Text("Full Range: %.1f cm", AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm * 2.0f);
+        }
+
+        ImGui::End();
+    }
+
     if(m_showRomDatabaseWindow) {
         ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));

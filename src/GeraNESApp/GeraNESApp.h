@@ -116,6 +116,8 @@ private:
     bool m_showImprovementsWindow = false;
     bool m_showAboutWindow = false;
     bool m_showRomDatabaseWindow = false;
+    bool m_showArkanoidNesConfigWindow = false;
+    bool m_showArkanoidFamicomConfigWindow = false;
 
     bool m_showMenuBar = true;
 
@@ -171,6 +173,7 @@ private:
     Rect m_nesScreenRect = {{0,0}, {1,1}};
 
     bool m_imGuiWantsMouse = false;
+    bool m_cursorVisible = true;
 
     // FPS vars    
     Uint64 m_fpsTimer = 0;
@@ -392,14 +395,14 @@ private:
         return std::make_tuple(nesX, nesY);
     }
 
-    float getArkanoidCursorNormalized(int screenX)
+    float getArkanoidCursorNormalized(int screenX, float halfRangeCm)
     {
-        const float rectWidth = std::max(1.0f, m_nesScreenRect.max.x - m_nesScreenRect.min.x);
-        const float margin = rectWidth * 0.10f;
-        const float left = margin;
-        const float right = std::max(left + 1.0f, rectWidth - margin);
-        const float localX = static_cast<float>(screenX) - m_nesScreenRect.min.x;
-        const float clamped = std::clamp(localX, left, right);
+        const float dpiX = std::max(1.0f, GetWindowDPI().x);
+        const float halfRangePx = (halfRangeCm / 2.54f) * dpiX;
+        const float centerX = (m_nesScreenRect.min.x + m_nesScreenRect.max.x) * 0.5f;
+        const float left = centerX - halfRangePx;
+        const float right = centerX + halfRangePx;
+        const float clamped = std::clamp(static_cast<float>(screenX), left, right);
         return (clamped - left) / std::max(1.0f, right - left);
     }
 
@@ -434,7 +437,8 @@ private:
 
             int zapperX = -1;
             int zapperY = -1;
-            float arkanoidPosition = 0.5f;
+            float arkanoidNesPosition = 0.5f;
+            float arkanoidFamicomPosition = 0.5f;
             bool p1ZapperTrigger = false;
             bool p2ZapperTrigger = false;
             bool bandaiTrigger = false;
@@ -444,7 +448,8 @@ private:
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
                 auto [nesX, nesY] = getNesCursor(mx, my);
-                arkanoidPosition = getArkanoidCursorNormalized(mx);
+                arkanoidNesPosition = getArkanoidCursorNormalized(mx, std::max(0.5f, AppSettings::instance().data.input.arkanoid.nesHalfRangeCm));
+                arkanoidFamicomPosition = getArkanoidCursorNormalized(mx, std::max(0.5f, AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm));
 
                 const bool mouseAllowed = !m_imGuiWantsMouse && !m_touch->buttons().anyPressed();
                 const bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
@@ -480,7 +485,8 @@ private:
             inputState.p2Right = p2Right;
             inputState.zapperX = zapperX;
             inputState.zapperY = zapperY;
-            inputState.arkanoidPosition = arkanoidPosition;
+            inputState.arkanoidNesPosition = arkanoidNesPosition;
+            inputState.arkanoidFamicomPosition = arkanoidFamicomPosition;
             inputState.zapperP1Trigger = p1ZapperTrigger;
             inputState.zapperP2Trigger = p2ZapperTrigger;
             inputState.bandaiTrigger = bandaiTrigger;
@@ -599,17 +605,24 @@ private:
             m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT ||
             useArkanoidCursor;
 
+        auto setCursorVisibility = [this](bool visible)
+        {
+            if(m_cursorVisible == visible) return;
+            SDL_ShowCursor(visible ? SDL_ENABLE : SDL_DISABLE);
+            m_cursorVisible = visible;
+        };
+
         if(!m_imGuiWantsMouse && useArkanoidCursor && inside) {
-            SDL_ShowCursor(SDL_DISABLE);
+            setCursorVisibility(false);
         }
         else if(!m_imGuiWantsMouse && inside && usePointerDevice) {
-            SDL_ShowCursor(SDL_ENABLE);
+            setCursorVisibility(true);
             if(m_crossCursor.has_value() && !m_crossCursor->isCurrent()) {
                 m_crossCursor->setAsCurrent();
             }
         }
         else {
-            SDL_ShowCursor(SDL_ENABLE);
+            setCursorVisibility(true);
             if(m_defaultCursor.has_value() && !m_defaultCursor->isCurrent())
                 m_defaultCursor->setAsCurrent();
         }

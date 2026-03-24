@@ -285,11 +285,24 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
+            auto drawArkanoidPortConfigItem = [this](Settings::Port port)
+            {
+                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) {
+                    return;
+                }
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    m_showArkanoidNesConfigWindow = true;
+                }
+            };
+
             if (ImGui::BeginMenu("Port 1")) {
                 drawControllerPortMenuItem("Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_1);
+                drawArkanoidPortConfigItem(Settings::Port::P_1);
                 ImGui::EndMenu();
             }
 
@@ -298,6 +311,7 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_2);
+                drawArkanoidPortConfigItem(Settings::Port::P_2);
                 ImGui::EndMenu();
             }
 
@@ -313,6 +327,12 @@ inline void GeraNESApp::menuBar() {
                 if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
+                }
+                if(m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
+                    ImGui::Separator();
+                    if(ImGui::MenuItem("Config...")) {
+                        m_showArkanoidFamicomConfigWindow = true;
+                    }
                 }
                 ImGui::EndMenu();
             }

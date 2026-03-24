@@ -42,7 +42,8 @@ public:
 
         int zapperX = -1;
         int zapperY = -1;
-        float arkanoidPosition = 0.5f;
+        float arkanoidNesPosition = 0.5f;
+        float arkanoidFamicomPosition = 0.5f;
         bool zapperP1Trigger = false;
         bool zapperP2Trigger = false;
         bool bandaiTrigger = false;
@@ -92,9 +93,9 @@ private:
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
         m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
         m_emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
-        m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidControllerFamicom(input.arkanoidPosition, input.mousePrimaryButton);
+        m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
+        m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
+        m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
         m_emu.setRewind(input.rewind);
         m_emu.setSpeedBoost(input.speedBoost);
     }
@@ -146,9 +147,9 @@ private:
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
         m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
         m_emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
-        m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidControllerFamicom(input.arkanoidPosition, input.mousePrimaryButton);
+        m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
+        m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
+        m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
         m_emu.setRewind(input.rewind);
         m_emu.setSpeedBoost(input.speedBoost);
     }

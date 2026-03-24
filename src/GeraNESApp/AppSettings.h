@@ -75,13 +75,22 @@ public:
 
     struct Input {
 
+        struct Arkanoid {
+
+            float nesHalfRangeCm = 5.0f;
+            float famicomHalfRangeCm = 5.0f;
+
+            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Arkanoid, nesHalfRangeCm, famicomHalfRangeCm)
+        };
+
     private:
 
         std::map<std::string, ControllerInfo> controller;
 
     public:
-
+                
         TouchControls touchControls;
+        Arkanoid arkanoid;
 
         bool getControllerInfo(int index, ControllerInfo& result) {
 
@@ -149,7 +158,7 @@ public:
             }
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, controller)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, controller)
     };
 
     struct Audio {
