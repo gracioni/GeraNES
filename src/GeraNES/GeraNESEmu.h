@@ -516,7 +516,8 @@ private:
     {
         if(ms == 0) return;
 
-        m_audioOutput.setExpansionAudioVolume(m_rewind.isRewinding() ? 0.0f : 1.0f);
+        m_audioOutput.setRewinding(m_rewind.isRewinding());
+        m_audioOutput.setExpansionAudioVolume(1.0f);
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
         m_audioOutput.render(ms, !enableAudio || m_nsfPlayer.forceMute());
     }
@@ -690,6 +691,7 @@ public:
         const bool isRewinding = m_rewind.isRewinding();
 
         if(wasRewinding != isRewinding) {
+            m_audioOutput.setRewinding(isRewinding);
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
             m_lastAudioRenderedMs = 0;

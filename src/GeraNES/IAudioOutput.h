@@ -8,7 +8,7 @@ class IAudioOutput
 {
     public:
 
-    enum class Channel { Pulse_1, Pulse_2, Triangle, Noise, Sample };
+    enum class Channel { Pulse_1, Pulse_2, Triangle, Noise, Sample, Expansion };
     enum class PulseChannel { Pulse_1, Pulse_2 };
 
     virtual bool init(){return true;}
@@ -23,6 +23,7 @@ class IAudioOutput
     virtual void addSampleDirect(float /*period*/, float /*sample*/){}
     virtual void setExpansionSourceRateHz(int /*rateHz*/) {}
     virtual void setExpansionAudioVolume(float /*volume*/) {}
+    virtual void setRewinding(bool /*rewinding*/) {}
     virtual void processExpansionAudioSample(float /*currentSample*/, float /*mixWeight*/) {}
     virtual void clearAudioBuffers() {}
     virtual void discardQueuedAudio() {}

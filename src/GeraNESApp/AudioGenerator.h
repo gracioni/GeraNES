@@ -298,6 +298,134 @@ public:
         m_lastSample = 0;
     }
 
+    GERANES_INLINE size_t bufferedCount()
+    {
+        return m_buffer.size();
+    }
+
+};
+
+class ExpansionChannel
+{
+private:
+
+    uint32_t m_rawSourceRateHz = 1789773;
+    uint32_t m_outputSampleRate = 44100;
+    bool m_playbackStarted = false;
+    double m_consumeRate = 1.0;
+    double m_consumeAcc = 0.0;
+    uint64_t m_phaseAcc = 0;
+    int64_t m_windowWeight = 0;
+    int64_t m_windowSampleSumQ = 0;
+    static constexpr int64_t Q_SCALE = 1 << 20;
+    static constexpr uint32_t PREBUFFER_MS = 3;
+    static constexpr uint32_t TARGET_BUFFER_MS = 6;
+    CircularBuffer<float> m_buffer { 512, CircularBuffer<float>::GROW };
+    float m_lastSample = 0.0f;
+    float m_mixWeight = 0.0f;
+
+    uint32_t prebufferSamples() const
+    {
+        const uint64_t samples =
+            (static_cast<uint64_t>(std::max(1u, m_outputSampleRate)) * PREBUFFER_MS + 999ULL) / 1000ULL;
+        return static_cast<uint32_t>(std::max<uint64_t>(1ULL, samples));
+    }
+
+    uint32_t targetBufferSamples() const
+    {
+        const uint64_t samples =
+            (static_cast<uint64_t>(std::max(1u, m_outputSampleRate)) * TARGET_BUFFER_MS + 999ULL) / 1000ULL;
+        return static_cast<uint32_t>(std::max<uint64_t>(1ULL, samples));
+    }
+
+public:
+
+    void setRawSourceRateHz(uint32_t rawSourceRateHz)
+    {
+        m_rawSourceRateHz = std::max<uint32_t>(1u, rawSourceRateHz);
+    }
+
+    void init(int sampleRate)
+    {
+        m_outputSampleRate = std::max(1, sampleRate);
+        clearBuffer();
+    }
+
+    GERANES_INLINE void add(float sample, float mixWeight)
+    {
+        m_mixWeight = std::max(0.0f, mixWeight);
+        const int64_t sampleQ = static_cast<int64_t>(sample * static_cast<float>(Q_SCALE));
+        const uint64_t outRate = static_cast<uint64_t>(std::max(1u, m_outputSampleRate));
+        const uint64_t srcRate = static_cast<uint64_t>(std::max(1u, m_rawSourceRateHz));
+
+        m_phaseAcc += outRate;
+
+        if(m_phaseAcc < srcRate) {
+            m_windowWeight += static_cast<int64_t>(outRate);
+            m_windowSampleSumQ += sampleQ * static_cast<int64_t>(outRate);
+            return;
+        }
+
+        const uint64_t excess = m_phaseAcc - srcRate;
+        const uint64_t inWindowUnits = outRate - excess;
+
+        m_windowWeight += static_cast<int64_t>(inWindowUnits);
+        m_windowSampleSumQ += sampleQ * static_cast<int64_t>(inWindowUnits);
+
+        if(m_windowWeight > 0) {
+            const float averagedSample = static_cast<float>(
+                static_cast<double>(m_windowSampleSumQ) /
+                static_cast<double>(m_windowWeight) /
+                static_cast<double>(Q_SCALE));
+            m_buffer.write(averagedSample);
+        }
+
+        m_windowWeight = static_cast<int64_t>(excess);
+        m_windowSampleSumQ = sampleQ * static_cast<int64_t>(excess);
+        m_phaseAcc = excess;
+    }
+
+    GERANES_INLINE void clearBuffer()
+    {
+        m_buffer.clear();
+        m_playbackStarted = false;
+        m_consumeRate = 1.0;
+        m_consumeAcc = 0.0;
+        m_phaseAcc = 0;
+        m_windowWeight = 0;
+        m_windowSampleSumQ = 0;
+        m_lastSample = 0.0f;
+        m_mixWeight = 0.0f;
+    }
+
+    GERANES_INLINE_HOT float get(float& mixWeight)
+    {
+        if(!m_playbackStarted && m_buffer.size() >= prebufferSamples()) {
+            m_playbackStarted = true;
+        }
+
+        if(!m_playbackStarted) {
+            mixWeight = 0.0f;
+            return 0.0f;
+        }
+
+        const double bufferError = static_cast<double>(
+            static_cast<int64_t>(m_buffer.size()) -
+            static_cast<int64_t>(targetBufferSamples()));
+        const double targetConsumeRate = std::clamp(1.0 + bufferError * 0.00005, 0.995, 1.005);
+        m_consumeRate += (targetConsumeRate - m_consumeRate) * 0.05;
+        m_consumeAcc += m_consumeRate;
+
+        while(m_consumeAcc >= 1.0) {
+            if(!m_buffer.empty()) {
+                m_lastSample = m_buffer.read();
+            }
+            m_consumeAcc -= 1.0;
+        }
+
+        mixWeight = m_mixWeight;
+        return m_lastSample;
+    }
 };
 
 class SampleDirect
