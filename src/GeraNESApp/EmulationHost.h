@@ -99,6 +99,12 @@ private:
         m_emu.setSpeedBoost(input.speedBoost);
     }
 #else
+    enum class FramePacingMode : uint8_t
+    {
+        FreeRunning,
+        PresenterLocked
+    };
+
     GeraNESEmu m_emu;
     IAudioOutput& m_audioOutput;
     mutable std::mutex m_emuMutex;
@@ -106,10 +112,16 @@ private:
     mutable std::mutex m_workerReadyMutex;
     std::condition_variable m_workerReadyCv;
     bool m_workerReady = false;
+    mutable std::mutex m_presenterMutex;
+    std::condition_variable m_presenterCv;
     std::atomic<bool> m_shutdownStarted{false};
     std::jthread m_workerThread;
     SigSlot::Signal<InputState> m_signalInputState;
     SigSlot::Signal<std::function<void(GeraNESEmu&)>> m_signalCommand;
+    std::atomic<FramePacingMode> m_framePacingMode{FramePacingMode::FreeRunning};
+    std::atomic<uint32_t> m_presenterTickDtMs{16};
+    std::atomic<uint32_t> m_pendingPresenterTicks{0};
+    std::atomic<bool> m_workerWakeRequested{false};
     std::atomic<int> m_frontFramebufferIndex{0};
     std::array<std::vector<uint32_t>, 2> m_framebuffers{
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0),
@@ -121,6 +133,8 @@ private:
     void onSetPendingInput(InputState input)
     {
         m_pendingInput = input;
+        m_workerWakeRequested.store(true, std::memory_order_release);
+        m_presenterCv.notify_one();
     }
 
     void applyPendingInputLocked()
@@ -145,6 +159,9 @@ private:
             command(m_emu);
             refreshSnapshotLocked();
         }
+
+        m_workerWakeRequested.store(true, std::memory_order_release);
+        m_presenterCv.notify_one();
     }
 
     void refreshSnapshotLocked()
@@ -202,6 +219,39 @@ private:
         auto nextTick = clock::now();
 
         while(!stopToken.stop_requested()) {
+            if(m_framePacingMode.load(std::memory_order_acquire) == FramePacingMode::PresenterLocked) {
+                {
+                    std::unique_lock presenterLock(m_presenterMutex);
+                    m_presenterCv.wait(presenterLock, [&]() {
+                        return stopToken.stop_requested() ||
+                            m_framePacingMode.load(std::memory_order_acquire) != FramePacingMode::PresenterLocked ||
+                            m_pendingPresenterTicks.load(std::memory_order_acquire) > 0 ||
+                            m_workerWakeRequested.load(std::memory_order_acquire);
+                    });
+                }
+
+                {
+                    std::scoped_lock emuLock(m_emuMutex);
+                    dispatch_queued_calls();
+
+                    const bool wakeOnly = m_workerWakeRequested.exchange(false, std::memory_order_acq_rel);
+                    const uint32_t ticksToConsume = m_pendingPresenterTicks.load(std::memory_order_acquire) > 0
+                        ? m_pendingPresenterTicks.fetch_sub(1, std::memory_order_acq_rel)
+                        : 0;
+                    const uint32_t dtMs = std::max<uint32_t>(1, m_presenterTickDtMs.load(std::memory_order_acquire));
+
+                    if(m_emu.valid() && ticksToConsume > 0) {
+                        m_emu.updateUntilFrame(dtMs);
+                    }
+
+                    (void)wakeOnly;
+                    refreshSnapshotLocked();
+                }
+
+                nextTick = clock::now();
+                continue;
+            }
+
             auto now = clock::now();
             if(now < nextTick) {
                 std::this_thread::sleep_until(nextTick);
@@ -273,6 +323,7 @@ public:
 
         if(m_workerThread.joinable()) {
             m_workerThread.request_stop();
+            m_presenterCv.notify_all();
             m_workerThread.join();
         }
 #endif
@@ -283,7 +334,9 @@ public:
 #ifdef __EMSCRIPTEN__
         m_pendingInput = input;
 #else
+        m_workerWakeRequested.store(true, std::memory_order_release);
         m_signalInputState(input);
+        m_presenterCv.notify_one();
 #endif
     }
 
@@ -292,7 +345,9 @@ public:
 #ifdef __EMSCRIPTEN__
         if(command) command(m_emu);
 #else
+        m_workerWakeRequested.store(true, std::memory_order_release);
         m_signalCommand(std::move(command));
+        m_presenterCv.notify_one();
 #endif
     }
 
@@ -710,6 +765,9 @@ public:
         return m_emu.update(dt);
 #else
         (void)dt;
+        m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
+        m_pendingPresenterTicks.store(0, std::memory_order_release);
+        m_presenterCv.notify_one();
         return true;
 #endif
     }
@@ -719,7 +777,10 @@ public:
 #ifdef __EMSCRIPTEN__
         m_emu.updateUntilFrame(dt);
 #else
-        (void)dt;
+        m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);
+        m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
+        m_pendingPresenterTicks.fetch_add(1, std::memory_order_acq_rel);
+        m_presenterCv.notify_one();
 #endif
     }
 };
