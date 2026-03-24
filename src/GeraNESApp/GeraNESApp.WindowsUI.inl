@@ -86,11 +86,6 @@ inline void GeraNESApp::showGui()
                 AppSettings::instance().data.input.arkanoid.nesHalfRangeCm = std::clamp(halfRangeCm, 0.5f, 50.0f);
             }
 
-            const float dpiX = std::max(1.0f, GetWindowDPI().x);
-            const float rangePx = (AppSettings::instance().data.input.arkanoid.nesHalfRangeCm / 2.54f) * dpiX;
-            ImGui::Text("Display DPI X: %.1f", dpiX);
-            ImGui::Text("Half Range: %.1f px", rangePx);
-            ImGui::Text("Full Range: %.1f cm", AppSettings::instance().data.input.arkanoid.nesHalfRangeCm * 2.0f);
         }
 
         ImGui::End();
@@ -111,11 +106,6 @@ inline void GeraNESApp::showGui()
                 AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm = std::clamp(halfRangeCm, 0.5f, 50.0f);
             }
 
-            const float dpiX = std::max(1.0f, GetWindowDPI().x);
-            const float rangePx = (AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm / 2.54f) * dpiX;
-            ImGui::Text("Display DPI X: %.1f", dpiX);
-            ImGui::Text("Half Range: %.1f px", rangePx);
-            ImGui::Text("Full Range: %.1f cm", AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm * 2.0f);
         }
 
         ImGui::End();
