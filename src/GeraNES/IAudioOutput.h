@@ -25,6 +25,7 @@ class IAudioOutput
     virtual void setExpansionAudioVolume(float /*volume*/) {}
     virtual void processExpansionAudioSample(float /*currentSample*/, float /*mixWeight*/) {}
     virtual void clearAudioBuffers() {}
+    virtual void discardQueuedAudio() {}
     virtual std::vector<float> getRecentMixedSamples(size_t /*maxSamples*/ = 0) const { return {}; }
     virtual int outputSampleRate() const { return 44100; }
     virtual std::vector<std::string> getAudioList() const { return {}; }

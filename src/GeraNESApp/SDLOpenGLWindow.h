@@ -43,6 +43,7 @@ private:
     WNDPROC m_prevWndProc = nullptr;
     bool m_windowsNativePumpEnabled = true;
     bool m_inNativeMoveSizeLoop = false;
+    bool m_inWindowsCaptionInteraction = false;
     Uint64 m_lastNativeMoveSizePumpTick = 0;
     static constexpr Uint64 NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS = 16;
     static constexpr UINT_PTR NATIVE_MOVE_SIZE_TIMER_ID = 0x474E4553; // 'GNES'
@@ -81,6 +82,13 @@ private:
         resizeEvent.window.data1 = windowW;
         resizeEvent.window.data2 = windowH;
         SDL_PushEvent(&resizeEvent);
+    }
+
+    void notifyWindowsTitleBarInteractionChanged()
+    {
+#ifdef _WIN32
+        onWindowsTitleBarInteractionChanged(m_inWindowsCaptionInteraction || m_inNativeMoveSizeLoop);
+#endif
     }
 
     void mainLoop() {
@@ -141,8 +149,22 @@ private:
         }
 
         switch(msg) {
+            case WM_NCLBUTTONDOWN:
+                if(wParam == HTCAPTION) {
+                    m_inWindowsCaptionInteraction = true;
+                    notifyWindowsTitleBarInteractionChanged();
+                }
+                break;
+
+            case WM_NCLBUTTONUP:
+            case WM_CAPTURECHANGED:
+                m_inWindowsCaptionInteraction = false;
+                notifyWindowsTitleBarInteractionChanged();
+                break;
+
             case WM_ENTERSIZEMOVE:
                 m_inNativeMoveSizeLoop = true;
+                notifyWindowsTitleBarInteractionChanged();
                 m_lastNativeMoveSizePumpTick = 0;
                 SetTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID, static_cast<UINT>(NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS), nullptr);
                 nativeMoveSizeLoopStep(true);
@@ -150,6 +172,8 @@ private:
 
             case WM_EXITSIZEMOVE:
                 m_inNativeMoveSizeLoop = false;
+                m_inWindowsCaptionInteraction = false;
+                notifyWindowsTitleBarInteractionChanged();
                 m_lastNativeMoveSizePumpTick = 0;
                 KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
                 nativeMoveSizeLoopStep(true);
@@ -174,6 +198,8 @@ private:
             case WM_DESTROY:
             case WM_NCDESTROY:
                 m_inNativeMoveSizeLoop = false;
+                m_inWindowsCaptionInteraction = false;
+                notifyWindowsTitleBarInteractionChanged();
                 m_lastNativeMoveSizePumpTick = 0;
                 KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
                 break;
@@ -230,6 +256,7 @@ private:
         m_hwnd = nullptr;
         m_prevWndProc = nullptr;
         m_inNativeMoveSizeLoop = false;
+        m_inWindowsCaptionInteraction = false;
         m_lastNativeMoveSizePumpTick = 0;
     }
 
@@ -239,6 +266,7 @@ private:
             KillTimer(m_hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
         }
         m_inNativeMoveSizeLoop = false;
+        m_inWindowsCaptionInteraction = false;
         m_lastNativeMoveSizePumpTick = 0;
     }
 #endif
@@ -334,6 +362,10 @@ public:
         return false;
     }
 
+    virtual void onWindowsTitleBarInteractionChanged(bool active) {
+        (void)active;
+    }
+
     virtual void paintGL() {
     }
 
@@ -379,10 +411,20 @@ public:
             stopWindowsNativePump();
         }
     }
+
+    bool isWindowsTitleBarInteractionActive() const
+    {
+        return m_inWindowsCaptionInteraction || m_inNativeMoveSizeLoop;
+    }
 #else
     void setWindowsNativePumpEnabled(bool enabled)
     {
         (void)enabled;
+    }
+
+    bool isWindowsTitleBarInteractionActive() const
+    {
+        return false;
     }
 #endif
 

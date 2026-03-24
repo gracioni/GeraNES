@@ -1184,7 +1184,11 @@ public:
         if(!m_imGuiWantsMouse) m_touch->onEvent(event);
 
         return SDLOpenGLWindow::onEvent(event);
-    }    
+    }
+
+    virtual void onWindowsTitleBarInteractionChanged(bool active) override {
+        m_emu.setPresenterLockActive(!active);
+    }
 
     void mainLoop()
     {
@@ -1214,7 +1218,12 @@ public:
             m_fpsTimer %= 1000; 
         }
 
-        if(m_vsyncMode == OFF || displayFrameRate != m_emu.getRegionFPS()) {          
+        const bool allowVsyncLock =
+            m_vsyncMode != OFF &&
+            displayFrameRate == m_emu.getRegionFPS() &&
+            !isWindowsTitleBarInteractionActive();
+
+        if(!allowVsyncLock) {
             if( m_emu.update(dt) ) render();
         }
         else {

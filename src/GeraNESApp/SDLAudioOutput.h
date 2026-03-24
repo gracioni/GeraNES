@@ -256,6 +256,15 @@ public:
         }      
 
     } 
+
+    void discardQueuedAudio() override
+    {
+        m_buffer.clear();
+        sampleAcc = 0;
+        if(m_device != 0) {
+            SDL_ClearQueuedAudio(m_device);
+        }
+    }
     
     void setVolume(float volume) override {
         m_volume = volume;

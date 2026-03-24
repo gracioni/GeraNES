@@ -685,7 +685,17 @@ public:
 
     void setRewind(bool state)
     {
+        const bool wasRewinding = m_rewind.isRewinding();
         m_rewind.setRewind(state);
+        const bool isRewinding = m_rewind.isRewinding();
+
+        if(wasRewinding != isRewinding) {
+            m_audioOutput.discardQueuedAudio();
+            m_audioOutput.clearAudioBuffers();
+            m_lastAudioRenderedMs = 0;
+            m_vsyncAudioCompMsAcc = 0.0;
+            m_vsyncAudioSkipMsDebt = 0;
+        }
     }
 
     void setSpeedBoost(bool state)

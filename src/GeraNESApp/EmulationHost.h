@@ -221,14 +221,19 @@ private:
 
         while(!stopToken.stop_requested()) {
             if(m_framePacingMode.load(std::memory_order_acquire) == FramePacingMode::PresenterLocked) {
+                const uint32_t dtMs = std::max<uint32_t>(1, m_presenterTickDtMs.load(std::memory_order_acquire));
+                const auto waitTimeout = std::chrono::milliseconds(std::clamp<uint32_t>(dtMs, 1, 20));
+                bool timedOutWaitingPresenter = false;
                 {
                     std::unique_lock presenterLock(m_presenterMutex);
-                    m_presenterCv.wait(presenterLock, [&]() {
-                        return stopToken.stop_requested() ||
-                            m_framePacingMode.load(std::memory_order_acquire) != FramePacingMode::PresenterLocked ||
-                            m_pendingPresenterTicks.load(std::memory_order_acquire) > 0 ||
-                            m_workerWakeRequested.load(std::memory_order_acquire);
-                    });
+                    if(!m_presenterCv.wait_for(presenterLock, waitTimeout, [&]() {
+                            return stopToken.stop_requested() ||
+                                m_framePacingMode.load(std::memory_order_acquire) != FramePacingMode::PresenterLocked ||
+                                m_pendingPresenterTicks.load(std::memory_order_acquire) > 0 ||
+                                m_workerWakeRequested.load(std::memory_order_acquire);
+                        })) {
+                        timedOutWaitingPresenter = true;
+                    }
                 }
 
                 {
@@ -236,13 +241,16 @@ private:
                     dispatch_queued_calls();
 
                     const bool wakeOnly = m_workerWakeRequested.exchange(false, std::memory_order_acq_rel);
-                    const uint32_t ticksToConsume = m_pendingPresenterTicks.load(std::memory_order_acquire) > 0
-                        ? m_pendingPresenterTicks.fetch_sub(1, std::memory_order_acq_rel)
-                        : 0;
-                    const uint32_t dtMs = std::max<uint32_t>(1, m_presenterTickDtMs.load(std::memory_order_acquire));
+                    const uint32_t ticksToConsume = m_pendingPresenterTicks.exchange(0, std::memory_order_acq_rel);
 
                     if(m_emu.valid() && ticksToConsume > 0) {
                         m_emu.updateUntilFrame(dtMs);
+                    }
+                    else if(m_emu.valid() && timedOutWaitingPresenter && !wakeOnly) {
+                        // If the presenter/UI stalls (e.g. native window move/resize modal loop),
+                        // temporarily keep emulation/audio flowing with internal pacing until
+                        // presentation ticks resume.
+                        m_emu.update(dtMs);
                     }
 
                     (void)wakeOnly;
@@ -760,6 +768,21 @@ public:
 #endif
     }
 
+    void setPresenterLockActive(bool active)
+    {
+#ifdef __EMSCRIPTEN__
+        (void)active;
+#else
+        if(active) {
+            m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
+        } else {
+            m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
+            m_pendingPresenterTicks.store(0, std::memory_order_release);
+        }
+        m_presenterCv.notify_one();
+#endif
+    }
+
     bool update(uint32_t dt)
     {
 #ifdef __EMSCRIPTEN__
@@ -780,7 +803,7 @@ public:
 #else
         m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);
         m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
-        m_pendingPresenterTicks.fetch_add(1, std::memory_order_acq_rel);
+        m_pendingPresenterTicks.store(1, std::memory_order_release);
         m_presenterCv.notify_one();
 #endif
     }

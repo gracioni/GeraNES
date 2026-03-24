@@ -235,6 +235,28 @@ public:
         
     }    
 
+    void discardQueuedAudio() override
+    {
+        m_bufferData.clear();
+        sampleAcc = 0;
+        clearBuffers();
+
+        if(m_device) {
+            alSourceStop(m_source);
+
+            ALint queued = 0;
+            alGetSourcei(m_source, AL_BUFFERS_QUEUED, &queued);
+            while(queued > 0) {
+                ALuint bufferId = 0;
+                alSourceUnqueueBuffers(m_source, 1, &bufferId);
+                --queued;
+            }
+
+            m_currentBufferIndex = 0;
+            m_buffersAvailable = static_cast<int>(N_BUFFERS);
+        }
+    }
+
     void setVolume(float volume) override
     {
         m_volume = volume;
