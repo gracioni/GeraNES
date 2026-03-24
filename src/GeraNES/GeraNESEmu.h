@@ -21,6 +21,7 @@
 #include "logger/logger.h"
 
 #include "Rewind.h"
+#include <memory>
 
 enum class AccessType
 {
@@ -41,11 +42,9 @@ private:
     PPU m_ppu;
     APU m_apu;
     uint8_t m_ram[0x800]; //2K
-    Controller m_controller1;
-    Controller m_controller2;
-    Zapper m_zapper1;
-    Zapper m_zapper2;
-    BandaiHyperShot m_bandaiHyperShot;
+    std::unique_ptr<IControllerPortDevice> m_portDevice1;
+    std::unique_ptr<IControllerPortDevice> m_portDevice2;
+    std::unique_ptr<IExpansionDevice> m_expansionDevice;
     Console m_console;
 
     uint32_t m_updateCyclesAcc;
@@ -92,6 +91,102 @@ private:
     bool m_pendingNsfNextSong = false;
     bool m_pendingNsfPrevSong = false;
     bool m_applyingPendingNsfActions = false;
+
+    std::unique_ptr<IControllerPortDevice> createPortDevice(Settings::Device device)
+    {
+        switch(device) {
+            case Settings::Device::CONTROLLER:
+                return std::make_unique<Controller>();
+            case Settings::Device::ZAPPER:
+                return std::make_unique<Zapper>();
+            case Settings::Device::BANDAI_HYPERSHOT:
+                return std::make_unique<Controller>();
+        }
+
+        return std::make_unique<Controller>();
+    }
+
+    std::unique_ptr<IExpansionDevice> createExpansionDevice(Settings::ExpansionDevice device)
+    {
+        switch(device) {
+            case Settings::ExpansionDevice::NONE:
+                return nullptr;
+            case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
+                return std::make_unique<BandaiHyperShot>();
+        }
+
+        return nullptr;
+    }
+
+    bool matchesPortDeviceType(const IControllerPortDevice* device, Settings::Device type) const
+    {
+        switch(type) {
+            case Settings::Device::CONTROLLER:
+                return dynamic_cast<const Controller*>(device) != nullptr;
+            case Settings::Device::ZAPPER:
+                return dynamic_cast<const Zapper*>(device) != nullptr;
+            case Settings::Device::BANDAI_HYPERSHOT:
+                return dynamic_cast<const Controller*>(device) != nullptr;
+        }
+
+        return false;
+    }
+
+    bool matchesExpansionDeviceType(const IExpansionDevice* device, Settings::ExpansionDevice type) const
+    {
+        switch(type) {
+            case Settings::ExpansionDevice::NONE:
+                return device == nullptr;
+            case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
+                return dynamic_cast<const BandaiHyperShot*>(device) != nullptr;
+        }
+
+        return false;
+    }
+
+    void updateInputDevicePixelCheckers()
+    {
+        auto pixelChecker = [&](int x, int y) {
+            uint32_t pixel = m_ppu.getZapperPixel(x, y);
+
+            int r = pixel & 0xFF;
+            int g = (pixel >> 8) & 0xFF;
+            int b = (pixel >> 16) & 0xFF;
+
+            return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        };
+
+        if(m_portDevice1) m_portDevice1->setPixelChecker(pixelChecker);
+        if(m_portDevice2) m_portDevice2->setPixelChecker(pixelChecker);
+        if(m_expansionDevice) m_expansionDevice->setPixelChecker(pixelChecker);
+    }
+
+    void recreatePortDevice(Settings::Port port)
+    {
+        const Settings::Device device = m_settings.getPortDevice(port).value_or(Settings::Device::CONTROLLER);
+        IControllerPortDevice* currentDevice =
+            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+        if(matchesPortDeviceType(currentDevice, device)) {
+            updateInputDevicePixelCheckers();
+            return;
+        }
+
+        std::unique_ptr<IControllerPortDevice> instance = createPortDevice(device);
+        if(port == Settings::Port::P_1) m_portDevice1 = std::move(instance);
+        else m_portDevice2 = std::move(instance);
+        updateInputDevicePixelCheckers();
+    }
+
+    void recreateExpansionDevice()
+    {
+        if(matchesExpansionDeviceType(m_expansionDevice.get(), m_settings.getExpansionDevice())) {
+            updateInputDevicePixelCheckers();
+            return;
+        }
+
+        m_expansionDevice = createExpansionDevice(m_settings.getExpansionDevice());
+        updateInputDevicePixelCheckers();
+    }
 
     void processNsfControllerInput(bool selectPressed, bool startPressed, bool leftPressed, bool rightPressed)
     {
@@ -222,22 +317,18 @@ private:
                 {
                     if constexpr(accessType == AccessType::Write)
                     {
-                        m_controller1.write(data);
-                        m_controller2.write(data);
-                        m_bandaiHyperShot.write4016(data);
+                        if(m_portDevice1) m_portDevice1->write(data);
+                        if(m_portDevice2) m_portDevice2->write(data);
+                        if(m_expansionDevice) m_expansionDevice->write4016(data);
                     }
                     else {
-                        bool useZapper = m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
                         bool outputEnabled =
                             (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4016));
 
-                        if(useZapper) data = m_zapper1.read();
-                        else data = m_controller1.read(outputEnabled);
+                        data = m_portDevice1 ? m_portDevice1->read(outputEnabled) : 0x00;
 
-                        bool useBandaiHyperShot =
-                            m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
-                        if(useBandaiHyperShot) {
-                            data = static_cast<uint8_t>((data & ~0x02) | m_bandaiHyperShot.read4016(outputEnabled));
+                        if(m_expansionDevice) {
+                            data = static_cast<uint8_t>((data & ~0x02) | m_expansionDevice->read4016(outputEnabled));
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
@@ -255,17 +346,13 @@ private:
                     if constexpr(accessType == AccessType::Write) m_apu.write(addr&0x3FFF, data, (m_cpu.cycleCounter() & 0x01) != 0);
                     else {
 
-                        bool useZapper = m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER);
                         bool outputEnabled =
                             (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4017));
 
-                        if(useZapper) data = m_zapper2.read();
-                        else data = m_controller2.read(outputEnabled);                        
+                        data = m_portDevice2 ? m_portDevice2->read(outputEnabled) : 0x00;
 
-                        bool useBandaiHyperShot =
-                            m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
-                        if(useBandaiHyperShot) {
-                            const uint8_t expData = m_bandaiHyperShot.read4017();
+                        if(m_expansionDevice) {
+                            const uint8_t expData = m_expansionDevice->read4017();
                             data = static_cast<uint8_t>((data & ~0x18) | (expData & 0x18));
                         }
 
@@ -382,9 +469,9 @@ private:
 
     void onScanlineStart()
     {
-        m_zapper1.onScanlineChanged();
-        m_zapper2.onScanlineChanged();
-        m_bandaiHyperShot.onScanlineChanged();
+        if(m_portDevice1) m_portDevice1->onScanlineChanged();
+        if(m_portDevice2) m_portDevice2->onScanlineChanged();
+        if(m_expansionDevice) m_expansionDevice->onScanlineChanged();
         m_cartridge.onScanlineStart(m_ppu.isActivelyRendering(), m_ppu.scanline());
     }
 
@@ -499,8 +586,8 @@ public:
 
     void onCpuGetToPutTransition() override
     {
-        m_controller1.onCpuGetToPutTransition();
-        m_controller2.onCpuGetToPutTransition();
+        if(m_portDevice1) m_portDevice1->onCpuGetToPutTransition();
+        if(m_portDevice2) m_portDevice2->onCpuGetToPutTransition();
     }
 
     SigSlot::Signal<const std::string&> signalError;
@@ -514,11 +601,9 @@ public:
     m_cpu(*this, m_console),
     m_ppu(m_settings, m_cartridge),
     m_apu(m_audioOutput,m_settings),
-    m_controller1(),
-    m_controller2(),
-    m_zapper1(),
-    m_zapper2(),
-    m_bandaiHyperShot(),
+    m_portDevice1(),
+    m_portDevice2(),
+    m_expansionDevice(),
     m_rewind(*this),
     m_nsfPlayer(m_cartridge, m_apu, m_audioOutput, [this]() { this->reset(); }),
     m_console(m_cpu, m_ppu, m_apu, m_cartridge)
@@ -534,22 +619,9 @@ public:
         m_apu.getSampleChannel().dmcCancelRequest.bind(&GeraNESEmu::onDMCCancelRequest, this);
         m_apu.getSampleChannel().dmcImplicitAbortRequest.bind(&GeraNESEmu::onDMCImplicitAbortRequest, this);
 
-        auto f = [&](int x, int y){
-
-            uint32_t pixel = m_ppu.getZapperPixel(x, y);
-
-            int r =  pixel        & 0xFF;
-            int g = (pixel >> 8)  & 0xFF;
-            int b = (pixel >> 16) & 0xFF;
-
-            float luma = 0.2126f*r + 0.7152f*g + 0.0722f*b;
-
-            return luma;
-        };
-
-        m_zapper1.setPixelChecker(f);
-        m_zapper2.setPixelChecker(f);
-        m_bandaiHyperShot.setPixelChecker(f);
+        recreatePortDevice(Settings::Port::P_1);
+        recreatePortDevice(Settings::Port::P_2);
+        recreateExpansionDevice();
     }
 
     ~GeraNESEmu()
@@ -919,6 +991,7 @@ public:
     GERANES_INLINE void setPortDevice(Settings::Port port, Settings::Device device)
     {
         m_settings.setPortDevice(port, device);
+        recreatePortDevice(port);
     }
 
     GERANES_INLINE Settings::ExpansionDevice getExpansionDevice() const
@@ -929,6 +1002,7 @@ public:
     GERANES_INLINE void setExpansionDevice(Settings::ExpansionDevice device)
     {
         m_settings.setExpansionDevice(device);
+        recreateExpansionDevice();
     }
 
     bool overclocked()
@@ -1011,12 +1085,15 @@ public:
         m_ppu.serialization(s);
         m_apu.serialization(s);
         s.array(m_ram, 1, 0x800);
-        m_controller1.serialization(s);
-        m_controller2.serialization(s);
-        m_zapper1.serialization(s);
-        m_zapper2.serialization(s);
-        m_bandaiHyperShot.serialization(s);
         m_settings.serialization(s);
+        if(dynamic_cast<Deserialize*>(&s) != nullptr) {
+            recreatePortDevice(Settings::Port::P_1);
+            recreatePortDevice(Settings::Port::P_2);
+            recreateExpansionDevice();
+        }
+        if(m_portDevice1) m_portDevice1->serialization(s);
+        if(m_portDevice2) m_portDevice2->serialization(s);
+        if(m_expansionDevice) m_expansionDevice->serialization(s);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
@@ -1036,13 +1113,13 @@ public:
 
     void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
-        m_controller1.setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
+        if(m_portDevice1) m_portDevice1->setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
         processNsfControllerInput(bSelect, bStart, bLeft, bRight);
     }
 
     void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
-        m_controller2.setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
+        if(m_portDevice2) m_portDevice2->setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
     }
 
     void setZapper(Settings::Port port, int x, int y, bool trigger)
@@ -1050,26 +1127,34 @@ public:
         switch(port) {
 
             case Settings::Port::P_1:
-                m_zapper1.setCursorPosition(x,y);
-                m_zapper1.setTrigger(trigger);
+                if(m_portDevice1) {
+                    m_portDevice1->setCursorPosition(x, y);
+                    m_portDevice1->setTrigger(trigger);
+                }
                 break;
 
             case Settings::Port::P_2:
-                m_zapper2.setCursorPosition(x,y);
-                m_zapper2.setTrigger(trigger);
+                if(m_portDevice2) {
+                    m_portDevice2->setCursorPosition(x, y);
+                    m_portDevice2->setTrigger(trigger);
+                }
                 break;
         }
     }
 
     void setBandaiHyperShotButtons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
-        m_bandaiHyperShot.setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        if(m_expansionDevice) {
+            m_expansionDevice->setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        }
     }
 
     void setBandaiHyperShot(int x, int y, bool trigger)
     {
-        m_bandaiHyperShot.setCursorPosition(x, y);
-        m_bandaiHyperShot.setTrigger(trigger);
+        if(m_expansionDevice) {
+            m_expansionDevice->setCursorPosition(x, y);
+            m_expansionDevice->setTrigger(trigger);
+        }
     }
 
     void fdsSwitchDiskSide()

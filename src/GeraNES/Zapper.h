@@ -6,8 +6,9 @@
 
 #include "defines.h"
 #include "Serialization.h"
+#include "IControllerPortDevice.h"
 
-class Zapper
+class Zapper : public IControllerPortDevice
 {
 private:
 
@@ -28,18 +29,18 @@ private:
 public:
     Zapper() = default;
 
-    void setCursorPosition(int x, int y) {
+    void setCursorPosition(int x, int y) override {
         m_cursorX = x;
         m_cursorY = y;
     }
 
     bool m_flag = true;
 
-    void setTrigger(bool pressed) {
+    void setTrigger(bool pressed) override {
         m_triggerPressed = pressed;
     }
 
-    void setPixelChecker(std::function<float(int,int)> func) {
+    void setPixelChecker(std::function<float(int,int)> func) override {
         m_pixelIsBright = func;
     }
 
@@ -59,7 +60,7 @@ public:
         return maxLuma;
     }
 
-    uint8_t read()
+    uint8_t read(bool /*outputEnabled*/) override
     {
         uint8_t ret = 0x00;
         
@@ -86,7 +87,11 @@ public:
         return ret;
     }
 
-    void serialization(SerializationBase& s)
+    void write(uint8_t /*data*/) override
+    {
+    }
+
+    void serialization(SerializationBase& s) override
     {
         SERIALIZEDATA(s, m_triggerPressed);
         SERIALIZEDATA(s, m_cursorX);
@@ -95,7 +100,7 @@ public:
         SERIALIZEDATA(s, m_lightHoldCounter);
     }
 
-    void onScanlineChanged()
+    void onScanlineChanged() override
     {
         m_luma -= LUMA_DECAY_PER_SCANLINE;
         if(m_luma < 0) m_luma = 0;

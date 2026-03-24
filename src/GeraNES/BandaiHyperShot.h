@@ -5,11 +5,12 @@
 
 #include "defines.h"
 #include "Serialization.h"
+#include "IExpansionDevice.h"
 
 // Bandai Hyper Shot (Famicom expansion port)
 // - $4016 read: serial buttons on bit1
 // - $4017 read: light sensor (bit3) + fire (bit4)
-class BandaiHyperShot
+class BandaiHyperShot : public IExpansionDevice
 {
 private:
     static constexpr float LUMA_THRESHOLD = 50.0f;
@@ -28,7 +29,7 @@ private:
 public:
     BandaiHyperShot() = default;
 
-    void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight) override
     {
         m_load = 0;
         m_load |= bA ? 1 : 0;
@@ -41,28 +42,28 @@ public:
         m_load |= bRight ? (1 << 7) : 0;
     }
 
-    void setCursorPosition(int x, int y)
+    void setCursorPosition(int x, int y) override
     {
         m_cursorX = x;
         m_cursorY = y;
     }
 
-    void setTrigger(bool pressed)
+    void setTrigger(bool pressed) override
     {
         m_triggerPressed = pressed;
     }
 
-    void setPixelChecker(std::function<float(int, int)> func)
+    void setPixelChecker(std::function<float(int, int)> func) override
     {
         m_pixelIsBright = std::move(func);
     }
 
-    void write4016(uint8_t data)
+    void write4016(uint8_t data) override
     {
         if(data & 0x01) m_register = m_load;
     }
 
-    uint8_t read4016(bool outputEnabled)
+    uint8_t read4016(bool outputEnabled) override
     {
         uint8_t ret = (m_register & 1) ? 0x02 : 0x00;
 
@@ -74,7 +75,7 @@ public:
         return ret;
     }
 
-    uint8_t read4017()
+    uint8_t read4017() override
     {
         uint8_t ret = 0x00;
 
@@ -93,13 +94,13 @@ public:
         return ret;
     }
 
-    void onScanlineChanged()
+    void onScanlineChanged() override
     {
         m_luma -= LUMA_DECAY_PER_SCANLINE;
         if(m_luma < 0) m_luma = 0;
     }
 
-    void serialization(SerializationBase& s)
+    void serialization(SerializationBase& s) override
     {
         SERIALIZEDATA(s, m_register);
         SERIALIZEDATA(s, m_load);

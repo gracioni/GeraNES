@@ -3,8 +3,9 @@
 #include "defines.h"
 
 #include "Serialization.h"
+#include "IControllerPortDevice.h"
 
-class Controller
+class Controller : public IControllerPortDevice
 {
 private:
 
@@ -21,7 +22,7 @@ public:
         m_strobe = false;
     }
 
-    uint8_t read(bool outputEnabled)
+    uint8_t read(bool outputEnabled) override
     {
         if(m_strobe) {
             // While strobe is high, reads always return current A button state.
@@ -38,19 +39,19 @@ public:
         return ret;
     }
 
-    void write(uint8_t data)
+    void write(uint8_t data) override
     {
         m_strobe = (data & 0x01) != 0;
     }
 
-    void onCpuGetToPutTransition()
+    void onCpuGetToPutTransition() override
     {
         if(m_strobe) {
             m_register = m_load;
         }
     }
 
-    void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    void setButtonsStatus(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight) override
     {
         m_load = 0;
         m_load |= bA ? 1 : 0;
@@ -63,7 +64,7 @@ public:
         m_load |= bRight ? (1 << 7) : 0;
     }
 
-    void serialization(SerializationBase& s)
+    void serialization(SerializationBase& s) override
     {
         SERIALIZEDATA(s, m_register);
         SERIALIZEDATA(s, m_load);
