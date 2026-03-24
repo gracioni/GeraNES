@@ -15,7 +15,7 @@
 #include "SnesMouse.h"
 #include "SnesController.h"
 #include "FourScore.h"
-#include "HoriAdapterFamicom.h"
+#include "HoriAdapter.h"
 #include "BandaiHyperShot.h"
 #include "KonamiHyperShot.h"
 #include "Settings.h"
@@ -55,7 +55,7 @@ private:
     std::unique_ptr<IControllerPortDevice> m_portDevice2;
     std::unique_ptr<IExpansionDevice> m_expansionDevice;
     std::unique_ptr<FourScore> m_fourScore;
-    std::unique_ptr<HoriAdapterFamicom> m_horiAdapterFamicom;
+    std::unique_ptr<HoriAdapter> m_HoriAdapter;
     Console m_console;
 
     uint32_t m_updateCyclesAcc;
@@ -266,7 +266,7 @@ private:
     {
         if(isNesMultitapActive()) {
             if(!m_fourScore) m_fourScore = std::make_unique<FourScore>();
-            m_horiAdapterFamicom.reset();
+            m_HoriAdapter.reset();
             m_portDevice1.reset();
             m_portDevice2.reset();
             m_expansionDevice.reset();
@@ -274,7 +274,7 @@ private:
         }
 
         if(isFamicomMultitapActive()) {
-            if(!m_horiAdapterFamicom) m_horiAdapterFamicom = std::make_unique<HoriAdapterFamicom>();
+            if(!m_HoriAdapter) m_HoriAdapter = std::make_unique<HoriAdapter>();
             m_fourScore.reset();
             m_portDevice1.reset();
             m_portDevice2.reset();
@@ -283,7 +283,7 @@ private:
         }
 
         m_fourScore.reset();
-        m_horiAdapterFamicom.reset();
+        m_HoriAdapter.reset();
         recreatePortDevice(Settings::Port::P_1);
         recreatePortDevice(Settings::Port::P_2);
         recreateExpansionDevice();
@@ -421,8 +421,8 @@ private:
                         if(m_fourScore) {
                             m_fourScore->write(data);
                         }
-                        else if(m_horiAdapterFamicom) {
-                            m_horiAdapterFamicom->write4016(data);
+                        else if(m_HoriAdapter) {
+                            m_HoriAdapter->write4016(data);
                         }
                         else {
                             if(m_portDevice1) m_portDevice1->write(data);
@@ -437,8 +437,8 @@ private:
                         if(m_fourScore) {
                             data = m_fourScore->readPort(0, outputEnabled);
                         }
-                        else if(m_horiAdapterFamicom) {
-                            data = m_horiAdapterFamicom->read4016(outputEnabled);
+                        else if(m_HoriAdapter) {
+                            data = m_HoriAdapter->read4016(outputEnabled);
                         }
                         else {
                             data = m_portDevice1 ? m_portDevice1->read(outputEnabled) : 0x00;
@@ -469,8 +469,8 @@ private:
                         if(m_fourScore) {
                             data = m_fourScore->readPort(1, outputEnabled);
                         }
-                        else if(m_horiAdapterFamicom) {
-                            data = m_horiAdapterFamicom->read4017(outputEnabled);
+                        else if(m_HoriAdapter) {
+                            data = m_HoriAdapter->read4017(outputEnabled);
                         }
                         else {
                             data = m_portDevice2 ? m_portDevice2->read(outputEnabled) : 0x00;
@@ -715,7 +715,7 @@ public:
     void onCpuGetToPutTransition() override
     {
         if(m_fourScore) m_fourScore->onCpuGetToPutTransition();
-        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->onCpuGetToPutTransition();
+        else if(m_HoriAdapter) m_HoriAdapter->onCpuGetToPutTransition();
         else {
             if(m_portDevice1) m_portDevice1->onCpuGetToPutTransition();
             if(m_portDevice2) m_portDevice2->onCpuGetToPutTransition();
@@ -1335,7 +1335,7 @@ public:
         if(m_portDevice2) m_portDevice2->serialization(s);
         if(m_expansionDevice) m_expansionDevice->serialization(s);
         if(m_fourScore) m_fourScore->serialization(s);
-        if(m_horiAdapterFamicom) m_horiAdapterFamicom->serialization(s);
+        if(m_HoriAdapter) m_HoriAdapter->serialization(s);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
@@ -1357,7 +1357,7 @@ public:
                                bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
         if(m_fourScore) m_fourScore->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
         else if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
         processNsfControllerInput(bSelect, bStart, bLeft, bRight);
     }
@@ -1366,20 +1366,20 @@ public:
                                bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
         if(m_fourScore) m_fourScore->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
         else if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
     }
 
     void setController3Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
         if(m_fourScore) m_fourScore->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
     }
 
     void setController4Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
         if(m_fourScore) m_fourScore->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
     }
 
     void setZapper(Settings::Port port, int x, int y, bool trigger)

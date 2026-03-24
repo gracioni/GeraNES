@@ -5,7 +5,7 @@
 
 #include "Controller.h"
 
-class HoriAdapterFamicom
+class HoriAdapter
 {
 private:
     std::array<Controller, 4> m_controllers;
