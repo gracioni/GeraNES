@@ -179,6 +179,7 @@ private:
     bool m_arkanoidSuppressClickUntilRelease = false;
     bool m_snesMouseGrabActive = false;
     bool m_snesMouseSuppressClickUntilRelease = false;
+    bool m_forceImGuiMouseResync = false;
     bool m_hasLastMousePosition = false;
     int m_lastMouseX = 0;
     int m_lastMouseY = 0;
@@ -445,6 +446,7 @@ private:
             Logger::instance().log("Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
         } else {
             m_arkanoidSuppressClickUntilRelease = false;
+            m_forceImGuiMouseResync = true;
             Logger::instance().log("Mouse released.", Logger::Type::USER);
         }
         m_hasLastMousePosition = false;
@@ -463,6 +465,7 @@ private:
             Logger::instance().log("Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
         } else {
             m_snesMouseSuppressClickUntilRelease = false;
+            m_forceImGuiMouseResync = true;
             Logger::instance().log("Mouse released.", Logger::Type::USER);
         }
         m_hasLastMousePosition = false;
@@ -1274,12 +1277,32 @@ public:
 
     virtual bool onEvent(SDL_Event& event) override {
 
-        ImGui_ImplSDL2_ProcessEvent(&event);
+        const bool pointerGrabActive = m_snesMouseGrabActive || m_arkanoidGrabActive;
+        const bool isMouseEvent =
+            event.type == SDL_MOUSEMOTION ||
+            event.type == SDL_MOUSEBUTTONDOWN ||
+            event.type == SDL_MOUSEBUTTONUP ||
+            event.type == SDL_MOUSEWHEEL;
+
+        if(!(pointerGrabActive && isMouseEvent)) {
+            ImGui_ImplSDL2_ProcessEvent(&event);
+        }
 
         ImGuiIO &io = ImGui::GetIO();
 
-        m_imGuiWantsMouse = io.WantCaptureMouse;
+        m_imGuiWantsMouse = pointerGrabActive ? false : io.WantCaptureMouse;
         bool imGuiWantsKeyboard = io.WantCaptureKeyboard;
+
+        if(m_forceImGuiMouseResync && !pointerGrabActive) {
+            int mx = 0, my = 0;
+            const Uint32 buttons = SDL_GetMouseState(&mx, &my);
+            io.AddMousePosEvent(static_cast<float>(mx), static_cast<float>(my));
+            io.AddMouseButtonEvent(0, (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0);
+            io.AddMouseButtonEvent(1, (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0);
+            io.AddMouseButtonEvent(2, (buttons & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0);
+            m_forceImGuiMouseResync = false;
+            m_imGuiWantsMouse = io.WantCaptureMouse;
+        }
 
         switch(event.type) {
 
