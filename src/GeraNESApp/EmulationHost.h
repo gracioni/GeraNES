@@ -51,6 +51,10 @@ public:
         bool zapperP1Trigger = false;
         bool zapperP2Trigger = false;
         bool bandaiTrigger = false;
+        bool konamiP1Run = false;
+        bool konamiP1Jump = false;
+        bool konamiP2Run = false;
+        bool konamiP2Jump = false;
         bool mousePrimaryButton = false;
         bool mouseSecondaryButton = false;
 
@@ -97,6 +101,7 @@ private:
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        m_emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
         m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
         m_emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
@@ -155,6 +160,7 @@ private:
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        m_emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
         m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
         m_emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);

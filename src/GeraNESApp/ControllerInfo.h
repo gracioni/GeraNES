@@ -7,8 +7,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "GeraNESApp/InputBindingInfo.h"
 
-class ControllerInfo {
+class ControllerInfo : public InputBindingInfo {
 
 public:
 
@@ -114,5 +115,25 @@ public:
             case 10: rewind = input; break;
             case 11: speed = input; break;
         }
+    }
+
+    size_t bindingCount() const override
+    {
+        return BUTTONS.size();
+    }
+
+    const char* bindingLabel(size_t index) const override
+    {
+        return BUTTONS[index];
+    }
+
+    const std::string& getBinding(size_t index) const override
+    {
+        return const_cast<ControllerInfo*>(this)->getByButtonName(BUTTONS[index]);
+    }
+
+    void setBinding(size_t index, const std::string& input) override
+    {
+        setByButtonIndex(static_cast<int>(index), input);
     }
 };

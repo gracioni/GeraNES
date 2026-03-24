@@ -787,6 +787,17 @@ void updateExpansionArkanoidState()
     g_emu.setArkanoidControllerFamicom(g_arkanoidPosition[0], fire);
 }
 
+void updateExpansionKonamiHyperShotState()
+{
+    if(g_emu.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) return;
+
+    const bool p1Run = readInput(0, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_A) != 0;
+    const bool p1Jump = readInput(0, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_B) != 0;
+    const bool p2Run = readInput(1, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_A) != 0;
+    const bool p2Jump = readInput(1, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_B) != 0;
+    g_emu.setKonamiHyperShotButtons(p1Run, p1Jump, p2Run, p2Jump);
+}
+
 }
 
 RETRO_API void retro_set_environment(retro_environment_t cb)
@@ -951,6 +962,7 @@ RETRO_API void retro_run(void)
     updateArkanoidState(0);
     updateArkanoidState(1);
     updateExpansionArkanoidState();
+    updateExpansionKonamiHyperShotState();
 
     // Libretro drives one emulated frame per retro_run call; avoid desktop-vsync drift compensation here.
     g_emu.updateUntilFrame(0);

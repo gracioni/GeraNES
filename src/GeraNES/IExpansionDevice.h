@@ -61,6 +61,14 @@ public:
         (void)pressed;
     }
 
+    virtual void setPlayersButtons(bool p1Run, bool p1Jump, bool p2Run, bool p2Jump)
+    {
+        (void)p1Run;
+        (void)p1Jump;
+        (void)p2Run;
+        (void)p2Jump;
+    }
+
     virtual void setPixelChecker(std::function<float(int, int)> func)
     {
         (void)func;

@@ -14,7 +14,7 @@ namespace fs = std::filesystem;
 #include "imgui_util.h"
 #include "ImGuiTheme.h"
 
-#include "ControllerConfigWindow.h"
+#include "InputBindingConfigWindow.h"
 #include "ShortcutManager.h"
 
 #ifdef __EMSCRIPTEN__
@@ -78,7 +78,7 @@ class GeraNESApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
 private:
 
-    ControllerConfigWindow m_controllerConfigWindow;
+    InputBindingConfigWindow m_inputBindingConfigWindow;
 
     std::vector<std::string> m_audioDevices;
 
@@ -103,7 +103,8 @@ private:
     EmulationHost m_emu;
 
     ControllerInfo m_controller1;
-    ControllerInfo m_controller2; 
+    ControllerInfo m_controller2;
+    KonamiHyperShotInfo m_konamiHyperShot;
 
     bool m_emuInputEnabled = true;
 
@@ -119,6 +120,7 @@ private:
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
     bool m_showSnesMouseConfigWindow = false;
+    bool m_showKonamiHyperShotConfigWindow = false;
 
     bool m_showMenuBar = true;
 
@@ -500,6 +502,10 @@ private:
             const bool p2Down = im.isPressed(m_controller2.down);
             const bool p2Left = im.isPressed(m_controller2.left);
             const bool p2Right = im.isPressed(m_controller2.right);
+            const bool konamiP1Run = im.isPressed(m_konamiHyperShot.p1Run);
+            const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
+            const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
+            const bool konamiP2Jump = im.isPressed(m_konamiHyperShot.p2Jump);
             std::array<bool, 12> p1PowerPadButtons = {};
             std::array<bool, 12> p2PowerPadButtons = {};
             for(size_t i = 0; i < POWER_PAD_DEFAULT_KEYS.size(); ++i) {
@@ -559,10 +565,9 @@ private:
                     int relativeX = 0;
                     int relativeY = 0;
                     buttons = SDL_GetRelativeMouseState(&relativeX, &relativeY);
-                    const float arkanoidNesSensitivity = std::clamp(AppSettings::instance().data.input.arkanoid.nesSensitivity, 0.05f, 4.0f);
-                    const float arkanoidFamicomSensitivity = std::clamp(AppSettings::instance().data.input.arkanoid.famicomSensitivity, 0.05f, 4.0f);
-                    arkanoidNesPosition = std::clamp(arkanoidNesPosition + (static_cast<float>(relativeX) * (arkanoidNesSensitivity / 512.0f)), 0.0f, 1.0f);
-                    arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition + (static_cast<float>(relativeX) * (arkanoidFamicomSensitivity / 512.0f)), 0.0f, 1.0f);
+                    const float arkanoidSensitivity = std::clamp(AppSettings::instance().data.input.arkanoid.sensitivity, 0.05f, 4.0f);
+                    arkanoidNesPosition = std::clamp(arkanoidNesPosition + (static_cast<float>(relativeX) * (arkanoidSensitivity / 512.0f)), 0.0f, 1.0f);
+                    arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition + (static_cast<float>(relativeX) * (arkanoidSensitivity / 512.0f)), 0.0f, 1.0f);
                 } else if(!useSnesMouse) {
                     if(!m_hasLastMousePosition) {
                         m_lastMouseX = mx;
@@ -617,6 +622,10 @@ private:
             inputState.zapperP1Trigger = p1ZapperTrigger;
             inputState.zapperP2Trigger = p2ZapperTrigger;
             inputState.bandaiTrigger = bandaiTrigger;
+            inputState.konamiP1Run = konamiP1Run;
+            inputState.konamiP1Jump = konamiP1Jump;
+            inputState.konamiP2Run = konamiP2Run;
+            inputState.konamiP2Jump = konamiP2Jump;
             inputState.mousePrimaryButton = mousePrimaryButton;
             inputState.mouseSecondaryButton = mouseSecondaryButton;
             inputState.rewind =
@@ -661,6 +670,7 @@ private:
         
         cfg.input.getControllerInfo(0, m_controller1);
         cfg.input.getControllerInfo(1, m_controller2);
+        m_konamiHyperShot = cfg.input.konamiHyperShot;
 
         m_emu.setupRewindSystem(cfg.improvements.maxRewindTime > 0, cfg.improvements.maxRewindTime);
         m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
@@ -784,8 +794,8 @@ public:
 
         Logger::instance().signalLog.bind_auto(&GeraNESApp::onLog, this);
 
-        m_controllerConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
-        m_controllerConfigWindow.signalClose.bind(&GeraNESApp::onCaptureEnd, this);
+        m_inputBindingConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
+        m_inputBindingConfigWindow.signalClose.bind(&GeraNESApp::onInputBindingCaptureEnd, this);
 
         m_audioDevices = m_emu.getAudioList();
 
@@ -858,13 +868,11 @@ public:
         m_emuInputEnabled = false;
     }
 
-    void onCaptureEnd() {
-
+    void onInputBindingCaptureEnd() {
         m_emuInputEnabled = true;        
-
-        //save both
         AppSettings::instance().data.input.setControllerInfo(0, m_controller1);
         AppSettings::instance().data.input.setControllerInfo(1, m_controller2);
+        AppSettings::instance().data.input.konamiHyperShot = m_konamiHyperShot;
     }
 
     virtual ~GeraNESApp() {

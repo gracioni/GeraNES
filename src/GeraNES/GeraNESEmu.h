@@ -13,6 +13,7 @@
 #include "ArkanoidControllerFamicom.h"
 #include "SnesMouse.h"
 #include "BandaiHyperShot.h"
+#include "KonamiHyperShot.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
 #include "Console.h"
@@ -125,6 +126,8 @@ private:
                 return nullptr;
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
                 return std::make_unique<BandaiHyperShot>();
+            case Settings::ExpansionDevice::KONAMI_HYPERSHOT:
+                return std::make_unique<KonamiHyperShot>();
             case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
                 return std::make_unique<ArkanoidControllerFamicom>();
         }
@@ -167,6 +170,8 @@ private:
                 return device == nullptr;
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
                 return dynamic_cast<const BandaiHyperShot*>(device) != nullptr;
+            case Settings::ExpansionDevice::KONAMI_HYPERSHOT:
+                return dynamic_cast<const KonamiHyperShot*>(device) != nullptr;
             case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
                 return dynamic_cast<const ArkanoidControllerFamicom*>(device) != nullptr;
         }
@@ -383,9 +388,9 @@ private:
 
                         if(m_expansionDevice) {
                             const uint8_t expData = m_expansionDevice->read4017();
-                            // Expansion devices currently drive bit1 (Arkanoid Famicom)
-                            // and/or bits3-4 (Bandai Hyper Shot) on $4017.
-                            data = static_cast<uint8_t>((data & ~0x1A) | (expData & 0x1A));
+                            // Expansion devices may drive bit1 (Arkanoid Famicom),
+                            // bits1-4 (Konami Hyper Shot), and/or bits3-4 (Bandai Hyper Shot) on $4017.
+                            data = static_cast<uint8_t>((data & ~0x1E) | (expData & 0x1E));
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
@@ -792,6 +797,12 @@ public:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
                     setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
+                    break;
+
+                case GameDatabase::InputType::KonamiHyperShot:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
                     break;
 
                 case GameDatabase::InputType::PowerPadSideA:
@@ -1252,6 +1263,15 @@ public:
         if(device) {
             device->setPositionNormalized(std::clamp(positionNormalized, 0.0f, 1.0f));
             device->setTrigger(button);
+        }
+    }
+
+    void setKonamiHyperShotButtons(bool p1Run, bool p1Jump, bool p2Run, bool p2Jump)
+    {
+        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) return;
+
+        if(m_expansionDevice) {
+            m_expansionDevice->setPlayersButtons(p1Run, p1Jump, p2Run, p2Jump);
         }
     }
 

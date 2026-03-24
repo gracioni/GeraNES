@@ -10,7 +10,7 @@ class Settings {
 public:
     enum class Region { PAL, NTSC, DENDY };
     enum class Device { CONTROLLER, ZAPPER, ARKANOID_CONTROLLER, BANDAI_HYPERSHOT, SNES_MOUSE, POWER_PAD_SIDE_A, POWER_PAD_SIDE_B };
-    enum class ExpansionDevice { NONE, BANDAI_HYPERSHOT, ARKANOID_CONTROLLER };
+    enum class ExpansionDevice { NONE, BANDAI_HYPERSHOT, KONAMI_HYPERSHOT, ARKANOID_CONTROLLER };
     enum class Port { P_1, P_2 };
 
 private:

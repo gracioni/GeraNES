@@ -12,6 +12,7 @@
 namespace fs = std::filesystem;
 
 #include "ControllerInfo.h"
+#include "KonamiHyperShotInfo.h"
 
 #include "logger/logger.h"
 
@@ -77,12 +78,9 @@ public:
 
         struct Arkanoid {
 
-            float nesHalfRangeCm = 5.0f;
-            float famicomHalfRangeCm = 5.0f;
-            float nesSensitivity = 0.5f;
-            float famicomSensitivity = 0.5f;
+            float sensitivity = 0.5f;
 
-            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Arkanoid, nesHalfRangeCm, famicomHalfRangeCm, nesSensitivity, famicomSensitivity)
+            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Arkanoid, sensitivity)
         };
 
         struct SnesMouse {
@@ -101,6 +99,7 @@ public:
         TouchControls touchControls;
         Arkanoid arkanoid;
         SnesMouse snesMouse;
+        KonamiHyperShotInfo konamiHyperShot;
 
         bool getControllerInfo(int index, ControllerInfo& result) {
 
@@ -166,9 +165,14 @@ public:
             if(controller.count("0") > 0 && controller["0"].speed.empty()) {
                 controller["0"].speed = "+";
             }
+
+            if(konamiHyperShot.p1Run.empty()) konamiHyperShot.p1Run = "Left Alt";
+            if(konamiHyperShot.p1Jump.empty()) konamiHyperShot.p1Jump = "Left Ctrl";
+            if(konamiHyperShot.p2Run.empty()) konamiHyperShot.p2Run = "H";
+            if(konamiHyperShot.p2Jump.empty()) konamiHyperShot.p2Jump = "G";
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, controller)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, konamiHyperShot, controller)
     };
 
     struct Audio {

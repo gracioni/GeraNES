@@ -280,8 +280,8 @@ inline void GeraNESApp::menuBar() {
 
                 ImGui::Separator();
                 if(ImGui::MenuItem("Config...")) {
-                    if(port == Settings::Port::P_1) m_controllerConfigWindow.show("Controller 1", m_controller1);
-                    else m_controllerConfigWindow.show("Controller 2", m_controller2);
+                    if(port == Settings::Port::P_1) m_inputBindingConfigWindow.show("Controller 1", m_controller1);
+                    else m_inputBindingConfigWindow.show("Controller 2", m_controller2);
                 }
             };
 
@@ -306,6 +306,18 @@ inline void GeraNESApp::menuBar() {
                 ImGui::Separator();
                 if(ImGui::MenuItem("Config...")) {
                     m_showSnesMouseConfigWindow = true;
+                }
+            };
+
+            auto drawKonamiHyperShotConfigItem = [this]()
+            {
+                if(m_emu.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
+                    return;
+                }
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    m_showKonamiHyperShotConfigWindow = true;
                 }
             };
 
@@ -344,6 +356,10 @@ inline void GeraNESApp::menuBar() {
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                 }
+                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
+                }
                 if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
@@ -354,6 +370,7 @@ inline void GeraNESApp::menuBar() {
                         m_showArkanoidFamicomConfigWindow = true;
                     }
                 }
+                drawKonamiHyperShotConfigItem();
                 ImGui::EndMenu();
             }
 

@@ -15,7 +15,7 @@ inline void GeraNESApp::showGui()
     if(m_emu.isNsfLoaded()) drawNsfPlayerVisualizer();
 #endif
 
-    m_controllerConfigWindow.update();
+    m_inputBindingConfigWindow.update();
 
     if(m_showImprovementsWindow) {
         ImGui::SetNextWindowSize(ImVec2(320, 0));
@@ -79,10 +79,10 @@ inline void GeraNESApp::showGui()
             ImGui::TextWrapped("The NES Arkanoid paddle uses grabbed relative mouse movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
-            float sensitivity = AppSettings::instance().data.input.arkanoid.nesSensitivity;
+            float sensitivity = AppSettings::instance().data.input.arkanoid.sensitivity;
             ImGui::SetNextItemWidth(180.0f);
             if(ImGui::SliderFloat("Sensitivity", &sensitivity, 0.05f, 4.0f, "%.2fx")) {
-                AppSettings::instance().data.input.arkanoid.nesSensitivity = std::clamp(sensitivity, 0.05f, 4.0f);
+                AppSettings::instance().data.input.arkanoid.sensitivity = std::clamp(sensitivity, 0.05f, 4.0f);
             }
 
         }
@@ -98,10 +98,10 @@ inline void GeraNESApp::showGui()
             ImGui::TextWrapped("The Famicom Arkanoid paddle uses grabbed relative mouse movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
-            float sensitivity = AppSettings::instance().data.input.arkanoid.famicomSensitivity;
+            float sensitivity = AppSettings::instance().data.input.arkanoid.sensitivity;
             ImGui::SetNextItemWidth(180.0f);
             if(ImGui::SliderFloat("Sensitivity", &sensitivity, 0.05f, 4.0f, "%.2fx")) {
-                AppSettings::instance().data.input.arkanoid.famicomSensitivity = std::clamp(sensitivity, 0.05f, 4.0f);
+                AppSettings::instance().data.input.arkanoid.sensitivity = std::clamp(sensitivity, 0.05f, 4.0f);
             }
 
         }
@@ -125,6 +125,11 @@ inline void GeraNESApp::showGui()
         }
 
         ImGui::End();
+    }
+
+    if(m_showKonamiHyperShotConfigWindow) {
+        m_inputBindingConfigWindow.show("Konami Hyper Shot Config", m_konamiHyperShot);
+        m_showKonamiHyperShotConfigWindow = false;
     }
 
     if(m_showRomDatabaseWindow) {
