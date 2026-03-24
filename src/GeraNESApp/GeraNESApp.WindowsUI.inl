@@ -76,14 +76,13 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Arkanoid Controller Config (NES)", &m_showArkanoidNesConfigWindow, ImGuiWindowFlags_NoResize)) {
-            ImGui::TextWrapped("The NES Arkanoid paddle uses the mouse absolute X position based on the NES display center and the window DPI.");
-            ImGui::TextWrapped("Center - range maps to the minimum knob value and center + range maps to the maximum.");
+            ImGui::TextWrapped("The NES Arkanoid paddle uses grabbed relative mouse movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
-            float halfRangeCm = AppSettings::instance().data.input.arkanoid.nesHalfRangeCm;
-            ImGui::SetNextItemWidth(120.0f);
-            if(ImGui::InputFloat("Half Range (cm)", &halfRangeCm, 0.5f, 1.0f, "%.1f")) {
-                AppSettings::instance().data.input.arkanoid.nesHalfRangeCm = std::clamp(halfRangeCm, 0.5f, 50.0f);
+            float sensitivity = AppSettings::instance().data.input.arkanoid.nesSensitivity;
+            ImGui::SetNextItemWidth(180.0f);
+            if(ImGui::SliderFloat("Sensitivity", &sensitivity, 0.05f, 4.0f, "%.2fx")) {
+                AppSettings::instance().data.input.arkanoid.nesSensitivity = std::clamp(sensitivity, 0.05f, 4.0f);
             }
 
         }
@@ -96,14 +95,13 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Arkanoid Controller Config (Famicom)", &m_showArkanoidFamicomConfigWindow, ImGuiWindowFlags_NoResize)) {
-            ImGui::TextWrapped("The Famicom Arkanoid paddle uses the mouse absolute X position based on the NES display center and the window DPI.");
-            ImGui::TextWrapped("Center - range maps to the minimum knob value and center + range maps to the maximum.");
+            ImGui::TextWrapped("The Famicom Arkanoid paddle uses grabbed relative mouse movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
-            float halfRangeCm = AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm;
-            ImGui::SetNextItemWidth(120.0f);
-            if(ImGui::InputFloat("Half Range (cm)", &halfRangeCm, 0.5f, 1.0f, "%.1f")) {
-                AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm = std::clamp(halfRangeCm, 0.5f, 50.0f);
+            float sensitivity = AppSettings::instance().data.input.arkanoid.famicomSensitivity;
+            ImGui::SetNextItemWidth(180.0f);
+            if(ImGui::SliderFloat("Sensitivity", &sensitivity, 0.05f, 4.0f, "%.2fx")) {
+                AppSettings::instance().data.input.arkanoid.famicomSensitivity = std::clamp(sensitivity, 0.05f, 4.0f);
             }
 
         }

@@ -1223,7 +1223,7 @@ public:
         IControllerPortDevice* device =
             (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
         if(device) {
-            device->setPositionNormalized(positionNormalized);
+            device->setPositionNormalized(std::clamp(positionNormalized, 0.0f, 1.0f));
             device->setTrigger(button);
         }
     }
@@ -1233,7 +1233,7 @@ public:
         if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::ARKANOID_CONTROLLER) return;
 
         if(m_expansionDevice) {
-            m_expansionDevice->setPositionNormalized(positionNormalized);
+            m_expansionDevice->setPositionNormalized(std::clamp(positionNormalized, 0.0f, 1.0f));
             m_expansionDevice->setTrigger(button);
         }
     }

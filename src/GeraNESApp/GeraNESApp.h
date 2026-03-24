@@ -175,11 +175,15 @@ private:
 
     bool m_imGuiWantsMouse = false;
     bool m_cursorVisible = true;
+    bool m_arkanoidGrabActive = false;
+    bool m_arkanoidSuppressClickUntilRelease = false;
     bool m_snesMouseGrabActive = false;
     bool m_snesMouseSuppressClickUntilRelease = false;
     bool m_hasLastMousePosition = false;
     int m_lastMouseX = 0;
     int m_lastMouseY = 0;
+    float m_arkanoidNesPosition = 0.5f;
+    float m_arkanoidFamicomPosition = 0.5f;
 
     // FPS vars    
     Uint64 m_fpsTimer = 0;
@@ -421,6 +425,31 @@ private:
                m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE);
     }
 
+    bool isArkanoidActive() const
+    {
+        return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+               m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+               m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER;
+    }
+
+    void setArkanoidGrab(bool active)
+    {
+        if(m_arkanoidGrabActive == active) return;
+        m_arkanoidGrabActive = active;
+#ifndef __EMSCRIPTEN__
+        SDL_SetWindowGrab(sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
+        SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
+#endif
+        if(active) {
+            m_arkanoidSuppressClickUntilRelease = true;
+            Logger::instance().log("Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
+        } else {
+            m_arkanoidSuppressClickUntilRelease = false;
+            Logger::instance().log("Mouse released.", Logger::Type::USER);
+        }
+        m_hasLastMousePosition = false;
+    }
+
     void setSnesMouseGrab(bool active)
     {
         if(m_snesMouseGrabActive == active) return;
@@ -431,23 +460,12 @@ private:
 #endif
         if(active) {
             m_snesMouseSuppressClickUntilRelease = true;
-            Logger::instance().log("SNES Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
+            Logger::instance().log("Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
         } else {
             m_snesMouseSuppressClickUntilRelease = false;
-            Logger::instance().log("SNES Mouse released.", Logger::Type::USER);
+            Logger::instance().log("Mouse released.", Logger::Type::USER);
         }
         m_hasLastMousePosition = false;
-    }
-
-    float getArkanoidCursorNormalized(int screenX, float halfRangeCm)
-    {
-        const float dpiX = std::max(1.0f, GetWindowDPI().x);
-        const float halfRangePx = (halfRangeCm / 2.54f) * dpiX;
-        const float centerX = (m_nesScreenRect.min.x + m_nesScreenRect.max.x) * 0.5f;
-        const float left = centerX - halfRangePx;
-        const float right = centerX + halfRangePx;
-        const float clamped = std::clamp(static_cast<float>(screenX), left, right);
-        return (clamped - left) / std::max(1.0f, right - left);
     }
 
     void onFrameStart() { 
@@ -483,8 +501,8 @@ private:
             int zapperY = -1;
             int mouseDeltaX = 0;
             int mouseDeltaY = 0;
-            float arkanoidNesPosition = 0.5f;
-            float arkanoidFamicomPosition = 0.5f;
+            float arkanoidNesPosition = m_arkanoidNesPosition;
+            float arkanoidFamicomPosition = m_arkanoidFamicomPosition;
             bool p1ZapperTrigger = false;
             bool p2ZapperTrigger = false;
             bool bandaiTrigger = false;
@@ -496,10 +514,10 @@ private:
 
                 auto [nesX, nesY] = getNesCursor(mx, my);
                 const bool useSnesMouse = isSnesMouseActive();
-                arkanoidNesPosition = getArkanoidCursorNormalized(mx, std::max(0.5f, AppSettings::instance().data.input.arkanoid.nesHalfRangeCm));
-                arkanoidFamicomPosition = getArkanoidCursorNormalized(mx, std::max(0.5f, AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm));
+                const bool useArkanoid = isArkanoidActive();
+                const bool pointerGrabActive = m_snesMouseGrabActive || m_arkanoidGrabActive;
 
-                const bool mouseAllowed = !m_imGuiWantsMouse && !m_touch->buttons().anyPressed();
+                const bool mouseAllowed = (!m_imGuiWantsMouse || pointerGrabActive) && !m_touch->buttons().anyPressed();
                 bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
                 bool rightClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT));
 
@@ -507,6 +525,14 @@ private:
                     if(!leftClick && !rightClick) {
                         m_snesMouseSuppressClickUntilRelease = false;
                     } else if(useSnesMouse) {
+                        leftClick = false;
+                        rightClick = false;
+                    }
+                }
+                if(m_arkanoidSuppressClickUntilRelease) {
+                    if(!leftClick && !rightClick) {
+                        m_arkanoidSuppressClickUntilRelease = false;
+                    } else if(useArkanoid) {
                         leftClick = false;
                         rightClick = false;
                     }
@@ -519,6 +545,14 @@ private:
                     const float snesMouseSensitivity = std::clamp(AppSettings::instance().data.input.snesMouse.sensitivity, 0.01f, 4.0f);
                     mouseDeltaX = static_cast<int>(std::lround(static_cast<float>(relativeX) * snesMouseSensitivity));
                     mouseDeltaY = static_cast<int>(std::lround(static_cast<float>(relativeY) * snesMouseSensitivity));
+                } else if(mouseAllowed && useArkanoid && m_arkanoidGrabActive) {
+                    int relativeX = 0;
+                    int relativeY = 0;
+                    buttons = SDL_GetRelativeMouseState(&relativeX, &relativeY);
+                    const float arkanoidNesSensitivity = std::clamp(AppSettings::instance().data.input.arkanoid.nesSensitivity, 0.05f, 4.0f);
+                    const float arkanoidFamicomSensitivity = std::clamp(AppSettings::instance().data.input.arkanoid.famicomSensitivity, 0.05f, 4.0f);
+                    arkanoidNesPosition = std::clamp(arkanoidNesPosition + (static_cast<float>(relativeX) * (arkanoidNesSensitivity / 512.0f)), 0.0f, 1.0f);
+                    arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition + (static_cast<float>(relativeX) * (arkanoidFamicomSensitivity / 512.0f)), 0.0f, 1.0f);
                 } else if(!useSnesMouse) {
                     if(!m_hasLastMousePosition) {
                         m_lastMouseX = mx;
@@ -539,6 +573,8 @@ private:
                 mousePrimaryButton = leftClick;
                 mouseSecondaryButton = rightClick;
             }
+            m_arkanoidNesPosition = std::clamp(arkanoidNesPosition, 0.0f, 1.0f);
+            m_arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition, 0.0f, 1.0f);
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
             if(im.isJustPressed(m_controller2.loadState)) m_emu.loadState();
@@ -670,11 +706,14 @@ private:
 
     void updateCursor() {
 
+        if(!isArkanoidActive() && m_arkanoidGrabActive) {
+            setArkanoidGrab(false);
+        }
         if(!isSnesMouseActive() && m_snesMouseGrabActive) {
             setSnesMouseGrab(false);
         }
 
-        if(m_snesMouseGrabActive) {
+        if(m_snesMouseGrabActive || m_arkanoidGrabActive) {
             if(m_defaultCursor.has_value() && !m_defaultCursor->isCurrent()) {
                 m_defaultCursor->setAsCurrent();
             }
@@ -1258,6 +1297,9 @@ public:
                     if(m_snesMouseGrabActive) {
                         setSnesMouseGrab(false);
                     }
+                    else if(m_arkanoidGrabActive) {
+                        setArkanoidGrab(false);
+                    }
                     else {
                         m_showMenuBar = !m_showMenuBar;
                         m_updateObjectsFlag = true;
@@ -1272,6 +1314,13 @@ public:
                     if(event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) {
                         if(pointInRect(glm::vec2(static_cast<float>(event.button.x), static_cast<float>(event.button.y)), m_nesScreenRect)) {
                             setSnesMouseGrab(true);
+                        }
+                    }
+                }
+                if(!m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && isArkanoidActive()) {
+                    if(event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) {
+                        if(pointInRect(glm::vec2(static_cast<float>(event.button.x), static_cast<float>(event.button.y)), m_nesScreenRect)) {
+                            setArkanoidGrab(true);
                         }
                     }
                 }

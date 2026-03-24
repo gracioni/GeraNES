@@ -79,8 +79,10 @@ public:
 
             float nesHalfRangeCm = 5.0f;
             float famicomHalfRangeCm = 5.0f;
+            float nesSensitivity = 0.5f;
+            float famicomSensitivity = 0.5f;
 
-            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Arkanoid, nesHalfRangeCm, famicomHalfRangeCm)
+            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Arkanoid, nesHalfRangeCm, famicomHalfRangeCm, nesSensitivity, famicomSensitivity)
         };
 
         struct SnesMouse {
