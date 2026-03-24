@@ -25,6 +25,17 @@ private:
 
 public:
 
+    bool isNes20() const
+    {
+        return (m_romFile.data(7) & 0x0C) == 0x08;
+    }
+
+    static int decodeNes20RamSize(uint8_t shiftCount)
+    {
+        if(shiftCount == 0) return 0;
+        return 64 << shiftCount;
+    }
+
     _INesFormat(RomFile& romFile) : ICartridgeData(romFile)
     {
         m_isValid = false;
@@ -70,11 +81,25 @@ public:
 
     int prgSize() override
     {
+        if(isNes20()) {
+            const int lsb = m_romFile.data(4);
+            const int msb = m_romFile.data(9) & 0x0F;
+            if(msb != 0x0F) {
+                return ((msb << 8) | lsb) * 0x4000;
+            }
+        }
         return m_romFile.data(4) * 0x4000;
     }
 
     int chrSize() override
     {
+        if(isNes20()) {
+            const int lsb = m_romFile.data(5);
+            const int msb = (m_romFile.data(9) >> 4) & 0x0F;
+            if(msb != 0x0F) {
+                return ((msb << 8) | lsb) * 0x2000;
+            }
+        }
         return m_romFile.data(5) * 0x2000;
     }
 
@@ -121,11 +146,17 @@ public:
 
     int mapperId() override
     {
+        if(isNes20()) {
+            return ((m_romFile.data(6)&0xF0) >> 4) | (m_romFile.data(7)&0xF0) | ((m_romFile.data(8) & 0x0F) << 8);
+        }
         return ((m_romFile.data(6)&0xF0) >> 4) | (m_romFile.data(7)&0xF0);
     }
 
     int subMapperId() override
     {
+        if(isNes20()) {
+            return (m_romFile.data(8) >> 4) & 0x0F;
+        }
         return 0;
     }
 
@@ -137,6 +168,9 @@ public:
     */
     int ramSize() override
     {
+        if(isNes20()) {
+            return decodeNes20RamSize(m_romFile.data(10) & 0x0F);
+        }
         int n = m_romFile.data(8);
         if(n == 0) n = 1;
         return n * 0x2000;
@@ -144,6 +178,9 @@ public:
 
     int chrRamSize() override
     {
+        if(isNes20()) {
+            return decodeNes20RamSize(m_romFile.data(11) & 0x0F);
+        }
         return chrSize() == 0 ? 0x2000 : 0; //default 8k        
     }
 
@@ -164,6 +201,9 @@ public:
     }
 
     int saveRamSize() override {
+        if(isNes20()) {
+            return decodeNes20RamSize((m_romFile.data(10) >> 4) & 0x0F);
+        }
         return 0x2000; //default 8k
     }
 

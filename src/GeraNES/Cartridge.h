@@ -668,12 +668,17 @@ public:
         std::string prgCrcStr = Crc32::toString(prgCrc);
         std::string prgChrCrcStr = Crc32::toString(prgChrCrc);
 
-        // NSF is not an iNES cartridge dump, so DB header overwrite doesn't apply.
-        if(
+        const auto* iNesData = dynamic_cast<_INesFormat*>(m_nesCartridgeData);
+        const bool skipDatabaseHeaderOverwrite =
+            (iNesData != nullptr && iNesData->isNes20()) ||
 #ifdef ENABLE_NSF_PLAYER
-           dynamic_cast<_NsfFormat*>(m_nesCartridgeData) == nullptr &&
+            dynamic_cast<_NsfFormat*>(m_nesCartridgeData) != nullptr ||
 #endif
-           dynamic_cast<_FdsFormat*>(m_nesCartridgeData) == nullptr) {
+            dynamic_cast<_FdsFormat*>(m_nesCartridgeData) != nullptr;
+
+        // NSF/FDS are not iNES cartridge dumps, and NES 2.0 headers already provide
+        // explicit mapper/submapper/RAM metadata that we prefer over DB overrides.
+        if(!skipDatabaseHeaderOverwrite) {
             GameDatabase::Item* item = GameDatabase::instance().findByCrc(prgChrCrcStr);
 
             if(item != nullptr) {
@@ -686,7 +691,10 @@ public:
             }
         }
         else {
-            if(dynamic_cast<_FdsFormat*>(m_nesCartridgeData) != nullptr) {
+            if(iNesData != nullptr && iNesData->isNes20()) {
+                Logger::instance().log("NES 2.0 ROM detected\nUsing file header directly", Logger::Type::INFO);
+            }
+            else if(dynamic_cast<_FdsFormat*>(m_nesCartridgeData) != nullptr) {
                 Logger::instance().log("FDS file detected\nUsing FDS mapper", Logger::Type::INFO);
             }
 #ifdef ENABLE_NSF_PLAYER
