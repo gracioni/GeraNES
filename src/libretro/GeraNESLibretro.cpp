@@ -1,4 +1,5 @@
 #include <array>
+#include <algorithm>
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
@@ -143,6 +144,8 @@ enum {
 };
 
 enum {
+    RETRO_DEVICE_ID_MOUSE_X = 0,
+    RETRO_DEVICE_ID_MOUSE_Y = 1,
     RETRO_DEVICE_ID_MOUSE_LEFT = 2,
     RETRO_DEVICE_ID_MOUSE_RIGHT = 3
 };
@@ -263,10 +266,12 @@ bool g_loggerBound = false;
 
 enum class PortInputMode {
     Controller,
-    Zapper
+    Zapper,
+    Arkanoid
 };
 
 std::array<PortInputMode, 2> g_portInputModes = {PortInputMode::Controller, PortInputMode::Controller};
+std::array<float, 2> g_arkanoidPosition = {0.5f, 0.5f};
 
 void frontendMessage(const std::string& msg, unsigned frames = 180);
 
@@ -357,6 +362,8 @@ void registerInputDescriptors()
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "P1 Left"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "P1 Right"},
         {0, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, "P1 Zapper Trigger"},
+        {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X, "P1 Arkanoid Paddle"},
+        {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT, "P1 Arkanoid Fire"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "P2 B"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "P2 A"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "P2 Select"},
@@ -366,6 +373,8 @@ void registerInputDescriptors()
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "P2 Left"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "P2 Right"},
         {1, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, "P2 Zapper Trigger"},
+        {1, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X, "P2 Arkanoid Paddle"},
+        {1, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT, "P2 Arkanoid Fire"},
         {0, 0, 0, 0, nullptr}
     };
 
@@ -378,12 +387,13 @@ void registerControllerInfo()
 
     static const retro_controller_description portTypes[] = {
         {"Joypad", RETRO_DEVICE_JOYPAD},
-        {"Zapper", RETRO_DEVICE_LIGHTGUN}
+        {"Zapper", RETRO_DEVICE_LIGHTGUN},
+        {"Arkanoid", RETRO_DEVICE_MOUSE}
     };
 
     static const retro_controller_info ports[] = {
-        {portTypes, 2},
-        {portTypes, 2},
+        {portTypes, 3},
+        {portTypes, 3},
         {nullptr, 0}
     };
 
@@ -402,6 +412,9 @@ void applyPortInputMode(unsigned port)
             break;
         case PortInputMode::Zapper:
             device = Settings::Device::ZAPPER;
+            break;
+        case PortInputMode::Arkanoid:
+            device = Settings::Device::ARKANOID_CONTROLLER;
             break;
     }
 
@@ -725,6 +738,35 @@ void updateZapperState(unsigned port)
     g_emu.setZapper(emuPort, x, y, trigger);
 }
 
+void updateArkanoidState(unsigned port)
+{
+    const Settings::Port emuPort = (port == 0) ? Settings::Port::P_1 : Settings::Port::P_2;
+    if(g_emu.getPortDevice(emuPort) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) return;
+
+    const int16_t mouseDeltaX = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_X);
+    g_arkanoidPosition[port] = std::clamp(g_arkanoidPosition[port] + (static_cast<float>(mouseDeltaX) / 256.0f), 0.0f, 1.0f);
+
+    bool fire = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
+    fire = fire || (readInput(port, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_A) != 0);
+    fire = fire || (readInput(port, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_B) != 0);
+
+    g_emu.setArkanoidController(emuPort, g_arkanoidPosition[port], fire);
+}
+
+void updateExpansionArkanoidState()
+{
+    if(g_emu.getExpansionDevice() != Settings::ExpansionDevice::ARKANOID_CONTROLLER) return;
+
+    const int16_t mouseDeltaX = readInput(0, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_X);
+    g_arkanoidPosition[0] = std::clamp(g_arkanoidPosition[0] + (static_cast<float>(mouseDeltaX) / 256.0f), 0.0f, 1.0f);
+
+    bool fire = readInput(0, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
+    fire = fire || (readInput(0, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_A) != 0);
+    fire = fire || (readInput(0, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_B) != 0);
+
+    g_emu.setArkanoidControllerFamicom(g_arkanoidPosition[0], fire);
+}
+
 }
 
 RETRO_API void retro_set_environment(retro_environment_t cb)
@@ -840,6 +882,9 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
     if(deviceBase == RETRO_DEVICE_LIGHTGUN) {
         g_portInputModes[port] = PortInputMode::Zapper;
     }
+    else if(deviceBase == RETRO_DEVICE_MOUSE) {
+        g_portInputModes[port] = PortInputMode::Arkanoid;
+    }
     else if(deviceBase == RETRO_DEVICE_JOYPAD) {
         g_portInputModes[port] = PortInputMode::Controller;
     }
@@ -877,6 +922,9 @@ RETRO_API void retro_run(void)
     updateControllerState(1);
     updateZapperState(0);
     updateZapperState(1);
+    updateArkanoidState(0);
+    updateArkanoidState(1);
+    updateExpansionArkanoidState();
 
     // Libretro drives one emulated frame per retro_run call; avoid desktop-vsync drift compensation here.
     g_emu.updateUntilFrame(0);
@@ -950,6 +998,8 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     g_audio.reset();
     g_portInputModes[0] = PortInputMode::Controller;
     g_portInputModes[1] = PortInputMode::Controller;
+    g_arkanoidPosition[0] = 0.5f;
+    g_arkanoidPosition[1] = 0.5f;
 
     bool loaded = false;
 
@@ -975,12 +1025,14 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     if(g_gameLoaded) {
         updateTimingFromRegion();
         syncRegionOptionWithLoadedGame();
-        g_portInputModes[0] = (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER))
-            ? PortInputMode::Zapper
-            : PortInputMode::Controller;
-        g_portInputModes[1] = (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER))
-            ? PortInputMode::Zapper
-            : PortInputMode::Controller;
+        g_portInputModes[0] =
+            (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER)) ? PortInputMode::Zapper :
+            (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
+            PortInputMode::Controller;
+        g_portInputModes[1] =
+            (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER)) ? PortInputMode::Zapper :
+            (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
+            PortInputMode::Controller;
         applyAllPortInputModes();
     }
     if(g_gameLoaded) applyCoreOptions(false);

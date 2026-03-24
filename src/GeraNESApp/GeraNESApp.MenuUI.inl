@@ -264,29 +264,40 @@ inline void GeraNESApp::menuBar() {
 
         if (ImGui::BeginMenu("Input"))
         {
-            if (ImGui::BeginMenu("Port 1")) {
+            auto drawControllerPortMenuItem = [this](const char* label, Settings::Port port, Settings::Device device)
+            {
+                const bool selected = m_emu.getPortDevice(port) == std::optional<Settings::Device>(device);
+                if(ImGui::MenuItem(label, nullptr, selected)) {
+                    m_emu.setPortDevice(port, device);
+                }
+            };
 
-                if (ImGui::MenuItem("Controller", nullptr, m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::CONTROLLER)))
-                {
-                    m_emu.setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+            auto drawControllerPortConfigItem = [this](Settings::Port port)
+            {
+                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::CONTROLLER)) {
+                    return;
                 }
-                if (ImGui::MenuItem("Zapper", nullptr, m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER)))
-                {
-                    m_emu.setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    if(port == Settings::Port::P_1) m_controllerConfigWindow.show("Controller 1", m_controller1);
+                    else m_controllerConfigWindow.show("Controller 2", m_controller2);
                 }
+            };
+
+            if (ImGui::BeginMenu("Port 1")) {
+                drawControllerPortMenuItem("Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
+                drawControllerPortMenuItem("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER);
+                drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
+                drawControllerPortConfigItem(Settings::Port::P_1);
                 ImGui::EndMenu();
             }
 
             if (ImGui::BeginMenu("Port 2")) {
-
-                if (ImGui::MenuItem("Controller", nullptr, m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::CONTROLLER)))
-                {
-                    m_emu.setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
-                }
-                if (ImGui::MenuItem("Zapper", nullptr, m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER)))
-                {
-                    m_emu.setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
-                }
+                drawControllerPortMenuItem("Controller", Settings::Port::P_2, Settings::Device::CONTROLLER);
+                drawControllerPortMenuItem("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER);
+                drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
+                drawControllerPortConfigItem(Settings::Port::P_2);
                 ImGui::EndMenu();
             }
 
@@ -298,6 +309,10 @@ inline void GeraNESApp::menuBar() {
                 if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
+                }
+                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                 }
                 ImGui::EndMenu();
             }
@@ -335,19 +350,6 @@ inline void GeraNESApp::menuBar() {
             }
 
             ImGui::Separator();
-
-            if (ImGui::BeginMenu("Controller")) {
-
-                if (ImGui::MenuItem("1"))
-                {
-                    m_controllerConfigWindow.show("Controller 1", m_controller1);
-                }
-                if (ImGui::MenuItem("2"))
-                {
-                    m_controllerConfigWindow.show("Controller 2", m_controller2);
-                }
-                ImGui::EndMenu();
-            }
 
             if (ImGui::BeginMenu("Touch controls")) {
 

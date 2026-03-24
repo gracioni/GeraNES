@@ -51,6 +51,11 @@ public:
         (void)y;
     }
 
+    virtual void setPositionNormalized(float position)
+    {
+        (void)position;
+    }
+
     virtual void setTrigger(bool pressed)
     {
         (void)pressed;

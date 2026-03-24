@@ -8,6 +8,8 @@
 #include "APU/APU.h"
 #include "Controller.h"
 #include "Zapper.h"
+#include "ArkanoidControllerNes.h"
+#include "ArkanoidControllerFamicom.h"
 #include "BandaiHyperShot.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
@@ -99,6 +101,8 @@ private:
                 return std::make_unique<Controller>();
             case Settings::Device::ZAPPER:
                 return std::make_unique<Zapper>();
+            case Settings::Device::ARKANOID_CONTROLLER:
+                return std::make_unique<ArkanoidControllerNes>();
             case Settings::Device::BANDAI_HYPERSHOT:
                 return std::make_unique<Controller>();
         }
@@ -113,6 +117,8 @@ private:
                 return nullptr;
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
                 return std::make_unique<BandaiHyperShot>();
+            case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
+                return std::make_unique<ArkanoidControllerFamicom>();
         }
 
         return nullptr;
@@ -125,6 +131,8 @@ private:
                 return dynamic_cast<const Controller*>(device) != nullptr;
             case Settings::Device::ZAPPER:
                 return dynamic_cast<const Zapper*>(device) != nullptr;
+            case Settings::Device::ARKANOID_CONTROLLER:
+                return dynamic_cast<const ArkanoidControllerNes*>(device) != nullptr;
             case Settings::Device::BANDAI_HYPERSHOT:
                 return dynamic_cast<const Controller*>(device) != nullptr;
         }
@@ -139,6 +147,8 @@ private:
                 return device == nullptr;
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
                 return dynamic_cast<const BandaiHyperShot*>(device) != nullptr;
+            case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
+                return dynamic_cast<const ArkanoidControllerFamicom*>(device) != nullptr;
         }
 
         return false;
@@ -353,7 +363,9 @@ private:
 
                         if(m_expansionDevice) {
                             const uint8_t expData = m_expansionDevice->read4017();
-                            data = static_cast<uint8_t>((data & ~0x18) | (expData & 0x18));
+                            // Expansion devices currently drive bit1 (Arkanoid Famicom)
+                            // and/or bits3-4 (Bandai Hyper Shot) on $4017.
+                            data = static_cast<uint8_t>((data & ~0x1A) | (expData & 0x1A));
                         }
 
                         data = m_cartridge.readMapperRegister(addr & 0x1FFF, data);
@@ -750,6 +762,24 @@ public:
                     setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                     break;
 
+                case GameDatabase::InputType::ArkanoidControllerNes:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
+                case GameDatabase::InputType::ArkanoidControllerFamicom:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
+                    break;
+
+                case GameDatabase::InputType::DoubleArkanoidController:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
+                    break;
+
                 default:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
@@ -1124,6 +1154,8 @@ public:
 
     void setZapper(Settings::Port port, int x, int y, bool trigger)
     {
+        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::ZAPPER)) return;
+
         switch(port) {
 
             case Settings::Port::P_1:
@@ -1144,6 +1176,8 @@ public:
 
     void setBandaiHyperShotButtons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
+        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::BANDAI_HYPERSHOT) return;
+
         if(m_expansionDevice) {
             m_expansionDevice->setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
         }
@@ -1151,9 +1185,33 @@ public:
 
     void setBandaiHyperShot(int x, int y, bool trigger)
     {
+        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::BANDAI_HYPERSHOT) return;
+
         if(m_expansionDevice) {
             m_expansionDevice->setCursorPosition(x, y);
             m_expansionDevice->setTrigger(trigger);
+        }
+    }
+
+    void setArkanoidController(Settings::Port port, float positionNormalized, bool button)
+    {
+        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) return;
+
+        IControllerPortDevice* device =
+            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+        if(device) {
+            device->setPositionNormalized(positionNormalized);
+            device->setTrigger(button);
+        }
+    }
+
+    void setArkanoidControllerFamicom(float positionNormalized, bool button)
+    {
+        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::ARKANOID_CONTROLLER) return;
+
+        if(m_expansionDevice) {
+            m_expansionDevice->setPositionNormalized(positionNormalized);
+            m_expansionDevice->setTrigger(button);
         }
     }
 

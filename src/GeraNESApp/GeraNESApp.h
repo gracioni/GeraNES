@@ -200,6 +200,7 @@ private:
 
     std::optional<SdlCursor> m_defaultCursor;
     std::optional<SdlCursor> m_crossCursor;
+    std::optional<SdlCursor> m_sizeWECursor;
 
     static void setIfNegative(std::string& dst, int value)
     {
@@ -391,6 +392,17 @@ private:
         return std::make_tuple(nesX, nesY);
     }
 
+    float getArkanoidCursorNormalized(int screenX)
+    {
+        const float rectWidth = std::max(1.0f, m_nesScreenRect.max.x - m_nesScreenRect.min.x);
+        const float margin = rectWidth * 0.10f;
+        const float left = margin;
+        const float right = std::max(left + 1.0f, rectWidth - margin);
+        const float localX = static_cast<float>(screenX) - m_nesScreenRect.min.x;
+        const float clamped = std::clamp(localX, left, right);
+        return (clamped - left) / std::max(1.0f, right - left);
+    }
+
     void onFrameStart() { 
 
         if(m_emuInputEnabled) {
@@ -422,14 +434,17 @@ private:
 
             int zapperX = -1;
             int zapperY = -1;
+            float arkanoidPosition = 0.5f;
             bool p1ZapperTrigger = false;
             bool p2ZapperTrigger = false;
             bool bandaiTrigger = false;
+            bool mousePrimaryButton = false;
             {
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
                 auto [nesX, nesY] = getNesCursor(mx, my);
+                arkanoidPosition = getArkanoidCursorNormalized(mx);
 
                 const bool mouseAllowed = !m_imGuiWantsMouse && !m_touch->buttons().anyPressed();
                 const bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
@@ -440,6 +455,7 @@ private:
                 p1ZapperTrigger = rightClick;
                 p2ZapperTrigger = leftClick || rightClick;
                 bandaiTrigger = leftClick || rightClick;
+                mousePrimaryButton = leftClick;
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
@@ -464,9 +480,11 @@ private:
             inputState.p2Right = p2Right;
             inputState.zapperX = zapperX;
             inputState.zapperY = zapperY;
+            inputState.arkanoidPosition = arkanoidPosition;
             inputState.zapperP1Trigger = p1ZapperTrigger;
             inputState.zapperP2Trigger = p2ZapperTrigger;
             inputState.bandaiTrigger = bandaiTrigger;
+            inputState.mousePrimaryButton = mousePrimaryButton;
             inputState.rewind =
                 im.isPressed(m_controller1.rewind) ||
                 im.isPressed(m_controller2.rewind) ||
@@ -570,17 +588,28 @@ private:
         SDL_GetMouseState(&mx, &my);
 
         bool inside = pointInRect(glm::vec2(mx,my), m_nesScreenRect);
+        const bool useArkanoidCursor =
+            m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+            m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+            m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER;
 
-        bool useZapper = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
-        m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
-        m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT;
+        bool usePointerDevice =
+            m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
+            m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER) ||
+            m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT ||
+            useArkanoidCursor;
 
-        if(!m_imGuiWantsMouse && inside && useZapper) {
+        if(!m_imGuiWantsMouse && useArkanoidCursor && inside) {
+            SDL_ShowCursor(SDL_DISABLE);
+        }
+        else if(!m_imGuiWantsMouse && inside && usePointerDevice) {
+            SDL_ShowCursor(SDL_ENABLE);
             if(m_crossCursor.has_value() && !m_crossCursor->isCurrent()) {
                 m_crossCursor->setAsCurrent();
             }
         }
         else {
+            SDL_ShowCursor(SDL_ENABLE);
             if(m_defaultCursor.has_value() && !m_defaultCursor->isCurrent())
                 m_defaultCursor->setAsCurrent();
         }
@@ -822,6 +851,7 @@ public:
 
         m_defaultCursor = SdlCursor::getDefault();
         m_crossCursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+        m_sizeWECursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
 
         setFullScreen(m_fullScreen);
 
