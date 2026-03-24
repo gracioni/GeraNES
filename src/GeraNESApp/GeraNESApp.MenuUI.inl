@@ -445,36 +445,58 @@ inline void GeraNESApp::menuBar() {
                     ImGui::EndMenu();
                 }
 
-                ImGui::EndMenu();
-            }
+            ImGui::EndMenu();
+        }
 
-            if (ImGui::BeginMenu("Hardware")) {
-                if (ImGui::MenuItem("FDS - Switch Disk Side")) {
+        const bool hasHardwareActions =
+            m_emu.valid() &&
+            m_emu.withExclusiveAccess([&](auto& emu) {
+                const auto system = emu.getConsole().cartridge().system();
+                return system == GameDatabase::System::FDS ||
+                       system == GameDatabase::System::VsSystem;
+            });
+
+        const bool isFdsRom =
+            hasHardwareActions &&
+            m_emu.withExclusiveAccess([&](auto& emu) {
+                return emu.getConsole().cartridge().system() == GameDatabase::System::FDS;
+            });
+
+        const bool isVsRom =
+            hasHardwareActions &&
+            m_emu.withExclusiveAccess([&](auto& emu) {
+                return emu.getConsole().cartridge().system() == GameDatabase::System::VsSystem;
+            });
+
+            if (ImGui::BeginMenu("Hardware", hasHardwareActions)) {
+                if (ImGui::MenuItem("FDS - Switch Disk Side", nullptr, false, isFdsRom)) {
                     m_emu.fdsSwitchDiskSide();
                 }
-                if (ImGui::MenuItem("FDS - Eject Disk")) {
+                if (ImGui::MenuItem("FDS - Eject Disk", nullptr, false, isFdsRom)) {
                     m_emu.fdsEjectDisk();
                 }
-                if (ImGui::MenuItem("FDS - Insert Next Disk")) {
+                if (ImGui::MenuItem("FDS - Insert Next Disk", nullptr, false, isFdsRom)) {
                     m_emu.fdsInsertNextDisk();
                 }
+
                 ImGui::Separator();
-                if (ImGui::MenuItem("VS - Insert Coin 1")) {
+
+                if (ImGui::MenuItem("VS - Insert Coin 1", nullptr, false, isVsRom)) {
                     m_emu.vsInsertCoin(1);
                 }
-                if (ImGui::MenuItem("VS - Insert Coin 2")) {
+                if (ImGui::MenuItem("VS - Insert Coin 2", nullptr, false, isVsRom)) {
                     m_emu.vsInsertCoin(2);
                 }
-                if (ImGui::MenuItem("VS - Insert Coin 3 (DualSystem)")) {
+                if (ImGui::MenuItem("VS - Insert Coin 3 (DualSystem)", nullptr, false, isVsRom)) {
                     m_emu.vsInsertCoin(3);
                 }
-                if (ImGui::MenuItem("VS - Insert Coin 4 (DualSystem)")) {
+                if (ImGui::MenuItem("VS - Insert Coin 4 (DualSystem)", nullptr, false, isVsRom)) {
                     m_emu.vsInsertCoin(4);
                 }
-                if (ImGui::MenuItem("VS - Service Button")) {
+                if (ImGui::MenuItem("VS - Service Button", nullptr, false, isVsRom)) {
                     m_emu.vsServiceButton(1);
                 }
-                if (ImGui::MenuItem("VS - Service Button 2 (DualSystem)")) {
+                if (ImGui::MenuItem("VS - Service Button 2 (DualSystem)", nullptr, false, isVsRom)) {
                     m_emu.vsServiceButton(2);
                 }
                 ImGui::EndMenu();
