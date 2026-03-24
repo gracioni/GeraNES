@@ -36,12 +36,23 @@ public:
         (void)y;
     }
 
+    virtual void addRelativeMotion(int dx, int dy)
+    {
+        (void)dx;
+        (void)dy;
+    }
+
     virtual void setPositionNormalized(float position)
     {
         (void)position;
     }
 
     virtual void setTrigger(bool pressed)
+    {
+        (void)pressed;
+    }
+
+    virtual void setSecondaryTrigger(bool pressed)
     {
         (void)pressed;
     }

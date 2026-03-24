@@ -111,6 +111,24 @@ inline void GeraNESApp::showGui()
         ImGui::End();
     }
 
+    if(m_showSnesMouseConfigWindow) {
+        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::Begin("SNES Mouse Config", &m_showSnesMouseConfigWindow, ImGuiWindowFlags_NoResize)) {
+            ImGui::TextWrapped("The SNES Mouse uses grabbed relative movement. Press Escape to release the mouse.");
+            ImGui::Separator();
+
+            float sensitivity = AppSettings::instance().data.input.snesMouse.sensitivity;
+            ImGui::SetNextItemWidth(180.0f);
+            if(ImGui::SliderFloat("Sensitivity", &sensitivity, 0.05f, 2.0f, "%.2fx")) {
+                AppSettings::instance().data.input.snesMouse.sensitivity = std::clamp(sensitivity, 0.05f, 2.0f);
+            }
+        }
+
+        ImGui::End();
+    }
+
     if(m_showRomDatabaseWindow) {
         ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));

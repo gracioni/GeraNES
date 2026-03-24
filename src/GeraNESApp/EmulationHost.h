@@ -42,12 +42,15 @@ public:
 
         int zapperX = -1;
         int zapperY = -1;
+        int mouseDeltaX = 0;
+        int mouseDeltaY = 0;
         float arkanoidNesPosition = 0.5f;
         float arkanoidFamicomPosition = 0.5f;
         bool zapperP1Trigger = false;
         bool zapperP2Trigger = false;
         bool bandaiTrigger = false;
         bool mousePrimaryButton = false;
+        bool mouseSecondaryButton = false;
 
         bool rewind = false;
         bool speedBoost = false;
@@ -96,6 +99,8 @@ private:
         m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
         m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
         m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
+        m_emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        m_emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
         m_emu.setRewind(input.rewind);
         m_emu.setSpeedBoost(input.speedBoost);
     }
@@ -150,6 +155,8 @@ private:
         m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
         m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
         m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
+        m_emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        m_emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
         m_emu.setRewind(input.rewind);
         m_emu.setSpeedBoost(input.speedBoost);
     }

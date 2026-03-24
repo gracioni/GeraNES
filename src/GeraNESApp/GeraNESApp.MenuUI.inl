@@ -297,11 +297,25 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
+            auto drawSnesMousePortConfigItem = [this](Settings::Port port)
+            {
+                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) {
+                    return;
+                }
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    m_showSnesMouseConfigWindow = true;
+                }
+            };
+
             if (ImGui::BeginMenu("Port 1")) {
                 drawControllerPortMenuItem("Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER);
+                drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_1, Settings::Device::SNES_MOUSE);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_1);
+                drawSnesMousePortConfigItem(Settings::Port::P_1);
                 drawArkanoidPortConfigItem(Settings::Port::P_1);
                 ImGui::EndMenu();
             }
@@ -309,8 +323,10 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu("Port 2")) {
                 drawControllerPortMenuItem("Controller", Settings::Port::P_2, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER);
+                drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_2, Settings::Device::SNES_MOUSE);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_2);
+                drawSnesMousePortConfigItem(Settings::Port::P_2);
                 drawArkanoidPortConfigItem(Settings::Port::P_2);
                 ImGui::EndMenu();
             }

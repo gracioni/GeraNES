@@ -267,6 +267,7 @@ bool g_loggerBound = false;
 enum class PortInputMode {
     Controller,
     Zapper,
+    SnesMouse,
     Arkanoid
 };
 
@@ -362,6 +363,8 @@ void registerInputDescriptors()
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "P1 Left"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "P1 Right"},
         {0, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, "P1 Zapper Trigger"},
+        {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y, "P1 Mouse Y"},
+        {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT, "P1 Mouse Right"},
         {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X, "P1 Arkanoid Paddle"},
         {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT, "P1 Arkanoid Fire"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "P2 B"},
@@ -373,6 +376,8 @@ void registerInputDescriptors()
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "P2 Left"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "P2 Right"},
         {1, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, "P2 Zapper Trigger"},
+        {1, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y, "P2 Mouse Y"},
+        {1, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT, "P2 Mouse Right"},
         {1, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X, "P2 Arkanoid Paddle"},
         {1, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT, "P2 Arkanoid Fire"},
         {0, 0, 0, 0, nullptr}
@@ -388,7 +393,7 @@ void registerControllerInfo()
     static const retro_controller_description portTypes[] = {
         {"Joypad", RETRO_DEVICE_JOYPAD},
         {"Zapper", RETRO_DEVICE_LIGHTGUN},
-        {"Arkanoid", RETRO_DEVICE_MOUSE}
+        {"Mouse", RETRO_DEVICE_MOUSE}
     };
 
     static const retro_controller_info ports[] = {
@@ -412,6 +417,9 @@ void applyPortInputMode(unsigned port)
             break;
         case PortInputMode::Zapper:
             device = Settings::Device::ZAPPER;
+            break;
+        case PortInputMode::SnesMouse:
+            device = Settings::Device::SNES_MOUSE;
             break;
         case PortInputMode::Arkanoid:
             device = Settings::Device::ARKANOID_CONTROLLER;
@@ -753,6 +761,18 @@ void updateArkanoidState(unsigned port)
     g_emu.setArkanoidController(emuPort, g_arkanoidPosition[port], fire);
 }
 
+void updateSnesMouseState(unsigned port)
+{
+    const Settings::Port emuPort = (port == 0) ? Settings::Port::P_1 : Settings::Port::P_2;
+    if(g_emu.getPortDevice(emuPort) != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) return;
+
+    const int16_t mouseDeltaX = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_X);
+    const int16_t mouseDeltaY = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_Y);
+    const bool left = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
+    const bool right = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
+    g_emu.setSnesMouse(emuPort, mouseDeltaX, mouseDeltaY, left, right);
+}
+
 void updateExpansionArkanoidState()
 {
     if(g_emu.getExpansionDevice() != Settings::ExpansionDevice::ARKANOID_CONTROLLER) return;
@@ -883,7 +903,11 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
         g_portInputModes[port] = PortInputMode::Zapper;
     }
     else if(deviceBase == RETRO_DEVICE_MOUSE) {
-        g_portInputModes[port] = PortInputMode::Arkanoid;
+        g_portInputModes[port] =
+            g_emu.getPortDevice((port == 0) ? Settings::Port::P_1 : Settings::Port::P_2) ==
+            std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)
+                ? PortInputMode::SnesMouse
+                : PortInputMode::Arkanoid;
     }
     else if(deviceBase == RETRO_DEVICE_JOYPAD) {
         g_portInputModes[port] = PortInputMode::Controller;
@@ -922,6 +946,8 @@ RETRO_API void retro_run(void)
     updateControllerState(1);
     updateZapperState(0);
     updateZapperState(1);
+    updateSnesMouseState(0);
+    updateSnesMouseState(1);
     updateArkanoidState(0);
     updateArkanoidState(1);
     updateExpansionArkanoidState();
@@ -1027,10 +1053,12 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
         syncRegionOptionWithLoadedGame();
         g_portInputModes[0] =
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER)) ? PortInputMode::Zapper :
+            (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) ? PortInputMode::SnesMouse :
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
             PortInputMode::Controller;
         g_portInputModes[1] =
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER)) ? PortInputMode::Zapper :
+            (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) ? PortInputMode::SnesMouse :
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
             PortInputMode::Controller;
         applyAllPortInputModes();

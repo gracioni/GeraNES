@@ -10,6 +10,7 @@
 #include "Zapper.h"
 #include "ArkanoidControllerNes.h"
 #include "ArkanoidControllerFamicom.h"
+#include "SnesMouse.h"
 #include "BandaiHyperShot.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
@@ -105,6 +106,8 @@ private:
                 return std::make_unique<ArkanoidControllerNes>();
             case Settings::Device::BANDAI_HYPERSHOT:
                 return std::make_unique<Controller>();
+            case Settings::Device::SNES_MOUSE:
+                return std::make_unique<SnesMouse>();
         }
 
         return std::make_unique<Controller>();
@@ -135,6 +138,8 @@ private:
                 return dynamic_cast<const ArkanoidControllerNes*>(device) != nullptr;
             case Settings::Device::BANDAI_HYPERSHOT:
                 return dynamic_cast<const Controller*>(device) != nullptr;
+            case Settings::Device::SNES_MOUSE:
+                return dynamic_cast<const SnesMouse*>(device) != nullptr;
         }
 
         return false;
@@ -786,6 +791,12 @@ public:
                     setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                     break;
 
+                case GameDatabase::InputType::SnesMouse:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::SNES_MOUSE);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
                 case GameDatabase::InputType::DoubleArkanoidController:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
@@ -1224,6 +1235,19 @@ public:
         if(m_expansionDevice) {
             m_expansionDevice->setPositionNormalized(positionNormalized);
             m_expansionDevice->setTrigger(button);
+        }
+    }
+
+    void setSnesMouse(Settings::Port port, int deltaX, int deltaY, bool leftButton, bool rightButton)
+    {
+        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) return;
+
+        IControllerPortDevice* device =
+            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+        if(device) {
+            device->addRelativeMotion(deltaX, deltaY);
+            device->setTrigger(leftButton);
+            device->setSecondaryTrigger(rightButton);
         }
     }
 

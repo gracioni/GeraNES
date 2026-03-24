@@ -16,10 +16,11 @@ private:
 public:
     Mapper030(ICartridgeData& cd) : BaseMapper(cd)
     {
-        if(cd.chrRamSize() == 0) allocateChrRam(static_cast<int>(BankSize::B32K));
+        // UNROM 512 uses 32 KB of CHR RAM regardless of what the header reports.
+        // Some games only switch to non-zero CHR banks after gameplay starts.
+        allocateChrRam(static_cast<int>(BankSize::B32K));
         m_prgMask = calculateMask(cd.numberOfPRGBanks<BankSize::B16K>());
-        const int chrRamSize = cd.chrRamSize() > 0 ? cd.chrRamSize() : static_cast<int>(BankSize::B32K);
-        m_chrMask = calculateMask(chrRamSize / static_cast<int>(BankSize::B8K));
+        m_chrMask = calculateMask(static_cast<int>(BankSize::B32K) / static_cast<int>(BankSize::B8K));
         m_hasBusConflicts = (cd.subMapperId() == 2) || (cd.subMapperId() == 0 && !cd.hasBattery());
 
         if(cd.subMapperId() == 3) {

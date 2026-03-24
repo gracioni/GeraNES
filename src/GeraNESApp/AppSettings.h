@@ -83,6 +83,13 @@ public:
             NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Arkanoid, nesHalfRangeCm, famicomHalfRangeCm)
         };
 
+        struct SnesMouse {
+
+            float sensitivity = 0.25f;
+
+            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(SnesMouse, sensitivity)
+        };
+
     private:
 
         std::map<std::string, ControllerInfo> controller;
@@ -91,6 +98,7 @@ public:
                 
         TouchControls touchControls;
         Arkanoid arkanoid;
+        SnesMouse snesMouse;
 
         bool getControllerInfo(int index, ControllerInfo& result) {
 
@@ -158,7 +166,7 @@ public:
             }
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, controller)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, controller)
     };
 
     struct Audio {

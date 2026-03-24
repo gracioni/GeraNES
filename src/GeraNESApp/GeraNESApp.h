@@ -118,6 +118,7 @@ private:
     bool m_showRomDatabaseWindow = false;
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
+    bool m_showSnesMouseConfigWindow = false;
 
     bool m_showMenuBar = true;
 
@@ -174,6 +175,11 @@ private:
 
     bool m_imGuiWantsMouse = false;
     bool m_cursorVisible = true;
+    bool m_snesMouseGrabActive = false;
+    bool m_snesMouseSuppressClickUntilRelease = false;
+    bool m_hasLastMousePosition = false;
+    int m_lastMouseX = 0;
+    int m_lastMouseY = 0;
 
     // FPS vars    
     Uint64 m_fpsTimer = 0;
@@ -395,6 +401,44 @@ private:
         return std::make_tuple(nesX, nesY);
     }
 
+    std::tuple<int, int> getClampedNesCursor(int screenX, int screenY)
+    {
+        const int minX = static_cast<int>(m_nesScreenRect.min.x);
+        const int minY = static_cast<int>(m_nesScreenRect.min.y);
+        const int maxX = static_cast<int>(m_nesScreenRect.max.x) - 1;
+        const int maxY = static_cast<int>(m_nesScreenRect.max.y) - 1;
+        const int clampedX = std::clamp(screenX, minX, maxX);
+        const int clampedY = std::clamp(screenY, minY, maxY);
+        auto [nesX, nesY] = getNesCursor(clampedX, clampedY);
+        nesX = std::clamp(nesX, 0, PPU::SCREEN_WIDTH - 1);
+        nesY = std::clamp(nesY, m_clipHeightValue, PPU::SCREEN_HEIGHT - m_clipHeightValue - 1);
+        return std::make_tuple(nesX, nesY);
+    }
+
+    bool isSnesMouseActive() const
+    {
+        return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) ||
+               m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE);
+    }
+
+    void setSnesMouseGrab(bool active)
+    {
+        if(m_snesMouseGrabActive == active) return;
+        m_snesMouseGrabActive = active;
+#ifndef __EMSCRIPTEN__
+        SDL_SetWindowGrab(sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
+        SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
+#endif
+        if(active) {
+            m_snesMouseSuppressClickUntilRelease = true;
+            Logger::instance().log("SNES Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
+        } else {
+            m_snesMouseSuppressClickUntilRelease = false;
+            Logger::instance().log("SNES Mouse released.", Logger::Type::USER);
+        }
+        m_hasLastMousePosition = false;
+    }
+
     float getArkanoidCursorNormalized(int screenX, float halfRangeCm)
     {
         const float dpiX = std::max(1.0f, GetWindowDPI().x);
@@ -437,23 +481,55 @@ private:
 
             int zapperX = -1;
             int zapperY = -1;
+            int mouseDeltaX = 0;
+            int mouseDeltaY = 0;
             float arkanoidNesPosition = 0.5f;
             float arkanoidFamicomPosition = 0.5f;
             bool p1ZapperTrigger = false;
             bool p2ZapperTrigger = false;
             bool bandaiTrigger = false;
             bool mousePrimaryButton = false;
+            bool mouseSecondaryButton = false;
             {
                 int mx, my;
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
                 auto [nesX, nesY] = getNesCursor(mx, my);
+                const bool useSnesMouse = isSnesMouseActive();
                 arkanoidNesPosition = getArkanoidCursorNormalized(mx, std::max(0.5f, AppSettings::instance().data.input.arkanoid.nesHalfRangeCm));
                 arkanoidFamicomPosition = getArkanoidCursorNormalized(mx, std::max(0.5f, AppSettings::instance().data.input.arkanoid.famicomHalfRangeCm));
 
                 const bool mouseAllowed = !m_imGuiWantsMouse && !m_touch->buttons().anyPressed();
-                const bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
-                const bool rightClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT));
+                bool leftClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_LEFT));
+                bool rightClick = mouseAllowed && (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT));
+
+                if(m_snesMouseSuppressClickUntilRelease) {
+                    if(!leftClick && !rightClick) {
+                        m_snesMouseSuppressClickUntilRelease = false;
+                    } else if(useSnesMouse) {
+                        leftClick = false;
+                        rightClick = false;
+                    }
+                }
+
+                if(mouseAllowed && useSnesMouse && m_snesMouseGrabActive) {
+                    int relativeX = 0;
+                    int relativeY = 0;
+                    buttons = SDL_GetRelativeMouseState(&relativeX, &relativeY);
+                    const float snesMouseSensitivity = std::clamp(AppSettings::instance().data.input.snesMouse.sensitivity, 0.01f, 4.0f);
+                    mouseDeltaX = static_cast<int>(std::lround(static_cast<float>(relativeX) * snesMouseSensitivity));
+                    mouseDeltaY = static_cast<int>(std::lround(static_cast<float>(relativeY) * snesMouseSensitivity));
+                } else if(!useSnesMouse) {
+                    if(!m_hasLastMousePosition) {
+                        m_lastMouseX = mx;
+                        m_lastMouseY = my;
+                        m_hasLastMousePosition = true;
+                    }
+                    mouseDeltaX = mx - m_lastMouseX;
+                    mouseDeltaY = my - m_lastMouseY;
+                    m_lastMouseX = mx;
+                    m_lastMouseY = my;
+                }
 
                 zapperX = rightClick ? -1 : nesX;
                 zapperY = rightClick ? -1 : nesY;
@@ -461,6 +537,7 @@ private:
                 p2ZapperTrigger = leftClick || rightClick;
                 bandaiTrigger = leftClick || rightClick;
                 mousePrimaryButton = leftClick;
+                mouseSecondaryButton = rightClick;
             }
 
             if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
@@ -485,12 +562,15 @@ private:
             inputState.p2Right = p2Right;
             inputState.zapperX = zapperX;
             inputState.zapperY = zapperY;
+            inputState.mouseDeltaX = mouseDeltaX;
+            inputState.mouseDeltaY = mouseDeltaY;
             inputState.arkanoidNesPosition = arkanoidNesPosition;
             inputState.arkanoidFamicomPosition = arkanoidFamicomPosition;
             inputState.zapperP1Trigger = p1ZapperTrigger;
             inputState.zapperP2Trigger = p2ZapperTrigger;
             inputState.bandaiTrigger = bandaiTrigger;
             inputState.mousePrimaryButton = mousePrimaryButton;
+            inputState.mouseSecondaryButton = mouseSecondaryButton;
             inputState.rewind =
                 im.isPressed(m_controller1.rewind) ||
                 im.isPressed(m_controller2.rewind) ||
@@ -589,6 +669,21 @@ private:
     }
 
     void updateCursor() {
+
+        if(!isSnesMouseActive() && m_snesMouseGrabActive) {
+            setSnesMouseGrab(false);
+        }
+
+        if(m_snesMouseGrabActive) {
+            if(m_defaultCursor.has_value() && !m_defaultCursor->isCurrent()) {
+                m_defaultCursor->setAsCurrent();
+            }
+            if(m_cursorVisible) {
+                SDL_ShowCursor(SDL_DISABLE);
+                m_cursorVisible = false;
+            }
+            return;
+        }
 
         int mx, my;
         SDL_GetMouseState(&mx, &my);
@@ -1160,12 +1255,27 @@ public:
                 m_shortcuts.invokeShortcut(keyName);
 
                 if(keyName == "Escape" && m_emuInputEnabled) {
-                    m_showMenuBar = !m_showMenuBar;
-                    m_updateObjectsFlag = true;
+                    if(m_snesMouseGrabActive) {
+                        setSnesMouseGrab(false);
+                    }
+                    else {
+                        m_showMenuBar = !m_showMenuBar;
+                        m_updateObjectsFlag = true;
+                    }
                 }
 
                 break;
-            }                
+            }
+
+            case SDL_MOUSEBUTTONDOWN:
+                if(!m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && isSnesMouseActive()) {
+                    if(event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) {
+                        if(pointInRect(glm::vec2(static_cast<float>(event.button.x), static_cast<float>(event.button.y)), m_nesScreenRect)) {
+                            setSnesMouseGrab(true);
+                        }
+                    }
+                }
+                break;
 
             case SDL_WINDOWEVENT:
 
