@@ -43,7 +43,6 @@ private:
     WNDPROC m_prevWndProc = nullptr;
     bool m_windowsNativePumpEnabled = true;
     bool m_inNativeMoveSizeLoop = false;
-    bool m_inNativeCaptionHold = false;
     Uint64 m_lastNativeMoveSizePumpTick = 0;
     static constexpr Uint64 NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS = 16;
     static constexpr UINT_PTR NATIVE_MOVE_SIZE_TIMER_ID = 0x474E4553; // 'GNES'
@@ -142,27 +141,8 @@ private:
         }
 
         switch(msg) {
-            case WM_NCLBUTTONDOWN:
-                if(wParam == HTCAPTION) {
-                    m_inNativeCaptionHold = true;
-                    m_lastNativeMoveSizePumpTick = 0;
-                    SetTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID, static_cast<UINT>(NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS), nullptr);
-                    nativeMoveSizeLoopStep(true);
-                }
-                break;
-
-            case WM_NCLBUTTONUP:
-            case WM_CAPTURECHANGED:
-                if(m_inNativeCaptionHold && !m_inNativeMoveSizeLoop) {
-                    KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
-                    m_lastNativeMoveSizePumpTick = 0;
-                }
-                m_inNativeCaptionHold = false;
-                break;
-
             case WM_ENTERSIZEMOVE:
                 m_inNativeMoveSizeLoop = true;
-                m_inNativeCaptionHold = false;
                 m_lastNativeMoveSizePumpTick = 0;
                 SetTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID, static_cast<UINT>(NATIVE_MOVE_SIZE_PUMP_INTERVAL_MS), nullptr);
                 nativeMoveSizeLoopStep(true);
@@ -184,7 +164,7 @@ private:
                 break;
 
             case WM_TIMER:
-                if((m_inNativeMoveSizeLoop || m_inNativeCaptionHold) && wParam == NATIVE_MOVE_SIZE_TIMER_ID) {
+                if(m_inNativeMoveSizeLoop && wParam == NATIVE_MOVE_SIZE_TIMER_ID) {
                     nativeMoveSizeLoopStep(false);
                     return 0;
                 }
@@ -194,7 +174,6 @@ private:
             case WM_DESTROY:
             case WM_NCDESTROY:
                 m_inNativeMoveSizeLoop = false;
-                m_inNativeCaptionHold = false;
                 m_lastNativeMoveSizePumpTick = 0;
                 KillTimer(hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
                 break;
@@ -251,7 +230,6 @@ private:
         m_hwnd = nullptr;
         m_prevWndProc = nullptr;
         m_inNativeMoveSizeLoop = false;
-        m_inNativeCaptionHold = false;
         m_lastNativeMoveSizePumpTick = 0;
     }
 
@@ -261,7 +239,6 @@ private:
             KillTimer(m_hwnd, NATIVE_MOVE_SIZE_TIMER_ID);
         }
         m_inNativeMoveSizeLoop = false;
-        m_inNativeCaptionHold = false;
         m_lastNativeMoveSizePumpTick = 0;
     }
 #endif
