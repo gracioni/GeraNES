@@ -21,8 +21,9 @@ public:
         return 0x00;
     }
 
-    virtual uint8_t read4017()
+    virtual uint8_t read4017(bool outputEnabled)
     {
+        (void)outputEnabled;
         return 0x00;
     }
 

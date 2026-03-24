@@ -13,6 +13,8 @@
 #include "ArkanoidControllerFamicom.h"
 #include "SnesMouse.h"
 #include "SnesController.h"
+#include "FourScore.h"
+#include "HoriAdapterFamicom.h"
 #include "BandaiHyperShot.h"
 #include "KonamiHyperShot.h"
 #include "Settings.h"
@@ -51,6 +53,8 @@ private:
     std::unique_ptr<IControllerPortDevice> m_portDevice1;
     std::unique_ptr<IControllerPortDevice> m_portDevice2;
     std::unique_ptr<IExpansionDevice> m_expansionDevice;
+    std::unique_ptr<FourScore> m_fourScore;
+    std::unique_ptr<HoriAdapterFamicom> m_horiAdapterFamicom;
     Console m_console;
 
     uint32_t m_updateCyclesAcc;
@@ -97,6 +101,21 @@ private:
     bool m_pendingNsfNextSong = false;
     bool m_pendingNsfPrevSong = false;
     bool m_applyingPendingNsfActions = false;
+
+    bool isNesMultitapActive() const
+    {
+        return m_settings.getNesMultitapDevice() != Settings::NesMultitapDevice::NONE;
+    }
+
+    bool isFamicomMultitapActive() const
+    {
+        return m_settings.getFamicomMultitapDevice() != Settings::FamicomMultitapDevice::NONE;
+    }
+
+    bool isAnyMultitapActive() const
+    {
+        return isNesMultitapActive() || isFamicomMultitapActive();
+    }
 
     std::unique_ptr<IControllerPortDevice> createPortDevice(Settings::Device device)
     {
@@ -228,6 +247,33 @@ private:
         updateInputDevicePixelCheckers();
     }
 
+    void recreateInputRouting()
+    {
+        if(isNesMultitapActive()) {
+            if(!m_fourScore) m_fourScore = std::make_unique<FourScore>();
+            m_horiAdapterFamicom.reset();
+            m_portDevice1.reset();
+            m_portDevice2.reset();
+            m_expansionDevice.reset();
+            return;
+        }
+
+        if(isFamicomMultitapActive()) {
+            if(!m_horiAdapterFamicom) m_horiAdapterFamicom = std::make_unique<HoriAdapterFamicom>();
+            m_fourScore.reset();
+            m_portDevice1.reset();
+            m_portDevice2.reset();
+            m_expansionDevice.reset();
+            return;
+        }
+
+        m_fourScore.reset();
+        m_horiAdapterFamicom.reset();
+        recreatePortDevice(Settings::Port::P_1);
+        recreatePortDevice(Settings::Port::P_2);
+        recreateExpansionDevice();
+    }
+
     void processNsfControllerInput(bool selectPressed, bool startPressed, bool leftPressed, bool rightPressed)
     {
         const bool startJustPressed = startPressed && !m_prevNsfStart;
@@ -357,17 +403,33 @@ private:
                 {
                     if constexpr(accessType == AccessType::Write)
                     {
-                        if(m_portDevice1) m_portDevice1->write(data);
-                        if(m_portDevice2) m_portDevice2->write(data);
-                        if(m_expansionDevice) m_expansionDevice->write4016(data);
+                        if(m_fourScore) {
+                            m_fourScore->write(data);
+                        }
+                        else if(m_horiAdapterFamicom) {
+                            m_horiAdapterFamicom->write4016(data);
+                        }
+                        else {
+                            if(m_portDevice1) m_portDevice1->write(data);
+                            if(m_portDevice2) m_portDevice2->write(data);
+                            if(m_expansionDevice) m_expansionDevice->write4016(data);
+                        }
                     }
                     else {
                         bool outputEnabled =
                             (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4016));
 
-                        data = m_portDevice1 ? m_portDevice1->read(outputEnabled) : 0x00;
+                        if(m_fourScore) {
+                            data = m_fourScore->readPort(0, outputEnabled);
+                        }
+                        else if(m_horiAdapterFamicom) {
+                            data = m_horiAdapterFamicom->read4016(outputEnabled);
+                        }
+                        else {
+                            data = m_portDevice1 ? m_portDevice1->read(outputEnabled) : 0x00;
+                        }
 
-                        if(m_expansionDevice) {
+                        if(m_expansionDevice && !isAnyMultitapActive()) {
                             data = static_cast<uint8_t>((data & ~0x02) | m_expansionDevice->read4016(outputEnabled));
                         }
 
@@ -389,10 +451,18 @@ private:
                         bool outputEnabled =
                             (!m_cpu.isDmaReadInProgress() || m_cpu.isDmaInputClockEnabled(0x4017));
 
-                        data = m_portDevice2 ? m_portDevice2->read(outputEnabled) : 0x00;
+                        if(m_fourScore) {
+                            data = m_fourScore->readPort(1, outputEnabled);
+                        }
+                        else if(m_horiAdapterFamicom) {
+                            data = m_horiAdapterFamicom->read4017(outputEnabled);
+                        }
+                        else {
+                            data = m_portDevice2 ? m_portDevice2->read(outputEnabled) : 0x00;
+                        }
 
-                        if(m_expansionDevice) {
-                            const uint8_t expData = m_expansionDevice->read4017();
+                        if(m_expansionDevice && !isAnyMultitapActive()) {
+                            const uint8_t expData = m_expansionDevice->read4017(outputEnabled);
                             // Expansion devices may drive bit1 (Arkanoid Famicom),
                             // bits1-4 (Konami Hyper Shot), and/or bits3-4 (Bandai Hyper Shot) on $4017.
                             data = static_cast<uint8_t>((data & ~0x1E) | (expData & 0x1E));
@@ -629,8 +699,12 @@ public:
 
     void onCpuGetToPutTransition() override
     {
-        if(m_portDevice1) m_portDevice1->onCpuGetToPutTransition();
-        if(m_portDevice2) m_portDevice2->onCpuGetToPutTransition();
+        if(m_fourScore) m_fourScore->onCpuGetToPutTransition();
+        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->onCpuGetToPutTransition();
+        else {
+            if(m_portDevice1) m_portDevice1->onCpuGetToPutTransition();
+            if(m_portDevice2) m_portDevice2->onCpuGetToPutTransition();
+        }
     }
 
     SigSlot::Signal<const std::string&> signalError;
@@ -783,7 +857,18 @@ public:
             }  
             m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
 
+            setNesMultitapDevice(Settings::NesMultitapDevice::NONE);
+            setFamicomMultitapDevice(Settings::FamicomMultitapDevice::NONE);
+
             switch(m_cartridge.inputType()) {
+
+                case GameDatabase::InputType::FourScore:
+                    setNesMultitapDevice(Settings::NesMultitapDevice::FOUR_SCORE);
+                    break;
+
+                case GameDatabase::InputType::FourPlayerAdapter:
+                    setFamicomMultitapDevice(Settings::FamicomMultitapDevice::HORI_ADAPTER);
+                    break;
 
                 case GameDatabase::InputType::VsZapper:
                 case GameDatabase::InputType::Zapper:
@@ -1093,7 +1178,7 @@ public:
     GERANES_INLINE void setPortDevice(Settings::Port port, Settings::Device device)
     {
         m_settings.setPortDevice(port, device);
-        recreatePortDevice(port);
+        if(!isAnyMultitapActive()) recreatePortDevice(port);
     }
 
     GERANES_INLINE Settings::ExpansionDevice getExpansionDevice() const
@@ -1101,10 +1186,38 @@ public:
         return m_settings.getExpansionDevice();
     }
 
+    GERANES_INLINE Settings::NesMultitapDevice getNesMultitapDevice() const
+    {
+        return m_settings.getNesMultitapDevice();
+    }
+
+    GERANES_INLINE Settings::FamicomMultitapDevice getFamicomMultitapDevice() const
+    {
+        return m_settings.getFamicomMultitapDevice();
+    }
+
     GERANES_INLINE void setExpansionDevice(Settings::ExpansionDevice device)
     {
         m_settings.setExpansionDevice(device);
-        recreateExpansionDevice();
+        if(!isAnyMultitapActive()) recreateExpansionDevice();
+    }
+
+    GERANES_INLINE void setNesMultitapDevice(Settings::NesMultitapDevice device)
+    {
+        m_settings.setNesMultitapDevice(device);
+        if(device != Settings::NesMultitapDevice::NONE) {
+            m_settings.setFamicomMultitapDevice(Settings::FamicomMultitapDevice::NONE);
+        }
+        recreateInputRouting();
+    }
+
+    GERANES_INLINE void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
+    {
+        m_settings.setFamicomMultitapDevice(device);
+        if(device != Settings::FamicomMultitapDevice::NONE) {
+            m_settings.setNesMultitapDevice(Settings::NesMultitapDevice::NONE);
+        }
+        recreateInputRouting();
     }
 
     bool overclocked()
@@ -1189,13 +1302,13 @@ public:
         s.array(m_ram, 1, 0x800);
         m_settings.serialization(s);
         if(dynamic_cast<Deserialize*>(&s) != nullptr) {
-            recreatePortDevice(Settings::Port::P_1);
-            recreatePortDevice(Settings::Port::P_2);
-            recreateExpansionDevice();
+            recreateInputRouting();
         }
         if(m_portDevice1) m_portDevice1->serialization(s);
         if(m_portDevice2) m_portDevice2->serialization(s);
         if(m_expansionDevice) m_expansionDevice->serialization(s);
+        if(m_fourScore) m_fourScore->serialization(s);
+        if(m_horiAdapterFamicom) m_horiAdapterFamicom->serialization(s);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
@@ -1216,14 +1329,30 @@ public:
     void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
                                bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
-        if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
+        if(m_fourScore) m_fourScore->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
         processNsfControllerInput(bSelect, bStart, bLeft, bRight);
     }
 
     void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
                                bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
-        if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
+        if(m_fourScore) m_fourScore->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
+    }
+
+    void setController3Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    {
+        if(m_fourScore) m_fourScore->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+    }
+
+    void setController4Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    {
+        if(m_fourScore) m_fourScore->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        else if(m_horiAdapterFamicom) m_horiAdapterFamicom->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
     }
 
     void setZapper(Settings::Port port, int x, int y, bool trigger)

@@ -37,7 +37,7 @@ public:
         return m_buttonPressed ? static_cast<uint8_t>(0x02) : 0x00;
     }
 
-    uint8_t read4017() override
+    uint8_t read4017(bool) override
     {
         const uint8_t output = static_cast<uint8_t>(((~m_stateBuffer) >> 6) & 0x02);
         m_stateBuffer <<= 1;

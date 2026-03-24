@@ -264,6 +264,10 @@ inline void GeraNESApp::menuBar() {
 
         if (ImGui::BeginMenu("Input"))
         {
+            const bool nesFourScoreEnabled = m_emu.getNesMultitapDevice() == Settings::NesMultitapDevice::FOUR_SCORE;
+            const bool famicomHoriEnabled = m_emu.getFamicomMultitapDevice() == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+            const bool anyMultitapActive = nesFourScoreEnabled || famicomHoriEnabled;
+
             auto drawControllerPortMenuItem = [this](const char* label, Settings::Port port, Settings::Device device)
             {
                 const bool selected = m_emu.getPortDevice(port) == std::optional<Settings::Device>(device);
@@ -334,7 +338,14 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            if (ImGui::BeginMenu("Port 1")) {
+            auto drawMultitapControllerConfigItem = [this](const char* label, ControllerInfo& info)
+            {
+                if(ImGui::MenuItem(label)) {
+                    m_inputBindingConfigWindow.show(label, info);
+                }
+            };
+
+            if (ImGui::BeginMenu("Port 1", !anyMultitapActive)) {
                 drawControllerPortMenuItem("Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_A);
@@ -349,7 +360,7 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Port 2")) {
+            if (ImGui::BeginMenu("Port 2", !anyMultitapActive)) {
                 drawControllerPortMenuItem("Controller", Settings::Port::P_2, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
@@ -364,7 +375,7 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Expansion")) {
+            if (ImGui::BeginMenu("Expansion", !anyMultitapActive)) {
                 if (ImGui::MenuItem("None", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::NONE))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::NONE);
@@ -388,6 +399,52 @@ inline void GeraNESApp::menuBar() {
                     }
                 }
                 drawKonamiHyperShotConfigItem();
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Multitap")) {
+                if (ImGui::BeginMenu("NES")) {
+                    if (ImGui::BeginMenu("Four Score")) {
+                        if(ImGui::MenuItem("Enabled", nullptr, nesFourScoreEnabled)) {
+                            m_emu.setNesMultitapDevice(
+                                nesFourScoreEnabled ? Settings::NesMultitapDevice::NONE : Settings::NesMultitapDevice::FOUR_SCORE
+                            );
+                        }
+
+                        if(nesFourScoreEnabled) {
+                            ImGui::Separator();
+                            drawMultitapControllerConfigItem("Controller 1", m_controller1);
+                            drawMultitapControllerConfigItem("Controller 2", m_controller2);
+                            drawMultitapControllerConfigItem("Controller 3", m_controller3);
+                            drawMultitapControllerConfigItem("Controller 4", m_controller4);
+                        }
+
+                        ImGui::EndMenu();
+                    }
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::BeginMenu("Famicom")) {
+                    if (ImGui::BeginMenu("Hori Adapter")) {
+                        if(ImGui::MenuItem("Enabled", nullptr, famicomHoriEnabled)) {
+                            m_emu.setFamicomMultitapDevice(
+                                famicomHoriEnabled ? Settings::FamicomMultitapDevice::NONE : Settings::FamicomMultitapDevice::HORI_ADAPTER
+                            );
+                        }
+
+                        if(famicomHoriEnabled) {
+                            ImGui::Separator();
+                            drawMultitapControllerConfigItem("Controller 1", m_controller1);
+                            drawMultitapControllerConfigItem("Controller 2", m_controller2);
+                            drawMultitapControllerConfigItem("Controller 3", m_controller3);
+                            drawMultitapControllerConfigItem("Controller 4", m_controller4);
+                        }
+
+                        ImGui::EndMenu();
+                    }
+                    ImGui::EndMenu();
+                }
+
                 ImGui::EndMenu();
             }
 

@@ -39,7 +39,7 @@ public:
         m_player2Enabled = (data & 0x04) == 0;
     }
 
-    uint8_t read4017() override
+    uint8_t read4017(bool) override
     {
         uint8_t ret = 0x00;
         if(m_player1Enabled && m_player1Run) ret |= (1 << 1);

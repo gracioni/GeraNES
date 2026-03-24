@@ -75,7 +75,7 @@ public:
         return ret;
     }
 
-    uint8_t read4017() override
+    uint8_t read4017(bool) override
     {
         uint8_t ret = 0x00;
 

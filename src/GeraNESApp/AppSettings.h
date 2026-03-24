@@ -183,6 +183,18 @@ public:
                 controller.insert(std::make_pair("1", i)); 
             }
 
+            if(controller.count("2") == 0) {
+
+                ControllerInfo i;
+                controller.insert(std::make_pair("2", i));
+            }
+
+            if(controller.count("3") == 0) {
+
+                ControllerInfo i;
+                controller.insert(std::make_pair("3", i));
+            }
+
             if(snesController.count("0") == 0) {
 
                 SnesControllerInfo i;

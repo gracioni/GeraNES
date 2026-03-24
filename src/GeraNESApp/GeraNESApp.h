@@ -104,6 +104,8 @@ private:
 
     ControllerInfo m_controller1;
     ControllerInfo m_controller2;
+    ControllerInfo m_controller3;
+    ControllerInfo m_controller4;
     SnesControllerInfo m_snesController1;
     SnesControllerInfo m_snesController2;
     KonamiHyperShotInfo m_konamiHyperShot;
@@ -509,6 +511,22 @@ private:
             const bool p2Y = im.isPressed(m_snesController2.y);
             const bool p2L = im.isPressed(m_snesController2.l);
             const bool p2R = im.isPressed(m_snesController2.r);
+            const bool p3A = im.isPressed(m_controller3.a);
+            const bool p3B = im.isPressed(m_controller3.b);
+            const bool p3Select = im.isPressed(m_controller3.select);
+            const bool p3Start = im.isPressed(m_controller3.start);
+            const bool p3Up = im.isPressed(m_controller3.up);
+            const bool p3Down = im.isPressed(m_controller3.down);
+            const bool p3Left = im.isPressed(m_controller3.left);
+            const bool p3Right = im.isPressed(m_controller3.right);
+            const bool p4A = im.isPressed(m_controller4.a);
+            const bool p4B = im.isPressed(m_controller4.b);
+            const bool p4Select = im.isPressed(m_controller4.select);
+            const bool p4Start = im.isPressed(m_controller4.start);
+            const bool p4Up = im.isPressed(m_controller4.up);
+            const bool p4Down = im.isPressed(m_controller4.down);
+            const bool p4Left = im.isPressed(m_controller4.left);
+            const bool p4Right = im.isPressed(m_controller4.right);
             const bool konamiP1Run = im.isPressed(m_konamiHyperShot.p1Run);
             const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
             const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
@@ -639,6 +657,22 @@ private:
             inputState.p2Y = p2Y;
             inputState.p2L = p2L;
             inputState.p2R = p2R;
+            inputState.p3A = p3A;
+            inputState.p3B = p3B;
+            inputState.p3Select = p3Select;
+            inputState.p3Start = p3Start;
+            inputState.p3Up = p3Up;
+            inputState.p3Down = p3Down;
+            inputState.p3Left = p3Left;
+            inputState.p3Right = p3Right;
+            inputState.p4A = p4A;
+            inputState.p4B = p4B;
+            inputState.p4Select = p4Select;
+            inputState.p4Start = p4Start;
+            inputState.p4Up = p4Up;
+            inputState.p4Down = p4Down;
+            inputState.p4Left = p4Left;
+            inputState.p4Right = p4Right;
             inputState.p1PowerPadButtons = p1PowerPadButtons;
             inputState.p2PowerPadButtons = p2PowerPadButtons;
             inputState.zapperX = zapperX;
@@ -698,6 +732,8 @@ private:
         
         cfg.input.getControllerInfo(0, m_controller1);
         cfg.input.getControllerInfo(1, m_controller2);
+        cfg.input.getControllerInfo(2, m_controller3);
+        cfg.input.getControllerInfo(3, m_controller4);
         cfg.input.getSnesControllerInfo(0, m_snesController1);
         cfg.input.getSnesControllerInfo(1, m_snesController2);
         m_konamiHyperShot = cfg.input.konamiHyperShot;
@@ -902,6 +938,8 @@ public:
         m_emuInputEnabled = true;        
         AppSettings::instance().data.input.setControllerInfo(0, m_controller1);
         AppSettings::instance().data.input.setControllerInfo(1, m_controller2);
+        AppSettings::instance().data.input.setControllerInfo(2, m_controller3);
+        AppSettings::instance().data.input.setControllerInfo(3, m_controller4);
         AppSettings::instance().data.input.setSnesControllerInfo(0, m_snesController1);
         AppSettings::instance().data.input.setSnesControllerInfo(1, m_snesController2);
         AppSettings::instance().data.input.konamiHyperShot = m_konamiHyperShot;

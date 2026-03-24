@@ -47,6 +47,24 @@ public:
         bool p2Y = false;
         bool p2L = false;
         bool p2R = false;
+
+        bool p3A = false;
+        bool p3B = false;
+        bool p3Select = false;
+        bool p3Start = false;
+        bool p3Up = false;
+        bool p3Down = false;
+        bool p3Left = false;
+        bool p3Right = false;
+
+        bool p4A = false;
+        bool p4B = false;
+        bool p4Select = false;
+        bool p4Start = false;
+        bool p4Up = false;
+        bool p4Down = false;
+        bool p4Left = false;
+        bool p4Right = false;
         std::array<bool, 12> p1PowerPadButtons = {};
         std::array<bool, 12> p2PowerPadButtons = {};
 
@@ -88,6 +106,8 @@ private:
         std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
         std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
         Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
+        Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
+        Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
         int nsfTotalSongs = 0;
         int nsfCurrentSong = 0;
         std::string audioDeviceName;
@@ -108,6 +128,8 @@ private:
                                     input.p1X, input.p1Y, input.p1L, input.p1R);
         m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
                                     input.p2X, input.p2Y, input.p2L, input.p2R);
+        m_emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
+        m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
@@ -169,6 +191,8 @@ private:
                                     input.p1X, input.p1Y, input.p1L, input.p1R);
         m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
                                     input.p2X, input.p2Y, input.p2L, input.p2R);
+        m_emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
+        m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
@@ -214,6 +238,8 @@ private:
         snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
         snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
         snapshot.expansionDevice = m_emu.getExpansionDevice();
+        snapshot.nesMultitapDevice = m_emu.getNesMultitapDevice();
+        snapshot.famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
         snapshot.nsfTotalSongs = m_emu.nsfTotalSongs();
         snapshot.nsfCurrentSong = m_emu.nsfCurrentSong();
         snapshot.audioDeviceName = m_audioOutput.currentDeviceName();
@@ -680,10 +706,44 @@ public:
 #endif
     }
 
+    Settings::NesMultitapDevice getNesMultitapDevice() const
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.getNesMultitapDevice();
+#else
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.nesMultitapDevice;
+#endif
+    }
+
+    Settings::FamicomMultitapDevice getFamicomMultitapDevice() const
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.getFamicomMultitapDevice();
+#else
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.famicomMultitapDevice;
+#endif
+    }
+
     void setExpansionDevice(Settings::ExpansionDevice device)
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.setExpansionDevice(device);
+        });
+    }
+
+    void setNesMultitapDevice(Settings::NesMultitapDevice device)
+    {
+        postCommand([=](GeraNESEmu& emu) {
+            emu.setNesMultitapDevice(device);
+        });
+    }
+
+    void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
+    {
+        postCommand([=](GeraNESEmu& emu) {
+            emu.setFamicomMultitapDevice(device);
         });
     }
 

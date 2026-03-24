@@ -11,6 +11,8 @@ public:
     enum class Region { PAL, NTSC, DENDY };
     enum class Device { CONTROLLER, ZAPPER, ARKANOID_CONTROLLER, BANDAI_HYPERSHOT, SNES_MOUSE, SNES_CONTROLLER, POWER_PAD_SIDE_A, POWER_PAD_SIDE_B };
     enum class ExpansionDevice { NONE, BANDAI_HYPERSHOT, KONAMI_HYPERSHOT, ARKANOID_CONTROLLER };
+    enum class NesMultitapDevice { NONE, FOUR_SCORE };
+    enum class FamicomMultitapDevice { NONE, HORI_ADAPTER };
     enum class Port { P_1, P_2 };
 
 private:
@@ -24,6 +26,8 @@ private:
         {Port::P_2, Device::CONTROLLER}
     };
     ExpansionDevice m_expansionDevice = ExpansionDevice::NONE;
+    NesMultitapDevice m_nesMultitapDevice = NesMultitapDevice::NONE;
+    FamicomMultitapDevice m_famicomMultitapDevice = FamicomMultitapDevice::NONE;
 
 public:
 
@@ -34,6 +38,8 @@ public:
         SERIALIZEDATA(s, m_disableSpriteLimit);
         serialize_map(s, m_portDevice);
         SERIALIZEDATA(s, m_expansionDevice);
+        SERIALIZEDATA(s, m_nesMultitapDevice);
+        SERIALIZEDATA(s, m_famicomMultitapDevice);
     }
 
     GERANES_INLINE void setRegion(Region r)
@@ -118,5 +124,25 @@ public:
     GERANES_INLINE void setExpansionDevice(ExpansionDevice device)
     {
         m_expansionDevice = device;
+    }
+
+    GERANES_INLINE NesMultitapDevice getNesMultitapDevice() const
+    {
+        return m_nesMultitapDevice;
+    }
+
+    GERANES_INLINE void setNesMultitapDevice(NesMultitapDevice device)
+    {
+        m_nesMultitapDevice = device;
+    }
+
+    GERANES_INLINE FamicomMultitapDevice getFamicomMultitapDevice() const
+    {
+        return m_famicomMultitapDevice;
+    }
+
+    GERANES_INLINE void setFamicomMultitapDevice(FamicomMultitapDevice device)
+    {
+        m_famicomMultitapDevice = device;
     }
 };
