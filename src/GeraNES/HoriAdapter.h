@@ -3,12 +3,12 @@
 #include <array>
 #include <cstdint>
 
-#include "Controller.h"
+#include "NesStandardController.h"
 
-class HoriAdapter
+class HoriAdapterFamicom
 {
 private:
-    std::array<Controller, 4> m_controllers;
+    std::array<NesStandardController, 4> m_controllers;
     std::array<uint8_t, 2> m_signature = {0x04, 0x08};
     std::array<uint8_t, 2> m_signatureCounter = {16, 16};
     bool m_strobe = false;
@@ -92,3 +92,5 @@ public:
         SERIALIZEDATA(s, m_strobe);
     }
 };
+
+using HoriAdapter = HoriAdapterFamicom;

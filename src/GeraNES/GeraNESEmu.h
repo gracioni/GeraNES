@@ -6,7 +6,9 @@
 #include "CPU2A03.h"
 #include "PPU.h"
 #include "APU/APU.h"
-#include "Controller.h"
+#include "NesStandardController.h"
+#include "FamicomController.h"
+#include "FamicomExpansionStandardController.h"
 #include "Zapper.h"
 #include "PowerPad.h"
 #include "FamilyTrainer.h"
@@ -122,13 +124,13 @@ private:
     {
         switch(device) {
             case Settings::Device::CONTROLLER:
-                return std::make_unique<Controller>();
+                return std::make_unique<NesStandardController>();
             case Settings::Device::ZAPPER:
                 return std::make_unique<Zapper>();
             case Settings::Device::ARKANOID_CONTROLLER:
                 return std::make_unique<ArkanoidControllerNes>();
             case Settings::Device::BANDAI_HYPERSHOT:
-                return std::make_unique<Controller>();
+                return std::make_unique<NesStandardController>();
             case Settings::Device::SNES_MOUSE:
                 return std::make_unique<SnesMouse>();
             case Settings::Device::SNES_CONTROLLER:
@@ -139,7 +141,7 @@ private:
                 return std::make_unique<PowerPad>(true);
         }
 
-        return std::make_unique<Controller>();
+        return std::make_unique<NesStandardController>();
     }
 
     std::unique_ptr<IExpansionDevice> createExpansionDevice(Settings::ExpansionDevice device)
@@ -166,13 +168,13 @@ private:
     {
         switch(type) {
             case Settings::Device::CONTROLLER:
-                return dynamic_cast<const Controller*>(device) != nullptr;
+                return dynamic_cast<const NesStandardController*>(device) != nullptr;
             case Settings::Device::ZAPPER:
                 return dynamic_cast<const Zapper*>(device) != nullptr;
             case Settings::Device::ARKANOID_CONTROLLER:
                 return dynamic_cast<const ArkanoidControllerNes*>(device) != nullptr;
             case Settings::Device::BANDAI_HYPERSHOT:
-                return dynamic_cast<const Controller*>(device) != nullptr;
+                return dynamic_cast<const NesStandardController*>(device) != nullptr;
             case Settings::Device::SNES_MOUSE:
                 return dynamic_cast<const SnesMouse*>(device) != nullptr;
             case Settings::Device::SNES_CONTROLLER:
