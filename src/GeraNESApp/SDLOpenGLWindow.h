@@ -113,7 +113,7 @@ private:
 
         if(m_quit) return; 
 
-        // Fullscreen transitions nem sempre chegam como SIZE_CHANGED no SDL web.
+        // Fullscreen transitions don't always arrive as SIZE_CHANGED in SDL web.
         syncDrawableSize(true);
 
         paintGL();
