@@ -439,8 +439,8 @@ private:
         m_arkanoidGrabActive = active;
 #ifndef __EMSCRIPTEN__
         SDL_SetWindowGrab(sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
-        SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
 #endif
+        SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
         if(active) {
             m_arkanoidSuppressClickUntilRelease = true;
             Logger::instance().log("Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
@@ -458,8 +458,8 @@ private:
         m_snesMouseGrabActive = active;
 #ifndef __EMSCRIPTEN__
         SDL_SetWindowGrab(sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
-        SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
 #endif
+        SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
         if(active) {
             m_snesMouseSuppressClickUntilRelease = true;
             Logger::instance().log("Mouse grabbed. Press Escape to release the mouse.", Logger::Type::USER);
