@@ -989,14 +989,17 @@ yyy NN YYYYY XXXXX
             m_secondaryOam[(m_cycle-1) >> 1] = 0xFF;
         }
         else if(m_cycle == 256) {
-            // The PPU has just finished evaluating sprites for the next scanline.
-            // Count the sprites from secondary OAM itself instead of rescanning
-            // primary OAM in "emulator space".
-            m_spritesInThisLine = static_cast<int>((m_secondaryOamAddr + 3) >> 2);
-            if(m_spritesInThisLine > 8) {
-                m_spritesInThisLine = 8;
+            if(m_settings.spriteLimitDisabled()) {
+                // Keep a full list of visible sprites for the next scanline so the
+                // optional sprite-limit removal can draw sprites beyond secondary OAM.
+                cacheSpritesInNextScanline();
             }
-
+            else {
+                m_spritesInThisLine = static_cast<int>((m_secondaryOamAddr + 3) >> 2);
+                if(m_spritesInThisLine > 8) {
+                    m_spritesInThisLine = 8;
+                }
+            }
             m_testSprite0HitInThisLine = m_sprite0Added;
         }
         else {
@@ -1539,6 +1542,21 @@ yyy NN YYYYY XXXXX
         const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
         const int spriteY = static_cast<int>(sprite.y) + 1;
         return scanline >= spriteY && scanline < spriteY + spriteHeight;
+    }
+
+    GERANES_INLINE void cacheSpritesInNextScanline()
+    {
+        m_spritesInThisLine = 0;
+
+        const int nextScanline = (m_scanline + 1) % m_settings.PPULinesPerFrame();
+        for(int spriteIndex = 0; spriteIndex < 64; spriteIndex++) {
+            const Sprite& sprite = primaryOamSprite(static_cast<uint8_t>(spriteIndex << 2));
+            if(!isSpriteInRangeForScanline(sprite, nextScanline)) {
+                continue;
+            }
+
+            m_spritesIndexesInThisLine[m_spritesInThisLine++] = static_cast<uint8_t>(spriteIndex << 2);
+        }
     }
 
     void fetchSprites() {
