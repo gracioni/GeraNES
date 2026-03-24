@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 
 #include "ControllerInfo.h"
 #include "KonamiHyperShotInfo.h"
+#include "SnesControllerInfo.h"
 
 #include "logger/logger.h"
 
@@ -93,6 +94,7 @@ public:
     private:
 
         std::map<std::string, ControllerInfo> controller;
+        std::map<std::string, SnesControllerInfo> snesController;
 
     public:
                 
@@ -111,12 +113,31 @@ public:
             return false;
         }
 
+        bool getSnesControllerInfo(int index, SnesControllerInfo& result) {
+
+            if(snesController.count(std::to_string(index))) {
+                result = snesController[std::to_string(index)];
+                return true;
+            }
+
+            return false;
+        }
+
         void setControllerInfo(int index, const ControllerInfo& _if) {
 
             if(controller.count(std::to_string(index)) > 0)
                 controller[std::to_string(index)] = _if;
             else
                 controller.insert(std::make_pair(std::to_string(index), _if));
+
+        }
+
+        void setSnesControllerInfo(int index, const SnesControllerInfo& info) {
+
+            if(snesController.count(std::to_string(index)) > 0)
+                snesController[std::to_string(index)] = info;
+            else
+                snesController.insert(std::make_pair(std::to_string(index), info));
 
         }
 
@@ -162,6 +183,58 @@ public:
                 controller.insert(std::make_pair("1", i)); 
             }
 
+            if(snesController.count("0") == 0) {
+
+                SnesControllerInfo i;
+
+                i.a = "Left Alt";
+                i.b = "Left Ctrl";
+                i.x = "X";
+                i.y = "Z";
+                i.l = "A";
+                i.r = "S";
+                i.select = "Space";
+                i.start = "Return";
+                i.up = "Up";
+                i.down = "Down";
+                i.left = "Left";
+                i.right = "Right";
+                i.saveState = "F5";
+                i.loadState = "F6";
+                i.rewind = "Backspace";
+                i.speed = "+";
+
+                snesController.insert(std::make_pair("0", i));
+            }
+
+            if(snesController.count("1") == 0) {
+
+                SnesControllerInfo i;
+
+                i.a = "H";
+                i.b = "G";
+                i.x = "U";
+                i.y = "Y";
+                i.l = "R";
+                i.r = "T";
+                i.select = "T";
+                i.start = "Y";
+                i.up = "I";
+                i.down = "K";
+                i.left = "J";
+                i.right = "L";
+                i.saveState = "";
+                i.loadState = "";
+                i.rewind = "";
+                i.speed = "";
+
+                snesController.insert(std::make_pair("1", i));
+            }
+
+            if(snesController.count("0") > 0 && snesController["0"].speed.empty()) {
+                snesController["0"].speed = "+";
+            }
+
             if(controller.count("0") > 0 && controller["0"].speed.empty()) {
                 controller["0"].speed = "+";
             }
@@ -172,7 +245,7 @@ public:
             if(konamiHyperShot.p2Jump.empty()) konamiHyperShot.p2Jump = "G";
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, konamiHyperShot, controller)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, konamiHyperShot, controller, snesController)
     };
 
     struct Audio {

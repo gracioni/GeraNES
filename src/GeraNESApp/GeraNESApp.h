@@ -104,6 +104,8 @@ private:
 
     ControllerInfo m_controller1;
     ControllerInfo m_controller2;
+    SnesControllerInfo m_snesController1;
+    SnesControllerInfo m_snesController2;
     KonamiHyperShotInfo m_konamiHyperShot;
 
     bool m_emuInputEnabled = true;
@@ -490,9 +492,10 @@ private:
             const bool p1Down = im.isPressed(m_controller1.down) || (!m_imGuiWantsMouse &&m_touch->buttons().down);
             const bool p1Left = im.isPressed(m_controller1.left) || (!m_imGuiWantsMouse &&m_touch->buttons().left);
             const bool p1Right = im.isPressed(m_controller1.right) || (!m_imGuiWantsMouse &&m_touch->buttons().right);
-
-            if(im.isJustPressed(m_controller1.saveState)) m_emu.saveState();
-            if(im.isJustPressed(m_controller1.loadState)) m_emu.loadState();            
+            const bool p1X = im.isPressed(m_snesController1.x);
+            const bool p1Y = im.isPressed(m_snesController1.y);
+            const bool p1L = im.isPressed(m_snesController1.l);
+            const bool p1R = im.isPressed(m_snesController1.r);
 
             const bool p2A = im.isPressed(m_controller2.a);
             const bool p2B = im.isPressed(m_controller2.b);
@@ -502,10 +505,27 @@ private:
             const bool p2Down = im.isPressed(m_controller2.down);
             const bool p2Left = im.isPressed(m_controller2.left);
             const bool p2Right = im.isPressed(m_controller2.right);
+            const bool p2X = im.isPressed(m_snesController2.x);
+            const bool p2Y = im.isPressed(m_snesController2.y);
+            const bool p2L = im.isPressed(m_snesController2.l);
+            const bool p2R = im.isPressed(m_snesController2.r);
             const bool konamiP1Run = im.isPressed(m_konamiHyperShot.p1Run);
             const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
             const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
             const bool konamiP2Jump = im.isPressed(m_konamiHyperShot.p2Jump);
+            const bool p1UsesSnesController = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER);
+            const bool p2UsesSnesController = m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER);
+            const std::string& saveStateP1 = p1UsesSnesController ? m_snesController1.saveState : m_controller1.saveState;
+            const std::string& saveStateP2 = p2UsesSnesController ? m_snesController2.saveState : m_controller2.saveState;
+            const std::string& loadStateP1 = p1UsesSnesController ? m_snesController1.loadState : m_controller1.loadState;
+            const std::string& loadStateP2 = p2UsesSnesController ? m_snesController2.loadState : m_controller2.loadState;
+            const std::string& rewindP1 = p1UsesSnesController ? m_snesController1.rewind : m_controller1.rewind;
+            const std::string& rewindP2 = p2UsesSnesController ? m_snesController2.rewind : m_controller2.rewind;
+            const std::string& speedP1 = p1UsesSnesController ? m_snesController1.speed : m_controller1.speed;
+            const std::string& speedP2 = p2UsesSnesController ? m_snesController2.speed : m_controller2.speed;
+
+            if(im.isJustPressed(saveStateP1) || im.isJustPressed(saveStateP2)) m_emu.saveState();
+            if(im.isJustPressed(loadStateP1) || im.isJustPressed(loadStateP2)) m_emu.loadState();
             std::array<bool, 12> p1PowerPadButtons = {};
             std::array<bool, 12> p2PowerPadButtons = {};
             for(size_t i = 0; i < POWER_PAD_DEFAULT_KEYS.size(); ++i) {
@@ -603,6 +623,10 @@ private:
             inputState.p1Down = p1Down;
             inputState.p1Left = p1Left;
             inputState.p1Right = p1Right;
+            inputState.p1X = p1X;
+            inputState.p1Y = p1Y;
+            inputState.p1L = p1L;
+            inputState.p1R = p1R;
             inputState.p2A = p2A;
             inputState.p2B = p2B;
             inputState.p2Select = p2Select;
@@ -611,6 +635,10 @@ private:
             inputState.p2Down = p2Down;
             inputState.p2Left = p2Left;
             inputState.p2Right = p2Right;
+            inputState.p2X = p2X;
+            inputState.p2Y = p2Y;
+            inputState.p2L = p2L;
+            inputState.p2R = p2R;
             inputState.p1PowerPadButtons = p1PowerPadButtons;
             inputState.p2PowerPadButtons = p2PowerPadButtons;
             inputState.zapperX = zapperX;
@@ -629,12 +657,12 @@ private:
             inputState.mousePrimaryButton = mousePrimaryButton;
             inputState.mouseSecondaryButton = mouseSecondaryButton;
             inputState.rewind =
-                im.isPressed(m_controller1.rewind) ||
-                im.isPressed(m_controller2.rewind) ||
+                im.isPressed(rewindP1) ||
+                im.isPressed(rewindP2) ||
                 m_touch->buttons().rewind;
             inputState.speedBoost =
-                im.isPressed(m_controller1.speed) ||
-                im.isPressed(m_controller2.speed);
+                im.isPressed(speedP1) ||
+                im.isPressed(speedP2);
             m_emu.setPendingInput(inputState);
         }
         else {
@@ -670,6 +698,8 @@ private:
         
         cfg.input.getControllerInfo(0, m_controller1);
         cfg.input.getControllerInfo(1, m_controller2);
+        cfg.input.getSnesControllerInfo(0, m_snesController1);
+        cfg.input.getSnesControllerInfo(1, m_snesController2);
         m_konamiHyperShot = cfg.input.konamiHyperShot;
 
         m_emu.setupRewindSystem(cfg.improvements.maxRewindTime > 0, cfg.improvements.maxRewindTime);
@@ -872,6 +902,8 @@ public:
         m_emuInputEnabled = true;        
         AppSettings::instance().data.input.setControllerInfo(0, m_controller1);
         AppSettings::instance().data.input.setControllerInfo(1, m_controller2);
+        AppSettings::instance().data.input.setSnesControllerInfo(0, m_snesController1);
+        AppSettings::instance().data.input.setSnesControllerInfo(1, m_snesController2);
         AppSettings::instance().data.input.konamiHyperShot = m_konamiHyperShot;
     }
 

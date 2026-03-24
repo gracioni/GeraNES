@@ -30,6 +30,10 @@ public:
         bool p1Down = false;
         bool p1Left = false;
         bool p1Right = false;
+        bool p1X = false;
+        bool p1Y = false;
+        bool p1L = false;
+        bool p1R = false;
 
         bool p2A = false;
         bool p2B = false;
@@ -39,6 +43,10 @@ public:
         bool p2Down = false;
         bool p2Left = false;
         bool p2Right = false;
+        bool p2X = false;
+        bool p2Y = false;
+        bool p2L = false;
+        bool p2R = false;
         std::array<bool, 12> p1PowerPadButtons = {};
         std::array<bool, 12> p2PowerPadButtons = {};
 
@@ -96,8 +104,10 @@ private:
     void applyPendingInput()
     {
         const InputState input = m_pendingInput;
-        m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right);
-        m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                    input.p1X, input.p1Y, input.p1L, input.p1R);
+        m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                    input.p2X, input.p2Y, input.p2L, input.p2R);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
@@ -155,8 +165,10 @@ private:
     void applyPendingInputLocked()
     {
         const InputState input = m_pendingInput;
-        m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right);
-        m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                    input.p1X, input.p1Y, input.p1L, input.p1R);
+        m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                    input.p2X, input.p2Y, input.p2L, input.p2R);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);

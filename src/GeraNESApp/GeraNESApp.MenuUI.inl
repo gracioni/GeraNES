@@ -309,6 +309,19 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
+            auto drawSnesControllerPortConfigItem = [this](Settings::Port port)
+            {
+                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER)) {
+                    return;
+                }
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    if(port == Settings::Port::P_1) m_inputBindingConfigWindow.show("SNES Controller 1", m_snesController1);
+                    else m_inputBindingConfigWindow.show("SNES Controller 2", m_snesController2);
+                }
+            };
+
             auto drawKonamiHyperShotConfigItem = [this]()
             {
                 if(m_emu.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
@@ -327,9 +340,11 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_A);
                 drawControllerPortMenuItem("Power Pad (Side B)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_B);
                 drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_1, Settings::Device::SNES_MOUSE);
+                drawControllerPortMenuItem("SNES Controller", Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_1);
                 drawSnesMousePortConfigItem(Settings::Port::P_1);
+                drawSnesControllerPortConfigItem(Settings::Port::P_1);
                 drawArkanoidPortConfigItem(Settings::Port::P_1);
                 ImGui::EndMenu();
             }
@@ -340,9 +355,11 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
                 drawControllerPortMenuItem("Power Pad (Side B)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
                 drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_2, Settings::Device::SNES_MOUSE);
+                drawControllerPortMenuItem("SNES Controller", Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_2);
                 drawSnesMousePortConfigItem(Settings::Port::P_2);
+                drawSnesControllerPortConfigItem(Settings::Port::P_2);
                 drawArkanoidPortConfigItem(Settings::Port::P_2);
                 ImGui::EndMenu();
             }

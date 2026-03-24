@@ -31,6 +31,17 @@ public:
         (void)bRight;
     }
 
+    virtual void setButtonsStatusExtended(bool bA, bool bB, bool bSelect, bool bStart,
+                                          bool bUp, bool bDown, bool bLeft, bool bRight,
+                                          bool bX, bool bY, bool bL, bool bR)
+    {
+        (void)bX;
+        (void)bY;
+        (void)bL;
+        (void)bR;
+        setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+    }
+
     virtual void setCursorPosition(int x, int y)
     {
         (void)x;

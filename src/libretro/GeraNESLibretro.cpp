@@ -134,13 +134,17 @@ enum {
 
 enum {
     RETRO_DEVICE_ID_JOYPAD_B = 0,
+    RETRO_DEVICE_ID_JOYPAD_Y = 1,
     RETRO_DEVICE_ID_JOYPAD_SELECT = 2,
     RETRO_DEVICE_ID_JOYPAD_START = 3,
     RETRO_DEVICE_ID_JOYPAD_UP = 4,
     RETRO_DEVICE_ID_JOYPAD_DOWN = 5,
     RETRO_DEVICE_ID_JOYPAD_LEFT = 6,
     RETRO_DEVICE_ID_JOYPAD_RIGHT = 7,
-    RETRO_DEVICE_ID_JOYPAD_A = 8
+    RETRO_DEVICE_ID_JOYPAD_A = 8,
+    RETRO_DEVICE_ID_JOYPAD_X = 9,
+    RETRO_DEVICE_ID_JOYPAD_L = 10,
+    RETRO_DEVICE_ID_JOYPAD_R = 11
 };
 
 enum {
@@ -355,7 +359,11 @@ void registerInputDescriptors()
 
     static const retro_input_descriptor desc[] = {
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "P1 B"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "P1 Y"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "P1 A"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "P1 X"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "P1 L"},
+        {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "P1 R"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "P1 Select"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "P1 Start"},
         {0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "P1 Up"},
@@ -368,7 +376,11 @@ void registerInputDescriptors()
         {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X, "P1 Arkanoid Paddle"},
         {0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT, "P1 Arkanoid Fire"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "P2 B"},
+        {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "P2 Y"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "P2 A"},
+        {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "P2 X"},
+        {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "P2 L"},
+        {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "P2 R"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "P2 Select"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "P2 Start"},
         {1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "P2 Up"},
@@ -558,7 +570,11 @@ void updateControllerState(unsigned port)
     if(g_inputStateCb == nullptr) return;
 
     const bool b = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B) != 0;
+    const bool y = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y) != 0;
     const bool a = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A) != 0;
+    const bool x = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X) != 0;
+    const bool l = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L) != 0;
+    const bool r = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R) != 0;
     const bool select = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT) != 0;
     const bool start = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START) != 0;
     const bool up = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP) != 0;
@@ -567,10 +583,10 @@ void updateControllerState(unsigned port)
     const bool right = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT) != 0;
 
     if(port == 0) {
-        g_emu.setController1Buttons(a, b, select, start, up, down, left, right);
+        g_emu.setController1Buttons(a, b, select, start, up, down, left, right, x, y, l, r);
     }
     else if(port == 1) {
-        g_emu.setController2Buttons(a, b, select, start, up, down, left, right);
+        g_emu.setController2Buttons(a, b, select, start, up, down, left, right, x, y, l, r);
     }
 }
 

@@ -12,6 +12,7 @@
 #include "ArkanoidControllerNes.h"
 #include "ArkanoidControllerFamicom.h"
 #include "SnesMouse.h"
+#include "SnesController.h"
 #include "BandaiHyperShot.h"
 #include "KonamiHyperShot.h"
 #include "Settings.h"
@@ -110,6 +111,8 @@ private:
                 return std::make_unique<Controller>();
             case Settings::Device::SNES_MOUSE:
                 return std::make_unique<SnesMouse>();
+            case Settings::Device::SNES_CONTROLLER:
+                return std::make_unique<SnesController>();
             case Settings::Device::POWER_PAD_SIDE_A:
                 return std::make_unique<PowerPad>(false);
             case Settings::Device::POWER_PAD_SIDE_B:
@@ -148,6 +151,8 @@ private:
                 return dynamic_cast<const Controller*>(device) != nullptr;
             case Settings::Device::SNES_MOUSE:
                 return dynamic_cast<const SnesMouse*>(device) != nullptr;
+            case Settings::Device::SNES_CONTROLLER:
+                return dynamic_cast<const SnesController*>(device) != nullptr;
             case Settings::Device::POWER_PAD_SIDE_A:
             {
                 const auto* powerPad = dynamic_cast<const PowerPad*>(device);
@@ -835,6 +840,12 @@ public:
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
+                case GameDatabase::InputType::SnesControllers:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::NONE);
+                    break;
+
                 case GameDatabase::InputType::DoubleArkanoidController:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
@@ -1202,15 +1213,17 @@ public:
         SERIALIZEDATA(s, m_runningLoop);
     }
 
-    void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
+                               bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
-        if(m_portDevice1) m_portDevice1->setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
+        if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
         processNsfControllerInput(bSelect, bStart, bLeft, bRight);
     }
 
-    void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
+                               bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
-        if(m_portDevice2) m_portDevice2->setButtonsStatus(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight);
+        if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
     }
 
     void setZapper(Settings::Port port, int x, int y, bool trigger)
