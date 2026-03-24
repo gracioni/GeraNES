@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 
@@ -68,6 +69,11 @@ public:
         (void)p1Jump;
         (void)p2Run;
         (void)p2Jump;
+    }
+
+    virtual void setPowerPadButtons(const std::array<bool, 12>& buttons)
+    {
+        (void)buttons;
     }
 
     virtual void setPixelChecker(std::function<float(int, int)> func)

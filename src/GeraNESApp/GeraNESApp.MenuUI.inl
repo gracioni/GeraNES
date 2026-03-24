@@ -313,6 +313,20 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
+            auto drawPowerPadPortConfigItem = [this](Settings::Port port)
+            {
+                const auto device = m_emu.getPortDevice(port);
+                if(device != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) &&
+                   device != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) {
+                    return;
+                }
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    m_powerPadConfigWindow.show("Power Pad Config", m_powerPadInfo);
+                }
+            };
+
             auto drawSnesControllerPortConfigItem = [this](Settings::Port port)
             {
                 if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER)) {
@@ -354,6 +368,7 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("SNES Controller", Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_1);
+                drawPowerPadPortConfigItem(Settings::Port::P_1);
                 drawSnesMousePortConfigItem(Settings::Port::P_1);
                 drawSnesControllerPortConfigItem(Settings::Port::P_1);
                 drawArkanoidPortConfigItem(Settings::Port::P_1);
@@ -369,6 +384,7 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("SNES Controller", Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_2);
+                drawPowerPadPortConfigItem(Settings::Port::P_2);
                 drawSnesMousePortConfigItem(Settings::Port::P_2);
                 drawSnesControllerPortConfigItem(Settings::Port::P_2);
                 drawArkanoidPortConfigItem(Settings::Port::P_2);
@@ -388,6 +404,14 @@ inline void GeraNESApp::menuBar() {
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
                 }
+                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
+                }
+                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
+                }
                 if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
@@ -396,6 +420,13 @@ inline void GeraNESApp::menuBar() {
                     ImGui::Separator();
                     if(ImGui::MenuItem("Config...")) {
                         m_showArkanoidFamicomConfigWindow = true;
+                    }
+                }
+                if(m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                   m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+                    ImGui::Separator();
+                    if(ImGui::MenuItem("Config...")) {
+                        m_powerPadConfigWindow.show("Family Trainer Config", m_powerPadInfo);
                     }
                 }
                 drawKonamiHyperShotConfigItem();

@@ -16,6 +16,7 @@ inline void GeraNESApp::showGui()
 #endif
 
     m_inputBindingConfigWindow.update();
+    m_powerPadConfigWindow.update();
 
     if(m_showImprovementsWindow) {
         ImGui::SetNextWindowSize(ImVec2(320, 0));

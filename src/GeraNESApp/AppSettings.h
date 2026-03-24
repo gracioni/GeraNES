@@ -13,6 +13,7 @@ namespace fs = std::filesystem;
 
 #include "ControllerInfo.h"
 #include "KonamiHyperShotInfo.h"
+#include "PowerPadInfo.h"
 #include "SnesControllerInfo.h"
 
 #include "logger/logger.h"
@@ -101,6 +102,7 @@ public:
         TouchControls touchControls;
         Arkanoid arkanoid;
         SnesMouse snesMouse;
+        PowerPadInfo powerPad;
         KonamiHyperShotInfo konamiHyperShot;
 
         bool getControllerInfo(int index, ControllerInfo& result) {
@@ -255,9 +257,16 @@ public:
             if(konamiHyperShot.p1Jump.empty()) konamiHyperShot.p1Jump = "Left Ctrl";
             if(konamiHyperShot.p2Run.empty()) konamiHyperShot.p2Run = "H";
             if(konamiHyperShot.p2Jump.empty()) konamiHyperShot.p2Jump = "G";
+
+            const std::array<const char*, 12> defaultBindings {"1","2","3","4","Q","W","E","R","A","S","D","F"};
+            for(size_t i = 0; i < powerPad.bindings.size(); ++i) {
+                if(powerPad.bindings[i].empty()) {
+                    powerPad.bindings[i] = defaultBindings[i];
+                }
+            }
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, konamiHyperShot, controller, snesController)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, powerPad, konamiHyperShot, controller, snesController)
     };
 
     struct Audio {

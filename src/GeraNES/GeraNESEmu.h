@@ -9,6 +9,7 @@
 #include "Controller.h"
 #include "Zapper.h"
 #include "PowerPad.h"
+#include "FamilyTrainer.h"
 #include "ArkanoidControllerNes.h"
 #include "ArkanoidControllerFamicom.h"
 #include "SnesMouse.h"
@@ -152,6 +153,10 @@ private:
                 return std::make_unique<KonamiHyperShot>();
             case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
                 return std::make_unique<ArkanoidControllerFamicom>();
+            case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A:
+                return std::make_unique<FamilyTrainer>(false);
+            case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B:
+                return std::make_unique<FamilyTrainer>(true);
         }
 
         return nullptr;
@@ -198,6 +203,16 @@ private:
                 return dynamic_cast<const KonamiHyperShot*>(device) != nullptr;
             case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
                 return dynamic_cast<const ArkanoidControllerFamicom*>(device) != nullptr;
+            case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A:
+            {
+                const auto* familyTrainer = dynamic_cast<const FamilyTrainer*>(device);
+                return familyTrainer != nullptr && !familyTrainer->isSideB();
+            }
+            case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B:
+            {
+                const auto* familyTrainer = dynamic_cast<const FamilyTrainer*>(device);
+                return familyTrainer != nullptr && familyTrainer->isSideB();
+            }
         }
 
         return false;
@@ -907,6 +922,18 @@ public:
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
+                case GameDatabase::InputType::FamilyTrainerSideA:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
+                    break;
+
+                case GameDatabase::InputType::FamilyTrainerSideB:
+                    setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
+                    setPortDevice(Settings::Port::P_2, Settings::Device::CONTROLLER);
+                    setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
+                    break;
+
                 case GameDatabase::InputType::ArkanoidControllerNes:
                     setPortDevice(Settings::Port::P_1, Settings::Device::CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
@@ -1443,15 +1470,29 @@ public:
     void setPowerPadButtons(Settings::Port port, const std::array<bool, 12>& buttons)
     {
         const auto deviceType = m_settings.getPortDevice(port);
-        if(deviceType != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) &&
-           deviceType != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) {
+        const bool portUsesPowerPad =
+            deviceType == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) ||
+            deviceType == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B);
+        const bool expansionUsesFamilyTrainer =
+            m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+            m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
+
+        if(!portUsesPowerPad && !expansionUsesFamilyTrainer) {
             return;
         }
 
-        IControllerPortDevice* device =
-            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-        if(device) {
-            device->setPowerPadButtons(buttons);
+        if(portUsesPowerPad) {
+            IControllerPortDevice* device =
+                (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+            if(device) {
+                device->setPowerPadButtons(buttons);
+            }
+        }
+
+        if(expansionUsesFamilyTrainer) {
+            if(m_expansionDevice) {
+                m_expansionDevice->setPowerPadButtons(buttons);
+            }
         }
     }
 

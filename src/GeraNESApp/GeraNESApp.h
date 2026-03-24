@@ -15,6 +15,7 @@ namespace fs = std::filesystem;
 #include "ImGuiTheme.h"
 
 #include "InputBindingConfigWindow.h"
+#include "PowerPadConfigWindow.h"
 #include "ShortcutManager.h"
 
 #ifdef __EMSCRIPTEN__
@@ -79,6 +80,7 @@ class GeraNESApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 private:
 
     InputBindingConfigWindow m_inputBindingConfigWindow;
+    PowerPadConfigWindow m_powerPadConfigWindow;
 
     std::vector<std::string> m_audioDevices;
 
@@ -106,6 +108,7 @@ private:
     ControllerInfo m_controller2;
     ControllerInfo m_controller3;
     ControllerInfo m_controller4;
+    PowerPadInfo m_powerPadInfo;
     SnesControllerInfo m_snesController1;
     SnesControllerInfo m_snesController2;
     KonamiHyperShotInfo m_konamiHyperShot;
@@ -221,8 +224,6 @@ private:
     std::optional<SdlCursor> m_defaultCursor;
     std::optional<SdlCursor> m_crossCursor;
     std::optional<SdlCursor> m_sizeWECursor;
-    static constexpr std::array<const char*, 12> POWER_PAD_DEFAULT_KEYS = {"1","2","3","4","Q","W","E","R","A","S","D","F"};
-
     static void setIfNegative(std::string& dst, int value)
     {
         dst = value >= 0 ? std::to_string(value) : "";
@@ -546,9 +547,9 @@ private:
             if(im.isJustPressed(loadStateP1) || im.isJustPressed(loadStateP2)) m_emu.loadState();
             std::array<bool, 12> p1PowerPadButtons = {};
             std::array<bool, 12> p2PowerPadButtons = {};
-            for(size_t i = 0; i < POWER_PAD_DEFAULT_KEYS.size(); ++i) {
-                p1PowerPadButtons[i] = im.isPressed(POWER_PAD_DEFAULT_KEYS[i]);
-                p2PowerPadButtons[i] = im.isPressed(POWER_PAD_DEFAULT_KEYS[i]);
+            for(size_t i = 0; i < m_powerPadInfo.bindings.size(); ++i) {
+                p1PowerPadButtons[i] = im.isPressed(m_powerPadInfo.bindings[i]);
+                p2PowerPadButtons[i] = im.isPressed(m_powerPadInfo.bindings[i]);
             }
 
             int zapperX = -1;
@@ -734,6 +735,7 @@ private:
         cfg.input.getControllerInfo(1, m_controller2);
         cfg.input.getControllerInfo(2, m_controller3);
         cfg.input.getControllerInfo(3, m_controller4);
+        m_powerPadInfo = cfg.input.powerPad;
         cfg.input.getSnesControllerInfo(0, m_snesController1);
         cfg.input.getSnesControllerInfo(1, m_snesController2);
         m_konamiHyperShot = cfg.input.konamiHyperShot;
@@ -862,6 +864,8 @@ public:
 
         m_inputBindingConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
         m_inputBindingConfigWindow.signalClose.bind(&GeraNESApp::onInputBindingCaptureEnd, this);
+        m_powerPadConfigWindow.signalShow.bind(&GeraNESApp::onCaptureBegin, this);
+        m_powerPadConfigWindow.signalClose.bind(&GeraNESApp::onInputBindingCaptureEnd, this);
 
         m_audioDevices = m_emu.getAudioList();
 
@@ -940,6 +944,7 @@ public:
         AppSettings::instance().data.input.setControllerInfo(1, m_controller2);
         AppSettings::instance().data.input.setControllerInfo(2, m_controller3);
         AppSettings::instance().data.input.setControllerInfo(3, m_controller4);
+        AppSettings::instance().data.input.powerPad = m_powerPadInfo;
         AppSettings::instance().data.input.setSnesControllerInfo(0, m_snesController1);
         AppSettings::instance().data.input.setSnesControllerInfo(1, m_snesController2);
         AppSettings::instance().data.input.konamiHyperShot = m_konamiHyperShot;
