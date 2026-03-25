@@ -461,7 +461,6 @@ private:
 
         const bool enteringResync = currentState == Netplay::SessionState::Resyncing;
         const bool leavingResync = previousState.has_value() && *previousState == Netplay::SessionState::Resyncing && currentState != Netplay::SessionState::Resyncing;
-
         if(enteringResync || leavingResync) {
             m_emu.restartAudio();
         }
@@ -598,18 +597,27 @@ private:
         std::optional<Netplay::FrameNumber> rollbackFrame = m_netplayCoordinator.consumePendingRollbackFrame();
         if(!rollbackFrame.has_value()) return;
 
+        const uint32_t currentFrame = m_emu.frameCount();
+        if(currentFrame == 0) return;
+
         const Netplay::FrameNumber confirmedFrame = m_netplayCoordinator.session().roomState().lastConfirmedFrame;
-        if(*rollbackFrame < confirmedFrame) {
-            rollbackFrame = confirmedFrame;
+        const Netplay::FrameNumber latestSafeRollbackFrame = static_cast<Netplay::FrameNumber>(currentFrame - 1u);
+        const Netplay::FrameNumber rollbackFloor = std::min(confirmedFrame, latestSafeRollbackFrame);
+        if(*rollbackFrame < rollbackFloor) {
+            rollbackFrame = rollbackFloor;
         }
 
-        const uint32_t currentFrame = m_emu.frameCount();
         if(*rollbackFrame >= currentFrame) return;
 
         const uint32_t rollbackFromFrame = currentFrame;
         if(!m_emu.rollbackToFrame(*rollbackFrame)) {
             Logger::instance().log("Netplay rollback failed", Logger::Type::WARNING);
             return;
+        }
+
+        m_netplayCoordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
+        if(m_lastNetplayCrcReportFrame > *rollbackFrame) {
+            m_lastNetplayCrcReportFrame = *rollbackFrame;
         }
 
         if(!m_emu.resimulateToFrame(currentFrame, [this](uint32_t frame) {
@@ -669,16 +677,35 @@ private:
         const bool initialSessionSync =
             m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Starting;
 
-        const std::vector<uint8_t> statePayload = m_emu.saveStateToMemory();
+        const Netplay::FrameNumber confirmedFrame =
+            initialSessionSync
+                ? m_emu.frameCount()
+                : m_netplayCoordinator.session().roomState().lastConfirmedFrame;
+
+        const std::optional<std::vector<uint8_t>> confirmedSnapshot =
+            m_emu.netplaySnapshotForFrame(confirmedFrame);
+        const std::vector<uint8_t> statePayload =
+            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveStateToMemory();
         if(statePayload.empty()) return;
 
+        if(!initialSessionSync && confirmedFrame < m_emu.frameCount()) {
+            if(!m_emu.rollbackToFrame(confirmedFrame)) {
+                Logger::instance().log(
+                    "Netplay host failed to roll back locally before hard resync",
+                    Logger::Type::WARNING
+                );
+                return;
+            }
+        }
+
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        if(m_netplayCoordinator.beginResync(m_emu.frameCount(), statePayload, payloadCrc32)) {
+        if(m_netplayCoordinator.beginResync(confirmedFrame, statePayload, payloadCrc32)) {
             if(initialSessionSync) {
                 Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
             } else {
                 Logger::instance().log(
-                    "Netplay hard resync started after confirmed desync at frame " + std::to_string(*pendingFrame),
+                    "Netplay hard resync started after confirmed desync at frame " + std::to_string(*pendingFrame) +
+                    ", using authoritative frame " + std::to_string(confirmedFrame),
                     Logger::Type::WARNING
                 );
             }
@@ -1487,11 +1514,15 @@ private:
                 if(localParticipant != nullptr && localParticipant->controllerAssignment != Netplay::kObserverPlayerSlot) {
                     const std::array<uint64_t, 4> rawMasks = {p1RawMask, p2RawMask, p3RawMask, p4RawMask};
                     const Netplay::PlayerSlot localSlot = localParticipant->controllerAssignment;
-                    m_netplayCoordinator.recordLocalInputFrame(
-                        playbackFrame,
-                        localSlot,
-                        sampleDelayedNetplayPadMask(localSlot, rawMasks[localSlot])
-                    );
+                    const Netplay::TimelineInputEntry* existing =
+                        m_netplayCoordinator.localInputs().find(playbackFrame, localParticipantId, localSlot);
+                    if(existing == nullptr) {
+                        m_netplayCoordinator.recordLocalInputFrame(
+                            playbackFrame,
+                            localSlot,
+                            sampleDelayedNetplayPadMask(localSlot, rawMasks[localSlot])
+                        );
+                    }
                 }
                 m_netplayCoordinator.predictRemoteInputsForFrame(playbackFrame);
                 applyNetplayFrameToInputState(inputState, playbackFrame);
@@ -2289,7 +2320,6 @@ public:
         if(dt == 0) return;
 
         m_touch->update(dt);
-        onFrameStart();
         dispatch_queued_calls();
 #ifndef __EMSCRIPTEN__
         m_netplayCoordinator.update(0);
@@ -2305,10 +2335,15 @@ public:
         processNetplayRollbackIfNeeded();
         if(m_netplayCoordinator.isActive() &&
            m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running) {
-            const uint32_t currentFrame = m_emu.frameCount();
-            if(currentFrame > 0 && currentFrame != m_lastNetplayCrcReportFrame && (currentFrame % 10u) == 0u) {
-                m_netplayCoordinator.submitLocalCrc(currentFrame, m_emu.canonicalStateCrc32());
-                m_lastNetplayCrcReportFrame = currentFrame;
+            const uint32_t confirmedFrame = m_netplayCoordinator.session().roomState().lastConfirmedFrame;
+            if(confirmedFrame > 0 &&
+               confirmedFrame != m_lastNetplayCrcReportFrame &&
+               (confirmedFrame % 10u) == 0u) {
+                const std::optional<uint32_t> snapshotCrc32 = m_emu.netplaySnapshotCrc32ForFrame(confirmedFrame);
+                if(snapshotCrc32.has_value()) {
+                    m_netplayCoordinator.submitLocalCrc(confirmedFrame, *snapshotCrc32);
+                    m_lastNetplayCrcReportFrame = confirmedFrame;
+                }
             }
         } else {
             m_lastNetplayCrcReportFrame = 0;
@@ -2336,6 +2371,8 @@ public:
             }
         }
 #endif
+
+        onFrameStart();
 
         m_mainLoopLastTime = tempTime;
  

@@ -183,15 +183,24 @@ private:
         m_netplayRuntime.reset();
     }
 
-    void captureNetplaySnapshotOnFrameReady()
+    void requestNetplaySnapshotOnFrameReady()
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled || !m_emu.valid()) return;
+        m_emu.requestNetplaySnapshotAtSafePoint();
+    }
+
+    void flushPendingNetplaySnapshotLocked()
     {
         std::scoped_lock netplayLock(m_netplayRuntimeMutex);
         if(!m_netplayRuntimeEnabled || !m_emu.valid()) return;
 
-        const uint32_t frame = m_emu.frameCount();
-        m_netplayRuntime.setCurrentFrame(frame);
-        m_netplayRuntime.captureSnapshot(frame, [this]() {
-            return m_emu.saveStateToMemory();
+        std::optional<GeraNESEmu::PendingNetplaySnapshot> snapshot = m_emu.consumeNetplaySnapshotAtSafePoint();
+        if(!snapshot.has_value()) return;
+
+        m_netplayRuntime.setCurrentFrame(snapshot->frame);
+        m_netplayRuntime.captureSnapshot(snapshot->frame, [&snapshot]() {
+            return snapshot->data;
         });
     }
 
@@ -341,12 +350,14 @@ private:
 
                     if(m_emu.valid() && ticksToConsume > 0) {
                         m_emu.updateUntilFrame(dtMs);
+                        flushPendingNetplaySnapshotLocked();
                     }
                     else if(m_emu.valid() && timedOutWaitingPresenter && !wakeOnly) {
                         // If the presenter/UI stalls (e.g. native window move/resize modal loop),
                         // temporarily keep emulation/audio flowing with internal pacing until
                         // presentation ticks resume.
                         m_emu.update(dtMs);
+                        flushPendingNetplaySnapshotLocked();
                     }
 
                     (void)wakeOnly;
@@ -373,6 +384,7 @@ private:
                     dispatch_queued_calls();
                     if(m_emu.valid()) {
                         m_emu.update(STEP_MS);
+                        flushPendingNetplaySnapshotLocked();
                         refreshSnapshotLocked();
                     } else {
                         refreshSnapshotLocked();
@@ -394,10 +406,10 @@ public:
     {
 #ifdef __EMSCRIPTEN__
         m_emu.signalFrameStart.bind(&EmulationHost::applyPendingInput, this);
-        m_emu.signalFrameReady.bind(&EmulationHost::captureNetplaySnapshotOnFrameReady, this);
+        m_emu.signalFrameReady.bind(&EmulationHost::requestNetplaySnapshotOnFrameReady, this);
 #else
         m_emu.signalFrameStart.bind(&EmulationHost::applyPendingInputLocked, this);
-        m_emu.signalFrameReady.bind(&EmulationHost::captureNetplaySnapshotOnFrameReady, this);
+        m_emu.signalFrameReady.bind(&EmulationHost::requestNetplaySnapshotOnFrameReady, this);
         m_signalInputState.bind_auto(&EmulationHost::onSetPendingInput, this);
         m_signalCommand.bind_auto(&EmulationHost::onCommand, this);
         {
@@ -923,7 +935,12 @@ public:
     bool update(uint32_t dt)
     {
 #ifdef __EMSCRIPTEN__
-        return m_emu.update(dt);
+        const uint32_t previousFrame = m_emu.frameCount();
+        const bool advanced = m_emu.update(dt);
+        if(m_emu.frameCount() != previousFrame) {
+            flushPendingNetplaySnapshotLocked();
+        }
+        return advanced;
 #else
         (void)dt;
         m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
@@ -936,7 +953,11 @@ public:
     void updateUntilFrame(uint32_t dt)
     {
 #ifdef __EMSCRIPTEN__
+        const uint32_t previousFrame = m_emu.frameCount();
         m_emu.updateUntilFrame(dt);
+        if(m_emu.frameCount() != previousFrame) {
+            flushPendingNetplaySnapshotLocked();
+        }
 #else
         m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);
         m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
@@ -959,7 +980,7 @@ public:
         std::scoped_lock netplayLock(m_netplayRuntimeMutex);
         if(!m_netplayRuntimeEnabled) return false;
         return m_netplayRuntime.rollbackTo(frame, [this](const std::vector<uint8_t>& data) {
-            m_emu.loadStateFromMemory(data);
+            m_emu.loadStateFromMemoryOnCleanBoot(data);
         });
 #else
         std::scoped_lock emuLock(m_emuMutex);
@@ -967,7 +988,7 @@ public:
         if(!m_netplayRuntimeEnabled) return false;
 
         const bool rolledBack = m_netplayRuntime.rollbackTo(frame, [this](const std::vector<uint8_t>& data) {
-            m_emu.loadStateFromMemory(data);
+            m_emu.loadStateFromMemoryOnCleanBoot(data);
         });
 
         if(rolledBack) {
@@ -993,13 +1014,14 @@ public:
 #ifdef __EMSCRIPTEN__
         if(data.empty()) return false;
         resetNetplayRuntimeLocked();
-        m_emu.loadStateFromMemory(data);
-        return true;
+        return m_emu.loadStateFromMemoryOnCleanBoot(data);
 #else
         if(data.empty()) return false;
         std::scoped_lock emuLock(m_emuMutex);
         resetNetplayRuntimeLocked();
-        m_emu.loadStateFromMemory(data);
+        if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
+            return false;
+        }
         refreshSnapshotLocked();
         return true;
 #endif
@@ -1017,6 +1039,7 @@ public:
             m_pendingInput = std::forward<InputProvider>(inputProvider)(nextFrame);
             applyPendingInput();
             m_emu.updateUntilFrame(frameDt);
+            flushPendingNetplaySnapshotLocked();
         }
         return true;
 #else
@@ -1029,6 +1052,7 @@ public:
             const InputState replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
             applyInputStateToEmu(m_emu, replayInput);
             m_emu.updateUntilFrame(frameDt);
+            flushPendingNetplaySnapshotLocked();
         }
 
         refreshSnapshotLocked();
@@ -1044,6 +1068,23 @@ public:
         std::scoped_lock emuLock(m_emuMutex);
         return m_emu.canonicalStateCrc32();
 #endif
+    }
+
+    std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled) return std::nullopt;
+
+        const Netplay::SnapshotRecord* record = m_netplayRuntime.snapshots().find(frame);
+        if(record == nullptr) return std::nullopt;
+        return record->data;
+    }
+
+    std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled) return std::nullopt;
+        return m_netplayRuntime.snapshots().crc32ForFrame(frame);
     }
 
     NetplayDiagnosticsSnapshot getNetplayDiagnostics() const

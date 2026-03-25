@@ -57,10 +57,10 @@ public:
     {
         if(m_capacity == 0) return;
 
-        if(!m_records.empty() && m_records.back().frame == frame) {
-            m_records.back().data = std::move(data);
-            m_records.back().crc32 = calcCrc32(m_records.back().data);
-            return;
+        // Rollback/resimulation can regenerate snapshots for an older frame.
+        // Once that happens, every newer snapshot becomes stale and must be discarded.
+        while(!m_records.empty() && m_records.back().frame >= frame) {
+            m_records.pop_back();
         }
 
         SnapshotRecord record;

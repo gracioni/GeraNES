@@ -2304,6 +2304,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_backgroundEnabled);
         SERIALIZEDATA(s, m_spritesEnabled);
         SERIALIZEDATA(s, m_colorEmphasis);
+        SERIALIZEDATA(s, m_renderingEnabled);
 
         SERIALIZEDATA(s, m_VBlankHasStarted);
         SERIALIZEDATA(s, m_sprite0Hit);
@@ -2334,7 +2335,10 @@ yyy NNYY YYYX XXXX
         s.array(m_palette, 1, sizeof(m_palette));
         s.array(m_primaryOam, 1, sizeof(m_primaryOam));
         s.array(m_secondaryOam, 1, sizeof(m_secondaryOam));
+        s.array(reinterpret_cast<uint8_t*>(m_spritesIndexesInThisLine), 1, sizeof(m_spritesIndexesInThisLine));
+        s.array(reinterpret_cast<uint8_t*>(m_corruptOamRow), 1, sizeof(m_corruptOamRow));
         s.array(reinterpret_cast<uint8_t*>(m_spriteFetchEntries), 1, sizeof(m_spriteFetchEntries));
+        s.array(reinterpret_cast<uint8_t*>(m_spriteRenderEntries), 1, sizeof(m_spriteRenderEntries));
         SERIALIZEDATA(s, m_spriteFetchCount);
 
         SERIALIZEDATA(s, m_reg_v);
@@ -2373,6 +2377,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, FRAME_VBLANK_START_LINE);
         SERIALIZEDATA(s, FRAME_VBLANK_END_LINE);
         SERIALIZEDATA(s, m_inOverclockLines);
+        SERIALIZEDATA(s, m_overclockFrame);
         SERIALIZEDATA(s, m_preLine);
         SERIALIZEDATA(s, m_visibleLine);
         SERIALIZEDATA(s, m_renderLine);
@@ -2381,6 +2386,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_needIncVideoRam);
 
         SERIALIZEDATA(s, m_prevCycleRenderingEnabled);
+        SERIALIZEDATA(s, m_spriteRenderClockingActiveThisLine);
         SERIALIZEDATA(s, m_staleBgShiftActive);
         SERIALIZEDATA(s, m_forceSpriteXZeroThisLine);
         SERIALIZEDATA(s, m_forceSpriteXZeroNextLine);
@@ -2394,6 +2400,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_updateA12Delay);
         SERIALIZEDATA(s, m_isSpritePatternFetch);
         SERIALIZEDATA(s, m_currentReadAffectsBus);
+        SERIALIZEDATA(s, m_vsPpuModel);
 
         m_pFrameBuffer = &m_framebuffer[m_currentY*SCREEN_WIDTH+m_currentX];
     }

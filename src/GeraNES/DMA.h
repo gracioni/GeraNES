@@ -222,5 +222,13 @@ public:
         SERIALIZEDATA(s, m_dmcLastRequestWasReload);
         SERIALIZEDATA(s, m_dmcDmaAddr);
         SERIALIZEDATA(s, m_dmaPrevReadAddr);
+        SERIALIZEDATA(s, m_dmaReadInProgress);
+        SERIALIZEDATA(s, m_dmaReadInputClockMask);
+    }
+
+    void resetVolatileStateAfterLoad()
+    {
+        m_dmaReadInProgress = false;
+        m_dmaReadInputClockMask = 0;
     }
 };

@@ -124,7 +124,7 @@ private:
     bool handleStartSession(PacketReader& reader);
     std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
     void realignAuthoritativeState(FrameNumber loadedFrame);
-    void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, PlayerSlot slot);
+    void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot);
     bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
@@ -165,6 +165,7 @@ public:
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
     void predictRemoteInputsForFrame(FrameNumber frame);
     void submitLocalCrc(FrameNumber frame, uint32_t crc32);
+    void invalidateLocalCrcHistoryAfter(FrameNumber frame);
     bool beginResync(FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32);
     bool beginSpectatorSync(ParticipantId participantId, FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32);
     std::optional<PendingResyncApply> consumePendingResyncApply();

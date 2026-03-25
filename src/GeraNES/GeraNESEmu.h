@@ -47,7 +47,145 @@ enum class AccessType
 
 class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
+public:
+    struct PendingNetplaySnapshot
+    {
+        uint32_t frame = 0;
+        std::vector<uint8_t> data;
+    };
+
 private:
+    struct PendingInputState
+    {
+        bool p1A = false;
+        bool p1B = false;
+        bool p1Select = false;
+        bool p1Start = false;
+        bool p1Up = false;
+        bool p1Down = false;
+        bool p1Left = false;
+        bool p1Right = false;
+        bool p1X = false;
+        bool p1Y = false;
+        bool p1L = false;
+        bool p1R = false;
+
+        bool p2A = false;
+        bool p2B = false;
+        bool p2Select = false;
+        bool p2Start = false;
+        bool p2Up = false;
+        bool p2Down = false;
+        bool p2Left = false;
+        bool p2Right = false;
+        bool p2X = false;
+        bool p2Y = false;
+        bool p2L = false;
+        bool p2R = false;
+
+        bool p3A = false;
+        bool p3B = false;
+        bool p3Select = false;
+        bool p3Start = false;
+        bool p3Up = false;
+        bool p3Down = false;
+        bool p3Left = false;
+        bool p3Right = false;
+
+        bool p4A = false;
+        bool p4B = false;
+        bool p4Select = false;
+        bool p4Start = false;
+        bool p4Up = false;
+        bool p4Down = false;
+        bool p4Left = false;
+        bool p4Right = false;
+
+        int zapperP1X = -1;
+        int zapperP1Y = -1;
+        bool zapperP1Trigger = false;
+        int zapperP2X = -1;
+        int zapperP2Y = -1;
+        bool zapperP2Trigger = false;
+
+        bool bandaiA = false;
+        bool bandaiB = false;
+        bool bandaiSelect = false;
+        bool bandaiStart = false;
+        bool bandaiUp = false;
+        bool bandaiDown = false;
+        bool bandaiLeft = false;
+        bool bandaiRight = false;
+        int bandaiX = -1;
+        int bandaiY = -1;
+        bool bandaiTrigger = false;
+
+        float arkanoidP1Position = 0.5f;
+        bool arkanoidP1Button = false;
+        float arkanoidP2Position = 0.5f;
+        bool arkanoidP2Button = false;
+        float arkanoidFamicomPosition = 0.5f;
+        bool arkanoidFamicomButton = false;
+
+        bool konamiP1Run = false;
+        bool konamiP1Jump = false;
+        bool konamiP2Run = false;
+        bool konamiP2Jump = false;
+
+        int snesMouseP1DeltaX = 0;
+        int snesMouseP1DeltaY = 0;
+        bool snesMouseP1Left = false;
+        bool snesMouseP1Right = false;
+        int snesMouseP2DeltaX = 0;
+        int snesMouseP2DeltaY = 0;
+        bool snesMouseP2Left = false;
+        bool snesMouseP2Right = false;
+
+        bool vbP1A = false;
+        bool vbP1B = false;
+        bool vbP1Select = false;
+        bool vbP1Start = false;
+        bool vbP1Up0 = false;
+        bool vbP1Down0 = false;
+        bool vbP1Left0 = false;
+        bool vbP1Right0 = false;
+        bool vbP1Up1 = false;
+        bool vbP1Down1 = false;
+        bool vbP1Left1 = false;
+        bool vbP1Right1 = false;
+        bool vbP1L = false;
+        bool vbP1R = false;
+
+        bool vbP2A = false;
+        bool vbP2B = false;
+        bool vbP2Select = false;
+        bool vbP2Start = false;
+        bool vbP2Up0 = false;
+        bool vbP2Down0 = false;
+        bool vbP2Left0 = false;
+        bool vbP2Right0 = false;
+        bool vbP2Up1 = false;
+        bool vbP2Down1 = false;
+        bool vbP2Left1 = false;
+        bool vbP2Right1 = false;
+        bool vbP2L = false;
+        bool vbP2R = false;
+
+        int suborMouseP1DeltaX = 0;
+        int suborMouseP1DeltaY = 0;
+        bool suborMouseP1Left = false;
+        bool suborMouseP1Right = false;
+        int suborMouseP2DeltaX = 0;
+        int suborMouseP2DeltaY = 0;
+        bool suborMouseP2Left = false;
+        bool suborMouseP2Right = false;
+
+        IExpansionDevice::SuborKeyboardKeys suborKeyboardKeys = {};
+        IExpansionDevice::FamilyBasicKeyboardKeys familyBasicKeyboardKeys = {};
+        std::array<bool, 12> powerPadP1Buttons = {};
+        std::array<bool, 12> powerPadP2Buttons = {};
+    };
+
 
     const uint32_t MAX_4011_WRITES_TO_DISABLE_OVERCLOCK = 2;
 
@@ -95,6 +233,15 @@ private:
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
     bool m_loadStateFlag;    
+
+    bool m_netplaySnapshotFlag = false;
+    std::optional<PendingNetplaySnapshot> m_netplaySnapshotResult;
+    bool m_netplayLoadStateFlag = false;
+    bool m_netplayLoadStateCleanBoot = false;
+    std::vector<uint8_t> m_netplayLoadStateData;
+    std::optional<bool> m_netplayLoadStateResult;
+    PendingInputState m_pendingInputState;
+    bool m_processingFrameStart = false;
 
     Rewind m_rewind;
     NsfPlayer m_nsfPlayer;
@@ -642,9 +789,11 @@ private:
         );
         m_hardwareActions.onFrameStart();
         m_nsfPlayer.onFrameStart();
-
         updateCyclesPerSecond();
+        m_processingFrameStart = true;
         signalFrameStart();
+        m_processingFrameStart = false;
+        applyPendingInputState();
     }
 
     void onFrameReady()
@@ -686,6 +835,153 @@ private:
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
         m_apu.updateAudioOutput();
+    }
+
+    void resetVolatileStateAfterStateLoad()
+    {
+        // These fields are intentionally not serialized, so state loading must
+        // reinitialize them to avoid behavior that depends on the instance's
+        // history before the load.
+        m_saveStateFlag = false;
+        m_loadStateFlag = false;
+        m_processingFrameStart = false;
+        m_prevControllerReadAddr = 0xFFFF;
+        m_cpu.resetVolatileStateAfterLoad();
+        m_prevNsfSelect = false;
+        m_prevNsfStart = false;
+        m_prevNsfLeft = false;
+        m_prevNsfRight = false;
+        m_pendingNsfTogglePlayPause = false;
+        m_pendingNsfStop = false;
+        m_pendingNsfNextSong = false;
+        m_pendingNsfPrevSong = false;
+        m_applyingPendingNsfActions = false;
+    }
+
+    void applyPendingInputState()
+    {
+        if(m_fourScore) m_fourScore->setControllerButtons(0, m_pendingInputState.p1A, m_pendingInputState.p1B, m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Up, m_pendingInputState.p1Down, m_pendingInputState.p1Left, m_pendingInputState.p1Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(0, m_pendingInputState.p1A, m_pendingInputState.p1B, m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Up, m_pendingInputState.p1Down, m_pendingInputState.p1Left, m_pendingInputState.p1Right);
+        else if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(m_pendingInputState.p1A, m_pendingInputState.p1B, m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Up, m_pendingInputState.p1Down, m_pendingInputState.p1Left, m_pendingInputState.p1Right, m_pendingInputState.p1X, m_pendingInputState.p1Y, m_pendingInputState.p1L, m_pendingInputState.p1R);
+
+        if(m_fourScore) m_fourScore->setControllerButtons(1, m_pendingInputState.p2A, m_pendingInputState.p2B, m_pendingInputState.p2Select, m_pendingInputState.p2Start, m_pendingInputState.p2Up, m_pendingInputState.p2Down, m_pendingInputState.p2Left, m_pendingInputState.p2Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(1, m_pendingInputState.p2A, m_pendingInputState.p2B, m_pendingInputState.p2Select, m_pendingInputState.p2Start, m_pendingInputState.p2Up, m_pendingInputState.p2Down, m_pendingInputState.p2Left, m_pendingInputState.p2Right);
+        else if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(m_pendingInputState.p2A, m_pendingInputState.p2B, m_pendingInputState.p2Select, m_pendingInputState.p2Start, m_pendingInputState.p2Up, m_pendingInputState.p2Down, m_pendingInputState.p2Left, m_pendingInputState.p2Right, m_pendingInputState.p2X, m_pendingInputState.p2Y, m_pendingInputState.p2L, m_pendingInputState.p2R);
+
+        if(m_fourScore) m_fourScore->setControllerButtons(2, m_pendingInputState.p3A, m_pendingInputState.p3B, m_pendingInputState.p3Select, m_pendingInputState.p3Start, m_pendingInputState.p3Up, m_pendingInputState.p3Down, m_pendingInputState.p3Left, m_pendingInputState.p3Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(2, m_pendingInputState.p3A, m_pendingInputState.p3B, m_pendingInputState.p3Select, m_pendingInputState.p3Start, m_pendingInputState.p3Up, m_pendingInputState.p3Down, m_pendingInputState.p3Left, m_pendingInputState.p3Right);
+        else if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM && m_expansionDevice) m_expansionDevice->setButtonsStatus(m_pendingInputState.p3A, m_pendingInputState.p3B, m_pendingInputState.p3Select, m_pendingInputState.p3Start, m_pendingInputState.p3Up, m_pendingInputState.p3Down, m_pendingInputState.p3Left, m_pendingInputState.p3Right);
+
+        if(m_fourScore) m_fourScore->setControllerButtons(3, m_pendingInputState.p4A, m_pendingInputState.p4B, m_pendingInputState.p4Select, m_pendingInputState.p4Start, m_pendingInputState.p4Up, m_pendingInputState.p4Down, m_pendingInputState.p4Left, m_pendingInputState.p4Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(3, m_pendingInputState.p4A, m_pendingInputState.p4B, m_pendingInputState.p4Select, m_pendingInputState.p4Start, m_pendingInputState.p4Up, m_pendingInputState.p4Down, m_pendingInputState.p4Left, m_pendingInputState.p4Right);
+
+        processNsfControllerInput(m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Left, m_pendingInputState.p1Right);
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) && m_portDevice1) {
+            m_portDevice1->setCursorPosition(m_pendingInputState.zapperP1X, m_pendingInputState.zapperP1Y);
+            m_portDevice1->setTrigger(m_pendingInputState.zapperP1Trigger);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER) && m_portDevice2) {
+            m_portDevice2->setCursorPosition(m_pendingInputState.zapperP2X, m_pendingInputState.zapperP2Y);
+            m_portDevice2->setTrigger(m_pendingInputState.zapperP2Trigger);
+        }
+
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT && m_expansionDevice) {
+            m_expansionDevice->setButtonsStatus(m_pendingInputState.bandaiA, m_pendingInputState.bandaiB, m_pendingInputState.bandaiSelect, m_pendingInputState.bandaiStart, m_pendingInputState.bandaiUp, m_pendingInputState.bandaiDown, m_pendingInputState.bandaiLeft, m_pendingInputState.bandaiRight);
+            m_expansionDevice->setCursorPosition(m_pendingInputState.bandaiX, m_pendingInputState.bandaiY);
+            m_expansionDevice->setTrigger(m_pendingInputState.bandaiTrigger);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) && m_portDevice1) {
+            m_portDevice1->setPositionNormalized(std::clamp(m_pendingInputState.arkanoidP1Position, 0.0f, 1.0f));
+            m_portDevice1->setTrigger(m_pendingInputState.arkanoidP1Button);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) && m_portDevice2) {
+            m_portDevice2->setPositionNormalized(std::clamp(m_pendingInputState.arkanoidP2Position, 0.0f, 1.0f));
+            m_portDevice2->setTrigger(m_pendingInputState.arkanoidP2Button);
+        }
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER && m_expansionDevice) {
+            m_expansionDevice->setPositionNormalized(std::clamp(m_pendingInputState.arkanoidFamicomPosition, 0.0f, 1.0f));
+            m_expansionDevice->setTrigger(m_pendingInputState.arkanoidFamicomButton);
+        }
+
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT && m_expansionDevice) {
+            m_expansionDevice->setPlayersButtons(m_pendingInputState.konamiP1Run, m_pendingInputState.konamiP1Jump, m_pendingInputState.konamiP2Run, m_pendingInputState.konamiP2Jump);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) && m_portDevice1) {
+            m_portDevice1->addRelativeMotion(m_pendingInputState.snesMouseP1DeltaX, m_pendingInputState.snesMouseP1DeltaY);
+            m_portDevice1->setTrigger(m_pendingInputState.snesMouseP1Left);
+            m_portDevice1->setSecondaryTrigger(m_pendingInputState.snesMouseP1Right);
+            m_pendingInputState.snesMouseP1DeltaX = 0;
+            m_pendingInputState.snesMouseP1DeltaY = 0;
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) && m_portDevice2) {
+            m_portDevice2->addRelativeMotion(m_pendingInputState.snesMouseP2DeltaX, m_pendingInputState.snesMouseP2DeltaY);
+            m_portDevice2->setTrigger(m_pendingInputState.snesMouseP2Left);
+            m_portDevice2->setSecondaryTrigger(m_pendingInputState.snesMouseP2Right);
+            m_pendingInputState.snesMouseP2DeltaX = 0;
+            m_pendingInputState.snesMouseP2DeltaY = 0;
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER) && m_portDevice1) {
+            m_portDevice1->setVirtualBoyButtons(m_pendingInputState.vbP1A, m_pendingInputState.vbP1B, m_pendingInputState.vbP1Select, m_pendingInputState.vbP1Start, m_pendingInputState.vbP1Up0, m_pendingInputState.vbP1Down0, m_pendingInputState.vbP1Left0, m_pendingInputState.vbP1Right0, m_pendingInputState.vbP1Up1, m_pendingInputState.vbP1Down1, m_pendingInputState.vbP1Left1, m_pendingInputState.vbP1Right1, m_pendingInputState.vbP1L, m_pendingInputState.vbP1R);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER) && m_portDevice2) {
+            m_portDevice2->setVirtualBoyButtons(m_pendingInputState.vbP2A, m_pendingInputState.vbP2B, m_pendingInputState.vbP2Select, m_pendingInputState.vbP2Start, m_pendingInputState.vbP2Up0, m_pendingInputState.vbP2Down0, m_pendingInputState.vbP2Left0, m_pendingInputState.vbP2Right0, m_pendingInputState.vbP2Up1, m_pendingInputState.vbP2Down1, m_pendingInputState.vbP2Left1, m_pendingInputState.vbP2Right1, m_pendingInputState.vbP2L, m_pendingInputState.vbP2R);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) && m_portDevice1) {
+            m_portDevice1->addRelativeMotion(m_pendingInputState.suborMouseP1DeltaX, m_pendingInputState.suborMouseP1DeltaY);
+            m_portDevice1->setTrigger(m_pendingInputState.suborMouseP1Left);
+            m_portDevice1->setSecondaryTrigger(m_pendingInputState.suborMouseP1Right);
+            m_pendingInputState.suborMouseP1DeltaX = 0;
+            m_pendingInputState.suborMouseP1DeltaY = 0;
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) && m_portDevice2) {
+            m_portDevice2->addRelativeMotion(m_pendingInputState.suborMouseP2DeltaX, m_pendingInputState.suborMouseP2DeltaY);
+            m_portDevice2->setTrigger(m_pendingInputState.suborMouseP2Left);
+            m_portDevice2->setSecondaryTrigger(m_pendingInputState.suborMouseP2Right);
+            m_pendingInputState.suborMouseP2DeltaX = 0;
+            m_pendingInputState.suborMouseP2DeltaY = 0;
+        }
+
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD && m_expansionDevice) m_expansionDevice->setSuborKeyboardKeys(m_pendingInputState.suborKeyboardKeys);
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD && m_expansionDevice) m_expansionDevice->setFamilyBasicKeyboardKeys(m_pendingInputState.familyBasicKeyboardKeys);
+
+        const auto p1Device = m_settings.getPortDevice(Settings::Port::P_1);
+        const auto p2Device = m_settings.getPortDevice(Settings::Port::P_2);
+        const bool familyTrainer = m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A || m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
+        if((p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice1) m_portDevice1->setPowerPadButtons(m_pendingInputState.powerPadP1Buttons);
+        if((p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice2) m_portDevice2->setPowerPadButtons(m_pendingInputState.powerPadP2Buttons);
+        if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(m_pendingInputState.powerPadP1Buttons);
+    }
+
+    void processDeferredNetplaySnapshot()
+    {
+        if(!m_netplaySnapshotFlag || !m_cartridge.isValid()) return;
+
+        PendingNetplaySnapshot snapshot;
+        snapshot.frame = m_frameCount;
+        snapshot.data = saveStateToMemory();
+        m_netplaySnapshotResult = std::move(snapshot);
+        m_netplaySnapshotFlag = false;
+    }
+
+    void processDeferredNetplayLoad()
+    {
+        if(!m_netplayLoadStateFlag) return;
+
+        const std::vector<uint8_t> data = m_netplayLoadStateData;
+        const bool cleanBoot = m_netplayLoadStateCleanBoot;
+        m_netplayLoadStateData.clear();
+        m_netplayLoadStateFlag = false;
+        m_netplayLoadStateCleanBoot = false;
+
+        const bool loaded = cleanBoot
+            ? loadStateFromMemoryOnCleanBoot(data)
+            : (loadStateFromMemory(data), valid());
+        m_netplayLoadStateResult = loaded;
     }
 
     GERANES_INLINE void renderAudioMs(uint32_t ms)
@@ -837,6 +1133,13 @@ public:
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
+        m_processingFrameStart = false;
+        m_netplaySnapshotFlag = false;
+        m_netplaySnapshotResult.reset();
+        m_netplayLoadStateFlag = false;
+        m_netplayLoadStateCleanBoot = false;
+        m_netplayLoadStateData.clear();
+        m_netplayLoadStateResult.reset();
         m_runningLoop = false;
         m_speedBoost = false;
         m_paused = false;
@@ -1172,6 +1475,9 @@ public:
             m_loadStateFlag = false;
         }
 
+        processDeferredNetplaySnapshot();
+        processDeferredNetplayLoad();
+
         return ret;
     }
 
@@ -1250,26 +1556,78 @@ public:
 
     void loadStateFromMemory(const std::vector<uint8_t>& data) override
     {
-        auto old = m_updateCyclesAcc; //preserve this
-
         Deserialize d;
         d.setData(data);
         serialization(d);
         resyncAudioAfterStateLoad();
-
-        m_updateCyclesAcc = old;
+        resetVolatileStateAfterStateLoad();
     }
 
     void loadStateFromMemory(const uint8_t* data, size_t size)
     {
-        auto old = m_updateCyclesAcc; //preserve this
-
         Deserialize d;
         d.setData(data, size);
         serialization(d);
         resyncAudioAfterStateLoad();
+        resetVolatileStateAfterStateLoad();
+    }
 
-        m_updateCyclesAcc = old;
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data)
+    {
+        if(data.empty() || !m_cartridge.isValid()) return false;
+
+        const std::string romPath = m_cartridge.romFile().fullPath();
+        if(romPath.empty()) return false;
+        if(!open(romPath) || !valid()) return false;
+
+        loadStateFromMemory(data);
+        return valid();
+    }
+
+    void requestNetplaySnapshotAtSafePoint()
+    {
+        if(!m_runningLoop) {
+            processDeferredNetplaySnapshot();
+            if(m_netplaySnapshotResult.has_value()) return;
+            if(!m_cartridge.isValid()) return;
+
+            PendingNetplaySnapshot snapshot;
+            snapshot.frame = m_frameCount;
+            snapshot.data = saveStateToMemory();
+            m_netplaySnapshotResult = std::move(snapshot);
+            return;
+        }
+
+        m_netplaySnapshotFlag = true;
+    }
+
+    std::optional<PendingNetplaySnapshot> consumeNetplaySnapshotAtSafePoint()
+    {
+        std::optional<PendingNetplaySnapshot> result = std::move(m_netplaySnapshotResult);
+        m_netplaySnapshotResult.reset();
+        return result;
+    }
+
+    void requestNetplayLoadStateAtSafePoint(const std::vector<uint8_t>& data, bool cleanBoot = false)
+    {
+        if(!m_runningLoop) {
+            const bool loaded = cleanBoot
+                ? loadStateFromMemoryOnCleanBoot(data)
+                : (loadStateFromMemory(data), valid());
+            m_netplayLoadStateResult = loaded;
+            return;
+        }
+
+        m_netplayLoadStateData = data;
+        m_netplayLoadStateCleanBoot = cleanBoot;
+        m_netplayLoadStateFlag = true;
+    }
+
+    std::optional<bool> consumeNetplayLoadStateResult()
+    {
+        std::optional<bool> result = m_netplayLoadStateResult;
+        m_netplayLoadStateResult.reset();
+        return result;
     }
 
     std::vector<uint8_t> saveStateToMemory()
@@ -1436,6 +1794,39 @@ public:
         if(m_expansionDevice) m_expansionDevice->serialization(s);
         if(m_fourScore) m_fourScore->serialization(s);
         if(m_HoriAdapter) m_HoriAdapter->serialization(s);
+        SERIALIZEDATA(s, m_pendingInputState.p1A); SERIALIZEDATA(s, m_pendingInputState.p1B); SERIALIZEDATA(s, m_pendingInputState.p1Select); SERIALIZEDATA(s, m_pendingInputState.p1Start);
+        SERIALIZEDATA(s, m_pendingInputState.p1Up); SERIALIZEDATA(s, m_pendingInputState.p1Down); SERIALIZEDATA(s, m_pendingInputState.p1Left); SERIALIZEDATA(s, m_pendingInputState.p1Right);
+        SERIALIZEDATA(s, m_pendingInputState.p1X); SERIALIZEDATA(s, m_pendingInputState.p1Y); SERIALIZEDATA(s, m_pendingInputState.p1L); SERIALIZEDATA(s, m_pendingInputState.p1R);
+        SERIALIZEDATA(s, m_pendingInputState.p2A); SERIALIZEDATA(s, m_pendingInputState.p2B); SERIALIZEDATA(s, m_pendingInputState.p2Select); SERIALIZEDATA(s, m_pendingInputState.p2Start);
+        SERIALIZEDATA(s, m_pendingInputState.p2Up); SERIALIZEDATA(s, m_pendingInputState.p2Down); SERIALIZEDATA(s, m_pendingInputState.p2Left); SERIALIZEDATA(s, m_pendingInputState.p2Right);
+        SERIALIZEDATA(s, m_pendingInputState.p2X); SERIALIZEDATA(s, m_pendingInputState.p2Y); SERIALIZEDATA(s, m_pendingInputState.p2L); SERIALIZEDATA(s, m_pendingInputState.p2R);
+        SERIALIZEDATA(s, m_pendingInputState.p3A); SERIALIZEDATA(s, m_pendingInputState.p3B); SERIALIZEDATA(s, m_pendingInputState.p3Select); SERIALIZEDATA(s, m_pendingInputState.p3Start);
+        SERIALIZEDATA(s, m_pendingInputState.p3Up); SERIALIZEDATA(s, m_pendingInputState.p3Down); SERIALIZEDATA(s, m_pendingInputState.p3Left); SERIALIZEDATA(s, m_pendingInputState.p3Right);
+        SERIALIZEDATA(s, m_pendingInputState.p4A); SERIALIZEDATA(s, m_pendingInputState.p4B); SERIALIZEDATA(s, m_pendingInputState.p4Select); SERIALIZEDATA(s, m_pendingInputState.p4Start);
+        SERIALIZEDATA(s, m_pendingInputState.p4Up); SERIALIZEDATA(s, m_pendingInputState.p4Down); SERIALIZEDATA(s, m_pendingInputState.p4Left); SERIALIZEDATA(s, m_pendingInputState.p4Right);
+        SERIALIZEDATA(s, m_pendingInputState.zapperP1X); SERIALIZEDATA(s, m_pendingInputState.zapperP1Y); SERIALIZEDATA(s, m_pendingInputState.zapperP1Trigger);
+        SERIALIZEDATA(s, m_pendingInputState.zapperP2X); SERIALIZEDATA(s, m_pendingInputState.zapperP2Y); SERIALIZEDATA(s, m_pendingInputState.zapperP2Trigger);
+        SERIALIZEDATA(s, m_pendingInputState.bandaiA); SERIALIZEDATA(s, m_pendingInputState.bandaiB); SERIALIZEDATA(s, m_pendingInputState.bandaiSelect); SERIALIZEDATA(s, m_pendingInputState.bandaiStart);
+        SERIALIZEDATA(s, m_pendingInputState.bandaiUp); SERIALIZEDATA(s, m_pendingInputState.bandaiDown); SERIALIZEDATA(s, m_pendingInputState.bandaiLeft); SERIALIZEDATA(s, m_pendingInputState.bandaiRight);
+        SERIALIZEDATA(s, m_pendingInputState.bandaiX); SERIALIZEDATA(s, m_pendingInputState.bandaiY); SERIALIZEDATA(s, m_pendingInputState.bandaiTrigger);
+        SERIALIZEDATA(s, m_pendingInputState.arkanoidP1Position); SERIALIZEDATA(s, m_pendingInputState.arkanoidP1Button);
+        SERIALIZEDATA(s, m_pendingInputState.arkanoidP2Position); SERIALIZEDATA(s, m_pendingInputState.arkanoidP2Button);
+        SERIALIZEDATA(s, m_pendingInputState.arkanoidFamicomPosition); SERIALIZEDATA(s, m_pendingInputState.arkanoidFamicomButton);
+        SERIALIZEDATA(s, m_pendingInputState.konamiP1Run); SERIALIZEDATA(s, m_pendingInputState.konamiP1Jump); SERIALIZEDATA(s, m_pendingInputState.konamiP2Run); SERIALIZEDATA(s, m_pendingInputState.konamiP2Jump);
+        SERIALIZEDATA(s, m_pendingInputState.snesMouseP1DeltaX); SERIALIZEDATA(s, m_pendingInputState.snesMouseP1DeltaY); SERIALIZEDATA(s, m_pendingInputState.snesMouseP1Left); SERIALIZEDATA(s, m_pendingInputState.snesMouseP1Right);
+        SERIALIZEDATA(s, m_pendingInputState.snesMouseP2DeltaX); SERIALIZEDATA(s, m_pendingInputState.snesMouseP2DeltaY); SERIALIZEDATA(s, m_pendingInputState.snesMouseP2Left); SERIALIZEDATA(s, m_pendingInputState.snesMouseP2Right);
+        SERIALIZEDATA(s, m_pendingInputState.vbP1A); SERIALIZEDATA(s, m_pendingInputState.vbP1B); SERIALIZEDATA(s, m_pendingInputState.vbP1Select); SERIALIZEDATA(s, m_pendingInputState.vbP1Start);
+        SERIALIZEDATA(s, m_pendingInputState.vbP1Up0); SERIALIZEDATA(s, m_pendingInputState.vbP1Down0); SERIALIZEDATA(s, m_pendingInputState.vbP1Left0); SERIALIZEDATA(s, m_pendingInputState.vbP1Right0);
+        SERIALIZEDATA(s, m_pendingInputState.vbP1Up1); SERIALIZEDATA(s, m_pendingInputState.vbP1Down1); SERIALIZEDATA(s, m_pendingInputState.vbP1Left1); SERIALIZEDATA(s, m_pendingInputState.vbP1Right1); SERIALIZEDATA(s, m_pendingInputState.vbP1L); SERIALIZEDATA(s, m_pendingInputState.vbP1R);
+        SERIALIZEDATA(s, m_pendingInputState.vbP2A); SERIALIZEDATA(s, m_pendingInputState.vbP2B); SERIALIZEDATA(s, m_pendingInputState.vbP2Select); SERIALIZEDATA(s, m_pendingInputState.vbP2Start);
+        SERIALIZEDATA(s, m_pendingInputState.vbP2Up0); SERIALIZEDATA(s, m_pendingInputState.vbP2Down0); SERIALIZEDATA(s, m_pendingInputState.vbP2Left0); SERIALIZEDATA(s, m_pendingInputState.vbP2Right0);
+        SERIALIZEDATA(s, m_pendingInputState.vbP2Up1); SERIALIZEDATA(s, m_pendingInputState.vbP2Down1); SERIALIZEDATA(s, m_pendingInputState.vbP2Left1); SERIALIZEDATA(s, m_pendingInputState.vbP2Right1); SERIALIZEDATA(s, m_pendingInputState.vbP2L); SERIALIZEDATA(s, m_pendingInputState.vbP2R);
+        SERIALIZEDATA(s, m_pendingInputState.suborMouseP1DeltaX); SERIALIZEDATA(s, m_pendingInputState.suborMouseP1DeltaY); SERIALIZEDATA(s, m_pendingInputState.suborMouseP1Left); SERIALIZEDATA(s, m_pendingInputState.suborMouseP1Right);
+        SERIALIZEDATA(s, m_pendingInputState.suborMouseP2DeltaX); SERIALIZEDATA(s, m_pendingInputState.suborMouseP2DeltaY); SERIALIZEDATA(s, m_pendingInputState.suborMouseP2Left); SERIALIZEDATA(s, m_pendingInputState.suborMouseP2Right);
+        SERIALIZEDATA(s, m_pendingInputState.suborKeyboardKeys); SERIALIZEDATA(s, m_pendingInputState.familyBasicKeyboardKeys);
+        s.array(reinterpret_cast<uint8_t*>(m_pendingInputState.powerPadP1Buttons.data()), 1, m_pendingInputState.powerPadP1Buttons.size());
+        s.array(reinterpret_cast<uint8_t*>(m_pendingInputState.powerPadP2Buttons.data()), 1, m_pendingInputState.powerPadP2Buttons.size());
+        SERIALIZEDATA(s, m_updateCyclesAcc);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
@@ -1456,118 +1847,68 @@ public:
     void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
                                bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
-        if(m_fourScore) m_fourScore->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(0, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
-        processNsfControllerInput(bSelect, bStart, bLeft, bRight);
+        m_pendingInputState.p1A = bA; m_pendingInputState.p1B = bB; m_pendingInputState.p1Select = bSelect; m_pendingInputState.p1Start = bStart;
+        m_pendingInputState.p1Up = bUp; m_pendingInputState.p1Down = bDown; m_pendingInputState.p1Left = bLeft; m_pendingInputState.p1Right = bRight;
+        m_pendingInputState.p1X = bX; m_pendingInputState.p1Y = bY; m_pendingInputState.p1L = bL; m_pendingInputState.p1R = bR;
     }
 
     void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
                                bool bX = false, bool bY = false, bool bL = false, bool bR = false)
     {
-        if(m_fourScore) m_fourScore->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(1, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(bA,bB,bSelect,bStart,bUp,bDown,bLeft,bRight,bX,bY,bL,bR);
+        m_pendingInputState.p2A = bA; m_pendingInputState.p2B = bB; m_pendingInputState.p2Select = bSelect; m_pendingInputState.p2Start = bStart;
+        m_pendingInputState.p2Up = bUp; m_pendingInputState.p2Down = bDown; m_pendingInputState.p2Left = bLeft; m_pendingInputState.p2Right = bRight;
+        m_pendingInputState.p2X = bX; m_pendingInputState.p2Y = bY; m_pendingInputState.p2L = bL; m_pendingInputState.p2R = bR;
     }
 
     void setController3Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
-        if(m_fourScore) m_fourScore->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(2, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM && m_expansionDevice) {
-            m_expansionDevice->setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        }
+        m_pendingInputState.p3A = bA; m_pendingInputState.p3B = bB; m_pendingInputState.p3Select = bSelect; m_pendingInputState.p3Start = bStart;
+        m_pendingInputState.p3Up = bUp; m_pendingInputState.p3Down = bDown; m_pendingInputState.p3Left = bLeft; m_pendingInputState.p3Right = bRight;
     }
 
     void setController4Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
-        if(m_fourScore) m_fourScore->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(3, bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
+        m_pendingInputState.p4A = bA; m_pendingInputState.p4B = bB; m_pendingInputState.p4Select = bSelect; m_pendingInputState.p4Start = bStart;
+        m_pendingInputState.p4Up = bUp; m_pendingInputState.p4Down = bDown; m_pendingInputState.p4Left = bLeft; m_pendingInputState.p4Right = bRight;
     }
 
     void setZapper(Settings::Port port, int x, int y, bool trigger)
     {
-        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::ZAPPER)) return;
-
-        switch(port) {
-
-            case Settings::Port::P_1:
-                if(m_portDevice1) {
-                    m_portDevice1->setCursorPosition(x, y);
-                    m_portDevice1->setTrigger(trigger);
-                }
-                break;
-
-            case Settings::Port::P_2:
-                if(m_portDevice2) {
-                    m_portDevice2->setCursorPosition(x, y);
-                    m_portDevice2->setTrigger(trigger);
-                }
-                break;
-        }
+        if(port == Settings::Port::P_1) { m_pendingInputState.zapperP1X = x; m_pendingInputState.zapperP1Y = y; m_pendingInputState.zapperP1Trigger = trigger; }
+        else if(port == Settings::Port::P_2) { m_pendingInputState.zapperP2X = x; m_pendingInputState.zapperP2Y = y; m_pendingInputState.zapperP2Trigger = trigger; }
     }
 
     void setBandaiHyperShotButtons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
     {
-        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::BANDAI_HYPERSHOT) return;
-
-        if(m_expansionDevice) {
-            m_expansionDevice->setButtonsStatus(bA, bB, bSelect, bStart, bUp, bDown, bLeft, bRight);
-        }
+        m_pendingInputState.bandaiA = bA; m_pendingInputState.bandaiB = bB; m_pendingInputState.bandaiSelect = bSelect; m_pendingInputState.bandaiStart = bStart;
+        m_pendingInputState.bandaiUp = bUp; m_pendingInputState.bandaiDown = bDown; m_pendingInputState.bandaiLeft = bLeft; m_pendingInputState.bandaiRight = bRight;
     }
 
     void setBandaiHyperShot(int x, int y, bool trigger)
     {
-        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::BANDAI_HYPERSHOT) return;
-
-        if(m_expansionDevice) {
-            m_expansionDevice->setCursorPosition(x, y);
-            m_expansionDevice->setTrigger(trigger);
-        }
+        m_pendingInputState.bandaiX = x; m_pendingInputState.bandaiY = y; m_pendingInputState.bandaiTrigger = trigger;
     }
 
     void setArkanoidController(Settings::Port port, float positionNormalized, bool button)
     {
-        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) return;
-
-        IControllerPortDevice* device =
-            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-        if(device) {
-            device->setPositionNormalized(std::clamp(positionNormalized, 0.0f, 1.0f));
-            device->setTrigger(button);
-        }
+        if(port == Settings::Port::P_1) { m_pendingInputState.arkanoidP1Position = positionNormalized; m_pendingInputState.arkanoidP1Button = button; }
+        else if(port == Settings::Port::P_2) { m_pendingInputState.arkanoidP2Position = positionNormalized; m_pendingInputState.arkanoidP2Button = button; }
     }
 
     void setKonamiHyperShotButtons(bool p1Run, bool p1Jump, bool p2Run, bool p2Jump)
     {
-        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) return;
-
-        if(m_expansionDevice) {
-            m_expansionDevice->setPlayersButtons(p1Run, p1Jump, p2Run, p2Jump);
-        }
+        m_pendingInputState.konamiP1Run = p1Run; m_pendingInputState.konamiP1Jump = p1Jump; m_pendingInputState.konamiP2Run = p2Run; m_pendingInputState.konamiP2Jump = p2Jump;
     }
 
     void setArkanoidControllerFamicom(float positionNormalized, bool button)
     {
-        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::ARKANOID_CONTROLLER) return;
-
-        if(m_expansionDevice) {
-            m_expansionDevice->setPositionNormalized(std::clamp(positionNormalized, 0.0f, 1.0f));
-            m_expansionDevice->setTrigger(button);
-        }
+        m_pendingInputState.arkanoidFamicomPosition = positionNormalized; m_pendingInputState.arkanoidFamicomButton = button;
     }
 
     void setSnesMouse(Settings::Port port, int deltaX, int deltaY, bool leftButton, bool rightButton)
     {
-        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) return;
-
-        IControllerPortDevice* device =
-            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-        if(device) {
-            device->addRelativeMotion(deltaX, deltaY);
-            device->setTrigger(leftButton);
-            device->setSecondaryTrigger(rightButton);
-        }
+        if(port == Settings::Port::P_1) { m_pendingInputState.snesMouseP1DeltaX += deltaX; m_pendingInputState.snesMouseP1DeltaY += deltaY; m_pendingInputState.snesMouseP1Left = leftButton; m_pendingInputState.snesMouseP1Right = rightButton; }
+        else if(port == Settings::Port::P_2) { m_pendingInputState.snesMouseP2DeltaX += deltaX; m_pendingInputState.snesMouseP2DeltaY += deltaY; m_pendingInputState.snesMouseP2Left = leftButton; m_pendingInputState.snesMouseP2Right = rightButton; }
     }
 
     void setVirtualBoyControllerButtons(Settings::Port port,
@@ -1576,73 +1917,37 @@ public:
                                         bool bUp1, bool bDown1, bool bLeft1, bool bRight1,
                                         bool bL, bool bR)
     {
-        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) return;
-
-        IControllerPortDevice* device =
-            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-        if(device) {
-            device->setVirtualBoyButtons(bA, bB, bSelect, bStart, bUp0, bDown0, bLeft0, bRight0, bUp1, bDown1, bLeft1, bRight1, bL, bR);
+        if(port == Settings::Port::P_1) {
+            m_pendingInputState.vbP1A = bA; m_pendingInputState.vbP1B = bB; m_pendingInputState.vbP1Select = bSelect; m_pendingInputState.vbP1Start = bStart;
+            m_pendingInputState.vbP1Up0 = bUp0; m_pendingInputState.vbP1Down0 = bDown0; m_pendingInputState.vbP1Left0 = bLeft0; m_pendingInputState.vbP1Right0 = bRight0;
+            m_pendingInputState.vbP1Up1 = bUp1; m_pendingInputState.vbP1Down1 = bDown1; m_pendingInputState.vbP1Left1 = bLeft1; m_pendingInputState.vbP1Right1 = bRight1; m_pendingInputState.vbP1L = bL; m_pendingInputState.vbP1R = bR;
+        } else if(port == Settings::Port::P_2) {
+            m_pendingInputState.vbP2A = bA; m_pendingInputState.vbP2B = bB; m_pendingInputState.vbP2Select = bSelect; m_pendingInputState.vbP2Start = bStart;
+            m_pendingInputState.vbP2Up0 = bUp0; m_pendingInputState.vbP2Down0 = bDown0; m_pendingInputState.vbP2Left0 = bLeft0; m_pendingInputState.vbP2Right0 = bRight0;
+            m_pendingInputState.vbP2Up1 = bUp1; m_pendingInputState.vbP2Down1 = bDown1; m_pendingInputState.vbP2Left1 = bLeft1; m_pendingInputState.vbP2Right1 = bRight1; m_pendingInputState.vbP2L = bL; m_pendingInputState.vbP2R = bR;
         }
     }
 
     void setSuborMouse(Settings::Port port, int deltaX, int deltaY, bool leftButton, bool rightButton)
     {
-        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) return;
-
-        IControllerPortDevice* device =
-            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-        if(device) {
-            device->addRelativeMotion(deltaX, deltaY);
-            device->setTrigger(leftButton);
-            device->setSecondaryTrigger(rightButton);
-        }
+        if(port == Settings::Port::P_1) { m_pendingInputState.suborMouseP1DeltaX += deltaX; m_pendingInputState.suborMouseP1DeltaY += deltaY; m_pendingInputState.suborMouseP1Left = leftButton; m_pendingInputState.suborMouseP1Right = rightButton; }
+        else if(port == Settings::Port::P_2) { m_pendingInputState.suborMouseP2DeltaX += deltaX; m_pendingInputState.suborMouseP2DeltaY += deltaY; m_pendingInputState.suborMouseP2Left = leftButton; m_pendingInputState.suborMouseP2Right = rightButton; }
     }
 
     void setSuborKeyboardKeys(const IExpansionDevice::SuborKeyboardKeys& keys)
     {
-        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::SUBOR_KEYBOARD) return;
-
-        if(m_expansionDevice) {
-            m_expansionDevice->setSuborKeyboardKeys(keys);
-        }
+        m_pendingInputState.suborKeyboardKeys = keys;
     }
 
     void setFamilyBasicKeyboardKeys(const IExpansionDevice::FamilyBasicKeyboardKeys& keys)
     {
-        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) return;
-
-        if(m_expansionDevice) {
-            m_expansionDevice->setFamilyBasicKeyboardKeys(keys);
-        }
+        m_pendingInputState.familyBasicKeyboardKeys = keys;
     }
 
     void setPowerPadButtons(Settings::Port port, const std::array<bool, 12>& buttons)
     {
-        const auto deviceType = m_settings.getPortDevice(port);
-        const bool portUsesPowerPad =
-            deviceType == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) ||
-            deviceType == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B);
-        const bool expansionUsesFamilyTrainer =
-            m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-            m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
-
-        if(!portUsesPowerPad && !expansionUsesFamilyTrainer) {
-            return;
-        }
-
-        if(portUsesPowerPad) {
-            IControllerPortDevice* device =
-                (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
-            if(device) {
-                device->setPowerPadButtons(buttons);
-            }
-        }
-
-        if(expansionUsesFamilyTrainer) {
-            if(m_expansionDevice) {
-                m_expansionDevice->setPowerPadButtons(buttons);
-            }
-        }
+        if(port == Settings::Port::P_1) m_pendingInputState.powerPadP1Buttons = buttons;
+        else if(port == Settings::Port::P_2) m_pendingInputState.powerPadP2Buttons = buttons;
     }
 
     void fdsSwitchDiskSide()
@@ -1800,6 +2105,13 @@ public:
         m_runningLoop = false;
         m_saveStateFlag = false;
         m_loadStateFlag = false;
+        m_processingFrameStart = false;
+        m_netplaySnapshotFlag = false;
+        m_netplaySnapshotResult.reset();
+        m_netplayLoadStateFlag = false;
+        m_netplayLoadStateCleanBoot = false;
+        m_netplayLoadStateData.clear();
+        m_netplayLoadStateResult.reset();
         m_nsfPlayer.onEmulatorReset();
         m_hardwareActions.reset();
 

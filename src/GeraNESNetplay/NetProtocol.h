@@ -97,6 +97,7 @@ struct RomValidationResultData
 
 struct InputFrameData
 {
+    uint32_t timelineEpoch = 0;
     FrameNumber frame = 0;
     ParticipantId participantId = kInvalidParticipantId;
     PlayerSlot playerSlot = kObserverPlayerSlot;
@@ -107,6 +108,7 @@ struct InputFrameData
 
 struct FrameStatusData
 {
+    uint32_t timelineEpoch = 0;
     FrameNumber currentFrame = 0;
     FrameNumber lastConfirmedFrame = 0;
     uint8_t inputDelayFrames = 0;
@@ -159,6 +161,7 @@ struct PeerHealthData
 
 struct CrcReportData
 {
+    uint32_t timelineEpoch = 0;
     FrameNumber frame = 0;
     uint32_t crc32 = 0;
     DesyncSeverity severity = DesyncSeverity::NoIssue;
@@ -167,6 +170,7 @@ struct CrcReportData
 struct ResyncBeginData
 {
     uint32_t resyncId = 0;
+    uint32_t timelineEpoch = 0;
     FrameNumber targetFrame = 0;
     uint32_t payloadSize = 0;
     uint32_t payloadCrc32 = 0;

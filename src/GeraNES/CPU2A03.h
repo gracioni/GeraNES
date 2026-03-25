@@ -414,6 +414,16 @@ public:
         m_dma.init();
     }
 
+    void resetVolatileStateAfterLoad()
+    {
+        m_runCount = 0;
+        m_writeCycle = false;
+        m_resetRequest = false;
+        m_lastReadHadDma = false;
+        m_indexedDummyReadHadDma = false;
+        m_dma.resetVolatileStateAfterLoad();
+    }
+
     GERANES_INLINE_HOT void ADC()
     {
         const uint8_t value = readMemory(m_addr);
@@ -1418,6 +1428,8 @@ public:
         SERIALIZEDATA(s, m_cyclesCounter);
         SERIALIZEDATA(s, m_opcode);
         SERIALIZEDATA(s, m_addr);
+        SERIALIZEDATA(s, m_addrHigh);
+        SERIALIZEDATA(s, m_addrPageCross);
         SERIALIZEDATA(s, m_nmiSignal);
         SERIALIZEDATA(s, m_nmiStep);
         SERIALIZEDATA(s, m_irqSignal);
