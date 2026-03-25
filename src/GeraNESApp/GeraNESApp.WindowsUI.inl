@@ -133,6 +133,379 @@ inline void GeraNESApp::showGui()
         m_showKonamiHyperShotConfigWindow = false;
     }
 
+#ifndef __EMSCRIPTEN__
+    if(m_showNetplayWindow) {
+        ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::Begin("Netplay", &m_showNetplayWindow, ImGuiWindowFlags_NoResize)) {
+            auto& cfg = AppSettings::instance().data.netplay;
+            auto sessionStateLabel = [](Netplay::SessionState state) {
+                switch(state) {
+                    case Netplay::SessionState::Lobby: return "Lobby";
+                    case Netplay::SessionState::ValidatingRom: return "ValidatingRom";
+                    case Netplay::SessionState::ReadyCheck: return "ReadyCheck";
+                    case Netplay::SessionState::Starting: return "Starting";
+                    case Netplay::SessionState::Running: return "Running";
+                    case Netplay::SessionState::Resyncing: return "Resyncing";
+                    case Netplay::SessionState::Paused: return "Paused";
+                    case Netplay::SessionState::Ended: return "Ended";
+                    default: return "Unknown";
+                }
+            };
+
+            ImGui::SetNextItemWidth(220.0f);
+            ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
+            ImGui::SetNextItemWidth(220.0f);
+            ImGui::InputText("Host##NetplayHostName", &cfg.hostName);
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::InputInt("Port##NetplayPort", &cfg.port);
+            cfg.port = std::clamp(cfg.port, 1, 65535);
+
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
+            cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
+
+            const bool active = m_netplayCoordinator.isActive();
+            const auto& room = m_netplayCoordinator.session().roomState();
+            const bool canEditInputDelay =
+                !active ||
+                (m_netplayCoordinator.isHosting() &&
+                 (room.state == Netplay::SessionState::Lobby ||
+                  room.state == Netplay::SessionState::ValidatingRom ||
+                  room.state == Netplay::SessionState::ReadyCheck ||
+                  room.state == Netplay::SessionState::Starting));
+
+            ImGui::BeginDisabled(!canEditInputDelay);
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::InputInt("Input Delay##NetplayInputDelay", &cfg.inputDelayFrames);
+            ImGui::EndDisabled();
+            cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
+            if(m_netplayCoordinator.isHosting()) {
+                ImGui::Checkbox("Resume when all ready##NetplayAutoResume", &cfg.autoResumeWhenReady);
+            }
+            if(!active) {
+                if(ImGui::Button("Host##NetplayHostButton")) {
+                    m_netplayCoordinator.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
+                }
+                ImGui::SameLine();
+                if(ImGui::Button("Join##NetplayJoinButton")) {
+                    m_netplayCoordinator.join(cfg.hostName, static_cast<uint16_t>(cfg.port), cfg.displayName);
+                }
+            }
+            else {
+                if(ImGui::Button("Disconnect##NetplayDisconnectButton")) {
+                    m_netplayCoordinator.disconnect();
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Transport Active: %s", active ? "Yes" : "No");
+            ImGui::Text("Hosting: %s", m_netplayCoordinator.isHosting() ? "Yes" : "No");
+            ImGui::Text("Connected: %s", m_netplayCoordinator.isConnected() ? "Yes" : "No");
+            ImGui::Text("Local Participant: %d", static_cast<int>(m_netplayCoordinator.localParticipantId()));
+
+            if(!m_netplayCoordinator.lastError().empty()) {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.3f, 1.0f), "%s", m_netplayCoordinator.lastError().c_str());
+            }
+
+            const auto& localInputs = m_netplayCoordinator.localInputs();
+            const auto& remoteInputs = m_netplayCoordinator.remoteInputs();
+            const auto& predictionStats = m_netplayCoordinator.predictionStats();
+            const auto runtimeDiag = m_emu.getNetplayDiagnostics();
+            std::string sessionBlockedReason = netplaySessionBlockedReason();
+            Netplay::ParticipantInfo* localParticipant = nullptr;
+            for(auto& participant : const_cast<std::vector<Netplay::ParticipantInfo>&>(room.participants)) {
+                if(participant.id == m_netplayCoordinator.localParticipantId()) {
+                    localParticipant = &participant;
+                    break;
+                }
+            }
+            ImGui::Separator();
+            ImGui::Text("Session Id: %u", room.sessionId);
+            ImGui::Text("State: %s", sessionStateLabel(room.state));
+            ImGui::Text("Selected ROM: %s", room.selectedGameName.empty() ? "<none>" : room.selectedGameName.c_str());
+            ImGui::Text("ROM CRC32: %08X", room.romValidation.romCrc32);
+            ImGui::Text("Mapper/Sub: %u / %u", room.romValidation.mapperId, room.romValidation.subMapperId);
+            ImGui::Text("Input Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
+            ImGui::Text("Active Resync: %u", room.activeResyncId);
+            ImGui::Text("Resync Acks Pending: %u", room.pendingResyncAckCount);
+            ImGui::Text("Current Frame: %u", room.currentFrame);
+            ImGui::Text("Confirmed Frame: %u", room.lastConfirmedFrame);
+            ImGui::Text("Participants: %zu", room.participants.size());
+            ImGui::Text("Local Input Frames: %zu", localInputs.size());
+            ImGui::Text("Remote Input Frames: %zu", remoteInputs.size());
+            ImGui::Text("Prediction Hits: %u", predictionStats.predictionHitCount);
+            ImGui::Text("Prediction Misses: %u", predictionStats.predictionMissCount);
+            ImGui::Text("Scheduled Rollbacks: %u", predictionStats.rollbackScheduledCount);
+            ImGui::Text("Future Mismatches: %u", predictionStats.futureFrameMismatchCount);
+            ImGui::Text("Confirmed Conflicts: %u", predictionStats.confirmedFrameConflictCount);
+            ImGui::Text("Hard Resyncs: %u", predictionStats.hardResyncCount);
+            ImGui::Text("Applied Rollbacks: %u", runtimeDiag.rollbackStats.rollbackCount);
+            ImGui::Text("Last Applied Rollback: %u -> %u",
+                        runtimeDiag.rollbackStats.lastRollbackFromFrame,
+                        runtimeDiag.rollbackStats.lastRollbackToFrame);
+            ImGui::Text("Last Remote CRC: %08X @ frame %u", room.lastRemoteCrc32, room.lastRemoteCrcFrame);
+            if(!predictionStats.lastDecision.empty()) {
+                ImGui::Text("Last Decision: %s", predictionStats.lastDecision.c_str());
+                if(predictionStats.lastDecisionSlot != Netplay::kObserverPlayerSlot) {
+                    ImGui::Text("Decision Frame/Slot: %u / P%u",
+                                predictionStats.lastDecisionFrame,
+                                static_cast<unsigned>(predictionStats.lastDecisionSlot) + 1u);
+                } else {
+                    ImGui::Text("Decision Frame: %u", predictionStats.lastDecisionFrame);
+                }
+            }
+            if(const auto* latestLocal = localInputs.latest()) {
+                ImGui::Text("Latest Local Input: frame %u slot %u mask %04llX",
+                            latestLocal->frame,
+                            static_cast<unsigned>(latestLocal->playerSlot) + 1u,
+                            static_cast<unsigned long long>(latestLocal->buttonMaskLo & 0xFFFFull));
+            }
+            if(const auto* latestRemote = remoteInputs.latest()) {
+                ImGui::Text("Latest Remote Input: frame %u slot %u mask %04llX",
+                            latestRemote->frame,
+                            static_cast<unsigned>(latestRemote->playerSlot) + 1u,
+                            static_cast<unsigned long long>(latestRemote->buttonMaskLo & 0xFFFFull));
+            }
+
+            ImGui::Separator();
+            bool localReady = localParticipant != nullptr ? localParticipant->ready : false;
+            if(ImGui::Checkbox("Ready##NetplayLocalReady", &localReady)) {
+                m_netplayCoordinator.setLocalReady(localReady);
+            }
+            if(m_netplayCoordinator.isHosting()) {
+                ImGui::SameLine();
+                const bool canStartSession = sessionBlockedReason.empty();
+                ImGui::BeginDisabled(!canStartSession);
+                if(ImGui::Button("Start Session##NetplayStartSession")) {
+                    m_netplayCoordinator.startSession();
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if(room.state == Netplay::SessionState::Running) {
+                    if(ImGui::Button("Pause Session##NetplayPauseSession")) {
+                        m_netplayCoordinator.pauseSession();
+                    }
+                } else if(room.state == Netplay::SessionState::Paused) {
+                    ImGui::BeginDisabled(!canStartSession);
+                    if(ImGui::Button("Resume Session##NetplayResumeSession")) {
+                        m_netplayCoordinator.resumeSession();
+                    }
+                    ImGui::EndDisabled();
+                } else {
+                    ImGui::BeginDisabled();
+                    ImGui::Button(room.state == Netplay::SessionState::Ended ? "Session Ended##NetplayPauseDisabled" : "Pause Session##NetplayPauseDisabled");
+                    ImGui::EndDisabled();
+                }
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!m_emu.valid());
+                if(ImGui::Button("Force Resync##NetplayForceResync")) {
+                    const std::vector<uint8_t> statePayload = m_emu.saveStateToMemory();
+                    if(!statePayload.empty()) {
+                        const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+                        m_netplayCoordinator.beginResync(m_emu.frameCount(), statePayload, payloadCrc32);
+                    }
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if(ImGui::Button("End Session##NetplayEndSession")) {
+                    m_netplayCoordinator.endSession();
+                }
+                if(!sessionBlockedReason.empty()) {
+                    ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "%s", sessionBlockedReason.c_str());
+                }
+            }
+
+            if(room.state == Netplay::SessionState::Resyncing) {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f),
+                                   "Resyncing to frame %u. Waiting for %u ACK(s).",
+                                   room.resyncTargetFrame,
+                                   room.pendingResyncAckCount);
+            } else if(m_netplayCoordinator.awaitingSpectatorSync()) {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(0.55f, 0.75f, 0.95f, 1.0f),
+                                   "Waiting for initial spectator sync...");
+            }
+
+            if(ImGui::BeginTable("NetplayParticipants", 8, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthFixed, 45.0f);
+                ImGui::TableSetupColumn("Name");
+                ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+                ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+                ImGui::TableSetupColumn("ROM", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+                ImGui::TableSetupColumn("Net", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+                ImGui::TableSetupColumn("Ready", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+                ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+                ImGui::TableHeadersRow();
+
+                for(auto& participant : const_cast<std::vector<Netplay::ParticipantInfo>&>(room.participants)) {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", static_cast<int>(participant.id));
+                    ImGui::TableNextColumn();
+                    if(participant.connected) {
+                        ImGui::TextUnformatted(participant.displayName.c_str());
+                    } else if(participant.reconnectReserved) {
+                        ImGui::TextDisabled("%s (reserved)", participant.displayName.c_str());
+                    } else {
+                        ImGui::TextDisabled("%s (disconnected)", participant.displayName.c_str());
+                    }
+                    ImGui::TableNextColumn();
+                    if(m_netplayCoordinator.isHosting() && participant.id != m_netplayCoordinator.localParticipantId()) {
+                        const char* preview =
+                            participant.role == Netplay::ParticipantRole::Player ? "Player" : "Observer";
+                        std::string comboId = "##role" + std::to_string(participant.id);
+                        if(ImGui::BeginCombo(comboId.c_str(), preview)) {
+                            if(ImGui::Selectable("Player", participant.role == Netplay::ParticipantRole::Player)) {
+                                m_netplayCoordinator.setParticipantRole(participant.id, Netplay::ParticipantRole::Player);
+                            }
+                            if(ImGui::Selectable("Observer", participant.role == Netplay::ParticipantRole::Observer)) {
+                                m_netplayCoordinator.setParticipantRole(participant.id, Netplay::ParticipantRole::Observer);
+                            }
+                            ImGui::EndCombo();
+                        }
+                    } else {
+                        const char* roleLabel = participant.role == Netplay::ParticipantRole::Host ? "Host" :
+                                                participant.role == Netplay::ParticipantRole::Player ? "Player" : "Observer";
+                        ImGui::TextUnformatted(roleLabel);
+                    }
+                    ImGui::TableNextColumn();
+                    if(m_netplayCoordinator.isHosting()) {
+                        int controllerValue = participant.controllerAssignment == Netplay::kObserverPlayerSlot
+                            ? -1
+                            : static_cast<int>(participant.controllerAssignment);
+                        const char* preview = controllerValue < 0 ? "None" : (controllerValue == 0 ? "P1" : controllerValue == 1 ? "P2" : controllerValue == 2 ? "P3" : "P4");
+                        std::string comboId = "##ctrl" + std::to_string(participant.id);
+                        if(ImGui::BeginCombo(comboId.c_str(), preview)) {
+                            if(ImGui::Selectable("None", controllerValue < 0)) {
+                                m_netplayCoordinator.assignController(participant.id, Netplay::kObserverPlayerSlot);
+                            }
+                            for(int i = 0; i < 4; ++i) {
+                                const std::string label = "P" + std::to_string(i + 1);
+                                if(ImGui::Selectable(label.c_str(), controllerValue == i)) {
+                                    m_netplayCoordinator.assignController(participant.id, static_cast<Netplay::PlayerSlot>(i));
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                    }
+                    else {
+                        if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) {
+                            ImGui::TextUnformatted("None");
+                        }
+                        else {
+                            ImGui::Text("P%u", static_cast<unsigned>(participant.controllerAssignment) + 1u);
+                        }
+                    }
+                    ImGui::TableNextColumn();
+                    const char* romLabel =
+                        !participant.romLoaded ? "Not loaded" :
+                        participant.romCompatible ? "ROM OK" : "Mismatch";
+                    ImVec4 romColor =
+                        !participant.romLoaded ? ImVec4(0.85f, 0.65f, 0.25f, 1.0f) :
+                        participant.romCompatible ? ImVec4(0.35f, 0.9f, 0.35f, 1.0f) :
+                        ImVec4(0.95f, 0.35f, 0.35f, 1.0f);
+                    ImGui::TextColored(romColor, "%s", romLabel);
+                    ImGui::TableNextColumn();
+                    if(participant.id == m_netplayCoordinator.localParticipantId()) {
+                        ImGui::TextUnformatted("-");
+                    } else {
+                        if(participant.connected) {
+                            ImGui::Text("%ums / %ums", participant.pingMs, participant.jitterMs);
+                        } else if(participant.reconnectReserved) {
+                            ImGui::TextDisabled("reserved");
+                            ImGui::Text("%us left", participant.reservationSecondsRemaining);
+                        } else {
+                            ImGui::TextDisabled("reconnect");
+                        }
+                        if(participant.rollbackScheduledCount > 0 ||
+                           participant.futureFrameMismatchCount > 0 ||
+                           participant.confirmedFrameConflictCount > 0) {
+                            ImGui::Text("R:%u F:%u C:%u",
+                                        participant.rollbackScheduledCount,
+                                        participant.futureFrameMismatchCount,
+                                        participant.confirmedFrameConflictCount);
+                            if(!participant.lastDecision.empty()) {
+                                ImGui::TextUnformatted(participant.lastDecision.c_str());
+                            }
+                        }
+                    }
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(participant.ready ? "Yes" : "No");
+                    ImGui::TableNextColumn();
+                    if(m_netplayCoordinator.isHosting() && participant.id != m_netplayCoordinator.localParticipantId()) {
+                        if(participant.reconnectReserved) {
+                            std::string buttonId = "Remove##" + std::to_string(participant.id);
+                            if(ImGui::SmallButton(buttonId.c_str())) {
+                                m_netplayCoordinator.removeReconnectReservation(participant.id);
+                            }
+                        } else {
+                            std::string buttonId = "Kick##" + std::to_string(participant.id);
+                            if(ImGui::SmallButton(buttonId.c_str())) {
+                                m_netplayCoordinator.kickParticipant(participant.id);
+                            }
+                        }
+                    } else {
+                        ImGui::TextUnformatted("-");
+                    }
+                }
+
+                ImGui::EndTable();
+            }
+
+            ImGui::Separator();
+            if(ImGui::BeginChild("NetplayLog", ImVec2(0.0f, 180.0f), true)) {
+                for(const std::string& line : m_netplayCoordinator.eventLog()) {
+                    ImGui::TextWrapped("%s", line.c_str());
+                }
+                if(ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+                    ImGui::SetScrollHereY(1.0f);
+                }
+            }
+            ImGui::EndChild();
+        }
+
+        ImGui::End();
+    }
+#endif
+
+    if(m_showNetplayDiagnosticsWindow) {
+        ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::Begin("Netplay Diagnostics", &m_showNetplayDiagnosticsWindow, ImGuiWindowFlags_NoResize)) {
+            auto diag = m_emu.getNetplayDiagnostics();
+
+            int rollbackWindowFrames = AppSettings::instance().data.netplay.rollbackWindowFrames;
+            ImGui::SetNextItemWidth(120.0f);
+            if(ImGui::InputInt("Rollback Window (frames)", &rollbackWindowFrames)) {
+                rollbackWindowFrames = std::max(0, rollbackWindowFrames);
+                AppSettings::instance().data.netplay.rollbackWindowFrames = rollbackWindowFrames;
+                m_emu.configureNetplaySnapshots(static_cast<size_t>(rollbackWindowFrames));
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Enabled: %s", diag.enabled ? "Yes" : "No");
+            ImGui::Text("Current Frame: %u", diag.currentFrame);
+            ImGui::Text("Snapshot Capacity: %zu", diag.snapshotCapacity);
+            ImGui::Text("Stored Snapshots: %zu", diag.storedSnapshots);
+            ImGui::Text("Latest Snapshot CRC32: %08X", diag.latestSnapshotCrc32);
+
+            ImGui::Separator();
+            ImGui::Text("Rollback Count: %u", diag.rollbackStats.rollbackCount);
+            ImGui::Text("Max Rollback Distance: %u", diag.rollbackStats.maxRollbackDistance);
+            ImGui::Text("Prediction Hits: %u", diag.rollbackStats.predictionHitCount);
+            ImGui::Text("Prediction Misses: %u", diag.rollbackStats.predictionMissCount);
+            ImGui::Text("Hard Resync Count: %u", diag.rollbackStats.hardResyncCount);
+            ImGui::Text("Last Rollback: %u -> %u", diag.rollbackStats.lastRollbackFromFrame, diag.rollbackStats.lastRollbackToFrame);
+        }
+
+        ImGui::End();
+    }
+
     if(m_showRomDatabaseWindow) {
         ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));

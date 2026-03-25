@@ -16,6 +16,7 @@
 
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/PPU.h"
+#include "GeraNESNetplay/NetplayRuntime.h"
 
 class EmulationHost : public SigSlot::SigSlotBase
 {
@@ -98,7 +99,53 @@ public:
         bool speedBoost = false;
     };
 
+    struct NetplayDiagnosticsSnapshot
+    {
+        bool enabled = false;
+        uint32_t currentFrame = 0;
+        size_t snapshotCapacity = 0;
+        size_t storedSnapshots = 0;
+        uint32_t latestSnapshotCrc32 = 0;
+        Netplay::RollbackStats rollbackStats;
+    };
+
 private:
+    static void applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
+    {
+        emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                  input.p1X, input.p1Y, input.p1L, input.p1R);
+        emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                  input.p2X, input.p2Y, input.p2L, input.p2R);
+        emu.setVirtualBoyControllerButtons(Settings::Port::P_1, input.p1A, input.p1B, input.p1Select, input.p1Start,
+                                           input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                           input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2,
+                                           input.p1L, input.p1R);
+        emu.setVirtualBoyControllerButtons(Settings::Port::P_2, input.p2A, input.p2B, input.p2Select, input.p2Start,
+                                           input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                           input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2,
+                                           input.p2L, input.p2R);
+        emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
+        emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
+        emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
+        emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
+        emu.setSuborKeyboardKeys(input.suborKeyboardKeys);
+        emu.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
+        emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
+        emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
+        emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
+        emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
+        emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
+        emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
+        emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
+        emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
+        emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        emu.setSuborMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        emu.setSuborMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        emu.setRewind(input.rewind);
+        emu.setSpeedBoost(input.speedBoost);
+    }
+
     struct Snapshot
     {
         bool valid = false;
@@ -126,6 +173,28 @@ private:
         std::string audioChannelsJson = "{\"channels\":[]}";
     };
 
+    mutable std::mutex m_netplayRuntimeMutex;
+    Netplay::NetplayRuntime m_netplayRuntime;
+    bool m_netplayRuntimeEnabled = false;
+
+    void resetNetplayRuntimeLocked()
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        m_netplayRuntime.reset();
+    }
+
+    void captureNetplaySnapshotOnFrameReady()
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled || !m_emu.valid()) return;
+
+        const uint32_t frame = m_emu.frameCount();
+        m_netplayRuntime.setCurrentFrame(frame);
+        m_netplayRuntime.captureSnapshot(frame, [this]() {
+            return m_emu.saveStateToMemory();
+        });
+    }
+
 #ifdef __EMSCRIPTEN__
     GeraNESEmu m_emu;
     IAudioOutput& m_audioOutput;
@@ -133,39 +202,7 @@ private:
 
     void applyPendingInput()
     {
-        const InputState input = m_pendingInput;
-        m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                    input.p1X, input.p1Y, input.p1L, input.p1R);
-        m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                    input.p2X, input.p2Y, input.p2L, input.p2R);
-        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_1, input.p1A, input.p1B, input.p1Select, input.p1Start,
-                                             input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                             input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2,
-                                             input.p1L, input.p1R);
-        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_2, input.p2A, input.p2B, input.p2Select, input.p2Start,
-                                             input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                             input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2,
-                                             input.p2L, input.p2R);
-        m_emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
-        m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
-        m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
-        m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
-        m_emu.setSuborKeyboardKeys(input.suborKeyboardKeys);
-        m_emu.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
-        m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
-        m_emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
-        m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
-        m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
-        m_emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
-        m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
-        m_emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setSuborMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setSuborMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setRewind(input.rewind);
-        m_emu.setSpeedBoost(input.speedBoost);
+        applyInputStateToEmu(m_emu, m_pendingInput);
     }
 #else
     enum class FramePacingMode : uint8_t
@@ -208,39 +245,7 @@ private:
 
     void applyPendingInputLocked()
     {
-        const InputState input = m_pendingInput;
-        m_emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                    input.p1X, input.p1Y, input.p1L, input.p1R);
-        m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                    input.p2X, input.p2Y, input.p2L, input.p2R);
-        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_1, input.p1A, input.p1B, input.p1Select, input.p1Start,
-                                             input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                             input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2,
-                                             input.p1L, input.p1R);
-        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_2, input.p2A, input.p2B, input.p2Select, input.p2Start,
-                                             input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                             input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2,
-                                             input.p2L, input.p2R);
-        m_emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
-        m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
-        m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
-        m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
-        m_emu.setSuborKeyboardKeys(input.suborKeyboardKeys);
-        m_emu.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
-        m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
-        m_emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
-        m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
-        m_emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
-        m_emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
-        m_emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
-        m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
-        m_emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setSuborMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setSuborMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        m_emu.setRewind(input.rewind);
-        m_emu.setSpeedBoost(input.speedBoost);
+        applyInputStateToEmu(m_emu, m_pendingInput);
     }
 
     void onCommand(std::function<void(GeraNESEmu&)> command)
@@ -389,8 +394,10 @@ public:
     {
 #ifdef __EMSCRIPTEN__
         m_emu.signalFrameStart.bind(&EmulationHost::applyPendingInput, this);
+        m_emu.signalFrameReady.bind(&EmulationHost::captureNetplaySnapshotOnFrameReady, this);
 #else
         m_emu.signalFrameStart.bind(&EmulationHost::applyPendingInputLocked, this);
+        m_emu.signalFrameReady.bind(&EmulationHost::captureNetplaySnapshotOnFrameReady, this);
         m_signalInputState.bind_auto(&EmulationHost::onSetPendingInput, this);
         m_signalCommand.bind_auto(&EmulationHost::onCommand, this);
         {
@@ -481,9 +488,11 @@ public:
     bool open(const std::string& path)
     {
 #ifdef __EMSCRIPTEN__
+        resetNetplayRuntimeLocked();
         return m_emu.open(path);
 #else
         std::scoped_lock emuLock(m_emuMutex);
+        resetNetplayRuntimeLocked();
         const bool opened = m_emu.open(path);
         refreshSnapshotLocked();
         return opened;
@@ -688,12 +697,14 @@ public:
     {
 #ifdef __EMSCRIPTEN__
         if(!m_emu.valid()) return;
+        resetNetplayRuntimeLocked();
         m_emu.reset();
 #else
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.reset();
         });
+        resetNetplayRuntimeLocked();
 #endif
     }
 
@@ -711,6 +722,7 @@ public:
             if(!emu.valid()) return;
             emu.loadState();
         });
+        resetNetplayRuntimeLocked();
     }
 
     std::optional<Settings::Device> getPortDevice(Settings::Port port) const
@@ -931,5 +943,124 @@ public:
         m_pendingPresenterTicks.store(1, std::memory_order_release);
         m_presenterCv.notify_one();
 #endif
+    }
+
+    void configureNetplaySnapshots(size_t snapshotCapacity)
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        m_netplayRuntimeEnabled = snapshotCapacity > 0;
+        m_netplayRuntime.reset();
+        m_netplayRuntime.configureRollbackWindow(snapshotCapacity);
+    }
+
+    bool rollbackToFrame(uint32_t frame)
+    {
+#ifdef __EMSCRIPTEN__
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled) return false;
+        return m_netplayRuntime.rollbackTo(frame, [this](const std::vector<uint8_t>& data) {
+            m_emu.loadStateFromMemory(data);
+        });
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled) return false;
+
+        const bool rolledBack = m_netplayRuntime.rollbackTo(frame, [this](const std::vector<uint8_t>& data) {
+            m_emu.loadStateFromMemory(data);
+        });
+
+        if(rolledBack) {
+            refreshSnapshotLocked();
+        }
+
+        return rolledBack;
+#endif
+    }
+
+    std::vector<uint8_t> saveStateToMemory()
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.saveStateToMemory();
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        return m_emu.saveStateToMemory();
+#endif
+    }
+
+    bool loadStateFromMemory(const std::vector<uint8_t>& data)
+    {
+#ifdef __EMSCRIPTEN__
+        if(data.empty()) return false;
+        resetNetplayRuntimeLocked();
+        m_emu.loadStateFromMemory(data);
+        return true;
+#else
+        if(data.empty()) return false;
+        std::scoped_lock emuLock(m_emuMutex);
+        resetNetplayRuntimeLocked();
+        m_emu.loadStateFromMemory(data);
+        refreshSnapshotLocked();
+        return true;
+#endif
+    }
+
+    template<typename InputProvider>
+    bool resimulateToFrame(uint32_t targetFrame, InputProvider&& inputProvider)
+    {
+#ifdef __EMSCRIPTEN__
+        if(!m_emu.valid()) return false;
+
+        const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
+        while(m_emu.frameCount() < targetFrame) {
+            const uint32_t nextFrame = m_emu.frameCount() + 1;
+            m_pendingInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            applyPendingInput();
+            m_emu.updateUntilFrame(frameDt);
+        }
+        return true;
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        if(!m_emu.valid()) return false;
+
+        const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
+        while(m_emu.frameCount() < targetFrame) {
+            const uint32_t nextFrame = m_emu.frameCount() + 1;
+            const InputState replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            applyInputStateToEmu(m_emu, replayInput);
+            m_emu.updateUntilFrame(frameDt);
+        }
+
+        refreshSnapshotLocked();
+        return true;
+#endif
+    }
+
+    uint32_t canonicalStateCrc32()
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.canonicalStateCrc32();
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        return m_emu.canonicalStateCrc32();
+#endif
+    }
+
+    NetplayDiagnosticsSnapshot getNetplayDiagnostics() const
+    {
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+
+        NetplayDiagnosticsSnapshot snapshot;
+        snapshot.enabled = m_netplayRuntimeEnabled;
+        snapshot.currentFrame = m_netplayRuntime.currentFrame();
+        snapshot.snapshotCapacity = m_netplayRuntime.snapshots().capacity();
+        snapshot.storedSnapshots = m_netplayRuntime.snapshots().size();
+        snapshot.rollbackStats = m_netplayRuntime.stats();
+
+        if(const Netplay::SnapshotRecord* latest = m_netplayRuntime.snapshots().latest()) {
+            snapshot.latestSnapshotCrc32 = latest->crc32;
+        }
+
+        return snapshot;
     }
 };

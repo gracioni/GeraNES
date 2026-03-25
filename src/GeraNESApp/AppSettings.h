@@ -332,6 +332,20 @@ public:
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps)
     };
 
+    struct Netplay {
+
+        int rollbackWindowFrames = 600;
+        int inputDelayFrames = 2;
+        bool autoResumeWhenReady = false;
+        std::string displayName = "Player";
+        uint64_t reconnectToken = 0;
+        std::string hostName = "127.0.0.1";
+        int port = 27888;
+        int maxPeers = 4;
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, inputDelayFrames, autoResumeWhenReady, displayName, reconnectToken, hostName, port, maxPeers)
+    };
+
     const int MAX_RECENT_FILES = 10;    
 
     struct Data {
@@ -345,6 +359,7 @@ public:
                 
         Input input; 
         Improvements improvements;
+        Netplay netplay;
         Video video;
         Audio audio;
         Debug debug;
@@ -380,7 +395,7 @@ public:
             if(lastFolder == "") lastFolder = AppSettings::storageDirectory().string();
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, video, audio, debug)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, netplay, video, audio, debug)
     } data;
 
     AppSettings(const AppSettings&) = delete;

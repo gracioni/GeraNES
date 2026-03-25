@@ -251,6 +251,19 @@ if(NOT MSVC)
     target_link_libraries(PFFFT PUBLIC m)
 endif()
 
+if(NOT EMSCRIPTEN)
+    FetchContent_Declare(
+        enet
+        GIT_REPOSITORY https://github.com/lsalzman/enet.git
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+
+    FetchContent_MakeAvailable(enet)
+    INCLUDE_DIRECTORIES(${enet_SOURCE_DIR}/include)
+endif()
+
 set(FLIPS_PATH ${flips_SOURCE_DIR})
 file(GLOB FLIPS_GLOB
     ${FLIPS_PATH}/libips.h
@@ -307,11 +320,15 @@ file(GLOB_RECURSE CPP_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
+if(NOT EMSCRIPTEN)
+    list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenBindings\\.cpp$")
+    list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenUtil\\.cpp$")
+endif()
 
 set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} SDL2::SDL2main SDL2::SDL2-static libglew_static nfd stdc++fs)
+    set(LIBS ${LIBS} SDL2::SDL2main SDL2::SDL2-static libglew_static nfd stdc++fs enet)
 else()
 set(LIBS ${LIBS} -lopenal)
 endif()

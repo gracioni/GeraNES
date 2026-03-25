@@ -31,6 +31,7 @@
 #include "NsfPlayer.h"
 
 #include "Serialization.h"
+#include "util/Crc32.h"
 
 #include "signal/signal.h"
 #include "logger/logger.h"
@@ -1269,6 +1270,20 @@ public:
         resyncAudioAfterStateLoad();
 
         m_updateCyclesAcc = old;
+    }
+
+    std::vector<uint8_t> saveStateToMemory()
+    {
+        Serialize s;
+        serialization(s);
+        return s.getData();
+    }
+
+    uint32_t canonicalStateCrc32()
+    {
+        const std::vector<uint8_t> data = saveStateToMemory();
+        if(data.empty()) return 0;
+        return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }
 
     /*
