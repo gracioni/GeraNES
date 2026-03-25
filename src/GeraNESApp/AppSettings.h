@@ -15,6 +15,7 @@ namespace fs = std::filesystem;
 #include "KonamiHyperShotInfo.h"
 #include "PowerPadInfo.h"
 #include "SnesControllerInfo.h"
+#include "SystemInputInfo.h"
 #include "VirtualBoyControllerInfo.h"
 
 #include "logger/logger.h"
@@ -106,6 +107,7 @@ public:
         SnesMouse snesMouse;
         PowerPadInfo powerPad;
         KonamiHyperShotInfo konamiHyperShot;
+        SystemInputInfo system;
 
         bool getControllerInfo(int index, ControllerInfo& result) {
 
@@ -178,10 +180,6 @@ public:
                 i.down = "Down";
                 i.left = "Left";
                 i.right = "Right";
-                i.saveState = "F5";
-                i.loadState = "F6";
-                i.rewind = "Backspace";
-                i.speed = "+";
 
                 controller.insert(std::make_pair("0", i));
             }
@@ -198,10 +196,6 @@ public:
                 i.down = "K";
                 i.left = "J";
                 i.right = "L";
-                i.saveState = "";
-                i.loadState = "";
-                i.rewind = "";
-                i.speed = "";
 
                 controller.insert(std::make_pair("1", i)); 
             }
@@ -234,10 +228,6 @@ public:
                 i.down = "Down";
                 i.left = "Left";
                 i.right = "Right";
-                i.saveState = "F5";
-                i.loadState = "F6";
-                i.rewind = "Backspace";
-                i.speed = "+";
 
                 snesController.insert(std::make_pair("0", i));
             }
@@ -258,20 +248,8 @@ public:
                 i.down = "K";
                 i.left = "J";
                 i.right = "L";
-                i.saveState = "";
-                i.loadState = "";
-                i.rewind = "";
-                i.speed = "";
 
                 snesController.insert(std::make_pair("1", i));
-            }
-
-            if(snesController.count("0") > 0 && snesController["0"].speed.empty()) {
-                snesController["0"].speed = "+";
-            }
-
-            if(controller.count("0") > 0 && controller["0"].speed.empty()) {
-                controller["0"].speed = "+";
             }
 
             if(virtualBoyController.count("0") == 0) {
@@ -292,10 +270,6 @@ public:
                 i.down2 = "S";
                 i.left2 = "A";
                 i.right2 = "D";
-                i.saveState = "F5";
-                i.loadState = "F6";
-                i.rewind = "Backspace";
-                i.speed = "+";
 
                 virtualBoyController.insert(std::make_pair("0", i));
             }
@@ -318,17 +292,14 @@ public:
                 i.down2 = "Keypad 5";
                 i.left2 = "Keypad 4";
                 i.right2 = "Keypad 6";
-                i.saveState = "";
-                i.loadState = "";
-                i.rewind = "";
-                i.speed = "";
 
                 virtualBoyController.insert(std::make_pair("1", i));
             }
 
-            if(virtualBoyController.count("0") > 0 && virtualBoyController["0"].speed.empty()) {
-                virtualBoyController["0"].speed = "+";
-            }
+            if(system.saveState.empty()) system.saveState = "F5";
+            if(system.loadState.empty()) system.loadState = "F6";
+            if(system.rewind.empty()) system.rewind = "Backspace";
+            if(system.speed.empty()) system.speed = "+";
 
             if(konamiHyperShot.p1Run.empty()) konamiHyperShot.p1Run = "Left Alt";
             if(konamiHyperShot.p1Jump.empty()) konamiHyperShot.p1Jump = "Left Ctrl";
@@ -343,7 +314,7 @@ public:
             }
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, powerPad, konamiHyperShot, controller, snesController, virtualBoyController)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, powerPad, konamiHyperShot, system, controller, snesController, virtualBoyController)
     };
 
     struct Audio {

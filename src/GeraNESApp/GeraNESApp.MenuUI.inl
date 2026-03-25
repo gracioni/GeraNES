@@ -525,6 +525,13 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+            if (ImGui::BeginMenu("System")) {
+                if(ImGui::MenuItem("Config...")) {
+                    m_inputBindingConfigWindow.show("System", m_systemInput);
+                }
+                ImGui::EndMenu();
+            }
+
         const bool hasHardwareActions =
             m_emu.valid() &&
             m_emu.withExclusiveAccess([&](auto& emu) {

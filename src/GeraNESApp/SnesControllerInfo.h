@@ -11,7 +11,7 @@
 class SnesControllerInfo : public InputBindingInfo
 {
 public:
-    static constexpr std::array<const char*, 16> BUTTONS {"A", "B", "X", "Y", "L", "R", "Select", "Start", "Up", "Down", "Left", "Right", "Save", "Load", "Rewind", "Speed"};
+    static constexpr std::array<const char*, 12> BUTTONS {"A", "B", "X", "Y", "L", "R", "Select", "Start", "Up", "Down", "Left", "Right"};
 
     std::string a;
     std::string b;
@@ -25,12 +25,7 @@ public:
     std::string down;
     std::string left;
     std::string right;
-    std::string saveState;
-    std::string loadState;
-    std::string rewind;
-    std::string speed;
-
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(SnesControllerInfo, a, b, x, y, l, r, select, start, up, down, left, right, saveState, loadState, rewind, speed)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(SnesControllerInfo, a, b, x, y, l, r, select, start, up, down, left, right)
 
 private:
     std::map<const std::string, std::string*>* m_map = nullptr;
@@ -52,10 +47,6 @@ private:
         m_map->insert(std::make_pair(BUTTONS[9], &down));
         m_map->insert(std::make_pair(BUTTONS[10], &left));
         m_map->insert(std::make_pair(BUTTONS[11], &right));
-        m_map->insert(std::make_pair(BUTTONS[12], &saveState));
-        m_map->insert(std::make_pair(BUTTONS[13], &loadState));
-        m_map->insert(std::make_pair(BUTTONS[14], &rewind));
-        m_map->insert(std::make_pair(BUTTONS[15], &speed));
     }
 
 public:
@@ -85,10 +76,6 @@ public:
         down = other.down;
         left = other.left;
         right = other.right;
-        saveState = other.saveState;
-        loadState = other.loadState;
-        rewind = other.rewind;
-        speed = other.speed;
         return *this;
     }
 
@@ -118,10 +105,6 @@ public:
             case 9: down = input; break;
             case 10: left = input; break;
             case 11: right = input; break;
-            case 12: saveState = input; break;
-            case 13: loadState = input; break;
-            case 14: rewind = input; break;
-            case 15: speed = input; break;
         }
     }
 

@@ -114,6 +114,7 @@ private:
     VirtualBoyControllerInfo m_virtualBoyController1;
     VirtualBoyControllerInfo m_virtualBoyController2;
     KonamiHyperShotInfo m_konamiHyperShot;
+    SystemInputInfo m_systemInput;
 
     bool m_emuInputEnabled = true;
 
@@ -804,19 +805,11 @@ private:
             const bool p2Down2 = p2UsesVirtualBoyController ? im.isPressed(m_virtualBoyController2.down2) : false;
             const bool p2Left2 = p2UsesVirtualBoyController ? im.isPressed(m_virtualBoyController2.left2) : false;
             const bool p2Right2 = p2UsesVirtualBoyController ? im.isPressed(m_virtualBoyController2.right2) : false;
-            const std::string& saveStateP1 = p1UsesVirtualBoyController ? m_virtualBoyController1.saveState : (p1UsesSnesController ? m_snesController1.saveState : m_controller1.saveState);
-            const std::string& saveStateP2 = p2UsesVirtualBoyController ? m_virtualBoyController2.saveState : (p2UsesSnesController ? m_snesController2.saveState : m_controller2.saveState);
-            const std::string& loadStateP1 = p1UsesVirtualBoyController ? m_virtualBoyController1.loadState : (p1UsesSnesController ? m_snesController1.loadState : m_controller1.loadState);
-            const std::string& loadStateP2 = p2UsesVirtualBoyController ? m_virtualBoyController2.loadState : (p2UsesSnesController ? m_snesController2.loadState : m_controller2.loadState);
-            const std::string& rewindP1 = p1UsesVirtualBoyController ? m_virtualBoyController1.rewind : (p1UsesSnesController ? m_snesController1.rewind : m_controller1.rewind);
-            const std::string& rewindP2 = p2UsesVirtualBoyController ? m_virtualBoyController2.rewind : (p2UsesSnesController ? m_snesController2.rewind : m_controller2.rewind);
-            const std::string& speedP1 = p1UsesVirtualBoyController ? m_virtualBoyController1.speed : (p1UsesSnesController ? m_snesController1.speed : m_controller1.speed);
-            const std::string& speedP2 = p2UsesVirtualBoyController ? m_virtualBoyController2.speed : (p2UsesSnesController ? m_snesController2.speed : m_controller2.speed);
             const bool keyboardExpansionActive = isSuborKeyboardActive() || isFamilyBasicKeyboardActive();
 
             if(!keyboardExpansionActive) {
-                if(im.isJustPressed(saveStateP1) || im.isJustPressed(saveStateP2)) m_emu.saveState();
-                if(im.isJustPressed(loadStateP1) || im.isJustPressed(loadStateP2)) m_emu.loadState();
+                if(im.isJustPressed(m_systemInput.saveState)) m_emu.saveState();
+                if(im.isJustPressed(m_systemInput.loadState)) m_emu.loadState();
             }
             std::array<bool, 12> p1PowerPadButtons = {};
             std::array<bool, 12> p2PowerPadButtons = {};
@@ -903,9 +896,6 @@ private:
             m_arkanoidNesPosition = std::clamp(arkanoidNesPosition, 0.0f, 1.0f);
             m_arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition, 0.0f, 1.0f);
 
-            if(im.isJustPressed(m_controller2.saveState)) m_emu.saveState();
-            if(im.isJustPressed(m_controller2.loadState)) m_emu.loadState();
-
             EmulationHost::InputState inputState;
             inputState.p1A = p1PrimaryA;
             inputState.p1B = p1PrimaryB;
@@ -979,13 +969,11 @@ private:
             inputState.mousePrimaryButton = mousePrimaryButton;
             inputState.mouseSecondaryButton = mouseSecondaryButton;
             inputState.rewind = !keyboardExpansionActive && (
-                im.isPressed(rewindP1) ||
-                im.isPressed(rewindP2) ||
+                im.isPressed(m_systemInput.rewind) ||
                 m_touch->buttons().rewind
             );
             inputState.speedBoost = !keyboardExpansionActive && (
-                im.isPressed(speedP1) ||
-                im.isPressed(speedP2)
+                im.isPressed(m_systemInput.speed)
             );
             m_emu.setPendingInput(inputState);
         }
@@ -1030,6 +1018,7 @@ private:
         cfg.input.getVirtualBoyControllerInfo(0, m_virtualBoyController1);
         cfg.input.getVirtualBoyControllerInfo(1, m_virtualBoyController2);
         m_konamiHyperShot = cfg.input.konamiHyperShot;
+        m_systemInput = cfg.input.system;
 
         m_emu.setupRewindSystem(cfg.improvements.maxRewindTime > 0, cfg.improvements.maxRewindTime);
         m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
@@ -1241,6 +1230,7 @@ public:
         AppSettings::instance().data.input.setVirtualBoyControllerInfo(0, m_virtualBoyController1);
         AppSettings::instance().data.input.setVirtualBoyControllerInfo(1, m_virtualBoyController2);
         AppSettings::instance().data.input.konamiHyperShot = m_konamiHyperShot;
+        AppSettings::instance().data.input.system = m_systemInput;
     }
 
     virtual ~GeraNESApp() {

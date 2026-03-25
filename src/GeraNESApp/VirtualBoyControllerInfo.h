@@ -11,11 +11,10 @@
 class VirtualBoyControllerInfo : public InputBindingInfo
 {
 public:
-    static constexpr std::array<const char*, 18> BUTTONS {
+    static constexpr std::array<const char*, 14> BUTTONS {
         "A", "B", "L", "R", "Select", "Start",
         "Up", "Down", "Left", "Right",
-        "Up 2", "Down 2", "Left 2", "Right 2",
-        "Save", "Load", "Rewind", "Speed"
+        "Up 2", "Down 2", "Left 2", "Right 2"
     };
 
     std::string a;
@@ -32,12 +31,7 @@ public:
     std::string down2;
     std::string left2;
     std::string right2;
-    std::string saveState;
-    std::string loadState;
-    std::string rewind;
-    std::string speed;
-
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(VirtualBoyControllerInfo, a, b, l, r, select, start, up, down, left, right, up2, down2, left2, right2, saveState, loadState, rewind, speed)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(VirtualBoyControllerInfo, a, b, l, r, select, start, up, down, left, right, up2, down2, left2, right2)
 
 private:
     std::map<const std::string, std::string*>* m_map = nullptr;
@@ -61,10 +55,6 @@ private:
         m_map->insert(std::make_pair(BUTTONS[11], &down2));
         m_map->insert(std::make_pair(BUTTONS[12], &left2));
         m_map->insert(std::make_pair(BUTTONS[13], &right2));
-        m_map->insert(std::make_pair(BUTTONS[14], &saveState));
-        m_map->insert(std::make_pair(BUTTONS[15], &loadState));
-        m_map->insert(std::make_pair(BUTTONS[16], &rewind));
-        m_map->insert(std::make_pair(BUTTONS[17], &speed));
     }
 
 public:
@@ -96,10 +86,6 @@ public:
         down2 = other.down2;
         left2 = other.left2;
         right2 = other.right2;
-        saveState = other.saveState;
-        loadState = other.loadState;
-        rewind = other.rewind;
-        speed = other.speed;
         return *this;
     }
 
@@ -131,10 +117,6 @@ public:
             case 11: down2 = input; break;
             case 12: left2 = input; break;
             case 13: right2 = input; break;
-            case 14: saveState = input; break;
-            case 15: loadState = input; break;
-            case 16: rewind = input; break;
-            case 17: speed = input; break;
         }
     }
 

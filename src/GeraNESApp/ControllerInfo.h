@@ -13,7 +13,7 @@ class ControllerInfo : public InputBindingInfo {
 
 public:
 
-    static constexpr std::array<const char*, 12> BUTTONS {"A", "B", "Select", "Start", "Up", "Down", "Left", "Right", "Save", "Load", "Rewind", "Speed"};
+    static constexpr std::array<const char*, 8> BUTTONS {"A", "B", "Select", "Start", "Up", "Down", "Left", "Right"};
 
     std::string a;
     std::string b;
@@ -23,12 +23,7 @@ public:
     std::string down;
     std::string left;
     std::string right;
-    std::string saveState;
-    std::string loadState;
-    std::string rewind;
-    std::string speed;
-
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ControllerInfo, a, b, select, start, up, down, left, right, saveState, loadState, rewind, speed)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ControllerInfo, a, b, select, start, up, down, left, right)
 
 private:
 
@@ -48,10 +43,6 @@ private:
         _map->insert(std::make_pair(BUTTONS[5], &down));
         _map->insert(std::make_pair(BUTTONS[6], &left));
         _map->insert(std::make_pair(BUTTONS[7], &right));
-        _map->insert(std::make_pair(BUTTONS[8], &saveState));
-        _map->insert(std::make_pair(BUTTONS[9], &loadState));
-        _map->insert(std::make_pair(BUTTONS[10], &rewind));
-        _map->insert(std::make_pair(BUTTONS[11], &speed));
     }
 
 public:    
@@ -77,11 +68,6 @@ public:
         down = other.down;
         left = other.left;
         right = other.right;
-        saveState = other.saveState;
-        loadState = other.loadState;
-        rewind = other.rewind;
-        speed = other.speed;
-
         return *this;
     }
 
@@ -110,10 +96,6 @@ public:
             case 5: down = input; break;
             case 6: left = input; break;
             case 7: right = input; break;
-            case 8: saveState = input; break;
-            case 9: loadState = input; break;
-            case 10: rewind = input; break;
-            case 11: speed = input; break;
         }
     }
 
