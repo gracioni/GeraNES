@@ -34,6 +34,10 @@ public:
         bool p1Y = false;
         bool p1L = false;
         bool p1R = false;
+        bool p1Up2 = false;
+        bool p1Down2 = false;
+        bool p1Left2 = false;
+        bool p1Right2 = false;
 
         bool p2A = false;
         bool p2B = false;
@@ -47,6 +51,10 @@ public:
         bool p2Y = false;
         bool p2L = false;
         bool p2R = false;
+        bool p2Up2 = false;
+        bool p2Down2 = false;
+        bool p2Left2 = false;
+        bool p2Right2 = false;
 
         bool p3A = false;
         bool p3B = false;
@@ -130,6 +138,14 @@ private:
                                     input.p1X, input.p1Y, input.p1L, input.p1R);
         m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
                                     input.p2X, input.p2Y, input.p2L, input.p2R);
+        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_1, input.p1A, input.p1B, input.p1Select, input.p1Start,
+                                             input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                             input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2,
+                                             input.p1L, input.p1R);
+        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_2, input.p2A, input.p2B, input.p2Select, input.p2Start,
+                                             input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                             input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2,
+                                             input.p2L, input.p2R);
         m_emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
         m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
@@ -197,6 +213,14 @@ private:
                                     input.p1X, input.p1Y, input.p1L, input.p1R);
         m_emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
                                     input.p2X, input.p2Y, input.p2L, input.p2R);
+        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_1, input.p1A, input.p1B, input.p1Select, input.p1Start,
+                                             input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                             input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2,
+                                             input.p1L, input.p1R);
+        m_emu.setVirtualBoyControllerButtons(Settings::Port::P_2, input.p2A, input.p2B, input.p2Select, input.p2Start,
+                                             input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                             input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2,
+                                             input.p2L, input.p2R);
         m_emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
         m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);

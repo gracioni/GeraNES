@@ -15,6 +15,7 @@ namespace fs = std::filesystem;
 #include "KonamiHyperShotInfo.h"
 #include "PowerPadInfo.h"
 #include "SnesControllerInfo.h"
+#include "VirtualBoyControllerInfo.h"
 
 #include "logger/logger.h"
 
@@ -96,6 +97,7 @@ public:
 
         std::map<std::string, ControllerInfo> controller;
         std::map<std::string, SnesControllerInfo> snesController;
+        std::map<std::string, VirtualBoyControllerInfo> virtualBoyController;
 
     public:
                 
@@ -125,6 +127,16 @@ public:
             return false;
         }
 
+        bool getVirtualBoyControllerInfo(int index, VirtualBoyControllerInfo& result) {
+
+            if(virtualBoyController.count(std::to_string(index))) {
+                result = virtualBoyController[std::to_string(index)];
+                return true;
+            }
+
+            return false;
+        }
+
         void setControllerInfo(int index, const ControllerInfo& _if) {
 
             if(controller.count(std::to_string(index)) > 0)
@@ -140,6 +152,15 @@ public:
                 snesController[std::to_string(index)] = info;
             else
                 snesController.insert(std::make_pair(std::to_string(index), info));
+
+        }
+
+        void setVirtualBoyControllerInfo(int index, const VirtualBoyControllerInfo& info) {
+
+            if(virtualBoyController.count(std::to_string(index)) > 0)
+                virtualBoyController[std::to_string(index)] = info;
+            else
+                virtualBoyController.insert(std::make_pair(std::to_string(index), info));
 
         }
 
@@ -253,6 +274,62 @@ public:
                 controller["0"].speed = "+";
             }
 
+            if(virtualBoyController.count("0") == 0) {
+
+                VirtualBoyControllerInfo i;
+
+                i.a = "Left Alt";
+                i.b = "Left Ctrl";
+                i.l = "Q";
+                i.r = "E";
+                i.select = "Space";
+                i.start = "Return";
+                i.up = "Up";
+                i.down = "Down";
+                i.left = "Left";
+                i.right = "Right";
+                i.up2 = "W";
+                i.down2 = "S";
+                i.left2 = "A";
+                i.right2 = "D";
+                i.saveState = "F5";
+                i.loadState = "F6";
+                i.rewind = "Backspace";
+                i.speed = "+";
+
+                virtualBoyController.insert(std::make_pair("0", i));
+            }
+
+            if(virtualBoyController.count("1") == 0) {
+
+                VirtualBoyControllerInfo i;
+
+                i.a = "H";
+                i.b = "G";
+                i.l = "U";
+                i.r = "O";
+                i.select = "T";
+                i.start = "Y";
+                i.up = "I";
+                i.down = "K";
+                i.left = "J";
+                i.right = "L";
+                i.up2 = "Keypad 8";
+                i.down2 = "Keypad 5";
+                i.left2 = "Keypad 4";
+                i.right2 = "Keypad 6";
+                i.saveState = "";
+                i.loadState = "";
+                i.rewind = "";
+                i.speed = "";
+
+                virtualBoyController.insert(std::make_pair("1", i));
+            }
+
+            if(virtualBoyController.count("0") > 0 && virtualBoyController["0"].speed.empty()) {
+                virtualBoyController["0"].speed = "+";
+            }
+
             if(konamiHyperShot.p1Run.empty()) konamiHyperShot.p1Run = "Left Alt";
             if(konamiHyperShot.p1Jump.empty()) konamiHyperShot.p1Jump = "Left Ctrl";
             if(konamiHyperShot.p2Run.empty()) konamiHyperShot.p2Run = "H";
@@ -266,7 +343,7 @@ public:
             }
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, powerPad, konamiHyperShot, controller, snesController)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, powerPad, konamiHyperShot, controller, snesController, virtualBoyController)
     };
 
     struct Audio {

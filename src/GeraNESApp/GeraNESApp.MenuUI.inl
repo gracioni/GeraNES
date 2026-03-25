@@ -345,6 +345,19 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
+            auto drawVirtualBoyControllerPortConfigItem = [this](Settings::Port port)
+            {
+                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) {
+                    return;
+                }
+
+                ImGui::Separator();
+                if(ImGui::MenuItem("Config...")) {
+                    if(port == Settings::Port::P_1) m_inputBindingConfigWindow.show("Virtual Boy Controller 1", m_virtualBoyController1);
+                    else m_inputBindingConfigWindow.show("Virtual Boy Controller 2", m_virtualBoyController2);
+                }
+            };
+
             auto drawKonamiHyperShotConfigItem = [this]()
             {
                 if(m_emu.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
@@ -374,11 +387,13 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_1, Settings::Device::SNES_MOUSE);
                 drawControllerPortMenuItem("Subor Mouse", Settings::Port::P_1, Settings::Device::SUBOR_MOUSE);
                 drawControllerPortMenuItem("SNES Controller", Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
+                drawControllerPortMenuItem("Virtual Boy Controller", Settings::Port::P_1, Settings::Device::VIRTUAL_BOY_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_1);
                 drawPowerPadPortConfigItem(Settings::Port::P_1);
                 drawSnesMousePortConfigItem(Settings::Port::P_1);
                 drawSnesControllerPortConfigItem(Settings::Port::P_1);
+                drawVirtualBoyControllerPortConfigItem(Settings::Port::P_1);
                 drawArkanoidPortConfigItem(Settings::Port::P_1);
                 ImGui::EndMenu();
             }
@@ -393,11 +408,13 @@ inline void GeraNESApp::menuBar() {
                 drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_2, Settings::Device::SNES_MOUSE);
                 drawControllerPortMenuItem("Subor Mouse", Settings::Port::P_2, Settings::Device::SUBOR_MOUSE);
                 drawControllerPortMenuItem("SNES Controller", Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
+                drawControllerPortMenuItem("Virtual Boy Controller", Settings::Port::P_2, Settings::Device::VIRTUAL_BOY_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_2);
                 drawPowerPadPortConfigItem(Settings::Port::P_2);
                 drawSnesMousePortConfigItem(Settings::Port::P_2);
                 drawSnesControllerPortConfigItem(Settings::Port::P_2);
+                drawVirtualBoyControllerPortConfigItem(Settings::Port::P_2);
                 drawArkanoidPortConfigItem(Settings::Port::P_2);
                 ImGui::EndMenu();
             }

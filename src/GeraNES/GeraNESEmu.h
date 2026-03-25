@@ -19,6 +19,7 @@
 #include "SuborMouse.h"
 #include "SuborKeyboard.h"
 #include "SnesController.h"
+#include "VirtualBoyController.h"
 #include "FourScore.h"
 #include "HoriAdapter.h"
 #include "BandaiHyperShot.h"
@@ -162,6 +163,8 @@ private:
                 return std::make_unique<SuborMouse>();
             case Settings::Device::SNES_CONTROLLER:
                 return std::make_unique<SnesController>();
+            case Settings::Device::VIRTUAL_BOY_CONTROLLER:
+                return std::make_unique<VirtualBoyController>();
             case Settings::Device::POWER_PAD_SIDE_A:
                 return std::make_unique<PowerPad>(false);
             case Settings::Device::POWER_PAD_SIDE_B:
@@ -222,6 +225,8 @@ private:
                 return dynamic_cast<const SuborMouse*>(device) != nullptr;
             case Settings::Device::SNES_CONTROLLER:
                 return dynamic_cast<const SnesController*>(device) != nullptr;
+            case Settings::Device::VIRTUAL_BOY_CONTROLLER:
+                return dynamic_cast<const VirtualBoyController*>(device) != nullptr;
             case Settings::Device::POWER_PAD_SIDE_A:
             {
                 const auto* powerPad = dynamic_cast<const PowerPad*>(device);
@@ -1547,6 +1552,21 @@ public:
             device->addRelativeMotion(deltaX, deltaY);
             device->setTrigger(leftButton);
             device->setSecondaryTrigger(rightButton);
+        }
+    }
+
+    void setVirtualBoyControllerButtons(Settings::Port port,
+                                        bool bA, bool bB, bool bSelect, bool bStart,
+                                        bool bUp0, bool bDown0, bool bLeft0, bool bRight0,
+                                        bool bUp1, bool bDown1, bool bLeft1, bool bRight1,
+                                        bool bL, bool bR)
+    {
+        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) return;
+
+        IControllerPortDevice* device =
+            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+        if(device) {
+            device->setVirtualBoyButtons(bA, bB, bSelect, bStart, bUp0, bDown0, bLeft0, bRight0, bUp1, bDown1, bLeft1, bRight1, bL, bR);
         }
     }
 

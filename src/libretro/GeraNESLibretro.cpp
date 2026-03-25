@@ -271,6 +271,7 @@ bool g_loggerBound = false;
 enum class PortInputMode {
     None,
     Controller,
+    VirtualBoy,
     Zapper,
     SnesMouse,
     SuborMouse,
@@ -432,6 +433,9 @@ void applyPortInputMode(unsigned port)
         case PortInputMode::Controller:
             device = Settings::Device::CONTROLLER;
             break;
+        case PortInputMode::VirtualBoy:
+            device = Settings::Device::VIRTUAL_BOY_CONTROLLER;
+            break;
         case PortInputMode::Zapper:
             device = Settings::Device::ZAPPER;
             break;
@@ -577,6 +581,7 @@ void updateControllerState(unsigned port)
 {
     if(g_inputStateCb == nullptr) return;
 
+    const Settings::Port emuPort = (port == 0) ? Settings::Port::P_1 : Settings::Port::P_2;
     const bool b = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B) != 0;
     const bool y = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y) != 0;
     const bool a = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A) != 0;
@@ -590,7 +595,12 @@ void updateControllerState(unsigned port)
     const bool left = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT) != 0;
     const bool right = g_inputStateCb(port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT) != 0;
 
-    if(port == 0) {
+    if(g_emu.getPortDevice(emuPort) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) {
+        // Pragmatic libretro mapping with the standard joypad API:
+        // D-pad -> left pad, Y/X/L/R -> right pad, shoulders unavailable.
+        g_emu.setVirtualBoyControllerButtons(emuPort, a, b, select, start, up, down, left, right, x, r, y, l, false, false);
+    }
+    else if(port == 0) {
         g_emu.setController1Buttons(a, b, select, start, up, down, left, right, x, y, l, r);
     }
     else if(port == 1) {
@@ -960,7 +970,11 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
                 : PortInputMode::Arkanoid;
     }
     else if(deviceBase == RETRO_DEVICE_JOYPAD) {
-        g_portInputModes[port] = PortInputMode::Controller;
+        g_portInputModes[port] =
+            g_emu.getPortDevice((port == 0) ? Settings::Port::P_1 : Settings::Port::P_2) ==
+            std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)
+                ? PortInputMode::VirtualBoy
+                : PortInputMode::Controller;
     }
     else if(deviceBase == RETRO_DEVICE_NONE) {
         g_portInputModes[port] = PortInputMode::None;
@@ -1112,6 +1126,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) ? PortInputMode::SnesMouse :
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) ? PortInputMode::SuborMouse :
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
+            (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) ? PortInputMode::VirtualBoy :
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::NONE)) ? PortInputMode::None :
             PortInputMode::Controller;
         g_portInputModes[1] =
@@ -1119,6 +1134,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) ? PortInputMode::SnesMouse :
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) ? PortInputMode::SuborMouse :
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
+            (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) ? PortInputMode::VirtualBoy :
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::NONE)) ? PortInputMode::None :
             PortInputMode::Controller;
         applyAllPortInputModes();
