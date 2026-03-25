@@ -34,9 +34,13 @@ public:
         uint32_t port = 27888;
         uint32_t startupTimeoutSteps = 10000;
         uint32_t frameStepLimit = 200000;
+        uint32_t settleStepLimit = 2048;
         uint32_t forceDesyncFrame = 0;
         uint32_t desyncAddress = 0x0000;
         uint32_t desyncValueXor = 0x01;
+        uint32_t hostInputSeed = 0x13572468u;
+        uint32_t clientInputSeed = 0x24681357u;
+        bool robust = false;
     };
 
 private:
@@ -163,6 +167,7 @@ private:
         uint32_t lastResyncTargetFrame = 0;
         uint32_t lastResyncLoadedFrameCount = 0;
         DeterministicInputGenerator inputGenerator;
+        std::vector<std::string> rollbackDebugLog;
 
         explicit PeerState(const std::string& peerName, bool isHost, uint32_t inputSeed)
             : name(peerName)
@@ -174,6 +179,12 @@ private:
 
     static constexpr int RESULT_FAILED = 1;
     static constexpr int RESULT_ERROR = 2;
+
+    struct RunArtifacts
+    {
+        int exitCode = RESULT_ERROR;
+        nlohmann::json report;
+    };
 
     static uint64_t buildPadMask(const Buttons& buttons)
     {
@@ -327,6 +338,7 @@ private:
     {
         peer.runtime.reset();
         peer.runtime.configureRollbackWindow(rollbackWindowFrames);
+        peer.coordinator.setLocalSimulationFrame(peer.emu.frameCount());
         peer.lastCrcReportFrame = 0;
         resetInputDelayBuffers(peer);
         peer.lastInputDelayFrames = 0xFF;
@@ -348,9 +360,10 @@ private:
         }
 
         const uint32_t newFrame = peer.emu.frameCount();
+        peer.coordinator.setLocalSimulationFrame(newFrame);
         peer.runtime.setCurrentFrame(newFrame);
         peer.runtime.captureSnapshot(newFrame, [&peer]() {
-            return peer.emu.saveStateToMemory();
+            return peer.emu.saveNetplayStateToMemory();
         });
         return true;
     }
@@ -365,17 +378,37 @@ private:
 
         const Netplay::FrameNumber confirmedFrame = peer.coordinator.session().roomState().lastConfirmedFrame;
         const Netplay::FrameNumber latestSafeRollbackFrame = static_cast<Netplay::FrameNumber>(currentFrame - 1u);
-        const Netplay::FrameNumber rollbackFloor = std::min(confirmedFrame, latestSafeRollbackFrame);
+        const Netplay::FrameNumber earliestConfirmedReplayFrame =
+            confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
+        const Netplay::FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
         if(*rollbackFrame < rollbackFloor) {
             rollbackFrame = rollbackFloor;
         }
 
-        if(*rollbackFrame >= currentFrame) return;
+        if(*rollbackFrame >= currentFrame) {
+            std::ostringstream oss;
+            oss << "Deferred rollback frame " << *rollbackFrame
+                << " while local frame was " << currentFrame;
+            peer.rollbackDebugLog.push_back(oss.str());
+            peer.coordinator.rescheduleRollbackFrame(*rollbackFrame);
+            return;
+        }
 
         if(!peer.runtime.rollbackTo(*rollbackFrame, [&peer](const std::vector<uint8_t>& data) {
             peer.emu.loadStateFromMemoryOnCleanBoot(data);
         })) {
+            std::ostringstream oss;
+            oss << "Rollback restore failed for frame " << *rollbackFrame
+                << " at local frame " << currentFrame;
+            peer.rollbackDebugLog.push_back(oss.str());
             return;
+        }
+        peer.coordinator.setLocalSimulationFrame(peer.emu.frameCount());
+        {
+            std::ostringstream oss;
+            oss << "Rollback applied from " << currentFrame
+                << " to " << *rollbackFrame;
+            peer.rollbackDebugLog.push_back(oss.str());
         }
 
         peer.coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
@@ -387,8 +420,17 @@ private:
             const uint32_t replayFrame = peer.emu.frameCount() + 1u;
             const InputState replayInput = buildReplayInputState(peer, replayFrame);
             if(!advancePeerToNextFrame(peer, replayInput)) {
+                std::ostringstream oss;
+                oss << "Rollback resimulation failed at frame " << replayFrame
+                    << " while targeting " << currentFrame;
+                peer.rollbackDebugLog.push_back(oss.str());
                 return;
             }
+        }
+        {
+            std::ostringstream oss;
+            oss << "Rollback resimulated to " << peer.emu.frameCount();
+            peer.rollbackDebugLog.push_back(oss.str());
         }
     }
 
@@ -403,13 +445,14 @@ private:
             peer.lastResyncTargetFrame = pending->targetFrame;
             peer.lastResyncLoadedFrameCount = peer.emu.frameCount();
             configurePeerRuntime(peer, rollbackWindowFrames);
+            peer.coordinator.setLocalSimulationFrame(peer.emu.frameCount());
             peer.runtime.setCurrentFrame(pending->targetFrame);
             peer.runtime.captureSnapshot(pending->targetFrame, [&pending]() {
                 return pending->payload;
             });
         }
 
-        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalStateCrc32() : 0;
+        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0;
         peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
     }
 
@@ -424,7 +467,7 @@ private:
         const Netplay::FrameNumber targetFrame = peer.coordinator.session().roomState().lastConfirmedFrame;
         const Netplay::SnapshotRecord* snapshot = peer.runtime.snapshots().find(targetFrame);
         const std::vector<uint8_t> payload =
-            snapshot != nullptr ? snapshot->data : peer.emu.saveStateToMemory();
+            snapshot != nullptr ? snapshot->data : peer.emu.saveNetplayStateToMemory();
         if(payload.empty()) return;
 
         if(targetFrame < peer.emu.frameCount()) {
@@ -436,6 +479,7 @@ private:
         }
         peer.lastResyncTargetFrame = targetFrame;
         peer.lastResyncLoadedFrameCount = peer.emu.frameCount();
+        peer.coordinator.setLocalSimulationFrame(peer.emu.frameCount());
 
         resetInputDelayBuffers(peer);
         peer.lastInputDelayFrames = 0xFF;
@@ -629,6 +673,29 @@ private:
         return false;
     }
 
+    static void runMaintenanceStep(PeerState& hostPeer,
+                                   PeerState& clientPeer,
+                                   const Options& options,
+                                   const std::optional<Netplay::RomValidationData>& romValidation)
+    {
+        hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
+        clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
+        hostPeer.coordinator.update(0);
+        clientPeer.coordinator.update(0);
+
+        syncLocalRomValidation(hostPeer, romValidation);
+        syncLocalRomValidation(clientPeer, romValidation);
+
+        processHostResyncIfNeeded(hostPeer);
+        processPendingResyncIfNeeded(hostPeer, options.rollbackWindowFrames);
+        processPendingResyncIfNeeded(clientPeer, options.rollbackWindowFrames);
+        processRollbackIfNeeded(hostPeer);
+        processRollbackIfNeeded(clientPeer);
+
+        maybeSubmitCrc(hostPeer, options.crcIntervalFrames);
+        maybeSubmitCrc(clientPeer, options.crcIntervalFrames);
+    }
+
     static nlohmann::json buildPeerReport(const PeerState& peer)
     {
         const auto& room = peer.coordinator.session().roomState();
@@ -659,7 +726,7 @@ private:
             {"name", peer.name},
             {"host", peer.host},
             {"frame", const_cast<GeraNESEmu&>(peer.emu).frameCount()},
-            {"crc32", const_cast<GeraNESEmu&>(peer.emu).canonicalStateCrc32()},
+            {"crc32", const_cast<GeraNESEmu&>(peer.emu).canonicalNetplayStateCrc32()},
             {"roomState", stateLabel(room.state)},
             {"currentFrame", room.currentFrame},
             {"lastConfirmedFrame", room.lastConfirmedFrame},
@@ -686,6 +753,14 @@ private:
                 const size_t start = log.size() > 20 ? (log.size() - 20) : 0;
                 for(size_t i = start; i < log.size(); ++i) {
                     tail.push_back(log[i]);
+                }
+                return tail;
+            }()},
+            {"rollbackDebugTail", [&peer]() {
+                nlohmann::json tail = nlohmann::json::array();
+                const size_t start = peer.rollbackDebugLog.size() > 20 ? (peer.rollbackDebugLog.size() - 20) : 0;
+                for(size_t i = start; i < peer.rollbackDebugLog.size(); ++i) {
+                    tail.push_back(peer.rollbackDebugLog[i]);
                 }
                 return tail;
             }()},
@@ -726,6 +801,16 @@ private:
                 return tail;
             }()}
         };
+    }
+
+    static bool hasEventLogMessage(const PeerState& peer, const std::string& needle)
+    {
+        for(const std::string& message : peer.coordinator.eventLog()) {
+            if(message.find(needle) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static std::optional<std::string> findTimelineMismatch(const PeerState& hostPeer, const PeerState& clientPeer)
@@ -868,7 +953,7 @@ private:
             {"romOpened", true},
             {"loadedFrameCount", probeEmu.frameCount()},
             {"snapshotCrc32", snapshot->crc32},
-            {"loadedStateCrc32", probeEmu.canonicalStateCrc32()}
+            {"loadedStateCrc32", probeEmu.canonicalNetplayStateCrc32()}
         };
     }
 
@@ -938,23 +1023,23 @@ private:
             {"ready", true},
             {"romOpened", true},
             {"resultFrameCount", probeEmu.frameCount()},
-            {"replayedCrc32", probeEmu.canonicalStateCrc32()},
+            {"replayedCrc32", probeEmu.canonicalNetplayStateCrc32()},
             {"targetSnapshotCrc32", targetSnapshot->crc32}
         };
     }
 
-    static int finalizeReport(const Options& options,
-                              const PeerState& hostPeer,
-                              const PeerState& clientPeer,
-                              const std::string& status,
-                              const std::string& failureReason,
-                              const std::optional<std::string>& timelineMismatch)
+    static nlohmann::json buildReport(const Options& options,
+                                      const PeerState& hostPeer,
+                                      const PeerState& clientPeer,
+                                      const std::string& status,
+                                      const std::string& failureReason,
+                                      const std::optional<std::string>& timelineMismatch)
     {
         const uint32_t hostCrc = const_cast<GeraNESEmu&>(hostPeer.emu).valid()
-            ? const_cast<GeraNESEmu&>(hostPeer.emu).canonicalStateCrc32()
+            ? const_cast<GeraNESEmu&>(hostPeer.emu).canonicalNetplayStateCrc32()
             : 0;
         const uint32_t clientCrc = const_cast<GeraNESEmu&>(clientPeer.emu).valid()
-            ? const_cast<GeraNESEmu&>(clientPeer.emu).canonicalStateCrc32()
+            ? const_cast<GeraNESEmu&>(clientPeer.emu).canonicalNetplayStateCrc32()
             : 0;
         const nlohmann::json snapshotMismatch = buildSnapshotMismatchReport(hostPeer, clientPeer);
         const uint32_t mismatchFrame = snapshotMismatch.value("frame", 0u);
@@ -1008,6 +1093,11 @@ private:
             {"client", buildPeerReport(clientPeer)}
         };
 
+        return report;
+    }
+
+    static int emitReport(const Options& options, const nlohmann::json& report)
+    {
         const std::string serialized = report.dump(2);
         if(!options.reportPath.empty()) {
             std::ofstream out(options.reportPath, std::ios::binary | std::ios::trunc);
@@ -1017,19 +1107,31 @@ private:
             std::cout << serialized << std::endl;
         }
 
-        return status == "ok" ? 0 : RESULT_FAILED;
+        return report.value("status", std::string()) == "ok" ? 0 : RESULT_FAILED;
     }
 
-public:
-    static int runHeadless(const Options& options)
+    static RunArtifacts finalizeArtifacts(const Options& options,
+                                          const PeerState& hostPeer,
+                                          const PeerState& clientPeer,
+                                          const std::string& status,
+                                          const std::string& failureReason,
+                                          const std::optional<std::string>& timelineMismatch)
+    {
+        RunArtifacts artifacts;
+        artifacts.report = buildReport(options, hostPeer, clientPeer, status, failureReason, timelineMismatch);
+        artifacts.exitCode = artifacts.report.value("status", std::string()) == "ok" ? 0 : RESULT_FAILED;
+        return artifacts;
+    }
+
+    static RunArtifacts runSingleCase(const Options& options)
     {
         if(options.romPath.empty()) {
             std::cerr << "Netplay test requires a ROM path." << std::endl;
-            return RESULT_ERROR;
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Netplay test requires a ROM path."}}};
         }
 
-        PeerState hostPeer("Host", true, 0x13572468u);
-        PeerState clientPeer("Client", false, 0x24681357u);
+        PeerState hostPeer("Host", true, options.hostInputSeed);
+        PeerState clientPeer("Client", false, options.clientInputSeed);
 
         hostPeer.emu.setSpeedBoost(false);
         clientPeer.emu.setSpeedBoost(false);
@@ -1038,11 +1140,11 @@ public:
 
         if(!hostPeer.emu.open(options.romPath) || !hostPeer.emu.valid()) {
             std::cerr << "Failed to open ROM for host peer." << std::endl;
-            return RESULT_ERROR;
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to open ROM for host peer."}}};
         }
         if(!clientPeer.emu.open(options.romPath) || !clientPeer.emu.valid()) {
             std::cerr << "Failed to open ROM for client peer." << std::endl;
-            return RESULT_ERROR;
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to open ROM for client peer."}}};
         }
 
         configurePeerRuntime(hostPeer, options.rollbackWindowFrames);
@@ -1051,24 +1153,24 @@ public:
         const std::optional<Netplay::RomValidationData> romValidation = captureRomValidation(hostPeer.emu);
         if(!romValidation.has_value()) {
             std::cerr << "Failed to capture ROM validation data." << std::endl;
-            return RESULT_ERROR;
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to capture ROM validation data."}}};
         }
 
         if(!hostPeer.coordinator.host(static_cast<uint16_t>(options.port), 2, "Host")) {
             std::cerr << "Failed to start netplay host: " << hostPeer.coordinator.lastError() << std::endl;
-            return RESULT_ERROR;
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to start netplay host."}}};
         }
 
         if(!clientPeer.coordinator.join("127.0.0.1", static_cast<uint16_t>(options.port), "Client")) {
             std::cerr << "Failed to connect netplay client: " << clientPeer.coordinator.lastError() << std::endl;
-            return RESULT_ERROR;
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to connect netplay client."}}};
         }
 
         hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(std::min<uint32_t>(options.inputDelayFrames, 8u)));
 
         std::string failureReason;
         if(!bootstrapSession(hostPeer, clientPeer, options, romValidation, failureReason)) {
-            return finalizeReport(options, hostPeer, clientPeer, "bootstrap_failed", failureReason, std::nullopt);
+            return finalizeArtifacts(options, hostPeer, clientPeer, "bootstrap_failed", failureReason, std::nullopt);
         }
 
         uint32_t progressedFrames = 0;
@@ -1076,20 +1178,7 @@ public:
             const uint32_t previousHostFrame = hostPeer.emu.frameCount();
             const uint32_t previousClientFrame = clientPeer.emu.frameCount();
 
-            hostPeer.coordinator.update(0);
-            clientPeer.coordinator.update(0);
-
-            syncLocalRomValidation(hostPeer, romValidation);
-            syncLocalRomValidation(clientPeer, romValidation);
-
-            processHostResyncIfNeeded(hostPeer);
-            processPendingResyncIfNeeded(hostPeer, options.rollbackWindowFrames);
-            processPendingResyncIfNeeded(clientPeer, options.rollbackWindowFrames);
-            processRollbackIfNeeded(hostPeer);
-            processRollbackIfNeeded(clientPeer);
-
-            maybeSubmitCrc(hostPeer, options.crcIntervalFrames);
-            maybeSubmitCrc(clientPeer, options.crcIntervalFrames);
+            runMaintenanceStep(hostPeer, clientPeer, options, romValidation);
 
             const bool hostQueued = queueLocalInputForNextFrame(hostPeer, options.frames);
             const bool clientQueued = queueLocalInputForNextFrame(clientPeer, options.frames);
@@ -1125,7 +1214,7 @@ public:
                hostPeer.emu.frameCount() == previousHostFrame &&
                clientPeer.emu.frameCount() == previousClientFrame) {
                 failureReason = "Simulation stopped making progress while both peers were running.";
-                return finalizeReport(options, hostPeer, clientPeer, "stalled", failureReason, std::nullopt);
+                return finalizeArtifacts(options, hostPeer, clientPeer, "stalled", failureReason, std::nullopt);
             }
         }
 
@@ -1134,49 +1223,111 @@ public:
             ss << "Frame target not reached. Host frame=" << hostPeer.emu.frameCount()
                << ", Client frame=" << clientPeer.emu.frameCount();
             failureReason = ss.str();
-            return finalizeReport(options, hostPeer, clientPeer, "frame_limit_reached", failureReason, std::nullopt);
+            return finalizeArtifacts(options, hostPeer, clientPeer, "frame_limit_reached", failureReason, std::nullopt);
         }
 
-        hostPeer.coordinator.update(0);
-        clientPeer.coordinator.update(0);
-        processHostResyncIfNeeded(hostPeer);
-        processPendingResyncIfNeeded(hostPeer, options.rollbackWindowFrames);
-        processPendingResyncIfNeeded(clientPeer, options.rollbackWindowFrames);
-        processRollbackIfNeeded(hostPeer);
-        processRollbackIfNeeded(clientPeer);
-        maybeSubmitCrc(hostPeer, options.crcIntervalFrames);
-        maybeSubmitCrc(clientPeer, options.crcIntervalFrames);
-        hostPeer.coordinator.update(0);
-        clientPeer.coordinator.update(0);
+        for(uint32_t settleStep = 0; settleStep < options.settleStepLimit; ++settleStep) {
+            runMaintenanceStep(hostPeer, clientPeer, options, romValidation);
+            hostPeer.coordinator.update(0);
+            clientPeer.coordinator.update(0);
+
+            const Netplay::FrameNumber settledConfirmedFrame = std::min(
+                hostPeer.coordinator.session().roomState().lastConfirmedFrame,
+                clientPeer.coordinator.session().roomState().lastConfirmedFrame
+            );
+            if(settledConfirmedFrame >= options.frames &&
+               hostPeer.coordinator.session().roomState().state == Netplay::SessionState::Running &&
+               clientPeer.coordinator.session().roomState().state == Netplay::SessionState::Running) {
+                break;
+            }
+        }
 
         const std::optional<std::string> timelineMismatch = findTimelineMismatch(hostPeer, clientPeer);
         if(timelineMismatch.has_value()) {
             failureReason = *timelineMismatch;
-            return finalizeReport(options, hostPeer, clientPeer, "timeline_mismatch", failureReason, timelineMismatch);
+            return finalizeArtifacts(options, hostPeer, clientPeer, "timeline_mismatch", failureReason, timelineMismatch);
         }
 
-        const uint32_t hostCrc = hostPeer.emu.canonicalStateCrc32();
-        const uint32_t clientCrc = clientPeer.emu.canonicalStateCrc32();
+        const uint32_t hostCrc = hostPeer.emu.canonicalNetplayStateCrc32();
+        const uint32_t clientCrc = clientPeer.emu.canonicalNetplayStateCrc32();
         if(hostCrc != clientCrc) {
             std::ostringstream ss;
             ss << "Final CRC mismatch. Host=" << hostCrc << ", Client=" << clientCrc;
             failureReason = ss.str();
-            return finalizeReport(options, hostPeer, clientPeer, "crc_mismatch", failureReason, std::nullopt);
+            return finalizeArtifacts(options, hostPeer, clientPeer, "crc_mismatch", failureReason, std::nullopt);
+        }
+
+        uint32_t hostUnexpectedHardResyncs = hostPeer.coordinator.predictionStats().hardResyncCount;
+        if(hasEventLogMessage(hostPeer, "Host started session setup; waiting for initial sync") &&
+           hostUnexpectedHardResyncs > 0) {
+            --hostUnexpectedHardResyncs;
         }
 
         if(options.forceDesyncFrame == 0 &&
-           (hostPeer.coordinator.predictionStats().hardResyncCount > 0 ||
+           (hostUnexpectedHardResyncs > 0 ||
             clientPeer.coordinator.predictionStats().hardResyncCount > 0)) {
             std::ostringstream ss;
             ss << "Unexpected hard resyncs under local test. Host="
-               << hostPeer.coordinator.predictionStats().hardResyncCount
+               << hostUnexpectedHardResyncs
                << ", Client="
                << clientPeer.coordinator.predictionStats().hardResyncCount;
             failureReason = ss.str();
-            return finalizeReport(options, hostPeer, clientPeer, "unexpected_resync", failureReason, std::nullopt);
+            return finalizeArtifacts(options, hostPeer, clientPeer, "unexpected_resync", failureReason, std::nullopt);
         }
 
-        return finalizeReport(options, hostPeer, clientPeer, "ok", "", std::nullopt);
+        return finalizeArtifacts(options, hostPeer, clientPeer, "ok", "", std::nullopt);
+    }
+
+public:
+    static int runHeadless(const Options& options)
+    {
+        if(!options.robust) {
+            const RunArtifacts artifacts = runSingleCase(options);
+            if(artifacts.exitCode == RESULT_ERROR && artifacts.report.empty()) {
+                return RESULT_ERROR;
+            }
+            return emitReport(options, artifacts.report);
+        }
+
+        std::vector<std::pair<std::string, Options>> cases;
+        cases.push_back({"baseline", options});
+
+        Options zeroDelay = options;
+        zeroDelay.inputDelayFrames = 0;
+        cases.push_back({"input_delay_0", zeroDelay});
+
+        Options highDelay = options;
+        highDelay.inputDelayFrames = std::min<uint32_t>(4u, 8u);
+        cases.push_back({"input_delay_4", highDelay});
+
+        Options alternateSeeds = options;
+        alternateSeeds.hostInputSeed = 0x89ABCDEFu;
+        alternateSeeds.clientInputSeed = 0x10293847u;
+        cases.push_back({"alternate_seeds", alternateSeeds});
+
+        nlohmann::json caseReports = nlohmann::json::array();
+        int overallExitCode = 0;
+        for(const auto& [label, caseOptions] : cases) {
+            RunArtifacts artifacts = runSingleCase(caseOptions);
+            nlohmann::json caseReport = artifacts.report;
+            caseReport["caseLabel"] = label;
+            caseReport["hostInputSeed"] = caseOptions.hostInputSeed;
+            caseReport["clientInputSeed"] = caseOptions.clientInputSeed;
+            caseReports.push_back(std::move(caseReport));
+            if(artifacts.exitCode != 0 && overallExitCode == 0) {
+                overallExitCode = artifacts.exitCode;
+            }
+        }
+
+        nlohmann::json summary = {
+            {"status", overallExitCode == 0 ? "ok" : "failed"},
+            {"robust", true},
+            {"romPath", options.romPath},
+            {"framesRequested", options.frames},
+            {"caseCount", caseReports.size()},
+            {"cases", caseReports}
+        };
+        return emitReport(options, summary);
     }
 };
 

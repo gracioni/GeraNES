@@ -1009,6 +1009,16 @@ public:
 #endif
     }
 
+    std::vector<uint8_t> saveNetplayStateToMemory()
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.saveNetplayStateToMemory();
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        return m_emu.saveNetplayStateToMemory();
+#endif
+    }
+
     bool loadStateFromMemory(const std::vector<uint8_t>& data)
     {
 #ifdef __EMSCRIPTEN__
@@ -1050,7 +1060,7 @@ public:
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const InputState replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
-            applyInputStateToEmu(m_emu, replayInput);
+            m_pendingInput = replayInput;
             m_emu.updateUntilFrame(frameDt);
             flushPendingNetplaySnapshotLocked();
         }
@@ -1067,6 +1077,16 @@ public:
 #else
         std::scoped_lock emuLock(m_emuMutex);
         return m_emu.canonicalStateCrc32();
+#endif
+    }
+
+    uint32_t canonicalNetplayStateCrc32()
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.canonicalNetplayStateCrc32();
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        return m_emu.canonicalNetplayStateCrc32();
 #endif
     }
 

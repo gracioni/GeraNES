@@ -1593,7 +1593,7 @@ public:
 
             PendingNetplaySnapshot snapshot;
             snapshot.frame = m_frameCount;
-            snapshot.data = saveStateToMemory();
+            snapshot.data = saveNetplayStateToMemory();
             m_netplaySnapshotResult = std::move(snapshot);
             return;
         }
@@ -1637,9 +1637,28 @@ public:
         return s.getData();
     }
 
+    std::vector<uint8_t> saveNetplayStateToMemory()
+    {
+        const PendingInputState savedPendingInputState = m_pendingInputState;
+        m_pendingInputState = {};
+
+        Serialize s;
+        serialization(s);
+
+        m_pendingInputState = savedPendingInputState;
+        return s.getData();
+    }
+
     uint32_t canonicalStateCrc32()
     {
         const std::vector<uint8_t> data = saveStateToMemory();
+        if(data.empty()) return 0;
+        return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+
+    uint32_t canonicalNetplayStateCrc32()
+    {
+        const std::vector<uint8_t> data = saveNetplayStateToMemory();
         if(data.empty()) return 0;
         return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }

@@ -35,7 +35,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
             << "Commands:\n"
@@ -50,6 +50,10 @@ namespace
             << "  --input-delay <n>         Session input delay in frames. Default: 2\n"
             << "  --rollback-window <n>     Snapshot/rollback history size. Default: 600\n"
             << "  --crc-interval <n>        CRC report interval in frames. Default: 10\n"
+            << "  --settle-steps <n>        Extra maintenance ticks after the target frame. Default: 2048\n"
+            << "  --host-seed <n>           Deterministic host input seed. Default: 324478056\n"
+            << "  --client-seed <n>         Deterministic client input seed. Default: 610800471\n"
+            << "  --robust                  Run a small built-in matrix of input-delay/seed cases.\n"
             << "  --report <path>           Write the JSON report to a file instead of stdout.\n"
             << "  --force-desync-frame <n>  Intentionally corrupt the client state on/after this frame.\n\n"
             << "State replay test options:\n"
@@ -81,7 +85,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -212,6 +216,30 @@ int main(int argc, char* argv[]) {
                     printNetplayTestUsage();
                     return EXIT_FAILURE;
                 }
+            }
+            else if(arg == "--settle-steps") {
+                if(!nextValue(options.settleStepLimit) || options.settleStepLimit == 0) {
+                    std::cerr << "Invalid value for --settle-steps.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--host-seed") {
+                if(!nextValue(options.hostInputSeed)) {
+                    std::cerr << "Invalid value for --host-seed.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--client-seed") {
+                if(!nextValue(options.clientInputSeed)) {
+                    std::cerr << "Invalid value for --client-seed.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--robust") {
+                options.robust = true;
             }
             else if(arg == "--force-desync-frame") {
                 if(!nextValue(options.forceDesyncFrame) || options.forceDesyncFrame == 0) {

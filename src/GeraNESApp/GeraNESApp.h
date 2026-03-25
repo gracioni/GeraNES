@@ -602,18 +602,24 @@ private:
 
         const Netplay::FrameNumber confirmedFrame = m_netplayCoordinator.session().roomState().lastConfirmedFrame;
         const Netplay::FrameNumber latestSafeRollbackFrame = static_cast<Netplay::FrameNumber>(currentFrame - 1u);
-        const Netplay::FrameNumber rollbackFloor = std::min(confirmedFrame, latestSafeRollbackFrame);
+        const Netplay::FrameNumber earliestConfirmedReplayFrame =
+            confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
+        const Netplay::FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
         if(*rollbackFrame < rollbackFloor) {
             rollbackFrame = rollbackFloor;
         }
 
-        if(*rollbackFrame >= currentFrame) return;
+        if(*rollbackFrame >= currentFrame) {
+            m_netplayCoordinator.rescheduleRollbackFrame(*rollbackFrame);
+            return;
+        }
 
         const uint32_t rollbackFromFrame = currentFrame;
         if(!m_emu.rollbackToFrame(*rollbackFrame)) {
             Logger::instance().log("Netplay rollback failed", Logger::Type::WARNING);
             return;
         }
+        m_netplayCoordinator.setLocalSimulationFrame(*rollbackFrame);
 
         m_netplayCoordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
         if(m_lastNetplayCrcReportFrame > *rollbackFrame) {
@@ -626,6 +632,7 @@ private:
             Logger::instance().log("Netplay resimulation failed", Logger::Type::WARNING);
             return;
         }
+        m_netplayCoordinator.setLocalSimulationFrame(m_emu.frameCount());
 
         Logger::instance().log(
             "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
@@ -640,7 +647,10 @@ private:
         if(!pending.has_value()) return;
 
         const bool loaded = m_emu.loadStateFromMemory(pending->payload);
-        const uint32_t loadedCrc32 = loaded ? m_emu.canonicalStateCrc32() : 0;
+        if(loaded) {
+            m_netplayCoordinator.setLocalSimulationFrame(pending->targetFrame);
+        }
+        const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
         m_netplayCoordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
 
         if(loaded) {
@@ -656,7 +666,10 @@ private:
         if(!pending.has_value()) return;
 
         const bool loaded = m_emu.loadStateFromMemory(pending->payload);
-        const uint32_t loadedCrc32 = loaded ? m_emu.canonicalStateCrc32() : 0;
+        if(loaded) {
+            m_netplayCoordinator.setLocalSimulationFrame(pending->targetFrame);
+        }
+        const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
         m_netplayCoordinator.acknowledgeSpectatorSync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
 
         if(loaded) {
@@ -685,7 +698,7 @@ private:
         const std::optional<std::vector<uint8_t>> confirmedSnapshot =
             m_emu.netplaySnapshotForFrame(confirmedFrame);
         const std::vector<uint8_t> statePayload =
-            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveStateToMemory();
+            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return;
 
         if(!initialSessionSync && confirmedFrame < m_emu.frameCount()) {
@@ -720,7 +733,7 @@ private:
         if(!participantId.has_value()) return;
         if(!m_emu.valid()) return;
 
-        const std::vector<uint8_t> statePayload = m_emu.saveStateToMemory();
+        const std::vector<uint8_t> statePayload = m_emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return;
 
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
@@ -2322,6 +2335,7 @@ public:
         m_touch->update(dt);
         dispatch_queued_calls();
 #ifndef __EMSCRIPTEN__
+        m_netplayCoordinator.setLocalSimulationFrame(m_emu.frameCount());
         m_netplayCoordinator.update(0);
         syncNetplayReconnectToken();
         syncNetplayRomValidation();

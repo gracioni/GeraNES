@@ -102,6 +102,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastLocalCrcFrame = 0;
     m_lastLocalCrc32 = 0;
     m_recentLocalCrcHistory.clear();
+    m_localSimulationFrame = 0;
     m_nextResyncId = 1;
     m_incomingResync.reset();
     m_incomingSpectatorSync.reset();
@@ -616,7 +617,7 @@ void NetplayCoordinator::handleConfirmedInputMismatch(ParticipantId participantI
     };
 
     const FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
-    const FrameNumber currentFrame = m_session.roomState().currentFrame;
+    const FrameNumber currentFrame = m_localSimulationFrame;
 
     if(inputFrame <= confirmedFrame) {
         m_predictionStats.recordConfirmedFrameConflict(inputFrame, slot);
@@ -670,6 +671,10 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
             return true;
         }
         return false;
+    }
+
+    if(m_hosting) {
+        return true;
     }
 
     m_session.roomState().currentFrame = status.currentFrame;
@@ -729,8 +734,52 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
         preservedSequences[participant.id] = participant.lastReceivedInputSequence;
     }
 
+    std::vector<TimelineInputEntry> preservedLocalInputs;
+    std::vector<TimelineInputEntry> preservedRemoteInputs;
+    preservedLocalInputs.reserve(m_session.roomState().participants.size());
+    preservedRemoteInputs.reserve(m_session.roomState().participants.size());
+
+    const auto preserveLatestConfirmedInput = [&](const InputTimeline& timeline,
+                                                  ParticipantId participantId,
+                                                  PlayerSlot slot,
+                                                  std::vector<TimelineInputEntry>& preserved) {
+        for(auto it = timeline.entries().rbegin(); it != timeline.entries().rend(); ++it) {
+            if(it->participantId != participantId || it->playerSlot != slot) continue;
+            if(!it->confirmed || it->frame > loadedFrame) continue;
+
+            TimelineInputEntry entry = *it;
+            entry.frame = loadedFrame;
+            entry.predicted = false;
+            entry.confirmed = true;
+            preserved.push_back(std::move(entry));
+            break;
+        }
+    };
+
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+
+        if(participant.id == m_localParticipantId) {
+            preserveLatestConfirmedInput(m_localInputs,
+                                         participant.id,
+                                         participant.controllerAssignment,
+                                         preservedLocalInputs);
+        } else {
+            preserveLatestConfirmedInput(m_remoteInputs,
+                                         participant.id,
+                                         participant.controllerAssignment,
+                                         preservedRemoteInputs);
+        }
+    }
+
     m_localInputs.clear();
     m_remoteInputs.clear();
+    for(const TimelineInputEntry& entry : preservedLocalInputs) {
+        m_localInputs.push(entry);
+    }
+    for(const TimelineInputEntry& entry : preservedRemoteInputs) {
+        m_remoteInputs.push(entry);
+    }
     m_pendingRollbackFrame.reset();
     m_predictionStats.lastDecision.clear();
     m_predictionStats.lastDecisionFrame = loadedFrame;
@@ -753,6 +802,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     m_recentLocalCrcHistory.clear();
     m_lastLocalCrcFrame = loadedFrame;
     m_lastLocalCrc32 = 0;
+    m_localSimulationFrame = loadedFrame;
 }
 
 bool NetplayCoordinator::handleAssignController(PacketReader& reader)
@@ -1206,10 +1256,7 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
 
     FrameStatusData status;
     status.timelineEpoch = m_session.roomState().timelineEpoch;
-    status.currentFrame = m_session.roomState().currentFrame;
-    if(const TimelineInputEntry* latestLocal = m_localInputs.latest()) {
-        status.currentFrame = latestLocal->frame;
-    }
+    status.currentFrame = m_localSimulationFrame;
     status.lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, computeHostConfirmedFrame());
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
 
@@ -1809,6 +1856,21 @@ const RollbackStats& NetplayCoordinator::predictionStats() const
     return m_predictionStats;
 }
 
+void NetplayCoordinator::setLocalSimulationFrame(FrameNumber frame)
+{
+    m_localSimulationFrame = frame;
+    if(m_hosting) {
+        m_session.roomState().currentFrame = frame;
+    }
+}
+
+void NetplayCoordinator::rescheduleRollbackFrame(FrameNumber frame)
+{
+    if(!m_pendingRollbackFrame.has_value() || frame < *m_pendingRollbackFrame) {
+        m_pendingRollbackFrame = frame;
+    }
+}
+
 std::optional<FrameNumber> NetplayCoordinator::consumePendingRollbackFrame()
 {
     std::optional<FrameNumber> result = m_pendingRollbackFrame;
@@ -1946,6 +2008,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame, const std::vector<
 {
     if(!m_hosting || payload.empty()) return false;
 
+    const bool initialSessionSync = m_session.roomState().state == SessionState::Starting;
     const uint32_t resyncId = m_nextResyncId++;
     ++m_session.roomState().timelineEpoch;
     realignAuthoritativeState(targetFrame);
@@ -1962,7 +2025,9 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame, const std::vector<
         }
     }
     m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
-    m_predictionStats.recordHardResync();
+    if(!initialSessionSync) {
+        m_predictionStats.recordHardResync();
+    }
 
     if(m_pendingResyncAcks.empty()) {
         m_session.roomState().state = SessionState::Running;

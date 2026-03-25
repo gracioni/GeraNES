@@ -63,6 +63,7 @@ private:
     FrameNumber m_lastLocalCrcFrame = 0;
     uint32_t m_lastLocalCrc32 = 0;
     std::deque<std::pair<FrameNumber, uint32_t>> m_recentLocalCrcHistory;
+    FrameNumber m_localSimulationFrame = 0;
     uint32_t m_nextResyncId = 1;
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<IncomingResyncTransfer> m_incomingSpectatorSync;
@@ -157,6 +158,8 @@ public:
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;
     const RollbackStats& predictionStats() const;
+    void setLocalSimulationFrame(FrameNumber frame);
+    void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();
     std::optional<FrameNumber> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostSpectatorSyncParticipant();
