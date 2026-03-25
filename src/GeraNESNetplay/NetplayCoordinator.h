@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <deque>
 #include <optional>
 #include <span>
 #include <string>
@@ -61,6 +62,7 @@ private:
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     FrameNumber m_lastLocalCrcFrame = 0;
     uint32_t m_lastLocalCrc32 = 0;
+    std::deque<std::pair<FrameNumber, uint32_t>> m_recentLocalCrcHistory;
     uint32_t m_nextResyncId = 1;
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<IncomingResyncTransfer> m_incomingSpectatorSync;
@@ -120,6 +122,10 @@ private:
     bool handleSetReady(ENetPeer* peer, PacketReader& reader);
     bool handleRequestController(ENetPeer* peer, PacketReader& reader);
     bool handleStartSession(PacketReader& reader);
+    std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
+    void realignAuthoritativeState(FrameNumber loadedFrame);
+    void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, PlayerSlot slot);
+    void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot);
     bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
     FrameNumber computeHostConfirmedFrame() const;

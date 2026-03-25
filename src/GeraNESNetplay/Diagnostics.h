@@ -15,6 +15,7 @@ struct RollbackStats
     uint32_t predictionMissCount = 0;
     uint32_t hardResyncCount = 0;
     uint32_t rollbackScheduledCount = 0;
+    uint32_t missingInputGapCount = 0;
     uint32_t futureFrameMismatchCount = 0;
     uint32_t confirmedFrameConflictCount = 0;
     FrameNumber lastRollbackFromFrame = 0;
@@ -54,6 +55,14 @@ struct RollbackStats
         lastDecisionFrame = frame;
         lastDecisionSlot = slot;
         lastDecision = "Rollback scheduled";
+    }
+
+    void recordMissingInputGap(FrameNumber frame, PlayerSlot slot)
+    {
+        ++missingInputGapCount;
+        lastDecisionFrame = frame;
+        lastDecisionSlot = slot;
+        lastDecision = "Missing input gap, waiting";
     }
 
     void recordFutureFrameMismatch(FrameNumber frame, PlayerSlot slot)

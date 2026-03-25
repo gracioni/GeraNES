@@ -239,6 +239,7 @@ inline void GeraNESApp::showGui()
             ImGui::Text("Prediction Hits: %u", predictionStats.predictionHitCount);
             ImGui::Text("Prediction Misses: %u", predictionStats.predictionMissCount);
             ImGui::Text("Scheduled Rollbacks: %u", predictionStats.rollbackScheduledCount);
+            ImGui::Text("Missing Input Gaps: %u", predictionStats.missingInputGapCount);
             ImGui::Text("Future Mismatches: %u", predictionStats.futureFrameMismatchCount);
             ImGui::Text("Confirmed Conflicts: %u", predictionStats.confirmedFrameConflictCount);
             ImGui::Text("Hard Resyncs: %u", predictionStats.hardResyncCount);
@@ -446,10 +447,12 @@ inline void GeraNESApp::showGui()
                             ImGui::TextDisabled("reconnect");
                         }
                         if(participant.rollbackScheduledCount > 0 ||
+                           participant.missingInputGapCount > 0 ||
                            participant.futureFrameMismatchCount > 0 ||
                            participant.confirmedFrameConflictCount > 0) {
-                            ImGui::Text("R:%u F:%u C:%u",
+                            ImGui::Text("R:%u G:%u F:%u C:%u",
                                         participant.rollbackScheduledCount,
+                                        participant.missingInputGapCount,
                                         participant.futureFrameMismatchCount,
                                         participant.confirmedFrameConflictCount);
                             if(!participant.lastDecision.empty()) {

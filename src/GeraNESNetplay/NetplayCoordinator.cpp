@@ -12,6 +12,7 @@ namespace {
 
 constexpr size_t kResyncChunkPayloadBytes = 1024;
 constexpr uint16_t kReconnectReservationSeconds = 30;
+constexpr size_t kRecentLocalCrcHistoryCapacity = 512;
 
 }
 
@@ -100,6 +101,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastBroadcastInputDelayFrames = 0;
     m_lastLocalCrcFrame = 0;
     m_lastLocalCrc32 = 0;
+    m_recentLocalCrcHistory.clear();
     m_nextResyncId = 1;
     m_incomingResync.reset();
     m_incomingSpectatorSync.reset();
@@ -472,8 +474,29 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     InputFrameData input;
     if(!reader.readPod(input)) return false;
 
-    if(ParticipantInfo* participant = m_session.findParticipant(input.participantId)) {
-        participant->lastReceivedInputFrame = input.frame;
+    ParticipantInfo* participant = m_session.findParticipant(input.participantId);
+    if(participant != nullptr) {
+        if(participant->controllerAssignment != input.playerSlot) {
+            std::ostringstream oss;
+            oss << "Ignored input for unexpected slot from " << participant->displayName
+                << ": got P" << static_cast<unsigned>(input.playerSlot) + 1u;
+            if(participant->controllerAssignment == kObserverPlayerSlot) {
+                oss << ", expected observer";
+            } else {
+                oss << ", expected P" << static_cast<unsigned>(participant->controllerAssignment) + 1u;
+            }
+            pushLog(oss.str());
+            return false;
+        }
+
+        if(input.sequence <= participant->lastReceivedInputSequence &&
+           participant->lastReceivedInputFrame >= input.frame) {
+            pushLog("Ignored stale/duplicate input from " + participant->displayName);
+            return true;
+        }
+
+        participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
+        participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
     }
 
     const TimelineInputEntry* existing = m_remoteInputs.find(input.frame, input.participantId, input.playerSlot);
@@ -499,11 +522,54 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     entry.predicted = false;
     m_remoteInputs.push(entry);
 
+    if(participant != nullptr) {
+        if(input.frame > participant->lastContiguousInputFrame + 1u) {
+            const FrameNumber missingFrame = participant->lastContiguousInputFrame + 1u;
+            if(!participant->pendingMissingInputFrom.has_value() ||
+               *participant->pendingMissingInputFrom != missingFrame) {
+                participant->pendingMissingInputFrom = missingFrame;
+                recordMissingInputGap(*participant, missingFrame, input.playerSlot);
+            }
+        }
+        advanceParticipantContiguousInputFrame(*participant, input.playerSlot);
+        if(participant->pendingMissingInputFrom.has_value() &&
+           participant->lastContiguousInputFrame >= *participant->pendingMissingInputFrom) {
+            participant->pendingMissingInputFrom.reset();
+        }
+    }
+
     if(m_hosting) {
-        m_transport.broadcastUnreliable(Channel::Gameplay, buildInputFramePacket(input), peer);
+        m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(input), peer);
     }
 
     return true;
+}
+
+void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, PlayerSlot slot)
+{
+    ++participant.missingInputGapCount;
+    participant.lastDecision = "Missing input gap";
+    participant.lastDecisionFrame = missingFrame;
+    participant.lastDecisionSlot = slot;
+    m_predictionStats.recordMissingInputGap(missingFrame, slot);
+
+    std::ostringstream oss;
+    oss << "Missing input gap from " << participant.displayName
+        << " starting at frame " << missingFrame
+        << " slot " << static_cast<unsigned>(slot) + 1u;
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot)
+{
+    while(true) {
+        const FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
+        const TimelineInputEntry* entry = m_remoteInputs.find(nextFrame, participant.id, slot);
+        if(entry == nullptr || !entry->confirmed) {
+            break;
+        }
+        participant.lastContiguousInputFrame = nextFrame;
+    }
 }
 
 void NetplayCoordinator::handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot)
@@ -588,10 +654,15 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
     CrcReportData report;
     if(!reader.readPod(report)) return false;
 
+    if(m_session.roomState().state != SessionState::Running) {
+        return true;
+    }
+
     m_session.roomState().lastRemoteCrcFrame = report.frame;
     m_session.roomState().lastRemoteCrc32 = report.crc32;
 
-    if(m_lastLocalCrcFrame == report.frame && m_lastLocalCrc32 != 0 && m_lastLocalCrc32 != report.crc32) {
+    const std::optional<uint32_t> matchingLocalCrc = findRecentLocalCrc(report.frame);
+    if(matchingLocalCrc.has_value() && *matchingLocalCrc != 0 && *matchingLocalCrc != report.crc32) {
         pushLog("CRC mismatch detected on frame " + std::to_string(report.frame));
 
         if(m_hosting &&
@@ -602,6 +673,42 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
     }
 
     return true;
+}
+
+std::optional<uint32_t> NetplayCoordinator::findRecentLocalCrc(FrameNumber frame) const
+{
+    for(auto it = m_recentLocalCrcHistory.rbegin(); it != m_recentLocalCrcHistory.rend(); ++it) {
+        if(it->first == frame) {
+            return it->second;
+        }
+    }
+    return std::nullopt;
+}
+
+void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
+{
+    m_localInputs.clear();
+    m_remoteInputs.clear();
+    m_pendingRollbackFrame.reset();
+    m_predictionStats.lastDecision.clear();
+    m_predictionStats.lastDecisionFrame = loadedFrame;
+    m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
+    m_session.roomState().currentFrame = loadedFrame;
+    m_session.roomState().lastConfirmedFrame = loadedFrame;
+
+    for(ParticipantInfo& participant : m_session.roomState().participants) {
+        participant.lastReceivedInputFrame = loadedFrame;
+        participant.lastContiguousInputFrame = loadedFrame;
+        participant.lastReceivedInputSequence = 0;
+        participant.pendingMissingInputFrom.reset();
+        participant.lastDecisionFrame = loadedFrame;
+        participant.lastDecisionSlot = kObserverPlayerSlot;
+        participant.lastDecision.clear();
+    }
+
+    m_recentLocalCrcHistory.clear();
+    m_lastLocalCrcFrame = loadedFrame;
+    m_lastLocalCrc32 = 0;
 }
 
 bool NetplayCoordinator::handleAssignController(PacketReader& reader)
@@ -1023,7 +1130,7 @@ FrameNumber NetplayCoordinator::computeHostConfirmedFrame() const
                 latestFrame = latest->frame;
             }
         } else {
-            latestFrame = participant.lastReceivedInputFrame;
+            latestFrame = participant.lastContiguousInputFrame;
         }
 
         if(!anyAssigned) {
@@ -1689,8 +1796,6 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     entry.confirmed = true;
     m_localInputs.push(entry);
 
-    if(!m_connected || m_serverPeer == nullptr) return;
-
     InputFrameData packetData;
     packetData.frame = frame;
     packetData.participantId = m_localParticipantId;
@@ -1698,8 +1803,15 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     packetData.buttonMaskLo = buttonMaskLo;
     packetData.buttonMaskHi = buttonMaskHi;
     packetData.sequence = entry.sequence;
+    const std::vector<uint8_t> payload = buildInputFramePacket(packetData);
 
-    m_transport.sendUnreliable(m_serverPeer, Channel::Gameplay, buildInputFramePacket(packetData));
+    if(m_hosting) {
+        m_transport.broadcastReliable(Channel::Gameplay, payload);
+        return;
+    }
+
+    if(!m_connected || m_serverPeer == nullptr) return;
+    m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
 }
 
 void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
@@ -1715,8 +1827,14 @@ void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
 
 void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 {
+    if(m_session.roomState().state != SessionState::Running) return;
+
     m_lastLocalCrcFrame = frame;
     m_lastLocalCrc32 = crc32;
+    m_recentLocalCrcHistory.emplace_back(frame, crc32);
+    while(m_recentLocalCrcHistory.size() > kRecentLocalCrcHistoryCapacity) {
+        m_recentLocalCrcHistory.pop_front();
+    }
 
     if(!m_connected || !m_transport.isActive()) return;
 
@@ -1728,9 +1846,9 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
     const std::vector<uint8_t> payload = buildCrcReportPacket(report, m_session.roomState().sessionId);
 
     if(m_hosting) {
-        m_transport.broadcastUnreliable(Channel::Diagnostics, payload);
+        m_transport.broadcastReliable(Channel::Diagnostics, payload);
     } else if(m_serverPeer != nullptr) {
-        m_transport.sendUnreliable(m_serverPeer, Channel::Diagnostics, payload);
+        m_transport.sendReliable(m_serverPeer, Channel::Diagnostics, payload);
     }
 }
 
@@ -1858,6 +1976,7 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
     ack.success = success ? 1 : 0;
 
     if(success) {
+        realignAuthoritativeState(loadedFrame);
         m_session.roomState().state = SessionState::Running;
         m_session.roomState().activeResyncId = 0;
         m_session.roomState().resyncTargetFrame = 0;
@@ -1881,6 +2000,7 @@ bool NetplayCoordinator::acknowledgeSpectatorSync(uint32_t resyncId, FrameNumber
     ack.success = success ? 1 : 0;
 
     if(success) {
+        realignAuthoritativeState(loadedFrame);
         m_requiresSpectatorSync = false;
     }
 
@@ -2189,13 +2309,14 @@ bool NetplayCoordinator::startSession()
         return false;
     }
 
-    m_session.roomState().state = SessionState::Running;
+    m_session.roomState().state = SessionState::Starting;
+    m_pendingHostResyncFrame = m_session.roomState().currentFrame;
 
     StartSessionData data;
-    data.state = SessionState::Running;
+    data.state = SessionState::Starting;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
-    pushLog("Host started session");
+    pushLog("Host started session setup; waiting for initial sync");
     return true;
 }
 

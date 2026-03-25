@@ -27,6 +27,10 @@ struct ParticipantInfo
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
     FrameNumber lastReceivedInputFrame = 0;
+    FrameNumber lastContiguousInputFrame = 0;
+    uint32_t lastReceivedInputSequence = 0;
+    std::optional<FrameNumber> pendingMissingInputFrom;
+    uint32_t missingInputGapCount = 0;
     uint32_t rollbackScheduledCount = 0;
     uint32_t futureFrameMismatchCount = 0;
     uint32_t confirmedFrameConflictCount = 0;
