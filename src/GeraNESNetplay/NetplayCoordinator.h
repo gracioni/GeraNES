@@ -118,6 +118,7 @@ private:
     bool handleCrcReport(PacketReader& reader);
     bool handleAssignController(PacketReader& reader);
     bool handleSetReady(ENetPeer* peer, PacketReader& reader);
+    bool handleRequestController(ENetPeer* peer, PacketReader& reader);
     bool handleStartSession(PacketReader& reader);
     void handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot);
     bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
@@ -168,6 +169,10 @@ public:
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);
     bool submitLocalRomValidation(bool romLoaded, bool romCompatible, const RomValidationData& romValidation);
     bool setLocalReady(bool ready);
+    bool requestControllerSlot(PlayerSlot slot);
+    bool cancelControllerRequest();
+    bool approveControllerRequest(ParticipantId participantId);
+    bool denyControllerRequest(ParticipantId participantId);
     bool setParticipantRole(ParticipantId participantId, ParticipantRole role);
     bool assignController(ParticipantId participantId, PlayerSlot slot);
     bool kickParticipant(ParticipantId participantId);

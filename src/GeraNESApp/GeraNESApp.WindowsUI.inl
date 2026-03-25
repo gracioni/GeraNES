@@ -316,6 +316,24 @@ inline void GeraNESApp::showGui()
                 if(!sessionBlockedReason.empty()) {
                     ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "%s", sessionBlockedReason.c_str());
                 }
+            } else if(localParticipant != nullptr && localParticipant->controllerAssignment == Netplay::kObserverPlayerSlot) {
+                ImGui::Separator();
+                ImGui::TextUnformatted("Request player slot");
+                if(localParticipant->controllerRequestPending) {
+                    ImGui::Text("Pending request: P%u",
+                                static_cast<unsigned>(localParticipant->requestedControllerSlot) + 1u);
+                    if(ImGui::Button("Cancel Request##NetplayCancelControllerRequest")) {
+                        m_netplayCoordinator.cancelControllerRequest();
+                    }
+                } else {
+                    for(int i = 0; i < 4; ++i) {
+                        std::string buttonLabel = "Request P" + std::to_string(i + 1) + "##NetplayRequestP" + std::to_string(i + 1);
+                        if(ImGui::Button(buttonLabel.c_str())) {
+                            m_netplayCoordinator.requestControllerSlot(static_cast<Netplay::PlayerSlot>(i));
+                        }
+                        if(i < 3) ImGui::SameLine();
+                    }
+                }
             }
 
             if(room.state == Netplay::SessionState::Resyncing) {
@@ -391,6 +409,9 @@ inline void GeraNESApp::showGui()
                             }
                             ImGui::EndCombo();
                         }
+                        if(participant.controllerRequestPending) {
+                            ImGui::TextDisabled("Req P%u", static_cast<unsigned>(participant.requestedControllerSlot) + 1u);
+                        }
                     }
                     else {
                         if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) {
@@ -398,6 +419,9 @@ inline void GeraNESApp::showGui()
                         }
                         else {
                             ImGui::Text("P%u", static_cast<unsigned>(participant.controllerAssignment) + 1u);
+                        }
+                        if(participant.controllerRequestPending) {
+                            ImGui::TextDisabled("Req P%u", static_cast<unsigned>(participant.requestedControllerSlot) + 1u);
                         }
                     }
                     ImGui::TableNextColumn();
@@ -441,6 +465,16 @@ inline void GeraNESApp::showGui()
                             std::string buttonId = "Remove##" + std::to_string(participant.id);
                             if(ImGui::SmallButton(buttonId.c_str())) {
                                 m_netplayCoordinator.removeReconnectReservation(participant.id);
+                            }
+                        } else if(participant.controllerRequestPending) {
+                            std::string approveId = "Approve##" + std::to_string(participant.id);
+                            if(ImGui::SmallButton(approveId.c_str())) {
+                                m_netplayCoordinator.approveControllerRequest(participant.id);
+                            }
+                            ImGui::SameLine();
+                            std::string denyId = "Deny##" + std::to_string(participant.id);
+                            if(ImGui::SmallButton(denyId.c_str())) {
+                                m_netplayCoordinator.denyControllerRequest(participant.id);
                             }
                         } else {
                             std::string buttonId = "Kick##" + std::to_string(participant.id);

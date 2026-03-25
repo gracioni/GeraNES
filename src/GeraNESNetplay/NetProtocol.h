@@ -30,6 +30,7 @@ enum class MessageType : uint16_t
     SetRole,
     AssignController,
     SetReady,
+    RequestController,
     SelectRom,
     RomValidationResult,
     StartSession,
@@ -132,6 +133,13 @@ struct SetReadyData
 {
     ParticipantId participantId = kInvalidParticipantId;
     uint8_t ready = 0;
+};
+
+struct RequestControllerData
+{
+    ParticipantId participantId = kInvalidParticipantId;
+    PlayerSlot requestedSlot = kObserverPlayerSlot;
+    uint8_t clearRequest = 0;
 };
 
 struct StartSessionData

@@ -22,6 +22,8 @@ struct ParticipantInfo
     bool romLoaded = false;
     bool romCompatible = false;
     bool ready = false;
+    bool controllerRequestPending = false;
+    PlayerSlot requestedControllerSlot = kObserverPlayerSlot;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
     FrameNumber lastReceivedInputFrame = 0;
