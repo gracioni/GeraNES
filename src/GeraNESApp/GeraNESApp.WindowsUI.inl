@@ -301,7 +301,11 @@ inline void GeraNESApp::showGui()
                     ImGui::EndDisabled();
                 }
                 ImGui::SameLine();
-                ImGui::BeginDisabled(!m_emu.valid());
+                const bool canForceResync =
+                    m_emu.valid() &&
+                    (room.state == Netplay::SessionState::Running ||
+                     room.state == Netplay::SessionState::Paused);
+                ImGui::BeginDisabled(!canForceResync);
                 if(ImGui::Button("Force Resync##NetplayForceResync")) {
                     const std::vector<uint8_t> statePayload = m_emu.saveStateToMemory();
                     if(!statePayload.empty()) {
