@@ -790,7 +790,7 @@ private:
         m_processingFrameStart = true;
         signalFrameStart();
         m_processingFrameStart = false;
-        const uint32_t playbackFrame = m_frameCounter + 1u;
+        const uint32_t playbackFrame = m_frameCounter;
         if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame != nullptr) {
             applyInputFrame(*inputFrame);
             m_lastAppliedInputFrame = *inputFrame;
@@ -1291,6 +1291,8 @@ public:
             m_nsfPlayer.onOpen();
 
             resetRewindSystem();
+
+            queueInputFrame(makeDefaultInputFrame(0)); //first input frame empty
         }
 
         return result;
@@ -1339,6 +1341,11 @@ public:
 
         while(loop)
         {
+            const uint32_t playbackFrame = m_frameCounter;
+            if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame == nullptr) {
+                return false;
+            }
+
             if(--m_cpuCyclesAcc == 0) {
 
                 m_cpuCyclesAcc = m_cpu.run();

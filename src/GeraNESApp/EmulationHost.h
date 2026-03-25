@@ -114,7 +114,7 @@ public:
 private:
     static void applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
     {
-        InputFrame frame = emu.createInputFrame(emu.frameCount() + 1u);
+        InputFrame frame = emu.createInputFrame(emu.frameCount());
         frame.p1A = input.p1A; frame.p1B = input.p1B; frame.p1Select = input.p1Select; frame.p1Start = input.p1Start;
         frame.p1Up = input.p1Up; frame.p1Down = input.p1Down; frame.p1Left = input.p1Left; frame.p1Right = input.p1Right;
         frame.p1X = input.p1X; frame.p1Y = input.p1Y; frame.p1L = input.p1L; frame.p1R = input.p1R;
