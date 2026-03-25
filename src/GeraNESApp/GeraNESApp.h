@@ -27,6 +27,8 @@ namespace fs = std::filesystem;
 #include <vector>
 #include <array>
 #include <deque>
+#include <map>
+#include <mutex>
 
 #include "util/SdlCursor.h"
 
@@ -170,8 +172,15 @@ private:
     std::string m_lastNetplaySelectedRomKey;
     std::string m_lastNetplaySubmittedValidationKey;
     std::optional<Netplay::SessionState> m_lastNetplaySessionState;
-    std::array<std::deque<uint64_t>, 4> m_netplayInputDelayBuffers;
+    std::array<std::map<uint32_t, uint64_t>, 4> m_netplayLocalRawInputHistory;
+    std::array<uint64_t, 4> m_lastNetplayLocalRawMasks = {};
+    std::array<bool, 4> m_hasLastNetplayLocalRawMask = {};
+    std::array<uint32_t, 4> m_lastNetplaySampledLocalFrame = {};
+    std::array<uint32_t, 4> m_lastNetplayRecordedLocalFrame = {};
     uint8_t m_lastNetplayInputDelayFrames = 0xFF;
+    mutable std::mutex m_netplayPreparedInputMutex;
+    std::map<uint32_t, EmulationHost::InputState> m_netplayPreparedInputs;
+    uint32_t m_netplayPreparedThroughFrame = 0;
 #endif
 
     struct RomDatabaseEditorData {
@@ -419,12 +428,199 @@ private:
 
     void resetNetplayInputDelayBuffers()
     {
-        for(auto& buffer : m_netplayInputDelayBuffers) {
-            buffer.clear();
+        for(auto& history : m_netplayLocalRawInputHistory) {
+            history.clear();
+        }
+        m_lastNetplayLocalRawMasks.fill(0);
+        m_hasLastNetplayLocalRawMask.fill(false);
+        m_lastNetplaySampledLocalFrame.fill(0);
+        reanchorNetplayLocalTimelineTracking();
+    }
+
+    void reanchorNetplayLocalTimelineTracking()
+    {
+        m_lastNetplayRecordedLocalFrame.fill(0);
+
+        if(!m_netplayCoordinator.isActive()) return;
+
+        const Netplay::ParticipantId localParticipantId = m_netplayCoordinator.localParticipantId();
+        for(const auto& participant : m_netplayCoordinator.session().roomState().participants) {
+            if(participant.id != localParticipantId) continue;
+            if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) return;
+
+            if(const Netplay::TimelineInputEntry* latestConfirmed =
+                   m_netplayCoordinator.localInputs().latestConfirmedFor(localParticipantId, participant.controllerAssignment)) {
+                const Netplay::PlayerSlot slot = participant.controllerAssignment;
+                m_lastNetplayRecordedLocalFrame[slot] = latestConfirmed->frame;
+                if(!m_hasLastNetplayLocalRawMask[slot]) {
+                    m_lastNetplayLocalRawMasks[slot] = latestConfirmed->buttonMaskLo;
+                    m_hasLastNetplayLocalRawMask[slot] = true;
+                    m_lastNetplaySampledLocalFrame[slot] = latestConfirmed->frame;
+                    m_netplayLocalRawInputHistory[slot][latestConfirmed->frame] = latestConfirmed->buttonMaskLo;
+                }
+            }
+            return;
         }
     }
 
-    uint64_t sampleDelayedNetplayPadMask(Netplay::PlayerSlot slot, uint64_t rawMask)
+    void resetPreparedNetplayInputs()
+    {
+        std::scoped_lock preparedLock(m_netplayPreparedInputMutex);
+        m_netplayPreparedInputs.clear();
+        m_netplayPreparedThroughFrame = 0;
+    }
+
+    std::optional<EmulationHost::InputState> consumePreparedNetplayInput(uint32_t frame)
+    {
+        std::scoped_lock preparedLock(m_netplayPreparedInputMutex);
+        for(auto it = m_netplayPreparedInputs.begin(); it != m_netplayPreparedInputs.end();) {
+            if(it->first < frame) {
+                it = m_netplayPreparedInputs.erase(it);
+            } else {
+                break;
+            }
+        }
+
+        const auto it = m_netplayPreparedInputs.find(frame);
+        if(it == m_netplayPreparedInputs.end()) {
+            return std::nullopt;
+        }
+
+        EmulationHost::InputState input = it->second;
+        m_netplayPreparedInputs.erase(it);
+        return input;
+    }
+
+    bool hasPreparedNetplayInput(uint32_t frame) const
+    {
+        std::scoped_lock preparedLock(m_netplayPreparedInputMutex);
+        return m_netplayPreparedInputs.find(frame) != m_netplayPreparedInputs.end();
+    }
+
+    void prepareNetplayPlaybackInputs(uint32_t currentFrame,
+                                      uint64_t localRawMask,
+                                      const EmulationHost::InputState& baseInputState)
+    {
+        if(!m_netplayCoordinator.isActive() ||
+           m_netplayCoordinator.awaitingSpectatorSync() ||
+           m_netplayCoordinator.session().roomState().state != Netplay::SessionState::Running) {
+            resetPreparedNetplayInputs();
+            return;
+        }
+
+        const auto& room = m_netplayCoordinator.session().roomState();
+        const Netplay::ParticipantId localParticipantId = m_netplayCoordinator.localParticipantId();
+        const Netplay::ParticipantInfo* localParticipant = nullptr;
+        for(const auto& participant : room.participants) {
+            if(participant.id == localParticipantId) {
+                localParticipant = &participant;
+                break;
+            }
+        }
+
+        const uint8_t inputDelayFrames = room.inputDelayFrames;
+        uint32_t prepareThroughFrame = currentFrame + 1u + static_cast<uint32_t>(inputDelayFrames);
+        if(localParticipant != nullptr && localParticipant->controllerAssignment != Netplay::kObserverPlayerSlot) {
+            extendLocalNetplayTimelineToCurrentFrame(
+                localParticipantId,
+                localParticipant->controllerAssignment,
+                currentFrame,
+                currentFrame + 1u,
+                localRawMask
+            );
+        } else {
+            resetNetplayInputDelayBuffers();
+        }
+
+        if(prepareThroughFrame <= currentFrame) {
+            resetPreparedNetplayInputs();
+            return;
+        }
+
+        {
+            std::scoped_lock preparedLock(m_netplayPreparedInputMutex);
+            for(auto it = m_netplayPreparedInputs.begin(); it != m_netplayPreparedInputs.end();) {
+                if(it->first <= currentFrame) {
+                    it = m_netplayPreparedInputs.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            for(uint32_t frame = currentFrame + 1u; frame <= prepareThroughFrame; ++frame) {
+                m_netplayCoordinator.predictRemoteInputsForFrame(frame);
+                EmulationHost::InputState frameInput = baseInputState;
+                applyNetplayFrameToInputState(frameInput, frame);
+                m_netplayPreparedInputs[frame] = frameInput;
+            }
+            m_netplayPreparedThroughFrame = prepareThroughFrame;
+        }
+    }
+
+    void extendLocalNetplayRawInputHistory(Netplay::PlayerSlot slot,
+                                           Netplay::FrameNumber currentFrame,
+                                           uint64_t currentRawMask)
+    {
+        std::map<uint32_t, uint64_t>& history = m_netplayLocalRawInputHistory[slot];
+        uint32_t nextSampleFrame = m_lastNetplaySampledLocalFrame[slot] + 1u;
+
+        uint64_t fillMask = 0;
+        if(m_hasLastNetplayLocalRawMask[slot]) {
+            fillMask = m_lastNetplayLocalRawMasks[slot];
+        }
+
+        while(nextSampleFrame <= currentFrame) {
+            history[nextSampleFrame] = fillMask;
+            ++nextSampleFrame;
+        }
+
+        history[currentFrame + 1u] = currentRawMask;
+        m_lastNetplaySampledLocalFrame[slot] = std::max<uint32_t>(m_lastNetplaySampledLocalFrame[slot], currentFrame + 1u);
+        m_lastNetplayLocalRawMasks[slot] = currentRawMask;
+        m_hasLastNetplayLocalRawMask[slot] = true;
+
+        const uint32_t pruneBeforeFrame = currentFrame > 64u ? (currentFrame - 64u) : 0u;
+        for(auto it = history.begin(); it != history.end() && it->first < pruneBeforeFrame;) {
+            it = history.erase(it);
+        }
+    }
+
+    uint64_t delayedLocalNetplayPadMaskForFrame(Netplay::PlayerSlot slot, Netplay::FrameNumber frame) const
+    {
+        const uint8_t inputDelayFrames = m_netplayCoordinator.session().roomState().inputDelayFrames;
+        if(frame <= inputDelayFrames) {
+            return 0;
+        }
+
+        const uint32_t sourceFrame = frame - inputDelayFrames;
+        const auto& history = m_netplayLocalRawInputHistory[slot];
+        if(const auto it = history.find(sourceFrame); it != history.end()) {
+            return it->second;
+        }
+
+        return m_hasLastNetplayLocalRawMask[slot] ? m_lastNetplayLocalRawMasks[slot] : 0;
+    }
+
+    void recordRepeatedLocalNetplayInput(Netplay::FrameNumber frame, Netplay::PlayerSlot slot)
+    {
+        const Netplay::ParticipantId localParticipantId = m_netplayCoordinator.localParticipantId();
+        const Netplay::TimelineInputEntry* existing =
+            m_netplayCoordinator.localInputs().find(frame, localParticipantId, slot);
+        if(existing == nullptr) {
+            m_netplayCoordinator.recordLocalInputFrame(
+                frame,
+                slot,
+                delayedLocalNetplayPadMaskForFrame(slot, frame)
+            );
+        }
+        m_lastNetplayRecordedLocalFrame[slot] = std::max<uint32_t>(m_lastNetplayRecordedLocalFrame[slot], frame);
+    }
+
+    void extendLocalNetplayTimelineToCurrentFrame(Netplay::ParticipantId localParticipantId,
+                                                  Netplay::PlayerSlot slot,
+                                                  Netplay::FrameNumber currentFrame,
+                                                  Netplay::FrameNumber recordThroughFrame,
+                                                  uint64_t currentRawMask)
     {
         const uint8_t inputDelayFrames = m_netplayCoordinator.session().roomState().inputDelayFrames;
         if(m_lastNetplayInputDelayFrames != inputDelayFrames) {
@@ -432,16 +628,23 @@ private:
             m_lastNetplayInputDelayFrames = inputDelayFrames;
         }
 
-        std::deque<uint64_t>& buffer = m_netplayInputDelayBuffers[slot];
-        buffer.push_back(rawMask);
+        extendLocalNetplayRawInputHistory(slot, currentFrame, currentRawMask);
 
-        if(buffer.size() <= inputDelayFrames) {
-            return 0;
+        const Netplay::FrameNumber safeCommitThroughFrame =
+            currentFrame + 1u + static_cast<Netplay::FrameNumber>(inputDelayFrames);
+        recordThroughFrame = std::max(recordThroughFrame, safeCommitThroughFrame);
+
+        Netplay::FrameNumber nextFrameToRecord = m_lastNetplayRecordedLocalFrame[slot] + 1u;
+
+        while(nextFrameToRecord <= currentFrame) {
+            recordRepeatedLocalNetplayInput(nextFrameToRecord, slot);
+            ++nextFrameToRecord;
         }
 
-        const uint64_t delayedMask = buffer.front();
-        buffer.pop_front();
-        return delayedMask;
+        while(nextFrameToRecord <= recordThroughFrame) {
+            recordRepeatedLocalNetplayInput(nextFrameToRecord, slot);
+            ++nextFrameToRecord;
+        }
     }
 
     void handleNetplaySessionStateTransitions()
@@ -449,6 +652,7 @@ private:
         if(!m_netplayCoordinator.isActive()) {
             m_lastNetplaySessionState.reset();
             resetNetplayInputDelayBuffers();
+            resetPreparedNetplayInputs();
             m_lastNetplayInputDelayFrames = 0xFF;
             return;
         }
@@ -467,6 +671,7 @@ private:
 
         if(currentState != Netplay::SessionState::Running) {
             resetNetplayInputDelayBuffers();
+            resetPreparedNetplayInputs();
             m_lastNetplayInputDelayFrames = 0xFF;
         }
 
@@ -592,6 +797,13 @@ private:
         return state;
     }
 
+    uint32_t exactEmulationFrame()
+    {
+        return m_emu.withExclusiveAccess([](auto& emu) {
+            return emu.frameCount();
+        });
+    }
+
     void processNetplayRollbackIfNeeded()
     {
         std::optional<Netplay::FrameNumber> rollbackFrame = m_netplayCoordinator.consumePendingRollbackFrame();
@@ -619,6 +831,7 @@ private:
             Logger::instance().log("Netplay rollback failed", Logger::Type::WARNING);
             return;
         }
+        resetPreparedNetplayInputs();
         m_netplayCoordinator.setLocalSimulationFrame(*rollbackFrame);
 
         m_netplayCoordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
@@ -648,12 +861,17 @@ private:
 
         const bool loaded = m_emu.loadStateFromMemory(pending->payload);
         if(loaded) {
+            resetPreparedNetplayInputs();
             m_netplayCoordinator.setLocalSimulationFrame(pending->targetFrame);
+            m_emu.seedNetplaySnapshot(pending->targetFrame, pending->payload);
         }
         const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
         m_netplayCoordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
 
         if(loaded) {
+            reanchorNetplayLocalTimelineTracking();
+            resetPreparedNetplayInputs();
+            m_lastNetplayInputDelayFrames = 0xFF;
             Logger::instance().log("Netplay resync applied", Logger::Type::INFO);
         } else {
             Logger::instance().log("Netplay resync failed", Logger::Type::WARNING);
@@ -667,12 +885,17 @@ private:
 
         const bool loaded = m_emu.loadStateFromMemory(pending->payload);
         if(loaded) {
+            resetPreparedNetplayInputs();
             m_netplayCoordinator.setLocalSimulationFrame(pending->targetFrame);
+            m_emu.seedNetplaySnapshot(pending->targetFrame, pending->payload);
         }
         const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
         m_netplayCoordinator.acknowledgeSpectatorSync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
 
         if(loaded) {
+            reanchorNetplayLocalTimelineTracking();
+            resetPreparedNetplayInputs();
+            m_lastNetplayInputDelayFrames = 0xFF;
             Logger::instance().log("Netplay spectator sync applied", Logger::Type::INFO);
         } else {
             Logger::instance().log("Netplay spectator sync failed", Logger::Type::WARNING);
@@ -690,19 +913,29 @@ private:
         const bool initialSessionSync =
             m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Starting;
 
-        const Netplay::FrameNumber confirmedFrame =
+        const Netplay::FrameNumber requestedFrame =
             initialSessionSync
                 ? m_emu.frameCount()
                 : m_netplayCoordinator.session().roomState().lastConfirmedFrame;
+        const Netplay::FrameNumber authoritativeFrame =
+            std::min<Netplay::FrameNumber>(requestedFrame, m_emu.frameCount());
 
         const std::optional<std::vector<uint8_t>> confirmedSnapshot =
-            m_emu.netplaySnapshotForFrame(confirmedFrame);
+            m_emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
             confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return;
 
-        if(!initialSessionSync && confirmedFrame < m_emu.frameCount()) {
-            if(!m_emu.rollbackToFrame(confirmedFrame)) {
+        if(!initialSessionSync && confirmedSnapshot.has_value()) {
+            if(!m_emu.rollbackToFrame(authoritativeFrame)) {
+                Logger::instance().log(
+                    "Netplay host failed to roll back locally before hard resync",
+                    Logger::Type::WARNING
+                );
+                return;
+            }
+        } else if(!initialSessionSync && authoritativeFrame < m_emu.frameCount()) {
+            if(!m_emu.rollbackToFrame(authoritativeFrame)) {
                 Logger::instance().log(
                     "Netplay host failed to roll back locally before hard resync",
                     Logger::Type::WARNING
@@ -712,13 +945,13 @@ private:
         }
 
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        if(m_netplayCoordinator.beginResync(confirmedFrame, statePayload, payloadCrc32)) {
+        if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
             if(initialSessionSync) {
                 Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
             } else {
                 Logger::instance().log(
                     "Netplay hard resync started after confirmed desync at frame " + std::to_string(*pendingFrame) +
-                    ", using authoritative frame " + std::to_string(confirmedFrame),
+                    ", using authoritative frame " + std::to_string(authoritativeFrame),
                     Logger::Type::WARNING
                 );
             }
@@ -745,9 +978,9 @@ private:
         }
     }
 
-    uint32_t currentNetplayInputTargetFrame() const
+    uint32_t currentNetplayInputTargetFrame()
     {
-        return m_emu.frameCount() + 1u;
+        return exactEmulationFrame() + 1u;
     }
 #endif
 
@@ -1514,33 +1747,12 @@ private:
                     p4Up, p4Down, p4Left, p4Right
                 );
 
-                const uint32_t playbackFrame = currentNetplayInputTargetFrame();
-                const Netplay::ParticipantId localParticipantId = m_netplayCoordinator.localParticipantId();
-                const Netplay::ParticipantInfo* localParticipant = nullptr;
-                for(const auto& participant : room.participants) {
-                    if(participant.id == localParticipantId) {
-                        localParticipant = &participant;
-                        break;
-                    }
-                }
-
-                if(localParticipant != nullptr && localParticipant->controllerAssignment != Netplay::kObserverPlayerSlot) {
-                    const std::array<uint64_t, 4> rawMasks = {p1RawMask, p2RawMask, p3RawMask, p4RawMask};
-                    const Netplay::PlayerSlot localSlot = localParticipant->controllerAssignment;
-                    const Netplay::TimelineInputEntry* existing =
-                        m_netplayCoordinator.localInputs().find(playbackFrame, localParticipantId, localSlot);
-                    if(existing == nullptr) {
-                        m_netplayCoordinator.recordLocalInputFrame(
-                            playbackFrame,
-                            localSlot,
-                            sampleDelayedNetplayPadMask(localSlot, rawMasks[localSlot])
-                        );
-                    }
-                }
-                m_netplayCoordinator.predictRemoteInputsForFrame(playbackFrame);
-                applyNetplayFrameToInputState(inputState, playbackFrame);
+                const uint32_t currentFrame = exactEmulationFrame();
+                prepareNetplayPlaybackInputs(currentFrame, p1RawMask, {});
+                inputState = {};
             } else {
                 resetNetplayInputDelayBuffers();
+                resetPreparedNetplayInputs();
                 m_lastNetplayInputDelayFrames = 0xFF;
             }
 #endif
@@ -1708,6 +1920,12 @@ private:
 public:
 
     GeraNESApp() : m_emu(m_audioOutput) {
+#ifndef __EMSCRIPTEN__
+        m_emu.setFrameInputProvider([this](uint32_t frame) {
+            return consumePreparedNetplayInput(frame);
+        });
+        m_emu.setRepeatLastFrameProviderInput(false);
+#endif
 
         //reset log file content
         std::ofstream file(LOG_FILE);
@@ -2335,7 +2553,8 @@ public:
         m_touch->update(dt);
         dispatch_queued_calls();
 #ifndef __EMSCRIPTEN__
-        m_netplayCoordinator.setLocalSimulationFrame(m_emu.frameCount());
+        const uint32_t exactFrame = exactEmulationFrame();
+        m_netplayCoordinator.setLocalSimulationFrame(exactFrame);
         m_netplayCoordinator.update(0);
         syncNetplayReconnectToken();
         syncNetplayRomValidation();
@@ -2369,24 +2588,44 @@ public:
              m_netplayCoordinator.session().roomState().state != Netplay::SessionState::Running);
 
         if(netplayStateBlocksSimulation) {
+            m_emu.setSimulationSuspended(true);
+            m_mainLoopLastTime = tempTime;
             render();
             m_frameCounter++;
             return;
         }
 
+        onFrameStart();
+
+        if(m_netplayCoordinator.isActive() &&
+           m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running) {
+            const uint32_t nextFrame = exactEmulationFrame() + 1u;
+            if(!hasPreparedNetplayInput(nextFrame)) {
+                m_emu.setSimulationSuspended(true);
+                m_mainLoopLastTime = tempTime;
+                render();
+                m_frameCounter++;
+                return;
+            }
+        }
+
         if(m_netplayCoordinator.isActive() &&
            !m_netplayCoordinator.isHosting() &&
            m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running) {
-            const uint32_t authoritativeFrame = m_netplayCoordinator.session().roomState().currentFrame;
-            if(authoritativeFrame > 0 && m_emu.frameCount() > authoritativeFrame + 1u) {
+            uint32_t authoritativeFrame = m_netplayCoordinator.session().roomState().currentFrame;
+            for(const auto& participant : m_netplayCoordinator.session().roomState().participants) {
+                if(participant.id == m_netplayCoordinator.localParticipantId()) continue;
+                authoritativeFrame = std::max(authoritativeFrame, participant.lastReceivedInputFrame);
+            }
+            if(authoritativeFrame > 0 && exactFrame > authoritativeFrame + 1u) {
+                m_emu.setSimulationSuspended(true);
+                m_mainLoopLastTime = tempTime;
                 render();
                 m_frameCounter++;
                 return;
             }
         }
 #endif
-
-        onFrameStart();
 
         m_mainLoopLastTime = tempTime;
  
@@ -2404,14 +2643,21 @@ public:
             m_vsyncMode != OFF &&
             displayFrameRate == m_emu.getRegionFPS() &&
             !isWindowsTitleBarInteractionActive();
-
         if(!allowVsyncLock) {
+            m_emu.setSimulationSuspended(false);
             if( m_emu.update(dt) ) render();
         }
         else {
             m_emu.updateUntilFrame(dt);
             render();      
         }
+
+#ifndef __EMSCRIPTEN__
+        if(m_netplayCoordinator.isActive()) {
+            m_netplayCoordinator.setLocalSimulationFrame(exactEmulationFrame());
+            m_netplayCoordinator.update(0);
+        }
+#endif
 
         m_frameCounter++;
     }

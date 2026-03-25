@@ -63,6 +63,8 @@ private:
     FrameNumber m_lastLocalCrcFrame = 0;
     uint32_t m_lastLocalCrc32 = 0;
     std::deque<std::pair<FrameNumber, uint32_t>> m_recentLocalCrcHistory;
+    FrameNumber m_lastCrcMismatchFrame = 0;
+    uint8_t m_consecutiveCrcMismatchCount = 0;
     FrameNumber m_localSimulationFrame = 0;
     uint32_t m_nextResyncId = 1;
     std::optional<IncomingResyncTransfer> m_incomingResync;

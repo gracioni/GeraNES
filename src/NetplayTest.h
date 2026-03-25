@@ -8,15 +8,19 @@
 #include <deque>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/util/Crc32.h"
+#include "GeraNESApp/EmulationHost.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 #include "GeraNESNetplay/NetplayRuntime.h"
 
@@ -41,9 +45,16 @@ public:
         uint32_t hostInputSeed = 0x13572468u;
         uint32_t clientInputSeed = 0x24681357u;
         bool robust = false;
+        bool appFlow = false;
+        bool baselineLockstep = false;
     };
 
 private:
+    static bool realtimeEnhancementsEnabled(const Options& options)
+    {
+        return !options.baselineLockstep;
+    }
+
     struct Buttons
     {
         bool a = false;
@@ -160,7 +171,11 @@ private:
         GeraNESEmu emu{DummyAudioOutput::instance()};
         Netplay::NetplayRuntime runtime;
         Netplay::NetplayCoordinator coordinator;
-        std::array<std::deque<uint64_t>, 4> inputDelayBuffers;
+        std::array<std::map<uint32_t, uint64_t>, 4> localRawInputHistory;
+        std::array<uint64_t, 4> lastRawMasks = {};
+        std::array<bool, 4> hasLastRawMask = {};
+        std::array<uint32_t, 4> lastSampledLocalFrame = {};
+        std::array<uint32_t, 4> lastRecordedFrame = {};
         uint8_t lastInputDelayFrames = 0xFF;
         uint32_t lastCrcReportFrame = 0;
         bool desyncInjected = false;
@@ -174,6 +189,56 @@ private:
             , host(isHost)
             , inputGenerator(inputSeed)
         {
+        }
+    };
+
+    struct DesktopPeerState
+    {
+        std::string name;
+        bool host = false;
+        EmulationHost emu{DummyAudioOutput::instance()};
+        Netplay::NetplayCoordinator coordinator;
+        std::array<std::map<uint32_t, uint64_t>, 4> localRawInputHistory;
+        std::array<uint64_t, 4> lastRawMasks = {};
+        std::array<bool, 4> hasLastRawMask = {};
+        std::array<uint32_t, 4> lastSampledLocalFrame = {};
+        std::array<uint32_t, 4> lastRecordedFrame = {};
+        uint8_t lastInputDelayFrames = 0xFF;
+        uint32_t lastCrcReportFrame = 0;
+        bool desyncInjected = false;
+        uint32_t lastResyncTargetFrame = 0;
+        uint32_t lastResyncLoadedFrameCount = 0;
+        std::optional<Netplay::SessionState> lastSessionState;
+        mutable std::mutex preparedInputMutex;
+        std::map<uint32_t, EmulationHost::InputState> preparedInputs;
+        DeterministicInputGenerator inputGenerator;
+        std::vector<std::string> rollbackDebugLog;
+
+        explicit DesktopPeerState(const std::string& peerName, bool isHost, uint32_t inputSeed)
+            : name(peerName)
+            , host(isHost)
+            , inputGenerator(inputSeed)
+        {
+            emu.setRepeatLastFrameProviderInput(false);
+            emu.setFrameInputProvider([this](uint32_t frame) {
+                std::scoped_lock preparedLock(preparedInputMutex);
+                for(auto it = preparedInputs.begin(); it != preparedInputs.end();) {
+                    if(it->first < frame) {
+                        it = preparedInputs.erase(it);
+                    } else {
+                        break;
+                    }
+                }
+
+                const auto it = preparedInputs.find(frame);
+                if(it == preparedInputs.end()) {
+                    return std::optional<EmulationHost::InputState>{};
+                }
+
+                EmulationHost::InputState input = it->second;
+                preparedInputs.erase(it);
+                return std::optional<EmulationHost::InputState>{input};
+            });
         }
     };
 
@@ -217,12 +282,124 @@ private:
 
     static void resetInputDelayBuffers(PeerState& peer)
     {
-        for(auto& buffer : peer.inputDelayBuffers) {
-            buffer.clear();
+        for(auto& history : peer.localRawInputHistory) {
+            history.clear();
+        }
+        peer.lastRawMasks.fill(0);
+        peer.hasLastRawMask.fill(false);
+        peer.lastSampledLocalFrame.fill(0);
+        peer.lastRecordedFrame.fill(0);
+        if(peer.coordinator.isActive()) {
+            const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+            for(const auto& participant : peer.coordinator.session().roomState().participants) {
+                if(participant.id != localParticipantId) continue;
+                if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) break;
+
+                if(const Netplay::TimelineInputEntry* latestConfirmed =
+                       peer.coordinator.localInputs().latestConfirmedFor(localParticipantId, participant.controllerAssignment)) {
+                    const Netplay::PlayerSlot slot = participant.controllerAssignment;
+                    peer.lastRecordedFrame[slot] = latestConfirmed->frame;
+                    peer.lastRawMasks[slot] = latestConfirmed->buttonMaskLo;
+                    peer.hasLastRawMask[slot] = true;
+                    peer.lastSampledLocalFrame[slot] = latestConfirmed->frame;
+                    peer.localRawInputHistory[slot][latestConfirmed->frame] = latestConfirmed->buttonMaskLo;
+                }
+                break;
+            }
         }
     }
 
-    static uint64_t sampleDelayedPadMask(PeerState& peer, Netplay::PlayerSlot slot, uint64_t rawMask)
+    static void reanchorInputDelayBuffers(PeerState& peer)
+    {
+        peer.lastRecordedFrame.fill(0);
+        if(peer.coordinator.isActive()) {
+            const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+            for(const auto& participant : peer.coordinator.session().roomState().participants) {
+                if(participant.id != localParticipantId) continue;
+                if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) break;
+
+                if(const Netplay::TimelineInputEntry* latestConfirmed =
+                       peer.coordinator.localInputs().latestConfirmedFor(localParticipantId, participant.controllerAssignment)) {
+                    const Netplay::PlayerSlot slot = participant.controllerAssignment;
+                    peer.lastRecordedFrame[slot] = latestConfirmed->frame;
+                    if(!peer.hasLastRawMask[slot]) {
+                        peer.lastRawMasks[slot] = latestConfirmed->buttonMaskLo;
+                        peer.hasLastRawMask[slot] = true;
+                        peer.lastSampledLocalFrame[slot] = latestConfirmed->frame;
+                        peer.localRawInputHistory[slot][latestConfirmed->frame] = latestConfirmed->buttonMaskLo;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    static void extendLocalRawInputHistory(PeerState& peer,
+                                           Netplay::PlayerSlot slot,
+                                           Netplay::FrameNumber currentFrame,
+                                           uint64_t currentRawMask)
+    {
+        auto& history = peer.localRawInputHistory[slot];
+        uint32_t nextSampleFrame = peer.lastSampledLocalFrame[slot] + 1u;
+
+        uint64_t fillMask = 0;
+        if(peer.hasLastRawMask[slot]) {
+            fillMask = peer.lastRawMasks[slot];
+        }
+
+        while(nextSampleFrame <= currentFrame) {
+            history[nextSampleFrame] = fillMask;
+            ++nextSampleFrame;
+        }
+
+        history[currentFrame + 1u] = currentRawMask;
+        peer.lastSampledLocalFrame[slot] = std::max<uint32_t>(peer.lastSampledLocalFrame[slot], currentFrame + 1u);
+        peer.lastRawMasks[slot] = currentRawMask;
+        peer.hasLastRawMask[slot] = true;
+
+        const uint32_t pruneBeforeFrame = currentFrame > 64u ? (currentFrame - 64u) : 0u;
+        for(auto it = history.begin(); it != history.end() && it->first < pruneBeforeFrame;) {
+            it = history.erase(it);
+        }
+    }
+
+    static uint64_t delayedPadMaskForFrame(const PeerState& peer,
+                                           Netplay::PlayerSlot slot,
+                                           Netplay::FrameNumber frame)
+    {
+        const uint8_t inputDelayFrames = peer.coordinator.session().roomState().inputDelayFrames;
+        if(frame <= inputDelayFrames) {
+            return 0;
+        }
+
+        const uint32_t sourceFrame = frame - inputDelayFrames;
+        const auto& history = peer.localRawInputHistory[slot];
+        if(const auto it = history.find(sourceFrame); it != history.end()) {
+            return it->second;
+        }
+
+        return peer.hasLastRawMask[slot] ? peer.lastRawMasks[slot] : 0;
+    }
+
+    static void recordLocalInputFrame(PeerState& peer,
+                                      Netplay::FrameNumber frame,
+                                      Netplay::PlayerSlot slot)
+    {
+        const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+        const Netplay::TimelineInputEntry* existing =
+            peer.coordinator.localInputs().find(frame, localParticipantId, slot);
+        if(existing == nullptr) {
+            peer.coordinator.recordLocalInputFrame(frame, slot, delayedPadMaskForFrame(peer, slot, frame));
+        }
+        peer.lastRecordedFrame[slot] = std::max<uint32_t>(peer.lastRecordedFrame[slot], frame);
+    }
+
+    static void extendLocalTimeline(PeerState& peer,
+                                    Netplay::ParticipantId localParticipantId,
+                                    Netplay::PlayerSlot slot,
+                                    uint32_t currentFrame,
+                                    uint32_t recordThroughFrame,
+                                    uint64_t currentRawMask)
     {
         const uint8_t inputDelayFrames = peer.coordinator.session().roomState().inputDelayFrames;
         if(peer.lastInputDelayFrames != inputDelayFrames) {
@@ -230,15 +407,15 @@ private:
             peer.lastInputDelayFrames = inputDelayFrames;
         }
 
-        std::deque<uint64_t>& buffer = peer.inputDelayBuffers[slot];
-        buffer.push_back(rawMask);
-        if(buffer.size() <= inputDelayFrames) {
-            return 0;
-        }
+        extendLocalRawInputHistory(peer, slot, currentFrame, currentRawMask);
+        const uint32_t safeCommitThroughFrame = currentFrame + 1u + static_cast<uint32_t>(inputDelayFrames);
+        recordThroughFrame = std::max(recordThroughFrame, safeCommitThroughFrame);
 
-        const uint64_t delayedMask = buffer.front();
-        buffer.pop_front();
-        return delayedMask;
+        uint32_t nextFrameToRecord = peer.lastRecordedFrame[slot] + 1u;
+        while(nextFrameToRecord <= recordThroughFrame) {
+            recordLocalInputFrame(peer, nextFrameToRecord, slot);
+            ++nextFrameToRecord;
+        }
     }
 
     static void applyPadMaskToInputState(InputState& state, Netplay::PlayerSlot slot, uint64_t mask)
@@ -276,10 +453,16 @@ private:
 
     static void applyInputStateToEmu(GeraNESEmu& emu, const InputState& state)
     {
-        emu.setController1Buttons(state.p1A, state.p1B, state.p1Select, state.p1Start, state.p1Up, state.p1Down, state.p1Left, state.p1Right);
-        emu.setController2Buttons(state.p2A, state.p2B, state.p2Select, state.p2Start, state.p2Up, state.p2Down, state.p2Left, state.p2Right);
-        emu.setController3Buttons(state.p3A, state.p3B, state.p3Select, state.p3Start, state.p3Up, state.p3Down, state.p3Left, state.p3Right);
-        emu.setController4Buttons(state.p4A, state.p4B, state.p4Select, state.p4Start, state.p4Up, state.p4Down, state.p4Left, state.p4Right);
+        InputFrame frame = emu.createInputFrame(emu.frameCount() + 1u);
+        frame.p1A = state.p1A; frame.p1B = state.p1B; frame.p1Select = state.p1Select; frame.p1Start = state.p1Start;
+        frame.p1Up = state.p1Up; frame.p1Down = state.p1Down; frame.p1Left = state.p1Left; frame.p1Right = state.p1Right;
+        frame.p2A = state.p2A; frame.p2B = state.p2B; frame.p2Select = state.p2Select; frame.p2Start = state.p2Start;
+        frame.p2Up = state.p2Up; frame.p2Down = state.p2Down; frame.p2Left = state.p2Left; frame.p2Right = state.p2Right;
+        frame.p3A = state.p3A; frame.p3B = state.p3B; frame.p3Select = state.p3Select; frame.p3Start = state.p3Start;
+        frame.p3Up = state.p3Up; frame.p3Down = state.p3Down; frame.p3Left = state.p3Left; frame.p3Right = state.p3Right;
+        frame.p4A = state.p4A; frame.p4B = state.p4B; frame.p4Select = state.p4Select; frame.p4Start = state.p4Start;
+        frame.p4Up = state.p4Up; frame.p4Down = state.p4Down; frame.p4Left = state.p4Left; frame.p4Right = state.p4Right;
+        emu.queueInputFrame(frame);
     }
 
     static std::optional<Netplay::RomValidationData> captureRomValidation(GeraNESEmu& emu)
@@ -325,6 +508,204 @@ private:
     static InputState buildReplayInputState(const PeerState& peer, Netplay::FrameNumber frame)
     {
         InputState state{};
+        for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
+            uint64_t mask = 0;
+            if(tryResolvePadMask(peer, frame, slot, mask)) {
+                applyPadMaskToInputState(state, slot, mask);
+            }
+        }
+        return state;
+    }
+
+    static void resetInputDelayBuffers(DesktopPeerState& peer)
+    {
+        for(auto& history : peer.localRawInputHistory) {
+            history.clear();
+        }
+        peer.lastRawMasks.fill(0);
+        peer.hasLastRawMask.fill(false);
+        peer.lastSampledLocalFrame.fill(0);
+        peer.lastRecordedFrame.fill(0);
+        if(peer.coordinator.isActive()) {
+            const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+            for(const auto& participant : peer.coordinator.session().roomState().participants) {
+                if(participant.id != localParticipantId) continue;
+                if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) break;
+
+                if(const Netplay::TimelineInputEntry* latestConfirmed =
+                       peer.coordinator.localInputs().latestConfirmedFor(localParticipantId, participant.controllerAssignment)) {
+                    const Netplay::PlayerSlot slot = participant.controllerAssignment;
+                    peer.lastRecordedFrame[slot] = latestConfirmed->frame;
+                    peer.lastRawMasks[slot] = latestConfirmed->buttonMaskLo;
+                    peer.hasLastRawMask[slot] = true;
+                    peer.lastSampledLocalFrame[slot] = latestConfirmed->frame;
+                    peer.localRawInputHistory[slot][latestConfirmed->frame] = latestConfirmed->buttonMaskLo;
+                }
+                break;
+            }
+        }
+        {
+            std::scoped_lock preparedLock(peer.preparedInputMutex);
+            peer.preparedInputs.clear();
+        }
+    }
+
+    static void reanchorInputDelayBuffers(DesktopPeerState& peer)
+    {
+        peer.lastRecordedFrame.fill(0);
+        if(peer.coordinator.isActive()) {
+            const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+            for(const auto& participant : peer.coordinator.session().roomState().participants) {
+                if(participant.id != localParticipantId) continue;
+                if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) break;
+
+                if(const Netplay::TimelineInputEntry* latestConfirmed =
+                       peer.coordinator.localInputs().latestConfirmedFor(localParticipantId, participant.controllerAssignment)) {
+                    const Netplay::PlayerSlot slot = participant.controllerAssignment;
+                    peer.lastRecordedFrame[slot] = latestConfirmed->frame;
+                    if(!peer.hasLastRawMask[slot]) {
+                        peer.lastRawMasks[slot] = latestConfirmed->buttonMaskLo;
+                        peer.hasLastRawMask[slot] = true;
+                        peer.lastSampledLocalFrame[slot] = latestConfirmed->frame;
+                        peer.localRawInputHistory[slot][latestConfirmed->frame] = latestConfirmed->buttonMaskLo;
+                    }
+                }
+                break;
+            }
+        }
+        {
+            std::scoped_lock preparedLock(peer.preparedInputMutex);
+            peer.preparedInputs.clear();
+        }
+    }
+
+    static void extendLocalRawInputHistory(DesktopPeerState& peer,
+                                           Netplay::PlayerSlot slot,
+                                           Netplay::FrameNumber currentFrame,
+                                           uint64_t currentRawMask)
+    {
+        auto& history = peer.localRawInputHistory[slot];
+        uint32_t nextSampleFrame = peer.lastSampledLocalFrame[slot] + 1u;
+
+        uint64_t fillMask = 0;
+        if(peer.hasLastRawMask[slot]) {
+            fillMask = peer.lastRawMasks[slot];
+        }
+
+        while(nextSampleFrame <= currentFrame) {
+            history[nextSampleFrame] = fillMask;
+            ++nextSampleFrame;
+        }
+
+        history[currentFrame + 1u] = currentRawMask;
+        peer.lastSampledLocalFrame[slot] = std::max<uint32_t>(peer.lastSampledLocalFrame[slot], currentFrame + 1u);
+        peer.lastRawMasks[slot] = currentRawMask;
+        peer.hasLastRawMask[slot] = true;
+
+        const uint32_t pruneBeforeFrame = currentFrame > 64u ? (currentFrame - 64u) : 0u;
+        for(auto it = history.begin(); it != history.end() && it->first < pruneBeforeFrame;) {
+            it = history.erase(it);
+        }
+    }
+
+    static uint64_t delayedPadMaskForFrame(const DesktopPeerState& peer,
+                                           Netplay::PlayerSlot slot,
+                                           Netplay::FrameNumber frame)
+    {
+        const uint8_t inputDelayFrames = peer.coordinator.session().roomState().inputDelayFrames;
+        if(frame <= inputDelayFrames) {
+            return 0;
+        }
+
+        const uint32_t sourceFrame = frame - inputDelayFrames;
+        const auto& history = peer.localRawInputHistory[slot];
+        if(const auto it = history.find(sourceFrame); it != history.end()) {
+            return it->second;
+        }
+
+        return peer.hasLastRawMask[slot] ? peer.lastRawMasks[slot] : 0;
+    }
+
+    static std::optional<Netplay::RomValidationData> captureRomValidation(EmulationHost& emu)
+    {
+        if(!emu.valid()) return std::nullopt;
+
+        return emu.withExclusiveAccess([](auto& core) -> std::optional<Netplay::RomValidationData> {
+            if(!core.valid()) return std::nullopt;
+
+            Cartridge& cart = core.getConsole().cartridge();
+            Netplay::RomValidationData validation;
+            validation.romCrc32 = cart.romFile().fileCrc32();
+            validation.mapperId = static_cast<uint16_t>(std::max(0, cart.mapperId()));
+            validation.subMapperId = static_cast<uint16_t>(std::max(0, cart.subMapperId()));
+            validation.prgRomSize = static_cast<uint32_t>(std::max(0, cart.prgSize()));
+            validation.chrRomSize = static_cast<uint32_t>(std::max(0, cart.chrSize()));
+            validation.chrRamSize = static_cast<uint32_t>(std::max(0, cart.chrRamSize()));
+            validation.fileSize = static_cast<uint32_t>(cart.romFile().size());
+            return validation;
+        });
+    }
+
+    static void applyPadMaskToInputState(EmulationHost::InputState& state, Netplay::PlayerSlot slot, uint64_t mask)
+    {
+        const bool a = (mask & (1ull << 0)) != 0;
+        const bool b = (mask & (1ull << 1)) != 0;
+        const bool select = (mask & (1ull << 2)) != 0;
+        const bool start = (mask & (1ull << 3)) != 0;
+        const bool up = (mask & (1ull << 4)) != 0;
+        const bool down = (mask & (1ull << 5)) != 0;
+        const bool left = (mask & (1ull << 6)) != 0;
+        const bool right = (mask & (1ull << 7)) != 0;
+
+        switch(slot) {
+            case 0:
+                state.p1A = a; state.p1B = b; state.p1Select = select; state.p1Start = start;
+                state.p1Up = up; state.p1Down = down; state.p1Left = left; state.p1Right = right;
+                break;
+            case 1:
+                state.p2A = a; state.p2B = b; state.p2Select = select; state.p2Start = start;
+                state.p2Up = up; state.p2Down = down; state.p2Left = left; state.p2Right = right;
+                break;
+            case 2:
+                state.p3A = a; state.p3B = b; state.p3Select = select; state.p3Start = start;
+                state.p3Up = up; state.p3Down = down; state.p3Left = left; state.p3Right = right;
+                break;
+            case 3:
+                state.p4A = a; state.p4B = b; state.p4Select = select; state.p4Start = start;
+                state.p4Up = up; state.p4Down = down; state.p4Left = left; state.p4Right = right;
+                break;
+            default:
+                break;
+        }
+    }
+
+    static bool tryResolvePadMask(const DesktopPeerState& peer, Netplay::FrameNumber frame, Netplay::PlayerSlot slot, uint64_t& outMask)
+    {
+        if(!peer.coordinator.isActive()) return false;
+
+        const auto& room = peer.coordinator.session().roomState();
+        const auto& localInputs = peer.coordinator.localInputs();
+        const auto& remoteInputs = peer.coordinator.remoteInputs();
+        const Netplay::ParticipantId localParticipant = peer.coordinator.localParticipantId();
+
+        for(const auto& participant : room.participants) {
+            if(participant.controllerAssignment != slot) continue;
+
+            const Netplay::TimelineInputEntry* entry =
+                participant.id == localParticipant
+                    ? localInputs.find(frame, participant.id, slot)
+                    : remoteInputs.find(frame, participant.id, slot);
+
+            outMask = entry != nullptr ? entry->buttonMaskLo : 0;
+            return true;
+        }
+
+        return false;
+    }
+
+    static EmulationHost::InputState buildReplayInputState(const DesktopPeerState& peer, Netplay::FrameNumber frame)
+    {
+        EmulationHost::InputState state{};
         for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
             uint64_t mask = 0;
             if(tryResolvePadMask(peer, frame, slot, mask)) {
@@ -464,13 +845,15 @@ private:
         if(!pendingFrame.has_value()) return;
         if(!peer.emu.valid()) return;
 
-        const Netplay::FrameNumber targetFrame = peer.coordinator.session().roomState().lastConfirmedFrame;
+        const Netplay::FrameNumber requestedFrame = peer.coordinator.session().roomState().lastConfirmedFrame;
+        const Netplay::FrameNumber targetFrame =
+            std::min<Netplay::FrameNumber>(requestedFrame, peer.emu.frameCount());
         const Netplay::SnapshotRecord* snapshot = peer.runtime.snapshots().find(targetFrame);
         const std::vector<uint8_t> payload =
             snapshot != nullptr ? snapshot->data : peer.emu.saveNetplayStateToMemory();
         if(payload.empty()) return;
 
-        if(targetFrame < peer.emu.frameCount()) {
+        if(snapshot != nullptr) {
             if(!peer.runtime.rollbackTo(targetFrame, [&peer](const std::vector<uint8_t>& data) {
                 peer.emu.loadStateFromMemoryOnCleanBoot(data);
             })) {
@@ -498,6 +881,23 @@ private:
             Netplay::NetplayCoordinator::romValidationMatches(*validation, room.romValidation);
 
         peer.coordinator.submitLocalRomValidation(
+            romLoaded,
+            romCompatible,
+            validation.value_or(Netplay::RomValidationData{})
+        );
+    }
+
+    static void syncLocalRomValidation(Netplay::NetplayCoordinator& coordinator,
+                                       const std::optional<Netplay::RomValidationData>& validation)
+    {
+        const auto& room = coordinator.session().roomState();
+        const bool romLoaded = validation.has_value();
+        const bool romCompatible =
+            romLoaded &&
+            !room.selectedGameName.empty() &&
+            Netplay::NetplayCoordinator::romValidationMatches(*validation, room.romValidation);
+
+        coordinator.submitLocalRomValidation(
             romLoaded,
             romCompatible,
             validation.value_or(Netplay::RomValidationData{})
@@ -543,14 +943,40 @@ private:
         return authoritativeFrame > 0 && const_cast<GeraNESEmu&>(peer.emu).frameCount() > authoritativeFrame + 1u;
     }
 
-    static bool canSimulateFrame(const PeerState& peer)
+    static bool hasConfirmedInputsForNextFrame(const PeerState& peer)
     {
+        if(!peer.coordinator.isActive()) return true;
+        if(peer.coordinator.awaitingSpectatorSync()) return false;
+        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Running) return false;
+
+        const uint32_t nextFrame = const_cast<GeraNESEmu&>(peer.emu).frameCount() + 1u;
+        const auto& room = peer.coordinator.session().roomState();
+        for(const auto& participant : room.participants) {
+            if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) continue;
+
+            const Netplay::TimelineInputEntry* entry =
+                participant.id == peer.coordinator.localParticipantId()
+                    ? peer.coordinator.localInputs().find(nextFrame, participant.id, participant.controllerAssignment)
+                    : peer.coordinator.remoteInputs().find(nextFrame, participant.id, participant.controllerAssignment);
+            if(entry == nullptr || entry->predicted) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool canSimulateFrame(const PeerState& peer, const Options& options)
+    {
+        if(!realtimeEnhancementsEnabled(options)) {
+            return hasConfirmedInputsForNextFrame(peer);
+        }
         return !(netplayStateBlocksSimulation(peer) || clientIsTooFarAhead(peer));
     }
 
-    static bool queueLocalInputForNextFrame(PeerState& peer, uint32_t maxFrame)
+    static bool queueLocalInputForNextFrame(PeerState& peer, uint32_t maxFrame, const Options& options)
     {
-        if(!canSimulateFrame(peer)) {
+        if(netplayStateBlocksSimulation(peer)) {
             return false;
         }
         if(peer.emu.frameCount() >= maxFrame) {
@@ -567,32 +993,32 @@ private:
             }
         }
 
-        const uint32_t playbackFrame = peer.emu.frameCount() + 1u;
+        const uint32_t currentFrame = peer.emu.frameCount();
+        const uint32_t playbackFrame = currentFrame + 1u;
         if(localParticipant != nullptr && localParticipant->controllerAssignment != Netplay::kObserverPlayerSlot) {
             const Netplay::PlayerSlot localSlot = localParticipant->controllerAssignment;
-            const Netplay::TimelineInputEntry* existing =
-                peer.coordinator.localInputs().find(playbackFrame, peer.coordinator.localParticipantId(), localSlot);
-            if(existing == nullptr) {
-                const Buttons buttons = peer.inputGenerator.buttonsForFrame(playbackFrame, std::max<uint32_t>(1, peer.emu.getRegionFPS()));
-                const uint64_t rawMask = buildPadMask(buttons);
-                peer.coordinator.recordLocalInputFrame(
-                    playbackFrame,
-                    localSlot,
-                    sampleDelayedPadMask(peer, localSlot, rawMask)
-                );
-            }
+            const Buttons buttons = peer.inputGenerator.buttonsForFrame(playbackFrame, std::max<uint32_t>(1, peer.emu.getRegionFPS()));
+            const uint64_t rawMask = buildPadMask(buttons);
+            extendLocalTimeline(peer,
+                               localParticipantId,
+                               localSlot,
+                               currentFrame,
+                               std::min<uint32_t>(maxFrame, currentFrame + 1u + peer.coordinator.session().roomState().inputDelayFrames),
+                               rawMask);
         } else {
             resetInputDelayBuffers(peer);
             peer.lastInputDelayFrames = 0xFF;
         }
 
-        peer.coordinator.predictRemoteInputsForFrame(playbackFrame);
+        if(realtimeEnhancementsEnabled(options)) {
+            peer.coordinator.predictRemoteInputsForFrame(playbackFrame);
+        }
         return true;
     }
 
-    static bool advanceQueuedFrameIfPossible(PeerState& peer, uint32_t maxFrame)
+    static bool advanceQueuedFrameIfPossible(PeerState& peer, uint32_t maxFrame, const Options& options)
     {
-        if(!canSimulateFrame(peer)) {
+        if(!canSimulateFrame(peer, options)) {
             return false;
         }
         if(peer.emu.frameCount() >= maxFrame) {
@@ -694,6 +1120,337 @@ private:
 
         maybeSubmitCrc(hostPeer, options.crcIntervalFrames);
         maybeSubmitCrc(clientPeer, options.crcIntervalFrames);
+    }
+
+    static void configurePeerRuntime(DesktopPeerState& peer, size_t rollbackWindowFrames)
+    {
+        peer.emu.configureNetplaySnapshots(rollbackWindowFrames);
+        peer.coordinator.setLocalSimulationFrame(peer.emu.frameCount());
+        peer.lastCrcReportFrame = 0;
+        resetInputDelayBuffers(peer);
+        peer.lastInputDelayFrames = 0xFF;
+    }
+
+    static void recordDesktopLocalInput(DesktopPeerState& peer, Netplay::FrameNumber frame, Netplay::PlayerSlot slot, uint64_t rawMask)
+    {
+        const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+        const Netplay::TimelineInputEntry* existing =
+            peer.coordinator.localInputs().find(frame, localParticipantId, slot);
+        if(existing == nullptr) {
+            peer.coordinator.recordLocalInputFrame(frame, slot, delayedPadMaskForFrame(peer, slot, frame));
+        }
+        peer.lastRecordedFrame[slot] = std::max<uint32_t>(peer.lastRecordedFrame[slot], frame);
+    }
+
+    static void extendDesktopLocalTimeline(DesktopPeerState& peer,
+                                           Netplay::ParticipantId localParticipantId,
+                                           Netplay::PlayerSlot slot,
+                                           uint32_t currentFrame,
+                                           uint32_t recordThroughFrame,
+                                           uint64_t currentRawMask)
+    {
+        const uint8_t inputDelayFrames = peer.coordinator.session().roomState().inputDelayFrames;
+        if(peer.lastInputDelayFrames != inputDelayFrames) {
+            resetInputDelayBuffers(peer);
+            peer.lastInputDelayFrames = inputDelayFrames;
+        }
+
+        extendLocalRawInputHistory(peer, slot, currentFrame, currentRawMask);
+        const uint32_t safeCommitThroughFrame = currentFrame + 1u + static_cast<uint32_t>(inputDelayFrames);
+        recordThroughFrame = std::max(recordThroughFrame, safeCommitThroughFrame);
+
+        uint32_t nextFrameToRecord = peer.lastRecordedFrame[slot] + 1u;
+
+        while(nextFrameToRecord <= currentFrame) {
+            recordDesktopLocalInput(peer, nextFrameToRecord, slot, currentRawMask);
+            ++nextFrameToRecord;
+        }
+
+        while(nextFrameToRecord <= recordThroughFrame) {
+            recordDesktopLocalInput(peer, nextFrameToRecord, slot, currentRawMask);
+            ++nextFrameToRecord;
+        }
+    }
+
+    static bool hasConfirmedInputsForNextFrame(const DesktopPeerState& peer)
+    {
+        if(!peer.coordinator.isActive()) return true;
+        if(peer.coordinator.awaitingSpectatorSync()) return false;
+        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Running) return false;
+
+        const uint32_t nextFrame = peer.emu.frameCount() + 1u;
+        const auto& room = peer.coordinator.session().roomState();
+        for(const auto& participant : room.participants) {
+            if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) continue;
+
+            const Netplay::TimelineInputEntry* entry =
+                participant.id == peer.coordinator.localParticipantId()
+                    ? peer.coordinator.localInputs().find(nextFrame, participant.id, participant.controllerAssignment)
+                    : peer.coordinator.remoteInputs().find(nextFrame, participant.id, participant.controllerAssignment);
+            if(entry == nullptr || entry->predicted) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool hasPreparedInputForNextFrame(const DesktopPeerState& peer)
+    {
+        const uint32_t nextFrame = peer.emu.frameCount() + 1u;
+        std::scoped_lock preparedLock(peer.preparedInputMutex);
+        return peer.preparedInputs.find(nextFrame) != peer.preparedInputs.end();
+    }
+
+    static bool canSimulateFrame(const DesktopPeerState& peer, const Options& options)
+    {
+        if(!realtimeEnhancementsEnabled(options)) {
+            return hasConfirmedInputsForNextFrame(peer) && hasPreparedInputForNextFrame(peer);
+        }
+        if(!peer.coordinator.isActive()) return true;
+        if(peer.coordinator.awaitingSpectatorSync()) return false;
+        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Running) return false;
+        if(!hasPreparedInputForNextFrame(peer)) return false;
+        if(peer.coordinator.isHosting()) return true;
+
+        uint32_t authoritativeFrame = peer.coordinator.session().roomState().currentFrame;
+        for(const auto& participant : peer.coordinator.session().roomState().participants) {
+            if(participant.id == peer.coordinator.localParticipantId()) continue;
+            authoritativeFrame = std::max(authoritativeFrame, participant.lastReceivedInputFrame);
+        }
+        return authoritativeFrame == 0 || peer.emu.frameCount() <= authoritativeFrame + 1u;
+    }
+
+    static bool queueLocalInputForNextFrame(DesktopPeerState& peer, uint32_t maxFrame, const Options& options)
+    {
+        if(!peer.coordinator.isActive()) return false;
+        if(peer.coordinator.awaitingSpectatorSync()) return false;
+        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Running) return false;
+        const uint32_t currentFrame = peer.emu.frameCount();
+        if(currentFrame > maxFrame) return false;
+
+        const auto& room = peer.coordinator.session().roomState();
+        const Netplay::ParticipantId localParticipantId = peer.coordinator.localParticipantId();
+        const Netplay::ParticipantInfo* localParticipant = nullptr;
+        for(const auto& participant : room.participants) {
+            if(participant.id == localParticipantId) {
+                localParticipant = &participant;
+                break;
+            }
+        }
+
+        const uint32_t prepareThroughFrame = [&]() {
+            uint32_t horizon = std::min<uint32_t>(
+                maxFrame,
+                currentFrame + 1u + static_cast<uint32_t>(room.inputDelayFrames)
+            );
+            if(peer.coordinator.isHosting()) {
+                return horizon;
+            }
+
+            uint32_t authoritativeFrame = room.currentFrame;
+            for(const auto& participant : room.participants) {
+                if(participant.id == localParticipantId) continue;
+                authoritativeFrame = std::max(authoritativeFrame, participant.lastReceivedInputFrame);
+            }
+            return horizon;
+        }();
+
+        if(localParticipant != nullptr && localParticipant->controllerAssignment != Netplay::kObserverPlayerSlot) {
+            const Buttons buttons =
+                peer.inputGenerator.buttonsForFrame(currentFrame + 1u, std::max<uint32_t>(1, peer.emu.getRegionFPS()));
+            const uint64_t rawMask = buildPadMask(buttons);
+            extendDesktopLocalTimeline(
+                peer,
+                localParticipantId,
+                localParticipant->controllerAssignment,
+                std::min(currentFrame, maxFrame),
+                prepareThroughFrame,
+                rawMask
+            );
+        } else {
+            resetInputDelayBuffers(peer);
+            peer.lastInputDelayFrames = 0xFF;
+        }
+
+        if(currentFrame >= maxFrame) {
+            return false;
+        }
+
+        {
+            std::scoped_lock preparedLock(peer.preparedInputMutex);
+            for(auto it = peer.preparedInputs.begin(); it != peer.preparedInputs.end();) {
+                if(it->first <= currentFrame) {
+                    it = peer.preparedInputs.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            for(uint32_t frame = currentFrame + 1u; frame <= prepareThroughFrame; ++frame) {
+                if(realtimeEnhancementsEnabled(options)) {
+                    peer.coordinator.predictRemoteInputsForFrame(frame);
+                }
+                EmulationHost::InputState frameInput = buildReplayInputState(peer, frame);
+                peer.preparedInputs[frame] = frameInput;
+            }
+        }
+        return true;
+    }
+
+    static void processRollbackIfNeeded(DesktopPeerState& peer)
+    {
+        std::optional<Netplay::FrameNumber> rollbackFrame = peer.coordinator.consumePendingRollbackFrame();
+        if(!rollbackFrame.has_value()) return;
+
+        const uint32_t currentFrame = peer.emu.frameCount();
+        if(currentFrame == 0) return;
+
+        const Netplay::FrameNumber confirmedFrame = peer.coordinator.session().roomState().lastConfirmedFrame;
+        const Netplay::FrameNumber latestSafeRollbackFrame = static_cast<Netplay::FrameNumber>(currentFrame - 1u);
+        const Netplay::FrameNumber earliestConfirmedReplayFrame = confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
+        const Netplay::FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
+        if(*rollbackFrame < rollbackFloor) {
+            rollbackFrame = rollbackFloor;
+        }
+        if(*rollbackFrame >= currentFrame) {
+            peer.coordinator.rescheduleRollbackFrame(*rollbackFrame);
+            return;
+        }
+
+        if(!peer.emu.rollbackToFrame(*rollbackFrame)) {
+            peer.rollbackDebugLog.push_back("Rollback restore failed");
+            return;
+        }
+        peer.coordinator.setLocalSimulationFrame(*rollbackFrame);
+        peer.coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
+        if(peer.lastCrcReportFrame > *rollbackFrame) {
+            peer.lastCrcReportFrame = *rollbackFrame;
+        }
+
+        if(!peer.emu.resimulateToFrame(currentFrame, [&peer](uint32_t frame) {
+            return buildReplayInputState(peer, frame);
+        })) {
+            peer.rollbackDebugLog.push_back("Rollback resimulation failed");
+            return;
+        }
+        peer.coordinator.setLocalSimulationFrame(peer.emu.frameCount());
+    }
+
+    static void processPendingResyncIfNeeded(DesktopPeerState& peer)
+    {
+        std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending = peer.coordinator.consumePendingResyncApply();
+        if(!pending.has_value()) return;
+
+        const bool loaded = peer.emu.loadStateFromMemory(pending->payload);
+        if(loaded) {
+            peer.lastResyncTargetFrame = pending->targetFrame;
+            peer.lastResyncLoadedFrameCount = peer.emu.frameCount();
+            peer.coordinator.setLocalSimulationFrame(pending->targetFrame);
+            peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload);
+        }
+        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0;
+        peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
+        if(loaded) {
+            reanchorInputDelayBuffers(peer);
+            peer.lastInputDelayFrames = 0xFF;
+        }
+    }
+
+    static uint32_t probePayloadFrameCount(const std::string& romPath,
+                                           const std::vector<uint8_t>& payload,
+                                           uint32_t fallbackFrame)
+    {
+        if(payload.empty()) return fallbackFrame;
+
+        GeraNESEmu probeEmu{DummyAudioOutput::instance()};
+        if(!probeEmu.open(romPath) || !probeEmu.valid()) {
+            return fallbackFrame;
+        }
+        if(!probeEmu.loadStateFromMemoryOnCleanBoot(payload) || !probeEmu.valid()) {
+            return fallbackFrame;
+        }
+
+        return probeEmu.frameCount();
+    }
+
+    static void processHostResyncIfNeeded(DesktopPeerState& peer, const Options& options)
+    {
+        if(!peer.coordinator.isHosting()) return;
+
+        std::optional<Netplay::FrameNumber> pendingFrame = peer.coordinator.consumePendingHostResyncFrame();
+        if(!pendingFrame.has_value()) return;
+        if(!peer.emu.valid()) return;
+
+        const bool initialSessionSync = peer.coordinator.session().roomState().state == Netplay::SessionState::Starting;
+        const Netplay::FrameNumber requestedFrame =
+            initialSessionSync ? peer.emu.frameCount() : peer.coordinator.session().roomState().lastConfirmedFrame;
+        const Netplay::FrameNumber authoritativeFrame =
+            std::min<Netplay::FrameNumber>(requestedFrame, peer.emu.frameCount());
+
+        const std::optional<std::vector<uint8_t>> snapshot = peer.emu.netplaySnapshotForFrame(authoritativeFrame);
+        const std::vector<uint8_t> statePayload = snapshot.has_value() ? *snapshot : peer.emu.saveNetplayStateToMemory();
+        if(statePayload.empty()) return;
+        const Netplay::FrameNumber payloadFrame =
+            initialSessionSync
+                ? probePayloadFrameCount(options.romPath, statePayload, authoritativeFrame)
+                : authoritativeFrame;
+
+        if(!initialSessionSync && snapshot.has_value()) {
+            if(!peer.emu.rollbackToFrame(authoritativeFrame)) {
+                return;
+            }
+        }
+
+        peer.lastResyncTargetFrame = payloadFrame;
+        peer.lastResyncLoadedFrameCount = peer.emu.frameCount();
+
+        const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        peer.coordinator.beginResync(payloadFrame, statePayload, payloadCrc32);
+    }
+
+    static void maybeSubmitCrc(DesktopPeerState& peer, uint32_t crcIntervalFrames)
+    {
+        if(!peer.coordinator.isActive()) {
+            peer.lastCrcReportFrame = 0;
+            return;
+        }
+        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Running) {
+            peer.lastCrcReportFrame = 0;
+            return;
+        }
+
+        const uint32_t confirmedFrame = peer.coordinator.session().roomState().lastConfirmedFrame;
+        if(confirmedFrame == 0 || confirmedFrame == peer.lastCrcReportFrame) return;
+        if((confirmedFrame % std::max<uint32_t>(1, crcIntervalFrames)) != 0u) return;
+
+        const std::optional<uint32_t> snapshotCrc32 = peer.emu.netplaySnapshotCrc32ForFrame(confirmedFrame);
+        if(!snapshotCrc32.has_value()) return;
+
+        peer.coordinator.submitLocalCrc(confirmedFrame, *snapshotCrc32);
+        peer.lastCrcReportFrame = confirmedFrame;
+    }
+
+    static void handleSessionStateTransitions(DesktopPeerState& peer)
+    {
+        if(!peer.coordinator.isActive()) {
+            peer.lastSessionState.reset();
+            resetInputDelayBuffers(peer);
+            peer.lastInputDelayFrames = 0xFF;
+            return;
+        }
+
+        const Netplay::SessionState currentState = peer.coordinator.session().roomState().state;
+        if(peer.lastSessionState.has_value() && *peer.lastSessionState == currentState) {
+            return;
+        }
+
+        if(currentState != Netplay::SessionState::Running) {
+            resetInputDelayBuffers(peer);
+            peer.lastInputDelayFrames = 0xFF;
+        }
+
+        peer.lastSessionState = currentState;
     }
 
     static nlohmann::json buildPeerReport(const PeerState& peer)
@@ -799,11 +1556,189 @@ private:
                     });
                 }
                 return tail;
+            }()},
+            {"localTimelineAroundConfirmed", [&peer]() {
+                nlohmann::json window = nlohmann::json::array();
+                const auto& entries = peer.coordinator.localInputs().entries();
+                const uint32_t confirmed = peer.coordinator.session().roomState().lastConfirmedFrame;
+                for(const auto& entry : entries) {
+                    if(entry.frame + 2u < confirmed || entry.frame > confirmed + 4u) continue;
+                    window.push_back({
+                        {"frame", entry.frame},
+                        {"participantId", entry.participantId},
+                        {"slot", entry.playerSlot},
+                        {"maskLo", entry.buttonMaskLo},
+                        {"sequence", entry.sequence},
+                        {"predicted", entry.predicted},
+                        {"confirmed", entry.confirmed}
+                    });
+                }
+                return window;
+            }()},
+            {"remoteTimelineAroundConfirmed", [&peer]() {
+                nlohmann::json window = nlohmann::json::array();
+                const auto& entries = peer.coordinator.remoteInputs().entries();
+                const uint32_t confirmed = peer.coordinator.session().roomState().lastConfirmedFrame;
+                for(const auto& entry : entries) {
+                    if(entry.frame + 2u < confirmed || entry.frame > confirmed + 4u) continue;
+                    window.push_back({
+                        {"frame", entry.frame},
+                        {"participantId", entry.participantId},
+                        {"slot", entry.playerSlot},
+                        {"maskLo", entry.buttonMaskLo},
+                        {"sequence", entry.sequence},
+                        {"predicted", entry.predicted},
+                        {"confirmed", entry.confirmed}
+                    });
+                }
+                return window;
+            }()}
+        };
+    }
+
+    static nlohmann::json buildPeerReport(const DesktopPeerState& peer)
+    {
+        const auto& room = peer.coordinator.session().roomState();
+        const auto& predictionStats = peer.coordinator.predictionStats();
+
+        nlohmann::json participants = nlohmann::json::array();
+        for(const auto& participant : room.participants) {
+            participants.push_back({
+                {"id", participant.id},
+                {"name", participant.displayName},
+                {"connected", participant.connected},
+                {"role", static_cast<int>(participant.role)},
+                {"controllerAssignment", participant.controllerAssignment},
+                {"romLoaded", participant.romLoaded},
+                {"romCompatible", participant.romCompatible},
+                {"ready", participant.ready},
+                {"lastReceivedInputFrame", participant.lastReceivedInputFrame},
+                {"lastContiguousInputFrame", participant.lastContiguousInputFrame},
+                {"lastDecision", participant.lastDecision},
+                {"confirmedFrameConflictCount", participant.confirmedFrameConflictCount},
+                {"rollbackScheduledCount", participant.rollbackScheduledCount},
+                {"futureFrameMismatchCount", participant.futureFrameMismatchCount}
+            });
+        }
+
+        return {
+            {"name", peer.name},
+            {"host", peer.host},
+            {"frame", peer.emu.frameCount()},
+            {"crc32", const_cast<EmulationHost&>(peer.emu).canonicalNetplayStateCrc32()},
+            {"roomState", stateLabel(room.state)},
+            {"currentFrame", room.currentFrame},
+            {"lastConfirmedFrame", room.lastConfirmedFrame},
+            {"lastRemoteCrcFrame", room.lastRemoteCrcFrame},
+            {"lastRemoteCrc32", room.lastRemoteCrc32},
+            {"predictionHitCount", predictionStats.predictionHitCount},
+            {"predictionMissCount", predictionStats.predictionMissCount},
+            {"hardResyncCount", predictionStats.hardResyncCount},
+            {"rollbackScheduledCount", predictionStats.rollbackScheduledCount},
+            {"missingInputGapCount", predictionStats.missingInputGapCount},
+            {"futureFrameMismatchCount", predictionStats.futureFrameMismatchCount},
+            {"confirmedFrameConflictCount", predictionStats.confirmedFrameConflictCount},
+            {"desyncInjected", peer.desyncInjected},
+            {"lastResyncTargetFrame", peer.lastResyncTargetFrame},
+            {"lastResyncLoadedFrameCount", peer.lastResyncLoadedFrameCount},
+            {"participants", participants},
+            {"localTimelineSize", peer.coordinator.localInputs().size()},
+            {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},
+            {"eventLogTail", [&peer]() {
+                nlohmann::json tail = nlohmann::json::array();
+                const auto& log = peer.coordinator.eventLog();
+                const size_t start = log.size() > 20 ? (log.size() - 20) : 0;
+                for(size_t i = start; i < log.size(); ++i) {
+                    tail.push_back(log[i]);
+                }
+                return tail;
+            }()},
+            {"localTimelineTail", [&peer]() {
+                nlohmann::json tail = nlohmann::json::array();
+                const auto& entries = peer.coordinator.localInputs().entries();
+                const size_t start = entries.size() > 12 ? (entries.size() - 12) : 0;
+                for(size_t i = start; i < entries.size(); ++i) {
+                    const auto& entry = entries[i];
+                    tail.push_back({
+                        {"frame", entry.frame},
+                        {"participantId", entry.participantId},
+                        {"slot", entry.playerSlot},
+                        {"maskLo", entry.buttonMaskLo},
+                        {"sequence", entry.sequence},
+                        {"predicted", entry.predicted},
+                        {"confirmed", entry.confirmed}
+                    });
+                }
+                return tail;
+            }()},
+            {"remoteTimelineTail", [&peer]() {
+                nlohmann::json tail = nlohmann::json::array();
+                const auto& entries = peer.coordinator.remoteInputs().entries();
+                const size_t start = entries.size() > 12 ? (entries.size() - 12) : 0;
+                for(size_t i = start; i < entries.size(); ++i) {
+                    const auto& entry = entries[i];
+                    tail.push_back({
+                        {"frame", entry.frame},
+                        {"participantId", entry.participantId},
+                        {"slot", entry.playerSlot},
+                        {"maskLo", entry.buttonMaskLo},
+                        {"sequence", entry.sequence},
+                        {"predicted", entry.predicted},
+                        {"confirmed", entry.confirmed}
+                    });
+                }
+                return tail;
+            }()},
+            {"localTimelineAroundConfirmed", [&peer]() {
+                nlohmann::json window = nlohmann::json::array();
+                const auto& entries = peer.coordinator.localInputs().entries();
+                const uint32_t confirmed = peer.coordinator.session().roomState().lastConfirmedFrame;
+                for(const auto& entry : entries) {
+                    if(entry.frame + 2u < confirmed || entry.frame > confirmed + 4u) continue;
+                    window.push_back({
+                        {"frame", entry.frame},
+                        {"participantId", entry.participantId},
+                        {"slot", entry.playerSlot},
+                        {"maskLo", entry.buttonMaskLo},
+                        {"sequence", entry.sequence},
+                        {"predicted", entry.predicted},
+                        {"confirmed", entry.confirmed}
+                    });
+                }
+                return window;
+            }()},
+            {"remoteTimelineAroundConfirmed", [&peer]() {
+                nlohmann::json window = nlohmann::json::array();
+                const auto& entries = peer.coordinator.remoteInputs().entries();
+                const uint32_t confirmed = peer.coordinator.session().roomState().lastConfirmedFrame;
+                for(const auto& entry : entries) {
+                    if(entry.frame + 2u < confirmed || entry.frame > confirmed + 4u) continue;
+                    window.push_back({
+                        {"frame", entry.frame},
+                        {"participantId", entry.participantId},
+                        {"slot", entry.playerSlot},
+                        {"maskLo", entry.buttonMaskLo},
+                        {"sequence", entry.sequence},
+                        {"predicted", entry.predicted},
+                        {"confirmed", entry.confirmed}
+                    });
+                }
+                return window;
             }()}
         };
     }
 
     static bool hasEventLogMessage(const PeerState& peer, const std::string& needle)
+    {
+        for(const std::string& message : peer.coordinator.eventLog()) {
+            if(message.find(needle) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool hasEventLogMessage(const DesktopPeerState& peer, const std::string& needle)
     {
         for(const std::string& message : peer.coordinator.eventLog()) {
             if(message.find(needle) != std::string::npos) {
@@ -850,6 +1785,17 @@ private:
                        << ", clientMask=" << clientEntry->buttonMaskLo << ")";
                     return ss.str();
                 }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    static std::optional<Netplay::ParticipantId> findRemoteParticipantId(const Netplay::NetplayCoordinator& coordinator)
+    {
+        for(const auto& participant : coordinator.session().roomState().participants) {
+            if(participant.id != coordinator.localParticipantId()) {
+                return participant.id;
             }
         }
 
@@ -1051,6 +1997,7 @@ private:
             {"romPath", options.romPath},
             {"framesRequested", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
+            {"baselineLockstep", options.baselineLockstep},
             {"rollbackWindowFrames", options.rollbackWindowFrames},
             {"crcIntervalFrames", options.crcIntervalFrames},
             {"forceDesyncFrame", options.forceDesyncFrame},
@@ -1094,6 +2041,149 @@ private:
         };
 
         return report;
+    }
+
+    static std::optional<std::string> findTimelineMismatch(const DesktopPeerState& hostPeer, const DesktopPeerState& clientPeer)
+    {
+        const uint32_t confirmedFrame = std::min(
+            hostPeer.coordinator.session().roomState().lastConfirmedFrame,
+            clientPeer.coordinator.session().roomState().lastConfirmedFrame
+        );
+
+        for(uint32_t frame = 1; frame <= confirmedFrame; ++frame) {
+            for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
+                const auto findEntry = [&](const DesktopPeerState& peer) -> const Netplay::TimelineInputEntry* {
+                    const auto& room = peer.coordinator.session().roomState();
+                    const auto& localInputs = peer.coordinator.localInputs();
+                    const auto& remoteInputs = peer.coordinator.remoteInputs();
+                    const Netplay::ParticipantId localParticipant = peer.coordinator.localParticipantId();
+
+                    for(const auto& participant : room.participants) {
+                        if(participant.controllerAssignment != slot) continue;
+                        return participant.id == localParticipant
+                            ? localInputs.find(frame, participant.id, slot)
+                            : remoteInputs.find(frame, participant.id, slot);
+                    }
+                    return nullptr;
+                };
+
+                const Netplay::TimelineInputEntry* hostEntry = findEntry(hostPeer);
+                const Netplay::TimelineInputEntry* clientEntry = findEntry(clientPeer);
+                if(hostEntry == nullptr && clientEntry == nullptr) continue;
+                if(hostEntry == nullptr || clientEntry == nullptr) {
+                    std::ostringstream ss;
+                    ss << "Desktop flow timeline mismatch at frame " << frame
+                       << " slot " << static_cast<unsigned>(slot) + 1u
+                       << " missing entry on " << (hostEntry == nullptr ? "host" : "client");
+                    return ss.str();
+                }
+                if(hostEntry->buttonMaskLo != clientEntry->buttonMaskLo || hostEntry->buttonMaskHi != clientEntry->buttonMaskHi) {
+                    std::ostringstream ss;
+                    ss << "Desktop flow timeline mismatch at frame " << frame
+                       << " slot " << static_cast<unsigned>(slot) + 1u
+                       << " hostMaskLo " << hostEntry->buttonMaskLo
+                       << " clientMaskLo " << clientEntry->buttonMaskLo;
+                    return ss.str();
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    static nlohmann::json buildDesktopFlowReport(const Options& options,
+                                                 const DesktopPeerState& hostPeer,
+                                                 const DesktopPeerState& clientPeer,
+                                                 const std::string& status,
+                                                 const std::string& failureReason,
+                                                 const std::optional<std::string>& timelineMismatch)
+    {
+        const uint32_t hostCrc = hostPeer.emu.valid() ? const_cast<EmulationHost&>(hostPeer.emu).canonicalNetplayStateCrc32() : 0;
+        const uint32_t clientCrc = clientPeer.emu.valid() ? const_cast<EmulationHost&>(clientPeer.emu).canonicalNetplayStateCrc32() : 0;
+        const uint32_t confirmedFrame = std::min(
+            hostPeer.coordinator.session().roomState().lastConfirmedFrame,
+            clientPeer.coordinator.session().roomState().lastConfirmedFrame
+        );
+        const std::optional<uint32_t> hostConfirmedCrc =
+            confirmedFrame > 0 ? hostPeer.emu.netplaySnapshotCrc32ForFrame(confirmedFrame) : std::nullopt;
+        const std::optional<uint32_t> clientConfirmedCrc =
+            confirmedFrame > 0 ? clientPeer.emu.netplaySnapshotCrc32ForFrame(confirmedFrame) : std::nullopt;
+        const nlohmann::json snapshotMismatch = [&]() {
+            const uint32_t maxFrame = std::min(hostPeer.emu.frameCount(), clientPeer.emu.frameCount());
+            for(uint32_t frame = 1; frame <= maxFrame; ++frame) {
+                const std::optional<uint32_t> hostSnapshot = hostPeer.emu.netplaySnapshotCrc32ForFrame(frame);
+                const std::optional<uint32_t> clientSnapshot = clientPeer.emu.netplaySnapshotCrc32ForFrame(frame);
+                if(!hostSnapshot.has_value() || !clientSnapshot.has_value()) continue;
+                if(*hostSnapshot == *clientSnapshot) continue;
+                return nlohmann::json{
+                    {"frame", frame},
+                    {"hostCrc32", *hostSnapshot},
+                    {"clientCrc32", *clientSnapshot}
+                };
+            }
+            return nlohmann::json{
+                {"frame", 0},
+                {"hostCrc32", 0},
+                {"clientCrc32", 0}
+            };
+        }();
+        const uint32_t mismatchFrame = snapshotMismatch.value("frame", 0u);
+        const auto buildDesktopStateLoadProbe = [&](const DesktopPeerState& peer, uint32_t frame) {
+            const std::optional<std::vector<uint8_t>> snapshot = peer.emu.netplaySnapshotForFrame(frame);
+            if(!snapshot.has_value()) {
+                return nlohmann::json{
+                    {"requestedFrame", frame},
+                    {"snapshotFound", false}
+                };
+            }
+
+            GeraNESEmu probeEmu{DummyAudioOutput::instance()};
+            if(!probeEmu.open(options.romPath) || !probeEmu.valid()) {
+                return nlohmann::json{
+                    {"requestedFrame", frame},
+                    {"snapshotFound", true},
+                    {"romOpened", false}
+                };
+            }
+
+            probeEmu.loadStateFromMemory(snapshot.value());
+            return nlohmann::json{
+                {"requestedFrame", frame},
+                {"snapshotFound", true},
+                {"romOpened", true},
+                {"loadedFrameCount", probeEmu.frameCount()},
+                {"loadedStateCrc32", probeEmu.canonicalNetplayStateCrc32()}
+            };
+        };
+
+        return {
+            {"status", status},
+            {"failureReason", failureReason},
+            {"flowMode", "desktop_app"},
+            {"romPath", options.romPath},
+            {"framesRequested", options.frames},
+            {"inputDelayFrames", options.inputDelayFrames},
+            {"baselineLockstep", options.baselineLockstep},
+            {"rollbackWindowFrames", options.rollbackWindowFrames},
+            {"crcIntervalFrames", options.crcIntervalFrames},
+            {"forceDesyncFrame", options.forceDesyncFrame},
+            {"finalCrcMatch", hostCrc == clientCrc},
+            {"confirmedFrame", confirmedFrame},
+            {"confirmedSnapshotCrcMatch",
+                hostConfirmedCrc.has_value() &&
+                clientConfirmedCrc.has_value() &&
+                *hostConfirmedCrc == *clientConfirmedCrc},
+            {"hostConfirmedSnapshotCrc32", hostConfirmedCrc.value_or(0)},
+            {"clientConfirmedSnapshotCrc32", clientConfirmedCrc.value_or(0)},
+            {"snapshotMismatch", snapshotMismatch},
+            {"hostStateLoadProbe", buildDesktopStateLoadProbe(hostPeer, hostPeer.lastResyncTargetFrame)},
+            {"clientStateLoadProbe", buildDesktopStateLoadProbe(clientPeer, clientPeer.lastResyncTargetFrame)},
+            {"hostMismatchStateLoadProbe", buildDesktopStateLoadProbe(hostPeer, mismatchFrame)},
+            {"clientMismatchStateLoadProbe", buildDesktopStateLoadProbe(clientPeer, mismatchFrame)},
+            {"timelineMismatch", timelineMismatch.has_value() ? *timelineMismatch : ""},
+            {"host", buildPeerReport(hostPeer)},
+            {"client", buildPeerReport(clientPeer)}
+        };
     }
 
     static int emitReport(const Options& options, const nlohmann::json& report)
@@ -1166,7 +2256,10 @@ private:
             return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to connect netplay client."}}};
         }
 
-        hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(std::min<uint32_t>(options.inputDelayFrames, 8u)));
+        const uint32_t configuredInputDelayFrames = realtimeEnhancementsEnabled(options)
+            ? options.inputDelayFrames
+            : 0u;
+        hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(std::min<uint32_t>(configuredInputDelayFrames, 8u)));
 
         std::string failureReason;
         if(!bootstrapSession(hostPeer, clientPeer, options, romValidation, failureReason)) {
@@ -1180,8 +2273,8 @@ private:
 
             runMaintenanceStep(hostPeer, clientPeer, options, romValidation);
 
-            const bool hostQueued = queueLocalInputForNextFrame(hostPeer, options.frames);
-            const bool clientQueued = queueLocalInputForNextFrame(clientPeer, options.frames);
+            const bool hostQueued = queueLocalInputForNextFrame(hostPeer, options.frames, options);
+            const bool clientQueued = queueLocalInputForNextFrame(clientPeer, options.frames, options);
 
             if(hostPeer.coordinator.session().roomState().state != Netplay::SessionState::Running) {
                 resetInputDelayBuffers(hostPeer);
@@ -1192,8 +2285,8 @@ private:
                 clientPeer.lastInputDelayFrames = 0xFF;
             }
 
-            const bool hostAdvanced = advanceQueuedFrameIfPossible(hostPeer, options.frames);
-            const bool clientAdvanced = advanceQueuedFrameIfPossible(clientPeer, options.frames);
+            const bool hostAdvanced = advanceQueuedFrameIfPossible(hostPeer, options.frames, options);
+            const bool clientAdvanced = advanceQueuedFrameIfPossible(clientPeer, options.frames, options);
 
             if(options.forceDesyncFrame > 0 &&
                !clientPeer.desyncInjected &&
@@ -1278,9 +2371,320 @@ private:
         return finalizeArtifacts(options, hostPeer, clientPeer, "ok", "", std::nullopt);
     }
 
+    static RunArtifacts runSingleCaseAppFlow(const Options& options)
+    {
+        if(options.romPath.empty()) {
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Netplay test requires a ROM path."}}};
+        }
+
+        DesktopPeerState hostPeer("Host", true, options.hostInputSeed);
+        DesktopPeerState clientPeer("Client", false, options.clientInputSeed);
+
+        if(!hostPeer.emu.open(options.romPath) || !hostPeer.emu.valid()) {
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to open ROM for host peer."}}};
+        }
+        if(!clientPeer.emu.open(options.romPath) || !clientPeer.emu.valid()) {
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to open ROM for client peer."}}};
+        }
+        hostPeer.emu.setSimulationSuspended(true);
+        clientPeer.emu.setSimulationSuspended(true);
+
+        configurePeerRuntime(hostPeer, options.rollbackWindowFrames);
+        configurePeerRuntime(clientPeer, options.rollbackWindowFrames);
+
+        const std::optional<Netplay::RomValidationData> romValidation = captureRomValidation(hostPeer.emu);
+        if(!romValidation.has_value()) {
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to capture ROM validation data."}}};
+        }
+
+        if(!hostPeer.coordinator.host(static_cast<uint16_t>(options.port), 2, "Host")) {
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to start netplay host."}}};
+        }
+        if(!clientPeer.coordinator.join("127.0.0.1", static_cast<uint16_t>(options.port), "Client")) {
+            return {RESULT_ERROR, {{"status", "error"}, {"failureReason", "Failed to connect netplay client."}}};
+        }
+
+        const uint32_t configuredInputDelayFrames = realtimeEnhancementsEnabled(options)
+            ? options.inputDelayFrames
+            : 0u;
+        hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(std::min<uint32_t>(configuredInputDelayFrames, 8u)));
+
+        std::string failureReason;
+        {
+            bool hostRomSelected = false;
+            bool hostAssigned = false;
+            bool readyMarked = false;
+            bool sessionStarted = false;
+
+            for(uint32_t step = 0; step < options.startupTimeoutSteps; ++step) {
+                hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
+                clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
+                hostPeer.coordinator.update(0);
+                clientPeer.coordinator.update(0);
+                handleSessionStateTransitions(hostPeer);
+                handleSessionStateTransitions(clientPeer);
+
+                syncLocalRomValidation(hostPeer.coordinator, romValidation);
+                syncLocalRomValidation(clientPeer.coordinator, romValidation);
+                hostPeer.emu.setSimulationSuspended(true);
+                clientPeer.emu.setSimulationSuspended(true);
+
+                processHostResyncIfNeeded(hostPeer, options);
+                processPendingResyncIfNeeded(hostPeer);
+                processPendingResyncIfNeeded(clientPeer);
+
+                if(!hostRomSelected && romValidation.has_value() && hostPeer.coordinator.isConnected()) {
+                    hostRomSelected = hostPeer.coordinator.selectRom(options.romPath, *romValidation);
+                }
+
+                const std::optional<Netplay::ParticipantId> remoteId = findRemoteParticipantId(hostPeer.coordinator);
+                if(!hostAssigned && remoteId.has_value()) {
+                    const bool assignedLocal = hostPeer.coordinator.assignController(hostPeer.coordinator.localParticipantId(), 0);
+                    const bool assignedRemote = hostPeer.coordinator.assignController(*remoteId, 1);
+                    hostAssigned = assignedLocal && assignedRemote;
+                }
+
+                if(hostAssigned && !readyMarked) {
+                    const bool hostReady = hostPeer.coordinator.setLocalReady(true);
+                    const bool clientReady = clientPeer.coordinator.setLocalReady(true);
+                    readyMarked = hostReady && clientReady;
+                }
+
+                if(readyMarked && !sessionStarted && hostPeer.coordinator.session().roomState().state == Netplay::SessionState::ReadyCheck) {
+                    sessionStarted = hostPeer.coordinator.startSession();
+                }
+
+                if(hostPeer.coordinator.session().roomState().state == Netplay::SessionState::Running &&
+                   clientPeer.coordinator.session().roomState().state == Netplay::SessionState::Running) {
+                    break;
+                }
+            }
+        }
+
+        if(hostPeer.coordinator.session().roomState().state != Netplay::SessionState::Running ||
+           clientPeer.coordinator.session().roomState().state != Netplay::SessionState::Running) {
+            failureReason = "Desktop flow bootstrap timed out.";
+            RunArtifacts artifacts;
+            artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "bootstrap_failed", failureReason, std::nullopt);
+            artifacts.exitCode = RESULT_FAILED;
+            return artifacts;
+        }
+
+        const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, hostPeer.emu.getRegionFPS()));
+        uint32_t progressedFrames = 0;
+        for(uint32_t step = 0; step < options.frameStepLimit && progressedFrames < options.frames; ++step) {
+            hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
+            clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
+            hostPeer.coordinator.update(0);
+            clientPeer.coordinator.update(0);
+            handleSessionStateTransitions(hostPeer);
+            handleSessionStateTransitions(clientPeer);
+
+            syncLocalRomValidation(hostPeer.coordinator, romValidation);
+            syncLocalRomValidation(clientPeer.coordinator, romValidation);
+
+            processHostResyncIfNeeded(hostPeer, options);
+            processPendingResyncIfNeeded(hostPeer);
+            processPendingResyncIfNeeded(clientPeer);
+            processRollbackIfNeeded(hostPeer);
+            processRollbackIfNeeded(clientPeer);
+            maybeSubmitCrc(hostPeer, options.crcIntervalFrames);
+            maybeSubmitCrc(clientPeer, options.crcIntervalFrames);
+
+            queueLocalInputForNextFrame(hostPeer, options.frames, options);
+            queueLocalInputForNextFrame(clientPeer, options.frames, options);
+            const bool hostCanAdvance =
+                canSimulateFrame(hostPeer, options) &&
+                hostPeer.emu.frameCount() < options.frames;
+            const bool clientCanAdvance =
+                canSimulateFrame(clientPeer, options) &&
+                clientPeer.emu.frameCount() < options.frames;
+            if(options.baselineLockstep) {
+                if(!hostCanAdvance) {
+                    hostPeer.emu.setSimulationSuspended(true);
+                }
+                if(!clientCanAdvance) {
+                    clientPeer.emu.setSimulationSuspended(true);
+                }
+                if(hostCanAdvance) {
+                    hostPeer.emu.updateUntilFrame(frameDt);
+                }
+                if(clientCanAdvance) {
+                    clientPeer.emu.updateUntilFrame(frameDt);
+                }
+            } else {
+                hostPeer.emu.setSimulationSuspended(!hostCanAdvance);
+                clientPeer.emu.setSimulationSuspended(!clientCanAdvance);
+                hostPeer.emu.update(frameDt);
+                clientPeer.emu.update(frameDt);
+                std::this_thread::sleep_for(std::chrono::milliseconds(std::clamp<uint32_t>(frameDt, 1u, 16u)));
+            }
+
+            hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
+            clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
+            hostPeer.coordinator.update(0);
+            clientPeer.coordinator.update(0);
+
+            progressedFrames = std::min(hostPeer.emu.frameCount(), clientPeer.emu.frameCount());
+
+            if(options.forceDesyncFrame > 0 &&
+               !clientPeer.desyncInjected &&
+               clientPeer.emu.frameCount() >= options.forceDesyncFrame) {
+                clientPeer.emu.withExclusiveAccess([&](auto& emu) {
+                    const uint8_t currentValue = emu.read(static_cast<int>(options.desyncAddress & 0xFFFFu));
+                    emu.write(static_cast<int>(options.desyncAddress & 0xFFFFu),
+                              static_cast<uint8_t>(currentValue ^ static_cast<uint8_t>(options.desyncValueXor & 0xFFu)));
+                });
+                clientPeer.desyncInjected = true;
+            }
+        }
+
+        for(uint32_t settleStep = 0; settleStep < options.settleStepLimit; ++settleStep) {
+            hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
+            clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
+            hostPeer.coordinator.update(0);
+            clientPeer.coordinator.update(0);
+            handleSessionStateTransitions(hostPeer);
+            handleSessionStateTransitions(clientPeer);
+            syncLocalRomValidation(hostPeer.coordinator, romValidation);
+            syncLocalRomValidation(clientPeer.coordinator, romValidation);
+            processHostResyncIfNeeded(hostPeer, options);
+            processPendingResyncIfNeeded(hostPeer);
+            processPendingResyncIfNeeded(clientPeer);
+            processRollbackIfNeeded(hostPeer);
+            processRollbackIfNeeded(clientPeer);
+            maybeSubmitCrc(hostPeer, options.crcIntervalFrames);
+            maybeSubmitCrc(clientPeer, options.crcIntervalFrames);
+            const bool hostCanAdvance =
+                canSimulateFrame(hostPeer, options) &&
+                hostPeer.emu.frameCount() < options.frames;
+            const bool clientCanAdvance =
+                canSimulateFrame(clientPeer, options) &&
+                clientPeer.emu.frameCount() < options.frames;
+            queueLocalInputForNextFrame(hostPeer, options.frames, options);
+            queueLocalInputForNextFrame(clientPeer, options.frames, options);
+            if(options.baselineLockstep) {
+                if(!hostCanAdvance) {
+                    hostPeer.emu.setSimulationSuspended(true);
+                }
+                if(!clientCanAdvance) {
+                    clientPeer.emu.setSimulationSuspended(true);
+                }
+                if(hostCanAdvance) {
+                    hostPeer.emu.updateUntilFrame(frameDt);
+                }
+                if(clientCanAdvance) {
+                    clientPeer.emu.updateUntilFrame(frameDt);
+                }
+            } else {
+                hostPeer.emu.setSimulationSuspended(!hostCanAdvance);
+                clientPeer.emu.setSimulationSuspended(!clientCanAdvance);
+                hostPeer.emu.update(frameDt);
+                clientPeer.emu.update(frameDt);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+
+            const uint32_t settledConfirmedFrame = std::min(
+                hostPeer.coordinator.session().roomState().lastConfirmedFrame,
+                clientPeer.coordinator.session().roomState().lastConfirmedFrame
+            );
+            const std::optional<uint32_t> hostConfirmedSnapshotCrc32 =
+                settledConfirmedFrame > 0 ? hostPeer.emu.netplaySnapshotCrc32ForFrame(settledConfirmedFrame) : std::nullopt;
+            const std::optional<uint32_t> clientConfirmedSnapshotCrc32 =
+                settledConfirmedFrame > 0 ? clientPeer.emu.netplaySnapshotCrc32ForFrame(settledConfirmedFrame) : std::nullopt;
+            if(settledConfirmedFrame >= options.frames &&
+               hostConfirmedSnapshotCrc32.has_value() &&
+               clientConfirmedSnapshotCrc32.has_value() &&
+               *hostConfirmedSnapshotCrc32 == *clientConfirmedSnapshotCrc32) {
+                break;
+            }
+        }
+
+        if(progressedFrames < options.frames) {
+            std::ostringstream ss;
+            ss << "Desktop flow frame target not reached. Host frame=" << hostPeer.emu.frameCount()
+               << ", Client frame=" << clientPeer.emu.frameCount();
+            failureReason = ss.str();
+            RunArtifacts artifacts;
+            artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "frame_limit_reached", failureReason, std::nullopt);
+            artifacts.exitCode = RESULT_FAILED;
+            return artifacts;
+        }
+
+        const std::optional<std::string> timelineMismatch = findTimelineMismatch(hostPeer, clientPeer);
+        if(timelineMismatch.has_value()) {
+            RunArtifacts artifacts;
+            artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "timeline_mismatch", *timelineMismatch, timelineMismatch);
+            artifacts.exitCode = RESULT_FAILED;
+            return artifacts;
+        }
+
+        uint32_t hostUnexpectedHardResyncs = hostPeer.coordinator.predictionStats().hardResyncCount;
+        if(hasEventLogMessage(hostPeer, "Host started session setup; waiting for initial sync") &&
+           hostUnexpectedHardResyncs > 0) {
+            --hostUnexpectedHardResyncs;
+        }
+        if(options.forceDesyncFrame == 0 &&
+           (hostUnexpectedHardResyncs > 0 ||
+            clientPeer.coordinator.predictionStats().hardResyncCount > 0)) {
+            std::ostringstream ss;
+            ss << "Unexpected hard resyncs under desktop app flow. Host="
+               << hostUnexpectedHardResyncs
+               << ", Client="
+               << clientPeer.coordinator.predictionStats().hardResyncCount;
+            RunArtifacts artifacts;
+            artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "unexpected_resync", ss.str(), std::nullopt);
+            artifacts.exitCode = RESULT_FAILED;
+            return artifacts;
+        }
+
+        const uint32_t confirmedFrame = std::min(
+            hostPeer.coordinator.session().roomState().lastConfirmedFrame,
+            clientPeer.coordinator.session().roomState().lastConfirmedFrame
+        );
+        const std::optional<uint32_t> hostConfirmedSnapshotCrc32 =
+            confirmedFrame > 0 ? hostPeer.emu.netplaySnapshotCrc32ForFrame(confirmedFrame) : std::nullopt;
+        const std::optional<uint32_t> clientConfirmedSnapshotCrc32 =
+            confirmedFrame > 0 ? clientPeer.emu.netplaySnapshotCrc32ForFrame(confirmedFrame) : std::nullopt;
+        if(confirmedFrame >= options.frames &&
+           hostConfirmedSnapshotCrc32.has_value() &&
+           clientConfirmedSnapshotCrc32.has_value() &&
+           *hostConfirmedSnapshotCrc32 == *clientConfirmedSnapshotCrc32) {
+            RunArtifacts artifacts;
+            artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "ok", "", std::nullopt);
+            artifacts.exitCode = 0;
+            return artifacts;
+        }
+
+        const uint32_t hostCrc = hostPeer.emu.canonicalNetplayStateCrc32();
+        const uint32_t clientCrc = clientPeer.emu.canonicalNetplayStateCrc32();
+        if(hostCrc != clientCrc) {
+            std::ostringstream ss;
+            ss << "Desktop flow CRC mismatch. Host=" << hostCrc << ", Client=" << clientCrc;
+            failureReason = ss.str();
+            RunArtifacts artifacts;
+            artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "crc_mismatch", failureReason, std::nullopt);
+            artifacts.exitCode = RESULT_FAILED;
+            return artifacts;
+        }
+
+        RunArtifacts artifacts;
+        artifacts.report = buildDesktopFlowReport(options, hostPeer, clientPeer, "ok", "", std::nullopt);
+        artifacts.exitCode = 0;
+        return artifacts;
+    }
+
 public:
     static int runHeadless(const Options& options)
     {
+        if(options.appFlow) {
+            const RunArtifacts artifacts = runSingleCaseAppFlow(options);
+            if(artifacts.exitCode == RESULT_ERROR && artifacts.report.empty()) {
+                return RESULT_ERROR;
+            }
+            return emitReport(options, artifacts.report);
+        }
+
         if(!options.robust) {
             const RunArtifacts artifacts = runSingleCase(options);
             if(artifacts.exitCode == RESULT_ERROR && artifacts.report.empty()) {

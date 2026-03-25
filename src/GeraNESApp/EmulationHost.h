@@ -99,6 +99,8 @@ public:
         bool speedBoost = false;
     };
 
+    using FrameInputProvider = std::function<std::optional<InputState>(uint32_t)>;
+
     struct NetplayDiagnosticsSnapshot
     {
         bool enabled = false;
@@ -112,36 +114,43 @@ public:
 private:
     static void applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
     {
-        emu.setController1Buttons(input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                  input.p1X, input.p1Y, input.p1L, input.p1R);
-        emu.setController2Buttons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                  input.p2X, input.p2Y, input.p2L, input.p2R);
-        emu.setVirtualBoyControllerButtons(Settings::Port::P_1, input.p1A, input.p1B, input.p1Select, input.p1Start,
-                                           input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                           input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2,
-                                           input.p1L, input.p1R);
-        emu.setVirtualBoyControllerButtons(Settings::Port::P_2, input.p2A, input.p2B, input.p2Select, input.p2Start,
-                                           input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                           input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2,
-                                           input.p2L, input.p2R);
-        emu.setController3Buttons(input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right);
-        emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
-        emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
-        emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
-        emu.setSuborKeyboardKeys(input.suborKeyboardKeys);
-        emu.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
-        emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
-        emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
-        emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
-        emu.setZapper(Settings::Port::P_2, input.zapperX, input.zapperY, input.zapperP2Trigger);
-        emu.setBandaiHyperShot(input.zapperX, input.zapperY, input.bandaiTrigger);
-        emu.setArkanoidController(Settings::Port::P_1, input.arkanoidNesPosition, input.mousePrimaryButton);
-        emu.setArkanoidController(Settings::Port::P_2, input.arkanoidNesPosition, input.mousePrimaryButton);
-        emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
-        emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        emu.setSuborMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
-        emu.setSuborMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        InputFrame frame = emu.createInputFrame(emu.frameCount() + 1u);
+        frame.p1A = input.p1A; frame.p1B = input.p1B; frame.p1Select = input.p1Select; frame.p1Start = input.p1Start;
+        frame.p1Up = input.p1Up; frame.p1Down = input.p1Down; frame.p1Left = input.p1Left; frame.p1Right = input.p1Right;
+        frame.p1X = input.p1X; frame.p1Y = input.p1Y; frame.p1L = input.p1L; frame.p1R = input.p1R;
+        frame.p2A = input.p2A; frame.p2B = input.p2B; frame.p2Select = input.p2Select; frame.p2Start = input.p2Start;
+        frame.p2Up = input.p2Up; frame.p2Down = input.p2Down; frame.p2Left = input.p2Left; frame.p2Right = input.p2Right;
+        frame.p2X = input.p2X; frame.p2Y = input.p2Y; frame.p2L = input.p2L; frame.p2R = input.p2R;
+        frame.p3A = input.p3A; frame.p3B = input.p3B; frame.p3Select = input.p3Select; frame.p3Start = input.p3Start;
+        frame.p3Up = input.p3Up; frame.p3Down = input.p3Down; frame.p3Left = input.p3Left; frame.p3Right = input.p3Right;
+        frame.p4A = input.p4A; frame.p4B = input.p4B; frame.p4Select = input.p4Select; frame.p4Start = input.p4Start;
+        frame.p4Up = input.p4Up; frame.p4Down = input.p4Down; frame.p4Left = input.p4Left; frame.p4Right = input.p4Right;
+        frame.vbP1A = input.p1A; frame.vbP1B = input.p1B; frame.vbP1Select = input.p1Select; frame.vbP1Start = input.p1Start;
+        frame.vbP1Up0 = input.p1Up; frame.vbP1Down0 = input.p1Down; frame.vbP1Left0 = input.p1Left; frame.vbP1Right0 = input.p1Right;
+        frame.vbP1Up1 = input.p1Up2; frame.vbP1Down1 = input.p1Down2; frame.vbP1Left1 = input.p1Left2; frame.vbP1Right1 = input.p1Right2;
+        frame.vbP1L = input.p1L; frame.vbP1R = input.p1R;
+        frame.vbP2A = input.p2A; frame.vbP2B = input.p2B; frame.vbP2Select = input.p2Select; frame.vbP2Start = input.p2Start;
+        frame.vbP2Up0 = input.p2Up; frame.vbP2Down0 = input.p2Down; frame.vbP2Left0 = input.p2Left; frame.vbP2Right0 = input.p2Right;
+        frame.vbP2Up1 = input.p2Up2; frame.vbP2Down1 = input.p2Down2; frame.vbP2Left1 = input.p2Left2; frame.vbP2Right1 = input.p2Right2;
+        frame.vbP2L = input.p2L; frame.vbP2R = input.p2R;
+        frame.powerPadP1Buttons = input.p1PowerPadButtons;
+        frame.powerPadP2Buttons = input.p2PowerPadButtons;
+        frame.suborKeyboardKeys = input.suborKeyboardKeys;
+        frame.familyBasicKeyboardKeys = input.familyBasicKeyboardKeys;
+        frame.bandaiA = input.p2A; frame.bandaiB = input.p2B; frame.bandaiSelect = input.p2Select; frame.bandaiStart = input.p2Start;
+        frame.bandaiUp = input.p2Up; frame.bandaiDown = input.p2Down; frame.bandaiLeft = input.p2Left; frame.bandaiRight = input.p2Right;
+        frame.zapperP1X = input.zapperX; frame.zapperP1Y = input.zapperY; frame.zapperP1Trigger = input.zapperP1Trigger;
+        frame.zapperP2X = input.zapperX; frame.zapperP2Y = input.zapperY; frame.zapperP2Trigger = input.zapperP2Trigger;
+        frame.bandaiX = input.zapperX; frame.bandaiY = input.zapperY; frame.bandaiTrigger = input.bandaiTrigger;
+        frame.arkanoidP1Position = input.arkanoidNesPosition; frame.arkanoidP1Button = input.mousePrimaryButton;
+        frame.arkanoidP2Position = input.arkanoidNesPosition; frame.arkanoidP2Button = input.mousePrimaryButton;
+        frame.arkanoidFamicomPosition = input.arkanoidFamicomPosition; frame.arkanoidFamicomButton = input.mousePrimaryButton;
+        frame.konamiP1Run = input.konamiP1Run; frame.konamiP1Jump = input.konamiP1Jump; frame.konamiP2Run = input.konamiP2Run; frame.konamiP2Jump = input.konamiP2Jump;
+        frame.snesMouseP1DeltaX = input.mouseDeltaX; frame.snesMouseP1DeltaY = input.mouseDeltaY; frame.snesMouseP1Left = input.mousePrimaryButton; frame.snesMouseP1Right = input.mouseSecondaryButton;
+        frame.snesMouseP2DeltaX = input.mouseDeltaX; frame.snesMouseP2DeltaY = input.mouseDeltaY; frame.snesMouseP2Left = input.mousePrimaryButton; frame.snesMouseP2Right = input.mouseSecondaryButton;
+        frame.suborMouseP1DeltaX = input.mouseDeltaX; frame.suborMouseP1DeltaY = input.mouseDeltaY; frame.suborMouseP1Left = input.mousePrimaryButton; frame.suborMouseP1Right = input.mouseSecondaryButton;
+        frame.suborMouseP2DeltaX = input.mouseDeltaX; frame.suborMouseP2DeltaY = input.mouseDeltaY; frame.suborMouseP2Left = input.mousePrimaryButton; frame.suborMouseP2Right = input.mouseSecondaryButton;
+        emu.queueInputFrame(frame);
         emu.setRewind(input.rewind);
         emu.setSpeedBoost(input.speedBoost);
     }
@@ -216,6 +225,7 @@ private:
 #else
     enum class FramePacingMode : uint8_t
     {
+        Suspended,
         FreeRunning,
         PresenterLocked
     };
@@ -227,11 +237,13 @@ private:
     mutable std::mutex m_workerReadyMutex;
     std::condition_variable m_workerReadyCv;
     bool m_workerReady = false;
+    mutable std::mutex m_workerStepMutex;
+    std::condition_variable m_workerStepCv;
+    uint64_t m_workerStepSerial = 0;
     mutable std::mutex m_presenterMutex;
     std::condition_variable m_presenterCv;
     std::atomic<bool> m_shutdownStarted{false};
     std::jthread m_workerThread;
-    SigSlot::Signal<InputState> m_signalInputState;
     SigSlot::Signal<std::function<void(GeraNESEmu&)>> m_signalCommand;
     std::atomic<FramePacingMode> m_framePacingMode{FramePacingMode::FreeRunning};
     std::atomic<uint32_t> m_presenterTickDtMs{16};
@@ -243,18 +255,37 @@ private:
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)
     };
     Snapshot m_snapshot;
+    mutable std::mutex m_pendingInputMutex;
     InputState m_pendingInput;
-
-    void onSetPendingInput(InputState input)
-    {
-        m_pendingInput = input;
-        m_workerWakeRequested.store(true, std::memory_order_release);
-        m_presenterCv.notify_one();
-    }
+    mutable std::mutex m_frameInputProviderMutex;
+    FrameInputProvider m_frameInputProvider;
+    std::optional<InputState> m_lastFrameProviderInput;
+    bool m_repeatLastFrameProviderInput = true;
 
     void applyPendingInputLocked()
     {
-        applyInputStateToEmu(m_emu, m_pendingInput);
+        InputState input;
+        FrameInputProvider frameInputProvider;
+        {
+            std::scoped_lock pendingInputLock(m_pendingInputMutex);
+            input = m_pendingInput;
+        }
+        {
+            std::scoped_lock providerLock(m_frameInputProviderMutex);
+            frameInputProvider = m_frameInputProvider;
+        }
+        if(frameInputProvider) {
+            const uint32_t playbackFrame = m_emu.frameCount() + 1u;
+            if(std::optional<InputState> provided = frameInputProvider(playbackFrame); provided.has_value()) {
+                input = *provided;
+                m_lastFrameProviderInput = input;
+            } else if(m_repeatLastFrameProviderInput && m_lastFrameProviderInput.has_value()) {
+                input = *m_lastFrameProviderInput;
+            } else {
+                m_lastFrameProviderInput.reset();
+            }
+        }
+        applyInputStateToEmu(m_emu, input);
     }
 
     void onCommand(std::function<void(GeraNESEmu&)> command)
@@ -309,6 +340,15 @@ private:
         m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
     }
 
+    void notifyWorkerStepComplete()
+    {
+        {
+            std::scoped_lock stepLock(m_workerStepMutex);
+            ++m_workerStepSerial;
+        }
+        m_workerStepCv.notify_all();
+    }
+
     void workerLoop(std::stop_token stopToken)
     {
         using clock = std::chrono::steady_clock;
@@ -325,6 +365,28 @@ private:
         auto nextTick = clock::now();
 
         while(!stopToken.stop_requested()) {
+            if(m_framePacingMode.load(std::memory_order_acquire) == FramePacingMode::Suspended) {
+                {
+                    std::unique_lock presenterLock(m_presenterMutex);
+                    m_presenterCv.wait_for(presenterLock, std::chrono::milliseconds(20), [&]() {
+                        return stopToken.stop_requested() ||
+                            m_framePacingMode.load(std::memory_order_acquire) != FramePacingMode::Suspended ||
+                            m_workerWakeRequested.load(std::memory_order_acquire);
+                    });
+                }
+
+                {
+                    std::scoped_lock emuLock(m_emuMutex);
+                    dispatch_queued_calls();
+                    m_workerWakeRequested.store(false, std::memory_order_release);
+                    refreshSnapshotLocked();
+                    notifyWorkerStepComplete();
+                }
+
+                nextTick = clock::now();
+                continue;
+            }
+
             if(m_framePacingMode.load(std::memory_order_acquire) == FramePacingMode::PresenterLocked) {
                 const uint32_t dtMs = std::max<uint32_t>(1, m_presenterTickDtMs.load(std::memory_order_acquire));
                 const auto waitTimeout = std::chrono::milliseconds(std::clamp<uint32_t>(dtMs, 1, 20));
@@ -362,6 +424,7 @@ private:
 
                     (void)wakeOnly;
                     refreshSnapshotLocked();
+                    notifyWorkerStepComplete();
                 }
 
                 nextTick = clock::now();
@@ -386,8 +449,10 @@ private:
                         m_emu.update(STEP_MS);
                         flushPendingNetplaySnapshotLocked();
                         refreshSnapshotLocked();
+                        notifyWorkerStepComplete();
                     } else {
                         refreshSnapshotLocked();
+                        notifyWorkerStepComplete();
                     }
                 }
             }
@@ -410,7 +475,6 @@ public:
 #else
         m_emu.signalFrameStart.bind(&EmulationHost::applyPendingInputLocked, this);
         m_emu.signalFrameReady.bind(&EmulationHost::requestNetplaySnapshotOnFrameReady, this);
-        m_signalInputState.bind_auto(&EmulationHost::onSetPendingInput, this);
         m_signalCommand.bind_auto(&EmulationHost::onCommand, this);
         {
             std::scoped_lock emuLock(m_emuMutex);
@@ -453,9 +517,53 @@ public:
 #ifdef __EMSCRIPTEN__
         m_pendingInput = input;
 #else
+        {
+            std::scoped_lock pendingInputLock(m_pendingInputMutex);
+            m_pendingInput = input;
+        }
         m_workerWakeRequested.store(true, std::memory_order_release);
-        m_signalInputState(input);
         m_presenterCv.notify_one();
+#endif
+    }
+
+    void setFrameInputProvider(FrameInputProvider provider)
+    {
+#ifdef __EMSCRIPTEN__
+        (void)provider;
+#else
+        {
+            std::scoped_lock providerLock(m_frameInputProviderMutex);
+            m_frameInputProvider = std::move(provider);
+        }
+        m_lastFrameProviderInput.reset();
+        m_workerWakeRequested.store(true, std::memory_order_release);
+        m_presenterCv.notify_one();
+#endif
+    }
+
+    void setRepeatLastFrameProviderInput(bool enabled)
+    {
+#ifdef __EMSCRIPTEN__
+        (void)enabled;
+#else
+        {
+            std::scoped_lock providerLock(m_frameInputProviderMutex);
+            m_repeatLastFrameProviderInput = enabled;
+        }
+        if(!enabled) {
+            m_lastFrameProviderInput.reset();
+        }
+        m_workerWakeRequested.store(true, std::memory_order_release);
+        m_presenterCv.notify_one();
+#endif
+    }
+
+    void resetFrameInputProviderState()
+    {
+#ifdef __EMSCRIPTEN__
+        return;
+#else
+        m_lastFrameProviderInput.reset();
 #endif
     }
 
@@ -932,6 +1040,21 @@ public:
 #endif
     }
 
+    void setSimulationSuspended(bool suspended)
+    {
+#ifdef __EMSCRIPTEN__
+        (void)suspended;
+#else
+        if(suspended) {
+            m_framePacingMode.store(FramePacingMode::Suspended, std::memory_order_release);
+            m_pendingPresenterTicks.store(0, std::memory_order_release);
+        } else if(m_framePacingMode.load(std::memory_order_acquire) == FramePacingMode::Suspended) {
+            m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
+        }
+        m_presenterCv.notify_one();
+#endif
+    }
+
     bool update(uint32_t dt)
     {
 #ifdef __EMSCRIPTEN__
@@ -943,7 +1066,9 @@ public:
         return advanced;
 #else
         (void)dt;
-        m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
+        if(m_framePacingMode.load(std::memory_order_acquire) != FramePacingMode::Suspended) {
+            m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
+        }
         m_pendingPresenterTicks.store(0, std::memory_order_release);
         m_presenterCv.notify_one();
         return true;
@@ -959,10 +1084,27 @@ public:
             flushPendingNetplaySnapshotLocked();
         }
 #else
+        const uint32_t initialFrame = [&]() {
+            std::scoped_lock snapshotLock(m_snapshotMutex);
+            return m_snapshot.frameCount;
+        }();
+        const uint64_t initialStepSerial = [&]() {
+            std::scoped_lock stepLock(m_workerStepMutex);
+            return m_workerStepSerial;
+        }();
         m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);
         m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
         m_pendingPresenterTicks.store(1, std::memory_order_release);
         m_presenterCv.notify_one();
+        std::unique_lock stepLock(m_workerStepMutex);
+        m_workerStepCv.wait_for(stepLock, std::chrono::milliseconds(50), [&]() {
+            if(m_workerStepSerial == initialStepSerial) {
+                return false;
+            }
+
+            std::scoped_lock snapshotLock(m_snapshotMutex);
+            return m_snapshot.frameCount != initialFrame;
+        });
 #endif
     }
 
@@ -992,6 +1134,7 @@ public:
         });
 
         if(rolledBack) {
+            resetFrameInputProviderState();
             refreshSnapshotLocked();
         }
 
@@ -1032,6 +1175,7 @@ public:
         if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
             return false;
         }
+        resetFrameInputProviderState();
         refreshSnapshotLocked();
         return true;
 #endif
@@ -1044,12 +1188,19 @@ public:
         if(!m_emu.valid()) return false;
 
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
+        InputState lastReplayInput{};
+        bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             m_pendingInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            lastReplayInput = m_pendingInput;
+            hasLastReplayInput = true;
             applyPendingInput();
             m_emu.updateUntilFrame(frameDt);
             flushPendingNetplaySnapshotLocked();
+        }
+        if(hasLastReplayInput) {
+            m_pendingInput = lastReplayInput;
         }
         return true;
 #else
@@ -1057,12 +1208,38 @@ public:
         if(!m_emu.valid()) return false;
 
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
+        FrameInputProvider savedFrameInputProvider;
+        std::optional<InputState> savedLastFrameProviderInput;
+        {
+            std::scoped_lock providerLock(m_frameInputProviderMutex);
+            savedFrameInputProvider = m_frameInputProvider;
+            savedLastFrameProviderInput = m_lastFrameProviderInput;
+            m_frameInputProvider = nullptr;
+            m_lastFrameProviderInput.reset();
+        }
+        InputState lastReplayInput{};
+        bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const InputState replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
-            m_pendingInput = replayInput;
+            {
+                std::scoped_lock pendingInputLock(m_pendingInputMutex);
+                m_pendingInput = replayInput;
+            }
+            lastReplayInput = replayInput;
+            hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);
             flushPendingNetplaySnapshotLocked();
+        }
+
+        {
+            std::scoped_lock providerLock(m_frameInputProviderMutex);
+            m_frameInputProvider = std::move(savedFrameInputProvider);
+            m_lastFrameProviderInput = hasLastReplayInput ? std::optional<InputState>{lastReplayInput} : savedLastFrameProviderInput;
+        }
+        if(hasLastReplayInput) {
+            std::scoped_lock pendingInputLock(m_pendingInputMutex);
+            m_pendingInput = lastReplayInput;
         }
 
         refreshSnapshotLocked();
@@ -1105,6 +1282,18 @@ public:
         std::scoped_lock netplayLock(m_netplayRuntimeMutex);
         if(!m_netplayRuntimeEnabled) return std::nullopt;
         return m_netplayRuntime.snapshots().crc32ForFrame(frame);
+    }
+
+    void seedNetplaySnapshot(uint32_t frame, const std::vector<uint8_t>& data)
+    {
+        if(data.empty()) return;
+
+        std::scoped_lock netplayLock(m_netplayRuntimeMutex);
+        if(!m_netplayRuntimeEnabled) return;
+        m_netplayRuntime.setCurrentFrame(frame);
+        m_netplayRuntime.captureSnapshot(frame, [&data]() {
+            return data;
+        });
     }
 
     NetplayDiagnosticsSnapshot getNetplayDiagnostics() const

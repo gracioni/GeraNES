@@ -35,7 +35,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
             << "Commands:\n"
@@ -54,6 +54,8 @@ namespace
             << "  --host-seed <n>           Deterministic host input seed. Default: 324478056\n"
             << "  --client-seed <n>         Deterministic client input seed. Default: 610800471\n"
             << "  --robust                  Run a small built-in matrix of input-delay/seed cases.\n"
+            << "  --app-flow                Use EmulationHost/desktop-like app flow instead of direct core stepping.\n"
+            << "  --baseline-lockstep       Disable realtime heuristics and require confirmed input before each frame.\n"
             << "  --report <path>           Write the JSON report to a file instead of stdout.\n"
             << "  --force-desync-frame <n>  Intentionally corrupt the client state on/after this frame.\n\n"
             << "State replay test options:\n"
@@ -85,7 +87,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -240,6 +242,12 @@ int main(int argc, char* argv[]) {
             }
             else if(arg == "--robust") {
                 options.robust = true;
+            }
+            else if(arg == "--app-flow") {
+                options.appFlow = true;
+            }
+            else if(arg == "--baseline-lockstep") {
+                options.baselineLockstep = true;
             }
             else if(arg == "--force-desync-frame") {
                 if(!nextValue(options.forceDesyncFrame) || options.forceDesyncFrame == 0) {

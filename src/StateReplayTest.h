@@ -156,19 +156,16 @@ private:
 
     static void applyPadMask(GeraNESEmu& emu, uint64_t mask)
     {
-        emu.setController1Buttons(
-            (mask & (1ull << 0)) != 0,
-            (mask & (1ull << 1)) != 0,
-            (mask & (1ull << 2)) != 0,
-            (mask & (1ull << 3)) != 0,
-            (mask & (1ull << 4)) != 0,
-            (mask & (1ull << 5)) != 0,
-            (mask & (1ull << 6)) != 0,
-            (mask & (1ull << 7)) != 0
-        );
-        emu.setController2Buttons(false, false, false, false, false, false, false, false);
-        emu.setController3Buttons(false, false, false, false, false, false, false, false);
-        emu.setController4Buttons(false, false, false, false, false, false, false, false);
+        InputFrame frame = emu.createInputFrame(emu.frameCount() + 1u);
+        frame.p1A = (mask & (1ull << 0)) != 0;
+        frame.p1B = (mask & (1ull << 1)) != 0;
+        frame.p1Select = (mask & (1ull << 2)) != 0;
+        frame.p1Start = (mask & (1ull << 3)) != 0;
+        frame.p1Up = (mask & (1ull << 4)) != 0;
+        frame.p1Down = (mask & (1ull << 5)) != 0;
+        frame.p1Left = (mask & (1ull << 6)) != 0;
+        frame.p1Right = (mask & (1ull << 7)) != 0;
+        emu.queueInputFrame(frame);
     }
 
     static bool advanceExactlyOneFrame(GeraNESEmu& emu, uint64_t inputMask)

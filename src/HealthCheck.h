@@ -429,17 +429,16 @@ public:
         for(uint32_t frame = 1; frame <= totalFrames; ++frame) {
             const Buttons& buttons = input.buttonsForFrame(frame, fps);
             const std::string buttonsLabel = buttonsToString(buttons);
-            emu.setController1Buttons(
-                buttons.a,
-                buttons.b,
-                buttons.select,
-                buttons.start,
-                buttons.up,
-                buttons.down,
-                buttons.left,
-                buttons.right
-            );
-            emu.setController2Buttons(false, false, false, false, false, false, false, false);
+            InputFrame inputFrame = emu.createInputFrame(emu.frameCount() + 1u);
+            inputFrame.p1A = buttons.a;
+            inputFrame.p1B = buttons.b;
+            inputFrame.p1Select = buttons.select;
+            inputFrame.p1Start = buttons.start;
+            inputFrame.p1Up = buttons.up;
+            inputFrame.p1Down = buttons.down;
+            inputFrame.p1Left = buttons.left;
+            inputFrame.p1Right = buttons.right;
+            emu.queueInputFrame(inputFrame);
 
             const uint32_t prevFrameCount = emu.frameCount();
             while(emu.valid() && emu.frameCount() == prevFrameCount) {

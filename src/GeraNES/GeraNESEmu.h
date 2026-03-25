@@ -29,6 +29,7 @@
 #include "Console.h"
 #include "HardwareActions.h"
 #include "NsfPlayer.h"
+#include "InputBuffer.h"
 
 #include "Serialization.h"
 #include "util/Crc32.h"
@@ -55,138 +56,6 @@ public:
     };
 
 private:
-    struct PendingInputState
-    {
-        bool p1A = false;
-        bool p1B = false;
-        bool p1Select = false;
-        bool p1Start = false;
-        bool p1Up = false;
-        bool p1Down = false;
-        bool p1Left = false;
-        bool p1Right = false;
-        bool p1X = false;
-        bool p1Y = false;
-        bool p1L = false;
-        bool p1R = false;
-
-        bool p2A = false;
-        bool p2B = false;
-        bool p2Select = false;
-        bool p2Start = false;
-        bool p2Up = false;
-        bool p2Down = false;
-        bool p2Left = false;
-        bool p2Right = false;
-        bool p2X = false;
-        bool p2Y = false;
-        bool p2L = false;
-        bool p2R = false;
-
-        bool p3A = false;
-        bool p3B = false;
-        bool p3Select = false;
-        bool p3Start = false;
-        bool p3Up = false;
-        bool p3Down = false;
-        bool p3Left = false;
-        bool p3Right = false;
-
-        bool p4A = false;
-        bool p4B = false;
-        bool p4Select = false;
-        bool p4Start = false;
-        bool p4Up = false;
-        bool p4Down = false;
-        bool p4Left = false;
-        bool p4Right = false;
-
-        int zapperP1X = -1;
-        int zapperP1Y = -1;
-        bool zapperP1Trigger = false;
-        int zapperP2X = -1;
-        int zapperP2Y = -1;
-        bool zapperP2Trigger = false;
-
-        bool bandaiA = false;
-        bool bandaiB = false;
-        bool bandaiSelect = false;
-        bool bandaiStart = false;
-        bool bandaiUp = false;
-        bool bandaiDown = false;
-        bool bandaiLeft = false;
-        bool bandaiRight = false;
-        int bandaiX = -1;
-        int bandaiY = -1;
-        bool bandaiTrigger = false;
-
-        float arkanoidP1Position = 0.5f;
-        bool arkanoidP1Button = false;
-        float arkanoidP2Position = 0.5f;
-        bool arkanoidP2Button = false;
-        float arkanoidFamicomPosition = 0.5f;
-        bool arkanoidFamicomButton = false;
-
-        bool konamiP1Run = false;
-        bool konamiP1Jump = false;
-        bool konamiP2Run = false;
-        bool konamiP2Jump = false;
-
-        int snesMouseP1DeltaX = 0;
-        int snesMouseP1DeltaY = 0;
-        bool snesMouseP1Left = false;
-        bool snesMouseP1Right = false;
-        int snesMouseP2DeltaX = 0;
-        int snesMouseP2DeltaY = 0;
-        bool snesMouseP2Left = false;
-        bool snesMouseP2Right = false;
-
-        bool vbP1A = false;
-        bool vbP1B = false;
-        bool vbP1Select = false;
-        bool vbP1Start = false;
-        bool vbP1Up0 = false;
-        bool vbP1Down0 = false;
-        bool vbP1Left0 = false;
-        bool vbP1Right0 = false;
-        bool vbP1Up1 = false;
-        bool vbP1Down1 = false;
-        bool vbP1Left1 = false;
-        bool vbP1Right1 = false;
-        bool vbP1L = false;
-        bool vbP1R = false;
-
-        bool vbP2A = false;
-        bool vbP2B = false;
-        bool vbP2Select = false;
-        bool vbP2Start = false;
-        bool vbP2Up0 = false;
-        bool vbP2Down0 = false;
-        bool vbP2Left0 = false;
-        bool vbP2Right0 = false;
-        bool vbP2Up1 = false;
-        bool vbP2Down1 = false;
-        bool vbP2Left1 = false;
-        bool vbP2Right1 = false;
-        bool vbP2L = false;
-        bool vbP2R = false;
-
-        int suborMouseP1DeltaX = 0;
-        int suborMouseP1DeltaY = 0;
-        bool suborMouseP1Left = false;
-        bool suborMouseP1Right = false;
-        int suborMouseP2DeltaX = 0;
-        int suborMouseP2DeltaY = 0;
-        bool suborMouseP2Left = false;
-        bool suborMouseP2Right = false;
-
-        IExpansionDevice::SuborKeyboardKeys suborKeyboardKeys = {};
-        IExpansionDevice::FamilyBasicKeyboardKeys familyBasicKeyboardKeys = {};
-        std::array<bool, 12> powerPadP1Buttons = {};
-        std::array<bool, 12> powerPadP2Buttons = {};
-    };
-
-
     const uint32_t MAX_4011_WRITES_TO_DISABLE_OVERCLOCK = 2;
 
     Settings m_settings;
@@ -207,6 +76,7 @@ private:
 
     uint32_t m_4011WriteCounter;
     bool m_newFrame;
+    bool m_frameStarted;
 
     bool m_halt;
 
@@ -222,7 +92,7 @@ private:
     uint8_t m_openBus;
     uint16_t m_prevControllerReadAddr;
 
-    uint32_t m_frameCount;
+    uint32_t m_frameCounter;
     HardwareActions m_hardwareActions;
 
     bool m_runningLoop;
@@ -240,7 +110,8 @@ private:
     bool m_netplayLoadStateCleanBoot = false;
     std::vector<uint8_t> m_netplayLoadStateData;
     std::optional<bool> m_netplayLoadStateResult;
-    PendingInputState m_pendingInputState;
+    InputBuffer m_inputBuffer;
+    InputFrame m_lastAppliedInputFrame;
     bool m_processingFrameStart = false;
 
     Rewind m_rewind;
@@ -491,6 +362,133 @@ private:
         recreatePortDevice(Settings::Port::P_1);
         recreatePortDevice(Settings::Port::P_2);
         recreateExpansionDevice();
+    }
+
+    InputFrame makeDefaultInputFrame(uint32_t frame)
+    {
+        InputFrame inputFrame;
+        inputFrame.frame = frame;
+        inputFrame.port1Device = m_settings.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
+        inputFrame.port2Device = m_settings.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
+        inputFrame.expansionDevice = m_settings.getExpansionDevice();
+        inputFrame.nesMultitapDevice = m_settings.getNesMultitapDevice();
+        inputFrame.famicomMultitapDevice = m_settings.getFamicomMultitapDevice();
+        return inputFrame;
+    }
+
+    void applyInputFrame(const InputFrame& inputFrame)
+    {
+        const Settings::Device port1Device = inputFrame.port1Device;
+        const Settings::Device port2Device = inputFrame.port2Device;
+        const Settings::ExpansionDevice expansionDevice = inputFrame.expansionDevice;
+        const Settings::NesMultitapDevice nesMultitapDevice = inputFrame.nesMultitapDevice;
+        const Settings::FamicomMultitapDevice famicomMultitapDevice = inputFrame.famicomMultitapDevice;
+
+        if(m_settings.getNesMultitapDevice() != nesMultitapDevice) {
+            setNesMultitapDevice(nesMultitapDevice);
+        }
+        if(m_settings.getFamicomMultitapDevice() != famicomMultitapDevice) {
+            setFamicomMultitapDevice(famicomMultitapDevice);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE) != port1Device) {
+            setPortDevice(Settings::Port::P_1, port1Device);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE) != port2Device) {
+            setPortDevice(Settings::Port::P_2, port2Device);
+        }
+        if(m_settings.getExpansionDevice() != expansionDevice) {
+            setExpansionDevice(expansionDevice);
+        }
+
+        if(m_fourScore) m_fourScore->setControllerButtons(0, inputFrame.p1A, inputFrame.p1B, inputFrame.p1Select, inputFrame.p1Start, inputFrame.p1Up, inputFrame.p1Down, inputFrame.p1Left, inputFrame.p1Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(0, inputFrame.p1A, inputFrame.p1B, inputFrame.p1Select, inputFrame.p1Start, inputFrame.p1Up, inputFrame.p1Down, inputFrame.p1Left, inputFrame.p1Right);
+        else if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(inputFrame.p1A, inputFrame.p1B, inputFrame.p1Select, inputFrame.p1Start, inputFrame.p1Up, inputFrame.p1Down, inputFrame.p1Left, inputFrame.p1Right, inputFrame.p1X, inputFrame.p1Y, inputFrame.p1L, inputFrame.p1R);
+
+        if(m_fourScore) m_fourScore->setControllerButtons(1, inputFrame.p2A, inputFrame.p2B, inputFrame.p2Select, inputFrame.p2Start, inputFrame.p2Up, inputFrame.p2Down, inputFrame.p2Left, inputFrame.p2Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(1, inputFrame.p2A, inputFrame.p2B, inputFrame.p2Select, inputFrame.p2Start, inputFrame.p2Up, inputFrame.p2Down, inputFrame.p2Left, inputFrame.p2Right);
+        else if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(inputFrame.p2A, inputFrame.p2B, inputFrame.p2Select, inputFrame.p2Start, inputFrame.p2Up, inputFrame.p2Down, inputFrame.p2Left, inputFrame.p2Right, inputFrame.p2X, inputFrame.p2Y, inputFrame.p2L, inputFrame.p2R);
+
+        if(m_fourScore) m_fourScore->setControllerButtons(2, inputFrame.p3A, inputFrame.p3B, inputFrame.p3Select, inputFrame.p3Start, inputFrame.p3Up, inputFrame.p3Down, inputFrame.p3Left, inputFrame.p3Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(2, inputFrame.p3A, inputFrame.p3B, inputFrame.p3Select, inputFrame.p3Start, inputFrame.p3Up, inputFrame.p3Down, inputFrame.p3Left, inputFrame.p3Right);
+        else if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM && m_expansionDevice) m_expansionDevice->setButtonsStatus(inputFrame.p3A, inputFrame.p3B, inputFrame.p3Select, inputFrame.p3Start, inputFrame.p3Up, inputFrame.p3Down, inputFrame.p3Left, inputFrame.p3Right);
+
+        if(m_fourScore) m_fourScore->setControllerButtons(3, inputFrame.p4A, inputFrame.p4B, inputFrame.p4Select, inputFrame.p4Start, inputFrame.p4Up, inputFrame.p4Down, inputFrame.p4Left, inputFrame.p4Right);
+        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(3, inputFrame.p4A, inputFrame.p4B, inputFrame.p4Select, inputFrame.p4Start, inputFrame.p4Up, inputFrame.p4Down, inputFrame.p4Left, inputFrame.p4Right);
+
+        processNsfControllerInput(inputFrame.p1Select, inputFrame.p1Start, inputFrame.p1Left, inputFrame.p1Right);
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) && m_portDevice1) {
+            m_portDevice1->setCursorPosition(inputFrame.zapperP1X, inputFrame.zapperP1Y);
+            m_portDevice1->setTrigger(inputFrame.zapperP1Trigger);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER) && m_portDevice2) {
+            m_portDevice2->setCursorPosition(inputFrame.zapperP2X, inputFrame.zapperP2Y);
+            m_portDevice2->setTrigger(inputFrame.zapperP2Trigger);
+        }
+
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT && m_expansionDevice) {
+            m_expansionDevice->setButtonsStatus(inputFrame.bandaiA, inputFrame.bandaiB, inputFrame.bandaiSelect, inputFrame.bandaiStart, inputFrame.bandaiUp, inputFrame.bandaiDown, inputFrame.bandaiLeft, inputFrame.bandaiRight);
+            m_expansionDevice->setCursorPosition(inputFrame.bandaiX, inputFrame.bandaiY);
+            m_expansionDevice->setTrigger(inputFrame.bandaiTrigger);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) && m_portDevice1) {
+            m_portDevice1->setPositionNormalized(std::clamp(inputFrame.arkanoidP1Position, 0.0f, 1.0f));
+            m_portDevice1->setTrigger(inputFrame.arkanoidP1Button);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) && m_portDevice2) {
+            m_portDevice2->setPositionNormalized(std::clamp(inputFrame.arkanoidP2Position, 0.0f, 1.0f));
+            m_portDevice2->setTrigger(inputFrame.arkanoidP2Button);
+        }
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER && m_expansionDevice) {
+            m_expansionDevice->setPositionNormalized(std::clamp(inputFrame.arkanoidFamicomPosition, 0.0f, 1.0f));
+            m_expansionDevice->setTrigger(inputFrame.arkanoidFamicomButton);
+        }
+
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT && m_expansionDevice) {
+            m_expansionDevice->setPlayersButtons(inputFrame.konamiP1Run, inputFrame.konamiP1Jump, inputFrame.konamiP2Run, inputFrame.konamiP2Jump);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) && m_portDevice1) {
+            m_portDevice1->addRelativeMotion(inputFrame.snesMouseP1DeltaX, inputFrame.snesMouseP1DeltaY);
+            m_portDevice1->setTrigger(inputFrame.snesMouseP1Left);
+            m_portDevice1->setSecondaryTrigger(inputFrame.snesMouseP1Right);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) && m_portDevice2) {
+            m_portDevice2->addRelativeMotion(inputFrame.snesMouseP2DeltaX, inputFrame.snesMouseP2DeltaY);
+            m_portDevice2->setTrigger(inputFrame.snesMouseP2Left);
+            m_portDevice2->setSecondaryTrigger(inputFrame.snesMouseP2Right);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER) && m_portDevice1) {
+            m_portDevice1->setVirtualBoyButtons(inputFrame.vbP1A, inputFrame.vbP1B, inputFrame.vbP1Select, inputFrame.vbP1Start, inputFrame.vbP1Up0, inputFrame.vbP1Down0, inputFrame.vbP1Left0, inputFrame.vbP1Right0, inputFrame.vbP1Up1, inputFrame.vbP1Down1, inputFrame.vbP1Left1, inputFrame.vbP1Right1, inputFrame.vbP1L, inputFrame.vbP1R);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER) && m_portDevice2) {
+            m_portDevice2->setVirtualBoyButtons(inputFrame.vbP2A, inputFrame.vbP2B, inputFrame.vbP2Select, inputFrame.vbP2Start, inputFrame.vbP2Up0, inputFrame.vbP2Down0, inputFrame.vbP2Left0, inputFrame.vbP2Right0, inputFrame.vbP2Up1, inputFrame.vbP2Down1, inputFrame.vbP2Left1, inputFrame.vbP2Right1, inputFrame.vbP2L, inputFrame.vbP2R);
+        }
+
+        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) && m_portDevice1) {
+            m_portDevice1->addRelativeMotion(inputFrame.suborMouseP1DeltaX, inputFrame.suborMouseP1DeltaY);
+            m_portDevice1->setTrigger(inputFrame.suborMouseP1Left);
+            m_portDevice1->setSecondaryTrigger(inputFrame.suborMouseP1Right);
+        }
+        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) && m_portDevice2) {
+            m_portDevice2->addRelativeMotion(inputFrame.suborMouseP2DeltaX, inputFrame.suborMouseP2DeltaY);
+            m_portDevice2->setTrigger(inputFrame.suborMouseP2Left);
+            m_portDevice2->setSecondaryTrigger(inputFrame.suborMouseP2Right);
+        }
+
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD && m_expansionDevice) m_expansionDevice->setSuborKeyboardKeys(inputFrame.suborKeyboardKeys);
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD && m_expansionDevice) m_expansionDevice->setFamilyBasicKeyboardKeys(inputFrame.familyBasicKeyboardKeys);
+
+        const auto p1Device = m_settings.getPortDevice(Settings::Port::P_1);
+        const auto p2Device = m_settings.getPortDevice(Settings::Port::P_2);
+        const bool familyTrainer =
+            m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+            m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
+        if((p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice1) m_portDevice1->setPowerPadButtons(inputFrame.powerPadP1Buttons);
+        if((p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice2) m_portDevice2->setPowerPadButtons(inputFrame.powerPadP2Buttons);
+        if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(inputFrame.powerPadP1Buttons);
     }
 
     void processNsfControllerInput(bool selectPressed, bool startPressed, bool leftPressed, bool rightPressed)
@@ -777,10 +775,9 @@ private:
         signalError(e);
         Logger::instance().log(e, Logger::Type::ERROR);
         m_halt = true;
-    }
+    }    
 
-    void onFrameStart()
-    {
+    void onFrameStart() {
         m_4011WriteCounter = 0;
         m_cartridge.applyExternalActions(
             m_hardwareActions.consumeFdsPendingActions(
@@ -793,18 +790,23 @@ private:
         m_processingFrameStart = true;
         signalFrameStart();
         m_processingFrameStart = false;
-        applyPendingInputState();
-    }
+        const uint32_t playbackFrame = m_frameCounter + 1u;
+        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame != nullptr) {
+            applyInputFrame(*inputFrame);
+            m_lastAppliedInputFrame = *inputFrame;
+        } else {
+            InputFrame repeated = InputFrame::repeatedFrom(m_lastAppliedInputFrame, playbackFrame);
+            applyInputFrame(repeated);
+            m_lastAppliedInputFrame = repeated;
+        }
+    }    
 
-    void onFrameReady()
-    {
-        m_newFrame = true;
-        ++m_frameCount;
-        
+    void onFrameReady() {
+        ++m_frameCounter;        
         signalFrameReady();
     }
 
-    void onScanlineStart()
+    void onPPUScanlineStart()
     {
         if(m_portDevice1) m_portDevice1->onScanlineChanged();
         if(m_portDevice2) m_portDevice2->onScanlineChanged();
@@ -858,111 +860,12 @@ private:
         m_applyingPendingNsfActions = false;
     }
 
-    void applyPendingInputState()
-    {
-        if(m_fourScore) m_fourScore->setControllerButtons(0, m_pendingInputState.p1A, m_pendingInputState.p1B, m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Up, m_pendingInputState.p1Down, m_pendingInputState.p1Left, m_pendingInputState.p1Right);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(0, m_pendingInputState.p1A, m_pendingInputState.p1B, m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Up, m_pendingInputState.p1Down, m_pendingInputState.p1Left, m_pendingInputState.p1Right);
-        else if(m_portDevice1) m_portDevice1->setButtonsStatusExtended(m_pendingInputState.p1A, m_pendingInputState.p1B, m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Up, m_pendingInputState.p1Down, m_pendingInputState.p1Left, m_pendingInputState.p1Right, m_pendingInputState.p1X, m_pendingInputState.p1Y, m_pendingInputState.p1L, m_pendingInputState.p1R);
-
-        if(m_fourScore) m_fourScore->setControllerButtons(1, m_pendingInputState.p2A, m_pendingInputState.p2B, m_pendingInputState.p2Select, m_pendingInputState.p2Start, m_pendingInputState.p2Up, m_pendingInputState.p2Down, m_pendingInputState.p2Left, m_pendingInputState.p2Right);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(1, m_pendingInputState.p2A, m_pendingInputState.p2B, m_pendingInputState.p2Select, m_pendingInputState.p2Start, m_pendingInputState.p2Up, m_pendingInputState.p2Down, m_pendingInputState.p2Left, m_pendingInputState.p2Right);
-        else if(m_portDevice2) m_portDevice2->setButtonsStatusExtended(m_pendingInputState.p2A, m_pendingInputState.p2B, m_pendingInputState.p2Select, m_pendingInputState.p2Start, m_pendingInputState.p2Up, m_pendingInputState.p2Down, m_pendingInputState.p2Left, m_pendingInputState.p2Right, m_pendingInputState.p2X, m_pendingInputState.p2Y, m_pendingInputState.p2L, m_pendingInputState.p2R);
-
-        if(m_fourScore) m_fourScore->setControllerButtons(2, m_pendingInputState.p3A, m_pendingInputState.p3B, m_pendingInputState.p3Select, m_pendingInputState.p3Start, m_pendingInputState.p3Up, m_pendingInputState.p3Down, m_pendingInputState.p3Left, m_pendingInputState.p3Right);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(2, m_pendingInputState.p3A, m_pendingInputState.p3B, m_pendingInputState.p3Select, m_pendingInputState.p3Start, m_pendingInputState.p3Up, m_pendingInputState.p3Down, m_pendingInputState.p3Left, m_pendingInputState.p3Right);
-        else if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM && m_expansionDevice) m_expansionDevice->setButtonsStatus(m_pendingInputState.p3A, m_pendingInputState.p3B, m_pendingInputState.p3Select, m_pendingInputState.p3Start, m_pendingInputState.p3Up, m_pendingInputState.p3Down, m_pendingInputState.p3Left, m_pendingInputState.p3Right);
-
-        if(m_fourScore) m_fourScore->setControllerButtons(3, m_pendingInputState.p4A, m_pendingInputState.p4B, m_pendingInputState.p4Select, m_pendingInputState.p4Start, m_pendingInputState.p4Up, m_pendingInputState.p4Down, m_pendingInputState.p4Left, m_pendingInputState.p4Right);
-        else if(m_HoriAdapter) m_HoriAdapter->setControllerButtons(3, m_pendingInputState.p4A, m_pendingInputState.p4B, m_pendingInputState.p4Select, m_pendingInputState.p4Start, m_pendingInputState.p4Up, m_pendingInputState.p4Down, m_pendingInputState.p4Left, m_pendingInputState.p4Right);
-
-        processNsfControllerInput(m_pendingInputState.p1Select, m_pendingInputState.p1Start, m_pendingInputState.p1Left, m_pendingInputState.p1Right);
-
-        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER) && m_portDevice1) {
-            m_portDevice1->setCursorPosition(m_pendingInputState.zapperP1X, m_pendingInputState.zapperP1Y);
-            m_portDevice1->setTrigger(m_pendingInputState.zapperP1Trigger);
-        }
-        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER) && m_portDevice2) {
-            m_portDevice2->setCursorPosition(m_pendingInputState.zapperP2X, m_pendingInputState.zapperP2Y);
-            m_portDevice2->setTrigger(m_pendingInputState.zapperP2Trigger);
-        }
-
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT && m_expansionDevice) {
-            m_expansionDevice->setButtonsStatus(m_pendingInputState.bandaiA, m_pendingInputState.bandaiB, m_pendingInputState.bandaiSelect, m_pendingInputState.bandaiStart, m_pendingInputState.bandaiUp, m_pendingInputState.bandaiDown, m_pendingInputState.bandaiLeft, m_pendingInputState.bandaiRight);
-            m_expansionDevice->setCursorPosition(m_pendingInputState.bandaiX, m_pendingInputState.bandaiY);
-            m_expansionDevice->setTrigger(m_pendingInputState.bandaiTrigger);
-        }
-
-        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) && m_portDevice1) {
-            m_portDevice1->setPositionNormalized(std::clamp(m_pendingInputState.arkanoidP1Position, 0.0f, 1.0f));
-            m_portDevice1->setTrigger(m_pendingInputState.arkanoidP1Button);
-        }
-        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) && m_portDevice2) {
-            m_portDevice2->setPositionNormalized(std::clamp(m_pendingInputState.arkanoidP2Position, 0.0f, 1.0f));
-            m_portDevice2->setTrigger(m_pendingInputState.arkanoidP2Button);
-        }
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER && m_expansionDevice) {
-            m_expansionDevice->setPositionNormalized(std::clamp(m_pendingInputState.arkanoidFamicomPosition, 0.0f, 1.0f));
-            m_expansionDevice->setTrigger(m_pendingInputState.arkanoidFamicomButton);
-        }
-
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT && m_expansionDevice) {
-            m_expansionDevice->setPlayersButtons(m_pendingInputState.konamiP1Run, m_pendingInputState.konamiP1Jump, m_pendingInputState.konamiP2Run, m_pendingInputState.konamiP2Jump);
-        }
-
-        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) && m_portDevice1) {
-            m_portDevice1->addRelativeMotion(m_pendingInputState.snesMouseP1DeltaX, m_pendingInputState.snesMouseP1DeltaY);
-            m_portDevice1->setTrigger(m_pendingInputState.snesMouseP1Left);
-            m_portDevice1->setSecondaryTrigger(m_pendingInputState.snesMouseP1Right);
-            m_pendingInputState.snesMouseP1DeltaX = 0;
-            m_pendingInputState.snesMouseP1DeltaY = 0;
-        }
-        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) && m_portDevice2) {
-            m_portDevice2->addRelativeMotion(m_pendingInputState.snesMouseP2DeltaX, m_pendingInputState.snesMouseP2DeltaY);
-            m_portDevice2->setTrigger(m_pendingInputState.snesMouseP2Left);
-            m_portDevice2->setSecondaryTrigger(m_pendingInputState.snesMouseP2Right);
-            m_pendingInputState.snesMouseP2DeltaX = 0;
-            m_pendingInputState.snesMouseP2DeltaY = 0;
-        }
-
-        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER) && m_portDevice1) {
-            m_portDevice1->setVirtualBoyButtons(m_pendingInputState.vbP1A, m_pendingInputState.vbP1B, m_pendingInputState.vbP1Select, m_pendingInputState.vbP1Start, m_pendingInputState.vbP1Up0, m_pendingInputState.vbP1Down0, m_pendingInputState.vbP1Left0, m_pendingInputState.vbP1Right0, m_pendingInputState.vbP1Up1, m_pendingInputState.vbP1Down1, m_pendingInputState.vbP1Left1, m_pendingInputState.vbP1Right1, m_pendingInputState.vbP1L, m_pendingInputState.vbP1R);
-        }
-        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER) && m_portDevice2) {
-            m_portDevice2->setVirtualBoyButtons(m_pendingInputState.vbP2A, m_pendingInputState.vbP2B, m_pendingInputState.vbP2Select, m_pendingInputState.vbP2Start, m_pendingInputState.vbP2Up0, m_pendingInputState.vbP2Down0, m_pendingInputState.vbP2Left0, m_pendingInputState.vbP2Right0, m_pendingInputState.vbP2Up1, m_pendingInputState.vbP2Down1, m_pendingInputState.vbP2Left1, m_pendingInputState.vbP2Right1, m_pendingInputState.vbP2L, m_pendingInputState.vbP2R);
-        }
-
-        if(m_settings.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) && m_portDevice1) {
-            m_portDevice1->addRelativeMotion(m_pendingInputState.suborMouseP1DeltaX, m_pendingInputState.suborMouseP1DeltaY);
-            m_portDevice1->setTrigger(m_pendingInputState.suborMouseP1Left);
-            m_portDevice1->setSecondaryTrigger(m_pendingInputState.suborMouseP1Right);
-            m_pendingInputState.suborMouseP1DeltaX = 0;
-            m_pendingInputState.suborMouseP1DeltaY = 0;
-        }
-        if(m_settings.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) && m_portDevice2) {
-            m_portDevice2->addRelativeMotion(m_pendingInputState.suborMouseP2DeltaX, m_pendingInputState.suborMouseP2DeltaY);
-            m_portDevice2->setTrigger(m_pendingInputState.suborMouseP2Left);
-            m_portDevice2->setSecondaryTrigger(m_pendingInputState.suborMouseP2Right);
-            m_pendingInputState.suborMouseP2DeltaX = 0;
-            m_pendingInputState.suborMouseP2DeltaY = 0;
-        }
-
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD && m_expansionDevice) m_expansionDevice->setSuborKeyboardKeys(m_pendingInputState.suborKeyboardKeys);
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD && m_expansionDevice) m_expansionDevice->setFamilyBasicKeyboardKeys(m_pendingInputState.familyBasicKeyboardKeys);
-
-        const auto p1Device = m_settings.getPortDevice(Settings::Port::P_1);
-        const auto p2Device = m_settings.getPortDevice(Settings::Port::P_2);
-        const bool familyTrainer = m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A || m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
-        if((p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice1) m_portDevice1->setPowerPadButtons(m_pendingInputState.powerPadP1Buttons);
-        if((p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice2) m_portDevice2->setPowerPadButtons(m_pendingInputState.powerPadP2Buttons);
-        if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(m_pendingInputState.powerPadP1Buttons);
-    }
-
     void processDeferredNetplaySnapshot()
     {
         if(!m_netplaySnapshotFlag || !m_cartridge.isValid()) return;
 
         PendingNetplaySnapshot snapshot;
-        snapshot.frame = m_frameCount;
+            snapshot.frame = m_frameCounter;
         snapshot.data = saveStateToMemory();
         m_netplaySnapshotResult = std::move(snapshot);
         m_netplaySnapshotFlag = false;
@@ -1083,6 +986,16 @@ public:
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady;
 
+    void onPPUFrameStart()
+    {
+        m_frameStarted = true;        
+    }
+
+    void onPPUFrameReady()
+    {
+        m_newFrame = true;        
+    }
+
     GeraNESEmu(IAudioOutput& audioOutput = DummyAudioOutput::instance()) :
     m_settings(),
     m_audioOutput(audioOutput),
@@ -1100,10 +1013,11 @@ public:
         init();
 
         m_cpu.signalError.bind(&GeraNESEmu::onError, this);
+        
 
-        m_ppu.signalFrameStart.bind(&GeraNESEmu::onFrameStart, this);
-        m_ppu.signalFrameReady.bind(&GeraNESEmu::onFrameReady, this);
-        m_ppu.signalScanlineStart.bind(&GeraNESEmu::onScanlineStart, this);
+        m_ppu.signalFrameStart.bind(&GeraNESEmu::onPPUFrameStart, this);
+        m_ppu.signalFrameReady.bind(&GeraNESEmu::onPPUFrameReady, this);
+        m_ppu.signalScanlineStart.bind(&GeraNESEmu::onPPUScanlineStart, this);
         m_apu.getSampleChannel().dmcRequest.bind(&GeraNESEmu::onDMCRequest, this);
         m_apu.getSampleChannel().dmcCancelRequest.bind(&GeraNESEmu::onDMCCancelRequest, this);
         m_apu.getSampleChannel().dmcImplicitAbortRequest.bind(&GeraNESEmu::onDMCImplicitAbortRequest, this);
@@ -1129,7 +1043,10 @@ public:
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
 
-        m_frameCount = 0;
+        m_frameCounter = 0;
+        m_inputBuffer.clear();
+        m_lastAppliedInputFrame = makeDefaultInputFrame(0);
+        m_inputBuffer.push(m_lastAppliedInputFrame);
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
@@ -1361,6 +1278,10 @@ public:
 
             updateCyclesPerSecond();
 
+            m_inputBuffer.clear();
+            m_lastAppliedInputFrame = makeDefaultInputFrame(0);
+            m_inputBuffer.push(m_lastAppliedInputFrame);
+
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_cartridge.reset();
             preloadNsfMemory();
@@ -1383,7 +1304,7 @@ public:
     GERANES_HOT void write(int addr, uint8_t data) override
     {
         accessBus<AccessType::Write>(addr,data);
-    }
+    }    
 
     /**
      * Return true on new frame
@@ -1442,7 +1363,12 @@ public:
                     renderAudioMs(AUDIO_RENDER_TIME_STEP);
                     renderedAudioMs += AUDIO_RENDER_TIME_STEP;
                 }
-            }    
+            }
+            
+            if(m_frameStarted) {
+                onFrameStart();
+                m_frameStarted = false;
+            }
 
             if(m_newFrame) {
                 m_rewind.newFrame();
@@ -1592,7 +1518,7 @@ public:
             if(!m_cartridge.isValid()) return;
 
             PendingNetplaySnapshot snapshot;
-            snapshot.frame = m_frameCount;
+        snapshot.frame = m_frameCounter;
             snapshot.data = saveNetplayStateToMemory();
             m_netplaySnapshotResult = std::move(snapshot);
             return;
@@ -1639,13 +1565,14 @@ public:
 
     std::vector<uint8_t> saveNetplayStateToMemory()
     {
-        const PendingInputState savedPendingInputState = m_pendingInputState;
-        m_pendingInputState = {};
+        const InputBuffer savedInputBuffer = m_inputBuffer;
+        m_inputBuffer.clear();
+        m_inputBuffer.push(m_lastAppliedInputFrame);
 
         Serialize s;
         serialization(s);
 
-        m_pendingInputState = savedPendingInputState;
+        m_inputBuffer = savedInputBuffer;
         return s.getData();
     }
 
@@ -1813,38 +1740,8 @@ public:
         if(m_expansionDevice) m_expansionDevice->serialization(s);
         if(m_fourScore) m_fourScore->serialization(s);
         if(m_HoriAdapter) m_HoriAdapter->serialization(s);
-        SERIALIZEDATA(s, m_pendingInputState.p1A); SERIALIZEDATA(s, m_pendingInputState.p1B); SERIALIZEDATA(s, m_pendingInputState.p1Select); SERIALIZEDATA(s, m_pendingInputState.p1Start);
-        SERIALIZEDATA(s, m_pendingInputState.p1Up); SERIALIZEDATA(s, m_pendingInputState.p1Down); SERIALIZEDATA(s, m_pendingInputState.p1Left); SERIALIZEDATA(s, m_pendingInputState.p1Right);
-        SERIALIZEDATA(s, m_pendingInputState.p1X); SERIALIZEDATA(s, m_pendingInputState.p1Y); SERIALIZEDATA(s, m_pendingInputState.p1L); SERIALIZEDATA(s, m_pendingInputState.p1R);
-        SERIALIZEDATA(s, m_pendingInputState.p2A); SERIALIZEDATA(s, m_pendingInputState.p2B); SERIALIZEDATA(s, m_pendingInputState.p2Select); SERIALIZEDATA(s, m_pendingInputState.p2Start);
-        SERIALIZEDATA(s, m_pendingInputState.p2Up); SERIALIZEDATA(s, m_pendingInputState.p2Down); SERIALIZEDATA(s, m_pendingInputState.p2Left); SERIALIZEDATA(s, m_pendingInputState.p2Right);
-        SERIALIZEDATA(s, m_pendingInputState.p2X); SERIALIZEDATA(s, m_pendingInputState.p2Y); SERIALIZEDATA(s, m_pendingInputState.p2L); SERIALIZEDATA(s, m_pendingInputState.p2R);
-        SERIALIZEDATA(s, m_pendingInputState.p3A); SERIALIZEDATA(s, m_pendingInputState.p3B); SERIALIZEDATA(s, m_pendingInputState.p3Select); SERIALIZEDATA(s, m_pendingInputState.p3Start);
-        SERIALIZEDATA(s, m_pendingInputState.p3Up); SERIALIZEDATA(s, m_pendingInputState.p3Down); SERIALIZEDATA(s, m_pendingInputState.p3Left); SERIALIZEDATA(s, m_pendingInputState.p3Right);
-        SERIALIZEDATA(s, m_pendingInputState.p4A); SERIALIZEDATA(s, m_pendingInputState.p4B); SERIALIZEDATA(s, m_pendingInputState.p4Select); SERIALIZEDATA(s, m_pendingInputState.p4Start);
-        SERIALIZEDATA(s, m_pendingInputState.p4Up); SERIALIZEDATA(s, m_pendingInputState.p4Down); SERIALIZEDATA(s, m_pendingInputState.p4Left); SERIALIZEDATA(s, m_pendingInputState.p4Right);
-        SERIALIZEDATA(s, m_pendingInputState.zapperP1X); SERIALIZEDATA(s, m_pendingInputState.zapperP1Y); SERIALIZEDATA(s, m_pendingInputState.zapperP1Trigger);
-        SERIALIZEDATA(s, m_pendingInputState.zapperP2X); SERIALIZEDATA(s, m_pendingInputState.zapperP2Y); SERIALIZEDATA(s, m_pendingInputState.zapperP2Trigger);
-        SERIALIZEDATA(s, m_pendingInputState.bandaiA); SERIALIZEDATA(s, m_pendingInputState.bandaiB); SERIALIZEDATA(s, m_pendingInputState.bandaiSelect); SERIALIZEDATA(s, m_pendingInputState.bandaiStart);
-        SERIALIZEDATA(s, m_pendingInputState.bandaiUp); SERIALIZEDATA(s, m_pendingInputState.bandaiDown); SERIALIZEDATA(s, m_pendingInputState.bandaiLeft); SERIALIZEDATA(s, m_pendingInputState.bandaiRight);
-        SERIALIZEDATA(s, m_pendingInputState.bandaiX); SERIALIZEDATA(s, m_pendingInputState.bandaiY); SERIALIZEDATA(s, m_pendingInputState.bandaiTrigger);
-        SERIALIZEDATA(s, m_pendingInputState.arkanoidP1Position); SERIALIZEDATA(s, m_pendingInputState.arkanoidP1Button);
-        SERIALIZEDATA(s, m_pendingInputState.arkanoidP2Position); SERIALIZEDATA(s, m_pendingInputState.arkanoidP2Button);
-        SERIALIZEDATA(s, m_pendingInputState.arkanoidFamicomPosition); SERIALIZEDATA(s, m_pendingInputState.arkanoidFamicomButton);
-        SERIALIZEDATA(s, m_pendingInputState.konamiP1Run); SERIALIZEDATA(s, m_pendingInputState.konamiP1Jump); SERIALIZEDATA(s, m_pendingInputState.konamiP2Run); SERIALIZEDATA(s, m_pendingInputState.konamiP2Jump);
-        SERIALIZEDATA(s, m_pendingInputState.snesMouseP1DeltaX); SERIALIZEDATA(s, m_pendingInputState.snesMouseP1DeltaY); SERIALIZEDATA(s, m_pendingInputState.snesMouseP1Left); SERIALIZEDATA(s, m_pendingInputState.snesMouseP1Right);
-        SERIALIZEDATA(s, m_pendingInputState.snesMouseP2DeltaX); SERIALIZEDATA(s, m_pendingInputState.snesMouseP2DeltaY); SERIALIZEDATA(s, m_pendingInputState.snesMouseP2Left); SERIALIZEDATA(s, m_pendingInputState.snesMouseP2Right);
-        SERIALIZEDATA(s, m_pendingInputState.vbP1A); SERIALIZEDATA(s, m_pendingInputState.vbP1B); SERIALIZEDATA(s, m_pendingInputState.vbP1Select); SERIALIZEDATA(s, m_pendingInputState.vbP1Start);
-        SERIALIZEDATA(s, m_pendingInputState.vbP1Up0); SERIALIZEDATA(s, m_pendingInputState.vbP1Down0); SERIALIZEDATA(s, m_pendingInputState.vbP1Left0); SERIALIZEDATA(s, m_pendingInputState.vbP1Right0);
-        SERIALIZEDATA(s, m_pendingInputState.vbP1Up1); SERIALIZEDATA(s, m_pendingInputState.vbP1Down1); SERIALIZEDATA(s, m_pendingInputState.vbP1Left1); SERIALIZEDATA(s, m_pendingInputState.vbP1Right1); SERIALIZEDATA(s, m_pendingInputState.vbP1L); SERIALIZEDATA(s, m_pendingInputState.vbP1R);
-        SERIALIZEDATA(s, m_pendingInputState.vbP2A); SERIALIZEDATA(s, m_pendingInputState.vbP2B); SERIALIZEDATA(s, m_pendingInputState.vbP2Select); SERIALIZEDATA(s, m_pendingInputState.vbP2Start);
-        SERIALIZEDATA(s, m_pendingInputState.vbP2Up0); SERIALIZEDATA(s, m_pendingInputState.vbP2Down0); SERIALIZEDATA(s, m_pendingInputState.vbP2Left0); SERIALIZEDATA(s, m_pendingInputState.vbP2Right0);
-        SERIALIZEDATA(s, m_pendingInputState.vbP2Up1); SERIALIZEDATA(s, m_pendingInputState.vbP2Down1); SERIALIZEDATA(s, m_pendingInputState.vbP2Left1); SERIALIZEDATA(s, m_pendingInputState.vbP2Right1); SERIALIZEDATA(s, m_pendingInputState.vbP2L); SERIALIZEDATA(s, m_pendingInputState.vbP2R);
-        SERIALIZEDATA(s, m_pendingInputState.suborMouseP1DeltaX); SERIALIZEDATA(s, m_pendingInputState.suborMouseP1DeltaY); SERIALIZEDATA(s, m_pendingInputState.suborMouseP1Left); SERIALIZEDATA(s, m_pendingInputState.suborMouseP1Right);
-        SERIALIZEDATA(s, m_pendingInputState.suborMouseP2DeltaX); SERIALIZEDATA(s, m_pendingInputState.suborMouseP2DeltaY); SERIALIZEDATA(s, m_pendingInputState.suborMouseP2Left); SERIALIZEDATA(s, m_pendingInputState.suborMouseP2Right);
-        SERIALIZEDATA(s, m_pendingInputState.suborKeyboardKeys); SERIALIZEDATA(s, m_pendingInputState.familyBasicKeyboardKeys);
-        s.array(reinterpret_cast<uint8_t*>(m_pendingInputState.powerPadP1Buttons.data()), 1, m_pendingInputState.powerPadP1Buttons.size());
-        s.array(reinterpret_cast<uint8_t*>(m_pendingInputState.powerPadP2Buttons.data()), 1, m_pendingInputState.powerPadP2Buttons.size());
+        m_lastAppliedInputFrame.serialization(s);
+        m_inputBuffer.serialization(s);
         SERIALIZEDATA(s, m_updateCyclesAcc);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
@@ -1857,116 +1754,26 @@ public:
 
         SERIALIZEDATA(s, m_4011WriteCounter);
         SERIALIZEDATA(s, m_newFrame);
-        SERIALIZEDATA(s, m_frameCount);
+        SERIALIZEDATA(s, m_frameStarted);
+        SERIALIZEDATA(s, m_frameCounter);
         m_hardwareActions.serialization(s);
 
         SERIALIZEDATA(s, m_runningLoop);
     }
 
-    void setController1Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
-                               bool bX = false, bool bY = false, bool bL = false, bool bR = false)
+    InputFrame createInputFrame(uint32_t frame)
     {
-        m_pendingInputState.p1A = bA; m_pendingInputState.p1B = bB; m_pendingInputState.p1Select = bSelect; m_pendingInputState.p1Start = bStart;
-        m_pendingInputState.p1Up = bUp; m_pendingInputState.p1Down = bDown; m_pendingInputState.p1Left = bLeft; m_pendingInputState.p1Right = bRight;
-        m_pendingInputState.p1X = bX; m_pendingInputState.p1Y = bY; m_pendingInputState.p1L = bL; m_pendingInputState.p1R = bR;
+        return makeDefaultInputFrame(frame);
     }
 
-    void setController2Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight,
-                               bool bX = false, bool bY = false, bool bL = false, bool bR = false)
+    void queueInputFrame(const InputFrame& inputFrame)
     {
-        m_pendingInputState.p2A = bA; m_pendingInputState.p2B = bB; m_pendingInputState.p2Select = bSelect; m_pendingInputState.p2Start = bStart;
-        m_pendingInputState.p2Up = bUp; m_pendingInputState.p2Down = bDown; m_pendingInputState.p2Left = bLeft; m_pendingInputState.p2Right = bRight;
-        m_pendingInputState.p2X = bX; m_pendingInputState.p2Y = bY; m_pendingInputState.p2L = bL; m_pendingInputState.p2R = bR;
+        m_inputBuffer.push(inputFrame);
     }
 
-    void setController3Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
+    const InputBuffer& inputBuffer() const
     {
-        m_pendingInputState.p3A = bA; m_pendingInputState.p3B = bB; m_pendingInputState.p3Select = bSelect; m_pendingInputState.p3Start = bStart;
-        m_pendingInputState.p3Up = bUp; m_pendingInputState.p3Down = bDown; m_pendingInputState.p3Left = bLeft; m_pendingInputState.p3Right = bRight;
-    }
-
-    void setController4Buttons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
-    {
-        m_pendingInputState.p4A = bA; m_pendingInputState.p4B = bB; m_pendingInputState.p4Select = bSelect; m_pendingInputState.p4Start = bStart;
-        m_pendingInputState.p4Up = bUp; m_pendingInputState.p4Down = bDown; m_pendingInputState.p4Left = bLeft; m_pendingInputState.p4Right = bRight;
-    }
-
-    void setZapper(Settings::Port port, int x, int y, bool trigger)
-    {
-        if(port == Settings::Port::P_1) { m_pendingInputState.zapperP1X = x; m_pendingInputState.zapperP1Y = y; m_pendingInputState.zapperP1Trigger = trigger; }
-        else if(port == Settings::Port::P_2) { m_pendingInputState.zapperP2X = x; m_pendingInputState.zapperP2Y = y; m_pendingInputState.zapperP2Trigger = trigger; }
-    }
-
-    void setBandaiHyperShotButtons(bool bA, bool bB, bool bSelect, bool bStart, bool bUp, bool bDown, bool bLeft, bool bRight)
-    {
-        m_pendingInputState.bandaiA = bA; m_pendingInputState.bandaiB = bB; m_pendingInputState.bandaiSelect = bSelect; m_pendingInputState.bandaiStart = bStart;
-        m_pendingInputState.bandaiUp = bUp; m_pendingInputState.bandaiDown = bDown; m_pendingInputState.bandaiLeft = bLeft; m_pendingInputState.bandaiRight = bRight;
-    }
-
-    void setBandaiHyperShot(int x, int y, bool trigger)
-    {
-        m_pendingInputState.bandaiX = x; m_pendingInputState.bandaiY = y; m_pendingInputState.bandaiTrigger = trigger;
-    }
-
-    void setArkanoidController(Settings::Port port, float positionNormalized, bool button)
-    {
-        if(port == Settings::Port::P_1) { m_pendingInputState.arkanoidP1Position = positionNormalized; m_pendingInputState.arkanoidP1Button = button; }
-        else if(port == Settings::Port::P_2) { m_pendingInputState.arkanoidP2Position = positionNormalized; m_pendingInputState.arkanoidP2Button = button; }
-    }
-
-    void setKonamiHyperShotButtons(bool p1Run, bool p1Jump, bool p2Run, bool p2Jump)
-    {
-        m_pendingInputState.konamiP1Run = p1Run; m_pendingInputState.konamiP1Jump = p1Jump; m_pendingInputState.konamiP2Run = p2Run; m_pendingInputState.konamiP2Jump = p2Jump;
-    }
-
-    void setArkanoidControllerFamicom(float positionNormalized, bool button)
-    {
-        m_pendingInputState.arkanoidFamicomPosition = positionNormalized; m_pendingInputState.arkanoidFamicomButton = button;
-    }
-
-    void setSnesMouse(Settings::Port port, int deltaX, int deltaY, bool leftButton, bool rightButton)
-    {
-        if(port == Settings::Port::P_1) { m_pendingInputState.snesMouseP1DeltaX += deltaX; m_pendingInputState.snesMouseP1DeltaY += deltaY; m_pendingInputState.snesMouseP1Left = leftButton; m_pendingInputState.snesMouseP1Right = rightButton; }
-        else if(port == Settings::Port::P_2) { m_pendingInputState.snesMouseP2DeltaX += deltaX; m_pendingInputState.snesMouseP2DeltaY += deltaY; m_pendingInputState.snesMouseP2Left = leftButton; m_pendingInputState.snesMouseP2Right = rightButton; }
-    }
-
-    void setVirtualBoyControllerButtons(Settings::Port port,
-                                        bool bA, bool bB, bool bSelect, bool bStart,
-                                        bool bUp0, bool bDown0, bool bLeft0, bool bRight0,
-                                        bool bUp1, bool bDown1, bool bLeft1, bool bRight1,
-                                        bool bL, bool bR)
-    {
-        if(port == Settings::Port::P_1) {
-            m_pendingInputState.vbP1A = bA; m_pendingInputState.vbP1B = bB; m_pendingInputState.vbP1Select = bSelect; m_pendingInputState.vbP1Start = bStart;
-            m_pendingInputState.vbP1Up0 = bUp0; m_pendingInputState.vbP1Down0 = bDown0; m_pendingInputState.vbP1Left0 = bLeft0; m_pendingInputState.vbP1Right0 = bRight0;
-            m_pendingInputState.vbP1Up1 = bUp1; m_pendingInputState.vbP1Down1 = bDown1; m_pendingInputState.vbP1Left1 = bLeft1; m_pendingInputState.vbP1Right1 = bRight1; m_pendingInputState.vbP1L = bL; m_pendingInputState.vbP1R = bR;
-        } else if(port == Settings::Port::P_2) {
-            m_pendingInputState.vbP2A = bA; m_pendingInputState.vbP2B = bB; m_pendingInputState.vbP2Select = bSelect; m_pendingInputState.vbP2Start = bStart;
-            m_pendingInputState.vbP2Up0 = bUp0; m_pendingInputState.vbP2Down0 = bDown0; m_pendingInputState.vbP2Left0 = bLeft0; m_pendingInputState.vbP2Right0 = bRight0;
-            m_pendingInputState.vbP2Up1 = bUp1; m_pendingInputState.vbP2Down1 = bDown1; m_pendingInputState.vbP2Left1 = bLeft1; m_pendingInputState.vbP2Right1 = bRight1; m_pendingInputState.vbP2L = bL; m_pendingInputState.vbP2R = bR;
-        }
-    }
-
-    void setSuborMouse(Settings::Port port, int deltaX, int deltaY, bool leftButton, bool rightButton)
-    {
-        if(port == Settings::Port::P_1) { m_pendingInputState.suborMouseP1DeltaX += deltaX; m_pendingInputState.suborMouseP1DeltaY += deltaY; m_pendingInputState.suborMouseP1Left = leftButton; m_pendingInputState.suborMouseP1Right = rightButton; }
-        else if(port == Settings::Port::P_2) { m_pendingInputState.suborMouseP2DeltaX += deltaX; m_pendingInputState.suborMouseP2DeltaY += deltaY; m_pendingInputState.suborMouseP2Left = leftButton; m_pendingInputState.suborMouseP2Right = rightButton; }
-    }
-
-    void setSuborKeyboardKeys(const IExpansionDevice::SuborKeyboardKeys& keys)
-    {
-        m_pendingInputState.suborKeyboardKeys = keys;
-    }
-
-    void setFamilyBasicKeyboardKeys(const IExpansionDevice::FamilyBasicKeyboardKeys& keys)
-    {
-        m_pendingInputState.familyBasicKeyboardKeys = keys;
-    }
-
-    void setPowerPadButtons(Settings::Port port, const std::array<bool, 12>& buttons)
-    {
-        if(port == Settings::Port::P_1) m_pendingInputState.powerPadP1Buttons = buttons;
-        else if(port == Settings::Port::P_2) m_pendingInputState.powerPadP2Buttons = buttons;
+        return m_inputBuffer;
     }
 
     void fdsSwitchDiskSide()
@@ -2097,7 +1904,7 @@ public:
     }
 
     uint32_t frameCount() {
-        return m_frameCount;
+        return m_frameCounter;
     }
 
     void reset() {
@@ -2120,7 +1927,7 @@ public:
         m_prevControllerReadAddr = 0xFFFF;
         m_4011WriteCounter = 0;
         m_newFrame = false;
-        m_frameCount = 0;
+        m_frameCounter = 0;
         m_runningLoop = false;
         m_saveStateFlag = false;
         m_loadStateFlag = false;

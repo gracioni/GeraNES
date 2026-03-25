@@ -75,6 +75,11 @@ public:
         return m_data[m_start];
     }
 
+    const T& peak() const
+    {
+        return m_data[m_start];
+    }
+
     T& read()
     {
         T& ret = peak();
@@ -89,6 +94,16 @@ public:
     }
 
     T& peakBack()
+    {
+        if(m_currentSize == 0) return m_data[m_start];
+
+        size_t index = m_start+m_currentSize-1;
+        index %= m_data.size();
+
+        return m_data[index];
+    }
+
+    const T& peakBack() const
     {
         if(m_currentSize == 0) return m_data[m_start];
 
@@ -116,18 +131,25 @@ public:
         return m_data[index];
     }
 
-    bool empty()
+    const T& peakAt(size_t index) const
+    {
+        index = m_start + index;
+        index %= m_data.size();
+        return m_data[index];
+    }
+
+    bool empty() const
     {
         return m_currentSize == 0;
     }
 
     //current number of elements
-    size_t size()
+    size_t size() const
     {
         return m_currentSize;
     }
 
-    bool full()
+    bool full() const
     {
         return m_currentSize == m_data.size();
     }
