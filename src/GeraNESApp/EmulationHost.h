@@ -67,6 +67,8 @@ public:
         bool p4Right = false;
         std::array<bool, 12> p1PowerPadButtons = {};
         std::array<bool, 12> p2PowerPadButtons = {};
+        IExpansionDevice::SuborKeyboardKeys suborKeyboardKeys = {};
+        IExpansionDevice::FamilyBasicKeyboardKeys familyBasicKeyboardKeys = {};
 
         int zapperX = -1;
         int zapperY = -1;
@@ -132,6 +134,8 @@ private:
         m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
+        m_emu.setSuborKeyboardKeys(input.suborKeyboardKeys);
+        m_emu.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
         m_emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
@@ -142,6 +146,8 @@ private:
         m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
         m_emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
         m_emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        m_emu.setSuborMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        m_emu.setSuborMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
         m_emu.setRewind(input.rewind);
         m_emu.setSpeedBoost(input.speedBoost);
     }
@@ -195,6 +201,8 @@ private:
         m_emu.setController4Buttons(input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right);
         m_emu.setPowerPadButtons(Settings::Port::P_1, input.p1PowerPadButtons);
         m_emu.setPowerPadButtons(Settings::Port::P_2, input.p2PowerPadButtons);
+        m_emu.setSuborKeyboardKeys(input.suborKeyboardKeys);
+        m_emu.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
         m_emu.setBandaiHyperShotButtons(input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right);
         m_emu.setKonamiHyperShotButtons(input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump);
         m_emu.setZapper(Settings::Port::P_1, input.zapperX, input.zapperY, input.zapperP1Trigger);
@@ -205,6 +213,8 @@ private:
         m_emu.setArkanoidControllerFamicom(input.arkanoidFamicomPosition, input.mousePrimaryButton);
         m_emu.setSnesMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
         m_emu.setSnesMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        m_emu.setSuborMouse(Settings::Port::P_1, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
+        m_emu.setSuborMouse(Settings::Port::P_2, input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton);
         m_emu.setRewind(input.rewind);
         m_emu.setSpeedBoost(input.speedBoost);
     }

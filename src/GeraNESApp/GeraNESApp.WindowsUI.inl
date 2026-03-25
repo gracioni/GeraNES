@@ -114,8 +114,8 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-        if(ImGui::Begin("SNES Mouse Config", &m_showSnesMouseConfigWindow, ImGuiWindowFlags_NoResize)) {
-            ImGui::TextWrapped("The SNES Mouse uses grabbed relative movement. Press Escape to release the mouse.");
+        if(ImGui::Begin("Mouse Config", &m_showSnesMouseConfigWindow, ImGuiWindowFlags_NoResize)) {
+            ImGui::TextWrapped("The selected mouse device uses grabbed relative movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
             float sensitivity = AppSettings::instance().data.input.snesMouse.sensitivity;

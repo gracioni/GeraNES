@@ -37,9 +37,9 @@ public:
     {
     }
 
-    GERANES_HOT void writeMapperRegisterAbsolute(uint16_t addr, uint8_t value) override
+    GERANES_HOT void writeMapperRegister(int addr, uint8_t value) override
     {
-        if(addr >= 0x4800 && addr <= 0x4FFF) {
+        if(addr >= 0x0800 && addr <= 0x0FFF) {
             m_regs[addr & 0x03] = value;
         }
     }

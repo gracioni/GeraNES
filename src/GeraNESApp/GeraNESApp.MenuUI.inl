@@ -306,7 +306,9 @@ inline void GeraNESApp::menuBar() {
 
             auto drawSnesMousePortConfigItem = [this](Settings::Port port)
             {
-                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) {
+                const auto device = m_emu.getPortDevice(port);
+                if(device != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) &&
+                   device != std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
                     return;
                 }
 
@@ -363,12 +365,14 @@ inline void GeraNESApp::menuBar() {
             };
 
             if (ImGui::BeginMenu("Port 1", !anyMultitapActive)) {
+                drawControllerPortMenuItem("None", Settings::Port::P_1, Settings::Device::NONE);
                 drawControllerPortMenuItem("Standard Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Famicom Controller", Settings::Port::P_1, Settings::Device::FAMICOM_CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_A);
                 drawControllerPortMenuItem("Power Pad (Side B)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_B);
                 drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_1, Settings::Device::SNES_MOUSE);
+                drawControllerPortMenuItem("Subor Mouse", Settings::Port::P_1, Settings::Device::SUBOR_MOUSE);
                 drawControllerPortMenuItem("SNES Controller", Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_1);
@@ -380,12 +384,14 @@ inline void GeraNESApp::menuBar() {
             }
 
             if (ImGui::BeginMenu("Port 2", !anyMultitapActive)) {
+                drawControllerPortMenuItem("None", Settings::Port::P_2, Settings::Device::NONE);
                 drawControllerPortMenuItem("Standard Controller", Settings::Port::P_2, Settings::Device::CONTROLLER);
                 drawControllerPortMenuItem("Famicom Controller", Settings::Port::P_2, Settings::Device::FAMICOM_CONTROLLER);
                 drawControllerPortMenuItem("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER);
                 drawControllerPortMenuItem("Power Pad (Side A)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
                 drawControllerPortMenuItem("Power Pad (Side B)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
                 drawControllerPortMenuItem("SNES Mouse", Settings::Port::P_2, Settings::Device::SNES_MOUSE);
+                drawControllerPortMenuItem("Subor Mouse", Settings::Port::P_2, Settings::Device::SUBOR_MOUSE);
                 drawControllerPortMenuItem("SNES Controller", Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
                 drawControllerPortMenuItem("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
                 drawControllerPortConfigItem(Settings::Port::P_2);
@@ -420,6 +426,14 @@ inline void GeraNESApp::menuBar() {
                 if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
+                }
+                if (ImGui::MenuItem("Subor Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
+                }
+                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD))
+                {
+                    m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
                 }
                 if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER))
                 {

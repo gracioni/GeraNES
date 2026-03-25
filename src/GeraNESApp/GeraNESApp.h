@@ -434,6 +434,244 @@ private:
                m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE);
     }
 
+    bool isSuborMouseActive() const
+    {
+        return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) ||
+               m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE);
+    }
+
+    bool isSuborKeyboardActive() const
+    {
+        return m_emu.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD;
+    }
+
+    bool isFamilyBasicKeyboardActive() const
+    {
+        return m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD;
+    }
+
+    static IExpansionDevice::SuborKeyboardKeys captureSuborKeyboardState()
+    {
+        IExpansionDevice::SuborKeyboardKeys keys = {};
+        const Uint8* keyboardState = SDL_GetKeyboardState(nullptr);
+
+        auto pressed = [&](SDL_Scancode scancode) {
+            return keyboardState[scancode] != 0;
+        };
+
+        auto pressedAny = [&](std::initializer_list<SDL_Scancode> scancodes) {
+            for(SDL_Scancode scancode : scancodes) {
+                if(keyboardState[scancode] != 0) return true;
+            }
+            return false;
+        };
+
+        auto set = [&](SuborKeyboard::Button button, bool value) {
+            keys[static_cast<size_t>(button)] = value;
+        };
+
+        set(SuborKeyboard::Button::A, pressed(SDL_SCANCODE_A));
+        set(SuborKeyboard::Button::B, pressed(SDL_SCANCODE_B));
+        set(SuborKeyboard::Button::C, pressed(SDL_SCANCODE_C));
+        set(SuborKeyboard::Button::D, pressed(SDL_SCANCODE_D));
+        set(SuborKeyboard::Button::E, pressed(SDL_SCANCODE_E));
+        set(SuborKeyboard::Button::F, pressed(SDL_SCANCODE_F));
+        set(SuborKeyboard::Button::G, pressed(SDL_SCANCODE_G));
+        set(SuborKeyboard::Button::H, pressed(SDL_SCANCODE_H));
+        set(SuborKeyboard::Button::I, pressed(SDL_SCANCODE_I));
+        set(SuborKeyboard::Button::J, pressed(SDL_SCANCODE_J));
+        set(SuborKeyboard::Button::K, pressed(SDL_SCANCODE_K));
+        set(SuborKeyboard::Button::L, pressed(SDL_SCANCODE_L));
+        set(SuborKeyboard::Button::M, pressed(SDL_SCANCODE_M));
+        set(SuborKeyboard::Button::N, pressed(SDL_SCANCODE_N));
+        set(SuborKeyboard::Button::O, pressed(SDL_SCANCODE_O));
+        set(SuborKeyboard::Button::P, pressed(SDL_SCANCODE_P));
+        set(SuborKeyboard::Button::Q, pressed(SDL_SCANCODE_Q));
+        set(SuborKeyboard::Button::R, pressed(SDL_SCANCODE_R));
+        set(SuborKeyboard::Button::S, pressed(SDL_SCANCODE_S));
+        set(SuborKeyboard::Button::T, pressed(SDL_SCANCODE_T));
+        set(SuborKeyboard::Button::U, pressed(SDL_SCANCODE_U));
+        set(SuborKeyboard::Button::V, pressed(SDL_SCANCODE_V));
+        set(SuborKeyboard::Button::W, pressed(SDL_SCANCODE_W));
+        set(SuborKeyboard::Button::X, pressed(SDL_SCANCODE_X));
+        set(SuborKeyboard::Button::Y, pressed(SDL_SCANCODE_Y));
+        set(SuborKeyboard::Button::Z, pressed(SDL_SCANCODE_Z));
+
+        set(SuborKeyboard::Button::Num0, pressed(SDL_SCANCODE_0));
+        set(SuborKeyboard::Button::Num1, pressed(SDL_SCANCODE_1));
+        set(SuborKeyboard::Button::Num2, pressed(SDL_SCANCODE_2));
+        set(SuborKeyboard::Button::Num3, pressed(SDL_SCANCODE_3));
+        set(SuborKeyboard::Button::Num4, pressed(SDL_SCANCODE_4));
+        set(SuborKeyboard::Button::Num5, pressed(SDL_SCANCODE_5));
+        set(SuborKeyboard::Button::Num6, pressed(SDL_SCANCODE_6));
+        set(SuborKeyboard::Button::Num7, pressed(SDL_SCANCODE_7));
+        set(SuborKeyboard::Button::Num8, pressed(SDL_SCANCODE_8));
+        set(SuborKeyboard::Button::Num9, pressed(SDL_SCANCODE_9));
+
+        set(SuborKeyboard::Button::F1, pressed(SDL_SCANCODE_F1));
+        set(SuborKeyboard::Button::F2, pressed(SDL_SCANCODE_F2));
+        set(SuborKeyboard::Button::F3, pressed(SDL_SCANCODE_F3));
+        set(SuborKeyboard::Button::F4, pressed(SDL_SCANCODE_F4));
+        set(SuborKeyboard::Button::F5, pressed(SDL_SCANCODE_F5));
+        set(SuborKeyboard::Button::F6, pressed(SDL_SCANCODE_F6));
+        set(SuborKeyboard::Button::F7, pressed(SDL_SCANCODE_F7));
+        set(SuborKeyboard::Button::F8, pressed(SDL_SCANCODE_F8));
+        set(SuborKeyboard::Button::F9, pressed(SDL_SCANCODE_F9));
+        set(SuborKeyboard::Button::F10, pressed(SDL_SCANCODE_F10));
+        set(SuborKeyboard::Button::F11, pressed(SDL_SCANCODE_F11));
+        set(SuborKeyboard::Button::F12, pressed(SDL_SCANCODE_F12));
+
+        set(SuborKeyboard::Button::Numpad0, pressed(SDL_SCANCODE_KP_0));
+        set(SuborKeyboard::Button::Numpad1, pressed(SDL_SCANCODE_KP_1));
+        set(SuborKeyboard::Button::Numpad2, pressed(SDL_SCANCODE_KP_2));
+        set(SuborKeyboard::Button::Numpad3, pressed(SDL_SCANCODE_KP_3));
+        set(SuborKeyboard::Button::Numpad4, pressed(SDL_SCANCODE_KP_4));
+        set(SuborKeyboard::Button::Numpad5, pressed(SDL_SCANCODE_KP_5));
+        set(SuborKeyboard::Button::Numpad6, pressed(SDL_SCANCODE_KP_6));
+        set(SuborKeyboard::Button::Numpad7, pressed(SDL_SCANCODE_KP_7));
+        set(SuborKeyboard::Button::Numpad8, pressed(SDL_SCANCODE_KP_8));
+        set(SuborKeyboard::Button::Numpad9, pressed(SDL_SCANCODE_KP_9));
+        set(SuborKeyboard::Button::NumpadEnter, pressed(SDL_SCANCODE_KP_ENTER));
+        set(SuborKeyboard::Button::NumpadDot, pressed(SDL_SCANCODE_KP_PERIOD));
+        set(SuborKeyboard::Button::NumpadPlus, pressed(SDL_SCANCODE_KP_PLUS));
+        set(SuborKeyboard::Button::NumpadMultiply, pressed(SDL_SCANCODE_KP_MULTIPLY));
+        set(SuborKeyboard::Button::NumpadDivide, pressed(SDL_SCANCODE_KP_DIVIDE));
+        set(SuborKeyboard::Button::NumpadMinus, pressed(SDL_SCANCODE_KP_MINUS));
+        set(SuborKeyboard::Button::NumLock, pressed(SDL_SCANCODE_NUMLOCKCLEAR));
+
+        set(SuborKeyboard::Button::Comma, pressed(SDL_SCANCODE_COMMA));
+        set(SuborKeyboard::Button::Dot, pressed(SDL_SCANCODE_PERIOD));
+        set(SuborKeyboard::Button::SemiColon, pressed(SDL_SCANCODE_SEMICOLON));
+        set(SuborKeyboard::Button::Apostrophe, pressed(SDL_SCANCODE_APOSTROPHE));
+        set(SuborKeyboard::Button::Slash, pressed(SDL_SCANCODE_SLASH));
+        set(SuborKeyboard::Button::Backslash, pressed(SDL_SCANCODE_BACKSLASH));
+        set(SuborKeyboard::Button::Equal, pressed(SDL_SCANCODE_EQUALS));
+        set(SuborKeyboard::Button::Minus, pressed(SDL_SCANCODE_MINUS));
+        set(SuborKeyboard::Button::Grave, pressed(SDL_SCANCODE_GRAVE));
+        set(SuborKeyboard::Button::LeftBracket, pressed(SDL_SCANCODE_LEFTBRACKET));
+        set(SuborKeyboard::Button::RightBracket, pressed(SDL_SCANCODE_RIGHTBRACKET));
+        set(SuborKeyboard::Button::CapsLock, pressed(SDL_SCANCODE_CAPSLOCK));
+        set(SuborKeyboard::Button::Pause, pressed(SDL_SCANCODE_PAUSE));
+        set(SuborKeyboard::Button::Ctrl, pressedAny({SDL_SCANCODE_LCTRL, SDL_SCANCODE_RCTRL}));
+        set(SuborKeyboard::Button::Shift, pressedAny({SDL_SCANCODE_LSHIFT, SDL_SCANCODE_RSHIFT}));
+        set(SuborKeyboard::Button::Alt, pressedAny({SDL_SCANCODE_LALT, SDL_SCANCODE_RALT}));
+        set(SuborKeyboard::Button::Space, pressed(SDL_SCANCODE_SPACE));
+        set(SuborKeyboard::Button::Backspace, pressed(SDL_SCANCODE_BACKSPACE));
+        set(SuborKeyboard::Button::Tab, pressed(SDL_SCANCODE_TAB));
+        set(SuborKeyboard::Button::Esc, pressed(SDL_SCANCODE_ESCAPE));
+        set(SuborKeyboard::Button::Enter, pressedAny({SDL_SCANCODE_RETURN, SDL_SCANCODE_RETURN2}));
+        set(SuborKeyboard::Button::End, pressed(SDL_SCANCODE_END));
+        set(SuborKeyboard::Button::Home, pressed(SDL_SCANCODE_HOME));
+        set(SuborKeyboard::Button::Ins, pressed(SDL_SCANCODE_INSERT));
+        set(SuborKeyboard::Button::Delete, pressed(SDL_SCANCODE_DELETE));
+        set(SuborKeyboard::Button::PageUp, pressed(SDL_SCANCODE_PAGEUP));
+        set(SuborKeyboard::Button::PageDown, pressed(SDL_SCANCODE_PAGEDOWN));
+        set(SuborKeyboard::Button::Up, pressed(SDL_SCANCODE_UP));
+        set(SuborKeyboard::Button::Down, pressed(SDL_SCANCODE_DOWN));
+        set(SuborKeyboard::Button::Left, pressed(SDL_SCANCODE_LEFT));
+        set(SuborKeyboard::Button::Right, pressed(SDL_SCANCODE_RIGHT));
+
+        return keys;
+    }
+
+    static IExpansionDevice::FamilyBasicKeyboardKeys captureFamilyBasicKeyboardState()
+    {
+        IExpansionDevice::FamilyBasicKeyboardKeys keys = {};
+        const Uint8* keyboardState = SDL_GetKeyboardState(nullptr);
+
+        auto pressed = [&](SDL_Scancode scancode) {
+            return keyboardState[scancode] != 0;
+        };
+
+        auto pressedAny = [&](std::initializer_list<SDL_Scancode> scancodes) {
+            for(SDL_Scancode scancode : scancodes) {
+                if(keyboardState[scancode] != 0) return true;
+            }
+            return false;
+        };
+
+        auto set = [&](FamilyBasicKeyboard::Button button, bool value) {
+            keys[static_cast<size_t>(button)] = value;
+        };
+
+        set(FamilyBasicKeyboard::Button::A, pressed(SDL_SCANCODE_A));
+        set(FamilyBasicKeyboard::Button::B, pressed(SDL_SCANCODE_B));
+        set(FamilyBasicKeyboard::Button::C, pressed(SDL_SCANCODE_C));
+        set(FamilyBasicKeyboard::Button::D, pressed(SDL_SCANCODE_D));
+        set(FamilyBasicKeyboard::Button::E, pressed(SDL_SCANCODE_E));
+        set(FamilyBasicKeyboard::Button::F, pressed(SDL_SCANCODE_F));
+        set(FamilyBasicKeyboard::Button::G, pressed(SDL_SCANCODE_G));
+        set(FamilyBasicKeyboard::Button::H, pressed(SDL_SCANCODE_H));
+        set(FamilyBasicKeyboard::Button::I, pressed(SDL_SCANCODE_I));
+        set(FamilyBasicKeyboard::Button::J, pressed(SDL_SCANCODE_J));
+        set(FamilyBasicKeyboard::Button::K, pressed(SDL_SCANCODE_K));
+        set(FamilyBasicKeyboard::Button::L, pressed(SDL_SCANCODE_L));
+        set(FamilyBasicKeyboard::Button::M, pressed(SDL_SCANCODE_M));
+        set(FamilyBasicKeyboard::Button::N, pressed(SDL_SCANCODE_N));
+        set(FamilyBasicKeyboard::Button::O, pressed(SDL_SCANCODE_O));
+        set(FamilyBasicKeyboard::Button::P, pressed(SDL_SCANCODE_P));
+        set(FamilyBasicKeyboard::Button::Q, pressed(SDL_SCANCODE_Q));
+        set(FamilyBasicKeyboard::Button::R, pressed(SDL_SCANCODE_R));
+        set(FamilyBasicKeyboard::Button::S, pressed(SDL_SCANCODE_S));
+        set(FamilyBasicKeyboard::Button::T, pressed(SDL_SCANCODE_T));
+        set(FamilyBasicKeyboard::Button::U, pressed(SDL_SCANCODE_U));
+        set(FamilyBasicKeyboard::Button::V, pressed(SDL_SCANCODE_V));
+        set(FamilyBasicKeyboard::Button::W, pressed(SDL_SCANCODE_W));
+        set(FamilyBasicKeyboard::Button::X, pressed(SDL_SCANCODE_X));
+        set(FamilyBasicKeyboard::Button::Y, pressed(SDL_SCANCODE_Y));
+        set(FamilyBasicKeyboard::Button::Z, pressed(SDL_SCANCODE_Z));
+
+        set(FamilyBasicKeyboard::Button::Num0, pressed(SDL_SCANCODE_0));
+        set(FamilyBasicKeyboard::Button::Num1, pressed(SDL_SCANCODE_1));
+        set(FamilyBasicKeyboard::Button::Num2, pressed(SDL_SCANCODE_2));
+        set(FamilyBasicKeyboard::Button::Num3, pressed(SDL_SCANCODE_3));
+        set(FamilyBasicKeyboard::Button::Num4, pressed(SDL_SCANCODE_4));
+        set(FamilyBasicKeyboard::Button::Num5, pressed(SDL_SCANCODE_5));
+        set(FamilyBasicKeyboard::Button::Num6, pressed(SDL_SCANCODE_6));
+        set(FamilyBasicKeyboard::Button::Num7, pressed(SDL_SCANCODE_7));
+        set(FamilyBasicKeyboard::Button::Num8, pressed(SDL_SCANCODE_8));
+        set(FamilyBasicKeyboard::Button::Num9, pressed(SDL_SCANCODE_9));
+
+        set(FamilyBasicKeyboard::Button::Return, pressedAny({SDL_SCANCODE_RETURN, SDL_SCANCODE_RETURN2}));
+        set(FamilyBasicKeyboard::Button::Space, pressed(SDL_SCANCODE_SPACE));
+        set(FamilyBasicKeyboard::Button::Del, pressed(SDL_SCANCODE_BACKSPACE));
+        set(FamilyBasicKeyboard::Button::Ins, pressed(SDL_SCANCODE_INSERT));
+        set(FamilyBasicKeyboard::Button::Esc, pressed(SDL_SCANCODE_ESCAPE));
+        set(FamilyBasicKeyboard::Button::Ctrl, pressedAny({SDL_SCANCODE_LCTRL, SDL_SCANCODE_RCTRL}));
+        set(FamilyBasicKeyboard::Button::RightShift, pressed(SDL_SCANCODE_RSHIFT));
+        set(FamilyBasicKeyboard::Button::LeftShift, pressed(SDL_SCANCODE_LSHIFT));
+        set(FamilyBasicKeyboard::Button::RightBracket, pressed(SDL_SCANCODE_RIGHTBRACKET));
+        set(FamilyBasicKeyboard::Button::LeftBracket, pressed(SDL_SCANCODE_LEFTBRACKET));
+        set(FamilyBasicKeyboard::Button::Up, pressed(SDL_SCANCODE_UP));
+        set(FamilyBasicKeyboard::Button::Down, pressed(SDL_SCANCODE_DOWN));
+        set(FamilyBasicKeyboard::Button::Left, pressed(SDL_SCANCODE_LEFT));
+        set(FamilyBasicKeyboard::Button::Right, pressed(SDL_SCANCODE_RIGHT));
+        set(FamilyBasicKeyboard::Button::Dot, pressed(SDL_SCANCODE_PERIOD));
+        set(FamilyBasicKeyboard::Button::Comma, pressed(SDL_SCANCODE_COMMA));
+        set(FamilyBasicKeyboard::Button::Colon, pressed(SDL_SCANCODE_SEMICOLON) && (pressed(SDL_SCANCODE_LSHIFT) || pressed(SDL_SCANCODE_RSHIFT)));
+        set(FamilyBasicKeyboard::Button::SemiColon, pressed(SDL_SCANCODE_SEMICOLON));
+        set(FamilyBasicKeyboard::Button::Underscore, pressed(SDL_SCANCODE_MINUS) && (pressed(SDL_SCANCODE_LSHIFT) || pressed(SDL_SCANCODE_RSHIFT)));
+        set(FamilyBasicKeyboard::Button::Slash, pressed(SDL_SCANCODE_SLASH));
+        set(FamilyBasicKeyboard::Button::Minus, pressed(SDL_SCANCODE_MINUS));
+        set(FamilyBasicKeyboard::Button::Caret, pressed(SDL_SCANCODE_GRAVE));
+        set(FamilyBasicKeyboard::Button::F1, pressed(SDL_SCANCODE_F1));
+        set(FamilyBasicKeyboard::Button::F2, pressed(SDL_SCANCODE_F2));
+        set(FamilyBasicKeyboard::Button::F3, pressed(SDL_SCANCODE_F3));
+        set(FamilyBasicKeyboard::Button::F4, pressed(SDL_SCANCODE_F4));
+        set(FamilyBasicKeyboard::Button::F5, pressed(SDL_SCANCODE_F5));
+        set(FamilyBasicKeyboard::Button::F6, pressed(SDL_SCANCODE_F6));
+        set(FamilyBasicKeyboard::Button::F7, pressed(SDL_SCANCODE_F7));
+        set(FamilyBasicKeyboard::Button::F8, pressed(SDL_SCANCODE_F8));
+        set(FamilyBasicKeyboard::Button::Yen, pressed(SDL_SCANCODE_BACKSLASH));
+        set(FamilyBasicKeyboard::Button::Stop, pressed(SDL_SCANCODE_PAUSE));
+        set(FamilyBasicKeyboard::Button::AtSign, pressed(SDL_SCANCODE_APOSTROPHE) && (pressed(SDL_SCANCODE_LSHIFT) || pressed(SDL_SCANCODE_RSHIFT)));
+        set(FamilyBasicKeyboard::Button::Grph, pressedAny({SDL_SCANCODE_LALT, SDL_SCANCODE_RALT}));
+        set(FamilyBasicKeyboard::Button::ClrHome, pressed(SDL_SCANCODE_HOME));
+        set(FamilyBasicKeyboard::Button::Kana, pressed(SDL_SCANCODE_CAPSLOCK));
+
+        return keys;
+    }
+
     bool isArkanoidActive() const
     {
         return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
@@ -542,9 +780,12 @@ private:
             const std::string& rewindP2 = p2UsesSnesController ? m_snesController2.rewind : m_controller2.rewind;
             const std::string& speedP1 = p1UsesSnesController ? m_snesController1.speed : m_controller1.speed;
             const std::string& speedP2 = p2UsesSnesController ? m_snesController2.speed : m_controller2.speed;
+            const bool keyboardExpansionActive = isSuborKeyboardActive() || isFamilyBasicKeyboardActive();
 
-            if(im.isJustPressed(saveStateP1) || im.isJustPressed(saveStateP2)) m_emu.saveState();
-            if(im.isJustPressed(loadStateP1) || im.isJustPressed(loadStateP2)) m_emu.loadState();
+            if(!keyboardExpansionActive) {
+                if(im.isJustPressed(saveStateP1) || im.isJustPressed(saveStateP2)) m_emu.saveState();
+                if(im.isJustPressed(loadStateP1) || im.isJustPressed(loadStateP2)) m_emu.loadState();
+            }
             std::array<bool, 12> p1PowerPadButtons = {};
             std::array<bool, 12> p2PowerPadButtons = {};
             for(size_t i = 0; i < m_powerPadInfo.bindings.size(); ++i) {
@@ -568,7 +809,7 @@ private:
                 Uint32 buttons = SDL_GetMouseState(&mx, &my);
 
                 auto [nesX, nesY] = getNesCursor(mx, my);
-                const bool useSnesMouse = isSnesMouseActive();
+                const bool useSnesMouse = isSnesMouseActive() || isSuborMouseActive();
                 const bool useArkanoid = isArkanoidActive();
                 const bool pointerGrabActive = m_snesMouseGrabActive || m_arkanoidGrabActive;
 
@@ -676,6 +917,12 @@ private:
             inputState.p4Right = p4Right;
             inputState.p1PowerPadButtons = p1PowerPadButtons;
             inputState.p2PowerPadButtons = p2PowerPadButtons;
+            if(isSuborKeyboardActive()) {
+                inputState.suborKeyboardKeys = captureSuborKeyboardState();
+            }
+            if(isFamilyBasicKeyboardActive()) {
+                inputState.familyBasicKeyboardKeys = captureFamilyBasicKeyboardState();
+            }
             inputState.zapperX = zapperX;
             inputState.zapperY = zapperY;
             inputState.mouseDeltaX = mouseDeltaX;
@@ -691,13 +938,15 @@ private:
             inputState.konamiP2Jump = konamiP2Jump;
             inputState.mousePrimaryButton = mousePrimaryButton;
             inputState.mouseSecondaryButton = mouseSecondaryButton;
-            inputState.rewind =
+            inputState.rewind = !keyboardExpansionActive && (
                 im.isPressed(rewindP1) ||
                 im.isPressed(rewindP2) ||
-                m_touch->buttons().rewind;
-            inputState.speedBoost =
+                m_touch->buttons().rewind
+            );
+            inputState.speedBoost = !keyboardExpansionActive && (
                 im.isPressed(speedP1) ||
-                im.isPressed(speedP2);
+                im.isPressed(speedP2)
+            );
             m_emu.setPendingInput(inputState);
         }
         else {
@@ -799,7 +1048,7 @@ private:
         if(!isArkanoidActive() && m_arkanoidGrabActive) {
             setArkanoidGrab(false);
         }
-        if(!isSnesMouseActive() && m_snesMouseGrabActive) {
+        if(!isSnesMouseActive() && !isSuborMouseActive() && m_snesMouseGrabActive) {
             setSnesMouseGrab(false);
         }
 
@@ -1425,7 +1674,7 @@ public:
             }
 
             case SDL_MOUSEBUTTONDOWN:
-                if(!m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && isSnesMouseActive()) {
+                if(!m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (isSnesMouseActive() || isSuborMouseActive())) {
                     if(event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) {
                         if(pointInRect(glm::vec2(static_cast<float>(event.button.x), static_cast<float>(event.button.y)), m_nesScreenRect)) {
                             setSnesMouseGrab(true);

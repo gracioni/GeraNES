@@ -269,9 +269,11 @@ std::string g_dbPath;
 bool g_loggerBound = false;
 
 enum class PortInputMode {
+    None,
     Controller,
     Zapper,
     SnesMouse,
+    SuborMouse,
     Arkanoid
 };
 
@@ -424,6 +426,9 @@ void applyPortInputMode(unsigned port)
     const Settings::Port emuPort = (port == 0) ? Settings::Port::P_1 : Settings::Port::P_2;
     Settings::Device device = Settings::Device::CONTROLLER;
     switch(g_portInputModes[port]) {
+        case PortInputMode::None:
+            device = Settings::Device::NONE;
+            break;
         case PortInputMode::Controller:
             device = Settings::Device::CONTROLLER;
             break;
@@ -432,6 +437,9 @@ void applyPortInputMode(unsigned port)
             break;
         case PortInputMode::SnesMouse:
             device = Settings::Device::SNES_MOUSE;
+            break;
+        case PortInputMode::SuborMouse:
+            device = Settings::Device::SUBOR_MOUSE;
             break;
         case PortInputMode::Arkanoid:
             device = Settings::Device::ARKANOID_CONTROLLER;
@@ -789,6 +797,18 @@ void updateSnesMouseState(unsigned port)
     g_emu.setSnesMouse(emuPort, mouseDeltaX, mouseDeltaY, left, right);
 }
 
+void updateSuborMouseState(unsigned port)
+{
+    const Settings::Port emuPort = (port == 0) ? Settings::Port::P_1 : Settings::Port::P_2;
+    if(g_emu.getPortDevice(emuPort) != std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) return;
+
+    const int16_t mouseDeltaX = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_X);
+    const int16_t mouseDeltaY = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_Y);
+    const bool left = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_LEFT) != 0;
+    const bool right = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
+    g_emu.setSuborMouse(emuPort, mouseDeltaX, mouseDeltaY, left, right);
+}
+
 void updateExpansionArkanoidState()
 {
     if(g_emu.getExpansionDevice() != Settings::ExpansionDevice::ARKANOID_CONTROLLER) return;
@@ -934,10 +954,16 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
             g_emu.getPortDevice((port == 0) ? Settings::Port::P_1 : Settings::Port::P_2) ==
             std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)
                 ? PortInputMode::SnesMouse
+                : (g_emu.getPortDevice((port == 0) ? Settings::Port::P_1 : Settings::Port::P_2) ==
+                   std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE))
+                    ? PortInputMode::SuborMouse
                 : PortInputMode::Arkanoid;
     }
     else if(deviceBase == RETRO_DEVICE_JOYPAD) {
         g_portInputModes[port] = PortInputMode::Controller;
+    }
+    else if(deviceBase == RETRO_DEVICE_NONE) {
+        g_portInputModes[port] = PortInputMode::None;
     }
     else {
         g_portInputModes[port] = PortInputMode::Controller;
@@ -975,6 +1001,8 @@ RETRO_API void retro_run(void)
     updateZapperState(1);
     updateSnesMouseState(0);
     updateSnesMouseState(1);
+    updateSuborMouseState(0);
+    updateSuborMouseState(1);
     updateArkanoidState(0);
     updateArkanoidState(1);
     updateExpansionArkanoidState();
@@ -1082,12 +1110,16 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
         g_portInputModes[0] =
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ZAPPER)) ? PortInputMode::Zapper :
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) ? PortInputMode::SnesMouse :
+            (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) ? PortInputMode::SuborMouse :
             (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
+            (g_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::NONE)) ? PortInputMode::None :
             PortInputMode::Controller;
         g_portInputModes[1] =
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ZAPPER)) ? PortInputMode::Zapper :
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE)) ? PortInputMode::SnesMouse :
+            (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) ? PortInputMode::SuborMouse :
             (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) ? PortInputMode::Arkanoid :
+            (g_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::NONE)) ? PortInputMode::None :
             PortInputMode::Controller;
         applyAllPortInputModes();
     }

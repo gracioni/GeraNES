@@ -9,6 +9,9 @@
 class IExpansionDevice
 {
 public:
+    using SuborKeyboardKeys = std::array<bool, 99>;
+    using FamilyBasicKeyboardKeys = std::array<bool, 72>;
+
     virtual ~IExpansionDevice() = default;
 
     virtual void write4016(uint8_t data)
@@ -74,6 +77,16 @@ public:
     virtual void setPowerPadButtons(const std::array<bool, 12>& buttons)
     {
         (void)buttons;
+    }
+
+    virtual void setSuborKeyboardKeys(const SuborKeyboardKeys& keys)
+    {
+        (void)keys;
+    }
+
+    virtual void setFamilyBasicKeyboardKeys(const FamilyBasicKeyboardKeys& keys)
+    {
+        (void)keys;
     }
 
     virtual void setPixelChecker(std::function<float(int, int)> func)

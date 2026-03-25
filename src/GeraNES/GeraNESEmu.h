@@ -12,9 +12,12 @@
 #include "Zapper.h"
 #include "PowerPad.h"
 #include "FamilyTrainer.h"
+#include "FamilyBasicKeyboard.h"
 #include "ArkanoidControllerNes.h"
 #include "ArkanoidControllerFamicom.h"
 #include "SnesMouse.h"
+#include "SuborMouse.h"
+#include "SuborKeyboard.h"
 #include "SnesController.h"
 #include "FourScore.h"
 #include "HoriAdapter.h"
@@ -141,6 +144,8 @@ private:
     std::unique_ptr<IControllerPortDevice> createPortDevice(Settings::Port port, Settings::Device device)
     {
         switch(device) {
+            case Settings::Device::NONE:
+                return nullptr;
             case Settings::Device::CONTROLLER:
                 return std::make_unique<NesStandardController>();
             case Settings::Device::FAMICOM_CONTROLLER:
@@ -153,6 +158,8 @@ private:
                 return std::make_unique<NesStandardController>();
             case Settings::Device::SNES_MOUSE:
                 return std::make_unique<SnesMouse>();
+            case Settings::Device::SUBOR_MOUSE:
+                return std::make_unique<SuborMouse>();
             case Settings::Device::SNES_CONTROLLER:
                 return std::make_unique<SnesController>();
             case Settings::Device::POWER_PAD_SIDE_A:
@@ -181,6 +188,10 @@ private:
                 return std::make_unique<FamilyTrainer>(false);
             case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B:
                 return std::make_unique<FamilyTrainer>(true);
+            case Settings::ExpansionDevice::SUBOR_KEYBOARD:
+                return std::make_unique<SuborKeyboard>();
+            case Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD:
+                return std::make_unique<FamilyBasicKeyboard>();
         }
 
         return nullptr;
@@ -189,6 +200,8 @@ private:
     bool matchesPortDeviceType(Settings::Port port, const IControllerPortDevice* device, Settings::Device type) const
     {
         switch(type) {
+            case Settings::Device::NONE:
+                return device == nullptr;
             case Settings::Device::CONTROLLER:
                 return dynamic_cast<const NesStandardController*>(device) != nullptr &&
                        dynamic_cast<const FamicomController*>(device) == nullptr;
@@ -205,6 +218,8 @@ private:
                 return dynamic_cast<const NesStandardController*>(device) != nullptr;
             case Settings::Device::SNES_MOUSE:
                 return dynamic_cast<const SnesMouse*>(device) != nullptr;
+            case Settings::Device::SUBOR_MOUSE:
+                return dynamic_cast<const SuborMouse*>(device) != nullptr;
             case Settings::Device::SNES_CONTROLLER:
                 return dynamic_cast<const SnesController*>(device) != nullptr;
             case Settings::Device::POWER_PAD_SIDE_A:
@@ -245,6 +260,10 @@ private:
                 const auto* familyTrainer = dynamic_cast<const FamilyTrainer*>(device);
                 return familyTrainer != nullptr && familyTrainer->isSideB();
             }
+            case Settings::ExpansionDevice::SUBOR_KEYBOARD:
+                return dynamic_cast<const SuborKeyboard*>(device) != nullptr;
+            case Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD:
+                return dynamic_cast<const FamilyBasicKeyboard*>(device) != nullptr;
         }
 
         return false;
@@ -994,6 +1013,25 @@ public:
                     setExpansionDevice(Settings::ExpansionDevice::NONE);
                     break;
 
+                case GameDatabase::InputType::SuborKeyboard:
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                    setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
+                    break;
+
+                case GameDatabase::InputType::FamilyBasicKeyboard:
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                    setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
+                    break;
+
+                case GameDatabase::InputType::SuborKeyboardMouse1:
+                case GameDatabase::InputType::SuborKeyboardMouse2:
+                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                    setPortDevice(Settings::Port::P_2, Settings::Device::SUBOR_MOUSE);
+                    setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
+                    break;
+
                 case GameDatabase::InputType::SnesControllers:
                     setPortDevice(Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
                     setPortDevice(Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
@@ -1509,6 +1547,37 @@ public:
             device->addRelativeMotion(deltaX, deltaY);
             device->setTrigger(leftButton);
             device->setSecondaryTrigger(rightButton);
+        }
+    }
+
+    void setSuborMouse(Settings::Port port, int deltaX, int deltaY, bool leftButton, bool rightButton)
+    {
+        if(m_settings.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) return;
+
+        IControllerPortDevice* device =
+            (port == Settings::Port::P_1) ? m_portDevice1.get() : m_portDevice2.get();
+        if(device) {
+            device->addRelativeMotion(deltaX, deltaY);
+            device->setTrigger(leftButton);
+            device->setSecondaryTrigger(rightButton);
+        }
+    }
+
+    void setSuborKeyboardKeys(const IExpansionDevice::SuborKeyboardKeys& keys)
+    {
+        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::SUBOR_KEYBOARD) return;
+
+        if(m_expansionDevice) {
+            m_expansionDevice->setSuborKeyboardKeys(keys);
+        }
+    }
+
+    void setFamilyBasicKeyboardKeys(const IExpansionDevice::FamilyBasicKeyboardKeys& keys)
+    {
+        if(m_settings.getExpansionDevice() != Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) return;
+
+        if(m_expansionDevice) {
+            m_expansionDevice->setFamilyBasicKeyboardKeys(keys);
         }
     }
 
