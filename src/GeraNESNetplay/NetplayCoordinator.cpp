@@ -13,6 +13,8 @@ namespace {
 constexpr size_t kResyncChunkPayloadBytes = 1024;
 constexpr uint16_t kReconnectReservationSeconds = 30;
 constexpr size_t kRecentLocalCrcHistoryCapacity = 512;
+constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
+constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 
 }
 
@@ -64,6 +66,7 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
         case MessageType::ResumeSession: return "ResumeSession";
         case MessageType::EndSession: return "EndSession";
         case MessageType::InputFrame: return "InputFrame";
+        case MessageType::ConfirmedInputFrames: return "ConfirmedInputFrames";
         case MessageType::InputAck: return "InputAck";
         case MessageType::FrameStatus: return "FrameStatus";
         case MessageType::PeerHealth: return "PeerHealth";
@@ -89,6 +92,7 @@ void NetplayCoordinator::resetSessionState()
     m_session.reset();
     m_localInputs.clear();
     m_remoteInputs.clear();
+    m_confirmedFrames.clear();
     m_lastError.clear();
     m_hosting = false;
     m_connected = false;
@@ -377,6 +381,40 @@ static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input)
     return writer.data();
 }
 
+static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInputFramesData& data,
+                                                            std::span<const NetplayCoordinator::ConfirmedFrameInputs> frames,
+                                                            uint32_t sessionId)
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ConfirmedInputFrames;
+    header.sessionId = sessionId;
+    writer.writePod(header);
+    writer.writePod(data);
+    for(const auto& frame : frames) {
+        ConfirmedInputFrameEntry entry;
+        entry.buttonMaskLo = frame.buttonMaskLo;
+        entry.buttonMaskHi = frame.buttonMaskHi;
+        writer.writePod(entry);
+    }
+
+    return writer.data();
+}
+
+static std::vector<uint8_t> buildInputAckPacket(const InputAckData& ack)
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::InputAck;
+    header.sessionId = 0;
+    writer.writePod(header);
+    writer.writePod(ack);
+
+    return writer.data();
+}
+
 static std::vector<uint8_t> buildFrameStatusPacket(const FrameStatusData& status, uint32_t sessionId)
 {
     PacketWriter writer;
@@ -491,7 +529,9 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     }
 
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
+    uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
+        previousReceivedSequence = participant->lastReceivedInputSequence;
         if(participant->controllerAssignment != input.playerSlot) {
             std::ostringstream oss;
             oss << "Ignored input for unexpected slot from " << participant->displayName
@@ -515,11 +555,38 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
             return true;
         }
 
+        const uint32_t expectedSequence = participant->lastReceivedInputSequence + 1u;
+        if(input.sequence != expectedSequence) {
+            std::ostringstream oss;
+            oss << "Rejected non-sequential input sequence from " << participant->displayName
+                << " seq " << input.sequence
+                << " expectedSeq " << expectedSequence
+                << " frame " << input.frame;
+            pushLog(oss.str());
+            return true;
+        }
+
+        const FrameNumber expectedFrame = participant->lastContiguousInputFrame + 1u;
+        if(input.frame != expectedFrame) {
+            std::ostringstream oss;
+            oss << "Rejected non-sequential input from " << participant->displayName
+                << " frame " << input.frame
+                << " expectedFrame " << expectedFrame
+                << " seq " << input.sequence;
+            pushLog(oss.str());
+            return true;
+        }
+
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
         participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
     }
 
-    const TimelineInputEntry* existing = m_remoteInputs.find(input.frame, input.participantId, input.playerSlot);
+    InputTimeline* destinationTimeline = &m_remoteInputs;
+    if(!m_hosting && input.participantId == m_localParticipantId) {
+        destinationTimeline = &m_localInputs;
+    }
+
+    const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
     if(existing != nullptr && existing->predicted) {
         const bool predictionHit =
             existing->buttonMaskLo == input.buttonMaskLo &&
@@ -548,9 +615,18 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     entry.sequence = input.sequence;
     entry.confirmed = true;
     entry.predicted = false;
-    m_remoteInputs.push(entry);
+    destinationTimeline->push(entry);
 
     if(participant != nullptr) {
+        if(previousReceivedSequence > 0 && input.sequence > previousReceivedSequence + 1u) {
+            std::ostringstream oss;
+            oss << "Input sequence gap from " << participant->displayName
+                << " expected seq " << (previousReceivedSequence + 1u)
+                << " got " << input.sequence
+                << " frame " << input.frame;
+            pushLog(oss.str());
+        }
+
         if(input.frame > participant->lastContiguousInputFrame + 1u) {
             const FrameNumber missingFrame = participant->lastContiguousInputFrame + 1u;
             if(!participant->pendingMissingInputFrom.has_value() ||
@@ -573,7 +649,96 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
 
     if(m_hosting) {
         m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(input), peer);
+        publishConfirmedFramesIfReady();
     }
+
+    return true;
+}
+
+bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
+{
+    ConfirmedInputFramesData data;
+    if(!reader.readPod(data)) return false;
+    if(data.timelineEpoch != m_session.roomState().timelineEpoch) {
+        if(data.timelineEpoch < m_session.roomState().timelineEpoch) {
+            return true;
+        }
+        return false;
+    }
+
+    for(uint16_t i = 0; i < data.frameCount; ++i) {
+        ConfirmedInputFrameEntry entry;
+        if(!reader.readPod(entry)) return false;
+
+        ConfirmedFrameInputs frame;
+        frame.frame = data.startFrame + static_cast<FrameNumber>(i);
+        frame.buttonMaskLo = entry.buttonMaskLo;
+        frame.buttonMaskHi = entry.buttonMaskHi;
+        storeConfirmedFrame(frame);
+    }
+
+    if(data.frameCount > 0) {
+        const FrameNumber lastFrame = data.startFrame + static_cast<FrameNumber>(data.frameCount - 1u);
+        m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, lastFrame);
+
+        ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId);
+        if(localParticipant != nullptr &&
+           localParticipant->controllerAssignment != kObserverPlayerSlot) {
+            for(FrameNumber frame = data.startFrame; frame <= lastFrame; ++frame) {
+                TimelineInputEntry* localEntry =
+                    m_localInputs.findMutable(frame, m_localParticipantId, localParticipant->controllerAssignment);
+                if(localEntry != nullptr) {
+                    localEntry->confirmed = true;
+                }
+            }
+            localParticipant->lastContiguousInputFrame = std::max(localParticipant->lastContiguousInputFrame, lastFrame);
+            localParticipant->lastReceivedInputFrame = std::max(localParticipant->lastReceivedInputFrame, lastFrame);
+        }
+
+        std::ostringstream oss;
+        oss << "Received confirmed input frames " << data.startFrame
+            << "-" << lastFrame;
+        pushLog(oss.str());
+    }
+
+    return true;
+}
+
+bool NetplayCoordinator::handleInputAck(PacketReader& reader)
+{
+    InputAckData ack;
+    if(!reader.readPod(ack)) return false;
+    if(ack.timelineEpoch != m_session.roomState().timelineEpoch) {
+        if(ack.timelineEpoch < m_session.roomState().timelineEpoch) {
+            return true;
+        }
+        return false;
+    }
+
+    if(m_hosting) {
+        return true;
+    }
+
+    if(ack.participantId != m_localParticipantId) {
+        return true;
+    }
+
+    ParticipantInfo* participant = m_session.findParticipant(ack.participantId);
+    if(participant != nullptr) {
+        participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, ack.contiguousFrame);
+        participant->lastContiguousInputFrame = std::max(participant->lastContiguousInputFrame, ack.contiguousFrame);
+    }
+
+    for(FrameNumber frame = 1; frame <= ack.contiguousFrame; ++frame) {
+        TimelineInputEntry* entry = m_localInputs.findMutable(frame, ack.participantId, ack.playerSlot);
+        if(entry == nullptr) continue;
+        entry->confirmed = true;
+    }
+
+    std::ostringstream oss;
+    oss << "Received InputAck through frame " << ack.contiguousFrame
+        << " slot " << static_cast<unsigned>(ack.playerSlot) + 1u;
+    pushLog(oss.str());
 
     return true;
 }
@@ -789,6 +954,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
 
     m_localInputs.clear();
     m_remoteInputs.clear();
+    m_confirmedFrames.clear();
     for(const TimelineInputEntry& entry : preservedLocalInputs) {
         m_localInputs.push(entry);
     }
@@ -803,7 +969,31 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     m_consecutiveCrcMismatchCount = 0;
     m_session.roomState().currentFrame = loadedFrame;
     m_session.roomState().lastConfirmedFrame = loadedFrame;
+    m_lastBroadcastConfirmedFrame = loadedFrame;
     m_localInputSequence = 0;
+
+    ConfirmedFrameInputs confirmedFrame;
+    confirmedFrame.frame = loadedFrame;
+    bool haveConfirmedFrame = false;
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        const PlayerSlot slot = participant.controllerAssignment;
+        if(slot == kObserverPlayerSlot || slot >= 4) continue;
+
+        const TimelineInputEntry* preserved =
+            participant.id == m_localParticipantId
+                ? m_localInputs.find(loadedFrame, participant.id, slot)
+                : m_remoteInputs.find(loadedFrame, participant.id, slot);
+        if(preserved == nullptr) {
+            continue;
+        }
+
+        confirmedFrame.buttonMaskLo[slot] = preserved->buttonMaskLo;
+        confirmedFrame.buttonMaskHi[slot] = preserved->buttonMaskHi;
+        haveConfirmedFrame = true;
+    }
+    if(haveConfirmedFrame) {
+        storeConfirmedFrame(confirmedFrame);
+    }
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         participant.lastReceivedInputFrame = loadedFrame;
@@ -1188,6 +1378,11 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
 
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
     m_session.roomState().state = data.state;
+    if(data.state == SessionState::Running) {
+        m_confirmedFrames.clear();
+        m_lastBroadcastConfirmedFrame = 0;
+        m_session.roomState().lastConfirmedFrame = 0;
+    }
     pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
     return true;
 }
@@ -1286,7 +1481,7 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     status.timelineEpoch = m_session.roomState().timelineEpoch;
     status.currentFrame = m_localSimulationFrame;
     const FrameNumber inputConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, computeHostConfirmedFrame());
-    status.lastConfirmedFrame = std::min(status.currentFrame, inputConfirmedFrame);
+    status.lastConfirmedFrame = inputConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
 
     const FrameNumber previousCurrentFrame = m_session.roomState().currentFrame;
@@ -1652,6 +1847,12 @@ bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<u
         case MessageType::InputFrame:
             return handleInputFrame(peer, reader);
 
+        case MessageType::ConfirmedInputFrames:
+            return handleConfirmedInputFrames(reader);
+
+        case MessageType::InputAck:
+            return handleInputAck(reader);
+
         case MessageType::FrameStatus:
             return handleFrameStatus(reader);
 
@@ -1931,9 +2132,119 @@ const InputTimeline& NetplayCoordinator::remoteInputs() const
     return m_remoteInputs;
 }
 
+const NetplayCoordinator::ConfirmedFrameInputs* NetplayCoordinator::findConfirmedFrame(FrameNumber frame) const
+{
+    for(auto it = m_confirmedFrames.rbegin(); it != m_confirmedFrames.rend(); ++it) {
+        if(it->frame == frame) {
+            return &(*it);
+        }
+    }
+    return nullptr;
+}
+
+FrameNumber NetplayCoordinator::latestConfirmedFrame() const
+{
+    return m_confirmedFrames.empty() ? 0u : m_confirmedFrames.back().frame;
+}
+
+void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
+{
+    for(auto& existing : m_confirmedFrames) {
+        if(existing.frame == frame.frame) {
+            existing = frame;
+            return;
+        }
+    }
+
+    if(m_confirmedFrames.size() >= kConfirmedFrameHistoryCapacity) {
+        m_confirmedFrames.pop_front();
+    }
+
+    m_confirmedFrames.push_back(frame);
+}
+
+bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const
+{
+    outFrame = {};
+    outFrame.frame = frame;
+    bool haveAssignedParticipant = false;
+
+    for(const auto& participant : m_session.roomState().participants) {
+        const PlayerSlot slot = participant.controllerAssignment;
+        if(slot == kObserverPlayerSlot || slot >= 4) continue;
+
+        const TimelineInputEntry* entry =
+            participant.id == m_localParticipantId
+                ? m_localInputs.find(frame, participant.id, slot)
+                : m_remoteInputs.find(frame, participant.id, slot);
+        if(entry == nullptr || !entry->confirmed) {
+            return false;
+        }
+
+        haveAssignedParticipant = true;
+        outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
+        outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+    }
+
+    return haveAssignedParticipant;
+}
+
+void NetplayCoordinator::publishConfirmedFramesIfReady()
+{
+    if(!m_hosting) return;
+    if(m_session.roomState().state != SessionState::Running) return;
+
+    std::vector<ConfirmedFrameInputs> pendingFrames;
+    FrameNumber nextFrame = m_lastBroadcastConfirmedFrame + 1u;
+    while(pendingFrames.size() < kMaxConfirmedFramesPerPacket) {
+        ConfirmedFrameInputs frame;
+        if(!tryAssembleConfirmedFrame(nextFrame, frame)) {
+            break;
+        }
+        pendingFrames.push_back(frame);
+        ++nextFrame;
+    }
+
+    if(pendingFrames.empty()) {
+        return;
+    }
+
+    for(const auto& frame : pendingFrames) {
+        storeConfirmedFrame(frame);
+    }
+
+    ConfirmedInputFramesData data;
+    data.timelineEpoch = m_session.roomState().timelineEpoch;
+    data.startFrame = pendingFrames.front().frame;
+    data.frameCount = static_cast<uint16_t>(pendingFrames.size());
+
+    m_transport.broadcastReliable(
+        Channel::Gameplay,
+        buildConfirmedInputFramesPacket(data, std::span<const ConfirmedFrameInputs>(pendingFrames.data(), pendingFrames.size()), m_session.roomState().sessionId)
+    );
+
+    m_lastBroadcastConfirmedFrame = pendingFrames.back().frame;
+    m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, m_lastBroadcastConfirmedFrame);
+
+    std::ostringstream oss;
+    oss << "Published confirmed input frames " << pendingFrames.front().frame
+        << "-" << pendingFrames.back().frame;
+    pushLog(oss.str());
+}
+
 void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi)
 {
     if(slot >= 4 || m_localParticipantId == kInvalidParticipantId) return;
+
+    const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
+    if(latest != nullptr && frame != latest->frame + 1u) {
+        std::ostringstream oss;
+        oss << "Rejected non-sequential local input frame " << frame
+            << " for slot " << static_cast<unsigned>(slot) + 1u
+            << " expected " << (latest->frame + 1u);
+        pushLog(oss.str());
+        return;
+    }
 
     const TimelineInputEntry* existing = m_localInputs.find(frame, m_localParticipantId, slot);
     if(existing != nullptr) {
@@ -1955,7 +2266,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     entry.buttonMaskLo = buttonMaskLo;
     entry.buttonMaskHi = buttonMaskHi;
     entry.sequence = ++m_localInputSequence;
-    entry.confirmed = true;
+    entry.confirmed = m_hosting;
     m_localInputs.push(entry);
 
     InputFrameData packetData;
@@ -1970,6 +2281,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     if(m_hosting) {
         m_transport.broadcastReliable(Channel::Gameplay, payload);
+        publishConfirmedFramesIfReady();
         return;
     }
 
@@ -2370,7 +2682,6 @@ bool NetplayCoordinator::setInputDelayFrames(uint8_t frames)
 {
     if(!m_hosting) return false;
 
-    frames = static_cast<uint8_t>(std::min<unsigned>(frames, 8u));
     if(m_session.roomState().inputDelayFrames == frames) return true;
 
     m_session.roomState().inputDelayFrames = frames;
@@ -2497,14 +2808,16 @@ bool NetplayCoordinator::startSession()
         return false;
     }
 
-    m_session.roomState().state = SessionState::Starting;
-    m_pendingHostResyncFrame = m_session.roomState().currentFrame;
+    m_session.roomState().state = SessionState::Running;
+    m_confirmedFrames.clear();
+    m_lastBroadcastConfirmedFrame = 0;
+    m_session.roomState().lastConfirmedFrame = 0;
 
     StartSessionData data;
-    data.state = SessionState::Starting;
+    data.state = SessionState::Running;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
-    pushLog("Host started session setup; waiting for initial sync");
+    pushLog("Host started session");
     return true;
 }
 

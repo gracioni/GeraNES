@@ -39,6 +39,7 @@ enum class MessageType : uint16_t
     EndSession,
 
     InputFrame = 100,
+    ConfirmedInputFrames,
     InputAck,
     FrameStatus,
     PeerHealth,
@@ -103,6 +104,28 @@ struct InputFrameData
     PlayerSlot playerSlot = kObserverPlayerSlot;
     uint64_t buttonMaskLo = 0;
     uint64_t buttonMaskHi = 0;
+    uint32_t sequence = 0;
+};
+
+struct ConfirmedInputFramesData
+{
+    uint32_t timelineEpoch = 0;
+    FrameNumber startFrame = 0;
+    uint16_t frameCount = 0;
+};
+
+struct ConfirmedInputFrameEntry
+{
+    std::array<uint64_t, 4> buttonMaskLo = {};
+    std::array<uint64_t, 4> buttonMaskHi = {};
+};
+
+struct InputAckData
+{
+    uint32_t timelineEpoch = 0;
+    ParticipantId participantId = kInvalidParticipantId;
+    PlayerSlot playerSlot = kObserverPlayerSlot;
+    FrameNumber contiguousFrame = 0;
     uint32_t sequence = 0;
 };
 

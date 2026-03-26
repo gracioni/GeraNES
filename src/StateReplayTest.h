@@ -6,9 +6,9 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <set>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -49,7 +49,7 @@ private:
     struct FrameRecord
     {
         uint32_t frame = 0;
-        uint64_t inputMask = 0;
+        uint64_t nextInputMask = 0;
         uint32_t crc32 = 0;
         std::vector<uint8_t> snapshot;
     };
@@ -60,6 +60,7 @@ private:
         uint32_t targetFrame = 0;
         uint32_t expectedCrc32 = 0;
         uint32_t actualCrc32 = 0;
+        std::string reason;
     };
 
     struct CaseResult
@@ -70,10 +71,12 @@ private:
         std::optional<ReplayMismatch> dirtyMismatch;
         std::optional<ReplayMismatch> cleanBootMismatch;
         std::vector<FrameRecord> baseline;
+        std::string baselineFailureReason;
 
         bool ok() const
         {
-            return !freshMismatch.has_value() &&
+            return baselineFailureReason.empty() &&
+                   !freshMismatch.has_value() &&
                    !dirtyMismatch.has_value() &&
                    !cleanBootMismatch.has_value();
         }
@@ -103,26 +106,21 @@ private:
         {
         }
 
-        Buttons buttonsForFrame(uint32_t frame, uint32_t fps) const
+        Buttons buttonsForFrame(uint32_t frameIndex, uint32_t fps) const
         {
             const uint32_t startupQuietFrames = std::max<uint32_t>(fps, 30u);
-            if(frame <= startupQuietFrames) {
+            if(frameIndex < startupQuietFrames) {
                 return {};
             }
 
             Buttons buttons;
+            const uint32_t activeIndex = frameIndex - startupQuietFrames;
             const uint32_t segmentLength = 5u + (mix(m_seed ^ 0xA511E9B3u) % 4u);
-            const uint32_t segment = (frame - startupQuietFrames - 1u) / segmentLength;
-            const uint32_t localFrame = (frame - startupQuietFrames - 1u) % segmentLength;
+            const uint32_t segment = activeIndex / segmentLength;
+            const uint32_t localFrame = activeIndex % segmentLength;
             const uint32_t action = mix(m_seed ^ segment ^ 0x9E3779B9u);
-            const uint32_t direction = action % 10u;
-            const bool tapStart = (action % 37u) == 0u && localFrame == 0u;
-            const bool tapSelect = (action % 53u) == 0u && localFrame == 0u;
 
-            if(tapStart) buttons.start = true;
-            if(tapSelect) buttons.select = true;
-
-            switch(direction) {
+            switch(action % 10u) {
                 case 0: buttons.up = true; break;
                 case 1: buttons.down = true; break;
                 case 2: buttons.left = true; break;
@@ -136,6 +134,8 @@ private:
 
             buttons.a = ((action >> 8) & 0x3u) != 0u;
             buttons.b = ((action >> 10) & 0x3u) == 1u || ((action >> 10) & 0x3u) == 2u;
+            buttons.start = (action % 37u) == 0u && localFrame == 0u;
+            buttons.select = (action % 53u) == 0u && localFrame == 0u;
             return buttons;
         }
     };
@@ -154,9 +154,9 @@ private:
         return mask;
     }
 
-    static void applyPadMask(GeraNESEmu& emu, uint64_t mask)
+    static void queuePadMaskForCurrentFrame(GeraNESEmu& emu, uint64_t mask)
     {
-        InputFrame frame = emu.createInputFrame(emu.frameCount() + 1u);
+        InputFrame frame = emu.createInputFrame(emu.frameCount());
         frame.p1A = (mask & (1ull << 0)) != 0;
         frame.p1B = (mask & (1ull << 1)) != 0;
         frame.p1Select = (mask & (1ull << 2)) != 0;
@@ -170,23 +170,27 @@ private:
 
     static bool advanceExactlyOneFrame(GeraNESEmu& emu, uint64_t inputMask)
     {
-        if(!emu.valid()) return false;
+        if(!emu.valid()) return false;        
 
-        applyPadMask(emu, inputMask);
-        const uint32_t previousFrame = emu.frameCount();
-        const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, emu.getRegionFPS()));
-        while(emu.valid() && emu.frameCount() == previousFrame) {
-            emu.update(frameDt);
+        auto prev = emu.frameCount();
+        while(prev == emu.frameCount()) {
+            emu.update(1);
         }
-        return emu.valid() && emu.frameCount() == previousFrame + 1u;
+
+        queuePadMaskForCurrentFrame(emu, inputMask);
+
+        //return emu.updateUntilFrame(17);
+        return true;
     }
 
     static std::optional<std::vector<FrameRecord>> buildBaseline(const std::string& romPath,
                                                                  uint32_t frames,
-                                                                 uint32_t seed)
+                                                                 uint32_t seed,
+                                                                 std::string& failureReason)
     {
         GeraNESEmu emu(DummyAudioOutput::instance());
         if(!emu.open(romPath) || !emu.valid()) {
+            failureReason = "Failed to open ROM.";
             return std::nullopt;
         }
 
@@ -194,21 +198,27 @@ private:
         std::vector<FrameRecord> records;
         records.reserve(frames + 1u);
 
-        FrameRecord frameZero;
-        frameZero.frame = 0;
-        frameZero.crc32 = emu.canonicalStateCrc32();
-        frameZero.snapshot = emu.saveStateToMemory();
-        records.push_back(std::move(frameZero));
+        FrameRecord initial;
+        initial.frame = 0;
+        initial.crc32 = emu.canonicalStateCrc32();
+        initial.snapshot = emu.saveStateToMemory();
+        records.push_back(std::move(initial));
 
-        for(uint32_t frame = 1; frame <= frames; ++frame) {
-            const uint64_t inputMask = buildPadMask(generator.buttonsForFrame(frame, std::max<uint32_t>(1, emu.getRegionFPS())));
+        for(uint32_t currentFrame = 0; currentFrame < frames; ++currentFrame) {
+            const uint64_t inputMask = buildPadMask(
+                generator.buttonsForFrame(currentFrame, std::max<uint32_t>(1u, emu.getRegionFPS()))
+            );
+            records[currentFrame].nextInputMask = inputMask;
+
             if(!advanceExactlyOneFrame(emu, inputMask)) {
+                failureReason =
+                    "Failed to advance baseline from frame " + std::to_string(currentFrame) +
+                    " to frame " + std::to_string(currentFrame + 1u) + ".";
                 return std::nullopt;
             }
 
             FrameRecord record;
-            record.frame = frame;
-            record.inputMask = inputMask;
+            record.frame = emu.frameCount();
             record.crc32 = emu.canonicalStateCrc32();
             record.snapshot = emu.saveStateToMemory();
             records.push_back(std::move(record));
@@ -223,14 +233,18 @@ private:
                                                            uint32_t replayHorizon,
                                                            bool cleanBootBeforeLoad)
     {
-        if(fromFrame >= baseline.size()) return std::nullopt;
-        if(baseline[fromFrame].snapshot.empty()) return std::nullopt;
+        if(fromFrame >= baseline.size()) {
+            return ReplayMismatch{fromFrame, fromFrame, 0, 0, "Probe frame out of range."};
+        }
+        if(baseline[fromFrame].snapshot.empty()) {
+            return ReplayMismatch{fromFrame, fromFrame, baseline[fromFrame].crc32, 0, "Missing snapshot."};
+        }
 
         const bool loaded = cleanBootBeforeLoad
             ? emu.loadStateFromMemoryOnCleanBoot(baseline[fromFrame].snapshot)
-            : (emu.loadStateFromMemory(baseline[fromFrame].snapshot), true);
+            : (emu.loadStateFromMemory(baseline[fromFrame].snapshot), emu.valid());
         if(!loaded || !emu.valid()) {
-            return ReplayMismatch{fromFrame, fromFrame, baseline[fromFrame].crc32, 0};
+            return ReplayMismatch{fromFrame, fromFrame, baseline[fromFrame].crc32, 0, "Failed to load snapshot."};
         }
 
         const uint32_t loadedCrc32 = emu.canonicalStateCrc32();
@@ -239,18 +253,25 @@ private:
                 fromFrame,
                 fromFrame,
                 baseline[fromFrame].crc32,
-                loadedCrc32
+                loadedCrc32,
+                "Loaded snapshot CRC mismatch."
             };
         }
 
         const uint32_t targetFrame = std::min<uint32_t>(
             static_cast<uint32_t>(baseline.size() - 1u),
-            fromFrame + std::max<uint32_t>(1, replayHorizon)
+            fromFrame + std::max<uint32_t>(1u, replayHorizon)
         );
 
-        for(uint32_t frame = fromFrame + 1u; frame <= targetFrame; ++frame) {
-            if(!advanceExactlyOneFrame(emu, baseline[frame].inputMask)) {
-                return ReplayMismatch{fromFrame, frame, baseline[frame].crc32, 0};
+        for(uint32_t currentFrame = fromFrame; currentFrame < targetFrame; ++currentFrame) {
+            if(!advanceExactlyOneFrame(emu, baseline[currentFrame].nextInputMask)) {
+                return ReplayMismatch{
+                    fromFrame,
+                    currentFrame + 1u,
+                    baseline[currentFrame + 1u].crc32,
+                    0,
+                    "Failed to advance replayed frame."
+                };
             }
         }
 
@@ -263,233 +284,62 @@ private:
             fromFrame,
             targetFrame,
             baseline[targetFrame].crc32,
-            actualCrc32
+            actualCrc32,
+            "Future CRC mismatch after replay."
         };
     }
 
-    static nlohmann::json mismatchToJson(const std::optional<ReplayMismatch>& mismatch)
+    static std::optional<CaseResult> runCase(const Options& options,
+                                             uint32_t seed,
+                                             uint32_t replayHorizon)
     {
-        if(!mismatch.has_value()) {
-            return {{"ok", true}};
-        }
-
-        return {
-            {"ok", false},
-            {"fromFrame", mismatch->fromFrame},
-            {"targetFrame", mismatch->targetFrame},
-            {"expectedCrc32", mismatch->expectedCrc32},
-            {"actualCrc32", mismatch->actualCrc32}
-        };
-    }
-
-    static nlohmann::json buildFrameWindow(const std::vector<FrameRecord>& baseline,
-                                           const std::optional<ReplayMismatch>& freshMismatch,
-                                           const std::optional<ReplayMismatch>& dirtyMismatch)
-    {
-        uint32_t centerFrame = 0;
-        if(freshMismatch.has_value()) {
-            centerFrame = freshMismatch->targetFrame;
-        } else if(dirtyMismatch.has_value()) {
-            centerFrame = dirtyMismatch->targetFrame;
-        }
-
-        if(centerFrame == 0 || baseline.empty()) {
-            centerFrame = static_cast<uint32_t>(baseline.empty() ? 0 : baseline.back().frame);
-        }
-
-        const uint32_t frameStart = centerFrame > 3 ? centerFrame - 3u : 0u;
-        const uint32_t frameEnd = std::min<uint32_t>(
-            static_cast<uint32_t>(baseline.empty() ? 0 : baseline.back().frame),
-            centerFrame + 3u
-        );
-
-        nlohmann::json frames = nlohmann::json::array();
-        for(uint32_t frame = frameStart; frame <= frameEnd && frame < baseline.size(); ++frame) {
-            frames.push_back({
-                {"frame", baseline[frame].frame},
-                {"inputMask", baseline[frame].inputMask},
-                {"crc32", baseline[frame].crc32},
-                {"snapshotSize", baseline[frame].snapshot.size()}
-            });
-        }
-
-        return {
-            {"frameStart", frameStart},
-            {"frameEnd", frameEnd},
-            {"frames", frames}
-        };
-    }
-
-    static int writeReport(const Options& options,
-                           const std::vector<CaseResult>& cases)
-    {
-        const bool ok = std::all_of(
-            cases.begin(),
-            cases.end(),
-            [](const CaseResult& result) { return result.ok(); }
-        );
-
-        nlohmann::json casesJson = nlohmann::json::array();
-        uint32_t passedCases = 0;
-        for(const CaseResult& result : cases) {
-            if(result.ok()) {
-                ++passedCases;
-            }
-
-            casesJson.push_back({
-                {"seed", result.seed},
-                {"replayHorizon", result.replayHorizon},
-                {"freshInstanceReplay", mismatchToJson(result.freshMismatch)},
-                {"dirtyInstanceReplay", mismatchToJson(result.dirtyMismatch)},
-                {"cleanBootReplay", mismatchToJson(result.cleanBootMismatch)},
-                {"frameWindow", buildFrameWindow(result.baseline, result.freshMismatch, result.dirtyMismatch)}
-            });
-        }
-
-        std::set<uint32_t> seeds;
-        std::set<uint32_t> replayHorizons;
-        for(const CaseResult& result : cases) {
-            seeds.insert(result.seed);
-            replayHorizons.insert(result.replayHorizon);
-        }
-
-        nlohmann::json report = {
-            {"status", ok ? "ok" : "mismatch"},
-            {"romPath", options.romPath},
-            {"frames", options.frames},
-            {"robust", options.robust},
-            {"seed", options.seed},
-            {"replayHorizon", options.replayHorizon},
-            {"probeStride", options.probeStride},
-            {"fromFrame", options.fromFrame.has_value() ? nlohmann::json(*options.fromFrame) : nlohmann::json(nullptr)},
-            {"seeds", std::vector<uint32_t>(seeds.begin(), seeds.end())},
-            {"replayHorizons", std::vector<uint32_t>(replayHorizons.begin(), replayHorizons.end())},
-            {"summary", {
-                {"caseCount", static_cast<uint32_t>(cases.size())},
-                {"passedCases", passedCases}
-            }},
-            {"cases", casesJson}
-        };
-
-        const std::string serialized = report.dump(2);
-        if(!options.reportPath.empty()) {
-            std::ofstream out(options.reportPath, std::ios::binary | std::ios::trunc);
-            out << serialized;
-            std::cout << options.reportPath << std::endl;
-        } else {
-            std::cout << serialized << std::endl;
-        }
-
-        return ok ? 0 : RESULT_FAILED;
-    }
-
-    static std::vector<uint32_t> buildSeedList(const Options& options)
-    {
-        std::set<uint32_t> seeds = {options.seed};
-        for(uint32_t seed : options.extraSeeds) {
-            seeds.insert(seed);
-        }
-
-        if(options.robust) {
-            seeds.insert(0x00000001u);
-            seeds.insert(0xDEADBEEFu);
-            seeds.insert(options.seed ^ 0x9E3779B9u);
-        }
-
-        return std::vector<uint32_t>(seeds.begin(), seeds.end());
-    }
-
-    static std::vector<uint32_t> buildReplayHorizonList(const Options& options)
-    {
-        std::set<uint32_t> horizons = {std::max<uint32_t>(1, options.replayHorizon)};
-        for(uint32_t horizon : options.extraReplayHorizons) {
-            if(horizon > 0) {
-                horizons.insert(horizon);
-            }
-        }
-
-        if(options.robust) {
-            horizons.insert(1u);
-            horizons.insert(3u);
-            horizons.insert(std::min<uint32_t>(8u, options.frames));
-            horizons.insert(std::min<uint32_t>(16u, options.frames));
-        }
-
-        horizons.erase(0u);
-        return std::vector<uint32_t>(horizons.begin(), horizons.end());
-    }
-
-    static std::vector<uint32_t> buildProbeFrames(const Options& options, uint32_t maxFromFrame)
-    {
-        if(options.fromFrame.has_value()) {
-            if(*options.fromFrame > maxFromFrame) {
-                return {};
-            }
-            return {*options.fromFrame};
-        }
-
-        const uint32_t stride = std::max<uint32_t>(1, options.probeStride);
-        std::vector<uint32_t> frames;
-        frames.reserve((maxFromFrame / stride) + 2u);
-        for(uint32_t fromFrame = 0; fromFrame <= maxFromFrame; fromFrame += stride) {
-            frames.push_back(fromFrame);
-        }
-        if(frames.empty() || frames.back() != maxFromFrame) {
-            frames.push_back(maxFromFrame);
-        }
-        return frames;
-    }
-
-    static std::optional<CaseResult> runCase(const Options& options, uint32_t seed, uint32_t replayHorizon)
-    {
-        std::cerr << "StateReplayTest: seed=" << seed << " horizon=" << replayHorizon << std::endl;
-        const std::optional<std::vector<FrameRecord>> baseline = buildBaseline(options.romPath, options.frames, seed);
-        if(!baseline.has_value()) {
-            return std::nullopt;
-        }
-
-        auto freshEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
-        if(!freshEmu->open(options.romPath) || !freshEmu->valid()) {
-            return std::nullopt;
-        }
-
-        auto dirtyEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
-        if(!dirtyEmu->open(options.romPath) || !dirtyEmu->valid()) {
-            return std::nullopt;
-        }
-
-        auto cleanBootEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
-        if(!cleanBootEmu->open(options.romPath) || !cleanBootEmu->valid()) {
-            return std::nullopt;
-        }
-
-        DeterministicInputGenerator generator(seed);
-        for(uint32_t frame = 1; frame <= options.frames; ++frame) {
-            const uint64_t inputMask = buildPadMask(generator.buttonsForFrame(frame, std::max<uint32_t>(1, dirtyEmu->getRegionFPS())));
-            if(!advanceExactlyOneFrame(*dirtyEmu, inputMask)) {
-                return std::nullopt;
-            }
-        }
-
         CaseResult result;
         result.seed = seed;
         result.replayHorizon = replayHorizon;
+
+        std::string baselineFailureReason;
+        const std::optional<std::vector<FrameRecord>> baseline = buildBaseline(
+            options.romPath,
+            options.frames,
+            seed,
+            baselineFailureReason
+        );
+        if(!baseline.has_value()) {
+            result.baselineFailureReason = baselineFailureReason;
+            return result;
+        }
         result.baseline = *baseline;
 
-        const uint32_t maxFromFrame = static_cast<uint32_t>(baseline->size() > 1 ? baseline->size() - 2u : 0u);
-        const std::vector<uint32_t> probeFrames = buildProbeFrames(options, maxFromFrame);
-        if(probeFrames.empty()) {
-            return std::nullopt;
+        std::unique_ptr<GeraNESEmu> dirtyEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
+        std::unique_ptr<GeraNESEmu> freshEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
+        std::unique_ptr<GeraNESEmu> cleanBootEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
+        if(!dirtyEmu->open(options.romPath) || !dirtyEmu->valid()) {
+            result.baselineFailureReason = "Failed to open dirty replay emulator.";
+            return result;
+        }
+        if(!freshEmu->open(options.romPath) || !freshEmu->valid()) {
+            result.baselineFailureReason = "Failed to open fresh replay emulator.";
+            return result;
+        }
+        if(!cleanBootEmu->open(options.romPath) || !cleanBootEmu->valid()) {
+            result.baselineFailureReason = "Failed to open clean-boot replay emulator.";
+            return result;
         }
 
-        const size_t progressStep = std::max<size_t>(1u, probeFrames.size() / 10u);
-        for(size_t probeIndex = 0; probeIndex < probeFrames.size(); ++probeIndex) {
-            const uint32_t fromFrame = probeFrames[probeIndex];
-            if(probeIndex == 0 || ((probeIndex + 1u) % progressStep) == 0u || (probeIndex + 1u) == probeFrames.size()) {
-                std::cerr << "StateReplayTest: probe " << (probeIndex + 1u) << "/" << probeFrames.size()
-                          << " fromFrame=" << fromFrame << std::endl;
+        std::vector<uint32_t> probeFrames;
+        if(options.fromFrame.has_value()) {
+            probeFrames.push_back(std::min<uint32_t>(*options.fromFrame, static_cast<uint32_t>(baseline->size() - 1u)));
+        } else {
+            const uint32_t stride = std::max<uint32_t>(1u, options.probeStride);
+            for(uint32_t frame = 0; frame < baseline->size(); frame += stride) {
+                probeFrames.push_back(frame);
             }
+            if(probeFrames.empty() || probeFrames.back() != baseline->size() - 1u) {
+                probeFrames.push_back(static_cast<uint32_t>(baseline->size() - 1u));
+            }
+        }
 
+        for(const uint32_t fromFrame : probeFrames) {
             if(!result.freshMismatch.has_value()) {
                 result.freshMismatch = probeFromSnapshot(*freshEmu, *baseline, fromFrame, replayHorizon, false);
             }
@@ -499,8 +349,9 @@ private:
             if(!result.cleanBootMismatch.has_value()) {
                 result.cleanBootMismatch = probeFromSnapshot(*cleanBootEmu, *baseline, fromFrame, replayHorizon, true);
             }
-            if(result.freshMismatch.has_value() &&
-               result.dirtyMismatch.has_value() &&
+
+            if(result.freshMismatch.has_value() ||
+               result.dirtyMismatch.has_value() ||
                result.cleanBootMismatch.has_value()) {
                 break;
             }
@@ -509,39 +360,130 @@ private:
         return result;
     }
 
+    static nlohmann::json mismatchToJson(const std::optional<ReplayMismatch>& mismatch)
+    {
+        if(!mismatch.has_value()) return nullptr;
+        return {
+            {"fromFrame", mismatch->fromFrame},
+            {"targetFrame", mismatch->targetFrame},
+            {"expectedCrc32", mismatch->expectedCrc32},
+            {"actualCrc32", mismatch->actualCrc32},
+            {"reason", mismatch->reason}
+        };
+    }
+
+    static nlohmann::json baselineTailToJson(const std::vector<FrameRecord>& baseline)
+    {
+        nlohmann::json frames = nlohmann::json::array();
+        const size_t start = baseline.size() > 8 ? (baseline.size() - 8) : 0;
+        for(size_t i = start; i < baseline.size(); ++i) {
+            frames.push_back({
+                {"frame", baseline[i].frame},
+                {"nextInputMask", baseline[i].nextInputMask},
+                {"crc32", baseline[i].crc32},
+                {"snapshotSize", baseline[i].snapshot.size()}
+            });
+        }
+        return frames;
+    }
+
+    static nlohmann::json caseResultToJson(const CaseResult& result)
+    {
+        return {
+            {"seed", result.seed},
+            {"replayHorizon", result.replayHorizon},
+            {"ok", result.ok()},
+            {"baselineFailureReason", result.baselineFailureReason},
+            {"baselineFrames", result.baseline.size()},
+            {"baselineTail", baselineTailToJson(result.baseline)},
+            {"freshInstanceReplay", mismatchToJson(result.freshMismatch)},
+            {"dirtyInstanceReplay", mismatchToJson(result.dirtyMismatch)},
+            {"cleanBootReplay", mismatchToJson(result.cleanBootMismatch)}
+        };
+    }
+
+    static int emitReport(const Options& options, const nlohmann::json& report)
+    {
+        if(!options.reportPath.empty()) {
+            std::ofstream out(options.reportPath, std::ios::binary);
+            if(!out) {
+                std::cerr << "Failed to write state replay report: " << options.reportPath << std::endl;
+                return RESULT_ERROR;
+            }
+            out << report.dump(2) << '\n';
+            std::cout << options.reportPath << std::endl;
+        } else {
+            std::cout << report.dump(2) << std::endl;
+        }
+
+        return report.value("status", std::string()) == "ok" ? 0 : RESULT_FAILED;
+    }
+
 public:
     static int runHeadless(const Options& options)
     {
         if(options.romPath.empty()) {
-            std::cerr << "State replay test requires a ROM path." << std::endl;
-            return RESULT_ERROR;
+            return emitReport(options, {
+                {"status", "error"},
+                {"failureReason", "State replay test requires a ROM path."}
+            });
         }
 
-        const std::vector<uint32_t> seeds = buildSeedList(options);
-        const std::vector<uint32_t> replayHorizons = buildReplayHorizonList(options);
+        std::set<uint32_t> seeds = {options.seed};
+        std::set<uint32_t> horizons = {std::max<uint32_t>(1u, options.replayHorizon)};
+        for(uint32_t extraSeed : options.extraSeeds) seeds.insert(extraSeed);
+        for(uint32_t extraHorizon : options.extraReplayHorizons) horizons.insert(std::max<uint32_t>(1u, extraHorizon));
+
+        if(options.robust) {
+            seeds.insert(1u);
+            seeds.insert(0xDEADBEEFu);
+            horizons.insert(1u);
+            horizons.insert(8u);
+        }
+
         std::cerr << "StateReplayTest: " << seeds.size() << " seed(s), "
-                  << replayHorizons.size() << " horizon(s), "
-                  << "probeStride=" << options.probeStride;
+                  << horizons.size() << " horizon(s), probeStride=" << std::max<uint32_t>(1u, options.probeStride);
         if(options.fromFrame.has_value()) {
             std::cerr << ", fromFrame=" << *options.fromFrame;
         }
         std::cerr << std::endl;
-        std::vector<CaseResult> cases;
-        cases.reserve(seeds.size() * replayHorizons.size());
+
+        nlohmann::json cases = nlohmann::json::array();
+        bool allOk = true;
 
         for(uint32_t seed : seeds) {
-            for(uint32_t replayHorizon : replayHorizons) {
+            for(uint32_t replayHorizon : horizons) {
+                std::cerr << "StateReplayTest: seed=" << seed
+                          << " horizon=" << replayHorizon << std::endl;
                 const std::optional<CaseResult> result = runCase(options, seed, replayHorizon);
                 if(!result.has_value()) {
+                    allOk = false;
+                    cases.push_back({
+                        {"seed", seed},
+                        {"replayHorizon", replayHorizon},
+                        {"ok", false},
+                        {"baselineFailureReason", "Internal case setup failed."}
+                    });
+                    continue;
+                }
+                cases.push_back(caseResultToJson(*result));
+                allOk = allOk && result->ok();
+                if(!result->ok()) {
                     std::cerr << "Failed to run replay test case. seed=" << seed
                               << " replayHorizon=" << replayHorizon << std::endl;
-                    return RESULT_ERROR;
                 }
-                cases.push_back(*result);
             }
         }
 
-        return writeReport(options, cases);
+        nlohmann::json report = {
+            {"status", allOk ? "ok" : "failed"},
+            {"romPath", options.romPath},
+            {"frames", options.frames},
+            {"probeStride", std::max<uint32_t>(1u, options.probeStride)},
+            {"fromFrame", options.fromFrame.has_value() ? nlohmann::json(*options.fromFrame) : nlohmann::json(nullptr)},
+            {"cases", cases}
+        };
+        return emitReport(options, report);
     }
 };
 

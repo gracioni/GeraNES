@@ -1037,6 +1037,9 @@ public:
         m_lastAudioRenderedMs = 0;
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
+        m_4011WriteCounter = 0;
+        m_newFrame = false;
+        m_frameStarted = false;
 
         m_frameCounter = 0;
         m_inputBuffer.clear();
@@ -1573,13 +1576,31 @@ public:
     std::vector<uint8_t> saveNetplayStateToMemory()
     {
         const InputBuffer savedInputBuffer = m_inputBuffer;
+        const bool savedNewFrame = m_newFrame;
+        const bool savedFrameStarted = m_frameStarted;
+        const bool savedRunningLoop = m_runningLoop;
+        const HardwareActions savedHardwareActions = m_hardwareActions;
+        const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
+        const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
         m_inputBuffer.clear();
         m_inputBuffer.push(m_lastAppliedInputFrame);
+        m_newFrame = false;
+        m_frameStarted = false;
+        m_runningLoop = false;
+        m_hardwareActions.reset();
+        m_updateCyclesAcc = 0;
+        m_audioRenderCyclesAcc = 0;
 
         Serialize s;
         serialization(s);
 
         m_inputBuffer = savedInputBuffer;
+        m_newFrame = savedNewFrame;
+        m_frameStarted = savedFrameStarted;
+        m_runningLoop = savedRunningLoop;
+        m_hardwareActions = savedHardwareActions;
+        m_updateCyclesAcc = savedUpdateCyclesAcc;
+        m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
         return s.getData();
     }
 

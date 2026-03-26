@@ -21,6 +21,14 @@ namespace Netplay {
 
 class NetplayCoordinator
 {
+public:
+    struct ConfirmedFrameInputs
+    {
+        FrameNumber frame = 0;
+        std::array<uint64_t, 4> buttonMaskLo = {};
+        std::array<uint64_t, 4> buttonMaskHi = {};
+    };
+
 private:
     struct IncomingResyncTransfer
     {
@@ -45,6 +53,7 @@ private:
     NetSession m_session;
     InputTimeline m_localInputs;
     InputTimeline m_remoteInputs;
+    std::deque<ConfirmedFrameInputs> m_confirmedFrames;
     std::vector<std::string> m_eventLog;
     ENetPeer* m_serverPeer = nullptr;
     ParticipantId m_localParticipantId = kInvalidParticipantId;
@@ -119,6 +128,8 @@ private:
     bool handleSpectatorSyncAck(PacketReader& reader);
     bool handlePeerHealth(ENetPeer* peer, PacketReader& reader);
     bool handleInputFrame(ENetPeer* peer, PacketReader& reader);
+    bool handleConfirmedInputFrames(PacketReader& reader);
+    bool handleInputAck(PacketReader& reader);
     bool handleFrameStatus(PacketReader& reader);
     bool handleCrcReport(PacketReader& reader);
     bool handleAssignController(PacketReader& reader);
@@ -129,6 +140,9 @@ private:
     void realignAuthoritativeState(FrameNumber loadedFrame);
     void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
+    void storeConfirmedFrame(const ConfirmedFrameInputs& frame);
+    bool tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const;
+    void publishConfirmedFramesIfReady();
     void handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot);
     bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
     FrameNumber computeHostConfirmedFrame() const;
@@ -167,6 +181,8 @@ public:
     std::optional<ParticipantId> consumePendingHostSpectatorSyncParticipant();
     const InputTimeline& localInputs() const;
     const InputTimeline& remoteInputs() const;
+    const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;
+    FrameNumber latestConfirmedFrame() const;
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
     void predictRemoteInputsForFrame(FrameNumber frame);
     void submitLocalCrc(FrameNumber frame, uint32_t crc32);

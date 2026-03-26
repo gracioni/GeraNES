@@ -47,13 +47,13 @@ namespace
             << "  --healthcheck  Run deterministic headless health-check mode and export artifacts.\n\n"
             << "Netplay test options:\n"
             << "  --frames <n>              Frames to simulate. Default: 600\n"
-            << "  --input-delay <n>         Session input delay in frames. Default: 2\n"
+            << "  --input-delay <n>         Session input delay in frames. Default: 10\n"
             << "  --rollback-window <n>     Snapshot/rollback history size. Default: 600\n"
             << "  --crc-interval <n>        CRC report interval in frames. Default: 10\n"
             << "  --settle-steps <n>        Extra maintenance ticks after the target frame. Default: 2048\n"
             << "  --host-seed <n>           Deterministic host input seed. Default: 324478056\n"
             << "  --client-seed <n>         Deterministic client input seed. Default: 610800471\n"
-            << "  --robust                  Run a small built-in matrix of input-delay/seed cases.\n"
+            << "  --robust                  Run a built-in matrix of delay/seed/lockstep/long-session cases.\n"
             << "  --app-flow                Use EmulationHost/desktop-like app flow instead of direct core stepping.\n"
             << "  --baseline-lockstep       Disable realtime heuristics and require confirmed input before each frame.\n"
             << "  --report <path>           Write the JSON report to a file instead of stdout.\n"
@@ -199,7 +199,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             else if(arg == "--input-delay") {
-                if(!nextValue(options.inputDelayFrames) || options.inputDelayFrames > 8) {
+                if(!nextValue(options.inputDelayFrames) || options.inputDelayFrames == 0) {
                     std::cerr << "Invalid value for --input-delay.\n";
                     printNetplayTestUsage();
                     return EXIT_FAILURE;
@@ -272,7 +272,10 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        return NetplayTest::runHeadless(options);
+        const int code = NetplayTest::runHeadless(options);
+        std::cout.flush();
+        std::cerr.flush();
+        std::_Exit(code);
     }
 
     if(argc >= 3 && std::string(argv[1]) == "--test-state-replay") {
@@ -364,7 +367,10 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        return StateReplayTest::runHeadless(options);
+        const int code = StateReplayTest::runHeadless(options);
+        std::cout.flush();
+        std::cerr.flush();
+        std::_Exit(code);
     }
 
     if(argc >= 2 && std::string(argv[1]) == "--healthcheck") {
