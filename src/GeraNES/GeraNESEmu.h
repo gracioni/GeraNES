@@ -795,9 +795,7 @@ private:
             applyInputFrame(*inputFrame);
             m_lastAppliedInputFrame = *inputFrame;
         } else {
-            InputFrame repeated = InputFrame::repeatedFrom(m_lastAppliedInputFrame, playbackFrame);
-            applyInputFrame(repeated);
-            m_lastAppliedInputFrame = repeated;
+            return;
         }
     }    
 
@@ -1374,10 +1372,11 @@ public:
             
             if(m_frameStarted) {
                 onFrameStart();
-                m_frameStarted = false;
+                m_frameStarted = false;          
             }
 
             if(m_newFrame) {
+                onFrameReady();
                 m_rewind.newFrame();
                 ret = true;
                 m_newFrame = false;
