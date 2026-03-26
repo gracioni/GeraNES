@@ -102,7 +102,8 @@ private:
 
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
-    bool m_loadStateFlag;    
+    bool m_loadStateFlag;
+    bool m_resetRequested;
 
     bool m_netplaySnapshotFlag = false;
     std::optional<PendingNetplaySnapshot> m_netplaySnapshotResult;
@@ -112,7 +113,6 @@ private:
     std::optional<bool> m_netplayLoadStateResult;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
-    bool m_processingFrameStart = false;
 
     Rewind m_rewind;
     NsfPlayer m_nsfPlayer;
@@ -786,17 +786,14 @@ private:
         );
         m_hardwareActions.onFrameStart();
         m_nsfPlayer.onFrameStart();
-        updateCyclesPerSecond();
-        m_processingFrameStart = true;
-        signalFrameStart();
-        m_processingFrameStart = false;
-        const uint32_t playbackFrame = m_frameCounter;
-        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame != nullptr) {
+        updateCyclesPerSecond();        
+        
+        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(m_frameCounter); inputFrame != nullptr) {
             applyInputFrame(*inputFrame);
             m_lastAppliedInputFrame = *inputFrame;
-        } else {
-            return;
         }
+
+        signalFrameStart();
     }    
 
     void onFrameReady() {
@@ -844,7 +841,7 @@ private:
         // history before the load.
         m_saveStateFlag = false;
         m_loadStateFlag = false;
-        m_processingFrameStart = false;
+        m_resetRequested = false;
         m_prevControllerReadAddr = 0xFFFF;
         m_cpu.resetVolatileStateAfterLoad();
         m_prevNsfSelect = false;
@@ -1048,7 +1045,7 @@ public:
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
-        m_processingFrameStart = false;
+        m_resetRequested = false;
         m_netplaySnapshotFlag = false;
         m_netplaySnapshotResult.reset();
         m_netplayLoadStateFlag = false;
@@ -1289,8 +1286,6 @@ public:
             m_nsfPlayer.onOpen();
 
             resetRewindSystem();
-
-            queueInputFrame(makeDefaultInputFrame(0)); //first input frame empty
         }
 
         return result;
@@ -1314,7 +1309,7 @@ public:
     {
         const int AUDIO_RENDER_TIME_STEP = 1; //ms
 
-        if(!m_cartridge.isValid()) return false;
+        if(!m_cartridge.isValid()) return false;        
 
         dt = std::min(dt, (uint32_t)1000/10);  //0.1s
 
@@ -1341,7 +1336,7 @@ public:
         {
             const uint32_t playbackFrame = m_frameCounter;
             if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame == nullptr) {
-                return false;
+                break;
             }
 
             if(--m_cpuCyclesAcc == 0) {
@@ -1382,6 +1377,12 @@ public:
                 m_newFrame = false;
             }
 
+            if(m_resetRequested) {
+                _reset();
+                m_resetRequested = false;
+                break;
+            }
+
             if(m_halt) {
                 close();
                 break;
@@ -1405,10 +1406,10 @@ public:
         if(m_loadStateFlag) {
             _loadState();
             m_loadStateFlag = false;
-        }
+        }        
 
         processDeferredNetplaySnapshot();
-        processDeferredNetplayLoad();
+        processDeferredNetplayLoad();        
 
         return ret;
     }
@@ -1914,6 +1915,11 @@ public:
     }
 
     void reset() {
+        if(!m_runningLoop) _reset();
+        else m_resetRequested = true;        
+    }
+
+    void _reset() {
 
         if(!m_cartridge.isValid()) return;
 
@@ -1922,28 +1928,34 @@ public:
         m_apu.reset();
         m_ppu.init();
 
-        m_halt = false;
-        m_updateCyclesAcc = 0;
-        m_cpuCyclesAcc = 1;
-        m_audioRenderCyclesAcc = 0;
-        m_lastAudioRenderedMs = 0;
-        m_vsyncAudioCompMsAcc = 0.0;
-        m_vsyncAudioSkipMsDebt = 0;
+        //TODO: verify comments are ok
+        //m_halt = false;
+        //m_updateCyclesAcc = 0;
+        //m_cpuCyclesAcc = 1;
+        //m_audioRenderCyclesAcc = 0;
+        //m_lastAudioRenderedMs = 0;
+        //m_vsyncAudioCompMsAcc = 0.0;
+        //m_vsyncAudioSkipMsDebt = 0;
         m_openBus = 0;
         m_prevControllerReadAddr = 0xFFFF;
         m_4011WriteCounter = 0;
-        m_newFrame = false;
-        m_frameCounter = 0;
-        m_runningLoop = false;
-        m_saveStateFlag = false;
-        m_loadStateFlag = false;
-        m_processingFrameStart = false;
+        //m_newFrame = false;
+        //m_frameStarted = false;
+        //m_runningLoop = false;
+        //m_saveStateFlag = false;
+        //m_loadStateFlag = false;
         m_netplaySnapshotFlag = false;
         m_netplaySnapshotResult.reset();
         m_netplayLoadStateFlag = false;
         m_netplayLoadStateCleanBoot = false;
         m_netplayLoadStateData.clear();
         m_netplayLoadStateResult.reset();
+        //m_lastAppliedInputFrame = InputFrame::repeatedFrom(m_lastAppliedInputFrame, m_frameCounter);
+        // m_frameCounter = 0;
+        // m_inputBuffer.clear();
+        // m_lastAppliedInputFrame = makeDefaultInputFrame(0);
+        // m_inputBuffer.push(m_lastAppliedInputFrame);
+
         m_nsfPlayer.onEmulatorReset();
         m_hardwareActions.reset();
 
