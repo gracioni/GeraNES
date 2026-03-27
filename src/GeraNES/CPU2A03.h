@@ -134,8 +134,6 @@ private:
 
     uint8_t m_poolIntsAtCycle;
 
-    //Do not serialize variables below
-
     int m_runCount;
 
     bool m_writeCycle;
@@ -416,8 +414,6 @@ public:
 
     void resetVolatileStateAfterLoad()
     {
-        m_runCount = 0;
-        m_writeCycle = false;
         m_resetRequest = false;
         m_lastReadHadDma = false;
         m_indexedDummyReadHadDma = false;
@@ -1437,6 +1433,8 @@ public:
         SERIALIZEDATA(s, m_currentInstructionCycle);
         SERIALIZEDATA(s, m_interrupt);
         SERIALIZEDATA(s, m_poolIntsAtCycle);
+        SERIALIZEDATA(s, m_runCount);
+        SERIALIZEDATA(s, m_writeCycle);
         SERIALIZEDATA(s, m_ppuTimingRegion);
         SERIALIZEDATA(s, m_ppuLateCycleRemainder);
         m_dma.serialization(s);

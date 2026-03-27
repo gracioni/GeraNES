@@ -55,6 +55,12 @@ public:
         std::vector<uint8_t> data;
     };
 
+    struct ExecutionPoint
+    {
+        uint32_t frame = 0;
+        uint32_t cpuCycle = 0;
+    };
+
 private:
     const uint32_t MAX_4011_WRITES_TO_DISABLE_OVERCLOCK = 2;
 
@@ -111,6 +117,7 @@ private:
     bool m_netplayLoadStateCleanBoot = false;
     std::vector<uint8_t> m_netplayLoadStateData;
     std::optional<bool> m_netplayLoadStateResult;
+    bool m_forceSilentAudio = false;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
 
@@ -853,6 +860,7 @@ private:
         m_pendingNsfNextSong = false;
         m_pendingNsfPrevSong = false;
         m_applyingPendingNsfActions = false;
+        m_forceSilentAudio = false;
     }
 
     void processDeferredNetplaySnapshot()
@@ -882,14 +890,86 @@ private:
         m_netplayLoadStateResult = loaded;
     }
 
-    GERANES_INLINE void renderAudioMs(uint32_t ms)
+    static bool executionPointLessThan(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
+    {
+        if(lhs.frame != rhs.frame) return lhs.frame < rhs.frame;
+        return lhs.cpuCycle < rhs.cpuCycle;
+    }
+
+    static bool executionPointEqual(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
+    {
+        return lhs.frame == rhs.frame && lhs.cpuCycle == rhs.cpuCycle;
+    }
+
+    GERANES_INLINE void renderAudioMs(uint32_t ms, bool forceSilence = false)
     {
         if(ms == 0) return;
 
         m_audioOutput.setRewinding(m_rewind.isRewinding());
         m_audioOutput.setExpansionAudioVolume(1.0f);
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
-        m_audioOutput.render(ms, !enableAudio || m_nsfPlayer.forceMute());
+        m_audioOutput.render(ms, forceSilence || !enableAudio || m_nsfPlayer.forceMute());
+    }
+
+    template<bool consumeUpdateBudget>
+    GERANES_INLINE bool stepEmulationTick(uint32_t audioRenderCycles,
+                                          uint32_t& renderedAudioMs,
+                                          bool& frameReady,
+                                          bool silentAudio)
+    {
+        const uint32_t playbackFrame = m_frameCounter;
+        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame == nullptr) {
+            return false;
+        }
+
+        if(--m_cpuCyclesAcc == 0) {
+            m_cpuCyclesAcc = m_cpu.run();
+
+            if constexpr(!consumeUpdateBudget) {
+                m_audioRenderCyclesAcc += m_cpuCyclesAcc * 1000;
+            }
+        }
+
+        if constexpr(consumeUpdateBudget) {
+            m_updateCyclesAcc -= 1000;
+            m_audioRenderCyclesAcc += 1000;
+        }
+
+        while(m_audioRenderCyclesAcc >= audioRenderCycles) {
+            m_audioRenderCyclesAcc -= audioRenderCycles;
+            if(m_vsyncAudioSkipMsDebt > 0) {
+                --m_vsyncAudioSkipMsDebt;
+            }
+            else {
+                renderAudioMs(1, silentAudio);
+                renderedAudioMs += 1;
+            }
+        }
+
+        if(m_frameStarted) {
+            onFrameStart();
+            m_frameStarted = false;
+        }
+
+        if(m_newFrame) {
+            onFrameReady();
+            m_rewind.newFrame();
+            frameReady = true;
+            m_newFrame = false;
+        }
+
+        if(m_resetRequested) {
+            _reset();
+            m_resetRequested = false;
+            return false;
+        }
+
+        if(m_halt) {
+            close();
+            return false;
+        }
+
+        return true;
     }
 
     GERANES_INLINE void compensateVsyncAudioDrift(uint32_t dt)
@@ -1337,59 +1417,14 @@ public:
 
         while(loop)
         {
-            const uint32_t playbackFrame = m_frameCounter;
-            if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame == nullptr) {
-                break;
+            bool advanced = false;
+            if constexpr(waitForNewFrame) {
+                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, ret, m_forceSilentAudio);
             }
-
-            if(--m_cpuCyclesAcc == 0) {
-
-                m_cpuCyclesAcc = m_cpu.run();
-
-                if constexpr(waitForNewFrame) {
-                    // Keep audio strictly tied to emulated CPU time.
-                    m_audioRenderCyclesAcc += m_cpuCyclesAcc * (AUDIO_RENDER_TIME_STEP * 1000);
-                }
-            }          
-
-            if constexpr(!waitForNewFrame) {                
-                m_updateCyclesAcc -= 1000;
-                m_audioRenderCyclesAcc += AUDIO_RENDER_TIME_STEP*1000;
+            else {
+                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, ret, m_forceSilentAudio);
             }
-
-            while(m_audioRenderCyclesAcc >= audioRenderCycles) {
-                m_audioRenderCyclesAcc -= audioRenderCycles;
-                if(m_vsyncAudioSkipMsDebt > 0) {
-                    --m_vsyncAudioSkipMsDebt;
-                }
-                else {
-                    renderAudioMs(AUDIO_RENDER_TIME_STEP);
-                    renderedAudioMs += AUDIO_RENDER_TIME_STEP;
-                }
-            }
-            
-            if(m_frameStarted) {
-                onFrameStart();
-                m_frameStarted = false;          
-            }
-
-            if(m_newFrame) {
-                onFrameReady();
-                m_rewind.newFrame();
-                ret = true;
-                m_newFrame = false;
-            }
-
-            if(m_resetRequested) {
-                _reset();
-                m_resetRequested = false;
-                break;
-            }
-
-            if(m_halt) {
-                close();
-                break;
-            }
+            if(!advanced) break;
 
             if constexpr(waitForNewFrame)
                 loop = !ret;
@@ -1441,6 +1476,53 @@ public:
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
         return true;
+    }
+
+    ExecutionPoint executionPoint() const
+    {
+        return ExecutionPoint{m_frameCounter, static_cast<uint32_t>(m_cpu.cycleCounter())};
+    }
+
+    bool resimulateSilentlyToExecutionPoint(const ExecutionPoint& target, uint32_t maxTicks = 20000000u)
+    {
+        applyPendingNsfControllerActions();
+        if(!m_cartridge.isValid()) return false;
+        if(m_paused) return false;
+
+        const ExecutionPoint start = executionPoint();
+        if(executionPointLessThan(target, start)) return false;
+        if(executionPointEqual(start, target)) return true;
+
+        const uint32_t audioRenderCycles = m_cyclesPerSecond * 1;
+        uint32_t renderedAudioMs = 0;
+        uint32_t ticks = 0;
+        const bool previousSilentAudio = m_forceSilentAudio;
+        m_forceSilentAudio = true;
+
+        const auto restoreSilentAudio = [&]() {
+            m_forceSilentAudio = previousSilentAudio;
+            m_lastAudioRenderedMs = renderedAudioMs;
+            m_runningLoop = false;
+        };
+
+        m_audioOutput.discardQueuedAudio();
+        m_runningLoop = true;
+
+        while(executionPointLessThan(executionPoint(), target)) {
+            if(++ticks > maxTicks) {
+                restoreSilentAudio();
+                return false;
+            }
+
+            bool frameReady = false;
+            if(!stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, frameReady, true)) {
+                restoreSilentAudio();
+                return false;
+            }
+        }
+
+        restoreSilentAudio();
+        return executionPointEqual(executionPoint(), target);
     }
 
     GERANES_INLINE const uint32_t* getFramebuffer()

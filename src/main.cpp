@@ -8,6 +8,7 @@
 #include "GeraNESApp/GeraNESApp.h"
 #include "HealthCheck.h"
 #include "NetplayTest.h"
+#include "ResimulationTest.h"
 #include "StateReplayTest.h"
 #include "Test.h"
 
@@ -37,6 +38,7 @@ namespace
             << "  GeraNES --test <rom_path>\n"
             << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
+            << "  GeraNES --test-resimulation <rom_path> [--rollback-frame <n>] [--runtime-ms <n>] [--future-input-frames <n>] [--seed <n>] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
             << "Commands:\n"
             << "  --help         Show this help text.\n"
@@ -44,6 +46,7 @@ namespace
             << "  --test         Run the existing headless test mode for one ROM.\n"
             << "  --test-netplay Run a deterministic in-process host/client netplay validation.\n"
             << "  --test-state-replay  Validate save/load + replay determinism from frame snapshots.\n"
+            << "  --test-resimulation Validate silent rollback-style resimulation to an exact execution point.\n"
             << "  --healthcheck  Run deterministic headless health-check mode and export artifacts.\n\n"
             << "Netplay test options:\n"
             << "  --frames <n>              Frames to simulate. Default: 600\n"
@@ -68,6 +71,12 @@ namespace
             << "  --probe-stride <n>        Test every Nth snapshot instead of every snapshot. Default: 1\n"
             << "  --from-frame <n>          Test only a single snapshot starting at frame N.\n"
             << "  --robust                  Add a small built-in matrix of extra seeds/horizons.\n"
+            << "  --report <path>           Write the JSON report to a file instead of stdout.\n\n"
+            << "Resimulation test options:\n"
+            << "  --rollback-frame <n>      Frame used as the rollback snapshot anchor. Default: 120\n"
+            << "  --runtime-ms <n>          Milliseconds to run after the rollback frame before correcting. Default: 48\n"
+            << "  --future-input-frames <n> Number of future input frames queued after rollback. Default: 24\n"
+            << "  --seed <n>                Deterministic input seed. Default: 324478056\n"
             << "  --report <path>           Write the JSON report to a file instead of stdout.\n\n"
             << "Healthcheck options:\n"
             << "  <out_dir>            Parent output folder. A subfolder with the ROM name is created automatically.\n"
@@ -98,6 +107,13 @@ namespace
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n";
     }
 
+    void printResimulationTestUsage()
+    {
+        std::cerr
+            << "Usage:\n"
+            << "  GeraNES --test-resimulation <rom_path> [--rollback-frame <n>] [--runtime-ms <n>] [--future-input-frames <n>] [--seed <n>] [--report <path>]\n";
+    }
+
     bool parseUintArg(const char* value, uint32_t& outValue)
     {
         if(value == nullptr || value[0] == '\0') return false;
@@ -117,6 +133,7 @@ int main(int argc, char* argv[]) {
     std::filesystem::path testRomPath;
     std::filesystem::path testNetplayRomPath;
     std::filesystem::path stateReplayRomPath;
+    std::filesystem::path resimulationRomPath;
     std::filesystem::path healthcheckRomPath;
     std::filesystem::path healthcheckOutDir;
     if(argc >= 2) {
@@ -129,6 +146,9 @@ int main(int argc, char* argv[]) {
         }
         else if(command == "--test-state-replay" && argc >= 3) {
             stateReplayRomPath = resolveInputPath(originalCwd, argv[2]);
+        }
+        else if(command == "--test-resimulation" && argc >= 3) {
+            resimulationRomPath = resolveInputPath(originalCwd, argv[2]);
         }
         else if(command == "--healthcheck" && argc >= 4) {
             healthcheckRomPath = resolveInputPath(originalCwd, argv[2]);
@@ -376,6 +396,71 @@ int main(int argc, char* argv[]) {
         }
 
         const int code = StateReplayTest::runHeadless(options);
+        std::cout.flush();
+        std::cerr.flush();
+        std::_Exit(code);
+    }
+
+    if(argc >= 3 && std::string(argv[1]) == "--test-resimulation") {
+        ResimulationTest::Options options;
+        options.romPath = resimulationRomPath.empty() ? std::string(argv[2]) : resimulationRomPath.string();
+
+        for(int i = 3; i < argc; ++i) {
+            const std::string arg = argv[i];
+            auto nextValue = [&](uint32_t& target) -> bool {
+                if(i + 1 >= argc) return false;
+                uint32_t parsed = 0;
+                if(!parseUintArg(argv[i + 1], parsed)) return false;
+                target = parsed;
+                ++i;
+                return true;
+            };
+
+            if(arg == "--rollback-frame") {
+                if(!nextValue(options.rollbackFrame) || options.rollbackFrame == 0) {
+                    std::cerr << "Invalid value for --rollback-frame.\n";
+                    printResimulationTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--runtime-ms") {
+                if(!nextValue(options.runtimeMsAfterRollback) || options.runtimeMsAfterRollback == 0) {
+                    std::cerr << "Invalid value for --runtime-ms.\n";
+                    printResimulationTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--future-input-frames") {
+                if(!nextValue(options.futureInputFrames) || options.futureInputFrames == 0) {
+                    std::cerr << "Invalid value for --future-input-frames.\n";
+                    printResimulationTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--seed") {
+                if(!nextValue(options.seed)) {
+                    std::cerr << "Invalid value for --seed.\n";
+                    printResimulationTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--report") {
+                if(i + 1 >= argc) {
+                    std::cerr << "Missing value for --report.\n";
+                    printResimulationTestUsage();
+                    return EXIT_FAILURE;
+                }
+                options.reportPath = resolveInputPath(originalCwd, argv[i + 1]).string();
+                ++i;
+            }
+            else {
+                std::cerr << "Unknown --test-resimulation argument: " << arg << "\n";
+                printResimulationTestUsage();
+                return EXIT_FAILURE;
+            }
+        }
+
+        const int code = ResimulationTest::runHeadless(options);
         std::cout.flush();
         std::cerr.flush();
         std::_Exit(code);

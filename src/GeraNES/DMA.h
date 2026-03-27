@@ -228,7 +228,5 @@ public:
 
     void resetVolatileStateAfterLoad()
     {
-        m_dmaReadInProgress = false;
-        m_dmaReadInputClockMask = 0;
     }
 };
