@@ -33,6 +33,7 @@ public:
         uint32_t startupTimeoutSteps = 10000;
         uint32_t frameStepLimit = 200000;
         uint32_t settleStepLimit = 2048;
+        uint32_t preSessionWarmupFrames = 0;
         uint32_t forceDesyncFrame = 0;
         uint32_t desyncAddress = 0x0000;
         uint32_t desyncValueXor = 0x01;
@@ -421,6 +422,8 @@ private:
                     return false;
                 }
 
+                hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
+                clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
                 if(!hostPeer.coordinator.startSession()) {
                     failureReason = "Host failed to start session.";
                     return false;
@@ -728,6 +731,22 @@ private:
         hostPeer.emu.setSimulationSuspended(true);
         clientPeer.emu.setSimulationSuspended(true);
 
+        if(options.preSessionWarmupFrames > 0) {
+            const bool warmed = hostPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
+                for(uint32_t frame = 1; frame <= options.preSessionWarmupFrames + 2u; ++frame) {
+                    innerEmu.queueInputFrame(innerEmu.createInputFrame(frame));
+                }
+                for(uint32_t step = 0; step < options.preSessionWarmupFrames; ++step) {
+                    innerEmu.updateUntilFrame(16);
+                }
+                return innerEmu.frameCount() >= options.preSessionWarmupFrames;
+            });
+            if(!warmed) {
+                failureReason = "Failed to warm up host emulation before session start.";
+                return false;
+            }
+        }
+
         bool sessionBootstrapped = false;
         for(uint32_t portOffset = 0; portOffset < 8u; ++portOffset) {
             const uint16_t port = static_cast<uint16_t>(options.port + portOffset);
@@ -845,12 +864,23 @@ private:
                     return false;
                 }
 
+                hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.exactEmulationFrame());
+                clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.exactEmulationFrame());
                 if(!hostPeer.coordinator.startSession()) {
                     failureReason = "Host failed to start session.";
                     return false;
                 }
+                if(hostPeer.emu.exactEmulationFrame() > 0u && !beginAppInitialSessionSync(hostPeer)) {
+                    failureReason = "Host failed to begin initial session sync.";
+                    return false;
+                }
 
                 for(uint32_t startStep = 0; startStep < options.startupTimeoutSteps; ++startStep) {
+                    pumpCoordinators(hostPeer, clientPeer, 1);
+                    processAppHostResync(hostPeer);
+                    processAppHostResync(clientPeer);
+                    processAppPendingResync(hostPeer);
+                    processAppPendingResync(clientPeer);
                     pumpCoordinators(hostPeer, clientPeer, 1);
                     if(hostPeer.coordinator.session().roomState().state == Netplay::SessionState::Running &&
                        clientPeer.coordinator.session().roomState().state == Netplay::SessionState::Running) {
@@ -890,6 +920,75 @@ private:
             peer.emu.frameCount(),
             peer.coordinator.latestConfirmedFrame()
         );
+    }
+
+    static void processAppPendingResync(AppPeerState& peer)
+    {
+        std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending = peer.coordinator.consumePendingResyncApply();
+        if(!pending.has_value()) return;
+
+        const bool loaded = peer.emu.loadStateFromMemory(pending->payload);
+        if(loaded) {
+            peer.coordinator.setLocalSimulationFrame(pending->targetFrame);
+            peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload);
+        }
+        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0u;
+        peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
+    }
+
+    static void processAppHostResync(AppPeerState& peer)
+    {
+        if(!peer.coordinator.isHosting()) return;
+
+        std::optional<Netplay::FrameNumber> pendingFrame = peer.coordinator.consumePendingHostResyncFrame();
+        if(!pendingFrame.has_value() || !peer.emu.valid()) return;
+
+        const bool initialSessionSync =
+            peer.coordinator.session().roomState().state == Netplay::SessionState::Starting;
+        const Netplay::FrameNumber emuFrame = peer.emu.exactEmulationFrame();
+        const Netplay::FrameNumber requestedFrame =
+            initialSessionSync
+                ? emuFrame
+                : peer.coordinator.session().roomState().lastConfirmedFrame;
+        const Netplay::FrameNumber authoritativeFrame =
+            std::min<Netplay::FrameNumber>(requestedFrame, emuFrame);
+
+        const std::optional<std::vector<uint8_t>> confirmedSnapshot =
+            initialSessionSync ? std::nullopt : peer.emu.netplaySnapshotForFrame(authoritativeFrame);
+        const std::vector<uint8_t> statePayload =
+            initialSessionSync
+                ? peer.emu.saveStateToMemory()
+                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
+        if(statePayload.empty()) return;
+
+        if(!initialSessionSync && confirmedSnapshot.has_value()) {
+            if(!peer.emu.rollbackToFrame(authoritativeFrame)) {
+                return;
+            }
+        } else if(!initialSessionSync && authoritativeFrame < emuFrame) {
+            if(!peer.emu.rollbackToFrame(authoritativeFrame)) {
+                return;
+            }
+        }
+
+        const uint32_t payloadCrc32 =
+            Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32);
+    }
+
+    static bool beginAppInitialSessionSync(AppPeerState& peer)
+    {
+        if(!peer.coordinator.isHosting()) return false;
+        if(!peer.emu.valid()) return false;
+        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Starting) return false;
+
+        const Netplay::FrameNumber authoritativeFrame = peer.emu.exactEmulationFrame();
+        const std::vector<uint8_t> statePayload = peer.emu.saveStateToMemory();
+        if(statePayload.empty()) return false;
+
+        const uint32_t payloadCrc32 =
+            Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        return peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32);
     }
 
     static RunArtifacts runSingleCaseAppFlow(const Options& options)
@@ -948,6 +1047,11 @@ private:
 
             produceAppLocalInputs(hostPeer, options, loopDtMs);
             produceAppLocalInputs(clientPeer, options, loopDtMs);
+            pumpCoordinators(hostPeer, clientPeer, 0);
+            processAppHostResync(hostPeer);
+            processAppHostResync(clientPeer);
+            processAppPendingResync(hostPeer);
+            processAppPendingResync(clientPeer);
             pumpCoordinators(hostPeer, clientPeer, 0);
 
             hostPeer.driver.prepareConfirmedFramesForEmulationThread(

@@ -35,7 +35,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
             << "Commands:\n"
@@ -53,6 +53,7 @@ namespace
             << "  --settle-steps <n>        Extra maintenance ticks after the target frame. Default: 2048\n"
             << "  --host-seed <n>           Deterministic host input seed. Default: 324478056\n"
             << "  --client-seed <n>         Deterministic client input seed. Default: 610800471\n"
+            << "  --pre-session-warmup <n>  Advance the host offline by N frames before starting the session.\n"
             << "  --robust                  Run a built-in matrix of delay/seed/lockstep/long-session cases.\n"
             << "  --app-flow                Use EmulationHost/desktop-like app flow instead of direct core stepping.\n"
             << "  --baseline-lockstep       Disable realtime heuristics and require confirmed input before each frame.\n"
@@ -87,7 +88,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -236,6 +237,13 @@ int main(int argc, char* argv[]) {
             else if(arg == "--client-seed") {
                 if(!nextValue(options.clientInputSeed)) {
                     std::cerr << "Invalid value for --client-seed.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--pre-session-warmup") {
+                if(!nextValue(options.preSessionWarmupFrames)) {
+                    std::cerr << "Invalid value for --pre-session-warmup.\n";
                     printNetplayTestUsage();
                     return EXIT_FAILURE;
                 }

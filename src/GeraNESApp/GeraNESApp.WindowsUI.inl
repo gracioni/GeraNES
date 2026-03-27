@@ -281,7 +281,11 @@ inline void GeraNESApp::showGui()
                 const bool canStartSession = sessionBlockedReason.empty();
                 ImGui::BeginDisabled(!canStartSession);
                 if(ImGui::Button("Start Session##NetplayStartSession")) {
-                    m_netplayCoordinator.startSession();
+                    const uint32_t startFrame = exactEmulationFrame();
+                    m_netplayCoordinator.setLocalSimulationFrame(startFrame);
+                    if(m_netplayCoordinator.startSession() && startFrame > 0) {
+                        beginNetplayInitialSessionSync();
+                    }
                 }
                 ImGui::EndDisabled();
                 ImGui::SameLine();

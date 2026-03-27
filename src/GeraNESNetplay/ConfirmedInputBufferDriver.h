@@ -149,9 +149,13 @@ public:
         m_pendingFrames.clear();
     }
 
-    void reanchor()
+    void reanchor(uint32_t frame)
     {
-        reset();
+        m_inputProductionAccumulatorMs = 0.0;
+        m_producedThroughFrame = frame;
+        m_queuedThroughFrame = frame;
+        std::scoped_lock pendingLock(m_pendingFramesMutex);
+        m_pendingFrames.clear();
     }
 
     static uint64_t buildPadMask(bool a, bool b, bool select, bool start,

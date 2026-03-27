@@ -425,7 +425,11 @@ private:
 
     void reanchorNetplayLocalTimelineTracking()
     {
-        m_netplayInputDriver.reanchor();
+        const uint32_t anchorFrame = std::max<uint32_t>(
+            exactEmulationFrame(),
+            m_netplayCoordinator.session().roomState().lastConfirmedFrame
+        );
+        m_netplayInputDriver.reanchor(anchorFrame);
     }
 
     uint32_t netplayConfirmedPrebufferFrames() const
@@ -486,6 +490,12 @@ private:
 
         if(currentState != Netplay::SessionState::Running) {
             resetNetplayInputDelayBuffers();
+        }
+
+        if(currentState == Netplay::SessionState::Running &&
+           previousState.has_value() &&
+           (*previousState == Netplay::SessionState::Starting || *previousState == Netplay::SessionState::Resyncing)) {
+            reanchorNetplayLocalTimelineTracking();
         }
 
         if(enteringResync) {
@@ -644,9 +654,11 @@ private:
             std::min<Netplay::FrameNumber>(requestedFrame, m_emu.frameCount());
 
         const std::optional<std::vector<uint8_t>> confirmedSnapshot =
-            m_emu.netplaySnapshotForFrame(authoritativeFrame);
+            initialSessionSync ? std::nullopt : m_emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
-            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveNetplayStateToMemory();
+            initialSessionSync
+                ? m_emu.saveStateToMemory()
+                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveNetplayStateToMemory());
         if(statePayload.empty()) return;
 
         if(!initialSessionSync && confirmedSnapshot.has_value()) {
@@ -679,6 +691,26 @@ private:
                 );
             }
         }
+    }
+
+    bool beginNetplayInitialSessionSync()
+    {
+        if(!m_netplayCoordinator.isHosting()) return false;
+        if(!m_emu.valid()) return false;
+        if(m_netplayCoordinator.session().roomState().state != Netplay::SessionState::Starting) return false;
+
+        const Netplay::FrameNumber authoritativeFrame = m_emu.frameCount();
+        const std::vector<uint8_t> statePayload = m_emu.saveStateToMemory();
+        if(statePayload.empty()) return false;
+
+        const uint32_t payloadCrc32 =
+            Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        if(!m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
+            return false;
+        }
+
+        Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
+        return true;
     }
 
     void processNetplayHostSpectatorSyncIfNeeded()
@@ -2293,6 +2325,14 @@ public:
         syncNetplayRomValidation();
         syncNetplayInputDelay();
         handleNetplaySessionStateTransitions();
+        if(m_netplayCoordinator.isHosting() &&
+           m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Starting &&
+           m_netplayCoordinator.session().roomState().activeResyncId == 0) {
+            beginNetplayInitialSessionSync();
+        }
+        processNetplayHostResyncIfNeeded();
+        processNetplayHostSpectatorSyncIfNeeded();
+        processNetplayResyncIfNeeded();
         processNetplayAutoResumeIfNeeded();
 
         const bool netplayStateBlocksSimulation =

@@ -1376,14 +1376,24 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     StartSessionData data;
     if(!reader.readPod(data)) return false;
 
+    const SessionState previousState = m_session.roomState().state;
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
     m_session.roomState().state = data.state;
-    if(data.state == SessionState::Running) {
+    const bool shouldResetConfirmedState =
+        data.state == SessionState::Starting ||
+        (data.state == SessionState::Running &&
+         previousState != SessionState::Starting &&
+         previousState != SessionState::Resyncing);
+    if(shouldResetConfirmedState) {
         m_confirmedFrames.clear();
         m_lastBroadcastConfirmedFrame = 0;
         m_session.roomState().lastConfirmedFrame = 0;
     }
-    pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
+    if(data.state == SessionState::Starting) {
+        pushLog("Session starting: waiting for authoritative sync");
+    } else {
+        pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
+    }
     return true;
 }
 
@@ -2808,16 +2818,18 @@ bool NetplayCoordinator::startSession()
         return false;
     }
 
-    m_session.roomState().state = SessionState::Running;
+    const bool requiresInitialSync = m_localSimulationFrame > 0;
+    m_session.roomState().state = requiresInitialSync ? SessionState::Starting : SessionState::Running;
     m_confirmedFrames.clear();
     m_lastBroadcastConfirmedFrame = 0;
     m_session.roomState().lastConfirmedFrame = 0;
-
     StartSessionData data;
-    data.state = SessionState::Running;
+    data.state = m_session.roomState().state;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
-    pushLog("Host started session");
+    pushLog(requiresInitialSync
+        ? ("Host started session and is awaiting initial sync at frame " + std::to_string(m_localSimulationFrame))
+        : "Host started session");
     return true;
 }
 
