@@ -135,6 +135,7 @@ struct FrameStatusData
     FrameNumber currentFrame = 0;
     FrameNumber lastConfirmedFrame = 0;
     uint8_t inputDelayFrames = 0;
+    uint8_t predictFrames = 0;
 };
 
 struct AssignControllerData
@@ -171,6 +172,7 @@ struct StartSessionData
 {
     SessionState state = SessionState::Lobby;
     uint8_t inputDelayFrames = 0;
+    uint8_t predictFrames = 0;
 };
 
 struct PeerHealthData

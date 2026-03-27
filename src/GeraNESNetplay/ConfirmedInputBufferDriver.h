@@ -20,6 +20,7 @@ private:
     uint32_t m_producedThroughFrame = 0;
     uint32_t m_queuedThroughFrame = 0;
     uint32_t m_prebufferFrames = 10;
+    uint32_t m_predictFrames = 0;
     mutable std::mutex m_pendingFramesMutex;
     std::deque<NetplayCoordinator::ConfirmedFrameInputs> m_pendingFrames;
 
@@ -31,6 +32,7 @@ private:
         }
     }
 
+public:
     static void applyPadMaskToInputState(EmulationHost::InputState& state, PlayerSlot slot, uint64_t mask)
     {
         const bool a = (mask & (1ull << 0)) != 0;
@@ -75,6 +77,7 @@ private:
         }
     }
 
+private:
     static void applyPadMaskToInputFrame(InputFrame& inputFrame, PlayerSlot slot, uint64_t mask)
     {
         const bool a = (mask & (1ull << 0)) != 0;
@@ -138,6 +141,21 @@ public:
     uint32_t prebufferFrames() const
     {
         return m_prebufferFrames;
+    }
+
+    void setPrebufferFrames(uint32_t frames)
+    {
+        m_prebufferFrames = std::max<uint32_t>(1u, frames);
+    }
+
+    uint32_t predictFrames() const
+    {
+        return m_predictFrames;
+    }
+
+    void setPredictFrames(uint32_t frames)
+    {
+        m_predictFrames = frames;
     }
 
     void reset()
@@ -210,7 +228,7 @@ public:
         const double frameDurationMs = 1000.0 / fps;
         m_inputProductionAccumulatorMs += static_cast<double>(dtMs);
 
-        const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
+        const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames + m_predictFrames;
         while(m_inputProductionAccumulatorMs >= frameDurationMs &&
               m_producedThroughFrame < targetBufferedThroughFrame) {
             m_inputProductionAccumulatorMs -= frameDurationMs;
@@ -223,7 +241,8 @@ public:
             coordinator.recordLocalInputFrame(m_producedThroughFrame, *localSlot, localPrimaryMask);
         }
 
-        const double maxBufferedAccumulatorMs = frameDurationMs * static_cast<double>(m_prebufferFrames);
+        const double maxBufferedAccumulatorMs =
+            frameDurationMs * static_cast<double>(m_prebufferFrames + m_predictFrames);
         if(m_inputProductionAccumulatorMs > maxBufferedAccumulatorMs) {
             m_inputProductionAccumulatorMs = maxBufferedAccumulatorMs;
         }
@@ -261,29 +280,48 @@ public:
         return true;
     }
 
-    void prepareConfirmedFramesForEmulationThread(const NetplayCoordinator& coordinator,
-                                                  bool active,
-                                                  bool awaitingSync,
-                                                  SessionState state,
-                                                  uint32_t emulationFrame)
+    void preparePlaybackFramesForEmulationThread(NetplayCoordinator& coordinator,
+                                                 bool active,
+                                                 bool awaitingSync,
+                                                 SessionState state,
+                                                 uint32_t emulationFrame)
     {
         if(!active || awaitingSync || state != SessionState::Running) {
             reset();
             return;
         }
 
-        const uint32_t throughFrame = confirmedThroughFrame(coordinator);
-        const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + 1u;
-        std::scoped_lock pendingLock(m_pendingFramesMutex);
-        while(m_queuedThroughFrame < throughFrame && m_queuedThroughFrame < queueHorizonFrame) {
-            const uint32_t nextFrame = m_queuedThroughFrame + 1u;
-            const NetplayCoordinator::ConfirmedFrameInputs* confirmed = coordinator.findConfirmedFrame(nextFrame);
-            if(confirmed == nullptr) {
+        const uint32_t confirmedFrame = confirmedThroughFrame(coordinator);
+        const uint32_t predictedThroughFrame = confirmedFrame + m_predictFrames;
+        const uint32_t playableThroughFrame = std::min(m_producedThroughFrame, predictedThroughFrame);
+        const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
+        std::deque<NetplayCoordinator::ConfirmedFrameInputs> rebuiltPendingFrames;
+        uint32_t preparedThroughFrame = emulationFrame;
+
+        for(uint32_t frame = emulationFrame + 1u;
+            frame <= playableThroughFrame && frame <= queueHorizonFrame;
+            ++frame) {
+            NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+            const bool allowPrediction = frame > confirmedFrame;
+            if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, playbackFrame)) {
                 break;
             }
-            m_pendingFrames.push_back(*confirmed);
-            m_queuedThroughFrame = nextFrame;
+            rebuiltPendingFrames.push_back(playbackFrame);
+            preparedThroughFrame = frame;
         }
+
+        std::scoped_lock pendingLock(m_pendingFramesMutex);
+        m_pendingFrames = std::move(rebuiltPendingFrames);
+        m_queuedThroughFrame = preparedThroughFrame;
+    }
+
+    void prepareConfirmedFramesForEmulationThread(NetplayCoordinator& coordinator,
+                                                  bool active,
+                                                  bool awaitingSync,
+                                                  SessionState state,
+                                                  uint32_t emulationFrame)
+    {
+        preparePlaybackFramesForEmulationThread(coordinator, active, awaitingSync, state, emulationFrame);
     }
 
     void queuePendingFramesToEmu(GeraNESEmu& emu)
@@ -296,15 +334,11 @@ public:
                 m_pendingFrames.pop_front();
                 continue;
             }
-            if(confirmed.frame > currentFrame + m_prebufferFrames) {
+            if(confirmed.frame > currentFrame + m_prebufferFrames + m_predictFrames) {
                 break;
             }
-            if(emu.inputBuffer().findByFrame(confirmed.frame) != nullptr) {
-                m_pendingFrames.pop_front();
-                continue;
-            }
-
             InputFrame inputFrame = emu.createInputFrame(confirmed.frame);
+            inputFrame.speculative = confirmed.predicted;
             for(PlayerSlot slot = 0; slot < 4; ++slot) {
                 applyPadMaskToInputFrame(inputFrame, slot, confirmed.buttonMaskLo[slot]);
             }

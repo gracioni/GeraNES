@@ -505,6 +505,7 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
     StartSessionData data;
     data.state = state;
     data.inputDelayFrames = 0;
+    data.predictFrames = 0;
     writer.writePod(data);
 
     return writer.data();
@@ -591,18 +592,15 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
         const bool predictionHit =
             existing->buttonMaskLo == input.buttonMaskLo &&
             existing->buttonMaskHi == input.buttonMaskHi;
-        if(predictionHit) {
-            m_predictionStats.recordPrediction(true);
-        } else {
-            const FrameNumber currentFrame = m_localSimulationFrame;
-            if(input.frame <= currentFrame) {
-                m_predictionStats.recordPrediction(false);
-                handleConfirmedInputMismatch(input.participantId, input.frame, input.playerSlot);
-            } else if(participant != nullptr) {
-                participant->lastDecision = "Future prediction corrected";
-                participant->lastDecisionFrame = input.frame;
-                participant->lastDecisionSlot = input.playerSlot;
-            }
+        const FrameNumber currentFrame = m_localSimulationFrame;
+        if(input.frame <= currentFrame) {
+            m_predictionStats.recordPrediction(predictionHit);
+            handleResolvedPredictedInput(input.participantId, input.frame, input.playerSlot, predictionHit);
+        } else if(participant != nullptr) {
+            m_predictionStats.recordPrediction(predictionHit);
+            participant->lastDecision = predictionHit ? "Future prediction validated" : "Future prediction corrected";
+            participant->lastDecisionFrame = input.frame;
+            participant->lastDecisionSlot = input.playerSlot;
         }
     }
 
@@ -771,11 +769,14 @@ void NetplayCoordinator::advanceParticipantContiguousInputFrame(ParticipantInfo&
     }
 }
 
-void NetplayCoordinator::handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot)
+void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
+                                                      FrameNumber inputFrame,
+                                                      PlayerSlot slot,
+                                                      bool predictionMatched)
 {
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     std::ostringstream oss;
-    oss << "Prediction mismatch";
+    oss << (predictionMatched ? "Prediction validated" : "Prediction mismatch");
     if(participant != nullptr && !participant->displayName.empty()) {
         oss << " from " << participant->displayName;
     } else {
@@ -810,16 +811,6 @@ void NetplayCoordinator::handleConfirmedInputMismatch(ParticipantId participantI
         return;
     }
 
-    if(inputFrame > currentFrame) {
-        m_predictionStats.recordFutureFrameMismatch(inputFrame, slot);
-        if(participant != nullptr) {
-            ++participant->futureFrameMismatchCount;
-        }
-        recordParticipantDecision("Future-frame mismatch");
-        pushLog(oss.str() + " before local simulation reached that frame");
-        return;
-    }
-
     FrameNumber rollbackFrame = inputFrame > 0 ? (inputFrame - 1) : 0;
     if(rollbackFrame < confirmedFrame) {
         rollbackFrame = confirmedFrame;
@@ -833,6 +824,20 @@ void NetplayCoordinator::handleConfirmedInputMismatch(ParticipantId participantI
     if(participant != nullptr) {
         ++participant->rollbackScheduledCount;
     }
+    if(inputFrame > currentFrame) {
+        if(!predictionMatched) {
+            m_predictionStats.recordFutureFrameMismatch(inputFrame, slot);
+            if(participant != nullptr) {
+                ++participant->futureFrameMismatchCount;
+            }
+            recordParticipantDecision("Future-frame mismatch");
+        } else {
+            recordParticipantDecision("Future prediction validated");
+        }
+        pushLog(oss.str() + " before local simulation reached that frame");
+        return;
+    }
+
     recordParticipantDecision("Rollback scheduled");
     pushLog(oss.str());
 }
@@ -855,6 +860,7 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
     m_session.roomState().currentFrame = status.currentFrame;
     m_session.roomState().lastConfirmedFrame = status.lastConfirmedFrame;
     m_session.roomState().inputDelayFrames = status.inputDelayFrames;
+    m_session.roomState().predictFrames = status.predictFrames;
     return true;
 }
 
@@ -1212,6 +1218,7 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         StartSessionData startData;
         startData.state = SessionState::Running;
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
+        startData.predictFrames = m_session.roomState().predictFrames;
         writer.writePod(startData);
         m_transport.broadcastReliable(Channel::Control, writer.data());
         pushLog("Resync complete");
@@ -1378,6 +1385,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
 
     const SessionState previousState = m_session.roomState().state;
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
+    m_session.roomState().predictFrames = data.predictFrames;
     m_session.roomState().state = data.state;
     const bool shouldResetConfirmedState =
         data.state == SessionState::Starting ||
@@ -1493,14 +1501,17 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     const FrameNumber inputConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, computeHostConfirmedFrame());
     status.lastConfirmedFrame = inputConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    status.predictFrames = m_session.roomState().predictFrames;
 
     const FrameNumber previousCurrentFrame = m_session.roomState().currentFrame;
     const FrameNumber previousConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     const uint8_t previousInputDelayFrames = m_session.roomState().inputDelayFrames;
+    const uint8_t previousPredictFrames = m_session.roomState().predictFrames;
     const bool changed =
         status.currentFrame != previousCurrentFrame ||
         status.lastConfirmedFrame != previousConfirmedFrame ||
-        status.inputDelayFrames != previousInputDelayFrames;
+        status.inputDelayFrames != previousInputDelayFrames ||
+        status.predictFrames != previousPredictFrames;
 
     m_session.roomState().currentFrame = status.currentFrame;
     m_session.roomState().lastConfirmedFrame = status.lastConfirmedFrame;
@@ -1694,6 +1705,7 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     status.currentFrame = m_session.roomState().currentFrame;
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    status.predictFrames = m_session.roomState().predictFrames;
     if(!m_transport.sendReliable(peer, Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId))) {
         m_lastError = "Failed to sync frame status";
         pushLog(m_lastError);
@@ -1706,6 +1718,7 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
         StartSessionData sessionData;
         sessionData.state = m_session.roomState().state;
         sessionData.inputDelayFrames = m_session.roomState().inputDelayFrames;
+        sessionData.predictFrames = m_session.roomState().predictFrames;
         m_transport.sendReliable(peer, Channel::Control, buildStartSessionPacket(sessionData, m_session.roomState().sessionId));
     }
 
@@ -2157,6 +2170,11 @@ FrameNumber NetplayCoordinator::latestConfirmedFrame() const
     return m_confirmedFrames.empty() ? 0u : m_confirmedFrames.back().frame;
 }
 
+uint8_t NetplayCoordinator::predictFrames() const
+{
+    return m_session.roomState().predictFrames;
+}
+
 void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 {
     for(auto& existing : m_confirmedFrames) {
@@ -2197,6 +2215,51 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
     }
 
     return haveAssignedParticipant;
+}
+
+bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame)
+{
+    if(const ConfirmedFrameInputs* confirmed = findConfirmedFrame(frame)) {
+        outFrame = *confirmed;
+        outFrame.predicted = false;
+        return true;
+    }
+
+    outFrame = {};
+    outFrame.frame = frame;
+    outFrame.predicted = false;
+    bool haveAssignedParticipant = false;
+
+    for(const auto& participant : m_session.roomState().participants) {
+        const PlayerSlot slot = participant.controllerAssignment;
+        if(slot == kObserverPlayerSlot || slot >= 4) continue;
+
+        const bool isLocalParticipant = participant.id == m_localParticipantId;
+        const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
+        const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
+        if(entry == nullptr && allowPrediction && !isLocalParticipant) {
+            if(!predictRemoteInputFrame(frame, participant.id, slot)) {
+                return false;
+            }
+            entry = m_remoteInputs.find(frame, participant.id, slot);
+        }
+
+        if(entry == nullptr) {
+            return false;
+        }
+
+        haveAssignedParticipant = true;
+        outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
+        outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+        outFrame.predicted = outFrame.predicted || entry->predicted;
+    }
+
+    return haveAssignedParticipant;
+}
+
+bool NetplayCoordinator::tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame)
+{
+    return tryBuildPlaybackFrameInternal(frame, allowPrediction, outFrame);
 }
 
 void NetplayCoordinator::publishConfirmedFramesIfReady()
@@ -2702,7 +2765,27 @@ bool NetplayCoordinator::setInputDelayFrames(uint8_t frames)
     status.currentFrame = m_session.roomState().currentFrame;
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    status.predictFrames = m_session.roomState().predictFrames;
     m_lastBroadcastInputDelayFrames = status.inputDelayFrames;
+    m_transport.broadcastReliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
+    return true;
+}
+
+bool NetplayCoordinator::setPredictFrames(uint8_t frames)
+{
+    if(!m_hosting) return false;
+
+    if(m_session.roomState().predictFrames == frames) return true;
+
+    m_session.roomState().predictFrames = frames;
+    pushLog("Predict window set to " + std::to_string(static_cast<unsigned>(frames)) + " frame(s)");
+
+    FrameStatusData status;
+    status.timelineEpoch = m_session.roomState().timelineEpoch;
+    status.currentFrame = m_session.roomState().currentFrame;
+    status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
+    status.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    status.predictFrames = m_session.roomState().predictFrames;
     m_transport.broadcastReliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
     return true;
 }
@@ -2826,6 +2909,7 @@ bool NetplayCoordinator::startSession()
     StartSessionData data;
     data.state = m_session.roomState().state;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    data.predictFrames = m_session.roomState().predictFrames;
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
     pushLog(requiresInitialSync
         ? ("Host started session and is awaiting initial sync at frame " + std::to_string(m_localSimulationFrame))
@@ -2846,6 +2930,7 @@ bool NetplayCoordinator::pauseSession()
     StartSessionData data;
     data.state = SessionState::Paused;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    data.predictFrames = m_session.roomState().predictFrames;
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host paused session");
@@ -2873,6 +2958,7 @@ bool NetplayCoordinator::resumeSession()
     StartSessionData data;
     data.state = SessionState::Running;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    data.predictFrames = m_session.roomState().predictFrames;
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host resumed session");
@@ -2892,6 +2978,7 @@ bool NetplayCoordinator::endSession()
     StartSessionData data;
     data.state = SessionState::Ended;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
+    data.predictFrames = m_session.roomState().predictFrames;
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host ended session");

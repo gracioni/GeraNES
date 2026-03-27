@@ -45,6 +45,7 @@ struct RoomState
     SessionState state = SessionState::Lobby;
     uint32_t timelineEpoch = 0;
     uint8_t inputDelayFrames = 2;
+    uint8_t predictFrames = 0;
     FrameNumber currentFrame = 0;
     FrameNumber lastConfirmedFrame = 0;
     FrameNumber lastRemoteCrcFrame = 0;

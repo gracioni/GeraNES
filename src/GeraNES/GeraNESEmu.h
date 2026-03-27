@@ -918,9 +918,11 @@ private:
                                           bool silentAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
-        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame); inputFrame == nullptr) {
+        const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame);
+        if(inputFrame == nullptr) {
             return false;
         }
+        const bool tickSilentAudio = silentAudio || inputFrame->speculative;
 
         if(--m_cpuCyclesAcc == 0) {
             m_cpuCyclesAcc = m_cpu.run();
@@ -941,7 +943,7 @@ private:
                 --m_vsyncAudioSkipMsDebt;
             }
             else {
-                renderAudioMs(1, silentAudio);
+                renderAudioMs(1, tickSilentAudio);
                 renderedAudioMs += 1;
             }
         }
@@ -1879,6 +1881,16 @@ public:
     void queueInputFrame(const InputFrame& inputFrame)
     {
         m_inputBuffer.push(inputFrame);
+    }
+
+    void setForceSilentAudio(bool silent)
+    {
+        m_forceSilentAudio = silent;
+    }
+
+    bool forceSilentAudio() const
+    {
+        return m_forceSilentAudio;
     }
 
     const InputBuffer& inputBuffer() const

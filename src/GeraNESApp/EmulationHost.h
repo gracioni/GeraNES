@@ -2,10 +2,12 @@
 
 #include <array>
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -98,6 +100,12 @@ public:
         bool speedBoost = false;
     };
 
+    struct ReplayFrameInput
+    {
+        InputState state{};
+        bool speculative = false;
+    };
+
     using FrameInputResolver = std::function<bool(uint32_t, InputState&)>;
 
     struct NetplayDiagnosticsSnapshot
@@ -122,9 +130,13 @@ public:
     };
 
 private:
-    static InputFrame buildInputFrameForEmu(GeraNESEmu& emu, uint32_t frameNumber, const InputState& input)
+    static InputFrame buildInputFrameForEmu(GeraNESEmu& emu,
+                                            uint32_t frameNumber,
+                                            const InputState& input,
+                                            bool speculative = false)
     {
         InputFrame frame = emu.createInputFrame(frameNumber);
+        frame.speculative = speculative;
         frame.p1A = input.p1A; frame.p1B = input.p1B; frame.p1Select = input.p1Select; frame.p1Start = input.p1Start;
         frame.p1Up = input.p1Up; frame.p1Down = input.p1Down; frame.p1Left = input.p1Left; frame.p1Right = input.p1Right;
         frame.p1X = input.p1X; frame.p1Y = input.p1Y; frame.p1L = input.p1L; frame.p1R = input.p1R;
@@ -200,6 +212,13 @@ private:
         std::string audioChannelsJson = "{\"channels\":[]}";
     };
 
+    struct NetplayStoredSnapshot
+    {
+        uint32_t frame = 0;
+        uint32_t crc32 = 0;
+        std::vector<uint8_t> data;
+    };
+
 #ifdef __EMSCRIPTEN__
     GeraNESEmu m_emu;
     IAudioOutput& m_audioOutput;
@@ -236,6 +255,7 @@ private:
     IAudioOutput& m_audioOutput;
     mutable std::mutex m_emuMutex;
     mutable std::mutex m_snapshotMutex;
+    mutable std::mutex m_netplaySnapshotMutex;
     mutable std::mutex m_workerReadyMutex;
     std::condition_variable m_workerReadyCv;
     bool m_workerReady = false;
@@ -254,6 +274,9 @@ private:
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)
     };
     Snapshot m_snapshot;
+    std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
+    size_t m_netplaySnapshotCapacity = 0;
+    NetplayDiagnosticsSnapshot m_netplayDiagnostics;
     mutable std::mutex m_pendingInputMutex;
     InputState m_pendingInput;
     mutable std::mutex m_frameInputResolverMutex;
@@ -358,9 +381,47 @@ private:
 
     void onFrameReadyLocked()
     {
-        std::scoped_lock snapshotLock(m_snapshotMutex);
-        m_snapshot.lastFrameReadyFrame = m_emu.frameCount();
-        m_snapshot.lastFrameReadyNetplayCrc32 = m_emu.canonicalNetplayStateCrc32();
+        const uint32_t frame = m_emu.frameCount();
+        const uint32_t crc32 = m_emu.canonicalNetplayStateCrc32();
+        {
+            std::scoped_lock snapshotLock(m_snapshotMutex);
+            m_snapshot.lastFrameReadyFrame = frame;
+            m_snapshot.lastFrameReadyNetplayCrc32 = crc32;
+        }
+
+        std::vector<uint8_t> snapshotData;
+        size_t snapshotCapacity = 0;
+        {
+            std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+            snapshotCapacity = m_netplaySnapshotCapacity;
+        }
+
+        if(snapshotCapacity > 0) {
+            snapshotData = m_emu.saveNetplayStateToMemory();
+            if(!snapshotData.empty()) {
+                std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+                auto existing = std::find_if(
+                    m_netplaySnapshots.begin(),
+                    m_netplaySnapshots.end(),
+                    [frame](const NetplayStoredSnapshot& stored) { return stored.frame == frame; }
+                );
+                if(existing != m_netplaySnapshots.end()) {
+                    existing->crc32 = crc32;
+                    existing->data = std::move(snapshotData);
+                } else {
+                    m_netplaySnapshots.push_back(NetplayStoredSnapshot{frame, crc32, std::move(snapshotData)});
+                    while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity) {
+                        m_netplaySnapshots.pop_front();
+                    }
+                }
+
+                m_netplayDiagnostics.enabled = true;
+                m_netplayDiagnostics.currentFrame = frame;
+                m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
+                m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
+                m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
+            }
+        }
     }
 
     void workerLoop(std::stop_token stopToken)
@@ -1140,13 +1201,63 @@ public:
 
     void configureNetplaySnapshots(size_t snapshotCapacity)
     {
-        (void)snapshotCapacity;
+        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+        m_netplaySnapshotCapacity = snapshotCapacity;
+        while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity) {
+            m_netplaySnapshots.pop_front();
+        }
+        m_netplayDiagnostics.enabled = m_netplaySnapshotCapacity > 0;
+        m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
+        m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     }
 
     bool rollbackToFrame(uint32_t frame)
     {
-        (void)frame;
-        return false;
+        std::vector<uint8_t> snapshotData;
+        {
+            std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+            auto it = std::find_if(
+                m_netplaySnapshots.rbegin(),
+                m_netplaySnapshots.rend(),
+                [frame](const NetplayStoredSnapshot& stored) { return stored.frame == frame; }
+            );
+            if(it == m_netplaySnapshots.rend()) {
+                return false;
+            }
+            snapshotData = it->data;
+        }
+
+#ifdef __EMSCRIPTEN__
+        if(snapshotData.empty()) return false;
+        const uint32_t rollbackFrom = m_emu.frameCount();
+        const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(snapshotData);
+        if(loaded) {
+            ++m_netplayDiagnostics.rollbackStats.rollbackCount;
+            m_netplayDiagnostics.rollbackStats.lastRollbackFromFrame = rollbackFrom;
+            m_netplayDiagnostics.rollbackStats.lastRollbackToFrame = frame;
+            if(rollbackFrom > frame) {
+                m_netplayDiagnostics.rollbackStats.maxRollbackDistance =
+                    std::max<uint32_t>(m_netplayDiagnostics.rollbackStats.maxRollbackDistance, rollbackFrom - frame);
+            }
+        }
+        return loaded;
+#else
+        std::scoped_lock emuLock(m_emuMutex);
+        if(snapshotData.empty()) return false;
+        const uint32_t rollbackFrom = m_emu.frameCount();
+        if(!m_emu.loadStateFromMemoryOnCleanBoot(snapshotData)) {
+            return false;
+        }
+        refreshSnapshotLocked();
+        ++m_netplayDiagnostics.rollbackStats.rollbackCount;
+        m_netplayDiagnostics.rollbackStats.lastRollbackFromFrame = rollbackFrom;
+        m_netplayDiagnostics.rollbackStats.lastRollbackToFrame = frame;
+        if(rollbackFrom > frame) {
+            m_netplayDiagnostics.rollbackStats.maxRollbackDistance =
+                std::max<uint32_t>(m_netplayDiagnostics.rollbackStats.maxRollbackDistance, rollbackFrom - frame);
+        }
+        return true;
+#endif
     }
 
     std::vector<uint8_t> saveStateToMemory()
@@ -1192,17 +1303,23 @@ public:
         if(!m_emu.valid()) return false;
 
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
-        InputState lastReplayInput{};
+        ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
-            m_pendingInput = std::forward<InputProvider>(inputProvider)(nextFrame);
-            lastReplayInput = m_pendingInput;
+            const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            m_pendingInput = replayInput.state;
+            m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, nextFrame, replayInput.state, replayInput.speculative));
+            m_emu.setRewind(replayInput.state.rewind);
+            m_emu.setSpeedBoost(replayInput.state.speedBoost);
+            m_emu.setForceSilentAudio(replayInput.speculative);
+            lastReplayInput = replayInput;
             hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);
         }
+        m_emu.setForceSilentAudio(false);
         if(hasLastReplayInput) {
-            m_pendingInput = lastReplayInput;
+            m_pendingInput = lastReplayInput.state;
         }
         return true;
 #else
@@ -1210,23 +1327,28 @@ public:
         if(!m_emu.valid()) return false;
 
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
-        InputState lastReplayInput{};
+        ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
-            const InputState replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
             {
                 std::scoped_lock pendingInputLock(m_pendingInputMutex);
-                m_pendingInput = replayInput;
+                m_pendingInput = replayInput.state;
             }
+            m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, nextFrame, replayInput.state, replayInput.speculative));
+            m_emu.setRewind(replayInput.state.rewind);
+            m_emu.setSpeedBoost(replayInput.state.speedBoost);
+            m_emu.setForceSilentAudio(replayInput.speculative);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);
         }
+        m_emu.setForceSilentAudio(false);
 
         if(hasLastReplayInput) {
             std::scoped_lock pendingInputLock(m_pendingInputMutex);
-            m_pendingInput = lastReplayInput;
+            m_pendingInput = lastReplayInput.state;
         }
 
         refreshSnapshotLocked();
@@ -1276,25 +1398,62 @@ public:
 
     std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const
     {
-        (void)frame;
-        return std::nullopt;
+        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+        auto it = std::find_if(
+            m_netplaySnapshots.rbegin(),
+            m_netplaySnapshots.rend(),
+            [frame](const NetplayStoredSnapshot& stored) { return stored.frame == frame; }
+        );
+        if(it == m_netplaySnapshots.rend()) {
+            return std::nullopt;
+        }
+        return it->data;
     }
 
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const
     {
-        (void)frame;
-        return std::nullopt;
+        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+        auto it = std::find_if(
+            m_netplaySnapshots.rbegin(),
+            m_netplaySnapshots.rend(),
+            [frame](const NetplayStoredSnapshot& stored) { return stored.frame == frame; }
+        );
+        if(it == m_netplaySnapshots.rend()) {
+            return std::nullopt;
+        }
+        return it->crc32;
     }
 
     void seedNetplaySnapshot(uint32_t frame, const std::vector<uint8_t>& data)
     {
-        (void)frame;
-        (void)data;
+        if(data.empty()) return;
+
+        const uint32_t crc32 = Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+        auto existing = std::find_if(
+            m_netplaySnapshots.begin(),
+            m_netplaySnapshots.end(),
+            [frame](const NetplayStoredSnapshot& stored) { return stored.frame == frame; }
+        );
+        if(existing != m_netplaySnapshots.end()) {
+            existing->crc32 = crc32;
+            existing->data = data;
+        } else {
+            m_netplaySnapshots.push_back(NetplayStoredSnapshot{frame, crc32, data});
+            while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity && !m_netplaySnapshots.empty()) {
+                m_netplaySnapshots.pop_front();
+            }
+        }
+        m_netplayDiagnostics.enabled = m_netplaySnapshotCapacity > 0;
+        m_netplayDiagnostics.currentFrame = frame;
+        m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
+        m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
+        m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
     }
 
     NetplayDiagnosticsSnapshot getNetplayDiagnostics() const
     {
-        NetplayDiagnosticsSnapshot snapshot;
-        return snapshot;
+        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+        return m_netplayDiagnostics;
     }
 };

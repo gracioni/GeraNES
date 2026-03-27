@@ -21,12 +21,21 @@
 class NetplayTest
 {
 public:
+    enum class PredictionScriptMode
+    {
+        None,
+        HitAll,
+        MissAll,
+        Partial
+    };
+
     struct Options
     {
         std::string romPath;
         std::string reportPath;
         uint32_t frames = 600;
         uint32_t inputDelayFrames = 10;
+        uint32_t predictFrames = 0;
         uint32_t rollbackWindowFrames = 600;
         uint32_t crcIntervalFrames = 10;
         uint32_t port = 27888;
@@ -39,6 +48,12 @@ public:
         uint32_t desyncValueXor = 0x01;
         uint32_t hostInputSeed = 0x13572468u;
         uint32_t clientInputSeed = 0x24681357u;
+        uint32_t networkPumpStride = 1;
+        PredictionScriptMode predictionScriptMode = PredictionScriptMode::None;
+        uint32_t predictionHoldStartFrame = 0;
+        uint32_t predictionHoldFrameCount = 0;
+        uint32_t predictionScriptStartFrame = 0;
+        uint32_t predictionScriptFrameCount = 0;
         bool robust = false;
         bool appFlow = false;
         bool baselineLockstep = false;
@@ -177,6 +192,54 @@ private:
         if(buttons.left) mask |= (1ull << 6);
         if(buttons.right) mask |= (1ull << 7);
         return mask;
+    }
+
+    static Buttons playbackButtonsForFrame(const Options& options,
+                                           const DeterministicInputGenerator& generator,
+                                           bool hostSide,
+                                           uint32_t frameIndex,
+                                           uint32_t fps)
+    {
+        if(options.predictionScriptMode == PredictionScriptMode::None) {
+            return generator.buttonsForFrame(frameIndex, fps);
+        }
+
+        (void)generator;
+        (void)hostSide;
+        (void)fps;
+        Buttons buttons{};
+        const uint32_t scriptStartFrame =
+            options.predictionScriptStartFrame == 0u
+                ? options.predictionHoldStartFrame
+                : options.predictionScriptStartFrame;
+        if(scriptStartFrame == 0u || options.predictionScriptFrameCount == 0u) {
+            return buttons;
+        }
+        if(frameIndex < scriptStartFrame ||
+           frameIndex >= scriptStartFrame + options.predictionScriptFrameCount) {
+            return buttons;
+        }
+
+        const uint32_t offset = frameIndex - scriptStartFrame;
+        switch(options.predictionScriptMode) {
+            case PredictionScriptMode::None:
+            case PredictionScriptMode::HitAll:
+                break;
+            case PredictionScriptMode::MissAll:
+                buttons.right = true;
+                buttons.a = (offset % 2u) == 0u;
+                buttons.b = (offset % 2u) != 0u;
+                break;
+            case PredictionScriptMode::Partial:
+                if(offset == 2u) {
+                    buttons.right = true;
+                } else if(offset == 3u) {
+                    buttons.left = true;
+                    buttons.b = true;
+                }
+                break;
+        }
+        return buttons;
     }
 
     static std::optional<Netplay::RomValidationData> captureRomValidation(GeraNESEmu& emu)
@@ -385,6 +448,7 @@ private:
             return false;
         }
         hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(options.inputDelayFrames));
+        hostPeer.coordinator.setPredictFrames(static_cast<uint8_t>(options.predictFrames));
 
         for(uint32_t i = 0; i < options.startupTimeoutSteps; ++i) {
             pumpNetwork(hostPeer, clientPeer, 1);
@@ -465,12 +529,25 @@ private:
             uint64_t mask = 0;
             if(peer.publishedThroughFrame > options.inputDelayFrames) {
                 const uint32_t sourceFrame = peer.publishedThroughFrame - options.inputDelayFrames - 1u;
-                const Buttons buttons = peer.generator.buttonsForFrame(sourceFrame, fps);
+                const Buttons buttons = playbackButtonsForFrame(options, peer.generator, peer.host, sourceFrame, fps);
                 mask = buildPadMask(buttons);
             }
 
             peer.coordinator.recordLocalInputFrame(peer.publishedThroughFrame, *slot, mask);
         }
+    }
+
+    static Buttons scriptedPredictionButtons(const Options& options, bool hostSide, uint32_t frame)
+    {
+        return playbackButtonsForFrame(
+            options,
+            hostSide
+                ? DeterministicInputGenerator(options.hostInputSeed)
+                : DeterministicInputGenerator(options.clientInputSeed),
+            hostSide,
+            frame,
+            60u
+        );
     }
 
     static void queueConfirmedFrames(PeerState& peer)
@@ -530,6 +607,7 @@ private:
         const InputFrame* frame0 = peer.emu.inputBuffer().findByFrame(0);
         const InputFrame* frame1 = peer.emu.inputBuffer().findByFrame(1);
         const std::vector<uint8_t> state = peer.emu.saveStateToMemory();
+        const auto& predictionStats = peer.coordinator.predictionStats();
 
         return {
             {"name", peer.name},
@@ -546,6 +624,10 @@ private:
             {"inputFrame1", frame1 != nullptr ? frame1->toJson() : nlohmann::json()},
             {"localTimelineSize", peer.coordinator.localInputs().size()},
             {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},
+            {"predictionHitCount", predictionStats.predictionHitCount},
+            {"predictionMissCount", predictionStats.predictionMissCount},
+            {"rollbackScheduledCount", predictionStats.rollbackScheduledCount},
+            {"confirmedConflictCount", predictionStats.confirmedFrameConflictCount},
             {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
                 {"frame", latestLocal->frame},
                 {"sequence", latestLocal->sequence},
@@ -581,6 +663,13 @@ private:
             {"romPath", options.romPath},
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
+            {"predictFrames", options.predictFrames},
+            {"networkPumpStride", options.networkPumpStride},
+            {"predictionHoldStartFrame", options.predictionHoldStartFrame},
+            {"predictionHoldFrameCount", options.predictionHoldFrameCount},
+            {"predictionScriptStartFrame", options.predictionScriptStartFrame},
+            {"predictionScriptFrameCount", options.predictionScriptFrameCount},
+            {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
             {"lastCheckedFrame", lastCheckedFrame},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
@@ -659,6 +748,7 @@ private:
             }
         }
 
+        const auto& predictionStats = peer.coordinator.predictionStats();
         return {
             {"name", peer.name},
             {"host", peer.host},
@@ -677,6 +767,10 @@ private:
             {"maxObservedPendingDriverFrames", peer.maxObservedPendingFrameCount},
             {"driverProducedThroughFrame", peer.driver.producedThroughFrame()},
             {"driverQueuedThroughFrame", peer.driver.queuedThroughFrame()},
+            {"predictionHitCount", predictionStats.predictionHitCount},
+            {"predictionMissCount", predictionStats.predictionMissCount},
+            {"rollbackScheduledCount", predictionStats.rollbackScheduledCount},
+            {"confirmedConflictCount", predictionStats.confirmedFrameConflictCount},
             {"currentFrameInput", previousFrameJson},
             {"nextFrame", nextFrameJson},
             {"nextNextFrame", currentFrameJson},
@@ -701,6 +795,13 @@ private:
             {"romPath", options.romPath},
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
+            {"predictFrames", options.predictFrames},
+            {"networkPumpStride", options.networkPumpStride},
+            {"predictionHoldStartFrame", options.predictionHoldStartFrame},
+            {"predictionHoldFrameCount", options.predictionHoldFrameCount},
+            {"predictionScriptStartFrame", options.predictionScriptStartFrame},
+            {"predictionScriptFrameCount", options.predictionScriptFrameCount},
+            {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
@@ -728,6 +829,8 @@ private:
             return false;
         }
 
+        hostPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
+        clientPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
         hostPeer.emu.setSimulationSuspended(true);
         clientPeer.emu.setSimulationSuspended(true);
 
@@ -824,6 +927,11 @@ private:
         const Netplay::ParticipantId hostId = hostPeer.coordinator.localParticipantId();
         const Netplay::ParticipantId clientId = clientPeer.coordinator.localParticipantId();
         hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(options.inputDelayFrames));
+        hostPeer.coordinator.setPredictFrames(static_cast<uint8_t>(options.predictFrames));
+        hostPeer.driver.setPrebufferFrames(options.inputDelayFrames);
+        clientPeer.driver.setPrebufferFrames(options.inputDelayFrames);
+        hostPeer.driver.setPredictFrames(options.predictFrames);
+        clientPeer.driver.setPredictFrames(options.predictFrames);
 
         for(uint32_t i = 0; i < options.startupTimeoutSteps; ++i) {
             const bool hostAssigned = hostPeer.coordinator.assignController(hostId, 0);
@@ -904,7 +1012,7 @@ private:
         if(slot.has_value()) {
             const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
             const uint32_t sourceFrame = peer.driver.producedThroughFrame() + 1u;
-            const Buttons buttons = peer.generator.buttonsForFrame(sourceFrame, fps);
+            const Buttons buttons = playbackButtonsForFrame(options, peer.generator, peer.host, sourceFrame, fps);
             localPrimaryMask = buildPadMask(buttons);
         }
 
@@ -917,7 +1025,7 @@ private:
             dtMs,
             localPrimaryMask,
             peer.emu.getRegionFPS(),
-            peer.emu.frameCount(),
+            peer.emu.exactEmulationFrame(),
             peer.coordinator.latestConfirmedFrame()
         );
     }
@@ -934,6 +1042,46 @@ private:
         }
         const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0u;
         peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
+    }
+
+    static void processAppRollback(AppPeerState& peer)
+    {
+        std::optional<Netplay::FrameNumber> rollbackFrame = peer.coordinator.consumePendingRollbackFrame();
+        if(!rollbackFrame.has_value()) {
+            return;
+        }
+
+        const uint32_t currentFrame = peer.emu.exactEmulationFrame();
+        if(currentFrame == 0 || *rollbackFrame >= currentFrame) {
+            if(rollbackFrame.has_value() && *rollbackFrame >= currentFrame) {
+                peer.coordinator.rescheduleRollbackFrame(*rollbackFrame);
+            }
+            return;
+        }
+
+        if(!peer.emu.rollbackToFrame(*rollbackFrame)) {
+            return;
+        }
+
+        peer.coordinator.setLocalSimulationFrame(*rollbackFrame);
+        peer.coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
+        if(!peer.emu.resimulateToFrame(currentFrame, [&](uint32_t frame) {
+            EmulationHost::ReplayFrameInput replayInput{};
+            Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+            if(!peer.coordinator.tryBuildPlaybackFrame(frame, frame > peer.coordinator.latestConfirmedFrame(), playbackFrame)) {
+                return replayInput;
+            }
+            for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
+                Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(replayInput.state, slot, playbackFrame.buttonMaskLo[slot]);
+            }
+            replayInput.speculative = playbackFrame.predicted;
+            return replayInput;
+        })) {
+            return;
+        }
+
+        peer.coordinator.setLocalSimulationFrame(peer.emu.exactEmulationFrame());
+        peer.driver.reanchor(peer.emu.exactEmulationFrame());
     }
 
     static void processAppHostResync(AppPeerState& peer)
@@ -999,6 +1147,8 @@ private:
         uint32_t lastCheckedFrame = 0;
         uint32_t stallSteps = 0;
         uint32_t maxStallSteps = 0;
+        uint32_t maxSimulationFrameSeen = 0;
+        bool predictionHoldReleased = false;
 
         const auto cleanup = [&]() {
             clientPeer.coordinator.disconnect();
@@ -1017,6 +1167,8 @@ private:
 
         const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()));
         auto lastLoopTime = std::chrono::steady_clock::now();
+        const bool useSyntheticLoopDt =
+            options.predictionScriptMode != PredictionScriptMode::None;
         const auto freezePeersForInspection = [&]() {
             hostPeer.emu.setSimulationSuspended(true);
             clientPeer.emu.setSimulationSuspended(true);
@@ -1035,33 +1187,65 @@ private:
         };
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
-            const auto now = std::chrono::steady_clock::now();
-            const uint32_t loopDtMs = std::max<uint32_t>(
-                1u,
-                static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLoopTime).count())
-            );
-            lastLoopTime = now;
+            uint32_t loopDtMs = frameDt;
+            if(!useSyntheticLoopDt) {
+                const auto now = std::chrono::steady_clock::now();
+                loopDtMs = std::max<uint32_t>(
+                    1u,
+                    static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLoopTime).count())
+                );
+                lastLoopTime = now;
+            }
 
             hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.exactEmulationFrame());
             clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.exactEmulationFrame());
 
             produceAppLocalInputs(hostPeer, options, loopDtMs);
             produceAppLocalInputs(clientPeer, options, loopDtMs);
-            pumpCoordinators(hostPeer, clientPeer, 0);
+            const uint32_t simulationFrame = std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame());
+            maxSimulationFrameSeen = std::max(maxSimulationFrameSeen, simulationFrame);
+            const bool withinPredictionHoldWindow =
+                !predictionHoldReleased &&
+                options.predictionHoldFrameCount > 0u &&
+                maxSimulationFrameSeen >= options.predictionHoldStartFrame &&
+                maxSimulationFrameSeen < options.predictionHoldStartFrame + options.predictionHoldFrameCount;
+            const bool scheduledPumpNetwork =
+                options.networkPumpStride <= 1u ||
+                (step % options.networkPumpStride) == 0u;
+            const bool shouldPumpNetwork = !withinPredictionHoldWindow && scheduledPumpNetwork;
+            if(shouldPumpNetwork) {
+                pumpCoordinators(hostPeer, clientPeer, 0);
+            }
             processAppHostResync(hostPeer);
             processAppHostResync(clientPeer);
             processAppPendingResync(hostPeer);
             processAppPendingResync(clientPeer);
-            pumpCoordinators(hostPeer, clientPeer, 0);
+            if(shouldPumpNetwork) {
+                pumpCoordinators(hostPeer, clientPeer, 0);
+            }
+            processAppRollback(hostPeer);
+            processAppRollback(clientPeer);
+            if(!predictionHoldReleased) {
+                const auto& hostPredictionStats = hostPeer.coordinator.predictionStats();
+                const auto& clientPredictionStats = clientPeer.coordinator.predictionStats();
+                if(hostPredictionStats.predictionHitCount > 0u ||
+                   hostPredictionStats.predictionMissCount > 0u ||
+                   hostPredictionStats.rollbackScheduledCount > 0u ||
+                   clientPredictionStats.predictionHitCount > 0u ||
+                   clientPredictionStats.predictionMissCount > 0u ||
+                   clientPredictionStats.rollbackScheduledCount > 0u) {
+                    predictionHoldReleased = true;
+                }
+            }
 
-            hostPeer.driver.prepareConfirmedFramesForEmulationThread(
+            hostPeer.driver.preparePlaybackFramesForEmulationThread(
                 hostPeer.coordinator,
                 hostPeer.coordinator.isActive(),
                 hostPeer.coordinator.awaitingSpectatorSync(),
                 hostPeer.coordinator.session().roomState().state,
                 hostPeer.emu.exactEmulationFrame()
             );
-            clientPeer.driver.prepareConfirmedFramesForEmulationThread(
+            clientPeer.driver.preparePlaybackFramesForEmulationThread(
                 clientPeer.coordinator,
                 clientPeer.coordinator.isActive(),
                 clientPeer.coordinator.awaitingSpectatorSync(),
@@ -1069,10 +1253,45 @@ private:
                 clientPeer.emu.exactEmulationFrame()
             );
 
-            const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
-            const uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
-            const bool hostCanAdvance = hostFrame + 1u <= hostPeer.coordinator.latestConfirmedFrame();
-            const bool clientCanAdvance = clientFrame + 1u <= clientPeer.coordinator.latestConfirmedFrame();
+            uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
+            uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
+            bool hostCanAdvance = hostFrame + 1u <= hostPeer.driver.queuedThroughFrame();
+            bool clientCanAdvance = clientFrame + 1u <= clientPeer.driver.queuedThroughFrame();
+
+            if(withinPredictionHoldWindow && !hostCanAdvance && !clientCanAdvance) {
+                predictionHoldReleased = true;
+                pumpCoordinators(hostPeer, clientPeer, 0);
+                processAppHostResync(hostPeer);
+                processAppHostResync(clientPeer);
+                processAppPendingResync(hostPeer);
+                processAppPendingResync(clientPeer);
+                processAppRollback(hostPeer);
+                processAppRollback(clientPeer);
+
+                hostPeer.driver.preparePlaybackFramesForEmulationThread(
+                    hostPeer.coordinator,
+                    hostPeer.coordinator.isActive(),
+                    hostPeer.coordinator.awaitingSpectatorSync(),
+                    hostPeer.coordinator.session().roomState().state,
+                    hostPeer.emu.exactEmulationFrame()
+                );
+                clientPeer.driver.preparePlaybackFramesForEmulationThread(
+                    clientPeer.coordinator,
+                    clientPeer.coordinator.isActive(),
+                    clientPeer.coordinator.awaitingSpectatorSync(),
+                    clientPeer.coordinator.session().roomState().state,
+                    clientPeer.emu.exactEmulationFrame()
+                );
+
+                hostFrame = hostPeer.emu.exactEmulationFrame();
+                clientFrame = clientPeer.emu.exactEmulationFrame();
+                hostCanAdvance = hostFrame + 1u <= hostPeer.driver.queuedThroughFrame();
+                clientCanAdvance = clientFrame + 1u <= clientPeer.driver.queuedThroughFrame();
+            } else if(!predictionHoldReleased &&
+                      options.predictionHoldFrameCount > 0u &&
+                      maxSimulationFrameSeen >= options.predictionHoldStartFrame + options.predictionHoldFrameCount) {
+                predictionHoldReleased = true;
+            }
 
             hostPeer.emu.setSimulationSuspended(!hostCanAdvance);
             clientPeer.emu.setSimulationSuspended(!clientCanAdvance);
@@ -1117,15 +1336,15 @@ private:
             hostPeer.maxObservedPendingFrameCount = std::max(hostPeer.maxObservedPendingFrameCount, hostPeer.driver.pendingFrameCount());
             clientPeer.maxObservedPendingFrameCount = std::max(clientPeer.maxObservedPendingFrameCount, clientPeer.driver.pendingFrameCount());
 
-            if(newHostFrame == hostFrame && newClientFrame == clientFrame && (hostCanAdvance || clientCanAdvance)) {
+            if(newHostFrame == hostFrame && newClientFrame == clientFrame) {
                 ++stallSteps;
             } else {
                 stallSteps = 0;
             }
             maxStallSteps = std::max(maxStallSteps, stallSteps);
 
-            if(hostPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + 16u ||
-               clientPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + 16u) {
+            if(hostPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u ||
+               clientPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u) {
                 failureReason = "Future InputBuffer horizon grew beyond the expected bound under app flow.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "buffer_overfill", failureReason, lastCheckedFrame, maxStallSteps);
                 result.exitCode = RESULT_FAILED;
@@ -1133,8 +1352,8 @@ private:
                 return result;
             }
 
-            if(hostPeer.maxObservedPendingFrameCount > options.inputDelayFrames + 64u ||
-               clientPeer.maxObservedPendingFrameCount > options.inputDelayFrames + 64u) {
+            if(hostPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u ||
+               clientPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u) {
                 failureReason = "Pending confirmed frame queue grew beyond the expected bound under app flow.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "pending_overfill", failureReason, lastCheckedFrame, maxStallSteps);
                 result.exitCode = RESULT_FAILED;
@@ -1218,6 +1437,129 @@ private:
 
     static RunArtifacts runSingleCase(const Options& options)
     {
+        if(options.predictionScriptMode != PredictionScriptMode::None && options.predictFrames > 0u) {
+            RunArtifacts result;
+            PeerState hostPeer("Host", true, options.hostInputSeed);
+            PeerState clientPeer("Client", false, options.clientInputSeed);
+            uint32_t lastCheckedFrame = 0;
+
+            const auto cleanup = [&]() {
+                clientPeer.coordinator.disconnect();
+                hostPeer.coordinator.disconnect();
+            };
+
+            std::string failureReason;
+            if(!bootstrapSession(hostPeer, clientPeer, options, failureReason)) {
+                result.report = buildReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
+
+            const auto hostSlot = localAssignedSlot(hostPeer.coordinator);
+            const auto clientSlot = localAssignedSlot(clientPeer.coordinator);
+            if(!hostSlot.has_value() || !clientSlot.has_value()) {
+                failureReason = "Missing local controller assignment for directed prediction test.";
+                result.report = buildReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
+
+            const uint32_t scriptStartFrame =
+                options.predictionScriptStartFrame == 0u
+                    ? options.predictionHoldStartFrame
+                    : options.predictionScriptStartFrame;
+            const uint32_t scriptEndFrame = scriptStartFrame + std::max<uint32_t>(1u, options.predictionScriptFrameCount) - 1u;
+            const uint32_t warmupEndFrame = scriptStartFrame > 0u ? (scriptStartFrame - 1u) : 0u;
+
+            for(uint32_t frame = 1u; frame <= warmupEndFrame; ++frame) {
+                hostPeer.coordinator.recordLocalInputFrame(frame, *hostSlot, 0u);
+                clientPeer.coordinator.recordLocalInputFrame(frame, *clientSlot, 0u);
+                pumpNetwork(hostPeer, clientPeer, 0);
+                hostPeer.coordinator.setLocalSimulationFrame(frame);
+                clientPeer.coordinator.setLocalSimulationFrame(frame);
+                lastCheckedFrame = frame;
+            }
+
+            for(uint32_t frame = scriptStartFrame; frame <= scriptEndFrame; ++frame) {
+                const uint64_t hostMask = buildPadMask(scriptedPredictionButtons(options, true, frame));
+                const uint64_t clientMask = buildPadMask(scriptedPredictionButtons(options, false, frame));
+                hostPeer.coordinator.recordLocalInputFrame(frame, *hostSlot, hostMask);
+                clientPeer.coordinator.recordLocalInputFrame(frame, *clientSlot, clientMask);
+
+                Netplay::NetplayCoordinator::ConfirmedFrameInputs hostPlayback;
+                Netplay::NetplayCoordinator::ConfirmedFrameInputs clientPlayback;
+                if(!hostPeer.coordinator.tryBuildPlaybackFrame(frame, true, hostPlayback) ||
+                   !clientPeer.coordinator.tryBuildPlaybackFrame(frame, true, clientPlayback)) {
+                    failureReason = "Failed to build predicted playback frame " + std::to_string(frame) + ".";
+                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+                hostPeer.coordinator.setLocalSimulationFrame(frame);
+                clientPeer.coordinator.setLocalSimulationFrame(frame);
+                lastCheckedFrame = frame;
+            }
+
+            for(uint32_t i = 0; i < options.startupTimeoutSteps; ++i) {
+                pumpNetwork(hostPeer, clientPeer, 0);
+                if(hostPeer.coordinator.latestConfirmedFrame() >= scriptEndFrame &&
+                   clientPeer.coordinator.latestConfirmedFrame() >= scriptEndFrame) {
+                    break;
+                }
+                if(i + 1u == options.startupTimeoutSteps) {
+                    failureReason = "Timed out waiting for delayed prediction inputs to arrive.";
+                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+            }
+
+            const auto& hostStats = hostPeer.coordinator.predictionStats();
+            const auto& clientStats = clientPeer.coordinator.predictionStats();
+            const bool hostRollbackPending = hostPeer.coordinator.consumePendingRollbackFrame().has_value();
+            const bool clientRollbackPending = clientPeer.coordinator.consumePendingRollbackFrame().has_value();
+
+            if(options.predictionScriptMode == PredictionScriptMode::HitAll) {
+                if(hostStats.predictionHitCount == 0u || clientStats.predictionHitCount == 0u ||
+                   hostStats.predictionMissCount != 0u || clientStats.predictionMissCount != 0u ||
+                   !hostRollbackPending || !clientRollbackPending) {
+                    failureReason = "Directed predict-all-hit scenario did not produce hit+rollback on both peers.";
+                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+            } else if(options.predictionScriptMode == PredictionScriptMode::MissAll) {
+                if(hostStats.predictionMissCount == 0u || clientStats.predictionMissCount == 0u ||
+                   !hostRollbackPending || !clientRollbackPending) {
+                    failureReason = "Directed predict-all-miss scenario did not produce miss+rollback on both peers.";
+                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+            } else if(options.predictionScriptMode == PredictionScriptMode::Partial) {
+                if(hostStats.predictionHitCount == 0u || clientStats.predictionHitCount == 0u ||
+                   hostStats.predictionMissCount == 0u || clientStats.predictionMissCount == 0u ||
+                   !hostRollbackPending || !clientRollbackPending) {
+                    failureReason = "Directed predict-partial scenario did not produce mixed hit/miss + rollback on both peers.";
+                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+            }
+
+            result.report = buildReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame);
+            result.exitCode = EXIT_SUCCESS;
+            cleanup();
+            return result;
+        }
+
         RunArtifacts result;
         PeerState hostPeer("Host", true, options.hostInputSeed);
         PeerState clientPeer("Client", false, options.clientInputSeed);
@@ -1346,9 +1688,11 @@ private:
 
         addScenario("baseline", baseOptions);
 
-        Options delay1 = baseOptions;
-        delay1.inputDelayFrames = 1;
-        addScenario("delay_1", delay1);
+        if(!baseOptions.appFlow || baseOptions.baselineLockstep) {
+            Options delay1 = baseOptions;
+            delay1.inputDelayFrames = 1;
+            addScenario("delay_1", delay1);
+        }
 
         Options delay4 = baseOptions;
         delay4.inputDelayFrames = 4;
@@ -1357,6 +1701,33 @@ private:
         Options delay10 = baseOptions;
         delay10.inputDelayFrames = 10;
         addScenario("delay_10", delay10);
+
+        if(baseOptions.appFlow && !baseOptions.baselineLockstep) {
+            Options predictHit = baseOptions;
+            predictHit.inputDelayFrames = 2;
+            predictHit.predictFrames = 2;
+            predictHit.networkPumpStride = 2;
+            addScenario("predict_hit_window", predictHit);
+
+            Options predictAllHit = baseOptions;
+            predictAllHit.appFlow = false;
+            predictAllHit.inputDelayFrames = 1;
+            predictAllHit.predictFrames = 5;
+            predictAllHit.predictionHoldStartFrame = 90;
+            predictAllHit.predictionHoldFrameCount = 8;
+            predictAllHit.predictionScriptStartFrame = 96;
+            predictAllHit.predictionScriptFrameCount = 5;
+            predictAllHit.predictionScriptMode = PredictionScriptMode::HitAll;
+            addScenario("predict_all_hit", predictAllHit);
+
+            Options predictAllMiss = predictAllHit;
+            predictAllMiss.predictionScriptMode = PredictionScriptMode::MissAll;
+            addScenario("predict_all_miss", predictAllMiss);
+
+            Options predictPartial = predictAllHit;
+            predictPartial.predictionScriptMode = PredictionScriptMode::Partial;
+            addScenario("predict_partial", predictPartial);
+        }
 
         Options seedMix = baseOptions;
         seedMix.hostInputSeed = 0x00000001u;
@@ -1367,10 +1738,6 @@ private:
             Options lockstep = baseOptions;
             lockstep.baselineLockstep = true;
             addScenario("baseline_lockstep", lockstep);
-
-            Options lockstepDelay1 = lockstep;
-            lockstepDelay1.inputDelayFrames = 1;
-            addScenario("baseline_lockstep_delay_1", lockstepDelay1);
         }
 
         const bool includeLongScenarios = baseOptions.appFlow || baseOptions.frames >= 1000u;
@@ -1417,6 +1784,8 @@ private:
                 << ": " << scenario.name
                 << " frames=" << scenario.options.frames
                 << " inputDelay=" << scenario.options.inputDelayFrames
+                << " predict=" << scenario.options.predictFrames
+                << " pumpStride=" << scenario.options.networkPumpStride
                 << " hostSeed=" << scenario.options.hostInputSeed
                 << " clientSeed=" << scenario.options.clientInputSeed
                 << (scenario.options.baselineLockstep ? " lockstep" : "")
@@ -1426,6 +1795,54 @@ private:
                 ? runSingleCaseAppFlow(scenario.options)
                 : runSingleCase(scenario.options);
 
+            if(caseResult.exitCode == EXIT_SUCCESS &&
+               scenario.options.appFlow &&
+               scenario.options.predictFrames > 0 &&
+               (scenario.options.networkPumpStride > 1 || scenario.options.predictionHoldFrameCount > 0)) {
+                const auto& hostReport = caseResult.report["host"];
+                const auto& clientReport = caseResult.report["client"];
+                const uint32_t hostHits = hostReport.value("predictionHitCount", 0u);
+                const uint32_t hostMisses = hostReport.value("predictionMissCount", 0u);
+                const uint32_t clientHits = clientReport.value("predictionHitCount", 0u);
+                const uint32_t clientMisses = clientReport.value("predictionMissCount", 0u);
+                const uint32_t rollbacks =
+                    hostReport.value("rollbackScheduledCount", 0u) +
+                    clientReport.value("rollbackScheduledCount", 0u);
+                const uint32_t predictionActivity = hostHits + hostMisses + clientHits + clientMisses + rollbacks;
+                if(predictionActivity == 0u) {
+                    caseResult.exitCode = RESULT_FAILED;
+                    caseResult.report["status"] = "failed";
+                    caseResult.report["failureReason"] = "Prediction scenario completed without any prediction or rollback activity.";
+                }
+
+                if(caseResult.exitCode == EXIT_SUCCESS && scenario.name == "predict_all_hit") {
+                    if(hostHits == 0u || clientHits == 0u ||
+                       hostMisses != 0u || clientMisses != 0u) {
+                        caseResult.exitCode = RESULT_FAILED;
+                        caseResult.report["status"] = "failed";
+                        caseResult.report["failureReason"] = "Expected all predicted frames to validate without misses.";
+                    }
+                }
+
+                if(caseResult.exitCode == EXIT_SUCCESS && scenario.name == "predict_all_miss") {
+                    if(hostMisses == 0u || clientMisses == 0u || rollbacks == 0u) {
+                        caseResult.exitCode = RESULT_FAILED;
+                        caseResult.report["status"] = "failed";
+                        caseResult.report["failureReason"] = "Expected all predicted frames to miss and schedule rollback.";
+                    }
+                }
+
+                if(caseResult.exitCode == EXIT_SUCCESS && scenario.name == "predict_partial") {
+                    if(hostHits == 0u || clientHits == 0u ||
+                       hostMisses == 0u || clientMisses == 0u ||
+                       rollbacks == 0u) {
+                        caseResult.exitCode = RESULT_FAILED;
+                        caseResult.report["status"] = "failed";
+                        caseResult.report["failureReason"] = "Expected partial prediction scenario to contain both hits and misses with rollback.";
+                    }
+                }
+            }
+
             caseResult.report["scenario"] = scenario.name;
             aggregate.report["cases"].push_back(caseResult.report);
             aggregate.report["summary"].push_back({
@@ -1434,6 +1851,13 @@ private:
                 {"mode", scenario.options.appFlow ? "app-flow" : "direct-core"},
                 {"frames", scenario.options.frames},
                 {"inputDelayFrames", scenario.options.inputDelayFrames},
+                {"predictFrames", scenario.options.predictFrames},
+                {"networkPumpStride", scenario.options.networkPumpStride},
+                {"predictionHoldStartFrame", scenario.options.predictionHoldStartFrame},
+                {"predictionHoldFrameCount", scenario.options.predictionHoldFrameCount},
+                {"predictionScriptStartFrame", scenario.options.predictionScriptStartFrame},
+                {"predictionScriptFrameCount", scenario.options.predictionScriptFrameCount},
+                {"predictionScriptMode", static_cast<int>(scenario.options.predictionScriptMode)},
                 {"hostSeed", scenario.options.hostInputSeed},
                 {"clientSeed", scenario.options.clientInputSeed},
                 {"baselineLockstep", scenario.options.baselineLockstep},

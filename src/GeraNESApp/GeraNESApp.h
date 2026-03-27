@@ -355,21 +355,38 @@ private:
 
     void syncNetplayInputDelay()
     {
-        if(!m_netplayCoordinator.isActive() || !m_netplayCoordinator.isHosting()) return;
-
         auto& cfg = AppSettings::instance().data.netplay;
-        cfg.inputDelayFrames = static_cast<int>(m_netplayInputDriver.prebufferFrames());
+        if(!m_netplayCoordinator.isActive()) {
+            m_netplayInputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(1, cfg.inputDelayFrames)));
+            m_netplayInputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
+            return;
+        }
 
         const auto& room = m_netplayCoordinator.session().roomState();
-        const bool canChangeDelay =
-            room.state == Netplay::SessionState::Lobby ||
-            room.state == Netplay::SessionState::ValidatingRom ||
-            room.state == Netplay::SessionState::ReadyCheck ||
-            room.state == Netplay::SessionState::Starting;
+        const bool hosting = m_netplayCoordinator.isHosting();
+        const bool canChangeWindows =
+            hosting &&
+            (room.state == Netplay::SessionState::Lobby ||
+             room.state == Netplay::SessionState::ValidatingRom ||
+             room.state == Netplay::SessionState::ReadyCheck ||
+             room.state == Netplay::SessionState::Starting);
 
-        if(canChangeDelay && room.inputDelayFrames != m_netplayInputDriver.prebufferFrames()) {
-            m_netplayCoordinator.setInputDelayFrames(static_cast<uint8_t>(m_netplayInputDriver.prebufferFrames()));
+        if(canChangeWindows) {
+            m_netplayInputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(1, cfg.inputDelayFrames)));
+            m_netplayInputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
+            if(room.inputDelayFrames != m_netplayInputDriver.prebufferFrames()) {
+                m_netplayCoordinator.setInputDelayFrames(static_cast<uint8_t>(m_netplayInputDriver.prebufferFrames()));
+            }
+            if(room.predictFrames != m_netplayInputDriver.predictFrames()) {
+                m_netplayCoordinator.setPredictFrames(static_cast<uint8_t>(m_netplayInputDriver.predictFrames()));
+            }
+        } else {
+            m_netplayInputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max<uint8_t>(1u, room.inputDelayFrames)));
+            m_netplayInputDriver.setPredictFrames(static_cast<uint32_t>(room.predictFrames));
         }
+
+        cfg.inputDelayFrames = static_cast<int>(m_netplayInputDriver.prebufferFrames());
+        cfg.predictFrames = static_cast<int>(m_netplayInputDriver.predictFrames());
     }
 
     std::string netplaySessionBlockedReason() const
@@ -512,9 +529,23 @@ private:
         return m_netplayInputDriver.confirmedThroughFrame(m_netplayCoordinator);
     }
 
-    EmulationHost::InputState buildNetplayReplayInputState(Netplay::FrameNumber frame) const
+    uint32_t predictedNetplayThroughFrame() const
     {
-        return m_netplayInputDriver.buildReplayInputState(m_netplayCoordinator, frame);
+        return confirmedNetplayThroughFrame() + m_netplayInputDriver.predictFrames();
+    }
+
+    EmulationHost::InputState buildNetplayReplayInputState(Netplay::FrameNumber frame)
+    {
+        Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        if(!m_netplayCoordinator.tryBuildPlaybackFrame(frame, frame > confirmedNetplayThroughFrame(), playbackFrame)) {
+            return {};
+        }
+
+        EmulationHost::InputState state{};
+        for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
+            Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(state, slot, playbackFrame.buttonMaskLo[slot]);
+        }
+        return state;
     }
 
     bool tryBuildConfirmedNetplayInputState(Netplay::FrameNumber frame, EmulationHost::InputState& outState) const
@@ -531,7 +562,7 @@ private:
 
     void queueConfirmedNetplayFramesToEmu()
     {
-        m_netplayInputDriver.prepareConfirmedFramesForEmulationThread(
+        m_netplayInputDriver.preparePlaybackFramesForEmulationThread(
             m_netplayCoordinator,
             m_netplayCoordinator.isActive(),
             m_netplayCoordinator.awaitingSpectatorSync(),
@@ -579,7 +610,16 @@ private:
         m_netplayCoordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
 
         if(!m_emu.resimulateToFrame(currentFrame, [this](uint32_t frame) {
-            return buildNetplayReplayInputState(frame);
+            EmulationHost::ReplayFrameInput replayInput;
+            Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+            if(!m_netplayCoordinator.tryBuildPlaybackFrame(frame, frame > confirmedNetplayThroughFrame(), playbackFrame)) {
+                return replayInput;
+            }
+            for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
+                Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(replayInput.state, slot, playbackFrame.buttonMaskLo[slot]);
+            }
+            replayInput.speculative = playbackFrame.predicted;
+            return replayInput;
         })) {
             Logger::instance().log("Netplay resimulation failed", Logger::Type::WARNING);
             return;
@@ -591,6 +631,7 @@ private:
             " -> " + std::to_string(*rollbackFrame) + ")",
             Logger::Type::INFO
         );
+        queueConfirmedNetplayFramesToEmu();
     }
 
     void processNetplayResyncIfNeeded()
@@ -2334,6 +2375,7 @@ public:
         processNetplayHostSpectatorSyncIfNeeded();
         processNetplayResyncIfNeeded();
         processNetplayAutoResumeIfNeeded();
+        processNetplayRollbackIfNeeded();
 
         const bool netplayStateBlocksSimulation =
             m_netplayCoordinator.isActive() &&
@@ -2358,7 +2400,7 @@ public:
         const bool waitingForConfirmedNetplayInput =
             m_netplayCoordinator.isActive() &&
             m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running &&
-            netplayPlaybackFrame > confirmedNetplayThroughFrame();
+            netplayPlaybackFrame > m_netplayInputDriver.queuedThroughFrame();
         if(waitingForConfirmedNetplayInput) {
             m_emu.setSimulationSuspended(true);
             m_mainLoopLastTime = tempTime;

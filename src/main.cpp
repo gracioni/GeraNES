@@ -36,7 +36,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --test-resimulation <rom_path> [--rollback-frame <n>] [--runtime-ms <n>] [--future-input-frames <n>] [--seed <n>] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
@@ -51,12 +51,20 @@ namespace
             << "Netplay test options:\n"
             << "  --frames <n>              Frames to simulate. Default: 600\n"
             << "  --input-delay <n>         Session input delay in frames. Default: 10\n"
+            << "  --predict-frames <n>      Last-known-input prediction horizon. Default: 0\n"
             << "  --rollback-window <n>     Snapshot/rollback history size. Default: 600\n"
             << "  --crc-interval <n>        CRC report interval in frames. Default: 10\n"
             << "  --settle-steps <n>        Extra maintenance ticks after the target frame. Default: 2048\n"
             << "  --host-seed <n>           Deterministic host input seed. Default: 324478056\n"
             << "  --client-seed <n>         Deterministic client input seed. Default: 610800471\n"
             << "  --pre-session-warmup <n>  Advance the host offline by N frames before starting the session.\n"
+            << "  --port <n>                ENet port used by the in-process host. Default: 27888\n"
+            << "  --network-pump-stride <n> Delay gameplay packet processing to simulate jitter/late input.\n"
+            << "  --prediction-hold-start <n>  App-flow test: first emulation frame where gameplay packet pumping is held.\n"
+            << "  --prediction-hold-frames <n> App-flow test: number of frames to keep gameplay packet pumping paused.\n"
+            << "  --prediction-script-start <n> First input frame controlled by the scripted prediction pattern.\n"
+            << "  --prediction-script-frames <n> Number of scripted prediction frames starting at --prediction-script-start.\n"
+            << "  --prediction-script-mode <none|hit|miss|partial> Scripted input pattern for prediction validation.\n"
             << "  --robust                  Run a built-in matrix of delay/seed/lockstep/long-session cases.\n"
             << "  --app-flow                Use EmulationHost/desktop-like app flow instead of direct core stepping.\n"
             << "  --baseline-lockstep       Disable realtime heuristics and require confirmed input before each frame.\n"
@@ -97,7 +105,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -226,6 +234,13 @@ int main(int argc, char* argv[]) {
                     return EXIT_FAILURE;
                 }
             }
+            else if(arg == "--predict-frames") {
+                if(!nextValue(options.predictFrames)) {
+                    std::cerr << "Invalid value for --predict-frames.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
             else if(arg == "--rollback-window") {
                 if(!nextValue(options.rollbackWindowFrames) || options.rollbackWindowFrames == 0) {
                     std::cerr << "Invalid value for --rollback-window.\n";
@@ -264,6 +279,69 @@ int main(int argc, char* argv[]) {
             else if(arg == "--pre-session-warmup") {
                 if(!nextValue(options.preSessionWarmupFrames)) {
                     std::cerr << "Invalid value for --pre-session-warmup.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--port") {
+                if(!nextValue(options.port) || options.port == 0) {
+                    std::cerr << "Invalid value for --port.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--network-pump-stride") {
+                if(!nextValue(options.networkPumpStride) || options.networkPumpStride == 0) {
+                    std::cerr << "Invalid value for --network-pump-stride.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--prediction-hold-start") {
+                if(!nextValue(options.predictionHoldStartFrame)) {
+                    std::cerr << "Invalid value for --prediction-hold-start.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--prediction-hold-frames") {
+                if(!nextValue(options.predictionHoldFrameCount)) {
+                    std::cerr << "Invalid value for --prediction-hold-frames.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--prediction-script-start") {
+                if(!nextValue(options.predictionScriptStartFrame)) {
+                    std::cerr << "Invalid value for --prediction-script-start.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--prediction-script-frames") {
+                if(!nextValue(options.predictionScriptFrameCount)) {
+                    std::cerr << "Invalid value for --prediction-script-frames.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--prediction-script-mode") {
+                if(i + 1 >= argc) {
+                    std::cerr << "Missing value for --prediction-script-mode.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+                const std::string mode = argv[++i];
+                if(mode == "none") {
+                    options.predictionScriptMode = NetplayTest::PredictionScriptMode::None;
+                } else if(mode == "hit") {
+                    options.predictionScriptMode = NetplayTest::PredictionScriptMode::HitAll;
+                } else if(mode == "miss") {
+                    options.predictionScriptMode = NetplayTest::PredictionScriptMode::MissAll;
+                } else if(mode == "partial") {
+                    options.predictionScriptMode = NetplayTest::PredictionScriptMode::Partial;
+                } else {
+                    std::cerr << "Invalid value for --prediction-script-mode.\n";
                     printNetplayTestUsage();
                     return EXIT_FAILURE;
                 }

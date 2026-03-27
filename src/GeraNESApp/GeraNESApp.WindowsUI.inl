@@ -179,8 +179,11 @@ inline void GeraNESApp::showGui()
             ImGui::BeginDisabled(!canEditInputDelay);
             ImGui::SetNextItemWidth(120.0f);
             ImGui::InputInt("Input Delay##NetplayInputDelay", &cfg.inputDelayFrames);
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::InputInt("Predict Frames##NetplayPredictFrames", &cfg.predictFrames);
             ImGui::EndDisabled();
             cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
+            cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
             if(m_netplayCoordinator.isHosting()) {
                 ImGui::Checkbox("Resume when all ready##NetplayAutoResume", &cfg.autoResumeWhenReady);
             }
@@ -229,6 +232,7 @@ inline void GeraNESApp::showGui()
             ImGui::Text("ROM CRC32: %08X", room.romValidation.romCrc32);
             ImGui::Text("Mapper/Sub: %u / %u", room.romValidation.mapperId, room.romValidation.subMapperId);
             ImGui::Text("Input Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
+            ImGui::Text("Predict Frames: %u frame(s)", static_cast<unsigned>(room.predictFrames));
             ImGui::Text("Active Resync: %u", room.activeResyncId);
             ImGui::Text("Resync Acks Pending: %u", room.pendingResyncAckCount);
             ImGui::Text("Current Frame: %u", room.currentFrame);

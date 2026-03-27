@@ -27,6 +27,7 @@ public:
         FrameNumber frame = 0;
         std::array<uint64_t, 4> buttonMaskLo = {};
         std::array<uint64_t, 4> buttonMaskHi = {};
+        bool predicted = false;
     };
 
 private:
@@ -143,8 +144,9 @@ private:
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);
     bool tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const;
     void publishConfirmedFramesIfReady();
-    void handleConfirmedInputMismatch(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot);
+    void handleResolvedPredictedInput(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot, bool predictionMatched);
     bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
+    bool tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     FrameNumber computeHostConfirmedFrame() const;
     void broadcastFrameStatusIfNeeded();
     void broadcastPeerHealthIfNeeded();
@@ -183,8 +185,10 @@ public:
     const InputTimeline& remoteInputs() const;
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;
     FrameNumber latestConfirmedFrame() const;
+    uint8_t predictFrames() const;
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
     void predictRemoteInputsForFrame(FrameNumber frame);
+    bool tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     void submitLocalCrc(FrameNumber frame, uint32_t crc32);
     void invalidateLocalCrcHistoryAfter(FrameNumber frame);
     bool beginResync(FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32);
@@ -206,6 +210,7 @@ public:
     bool kickParticipant(ParticipantId participantId);
     bool removeReconnectReservation(ParticipantId participantId);
     bool setInputDelayFrames(uint8_t frames);
+    bool setPredictFrames(uint8_t frames);
     bool startSession();
     bool pauseSession();
     bool resumeSession();
