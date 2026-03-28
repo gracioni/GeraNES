@@ -694,10 +694,6 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
             localParticipant->lastReceivedInputFrame = std::max(localParticipant->lastReceivedInputFrame, lastFrame);
         }
 
-        std::ostringstream oss;
-        oss << "Received confirmed input frames " << data.startFrame
-            << "-" << lastFrame;
-        pushLog(oss.str());
     }
 
     return true;
@@ -733,11 +729,6 @@ bool NetplayCoordinator::handleInputAck(PacketReader& reader)
         if(entry == nullptr) continue;
         entry->confirmed = true;
     }
-
-    std::ostringstream oss;
-    oss << "Received InputAck through frame " << ack.contiguousFrame
-        << " slot " << static_cast<unsigned>(ack.playerSlot) + 1u;
-    pushLog(oss.str());
 
     return true;
 }
@@ -2422,10 +2413,6 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
     m_lastBroadcastConfirmedFrame = pendingFrames.back().frame;
     m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, m_lastBroadcastConfirmedFrame);
 
-    std::ostringstream oss;
-    oss << "Published confirmed input frames " << pendingFrames.front().frame
-        << "-" << pendingFrames.back().frame;
-    pushLog(oss.str());
 }
 
 void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi)

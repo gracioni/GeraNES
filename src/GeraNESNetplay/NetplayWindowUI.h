@@ -94,10 +94,12 @@ inline void drawNetplayWindow(bool& showWindow,
     }
 
     ImGui::Separator();
-    ImGui::Text("Transport Active: %s", active ? "Yes" : "No");
-    ImGui::Text("Hosting: %s", snapshot.hosting ? "Yes" : "No");
-    ImGui::Text("Connected: %s", snapshot.connected ? "Yes" : "No");
-    ImGui::Text("Local Participant: %d", static_cast<int>(snapshot.localParticipantId));
+    if(ImGui::CollapsingHeader("Connection##NetplayConnection", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Transport Active: %s", active ? "Yes" : "No");
+        ImGui::Text("Hosting: %s", snapshot.hosting ? "Yes" : "No");
+        ImGui::Text("Connected: %s", snapshot.connected ? "Yes" : "No");
+        ImGui::Text("Local Participant: %d", static_cast<int>(snapshot.localParticipantId));
+    }
 
     if(!snapshot.lastError.empty()) {
         ImGui::Separator();
@@ -105,55 +107,59 @@ inline void drawNetplayWindow(bool& showWindow,
     }
 
     ImGui::Separator();
-    ImGui::Text("Session Id: %u", room.sessionId);
-    ImGui::Text("State: %s", sessionStateLabel(room.state));
-    ImGui::Text("Selected ROM: %s", room.selectedGameName.empty() ? "<none>" : room.selectedGameName.c_str());
-    ImGui::Text("ROM CRC32: %08X", room.romValidation.romCrc32);
-    ImGui::Text("Mapper/Sub: %u / %u", room.romValidation.mapperId, room.romValidation.subMapperId);
-    ImGui::Text("Input Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
-    ImGui::Text("Predict Frames: %u frame(s)", static_cast<unsigned>(room.predictFrames));
-    ImGui::Text("Gameplay Lag: %d ms", cfg.gameplayReceiveDelayMs);
-    ImGui::Text("Active Resync: %u", room.activeResyncId);
-    ImGui::Text("Resync Acks Pending: %u", room.pendingResyncAckCount);
-    ImGui::Text("Current Frame: %u", room.currentFrame);
-    ImGui::Text("Confirmed Frame: %u", room.lastConfirmedFrame);
-    ImGui::Text("Participants: %zu", room.participants.size());
-    ImGui::Text("Local Input Frames: %zu", snapshot.localInputCount);
-    ImGui::Text("Remote Input Frames: %zu", snapshot.remoteInputCount);
-    ImGui::Text("Predicted Frames Used: %u", snapshot.predictionStats.predictedFrameUseCount);
-    ImGui::Text("Prediction Hits: %u", snapshot.predictionStats.predictionHitCount);
-    ImGui::Text("Prediction Misses: %u", snapshot.predictionStats.predictionMissCount);
-    ImGui::Text("Playback Stops: %u", snapshot.predictionStats.playbackStopCount);
-    ImGui::Text("Stops By Missing Input: %u", snapshot.predictionStats.stopDueToMissingInputCount);
-    ImGui::Text("Stops By Prediction Limit: %u", snapshot.predictionStats.stopDueToPredictionLimitCount);
-    ImGui::Text("Last Stop: frame %u", snapshot.predictionStats.lastStopFrame);
-    if(!snapshot.predictionStats.lastStopReason.empty()) {
-        ImGui::Text("Last Stop Reason: %s", snapshot.predictionStats.lastStopReason.c_str());
+    if(ImGui::CollapsingHeader("Session##NetplaySession", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Session Id: %u", room.sessionId);
+        ImGui::Text("State: %s", sessionStateLabel(room.state));
+        ImGui::Text("Selected ROM: %s", room.selectedGameName.empty() ? "<none>" : room.selectedGameName.c_str());
+        ImGui::Text("ROM CRC32: %08X", room.romValidation.romCrc32);
+        ImGui::Text("Mapper/Sub: %u / %u", room.romValidation.mapperId, room.romValidation.subMapperId);
+        ImGui::Text("Input Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
+        ImGui::Text("Predict Frames: %u frame(s)", static_cast<unsigned>(room.predictFrames));
+        ImGui::Text("Gameplay Lag: %d ms", cfg.gameplayReceiveDelayMs);
+        ImGui::Text("Active Resync: %u", room.activeResyncId);
+        ImGui::Text("Resync Acks Pending: %u", room.pendingResyncAckCount);
+        ImGui::Text("Current Frame: %u", room.currentFrame);
+        ImGui::Text("Confirmed Frame: %u", room.lastConfirmedFrame);
+        ImGui::Text("Participants: %zu", room.participants.size());
     }
-    ImGui::Text("Unresolved Predicted Frames: %u", snapshot.unresolvedPredictedRemoteFrameCount);
-    ImGui::Text("Latest Predicted Frame: %u", snapshot.latestPredictedRemoteFrame);
-    ImGui::Text("Scheduled Rollbacks: %u", snapshot.predictionStats.rollbackScheduledCount);
-    ImGui::Text("Missing Input Gaps: %u", snapshot.predictionStats.missingInputGapCount);
-    ImGui::Text("Future Mismatches: %u", snapshot.predictionStats.futureFrameMismatchCount);
-    ImGui::Text("Confirmed Conflicts: %u", snapshot.predictionStats.confirmedFrameConflictCount);
-    ImGui::Text("Hard Resyncs: %u", snapshot.predictionStats.hardResyncCount);
-    ImGui::Text("Applied Rollbacks: %u", snapshot.runtimeDiagnostics.rollbackStats.rollbackCount);
-    ImGui::Text("Last Applied Rollback: %u -> %u",
-                snapshot.runtimeDiagnostics.rollbackStats.lastRollbackFromFrame,
-                snapshot.runtimeDiagnostics.rollbackStats.lastRollbackToFrame);
-    ImGui::Text("Last Remote CRC: %08X @ frame %u", room.lastRemoteCrc32, room.lastRemoteCrcFrame);
+    if(ImGui::CollapsingHeader("Diagnostics##NetplayDiagnostics")) {
+        ImGui::Text("Local Input Frames: %zu", snapshot.localInputCount);
+        ImGui::Text("Remote Input Frames: %zu", snapshot.remoteInputCount);
+        ImGui::Text("Predicted Frames Used: %u", snapshot.predictionStats.predictedFrameUseCount);
+        ImGui::Text("Prediction Hits: %u", snapshot.predictionStats.predictionHitCount);
+        ImGui::Text("Prediction Misses: %u", snapshot.predictionStats.predictionMissCount);
+        ImGui::Text("Playback Stops: %u", snapshot.predictionStats.playbackStopCount);
+        ImGui::Text("Stops By Missing Input: %u", snapshot.predictionStats.stopDueToMissingInputCount);
+        ImGui::Text("Stops By Prediction Limit: %u", snapshot.predictionStats.stopDueToPredictionLimitCount);
+        ImGui::Text("Last Stop: frame %u", snapshot.predictionStats.lastStopFrame);
+        if(!snapshot.predictionStats.lastStopReason.empty()) {
+            ImGui::Text("Last Stop Reason: %s", snapshot.predictionStats.lastStopReason.c_str());
+        }
+        ImGui::Text("Unresolved Predicted Frames: %u", snapshot.unresolvedPredictedRemoteFrameCount);
+        ImGui::Text("Latest Predicted Frame: %u", snapshot.latestPredictedRemoteFrame);
+        ImGui::Text("Scheduled Rollbacks: %u", snapshot.predictionStats.rollbackScheduledCount);
+        ImGui::Text("Missing Input Gaps: %u", snapshot.predictionStats.missingInputGapCount);
+        ImGui::Text("Future Mismatches: %u", snapshot.predictionStats.futureFrameMismatchCount);
+        ImGui::Text("Confirmed Conflicts: %u", snapshot.predictionStats.confirmedFrameConflictCount);
+        ImGui::Text("Hard Resyncs: %u", snapshot.predictionStats.hardResyncCount);
+        ImGui::Text("Applied Rollbacks: %u", snapshot.runtimeDiagnostics.rollbackStats.rollbackCount);
+        ImGui::Text("Last Applied Rollback: %u -> %u",
+                    snapshot.runtimeDiagnostics.rollbackStats.lastRollbackFromFrame,
+                    snapshot.runtimeDiagnostics.rollbackStats.lastRollbackToFrame);
+        ImGui::Text("Last Remote CRC: %08X @ frame %u", room.lastRemoteCrc32, room.lastRemoteCrcFrame);
 
-    if(snapshot.latestLocalInput.has_value()) {
-        ImGui::Text("Latest Local Input: frame %u slot %u mask %04llX",
-                    snapshot.latestLocalInput->frame,
-                    static_cast<unsigned>(snapshot.latestLocalInput->playerSlot) + 1u,
-                    static_cast<unsigned long long>(snapshot.latestLocalInput->buttonMaskLo & 0xFFFFull));
-    }
-    if(snapshot.latestRemoteInput.has_value()) {
-        ImGui::Text("Latest Remote Input: frame %u slot %u mask %04llX",
-                    snapshot.latestRemoteInput->frame,
-                    static_cast<unsigned>(snapshot.latestRemoteInput->playerSlot) + 1u,
-                    static_cast<unsigned long long>(snapshot.latestRemoteInput->buttonMaskLo & 0xFFFFull));
+        if(snapshot.latestLocalInput.has_value()) {
+            ImGui::Text("Latest Local Input: frame %u slot %u mask %04llX",
+                        snapshot.latestLocalInput->frame,
+                        static_cast<unsigned>(snapshot.latestLocalInput->playerSlot) + 1u,
+                        static_cast<unsigned long long>(snapshot.latestLocalInput->buttonMaskLo & 0xFFFFull));
+        }
+        if(snapshot.latestRemoteInput.has_value()) {
+            ImGui::Text("Latest Remote Input: frame %u slot %u mask %04llX",
+                        snapshot.latestRemoteInput->frame,
+                        static_cast<unsigned>(snapshot.latestRemoteInput->playerSlot) + 1u,
+                        static_cast<unsigned long long>(snapshot.latestRemoteInput->buttonMaskLo & 0xFFFFull));
+        }
     }
 
     ImGui::Separator();
