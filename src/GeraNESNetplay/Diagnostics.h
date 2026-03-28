@@ -13,6 +13,10 @@ struct RollbackStats
     uint32_t maxRollbackDistance = 0;
     uint32_t predictionHitCount = 0;
     uint32_t predictionMissCount = 0;
+    uint32_t predictedFrameUseCount = 0;
+    uint32_t playbackStopCount = 0;
+    uint32_t stopDueToMissingInputCount = 0;
+    uint32_t stopDueToPredictionLimitCount = 0;
     uint32_t hardResyncCount = 0;
     uint32_t rollbackScheduledCount = 0;
     uint32_t missingInputGapCount = 0;
@@ -20,14 +24,55 @@ struct RollbackStats
     uint32_t confirmedFrameConflictCount = 0;
     FrameNumber lastRollbackFromFrame = 0;
     FrameNumber lastRollbackToFrame = 0;
+    FrameNumber lastPredictedFrame = 0;
+    FrameNumber lastStopFrame = 0;
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
+    std::string lastStopReason;
     std::string lastDecision;
 
     void recordPrediction(bool hit)
     {
         if(hit) ++predictionHitCount;
         else ++predictionMissCount;
+    }
+
+    void recordPredictedFrameUse(FrameNumber frame, PlayerSlot slot)
+    {
+        if(lastDecision == "Prediction used" &&
+           lastPredictedFrame == frame &&
+           lastDecisionSlot == slot) {
+            return;
+        }
+        ++predictedFrameUseCount;
+        lastPredictedFrame = frame;
+        lastDecisionFrame = frame;
+        lastDecisionSlot = slot;
+        lastDecision = "Prediction used";
+    }
+
+    void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached)
+    {
+        const char* reason =
+            predictionLimitReached
+                ? "Playback stopped: prediction limit reached"
+                : "Playback stopped: missing input";
+        if(lastStopFrame == frame && lastStopReason == reason) {
+            return;
+        }
+
+        ++playbackStopCount;
+        if(predictionLimitReached) {
+            ++stopDueToPredictionLimitCount;
+        } else {
+            ++stopDueToMissingInputCount;
+        }
+
+        lastStopFrame = frame;
+        lastStopReason = reason;
+        lastDecisionFrame = frame;
+        lastDecisionSlot = kObserverPlayerSlot;
+        lastDecision = reason;
     }
 
     void recordRollback(FrameNumber fromFrame, FrameNumber toFrame)

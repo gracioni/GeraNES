@@ -118,6 +118,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingResyncAcks.clear();
     m_reconnectReservationDeadlines.clear();
     m_requiresSpectatorSync = false;
+    m_delayedPacketEvents.clear();
 }
 
 void NetplayCoordinator::pushLog(const std::string& message)
@@ -1659,6 +1660,28 @@ bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantI
     return true;
 }
 
+uint32_t NetplayCoordinator::unresolvedPredictedRemoteFrameCount() const
+{
+    uint32_t count = 0;
+    for(const TimelineInputEntry& entry : m_remoteInputs.entries()) {
+        if(entry.predicted && !entry.confirmed) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+FrameNumber NetplayCoordinator::latestPredictedRemoteFrame() const
+{
+    FrameNumber latest = 0;
+    for(const TimelineInputEntry& entry : m_remoteInputs.entries()) {
+        if(entry.predicted && !entry.confirmed && entry.frame > latest) {
+            latest = entry.frame;
+        }
+    }
+    return latest;
+}
+
 bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
 {
     if(!m_hosting) return false;
@@ -2022,7 +2045,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
 {
     if(!m_transport.isActive()) return;
 
-    for(const NetTransport::Event& event : m_transport.poll(timeoutMs)) {
+    const auto handleEvent = [&](const NetTransport::Event& event) {
         switch(event.type) {
             case NetTransport::Event::Type::Connected:
                 if(!m_hosting) {
@@ -2102,6 +2125,32 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
             default:
                 break;
         }
+    };
+
+    const auto queueOrHandleEvent = [&](NetTransport::Event event) {
+        const bool shouldDelayGameplay =
+            m_gameplayReceiveDelayMs > 0 &&
+            event.type == NetTransport::Event::Type::PacketReceived &&
+            event.channel == Channel::Gameplay;
+        if(shouldDelayGameplay) {
+            DelayedPacketEvent delayed;
+            delayed.releaseAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_gameplayReceiveDelayMs);
+            delayed.event = std::move(event);
+            m_delayedPacketEvents.push_back(std::move(delayed));
+            return;
+        }
+        handleEvent(event);
+    };
+
+    for(NetTransport::Event event : m_transport.poll(timeoutMs)) {
+        queueOrHandleEvent(std::move(event));
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    while(!m_delayedPacketEvents.empty() && m_delayedPacketEvents.front().releaseAt <= now) {
+        DelayedPacketEvent delayed = std::move(m_delayedPacketEvents.front());
+        m_delayedPacketEvents.pop_front();
+        handleEvent(delayed.event);
     }
 
     updatePeerHealthFromTransport();
@@ -2123,6 +2172,16 @@ bool NetplayCoordinator::isHosting() const
 bool NetplayCoordinator::isConnected() const
 {
     return m_connected;
+}
+
+uint32_t NetplayCoordinator::gameplayReceiveDelayMs() const
+{
+    return m_gameplayReceiveDelayMs;
+}
+
+void NetplayCoordinator::setGameplayReceiveDelayMs(uint32_t delayMs)
+{
+    m_gameplayReceiveDelayMs = delayMs;
 }
 
 ParticipantId NetplayCoordinator::localParticipantId() const
@@ -2163,6 +2222,11 @@ const std::vector<std::string>& NetplayCoordinator::eventLog() const
 const RollbackStats& NetplayCoordinator::predictionStats() const
 {
     return m_predictionStats;
+}
+
+void NetplayCoordinator::recordPlaybackStop(FrameNumber frame, bool predictionLimitReached)
+{
+    m_predictionStats.recordPlaybackStop(frame, predictionLimitReached);
 }
 
 void NetplayCoordinator::setLocalSimulationFrame(FrameNumber frame)
@@ -2307,6 +2371,9 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
         haveAssignedParticipant = true;
         outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
         outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+        if(entry->predicted) {
+            m_predictionStats.recordPredictedFrameUse(frame, slot);
+        }
         outFrame.predicted = outFrame.predicted || entry->predicted;
     }
 

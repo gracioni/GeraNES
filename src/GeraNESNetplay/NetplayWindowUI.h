@@ -68,9 +68,12 @@ inline void drawNetplayWindow(bool& showWindow,
     ImGui::InputInt("Input Delay##NetplayInputDelay", &cfg.inputDelayFrames);
     ImGui::SetNextItemWidth(120.0f);
     ImGui::InputInt("Predict Frames##NetplayPredictFrames", &cfg.predictFrames);
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::InputInt("Gameplay Lag ms##NetplayGameplayLag", &cfg.gameplayReceiveDelayMs);
     ImGui::EndDisabled();
     cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
     cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
+    cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
     if(snapshot.hosting) {
         ImGui::Checkbox("Resume when all ready##NetplayAutoResume", &cfg.autoResumeWhenReady);
@@ -109,6 +112,7 @@ inline void drawNetplayWindow(bool& showWindow,
     ImGui::Text("Mapper/Sub: %u / %u", room.romValidation.mapperId, room.romValidation.subMapperId);
     ImGui::Text("Input Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
     ImGui::Text("Predict Frames: %u frame(s)", static_cast<unsigned>(room.predictFrames));
+    ImGui::Text("Gameplay Lag: %d ms", cfg.gameplayReceiveDelayMs);
     ImGui::Text("Active Resync: %u", room.activeResyncId);
     ImGui::Text("Resync Acks Pending: %u", room.pendingResyncAckCount);
     ImGui::Text("Current Frame: %u", room.currentFrame);
@@ -116,8 +120,18 @@ inline void drawNetplayWindow(bool& showWindow,
     ImGui::Text("Participants: %zu", room.participants.size());
     ImGui::Text("Local Input Frames: %zu", snapshot.localInputCount);
     ImGui::Text("Remote Input Frames: %zu", snapshot.remoteInputCount);
+    ImGui::Text("Predicted Frames Used: %u", snapshot.predictionStats.predictedFrameUseCount);
     ImGui::Text("Prediction Hits: %u", snapshot.predictionStats.predictionHitCount);
     ImGui::Text("Prediction Misses: %u", snapshot.predictionStats.predictionMissCount);
+    ImGui::Text("Playback Stops: %u", snapshot.predictionStats.playbackStopCount);
+    ImGui::Text("Stops By Missing Input: %u", snapshot.predictionStats.stopDueToMissingInputCount);
+    ImGui::Text("Stops By Prediction Limit: %u", snapshot.predictionStats.stopDueToPredictionLimitCount);
+    ImGui::Text("Last Stop: frame %u", snapshot.predictionStats.lastStopFrame);
+    if(!snapshot.predictionStats.lastStopReason.empty()) {
+        ImGui::Text("Last Stop Reason: %s", snapshot.predictionStats.lastStopReason.c_str());
+    }
+    ImGui::Text("Unresolved Predicted Frames: %u", snapshot.unresolvedPredictedRemoteFrameCount);
+    ImGui::Text("Latest Predicted Frame: %u", snapshot.latestPredictedRemoteFrame);
     ImGui::Text("Scheduled Rollbacks: %u", snapshot.predictionStats.rollbackScheduledCount);
     ImGui::Text("Missing Input Gaps: %u", snapshot.predictionStats.missingInputGapCount);
     ImGui::Text("Future Mismatches: %u", snapshot.predictionStats.futureFrameMismatchCount);

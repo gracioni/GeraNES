@@ -50,6 +50,12 @@ public:
     };
 
 private:
+    struct DelayedPacketEvent
+    {
+        std::chrono::steady_clock::time_point releaseAt = {};
+        NetTransport::Event event;
+    };
+
     NetTransport m_transport;
     NetSession m_session;
     InputTimeline m_localInputs;
@@ -86,6 +92,8 @@ private:
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_reconnectReservationDeadlines;
     bool m_requiresSpectatorSync = false;
+    uint32_t m_gameplayReceiveDelayMs = 0;
+    std::deque<DelayedPacketEvent> m_delayedPacketEvents;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -160,6 +168,8 @@ private:
 public:
     NetplayCoordinator();
     static bool romValidationMatches(const RomValidationData& a, const RomValidationData& b);
+    uint32_t unresolvedPredictedRemoteFrameCount() const;
+    FrameNumber latestPredictedRemoteFrame() const;
 
     bool host(uint16_t port, size_t maxPeers, const std::string& displayName);
     bool join(const std::string& hostName, uint16_t port, const std::string& displayName);
@@ -169,6 +179,8 @@ public:
     bool isActive() const;
     bool isHosting() const;
     bool isConnected() const;
+    uint32_t gameplayReceiveDelayMs() const;
+    void setGameplayReceiveDelayMs(uint32_t delayMs);
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;
@@ -177,6 +189,7 @@ public:
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;
     const RollbackStats& predictionStats() const;
+    void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached);
     void setLocalSimulationFrame(FrameNumber frame);
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();

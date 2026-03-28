@@ -337,6 +337,7 @@ public:
         int rollbackWindowFrames = 600;
         int inputDelayFrames = 2;
         int predictFrames = 0;
+        int gameplayReceiveDelayMs = 0;
         bool autoResumeWhenReady = false;
         std::string displayName = "Player";
         uint64_t reconnectToken = 0;
@@ -344,7 +345,7 @@ public:
         int port = 27888;
         int maxPeers = 4;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, inputDelayFrames, predictFrames, autoResumeWhenReady, displayName, reconnectToken, hostName, port, maxPeers)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, inputDelayFrames, predictFrames, gameplayReceiveDelayMs, autoResumeWhenReady, displayName, reconnectToken, hostName, port, maxPeers)
     };
 
     const int MAX_RECENT_FILES = 10;    

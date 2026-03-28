@@ -230,7 +230,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             else if(arg == "--input-delay") {
-                if(!nextValue(options.inputDelayFrames) || options.inputDelayFrames == 0) {
+                if(!nextValue(options.inputDelayFrames)) {
                     std::cerr << "Invalid value for --input-delay.\n";
                     printNetplayTestUsage();
                     return EXIT_FAILURE;

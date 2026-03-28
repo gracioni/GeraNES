@@ -42,6 +42,8 @@ public:
         std::optional<TimelineInputEntry> latestLocalInput;
         std::optional<TimelineInputEntry> latestRemoteInput;
         RollbackStats predictionStats;
+        uint32_t unresolvedPredictedRemoteFrameCount = 0;
+        FrameNumber latestPredictedRemoteFrame = 0;
         EmulationHost::NetplayDiagnosticsSnapshot runtimeDiagnostics;
         std::string sessionBlockedReason;
         std::vector<std::string> eventLog;
@@ -173,6 +175,7 @@ private:
     bool tryBuildPlaybackReplayFrame(uint32_t frame, EmulationHost::ReplayFrameInput& outFrame);
     void updateUiSnapshot(const std::optional<RomSelection>& localRom);
     bool tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame);
+    void recordPlaybackStop(FrameNumber frame);
 
     template<typename Fn>
     void enqueueCommand(Fn&& fn)
@@ -273,8 +276,10 @@ inline void NetplayAppRuntime::syncRomValidation(const std::optional<RomSelectio
 inline void NetplayAppRuntime::syncInputDelayFromSettings()
 {
     auto& cfg = AppSettings::instance().data.netplay;
+    cfg.gameplayReceiveDelayMs = std::max(0, cfg.gameplayReceiveDelayMs);
+    m_coordinator.setGameplayReceiveDelayMs(static_cast<uint32_t>(cfg.gameplayReceiveDelayMs));
     if(!m_coordinator.isActive()) {
-        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(1, cfg.inputDelayFrames)));
+        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames)));
         m_inputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
         return;
     }
@@ -288,7 +293,7 @@ inline void NetplayAppRuntime::syncInputDelayFromSettings()
          room.state == SessionState::Starting);
 
     if(canChangeWindows) {
-        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(1, cfg.inputDelayFrames)));
+        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames)));
         m_inputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
         if(room.inputDelayFrames != m_inputDriver.prebufferFrames()) {
             m_coordinator.setInputDelayFrames(static_cast<uint8_t>(m_inputDriver.prebufferFrames()));
@@ -297,7 +302,7 @@ inline void NetplayAppRuntime::syncInputDelayFromSettings()
             m_coordinator.setPredictFrames(static_cast<uint8_t>(m_inputDriver.predictFrames()));
         }
     } else {
-        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max<uint8_t>(1u, room.inputDelayFrames)));
+        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(room.inputDelayFrames));
         m_inputDriver.setPredictFrames(static_cast<uint32_t>(room.predictFrames));
     }
 
@@ -595,6 +600,8 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
         snapshot.latestRemoteInput = *latestRemote;
     }
     snapshot.predictionStats = m_coordinator.predictionStats();
+    snapshot.unresolvedPredictedRemoteFrameCount = m_coordinator.unresolvedPredictedRemoteFrameCount();
+    snapshot.latestPredictedRemoteFrame = m_coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = m_emuHost.getNetplayDiagnostics();
     snapshot.sessionBlockedReason = computeSessionBlockedReason(localRom);
     snapshot.eventLog = m_coordinator.eventLog();
@@ -608,6 +615,7 @@ inline bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
 {
     const bool allowPrediction = frame > m_inputDriver.confirmedThroughFrame(m_coordinator);
     if(!m_coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame)) {
+        recordPlaybackStop(frame);
         return false;
     }
     return true;
@@ -645,6 +653,15 @@ inline bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint3
     }
     emu.queueInputFrame(inputFrame);
     return true;
+}
+
+inline void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)
+{
+    const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    const FrameNumber predictedThroughFrame =
+        confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
+    const bool predictionLimitReached = frame > predictedThroughFrame;
+    m_coordinator.recordPlaybackStop(frame, predictionLimitReached);
 }
 
 inline void NetplayAppRuntime::setLocalReconnectToken(uint64_t token)

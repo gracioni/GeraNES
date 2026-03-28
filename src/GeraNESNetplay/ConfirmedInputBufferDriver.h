@@ -144,7 +144,7 @@ public:
 
     void setPrebufferFrames(uint32_t frames)
     {
-        m_prebufferFrames = std::max<uint32_t>(1u, frames);
+        m_prebufferFrames = frames;
     }
 
     uint32_t predictFrames() const
