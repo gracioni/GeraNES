@@ -135,6 +135,7 @@ inline void GeraNESApp::showGui()
 
 #ifndef __EMSCRIPTEN__
     if(m_showNetplayWindow) {
+#if 0
         ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
@@ -518,6 +519,8 @@ inline void GeraNESApp::showGui()
         }
 
         ImGui::End();
+#endif
+        Netplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, viewportCenter);
     }
 #endif
 

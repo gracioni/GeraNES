@@ -1666,8 +1666,15 @@ public:
         const HardwareActions savedHardwareActions = m_hardwareActions;
         const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
         const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
+        InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
+        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter);
+           currentPlaybackInput != nullptr) {
+            serializedPlaybackInput = *currentPlaybackInput;
+        } else if(serializedPlaybackInput.frame != m_frameCounter) {
+            serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
+        }
         m_inputBuffer.clear();
-        m_inputBuffer.push(m_lastAppliedInputFrame);
+        m_inputBuffer.push(serializedPlaybackInput);
         m_newFrame = false;
         m_frameStarted = false;
         m_runningLoop = false;

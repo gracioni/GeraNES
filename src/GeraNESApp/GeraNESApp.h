@@ -47,8 +47,8 @@ namespace fs = std::filesystem;
 
 #include "GeraNESApp/EmulationHost.h"
 #ifndef __EMSCRIPTEN__
-#include "GeraNESNetplay/NetplayCoordinator.h"
-#include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/NetplayWindowUI.h"
 #endif
 
 #include "GeraNES/defines.h"
@@ -167,11 +167,7 @@ private:
 #endif
 
 #ifndef __EMSCRIPTEN__
-    Netplay::NetplayCoordinator m_netplayCoordinator;
-    Netplay::ConfirmedInputBufferDriver m_netplayInputDriver;
-    std::string m_lastNetplaySelectedRomKey;
-    std::string m_lastNetplaySubmittedValidationKey;
-    std::optional<Netplay::SessionState> m_lastNetplaySessionState;
+    Netplay::NetplayAppRuntime m_netplayRuntime;
 #endif
 
     struct RomDatabaseEditorData {
@@ -258,6 +254,7 @@ private:
     }
 
 #ifndef __EMSCRIPTEN__
+#if 0
     struct NetplayRomSelection
     {
         bool loaded = false;
@@ -778,6 +775,7 @@ private:
     {
         return exactEmulationFrame() + 1u;
     }
+#endif
 #endif
 
     void loadRomDatabaseEditorFromCurrentRom()
@@ -1519,52 +1517,31 @@ private:
                 im.isPressed(m_systemInput.speed)
             );
 #ifndef __EMSCRIPTEN__
-            const auto& room = m_netplayCoordinator.session().roomState();
-            const bool netplayInputTimelineActive = m_netplayCoordinator.isActive() && room.state == Netplay::SessionState::Running;
-            if(netplayInputTimelineActive) {
-                const uint64_t p1RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
-                    p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart,
-                    p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,
-                    p1X, p1Y, p1PrimaryL, p1PrimaryR,
-                    p1Up2, p1Down2, p1Left2, p1Right2
-                );
-                const uint64_t p2RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
-                    p2PrimaryA, p2PrimaryB, p2PrimarySelect, p2PrimaryStart,
-                    p2PrimaryUp, p2PrimaryDown, p2PrimaryLeft, p2PrimaryRight,
-                    p2X, p2Y, p2PrimaryL, p2PrimaryR,
-                    p2Up2, p2Down2, p2Left2, p2Right2
-                );
-                const uint64_t p3RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
-                    p3A, p3B, p3Select, p3Start,
-                    p3Up, p3Down, p3Left, p3Right
-                );
-                const uint64_t p4RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
-                    p4A, p4B, p4Select, p4Start,
-                    p4Up, p4Down, p4Left, p4Right
-                );
-                produceLocalBufferedNetplayInputs(m_lastMainLoopDtMs, {p1RawMask, p2RawMask, p3RawMask, p4RawMask});
-                inputState = {};
-            } else {
-                resetNetplayInputDelayBuffers();
-            }
+            const uint64_t p1RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+                p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart,
+                p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,
+                p1X, p1Y, p1PrimaryL, p1PrimaryR,
+                p1Up2, p1Down2, p1Left2, p1Right2
+            );
+            const uint64_t p2RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+                p2PrimaryA, p2PrimaryB, p2PrimarySelect, p2PrimaryStart,
+                p2PrimaryUp, p2PrimaryDown, p2PrimaryLeft, p2PrimaryRight,
+                p2X, p2Y, p2PrimaryL, p2PrimaryR,
+                p2Up2, p2Down2, p2Left2, p2Right2
+            );
+            const uint64_t p3RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+                p3A, p3B, p3Select, p3Start,
+                p3Up, p3Down, p3Left, p3Right
+            );
+            const uint64_t p4RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+                p4A, p4B, p4Select, p4Start,
+                p4Up, p4Down, p4Left, p4Right
+            );
+            m_netplayRuntime.updateLatestRawMasks({p1RawMask, p2RawMask, p3RawMask, p4RawMask});
 #endif
-            const bool netplayRunning =
-                m_netplayCoordinator.isActive() &&
-                !m_netplayCoordinator.awaitingSpectatorSync() &&
-                m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running;
-            if(netplayRunning) {
-                m_emu.setAutoQueuePendingInputOnFrameStart(false);
-                m_emu.setFrameInputResolver({});
-                inputState = {};
-            } else {
-                m_emu.setAutoQueuePendingInputOnFrameStart(true);
-                m_emu.setFrameInputResolver({});
-            }
             m_emu.setPendingInput(inputState);
         }
         else {
-            m_emu.setAutoQueuePendingInputOnFrameStart(true);
-            m_emu.setFrameInputResolver({});
             m_emu.setPendingInput({});
         }
 
@@ -1578,6 +1555,9 @@ private:
             const std::string filename = fs::path(path).filename().string();
             setTitle((std::string("GeraNES (") + filename + ")").c_str());
             Logger::instance().log("Rom loaded", Logger::Type::USER);
+#ifndef __EMSCRIPTEN__
+            m_netplayRuntime.refreshLocalRomSelectionImmediate();
+#endif
         }
         else {
             Logger::instance().log("Failed to load ROM", Logger::Type::USER);
@@ -1612,7 +1592,7 @@ private:
         m_emu.enableOverclock(cfg.improvements.overclock);
         m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.rollbackWindowFrames));
 #ifndef __EMSCRIPTEN__
-        m_netplayCoordinator.setLocalReconnectToken(cfg.netplay.reconnectToken);
+        m_netplayRuntime.setLocalReconnectToken(cfg.netplay.reconnectToken);
 #endif
 
         m_vsyncMode = (VSyncMode)cfg.video.vsyncMode;
@@ -1725,10 +1705,17 @@ private:
 
 public:
 
-    GeraNESApp() : m_emu(m_audioOutput) {
+    GeraNESApp()
+#ifndef __EMSCRIPTEN__
+        : m_emu(m_audioOutput)
+        , m_netplayRuntime(m_emu)
+#else
+        : m_emu(m_audioOutput)
+#endif
+    {
 #ifndef __EMSCRIPTEN__
         m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
-            m_netplayInputDriver.queuePendingFramesToEmu(emu);
+            m_netplayRuntime.runOnEmulationThread(emu);
         });
 #endif
 
@@ -1830,6 +1817,9 @@ public:
     }
 
     virtual ~GeraNESApp() {
+#ifndef __EMSCRIPTEN__
+        m_netplayRuntime.shutdown();
+#endif
         m_emu.shutdown();
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
@@ -2359,55 +2349,7 @@ public:
         m_touch->update(dt);
         dispatch_queued_calls();
 #ifndef __EMSCRIPTEN__
-        const uint32_t exactFrame = exactEmulationFrame();
-        m_netplayCoordinator.setLocalSimulationFrame(exactFrame);
-        m_netplayCoordinator.update(0);
-        syncNetplayReconnectToken();
-        syncNetplayRomValidation();
-        syncNetplayInputDelay();
-        handleNetplaySessionStateTransitions();
-        if(m_netplayCoordinator.isHosting() &&
-           m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Starting &&
-           m_netplayCoordinator.session().roomState().activeResyncId == 0) {
-            beginNetplayInitialSessionSync();
-        }
-        processNetplayHostResyncIfNeeded();
-        processNetplayHostSpectatorSyncIfNeeded();
-        processNetplayResyncIfNeeded();
-        processNetplayAutoResumeIfNeeded();
-        processNetplayRollbackIfNeeded();
-
-        const bool netplayStateBlocksSimulation =
-            m_netplayCoordinator.isActive() &&
-            (m_netplayCoordinator.awaitingSpectatorSync() ||
-             m_netplayCoordinator.session().roomState().state != Netplay::SessionState::Running);
-
-        if(netplayStateBlocksSimulation) {
-            m_emu.setSimulationSuspended(true);
-            m_mainLoopLastTime = tempTime;
-            render();
-            m_frameCounter++;
-            return;
-        }
-
         pollAndPrepareInput();
-
-        const uint32_t netplayPlaybackFrame = exactFrame + 1u;
-        if(m_netplayCoordinator.isActive() &&
-           m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running) {
-            queueConfirmedNetplayFramesToEmu();
-        }
-        const bool waitingForConfirmedNetplayInput =
-            m_netplayCoordinator.isActive() &&
-            m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running &&
-            netplayPlaybackFrame > m_netplayInputDriver.queuedThroughFrame();
-        if(waitingForConfirmedNetplayInput) {
-            m_emu.setSimulationSuspended(true);
-            m_mainLoopLastTime = tempTime;
-            render();
-            m_frameCounter++;
-            return;
-        }
 #endif
 
         m_mainLoopLastTime = tempTime;
@@ -2426,10 +2368,6 @@ public:
             m_vsyncMode != OFF &&
             displayFrameRate == m_emu.getRegionFPS() &&
             !isWindowsTitleBarInteractionActive();
-        const bool netplayRunning =
-            m_netplayCoordinator.isActive() &&
-            m_netplayCoordinator.session().roomState().state == Netplay::SessionState::Running;
-        m_emu.setAllowPresenterTimeoutAdvance(!netplayRunning);
         if(!allowVsyncLock) {
             m_emu.setSimulationSuspended(false);
             if( m_emu.update(dt) ) render();
@@ -2438,14 +2376,6 @@ public:
             m_emu.updateUntilFrame(dt);
             render();      
         }
-
-#ifndef __EMSCRIPTEN__
-        if(m_netplayCoordinator.isActive()) {
-            m_netplayCoordinator.setLocalSimulationFrame(exactEmulationFrame());
-            m_netplayCoordinator.update(0);
-        }
-#endif
-
         m_frameCounter++;
     }
 

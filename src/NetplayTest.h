@@ -1106,7 +1106,7 @@ private:
         const std::vector<uint8_t> statePayload =
             initialSessionSync
                 ? peer.emu.saveStateToMemory()
-                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
+                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : peer.emu.saveStateToMemory());
         if(statePayload.empty()) return;
 
         if(!initialSessionSync && confirmedSnapshot.has_value()) {
@@ -1164,6 +1164,11 @@ private:
             cleanup();
             return result;
         }
+
+        const uint32_t startHostFrame = hostPeer.emu.exactEmulationFrame();
+        const uint32_t startClientFrame = clientPeer.emu.exactEmulationFrame();
+        const uint32_t targetHostFrame = startHostFrame + options.frames;
+        const uint32_t targetClientFrame = startClientFrame + options.frames;
 
         const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()));
         auto lastLoopTime = std::chrono::steady_clock::now();
@@ -1407,8 +1412,12 @@ private:
                 }
             }
 
-            if(newHostFrame >= options.frames && newClientFrame >= options.frames) {
+            if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
                 result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps);
+                result.report["startHostFrame"] = startHostFrame;
+                result.report["startClientFrame"] = startClientFrame;
+                result.report["targetHostFrame"] = targetHostFrame;
+                result.report["targetClientFrame"] = targetClientFrame;
                 result.exitCode = EXIT_SUCCESS;
                 cleanup();
                 return result;
@@ -1417,6 +1426,10 @@ private:
 
         failureReason = "App-flow netplay test reached the step limit.";
         result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+        result.report["startHostFrame"] = startHostFrame;
+        result.report["startClientFrame"] = startClientFrame;
+        result.report["targetHostFrame"] = targetHostFrame;
+        result.report["targetClientFrame"] = targetClientFrame;
         result.exitCode = RESULT_FAILED;
         cleanup();
         return result;

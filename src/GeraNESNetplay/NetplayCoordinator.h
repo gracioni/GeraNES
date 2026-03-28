@@ -155,6 +155,7 @@ private:
     void refreshHostRoomState();
     void updatePeerHealthFromTransport();
     void updateReconnectReservations();
+    void resetRuntimeTimelineStateForSessionStart();
 
 public:
     NetplayCoordinator();

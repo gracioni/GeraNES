@@ -77,7 +77,6 @@ public:
         }
     }
 
-private:
     static void applyPadMaskToInputFrame(InputFrame& inputFrame, PlayerSlot slot, uint64_t mask)
     {
         const bool a = (mask & (1ull << 0)) != 0;

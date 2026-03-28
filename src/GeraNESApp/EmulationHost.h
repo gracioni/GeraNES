@@ -106,7 +106,7 @@ public:
         bool speculative = false;
     };
 
-    using FrameInputResolver = std::function<bool(uint32_t, InputState&)>;
+    using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
 
     struct NetplayDiagnosticsSnapshot
     {
@@ -232,12 +232,14 @@ private:
             return;
         }
 
-        InputState input;
+        ReplayFrameInput input;
         if(m_frameInputResolver) {
             if(!m_frameInputResolver(m_emu.frameCount() + 1u, input)) {
                 return;
             }
-            applyInputStateToEmu(m_emu, input);
+            m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, m_emu.frameCount() + 1u, input.state, input.speculative));
+            m_emu.setRewind(input.state.rewind);
+            m_emu.setSpeedBoost(input.state.speedBoost);
             return;
         }
 
@@ -308,23 +310,25 @@ private:
         }
 
         const uint32_t targetFrame = m_emu.frameCount() + 1u;
-        InputState input;
+        ReplayFrameInput input;
         {
             std::scoped_lock resolverLock(m_frameInputResolverMutex);
             if(m_frameInputResolver) {
                 if(!m_frameInputResolver(targetFrame, input)) {
                     return;
                 }
-                applyInputStateToEmu(m_emu, input);
+                m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, targetFrame, input.state, input.speculative));
+                m_emu.setRewind(input.state.rewind);
+                m_emu.setSpeedBoost(input.state.speedBoost);
                 return;
             }
         }
 
         {
             std::scoped_lock pendingInputLock(m_pendingInputMutex);
-            input = m_pendingInput;
+            input.state = m_pendingInput;
         }
-        applyInputStateToEmu(m_emu, input);
+        applyInputStateToEmu(m_emu, input.state);
     }
 
     void onCommand(std::function<void(GeraNESEmu&)> command)
@@ -484,8 +488,9 @@ private:
                     const bool wakeOnly = m_workerWakeRequested.exchange(false, std::memory_order_acq_rel);
                     const uint32_t ticksToConsume = m_pendingPresenterTicks.exchange(0, std::memory_order_acq_rel);
 
+                    runPreAdvanceHookLocked();
+
                     if(m_emu.valid() && ticksToConsume > 0) {
-                        runPreAdvanceHookLocked();
                         m_emu.updateUntilFrame(dtMs);
                     }
                     else if(m_emu.valid() &&
@@ -495,7 +500,6 @@ private:
                         // If the presenter/UI stalls (e.g. native window move/resize modal loop),
                         // temporarily keep emulation/audio flowing with internal pacing until
                         // presentation ticks resume.
-                        runPreAdvanceHookLocked();
                         m_emu.update(dtMs);
                     }
 
@@ -521,8 +525,8 @@ private:
                 {
                     std::scoped_lock emuLock(m_emuMutex);
                     dispatch_queued_calls();
+                    runPreAdvanceHookLocked();
                     if(m_emu.valid()) {
-                        runPreAdvanceHookLocked();
                         m_emu.update(STEP_MS);
                         refreshSnapshotLocked();
                     } else {
