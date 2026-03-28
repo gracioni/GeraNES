@@ -36,7 +36,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --test-resimulation <rom_path> [--rollback-frame <n>] [--runtime-ms <n>] [--future-input-frames <n>] [--seed <n>] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
@@ -67,6 +67,7 @@ namespace
             << "  --prediction-script-mode <none|hit|miss|partial> Scripted input pattern for prediction validation.\n"
             << "  --robust                  Run a built-in matrix of delay/seed/lockstep/long-session cases.\n"
             << "  --app-flow                Use EmulationHost/desktop-like app flow instead of direct core stepping.\n"
+            << "  --runtime-flow            Use the extracted NetplayAppRuntime on the emulation thread.\n"
             << "  --baseline-lockstep       Disable realtime heuristics and require confirmed input before each frame.\n"
             << "  --report <path>           Write the JSON report to a file instead of stdout.\n"
             << "  --force-desync-frame <n>  Intentionally corrupt the client state on/after this frame.\n\n"
@@ -105,7 +106,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -351,6 +352,9 @@ int main(int argc, char* argv[]) {
             }
             else if(arg == "--app-flow") {
                 options.appFlow = true;
+            }
+            else if(arg == "--runtime-flow") {
+                options.runtimeFlow = true;
             }
             else if(arg == "--baseline-lockstep") {
                 options.baselineLockstep = true;

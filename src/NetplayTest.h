@@ -16,6 +16,7 @@
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 
 class NetplayTest
@@ -56,6 +57,7 @@ public:
         uint32_t predictionScriptFrameCount = 0;
         bool robust = false;
         bool appFlow = false;
+        bool runtimeFlow = false;
         bool baselineLockstep = false;
     };
 
@@ -173,6 +175,28 @@ private:
             emu.setFrameInputResolver({});
             emu.setPreAdvanceHook([this](GeraNESEmu& emuRef) {
                 driver.queuePendingFramesToEmu(emuRef);
+            });
+        }
+    };
+
+    struct RuntimePeerState
+    {
+        std::string name;
+        bool host = false;
+        EmulationHost emu{DummyAudioOutput::instance()};
+        Netplay::NetplayAppRuntime runtime{emu};
+        DeterministicInputGenerator generator;
+        uint32_t maxObservedInputBufferSize = 0;
+        uint32_t maxObservedFutureBufferedFrames = 0;
+
+        explicit RuntimePeerState(const std::string& peerName, bool isHost, uint32_t seed)
+            : name(peerName)
+            , host(isHost)
+            , generator(seed)
+        {
+            emu.setAllowPresenterTimeoutAdvance(false);
+            emu.setPreAdvanceHook([this](GeraNESEmu& innerEmu) {
+                runtime.runOnEmulationThread(innerEmu);
             });
         }
     };
@@ -703,6 +727,9 @@ private:
 
         uint32_t inputBufferSize = 0;
         uint32_t futureBufferedFrames = 0;
+        uint32_t expectedPlaybackFrame = 0;
+        bool hasExpectedFrameInput = false;
+        bool hasNextFrameInput = false;
         nlohmann::json nextFrameJson;
         nlohmann::json currentFrameJson;
         nlohmann::json previousFrameJson;
@@ -710,6 +737,9 @@ private:
         peer.emu.withExclusiveAccess([&](auto& innerEmu) {
             inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
             const uint32_t frame = innerEmu.frameCount();
+            expectedPlaybackFrame = frame;
+            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(frame) != nullptr;
+            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(frame + 1u) != nullptr;
             for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
                 if(innerEmu.inputBuffer().findByFrame(probe) == nullptr) {
                     break;
@@ -760,6 +790,9 @@ private:
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
             {"inputBufferSize", inputBufferSize},
+            {"expectedPlaybackFrame", expectedPlaybackFrame},
+            {"hasExpectedFrameInput", hasExpectedFrameInput},
+            {"hasNextFrameInput", hasNextFrameInput},
             {"futureBufferedFrames", futureBufferedFrames},
             {"maxObservedInputBufferSize", peer.maxObservedInputBufferSize},
             {"maxObservedFutureBufferedFrames", peer.maxObservedFutureBufferedFrames},
@@ -816,6 +849,430 @@ private:
             {"host", buildAppPeerReport(hostPeer)},
             {"client", buildAppPeerReport(clientPeer)}
         };
+    }
+
+    static std::optional<Netplay::ParticipantId> findParticipantIdByName(const Netplay::RoomState& room,
+                                                                         const std::string& name)
+    {
+        for(const auto& participant : room.participants) {
+            if(participant.displayName == name) {
+                return participant.id;
+            }
+        }
+        return std::nullopt;
+    }
+
+    static const Netplay::ParticipantInfo* findParticipantInRoom(const Netplay::RoomState& room,
+                                                                 Netplay::ParticipantId id)
+    {
+        for(const auto& participant : room.participants) {
+            if(participant.id == id) {
+                return &participant;
+            }
+        }
+        return nullptr;
+    }
+
+    static bool allAssignedParticipantsReadyAndCompatible(const Netplay::RoomState& room)
+    {
+        bool anyAssigned = false;
+        for(const auto& participant : room.participants) {
+            if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) continue;
+            anyAssigned = true;
+            if(!participant.connected || !participant.ready || !participant.romLoaded || !participant.romCompatible) {
+                return false;
+            }
+        }
+        return anyAssigned;
+    }
+
+    static nlohmann::json buildRuntimePeerReport(RuntimePeerState& peer)
+    {
+        const auto snapshot = peer.runtime.uiSnapshot();
+
+        uint32_t inputBufferSize = 0;
+        uint32_t futureBufferedFrames = 0;
+        uint32_t expectedPlaybackFrame = 0;
+        bool hasExpectedFrameInput = false;
+        bool hasNextFrameInput = false;
+        nlohmann::json currentFrameJson;
+        nlohmann::json nextFrameJson;
+        nlohmann::json inputWindow = nlohmann::json::array();
+        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
+            inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
+            expectedPlaybackFrame = innerEmu.frameCount();
+            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame) != nullptr;
+            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u) != nullptr;
+            if(const InputFrame* current = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame); current != nullptr) {
+                currentFrameJson = current->toJson();
+            }
+            if(const InputFrame* next = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u); next != nullptr) {
+                nextFrameJson = next->toJson();
+            }
+            for(uint32_t probe = expectedPlaybackFrame + 1u; probe < expectedPlaybackFrame + 256u; ++probe) {
+                if(innerEmu.inputBuffer().findByFrame(probe) == nullptr) {
+                    break;
+                }
+                ++futureBufferedFrames;
+            }
+            const uint32_t windowStart = expectedPlaybackFrame > 2u ? expectedPlaybackFrame - 2u : 0u;
+            for(uint32_t probe = windowStart; probe <= expectedPlaybackFrame + 4u; ++probe) {
+                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe); entry != nullptr) {
+                    inputWindow.push_back(entry->toJson());
+                }
+            }
+        });
+
+        peer.maxObservedInputBufferSize = std::max(peer.maxObservedInputBufferSize, inputBufferSize);
+        peer.maxObservedFutureBufferedFrames = std::max(peer.maxObservedFutureBufferedFrames, futureBufferedFrames);
+
+        nlohmann::json participants = nlohmann::json::array();
+        for(const auto& participant : snapshot.room.participants) {
+            participants.push_back({
+                {"id", participant.id},
+                {"name", participant.displayName},
+                {"controllerAssignment", participant.controllerAssignment},
+                {"lastReceivedInputFrame", participant.lastReceivedInputFrame},
+                {"lastContiguousInputFrame", participant.lastContiguousInputFrame},
+                {"ready", participant.ready},
+                {"romLoaded", participant.romLoaded},
+                {"romCompatible", participant.romCompatible}
+            });
+        }
+
+        return {
+            {"name", peer.name},
+            {"host", peer.host},
+            {"frame", peer.emu.exactEmulationFrame()},
+            {"lastFrameReadyFrame", peer.emu.lastFrameReadyFrame()},
+            {"lastFrameReadyNetplayCrc32", peer.emu.lastFrameReadyNetplayCrc32()},
+            {"runtimeActive", snapshot.active},
+            {"runtimeRunning", peer.runtime.runtimeRunning()},
+            {"connected", snapshot.connected},
+            {"awaitingSpectatorSync", snapshot.awaitingSpectatorSync},
+            {"sessionState", static_cast<int>(snapshot.room.state)},
+            {"currentFrame", snapshot.room.currentFrame},
+            {"confirmedThroughFrame", snapshot.room.lastConfirmedFrame},
+            {"localInputCount", snapshot.localInputCount},
+            {"remoteInputCount", snapshot.remoteInputCount},
+            {"predictionHitCount", snapshot.predictionStats.predictionHitCount},
+            {"predictionMissCount", snapshot.predictionStats.predictionMissCount},
+            {"rollbackScheduledCount", snapshot.predictionStats.rollbackScheduledCount},
+            {"confirmedConflictCount", snapshot.predictionStats.confirmedFrameConflictCount},
+            {"sessionBlockedReason", snapshot.sessionBlockedReason},
+            {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
+            {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
+            {"inputBufferSize", inputBufferSize},
+            {"maxObservedInputBufferSize", peer.maxObservedInputBufferSize},
+            {"expectedPlaybackFrame", expectedPlaybackFrame},
+            {"hasExpectedFrameInput", hasExpectedFrameInput},
+            {"hasNextFrameInput", hasNextFrameInput},
+            {"futureBufferedFrames", futureBufferedFrames},
+            {"maxObservedFutureBufferedFrames", peer.maxObservedFutureBufferedFrames},
+            {"currentFrameInput", currentFrameJson},
+            {"nextFrameInput", nextFrameJson},
+            {"inputWindow", inputWindow},
+            {"participants", participants},
+            {"eventLogTail", snapshot.eventLog}
+        };
+    }
+
+    static nlohmann::json buildRuntimeReport(const Options& options,
+                                             RuntimePeerState& hostPeer,
+                                             RuntimePeerState& clientPeer,
+                                             const std::string& status,
+                                             const std::string& failureReason,
+                                             uint32_t lastCheckedFrame,
+                                             uint32_t maxStallSteps)
+    {
+        return {
+            {"status", status},
+            {"failureReason", failureReason},
+            {"romPath", options.romPath},
+            {"frames", options.frames},
+            {"inputDelayFrames", options.inputDelayFrames},
+            {"predictFrames", options.predictFrames},
+            {"preSessionWarmupFrames", options.preSessionWarmupFrames},
+            {"lastCheckedFrame", lastCheckedFrame},
+            {"maxStallSteps", maxStallSteps},
+            {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
+                ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
+                : false},
+            {"finalNetplayCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
+                ? (hostPeer.emu.canonicalNetplayStateCrc32() == clientPeer.emu.canonicalNetplayStateCrc32())
+                : false},
+            {"finalFrameReadyCrcMatch", hostPeer.emu.lastFrameReadyFrame() == clientPeer.emu.lastFrameReadyFrame()
+                ? (hostPeer.emu.lastFrameReadyNetplayCrc32() == clientPeer.emu.lastFrameReadyNetplayCrc32())
+                : false},
+            {"host", buildRuntimePeerReport(hostPeer)},
+            {"client", buildRuntimePeerReport(clientPeer)}
+        };
+    }
+
+    static RunArtifacts runSingleCaseRuntimeFlow(const Options& options)
+    {
+        RunArtifacts result;
+        RuntimePeerState hostPeer("Host", true, options.hostInputSeed);
+        RuntimePeerState clientPeer("Client", false, options.clientInputSeed);
+        uint32_t lastCheckedFrame = 0;
+        uint32_t stallSteps = 0;
+        uint32_t maxStallSteps = 0;
+
+        const auto cleanup = [&]() {
+            clientPeer.runtime.shutdown();
+            hostPeer.runtime.shutdown();
+            clientPeer.emu.shutdown();
+            hostPeer.emu.shutdown();
+        };
+
+        std::string failureReason;
+
+        if(!hostPeer.emu.open(options.romPath) || !hostPeer.emu.valid()) {
+            failureReason = "Failed to open ROM on host.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+        if(!clientPeer.emu.open(options.romPath) || !clientPeer.emu.valid()) {
+            failureReason = "Failed to open ROM on client.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        hostPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
+        clientPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
+        hostPeer.runtime.refreshLocalRomSelectionImmediate();
+        clientPeer.runtime.refreshLocalRomSelectionImmediate();
+
+        if(options.preSessionWarmupFrames > 0) {
+            hostPeer.emu.setSimulationSuspended(true);
+            const bool warmed = hostPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
+                for(uint32_t frame = 0; frame <= options.preSessionWarmupFrames + 2u; ++frame) {
+                    innerEmu.queueInputFrame(innerEmu.createInputFrame(frame));
+                }
+                for(uint32_t step = 0; step < options.preSessionWarmupFrames; ++step) {
+                    innerEmu.updateUntilFrame(16u);
+                }
+                return innerEmu.frameCount() >= options.preSessionWarmupFrames;
+            });
+            hostPeer.emu.setSimulationSuspended(false);
+            if(!warmed) {
+                failureReason = "Failed to warm up host emulation before session start.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
+        }
+
+        bool hosted = false;
+        for(uint32_t portOffset = 0; portOffset < 8u; ++portOffset) {
+            const uint16_t port = static_cast<uint16_t>(options.port + portOffset);
+            hostPeer.runtime.host(port, 1, hostPeer.name);
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            if(hostPeer.runtime.uiSnapshot().active) {
+                clientPeer.runtime.join("127.0.0.1", port, clientPeer.name);
+                hosted = true;
+                break;
+            }
+        }
+        if(!hosted) {
+            failureReason = "Failed to host room.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        auto waitFor = [&](auto&& predicate, uint32_t maxSteps, uint32_t sleepMs) -> bool {
+            for(uint32_t i = 0; i < maxSteps; ++i) {
+                if(predicate()) return true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            }
+            return false;
+        };
+
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                return hostSnap.connected &&
+                       clientSnap.connected &&
+                       hostSnap.room.participants.size() >= 2 &&
+                       clientSnap.room.participants.size() >= 2;
+            }, options.startupTimeoutSteps, 5u)) {
+            failureReason = "Timed out waiting for host/client connection.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                return allAssignedParticipantsReadyAndCompatible(hostSnap.room) || allAssignedParticipantsReadyAndCompatible(clientSnap.room);
+            }, 1u, 1u)) {
+            // no-op, only to allow first snapshot refresh after connect/open
+        }
+
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                for(const auto& participant : hostSnap.room.participants) {
+                    if(!participant.romLoaded || !participant.romCompatible) {
+                        return false;
+                    }
+                }
+                return !hostSnap.room.participants.empty();
+            }, options.startupTimeoutSteps, 5u)) {
+            failureReason = "Timed out waiting for ROM validation sync.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        const auto hostRoom = hostPeer.runtime.uiSnapshot().room;
+        const auto hostId = findParticipantIdByName(hostRoom, hostPeer.name);
+        const auto clientId = findParticipantIdByName(hostRoom, clientPeer.name);
+        if(!hostId.has_value() || !clientId.has_value()) {
+            failureReason = "Failed to resolve participant ids from runtime snapshot.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        hostPeer.runtime.assignController(*hostId, 0);
+        hostPeer.runtime.assignController(*clientId, 1);
+
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                return hostParticipant != nullptr &&
+                       clientParticipant != nullptr &&
+                       hostParticipant->controllerAssignment == 0 &&
+                       clientParticipant->controllerAssignment == 1;
+            }, options.startupTimeoutSteps, 5u)) {
+            failureReason = "Timed out waiting for controller assignment sync.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        hostPeer.runtime.setLocalReady(true);
+        clientPeer.runtime.setLocalReady(true);
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                return allAssignedParticipantsReadyAndCompatible(hostSnap.room) &&
+                       allAssignedParticipantsReadyAndCompatible(clientSnap.room);
+            }, options.startupTimeoutSteps, 5u)) {
+            failureReason = "Timed out waiting for ready state sync.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        hostPeer.runtime.requestStartSession();
+
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                return hostSnap.room.state == Netplay::SessionState::Running &&
+                       clientSnap.room.state == Netplay::SessionState::Running;
+            }, options.startupTimeoutSteps, 5u)) {
+            failureReason = "Timed out waiting for running session state.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        const uint32_t startHostFrame = hostPeer.emu.exactEmulationFrame();
+        const uint32_t startClientFrame = clientPeer.emu.exactEmulationFrame();
+        const uint32_t targetHostFrame = startHostFrame + options.frames;
+        const uint32_t targetClientFrame = startClientFrame + options.frames;
+
+        for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
+            std::array<uint64_t, 4> hostMasks = {};
+            std::array<uint64_t, 4> clientMasks = {};
+            const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
+            const uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
+            const Buttons hostButtons = playbackButtonsForFrame(
+                options,
+                hostPeer.generator,
+                true,
+                hostFrame,
+                std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS())
+            );
+            const Buttons clientButtons = playbackButtonsForFrame(
+                options,
+                clientPeer.generator,
+                false,
+                clientFrame,
+                std::max<uint32_t>(1u, clientPeer.emu.getRegionFPS())
+            );
+            hostMasks[0] = buildPadMask(hostButtons);
+            clientMasks[0] = buildPadMask(clientButtons);
+            hostPeer.runtime.updateLatestRawMasks(hostMasks);
+            clientPeer.runtime.updateLatestRawMasks(clientMasks);
+            hostPeer.emu.update(16u);
+            clientPeer.emu.update(16u);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+            const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
+            const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
+            if(newHostFrame == hostFrame && newClientFrame == clientFrame) {
+                ++stallSteps;
+            } else {
+                stallSteps = 0;
+            }
+            maxStallSteps = std::max(maxStallSteps, stallSteps);
+            lastCheckedFrame = std::min(newHostFrame, newClientFrame);
+
+            if(stallSteps > 240u) {
+                failureReason = "Runtime flow stalled after session start.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+                result.report["startHostFrame"] = startHostFrame;
+                result.report["startClientFrame"] = startClientFrame;
+                result.report["targetHostFrame"] = targetHostFrame;
+                result.report["targetClientFrame"] = targetClientFrame;
+                result.exitCode = RESULT_FAILED;
+                cleanup();
+                return result;
+            }
+
+            if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps);
+                result.report["startHostFrame"] = startHostFrame;
+                result.report["startClientFrame"] = startClientFrame;
+                result.report["targetHostFrame"] = targetHostFrame;
+                result.report["targetClientFrame"] = targetClientFrame;
+                result.exitCode = EXIT_SUCCESS;
+                cleanup();
+                return result;
+            }
+        }
+
+        failureReason = "Runtime-flow netplay test reached the step limit.";
+        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+        result.report["startHostFrame"] = startHostFrame;
+        result.report["startClientFrame"] = startClientFrame;
+        result.report["targetHostFrame"] = targetHostFrame;
+        result.report["targetClientFrame"] = targetClientFrame;
+        result.exitCode = RESULT_FAILED;
+        cleanup();
+        return result;
     }
 
     static bool bootstrapSession(AppPeerState& hostPeer, AppPeerState& clientPeer, const Options& options, std::string& failureReason)
@@ -1805,7 +2262,8 @@ private:
                 << std::endl;
 
             RunArtifacts caseResult = scenario.options.appFlow
-                ? runSingleCaseAppFlow(scenario.options)
+                ? (scenario.options.runtimeFlow ? runSingleCaseRuntimeFlow(scenario.options)
+                                                : runSingleCaseAppFlow(scenario.options))
                 : runSingleCase(scenario.options);
 
             if(caseResult.exitCode == EXIT_SUCCESS &&
@@ -1909,7 +2367,9 @@ public:
 
         RunArtifacts result = options.robust
             ? runRobustMatrix(options)
-            : (options.appFlow ? runSingleCaseAppFlow(options) : runSingleCase(options));
+            : (options.appFlow
+                ? (options.runtimeFlow ? runSingleCaseRuntimeFlow(options) : runSingleCaseAppFlow(options))
+                : runSingleCase(options));
         writeReport(options, result.report);
         return result.exitCode;
     }

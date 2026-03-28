@@ -364,10 +364,7 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
     if(currentState == SessionState::Running &&
        previousState.has_value() &&
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
-        const uint32_t anchorFrame = std::max<uint32_t>(
-            m_coordinator.session().roomState().lastConfirmedFrame,
-            emu.frameCount()
-        );
+        const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         m_inputDriver.reanchor(anchorFrame);
     }
 
