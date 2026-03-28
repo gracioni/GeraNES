@@ -55,6 +55,7 @@ public:
         uint32_t predictionHoldFrameCount = 0;
         uint32_t predictionScriptStartFrame = 0;
         uint32_t predictionScriptFrameCount = 0;
+        uint32_t reconnectAfterFrames = 0;
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
@@ -950,6 +951,7 @@ private:
             {"runtimeRunning", peer.runtime.runtimeRunning()},
             {"connected", snapshot.connected},
             {"awaitingSpectatorSync", snapshot.awaitingSpectatorSync},
+            {"localParticipantId", snapshot.localParticipantId},
             {"sessionState", static_cast<int>(snapshot.room.state)},
             {"currentFrame", snapshot.room.currentFrame},
             {"confirmedThroughFrame", snapshot.room.lastConfirmedFrame},
@@ -993,6 +995,7 @@ private:
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
+            {"reconnectAfterFrames", options.reconnectAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
@@ -1069,11 +1072,13 @@ private:
         }
 
         bool hosted = false;
+        uint16_t hostedPort = options.port;
         for(uint32_t portOffset = 0; portOffset < 8u; ++portOffset) {
             const uint16_t port = static_cast<uint16_t>(options.port + portOffset);
             hostPeer.runtime.host(port, 1, hostPeer.name);
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
             if(hostPeer.runtime.uiSnapshot().active) {
+                hostedPort = port;
                 clientPeer.runtime.join("127.0.0.1", port, clientPeer.name);
                 hosted = true;
                 break;
@@ -1202,6 +1207,7 @@ private:
         const uint32_t startClientFrame = clientPeer.emu.exactEmulationFrame();
         const uint32_t targetHostFrame = startHostFrame + options.frames;
         const uint32_t targetClientFrame = startClientFrame + options.frames;
+        bool reconnectTriggered = false;
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
             std::array<uint64_t, 4> hostMasks = {};
@@ -1229,6 +1235,68 @@ private:
             hostPeer.emu.update(16u);
             clientPeer.emu.update(16u);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+            if(options.reconnectAfterFrames > 0 &&
+               !reconnectTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.reconnectAfterFrames) {
+                const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
+                const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
+
+                clientPeer.runtime.disconnect();
+
+                if(!waitFor([&]() {
+                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *clientId);
+                        return hostSnap.room.state == Netplay::SessionState::Paused &&
+                               hostClientParticipant != nullptr &&
+                               !hostClientParticipant->connected &&
+                               !clientSnap.active;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for paused reconnect reservation after client disconnect.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+
+                clientPeer.runtime.join("127.0.0.1", hostedPort, clientPeer.name);
+
+                if(!waitFor([&]() {
+                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *clientId);
+                        const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
+                        return clientSnap.connected &&
+                               clientSnap.localParticipantId == previousLocalParticipantId &&
+                               hostClientParticipant != nullptr &&
+                               hostClientParticipant->connected &&
+                               hostClientParticipant->controllerAssignment == 1 &&
+                               clientLocalParticipant != nullptr &&
+                               clientLocalParticipant->controllerAssignment == 1;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for reconnect participant identity/controller reassociation.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+
+                if(!waitFor([&]() {
+                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                        return hostSnap.room.state == Netplay::SessionState::Running &&
+                               clientSnap.room.state == Netplay::SessionState::Running;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for session to resume after reconnect.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+
+                reconnectTriggered = true;
+            }
 
             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();

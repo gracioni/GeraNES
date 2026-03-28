@@ -36,7 +36,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--reconnect-after-frame <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --test-resimulation <rom_path> [--rollback-frame <n>] [--runtime-ms <n>] [--future-input-frames <n>] [--seed <n>] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
@@ -58,6 +58,7 @@ namespace
             << "  --host-seed <n>           Deterministic host input seed. Default: 324478056\n"
             << "  --client-seed <n>         Deterministic client input seed. Default: 610800471\n"
             << "  --pre-session-warmup <n>  Advance the host offline by N frames before starting the session.\n"
+            << "  --reconnect-after-frame <n> Disconnect and reconnect the client after N running frames in runtime-flow.\n"
             << "  --port <n>                ENet port used by the in-process host. Default: 27888\n"
             << "  --network-pump-stride <n> Delay gameplay packet processing to simulate jitter/late input.\n"
             << "  --prediction-hold-start <n>  App-flow test: first emulation frame where gameplay packet pumping is held.\n"
@@ -106,7 +107,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--reconnect-after-frame <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -280,6 +281,13 @@ int main(int argc, char* argv[]) {
             else if(arg == "--pre-session-warmup") {
                 if(!nextValue(options.preSessionWarmupFrames)) {
                     std::cerr << "Invalid value for --pre-session-warmup.\n";
+                    printNetplayTestUsage();
+                    return EXIT_FAILURE;
+                }
+            }
+            else if(arg == "--reconnect-after-frame") {
+                if(!nextValue(options.reconnectAfterFrames) || options.reconnectAfterFrames == 0) {
+                    std::cerr << "Invalid value for --reconnect-after-frame.\n";
                     printNetplayTestUsage();
                     return EXIT_FAILURE;
                 }

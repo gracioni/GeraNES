@@ -1707,7 +1707,23 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
             participant.controllerAssignment = participant.id <= 3 ? static_cast<PlayerSlot>(participant.id) : kObserverPlayerSlot;
         }
     } else {
-        participant.ready = false;
+        const bool activeAssignedParticipant =
+            participant.controllerAssignment != kObserverPlayerSlot &&
+            (m_session.roomState().state == SessionState::Running ||
+             m_session.roomState().state == SessionState::Paused ||
+             m_session.roomState().state == SessionState::Resyncing);
+        participant.ready = activeAssignedParticipant
+            ? (participant.romLoaded && participant.romCompatible)
+            : false;
+        if(activeAssignedParticipant) {
+            const FrameNumber resyncFrame =
+                std::max<FrameNumber>(m_session.roomState().lastConfirmedFrame,
+                                      m_session.roomState().currentFrame);
+            if(!m_pendingHostResyncFrame.has_value() || resyncFrame < *m_pendingHostResyncFrame) {
+                m_pendingHostResyncFrame = resyncFrame;
+            }
+            m_session.roomState().state = SessionState::Paused;
+        }
     }
 
     peer->data = reinterpret_cast<void*>(static_cast<uintptr_t>(participant.id) + 1u);
@@ -1811,7 +1827,20 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.controllerRequestPending = controllerRequestPending != 0;
     participant.requestedControllerSlot = participant.controllerRequestPending ? requestedControllerSlot : kObserverPlayerSlot;
 
-    if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
+    const bool reconnectIdentityMatched =
+        !m_hosting &&
+        reconnectToken != 0 &&
+        m_localReconnectToken != 0 &&
+        reconnectToken == m_localReconnectToken;
+
+    if(reconnectIdentityMatched) {
+        m_localParticipantId = participantId;
+        m_connected = true;
+        participant.ready = false;
+        participant.reconnectReserved = false;
+        participant.reservationSecondsRemaining = 0;
+        m_localReconnectToken = reconnectToken;
+    } else if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
         m_localParticipantId = participantId;
         m_connected = true;
         participant.ready = false;
