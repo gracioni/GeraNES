@@ -19,6 +19,7 @@
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/NetplayAutoSettings.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 #include "logger/logger.h"
 
@@ -42,6 +43,7 @@ public:
         std::optional<TimelineInputEntry> latestLocalInput;
         std::optional<TimelineInputEntry> latestRemoteInput;
         RollbackStats predictionStats;
+        NetplayAutoSettings::Snapshot autoSettings;
         uint32_t unresolvedPredictedRemoteFrameCount = 0;
         FrameNumber latestPredictedRemoteFrame = 0;
         EmulationHost::NetplayDiagnosticsSnapshot runtimeDiagnostics;
@@ -62,6 +64,7 @@ private:
     EmulationHost& m_emuHost;
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
+    NetplayAutoSettings m_autoSettings;
 
     mutable std::mutex m_stateMutex;
     std::deque<WorkerCommand> m_pendingCommands;
@@ -161,7 +164,7 @@ private:
     }
 
     void syncRomValidation(const std::optional<RomSelection>& localRom);
-    void syncInputDelayFromSettings();
+    void syncInputDelayFromSettings(GeraNESEmu& emu);
     void processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom);
     uint32_t consumeWorkerDtMs();
     void handleSessionStateTransitionsOnWorker(GeraNESEmu& emu);
@@ -273,11 +276,16 @@ inline void NetplayAppRuntime::syncRomValidation(const std::optional<RomSelectio
     }
 }
 
-inline void NetplayAppRuntime::syncInputDelayFromSettings()
+inline void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
 {
     auto& cfg = AppSettings::instance().data.netplay;
     cfg.gameplayReceiveDelayMs = std::max(0, cfg.gameplayReceiveDelayMs);
+#ifdef NDEBUG
+    cfg.gameplayReceiveDelayMs = 0;
+#endif
     m_coordinator.setGameplayReceiveDelayMs(static_cast<uint32_t>(cfg.gameplayReceiveDelayMs));
+    m_autoSettings.setEnabled(cfg.autoGameplayTuning);
+
     if(!m_coordinator.isActive()) {
         m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames)));
         m_inputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
@@ -285,29 +293,40 @@ inline void NetplayAppRuntime::syncInputDelayFromSettings()
     }
 
     const auto& room = m_coordinator.session().roomState();
-    const bool canChangeWindows =
-        m_coordinator.isHosting() &&
-        (room.state == SessionState::Lobby ||
-         room.state == SessionState::ValidatingRom ||
-         room.state == SessionState::ReadyCheck ||
-         room.state == SessionState::Starting);
-
-    if(canChangeWindows) {
-        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames)));
-        m_inputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
-        if(room.inputDelayFrames != m_inputDriver.prebufferFrames()) {
-            m_coordinator.setInputDelayFrames(static_cast<uint8_t>(m_inputDriver.prebufferFrames()));
+    if(m_coordinator.isHosting()) {
+        if(cfg.autoGameplayTuning) {
+            const auto recommendations = m_autoSettings.update(
+                room,
+                m_coordinator.predictionStats(),
+                m_coordinator.unresolvedPredictedRemoteFrameCount(),
+                emu.getRegionFPS()
+            );
+            if(recommendations.inputDelayFrames.has_value() &&
+               room.inputDelayFrames != *recommendations.inputDelayFrames) {
+                m_coordinator.setInputDelayFrames(*recommendations.inputDelayFrames);
+            }
+            if(recommendations.predictFrames.has_value() &&
+               room.predictFrames != *recommendations.predictFrames) {
+                m_coordinator.setPredictFrames(*recommendations.predictFrames);
+            }
+        } else {
+            const uint8_t manualDelay = static_cast<uint8_t>(std::max(0, cfg.inputDelayFrames));
+            const uint8_t manualPredict = static_cast<uint8_t>(std::max(0, cfg.predictFrames));
+            if(room.inputDelayFrames != manualDelay) {
+                m_coordinator.setInputDelayFrames(manualDelay);
+            }
+            if(room.predictFrames != manualPredict) {
+                m_coordinator.setPredictFrames(manualPredict);
+            }
         }
-        if(room.predictFrames != m_inputDriver.predictFrames()) {
-            m_coordinator.setPredictFrames(static_cast<uint8_t>(m_inputDriver.predictFrames()));
-        }
-    } else {
-        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(room.inputDelayFrames));
-        m_inputDriver.setPredictFrames(static_cast<uint32_t>(room.predictFrames));
     }
 
-    cfg.inputDelayFrames = static_cast<int>(m_inputDriver.prebufferFrames());
-    cfg.predictFrames = static_cast<int>(m_inputDriver.predictFrames());
+    const auto& effectiveRoom = m_coordinator.session().roomState();
+    m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(effectiveRoom.inputDelayFrames));
+    m_inputDriver.setPredictFrames(static_cast<uint32_t>(effectiveRoom.predictFrames));
+
+    cfg.inputDelayFrames = static_cast<int>(effectiveRoom.inputDelayFrames);
+    cfg.predictFrames = static_cast<int>(effectiveRoom.predictFrames);
 }
 
 inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom)
@@ -594,12 +613,13 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     snapshot.localInputCount = m_coordinator.localInputs().size();
     snapshot.remoteInputCount = m_coordinator.remoteInputs().size();
     if(const auto* latestLocal = m_coordinator.localInputs().latest()) {
-        snapshot.latestLocalInput = *latestLocal;
+    snapshot.latestLocalInput = *latestLocal;
     }
     if(const auto* latestRemote = m_coordinator.remoteInputs().latest()) {
         snapshot.latestRemoteInput = *latestRemote;
     }
     snapshot.predictionStats = m_coordinator.predictionStats();
+    snapshot.autoSettings = m_autoSettings.snapshot();
     snapshot.unresolvedPredictedRemoteFrameCount = m_coordinator.unresolvedPredictedRemoteFrameCount();
     snapshot.latestPredictedRemoteFrame = m_coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = m_emuHost.getNetplayDiagnostics();
@@ -857,7 +877,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_coordinator.setLocalReconnectToken(m_cachedReconnectToken);
     }
 
-    syncInputDelayFromSettings();
+    syncInputDelayFromSettings(emu);
 
     if(!m_coordinator.isActive()) {
         m_emuHost.setAutoQueuePendingInputOnFrameStart(true);
