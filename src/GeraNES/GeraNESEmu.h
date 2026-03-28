@@ -930,6 +930,18 @@ private:
             if constexpr(!consumeUpdateBudget) {
                 m_audioRenderCyclesAcc += m_cpuCyclesAcc * 1000;
             }
+
+            if(m_frameStarted) {
+                onFrameStart();
+                m_frameStarted = false;
+            }
+
+            if(m_newFrame) {
+                onFrameReady();
+                m_rewind.newFrame();
+                frameReady = true;
+                m_newFrame = false;
+            }
         }
 
         if constexpr(consumeUpdateBudget) {
@@ -946,19 +958,7 @@ private:
                 renderAudioMs(1, tickSilentAudio);
                 renderedAudioMs += 1;
             }
-        }
-
-        if(m_frameStarted) {
-            onFrameStart();
-            m_frameStarted = false;
-        }
-
-        if(m_newFrame) {
-            onFrameReady();
-            m_rewind.newFrame();
-            frameReady = true;
-            m_newFrame = false;
-        }
+        }        
 
         if(m_resetRequested) {
             _reset();
