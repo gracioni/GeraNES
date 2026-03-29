@@ -28,10 +28,7 @@ enum class MessageType : uint16_t
     ParticipantLeft,
     LeaveRoom,
     ChatMessage,
-    SetRole,
     AssignController,
-    SetReady,
-    RequestController,
     SelectRom,
     RomValidationResult,
     StartSession,
@@ -159,25 +156,6 @@ struct ParticipantLeftData
 struct LeaveRoomData
 {
     ParticipantId participantId = kInvalidParticipantId;
-};
-
-struct SetRoleData
-{
-    ParticipantId participantId = kInvalidParticipantId;
-    ParticipantRole role = ParticipantRole::Observer;
-};
-
-struct SetReadyData
-{
-    ParticipantId participantId = kInvalidParticipantId;
-    uint8_t ready = 0;
-};
-
-struct RequestControllerData
-{
-    ParticipantId participantId = kInvalidParticipantId;
-    PlayerSlot requestedSlot = kObserverPlayerSlot;
-    uint8_t clearRequest = 0;
 };
 
 struct StartSessionData

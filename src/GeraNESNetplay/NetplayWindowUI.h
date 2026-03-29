@@ -196,10 +196,6 @@ inline void drawNetplayWindow(bool& showWindow,
                            "Resyncing to frame %u. Waiting for %u ACK(s).",
                            room.resyncTargetFrame,
                            room.pendingResyncAckCount);
-    } else if(snapshot.awaitingSpectatorSync) {
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.55f, 0.75f, 0.95f, 1.0f),
-                           "Waiting for initial spectator sync...");
     }
 
     if(ImGui::BeginTable("NetplayParticipants", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {

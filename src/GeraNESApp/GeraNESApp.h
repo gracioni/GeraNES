@@ -398,7 +398,6 @@ private:
         bool anyAssigned = false;
         bool anyMissingRom = false;
         bool anyIncompatibleRom = false;
-        bool anyNotReady = false;
         bool anyDisconnected = false;
 
         for(const auto& participant : room.participants) {
@@ -407,14 +406,12 @@ private:
             if(!participant.connected) anyDisconnected = true;
             if(!participant.romLoaded) anyMissingRom = true;
             else if(!participant.romCompatible) anyIncompatibleRom = true;
-            if(!participant.ready) anyNotReady = true;
         }
 
         if(!anyAssigned) return "Assign at least one participant to a controller slot.";
         if(anyDisconnected) return "Waiting for a disconnected assigned participant to reconnect.";
         if(anyMissingRom) return "Waiting for assigned participants to load the selected ROM.";
         if(anyIncompatibleRom) return "One or more assigned participants have an incompatible ROM.";
-        if(anyNotReady) return "Waiting for assigned participants to mark themselves ready.";
         return "";
     }
 
@@ -424,11 +421,10 @@ private:
 
         const auto& room = m_netplayCoordinator.session().roomState();
         if(room.state != Netplay::SessionState::Paused) return;
-        if(!AppSettings::instance().data.netplay.autoResumeWhenReady) return;
         if(!netplaySessionBlockedReason().empty()) return;
 
         if(m_netplayCoordinator.resumeSession()) {
-            Logger::instance().log("Netplay auto-resumed when all participants became ready", Logger::Type::USER);
+            Logger::instance().log("Netplay auto-resumed", Logger::Type::USER);
         }
     }
 
@@ -471,7 +467,7 @@ private:
         m_netplayInputDriver.produceLocalBufferedInputs(
             m_netplayCoordinator,
             m_netplayCoordinator.isActive(),
-            m_netplayCoordinator.awaitingSpectatorSync(),
+            false,
             m_netplayCoordinator.session().roomState().state,
             localSlot,
             dt,
@@ -544,7 +540,7 @@ private:
         return m_netplayInputDriver.tryBuildConfirmedInputState(
             m_netplayCoordinator,
             m_netplayCoordinator.isActive(),
-            m_netplayCoordinator.awaitingSpectatorSync(),
+            false,
             m_netplayCoordinator.session().roomState().state,
             frame,
             outState
@@ -556,7 +552,7 @@ private:
         m_netplayInputDriver.preparePlaybackFramesForEmulationThread(
             m_netplayCoordinator,
             m_netplayCoordinator.isActive(),
-            m_netplayCoordinator.awaitingSpectatorSync(),
+            false,
             m_netplayCoordinator.session().roomState().state,
             exactEmulationFrame()
         );

@@ -36,7 +36,6 @@ public:
         bool active = false;
         bool hosting = false;
         bool connected = false;
-        bool awaitingSpectatorSync = false;
         bool localRomLoaded = false;
         std::string localRomGameName;
         uint32_t localRomCrc32 = 0;
@@ -240,19 +239,9 @@ public:
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();
-    void setLocalReady(bool ready);
-    void pauseSession();
-    void resumeSession();
-    void endSession();
-    void cancelControllerRequest();
-    void requestControllerSlot(PlayerSlot slot);
-    void setParticipantRole(ParticipantId participantId, ParticipantRole role);
     void assignController(ParticipantId participantId, PlayerSlot slot);
     void kickParticipant(ParticipantId participantId);
     void removeReconnectReservation(ParticipantId participantId);
-    void approveControllerRequest(ParticipantId participantId);
-    void denyControllerRequest(ParticipantId participantId);
-    void requestStartSession();
     void requestForceResync();
     void shutdown();
     void runOnEmulationThread(GeraNESEmu& emu);
@@ -685,7 +674,6 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     snapshot.active = m_coordinator.isActive();
     snapshot.hosting = m_coordinator.isHosting();
     snapshot.connected = m_coordinator.isConnected();
-    snapshot.awaitingSpectatorSync = m_coordinator.awaitingSpectatorSync();
     snapshot.localRomLoaded = localRom.has_value() && localRom->loaded;
     snapshot.localRomGameName = localRom.has_value() ? localRom->gameName : "";
     snapshot.localRomCrc32 = localRom.has_value() ? localRom->validation.romCrc32 : 0;
@@ -837,55 +825,6 @@ inline void NetplayAppRuntime::disconnect()
     });
 }
 
-inline void NetplayAppRuntime::setLocalReady(bool ready)
-{
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.setLocalReady(ready);
-    });
-}
-
-inline void NetplayAppRuntime::pauseSession()
-{
-    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.pauseSession();
-    });
-}
-
-inline void NetplayAppRuntime::resumeSession()
-{
-    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.resumeSession();
-    });
-}
-
-inline void NetplayAppRuntime::endSession()
-{
-    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.endSession();
-    });
-}
-
-inline void NetplayAppRuntime::cancelControllerRequest()
-{
-    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.cancelControllerRequest();
-    });
-}
-
-inline void NetplayAppRuntime::requestControllerSlot(PlayerSlot slot)
-{
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.requestControllerSlot(slot);
-    });
-}
-
-inline void NetplayAppRuntime::setParticipantRole(ParticipantId participantId, ParticipantRole role)
-{
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.setParticipantRole(participantId, role);
-    });
-}
-
 inline void NetplayAppRuntime::assignController(ParticipantId participantId, PlayerSlot slot)
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
@@ -904,30 +843,6 @@ inline void NetplayAppRuntime::removeReconnectReservation(ParticipantId particip
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
         self.m_coordinator.removeReconnectReservation(participantId);
-    });
-}
-
-inline void NetplayAppRuntime::approveControllerRequest(ParticipantId participantId)
-{
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.approveControllerRequest(participantId);
-    });
-}
-
-inline void NetplayAppRuntime::denyControllerRequest(ParticipantId participantId)
-{
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
-        self.m_coordinator.denyControllerRequest(participantId);
-    });
-}
-
-inline void NetplayAppRuntime::requestStartSession()
-{
-    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
-        self.m_coordinator.setLocalSimulationFrame(emu.frameCount());
-        if(self.m_coordinator.startSession() && emu.frameCount() > 0) {
-            self.beginInitialSessionSyncOnWorker(emu);
-        }
     });
 }
 
@@ -1021,9 +936,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     processAutoResumeIfNeeded(localRom);
     processRollbackIfNeededOnWorker(emu);
 
-    const bool running =
-        !m_coordinator.awaitingSpectatorSync() &&
-        m_coordinator.session().roomState().state == SessionState::Running;
+    const bool running = m_coordinator.session().roomState().state == SessionState::Running;
     m_runtimeRunning.store(running, std::memory_order_release);
 
     std::array<uint64_t, 4> latestRawMasks = {};
@@ -1057,7 +970,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     m_inputDriver.produceLocalBufferedInputs(
         m_coordinator,
         m_coordinator.isActive(),
-        m_coordinator.awaitingSpectatorSync(),
+        false,
         m_coordinator.session().roomState().state,
         localSlot,
         workerDtMs,

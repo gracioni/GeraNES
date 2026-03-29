@@ -582,7 +582,6 @@ private:
                 {"controllerAssignment", participant.controllerAssignment},
                 {"lastReceivedInputFrame", participant.lastReceivedInputFrame},
                 {"lastContiguousInputFrame", participant.lastContiguousInputFrame},
-                {"ready", participant.ready},
                 {"romCompatible", participant.romCompatible}
             });
         }
@@ -688,7 +687,6 @@ private:
                 {"controllerAssignment", participant.controllerAssignment},
                 {"lastReceivedInputFrame", participant.lastReceivedInputFrame},
                 {"lastContiguousInputFrame", participant.lastContiguousInputFrame},
-                {"ready", participant.ready},
                 {"romCompatible", participant.romCompatible}
             });
         }
@@ -907,7 +905,6 @@ private:
                 {"controllerAssignment", participant.controllerAssignment},
                 {"lastReceivedInputFrame", participant.lastReceivedInputFrame},
                 {"lastContiguousInputFrame", participant.lastContiguousInputFrame},
-                {"ready", participant.ready},
                 {"romLoaded", participant.romLoaded},
                 {"romCompatible", participant.romCompatible}
             });
@@ -922,7 +919,6 @@ private:
             {"runtimeActive", snapshot.active},
             {"runtimeRunning", peer.runtime.runtimeRunning()},
             {"connected", snapshot.connected},
-            {"awaitingSpectatorSync", snapshot.awaitingSpectatorSync},
             {"localParticipantId", snapshot.localParticipantId},
             {"sessionState", static_cast<int>(snapshot.room.state)},
             {"currentFrame", snapshot.room.currentFrame},
@@ -1122,9 +1118,7 @@ private:
                 const auto hostSnap = hostPeer.runtime.uiSnapshot();
                 const auto clientSnap = clientPeer.runtime.uiSnapshot();
                 return hostSnap.room.state == Netplay::SessionState::Running &&
-                       clientSnap.room.state == Netplay::SessionState::Running &&
-                       !hostSnap.awaitingSpectatorSync &&
-                       !clientSnap.awaitingSpectatorSync;
+                       clientSnap.room.state == Netplay::SessionState::Running;
             }, options.startupTimeoutSteps, 5u)) {
             failureReason = "Timed out waiting for auto-started running session.";
             result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
@@ -1178,8 +1172,7 @@ private:
                            hostParticipant->controllerAssignment == 0 &&
                            clientParticipant->controllerAssignment == Netplay::kObserverPlayerSlot &&
                            hostSnap.room.state == Netplay::SessionState::Running &&
-                           clientSnap.room.state == Netplay::SessionState::Running &&
-                           !clientSnap.awaitingSpectatorSync;
+                           clientSnap.room.state == Netplay::SessionState::Running;
                 }, options.startupTimeoutSteps, 5u)) {
                 failureReason = "Timed out waiting for late-joining observer to sync after host was already assigned.";
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
@@ -1548,7 +1541,7 @@ private:
         peer.driver.produceLocalBufferedInputs(
             peer.coordinator,
             peer.coordinator.isActive(),
-            peer.coordinator.awaitingSpectatorSync(),
+            false,
             peer.coordinator.session().roomState().state,
             slot,
             dtMs,
@@ -1775,14 +1768,14 @@ private:
             hostPeer.driver.preparePlaybackFramesForEmulationThread(
                 hostPeer.coordinator,
                 hostPeer.coordinator.isActive(),
-                hostPeer.coordinator.awaitingSpectatorSync(),
+                false,
                 hostPeer.coordinator.session().roomState().state,
                 hostPeer.emu.exactEmulationFrame()
             );
             clientPeer.driver.preparePlaybackFramesForEmulationThread(
                 clientPeer.coordinator,
                 clientPeer.coordinator.isActive(),
-                clientPeer.coordinator.awaitingSpectatorSync(),
+                false,
                 clientPeer.coordinator.session().roomState().state,
                 clientPeer.emu.exactEmulationFrame()
             );
@@ -1805,14 +1798,14 @@ private:
                 hostPeer.driver.preparePlaybackFramesForEmulationThread(
                     hostPeer.coordinator,
                     hostPeer.coordinator.isActive(),
-                    hostPeer.coordinator.awaitingSpectatorSync(),
+                    false,
                     hostPeer.coordinator.session().roomState().state,
                     hostPeer.emu.exactEmulationFrame()
                 );
                 clientPeer.driver.preparePlaybackFramesForEmulationThread(
                     clientPeer.coordinator,
                     clientPeer.coordinator.isActive(),
-                    clientPeer.coordinator.awaitingSpectatorSync(),
+                    false,
                     clientPeer.coordinator.session().roomState().state,
                     clientPeer.emu.exactEmulationFrame()
                 );
@@ -1989,7 +1982,6 @@ private:
             Netplay::ParticipantInfo participant;
             participant.id = id;
             participant.connected = true;
-            participant.ready = true;
             participant.romLoaded = true;
             participant.romCompatible = true;
             participant.controllerAssignment = slot;

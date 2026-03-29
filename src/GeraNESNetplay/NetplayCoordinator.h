@@ -109,7 +109,6 @@ private:
     std::vector<uint8_t> buildRomValidationResultPacket(const RomValidationResultData& result) const;
     std::vector<uint8_t> buildParticipantLeftPacket(ParticipantId participantId) const;
     std::vector<uint8_t> buildLeaveRoomPacket(ParticipantId participantId) const;
-    std::vector<uint8_t> buildSetRolePacket(const SetRoleData& data) const;
     std::vector<uint8_t> buildResyncBeginPacket(const ResyncBeginData& data) const;
     std::vector<uint8_t> buildResyncChunkPacket(const ResyncChunkData& data, std::span<const uint8_t> payloadChunk) const;
     std::vector<uint8_t> buildResyncCompletePacket(const ResyncCompleteData& data) const;
@@ -122,7 +121,6 @@ private:
     bool handleRomValidationResult(ENetPeer* peer, PacketReader& reader);
     bool handleParticipantLeft(PacketReader& reader);
     bool handleLeaveRoom(ENetPeer* peer, PacketReader& reader);
-    bool handleSetRole(PacketReader& reader);
     bool handleResyncBegin(PacketReader& reader);
     bool handleResyncChunk(PacketReader& reader);
     bool handleResyncComplete(PacketReader& reader);
@@ -134,8 +132,6 @@ private:
     bool handleFrameStatus(PacketReader& reader);
     bool handleCrcReport(PacketReader& reader);
     bool handleAssignController(PacketReader& reader);
-    bool handleSetReady(ENetPeer* peer, PacketReader& reader);
-    bool handleRequestController(ENetPeer* peer, PacketReader& reader);
     bool handleStartSession(PacketReader& reader);
     std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
     void realignAuthoritativeState(FrameNumber loadedFrame);
@@ -150,7 +146,6 @@ private:
     FrameNumber computeHostConfirmedFrame() const;
     void broadcastFrameStatusIfNeeded();
     void broadcastPeerHealthIfNeeded();
-    bool allRequiredParticipantsReady() const;
     bool allRequiredParticipantsRomCompatible() const;
     void refreshHostRoomState();
     void updatePeerHealthFromTransport();
@@ -203,15 +198,8 @@ public:
     bool beginResync(FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32, ResyncReason reason = ResyncReason::Unspecified);
     std::optional<PendingResyncApply> consumePendingResyncApply();
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
-    bool awaitingSpectatorSync() const;
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);
     bool submitLocalRomValidation(bool romLoaded, bool romCompatible, const RomValidationData& romValidation);
-    bool setLocalReady(bool ready);
-    bool requestControllerSlot(PlayerSlot slot);
-    bool cancelControllerRequest();
-    bool approveControllerRequest(ParticipantId participantId);
-    bool denyControllerRequest(ParticipantId participantId);
-    bool setParticipantRole(ParticipantId participantId, ParticipantRole role);
     bool assignController(ParticipantId participantId, PlayerSlot slot);
     bool kickParticipant(ParticipantId participantId);
     bool removeReconnectReservation(ParticipantId participantId);

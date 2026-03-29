@@ -77,10 +77,7 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
         case MessageType::ParticipantLeft: return "ParticipantLeft";
         case MessageType::LeaveRoom: return "LeaveRoom";
         case MessageType::ChatMessage: return "ChatMessage";
-        case MessageType::SetRole: return "SetRole";
         case MessageType::AssignController: return "AssignController";
-        case MessageType::SetReady: return "SetReady";
-        case MessageType::RequestController: return "RequestController";
         case MessageType::SelectRom: return "SelectRom";
         case MessageType::RomValidationResult: return "RomValidationResult";
         case MessageType::StartSession: return "StartSession";
@@ -219,8 +216,6 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
     writer.writePod(participant.reservationSecondsRemaining);
     writer.writePod(participant.role);
     writer.writePod(participant.controllerAssignment);
-    writer.writePod(static_cast<uint8_t>(participant.controllerRequestPending ? 1 : 0));
-    writer.writePod(participant.requestedControllerSlot);
     writer.writeString(participant.displayName);
 
     return writer.data();
@@ -280,19 +275,6 @@ std::vector<uint8_t> NetplayCoordinator::buildLeaveRoomPacket(ParticipantId part
 
     LeaveRoomData data;
     data.participantId = participantId;
-    writer.writePod(data);
-
-    return writer.data();
-}
-
-std::vector<uint8_t> NetplayCoordinator::buildSetRolePacket(const SetRoleData& data) const
-{
-    PacketWriter writer;
-
-    PacketHeader header;
-    header.type = MessageType::SetRole;
-    header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
     writer.writePod(data);
 
     return writer.data();
@@ -443,32 +425,6 @@ static std::vector<uint8_t> buildAssignControllerPacket(const AssignControllerDa
 
     PacketHeader header;
     header.type = MessageType::AssignController;
-    header.sessionId = sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
-
-    return writer.data();
-}
-
-static std::vector<uint8_t> buildSetReadyPacket(const SetReadyData& data, uint32_t sessionId)
-{
-    PacketWriter writer;
-
-    PacketHeader header;
-    header.type = MessageType::SetReady;
-    header.sessionId = sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
-
-    return writer.data();
-}
-
-static std::vector<uint8_t> buildRequestControllerPacket(const RequestControllerData& data, uint32_t sessionId)
-{
-    PacketWriter writer;
-
-    PacketHeader header;
-    header.type = MessageType::RequestController;
     header.sessionId = sessionId;
     writer.writePod(header);
     writer.writePod(data);
@@ -1096,11 +1052,7 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
                       m_session.roomState().lastConfirmedFrame});
         participant->controllerAssignment = data.controllerAssignment;
         participant->role = data.controllerAssignment == kObserverPlayerSlot ? ParticipantRole::Observer : ParticipantRole::Player;
-        participant->controllerRequestPending = false;
-        participant->requestedControllerSlot = kObserverPlayerSlot;
-        if(data.controllerAssignment == kObserverPlayerSlot) {
-            participant->ready = false;
-        } else {
+        if(data.controllerAssignment != kObserverPlayerSlot) {
             discardTimelineStateAfter(assignmentBaselineFrame);
             participant->lastReceivedInputFrame = assignmentBaselineFrame;
             participant->lastContiguousInputFrame = assignmentBaselineFrame;
@@ -1135,7 +1087,6 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
     if(!activeSession) {
         m_session.roomState().state = SessionState::ValidatingRom;
         for(ParticipantInfo& participant : m_session.roomState().participants) {
-            participant.ready = false;
             if(participant.id != m_localParticipantId) {
                 participant.romLoaded = false;
                 participant.romCompatible = false;
@@ -1244,25 +1195,6 @@ bool NetplayCoordinator::handleLeaveRoom(ENetPeer* peer, PacketReader& reader)
     pushLog("Participant left gracefully: " + name);
     notifySessionEvent(name + " left");
     return true;
-}
-
-bool NetplayCoordinator::handleSetRole(PacketReader& reader)
-{
-    SetRoleData data;
-    if(!reader.readPod(data)) return false;
-
-    if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
-        participant->role = data.role;
-        participant->controllerRequestPending = false;
-        participant->requestedControllerSlot = kObserverPlayerSlot;
-        if(data.role == ParticipantRole::Observer) {
-            participant->controllerAssignment = kObserverPlayerSlot;
-            participant->ready = false;
-        }
-        return true;
-    }
-
-    return false;
 }
 
 bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
@@ -1397,60 +1329,6 @@ bool NetplayCoordinator::handlePeerHealth(ENetPeer* peer, PacketReader& reader)
         );
     }
 
-    return true;
-}
-
-bool NetplayCoordinator::handleSetReady(ENetPeer* peer, PacketReader& reader)
-{
-    SetReadyData data;
-    if(!reader.readPod(data)) return false;
-
-    if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
-        participant->ready = data.ready != 0;
-
-        if(m_hosting) {
-            m_transport.broadcastReliable(Channel::Control, buildSetReadyPacket(data, m_session.roomState().sessionId), peer);
-        }
-        return true;
-    }
-
-    return false;
-}
-
-bool NetplayCoordinator::handleRequestController(ENetPeer* peer, PacketReader& reader)
-{
-    RequestControllerData data;
-    if(!reader.readPod(data)) return false;
-    if(!m_hosting) return false;
-
-    const ParticipantId senderId = participantIdFromPeer(peer);
-    if(senderId == kInvalidParticipantId || senderId != data.participantId) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(data.participantId);
-    if(participant == nullptr) return false;
-
-    if(data.clearRequest != 0) {
-        if(participant->controllerRequestPending) {
-            pushLog(participant->displayName + " canceled controller request");
-        }
-        participant->controllerRequestPending = false;
-        participant->requestedControllerSlot = kObserverPlayerSlot;
-        m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0));
-        return true;
-    }
-
-    if(participant->controllerAssignment != kObserverPlayerSlot) {
-        pushLog("Ignored controller request from already-assigned participant " + participant->displayName);
-        return false;
-    }
-
-    if(data.requestedSlot >= 4) return false;
-
-    participant->controllerRequestPending = true;
-    participant->requestedControllerSlot = data.requestedSlot;
-    participant->ready = false;
-    m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0));
-    pushLog(participant->displayName + " requested P" + std::to_string(static_cast<unsigned>(data.requestedSlot) + 1u));
     return true;
 }
 
@@ -1606,17 +1484,6 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     m_transport.broadcastUnreliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
 }
 
-bool NetplayCoordinator::allRequiredParticipantsReady() const
-{
-    bool anyAssigned = false;
-    for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
-        anyAssigned = true;
-        if(!participant.connected || !participant.ready) return false;
-    }
-    return anyAssigned;
-}
-
 bool NetplayCoordinator::allRequiredParticipantsRomCompatible() const
 {
     if(m_session.roomState().selectedGameName.empty()) return false;
@@ -1717,11 +1584,8 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     participant.reservationSecondsRemaining = 0;
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
-    participant.controllerRequestPending = false;
-    participant.requestedControllerSlot = kObserverPlayerSlot;
     participant.role = ParticipantRole::Observer;
     participant.controllerAssignment = kObserverPlayerSlot;
-    participant.ready = false;
     if(m_session.roomState().state == SessionState::Starting ||
        m_session.roomState().state == SessionState::Running ||
        m_session.roomState().state == SessionState::Paused ||
@@ -1800,8 +1664,6 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     uint16_t reservationSecondsRemaining = 0;
     ParticipantRole role = ParticipantRole::Observer;
     PlayerSlot controllerAssignment = kObserverPlayerSlot;
-    uint8_t controllerRequestPending = 0;
-    PlayerSlot requestedControllerSlot = kObserverPlayerSlot;
     std::string displayName;
 
     if(!reader.readPod(participantId)) return false;
@@ -1811,8 +1673,6 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     if(!reader.readPod(reservationSecondsRemaining)) return false;
     if(!reader.readPod(role)) return false;
     if(!reader.readPod(controllerAssignment)) return false;
-    if(!reader.readPod(controllerRequestPending)) return false;
-    if(!reader.readPod(requestedControllerSlot)) return false;
     if(!reader.readString(displayName)) return false;
 
     ParticipantInfo* existingParticipant = m_session.findParticipant(participantId);
@@ -1828,13 +1688,10 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.reservationSecondsRemaining = reservationSecondsRemaining;
     participant.role = role;
     participant.controllerAssignment = controllerAssignment;
-    participant.controllerRequestPending = controllerRequestPending != 0;
-    participant.requestedControllerSlot = participant.controllerRequestPending ? requestedControllerSlot : kObserverPlayerSlot;
 
     if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
         m_localParticipantId = participantId;
         m_connected = true;
-        participant.ready = false;
         if(participant.reconnectToken != 0) {
             m_localReconnectToken = participant.reconnectToken;
         }
@@ -1887,9 +1744,6 @@ bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<u
         case MessageType::LeaveRoom:
             return handleLeaveRoom(peer, reader);
 
-        case MessageType::SetRole:
-            return handleSetRole(reader);
-
         case MessageType::ResyncBegin:
             return handleResyncBegin(reader);
 
@@ -1929,12 +1783,6 @@ bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<u
         case MessageType::AssignController:
             return handleAssignController(reader);
 
-        case MessageType::SetReady:
-            return handleSetReady(peer, reader);
-
-        case MessageType::RequestController:
-            return handleRequestController(peer, reader);
-
         case MessageType::StartSession:
         case MessageType::PauseSession:
         case MessageType::ResumeSession:
@@ -1970,7 +1818,6 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
     hostParticipant.connected = true;
     hostParticipant.role = ParticipantRole::Host;
     hostParticipant.controllerAssignment = kObserverPlayerSlot;
-    hostParticipant.ready = false;
 
     std::ostringstream oss;
     oss << "Hosting on port " << port << " for up to " << maxPeers << " peers";
@@ -2636,139 +2483,6 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
     return m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncAckPacket(ack));
 }
 
-bool NetplayCoordinator::awaitingSpectatorSync() const
-{
-    return false;
-}
-
-bool NetplayCoordinator::setLocalReady(bool ready)
-{
-    if(m_localParticipantId == kInvalidParticipantId) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId);
-    if(participant == nullptr) return false;
-    participant->connected = true;
-
-    if(!participant->romLoaded || !participant->romCompatible) {
-        pushLog("Cannot mark ready: local ROM is not compatible with the room");
-        return false;
-    }
-
-    participant->ready = ready;
-
-    SetReadyData data;
-    data.participantId = m_localParticipantId;
-    data.ready = ready ? 1 : 0;
-
-    if(m_hosting) {
-        m_transport.broadcastReliable(Channel::Control, buildSetReadyPacket(data, m_session.roomState().sessionId));
-        return true;
-    }
-
-    if(m_serverPeer != nullptr) {
-        return m_transport.sendReliable(m_serverPeer, Channel::Control, buildSetReadyPacket(data, m_session.roomState().sessionId));
-    }
-
-    return false;
-}
-
-bool NetplayCoordinator::requestControllerSlot(PlayerSlot slot)
-{
-    if(m_hosting || m_serverPeer == nullptr || m_localParticipantId == kInvalidParticipantId) return false;
-    if(slot >= 4) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId);
-    if(participant == nullptr || participant->controllerAssignment != kObserverPlayerSlot) return false;
-
-    participant->controllerRequestPending = true;
-    participant->requestedControllerSlot = slot;
-    participant->ready = false;
-
-    RequestControllerData data;
-    data.participantId = m_localParticipantId;
-    data.requestedSlot = slot;
-    data.clearRequest = 0;
-    return m_transport.sendReliable(m_serverPeer, Channel::Control, buildRequestControllerPacket(data, m_session.roomState().sessionId));
-}
-
-bool NetplayCoordinator::cancelControllerRequest()
-{
-    if(m_hosting || m_serverPeer == nullptr || m_localParticipantId == kInvalidParticipantId) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId);
-    if(participant == nullptr || !participant->controllerRequestPending) return false;
-
-    participant->controllerRequestPending = false;
-    participant->requestedControllerSlot = kObserverPlayerSlot;
-
-    RequestControllerData data;
-    data.participantId = m_localParticipantId;
-    data.requestedSlot = kObserverPlayerSlot;
-    data.clearRequest = 1;
-    return m_transport.sendReliable(m_serverPeer, Channel::Control, buildRequestControllerPacket(data, m_session.roomState().sessionId));
-}
-
-bool NetplayCoordinator::approveControllerRequest(ParticipantId participantId)
-{
-    if(!m_hosting) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(participantId);
-    if(participant == nullptr || !participant->controllerRequestPending) return false;
-
-    if(m_session.roomState().state == SessionState::Running) {
-        pauseSession();
-    }
-
-    const PlayerSlot requestedSlot = participant->requestedControllerSlot;
-    participant->controllerRequestPending = false;
-    participant->requestedControllerSlot = kObserverPlayerSlot;
-    participant->ready = false;
-
-    const bool assigned = assignController(participantId, requestedSlot);
-    if(assigned) {
-        pushLog("Approved controller request for " + participant->displayName + " -> P" + std::to_string(static_cast<unsigned>(requestedSlot) + 1u));
-    }
-    return assigned;
-}
-
-bool NetplayCoordinator::denyControllerRequest(ParticipantId participantId)
-{
-    if(!m_hosting) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(participantId);
-    if(participant == nullptr || !participant->controllerRequestPending) return false;
-
-    participant->controllerRequestPending = false;
-    participant->requestedControllerSlot = kObserverPlayerSlot;
-    participant->ready = false;
-    m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0));
-    pushLog("Denied controller request for " + participant->displayName);
-    return true;
-}
-
-bool NetplayCoordinator::setParticipantRole(ParticipantId participantId, ParticipantRole role)
-{
-    if(!m_hosting || participantId == m_localParticipantId) return false;
-
-    ParticipantInfo* participant = m_session.findParticipant(participantId);
-    if(participant == nullptr) return false;
-
-    participant->role = role;
-    participant->controllerRequestPending = false;
-    participant->requestedControllerSlot = kObserverPlayerSlot;
-    if(role == ParticipantRole::Observer) {
-        participant->controllerAssignment = kObserverPlayerSlot;
-        participant->ready = false;
-    }
-
-    SetRoleData data;
-    data.participantId = participantId;
-    data.role = role;
-    m_transport.broadcastReliable(Channel::Control, buildSetRolePacket(data));
-    refreshHostRoomState();
-    return true;
-}
-
 bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlot slot)
 {
     if(!m_hosting) return false;
@@ -2782,9 +2496,6 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
         if(other.id != participantId && other.controllerAssignment == slot && slot != kObserverPlayerSlot) {
             other.controllerAssignment = kObserverPlayerSlot;
             other.role = ParticipantRole::Observer;
-            other.ready = false;
-            other.controllerRequestPending = false;
-            other.requestedControllerSlot = kObserverPlayerSlot;
             changedParticipants.push_back(other.id);
             assignmentToasts.emplace_back(kObserverPlayerSlot, participantLabel(other));
         }
@@ -2796,9 +2507,6 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
                   m_session.roomState().lastConfirmedFrame});
     participant->controllerAssignment = slot;
     participant->role = slot == kObserverPlayerSlot ? ParticipantRole::Observer : ParticipantRole::Player;
-    participant->ready = false;
-    participant->controllerRequestPending = false;
-    participant->requestedControllerSlot = kObserverPlayerSlot;
     if(slot != kObserverPlayerSlot) {
         discardTimelineStateAfter(assignmentBaselineFrame);
         participant->lastReceivedInputFrame = assignmentBaselineFrame;
@@ -2937,7 +2645,6 @@ bool NetplayCoordinator::selectRom(const std::string& gameName, const RomValidat
     m_session.roomState().state = SessionState::ValidatingRom;
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
-        participant.ready = false;
         participant.romLoaded = participant.id == m_localParticipantId;
         participant.romCompatible = participant.id == m_localParticipantId;
     }
@@ -2964,9 +2671,6 @@ bool NetplayCoordinator::submitLocalRomValidation(bool romLoaded, bool romCompat
 
     participant->romLoaded = romLoaded;
     participant->romCompatible = romCompatible;
-    if(!romCompatible) {
-        participant->ready = false;
-    }
 
     RomValidationResultData result;
     result.participantId = m_localParticipantId;

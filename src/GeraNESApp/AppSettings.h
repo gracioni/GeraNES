@@ -339,14 +339,13 @@ public:
         int inputDelayFrames = 2;
         int predictFrames = 0;
         int gameplayReceiveDelayMs = 0;
-        bool autoResumeWhenReady = false;
         std::string displayName = "Player";
         uint64_t reconnectToken = 0;
         std::string hostName = "127.0.0.1";
         int port = 27888;
         int maxPeers = 4;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, autoGameplayTuning, inputDelayFrames, predictFrames, gameplayReceiveDelayMs, autoResumeWhenReady, displayName, reconnectToken, hostName, port, maxPeers)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, autoGameplayTuning, inputDelayFrames, predictFrames, gameplayReceiveDelayMs, displayName, reconnectToken, hostName, port, maxPeers)
     };
 
     const int MAX_RECENT_FILES = 10;    
