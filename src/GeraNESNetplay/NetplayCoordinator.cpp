@@ -54,6 +54,7 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
         case MessageType::JoinRoom: return "JoinRoom";
         case MessageType::ParticipantJoined: return "ParticipantJoined";
         case MessageType::ParticipantLeft: return "ParticipantLeft";
+        case MessageType::LeaveRoom: return "LeaveRoom";
         case MessageType::ChatMessage: return "ChatMessage";
         case MessageType::SetRole: return "SetRole";
         case MessageType::AssignController: return "AssignController";
@@ -239,6 +240,22 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantLeftPacket(ParticipantI
     writer.writePod(header);
 
     ParticipantLeftData data;
+    data.participantId = participantId;
+    writer.writePod(data);
+
+    return writer.data();
+}
+
+std::vector<uint8_t> NetplayCoordinator::buildLeaveRoomPacket(ParticipantId participantId) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::LeaveRoom;
+    header.sessionId = m_session.roomState().sessionId;
+    writer.writePod(header);
+
+    LeaveRoomData data;
     data.participantId = participantId;
     writer.writePod(data);
 
@@ -1110,8 +1127,59 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
     ParticipantLeftData data;
     if(!reader.readPod(data)) return false;
 
+    const ParticipantInfo* participant = m_session.findParticipant(data.participantId);
+    const std::string participantName =
+        participant != nullptr && !participant->displayName.empty()
+            ? participant->displayName
+            : std::to_string(static_cast<int>(data.participantId));
+
+    const bool hostLeft =
+        !m_hosting &&
+        data.participantId != kInvalidParticipantId &&
+        data.participantId != m_localParticipantId &&
+        data.participantId == 0;
+
     removeParticipant(data.participantId);
-    pushLog("Participant left: " + std::to_string(static_cast<int>(data.participantId)));
+    if(hostLeft) {
+        pushLog("Host left the room");
+        m_serverPeer = nullptr;
+        m_connected = false;
+        m_session.roomState().state = SessionState::Ended;
+        m_lastError = "Host closed the room";
+    } else {
+        pushLog("Participant left: " + participantName);
+    }
+    return true;
+}
+
+bool NetplayCoordinator::handleLeaveRoom(ENetPeer* peer, PacketReader& reader)
+{
+    LeaveRoomData data;
+    if(!reader.readPod(data)) return false;
+    if(!m_hosting) return true;
+
+    const ParticipantId participantId = participantIdFromPeer(peer);
+    if(participantId == kInvalidParticipantId || participantId != data.participantId) {
+        pushLog("Ignored leave-room request with mismatched participant id");
+        return false;
+    }
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr) {
+        return true;
+    }
+
+    const std::string name =
+        !participant->displayName.empty()
+            ? participant->displayName
+            : std::to_string(static_cast<int>(participantId));
+
+    removeParticipant(participantId);
+    m_reconnectReservationDeadlines.erase(participantId);
+    m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), peer);
+    m_transport.flush();
+    refreshHostRoomState();
+    pushLog("Participant left gracefully: " + name);
     return true;
 }
 
@@ -1901,6 +1969,9 @@ bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<u
         case MessageType::ParticipantLeft:
             return handleParticipantLeft(reader);
 
+        case MessageType::LeaveRoom:
+            return handleLeaveRoom(peer, reader);
+
         case MessageType::SetRole:
             return handleSetRole(reader);
 
@@ -2024,6 +2095,16 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
 
 void NetplayCoordinator::disconnect()
 {
+    if(m_transport.isActive()) {
+        if(m_hosting) {
+            m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(m_localParticipantId));
+            m_transport.flush();
+        } else if(m_serverPeer != nullptr && m_localParticipantId != kInvalidParticipantId) {
+            m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
+            m_transport.flush();
+        }
+    }
+
     if(m_transport.isActive()) {
         m_transport.disconnectAll();
         m_transport.shutdown();

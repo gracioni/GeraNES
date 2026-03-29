@@ -48,6 +48,7 @@ public:
     bool connectToHost(const std::string& hostName, uint16_t port, size_t channelCount = 3);
     void disconnectAll(uint32_t data = 0);
     void disconnectPeer(ENetPeer* peer, uint32_t data = 0);
+    void flush();
     std::vector<ENetPeer*> connectedPeers() const;
 
     std::vector<Event> poll(uint32_t timeoutMs);

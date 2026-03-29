@@ -92,6 +92,12 @@ void NetTransport::disconnectPeer(ENetPeer* peer, uint32_t data)
     }
 }
 
+void NetTransport::flush()
+{
+    if(m_host == nullptr) return;
+    enet_host_flush(m_host);
+}
+
 std::vector<ENetPeer*> NetTransport::connectedPeers() const
 {
     std::vector<ENetPeer*> peers;

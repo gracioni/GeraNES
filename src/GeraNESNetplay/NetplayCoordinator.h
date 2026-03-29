@@ -110,6 +110,7 @@ private:
     std::vector<uint8_t> buildSelectRomPacket(const std::string& gameName, const RomValidationData& romValidation) const;
     std::vector<uint8_t> buildRomValidationResultPacket(const RomValidationResultData& result) const;
     std::vector<uint8_t> buildParticipantLeftPacket(ParticipantId participantId) const;
+    std::vector<uint8_t> buildLeaveRoomPacket(ParticipantId participantId) const;
     std::vector<uint8_t> buildSetRolePacket(const SetRoleData& data) const;
     std::vector<uint8_t> buildResyncBeginPacket(const ResyncBeginData& data) const;
     std::vector<uint8_t> buildResyncChunkPacket(const ResyncChunkData& data, std::span<const uint8_t> payloadChunk) const;
@@ -126,6 +127,7 @@ private:
     bool handleSelectRom(PacketReader& reader);
     bool handleRomValidationResult(ENetPeer* peer, PacketReader& reader);
     bool handleParticipantLeft(PacketReader& reader);
+    bool handleLeaveRoom(ENetPeer* peer, PacketReader& reader);
     bool handleSetRole(PacketReader& reader);
     bool handleResyncBegin(PacketReader& reader);
     bool handleResyncChunk(PacketReader& reader);
