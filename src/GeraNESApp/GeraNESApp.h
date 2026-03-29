@@ -243,6 +243,26 @@ private:
     std::optional<SdlCursor> m_defaultCursor;
     std::optional<SdlCursor> m_crossCursor;
     std::optional<SdlCursor> m_sizeWECursor;
+
+    bool isNetplayClientRestricted() const
+    {
+#ifndef __EMSCRIPTEN__
+        const auto snapshot = m_netplayRuntime.uiSnapshot();
+        return snapshot.active && snapshot.connected && !snapshot.hosting;
+#else
+        return false;
+#endif
+    }
+
+    void notifyNetplayClientRestrictedAction(const char* action)
+    {
+        if(!isNetplayClientRestricted()) return;
+
+        const std::string message = std::string(action) + " is disabled while connected as a netplay client";
+        m_userToast.show(message);
+        Logger::instance().log(message, Logger::Type::INFO);
+    }
+
     static void setIfNegative(std::string& dst, int value)
     {
         dst = value >= 0 ? std::to_string(value) : "";
@@ -1323,8 +1343,10 @@ private:
             const bool keyboardExpansionActive = isSuborKeyboardActive() || isFamilyBasicKeyboardActive();
 
             if(!keyboardExpansionActive) {
-                if(im.isJustPressed(m_systemInput.saveState)) m_emu.saveState();
-                if(im.isJustPressed(m_systemInput.loadState)) m_emu.loadState();
+                if(!isNetplayClientRestricted()) {
+                    if(im.isJustPressed(m_systemInput.saveState)) m_emu.saveState();
+                    if(im.isJustPressed(m_systemInput.loadState)) m_emu.loadState();
+                }
             }
             std::array<bool, 12> p1PowerPadButtons = {};
             std::array<bool, 12> p2PowerPadButtons = {};
@@ -1588,6 +1610,10 @@ private:
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"openRom", "Open Rom", "Alt+O", [this]() {
+            if(isNetplayClientRestricted()) {
+                notifyNetplayClientRestrictedAction("Open ROM");
+                return;
+            }
             openRom();
         }});
 
@@ -1605,16 +1631,28 @@ private:
 
         m_shortcuts.add(ShortcutManager::Data{"saveState", "Save State", "Alt+S", [this]() {
             if(!m_emu.valid()) return;
+            if(isNetplayClientRestricted()) {
+                notifyNetplayClientRestrictedAction("Save state");
+                return;
+            }
             m_emu.saveState();
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
             if(!m_emu.valid()) return;
+            if(isNetplayClientRestricted()) {
+                notifyNetplayClientRestrictedAction("Load state");
+                return;
+            }
             m_emu.loadState();
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
             if(!m_emu.valid()) return;
+            if(isNetplayClientRestricted()) {
+                notifyNetplayClientRestrictedAction("Pause");
+                return;
+            }
             m_emu.togglePaused();
         }});
     }
@@ -1801,6 +1839,10 @@ public:
     }
 
     void openRom() {
+        if(isNetplayClientRestricted()) {
+            notifyNetplayClientRestrictedAction("Open ROM");
+            return;
+        }
 
         #ifndef __EMSCRIPTEN__
         const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {

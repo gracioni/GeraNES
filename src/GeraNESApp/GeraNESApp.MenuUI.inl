@@ -3,6 +3,7 @@
 inline void GeraNESApp::menuBar() {
 
     bool show_menu = true;
+    const bool netplayClientRestricted = isNetplayClientRestricted();
 
     if (show_menu && ImGui::BeginMainMenuBar())
     {
@@ -11,7 +12,7 @@ inline void GeraNESApp::menuBar() {
             auto sc = m_shortcuts.get("openRom");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, !netplayClientRestricted))
                 {
                     sc->action();
                 }
@@ -34,7 +35,7 @@ inline void GeraNESApp::menuBar() {
             #endif
 
             auto recentFiles = AppSettings::instance().data.getRecentFiles();
-            if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0))
+            if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0 && !netplayClientRestricted))
             {
                 for(int i = 0; i < recentFiles.size(); i++) {
                     if(ImGui::MenuItem(recentFiles[i].c_str())) {
@@ -57,7 +58,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Emulator"))
+        if (ImGui::BeginMenu("Emulator", !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
             auto sc = m_shortcuts.get("saveState");
@@ -268,10 +269,10 @@ inline void GeraNESApp::menuBar() {
             const bool famicomHoriEnabled = m_emu.getFamicomMultitapDevice() == Settings::FamicomMultitapDevice::HORI_ADAPTER;
             const bool anyMultitapActive = nesFourScoreEnabled || famicomHoriEnabled;
 
-            auto drawControllerPortMenuItem = [this](const char* label, Settings::Port port, Settings::Device device)
+            auto drawControllerPortMenuItem = [this, netplayClientRestricted](const char* label, Settings::Port port, Settings::Device device)
             {
                 const bool selected = m_emu.getPortDevice(port) == std::optional<Settings::Device>(device);
-                if(ImGui::MenuItem(label, nullptr, selected)) {
+                if(ImGui::MenuItem(label, nullptr, selected, !netplayClientRestricted)) {
                     m_emu.setPortDevice(port, device);
                 }
             };
@@ -420,39 +421,39 @@ inline void GeraNESApp::menuBar() {
             }
 
             if (ImGui::BeginMenu("Expansion", !anyMultitapActive)) {
-                if (ImGui::MenuItem("None", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::NONE))
+                if (ImGui::MenuItem("None", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::NONE, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::NONE);
                 }
-                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM))
+                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM);
                 }
-                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT))
+                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                 }
-                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT))
+                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
                 }
-                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A))
+                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
                 }
-                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B))
+                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
                 }
-                if (ImGui::MenuItem("Subor Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD))
+                if (ImGui::MenuItem("Subor Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
                 }
-                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD))
+                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
                 }
-                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER))
+                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                 }
@@ -482,7 +483,7 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu("Multitap")) {
                 if (ImGui::BeginMenu("NES")) {
                     if (ImGui::BeginMenu("Four Score")) {
-                        if(ImGui::MenuItem("Enabled", nullptr, nesFourScoreEnabled)) {
+                        if(ImGui::MenuItem("Enabled", nullptr, nesFourScoreEnabled, !netplayClientRestricted)) {
                             m_emu.setNesMultitapDevice(
                                 nesFourScoreEnabled ? Settings::NesMultitapDevice::NONE : Settings::NesMultitapDevice::FOUR_SCORE
                             );
@@ -503,7 +504,7 @@ inline void GeraNESApp::menuBar() {
 
                 if (ImGui::BeginMenu("Famicom")) {
                     if (ImGui::BeginMenu("Hori Adapter")) {
-                        if(ImGui::MenuItem("Enabled", nullptr, famicomHoriEnabled)) {
+                        if(ImGui::MenuItem("Enabled", nullptr, famicomHoriEnabled, !netplayClientRestricted)) {
                             m_emu.setFamicomMultitapDevice(
                                 famicomHoriEnabled ? Settings::FamicomMultitapDevice::NONE : Settings::FamicomMultitapDevice::HORI_ADAPTER
                             );
@@ -552,35 +553,35 @@ inline void GeraNESApp::menuBar() {
                 return emu.getConsole().cartridge().system() == GameDatabase::System::VsSystem;
             });
 
-            if (ImGui::BeginMenu("Hardware", hasHardwareActions)) {
-                if (ImGui::MenuItem("FDS - Switch Disk Side", nullptr, false, isFdsRom)) {
+            if (ImGui::BeginMenu("Hardware", hasHardwareActions && !netplayClientRestricted)) {
+                if (ImGui::MenuItem("FDS - Switch Disk Side", nullptr, false, isFdsRom && !netplayClientRestricted)) {
                     m_emu.fdsSwitchDiskSide();
                 }
-                if (ImGui::MenuItem("FDS - Eject Disk", nullptr, false, isFdsRom)) {
+                if (ImGui::MenuItem("FDS - Eject Disk", nullptr, false, isFdsRom && !netplayClientRestricted)) {
                     m_emu.fdsEjectDisk();
                 }
-                if (ImGui::MenuItem("FDS - Insert Next Disk", nullptr, false, isFdsRom)) {
+                if (ImGui::MenuItem("FDS - Insert Next Disk", nullptr, false, isFdsRom && !netplayClientRestricted)) {
                     m_emu.fdsInsertNextDisk();
                 }
 
                 ImGui::Separator();
 
-                if (ImGui::MenuItem("VS - Insert Coin 1", nullptr, false, isVsRom)) {
+                if (ImGui::MenuItem("VS - Insert Coin 1", nullptr, false, isVsRom && !netplayClientRestricted)) {
                     m_emu.vsInsertCoin(1);
                 }
-                if (ImGui::MenuItem("VS - Insert Coin 2", nullptr, false, isVsRom)) {
+                if (ImGui::MenuItem("VS - Insert Coin 2", nullptr, false, isVsRom && !netplayClientRestricted)) {
                     m_emu.vsInsertCoin(2);
                 }
-                if (ImGui::MenuItem("VS - Insert Coin 3 (DualSystem)", nullptr, false, isVsRom)) {
+                if (ImGui::MenuItem("VS - Insert Coin 3 (DualSystem)", nullptr, false, isVsRom && !netplayClientRestricted)) {
                     m_emu.vsInsertCoin(3);
                 }
-                if (ImGui::MenuItem("VS - Insert Coin 4 (DualSystem)", nullptr, false, isVsRom)) {
+                if (ImGui::MenuItem("VS - Insert Coin 4 (DualSystem)", nullptr, false, isVsRom && !netplayClientRestricted)) {
                     m_emu.vsInsertCoin(4);
                 }
-                if (ImGui::MenuItem("VS - Service Button", nullptr, false, isVsRom)) {
+                if (ImGui::MenuItem("VS - Service Button", nullptr, false, isVsRom && !netplayClientRestricted)) {
                     m_emu.vsServiceButton(1);
                 }
-                if (ImGui::MenuItem("VS - Service Button 2 (DualSystem)", nullptr, false, isVsRom)) {
+                if (ImGui::MenuItem("VS - Service Button 2 (DualSystem)", nullptr, false, isVsRom && !netplayClientRestricted)) {
                     m_emu.vsServiceButton(2);
                 }
                 ImGui::EndMenu();
