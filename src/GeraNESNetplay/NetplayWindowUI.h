@@ -70,9 +70,6 @@ inline void drawNetplayWindow(bool& showWindow,
     ImGui::InputInt("Gameplay Lag ms##NetplayGameplayLag", &cfg.gameplayReceiveDelayMs);
 #else
     cfg.autoGameplayTuning = true;
-    ImGui::Text("Gameplay Tuning: Auto");
-    ImGui::Text("Delay: %u frame(s)", static_cast<unsigned>(snapshot.autoSettings.currentRecommendedDelay));
-    ImGui::Text("Predict: %u frame(s)", static_cast<unsigned>(snapshot.autoSettings.currentFixedPredict));
 #endif
     cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
     cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
