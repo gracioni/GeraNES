@@ -36,7 +36,7 @@ namespace
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
             << "  GeraNES --test <rom_path>\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--reconnect-after-frame <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--reconnect-after-frame <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--auto-settings-probe] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n"
             << "  GeraNES --test-state-replay <rom_path> [--frames <n>] [--replay-horizon <n>] [--extra-horizon <n>] [--seed <n>] [--extra-seed <n>] [--probe-stride <n>] [--from-frame <n>] [--robust] [--report <path>]\n"
             << "  GeraNES --test-resimulation <rom_path> [--rollback-frame <n>] [--runtime-ms <n>] [--future-input-frames <n>] [--seed <n>] [--report <path>]\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
@@ -66,6 +66,7 @@ namespace
             << "  --prediction-script-start <n> First input frame controlled by the scripted prediction pattern.\n"
             << "  --prediction-script-frames <n> Number of scripted prediction frames starting at --prediction-script-start.\n"
             << "  --prediction-script-mode <none|hit|miss|partial> Scripted input pattern for prediction validation.\n"
+            << "  --auto-settings-probe     Run a directed validation of NetplayAutoSettings decisions.\n"
             << "  --robust                  Run a built-in matrix of delay/seed/lockstep/long-session cases.\n"
             << "  --app-flow                Use EmulationHost/desktop-like app flow instead of direct core stepping.\n"
             << "  --runtime-flow            Use the extracted NetplayAppRuntime on the emulation thread.\n"
@@ -107,7 +108,7 @@ namespace
     {
         std::cerr
             << "Usage:\n"
-            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--reconnect-after-frame <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
+            << "  GeraNES --test-netplay <rom_path> [--frames <n>] [--input-delay <n>] [--predict-frames <n>] [--rollback-window <n>] [--crc-interval <n>] [--settle-steps <n>] [--host-seed <n>] [--client-seed <n>] [--pre-session-warmup <n>] [--reconnect-after-frame <n>] [--port <n>] [--network-pump-stride <n>] [--prediction-hold-start <n>] [--prediction-hold-frames <n>] [--prediction-script-start <n>] [--prediction-script-frames <n>] [--prediction-script-mode <none|hit|miss|partial>] [--auto-settings-probe] [--robust] [--app-flow] [--runtime-flow] [--baseline-lockstep] [--report <path>] [--force-desync-frame <n>]\n";
     }
 
     void printStateReplayTestUsage()
@@ -357,6 +358,9 @@ int main(int argc, char* argv[]) {
             }
             else if(arg == "--robust") {
                 options.robust = true;
+            }
+            else if(arg == "--auto-settings-probe") {
+                options.autoSettingsProbe = true;
             }
             else if(arg == "--app-flow") {
                 options.appFlow = true;

@@ -17,6 +17,7 @@
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/NetplayAutoSettings.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 
 class NetplayTest
@@ -59,6 +60,7 @@ public:
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
+        bool autoSettingsProbe = false;
         bool baselineLockstep = false;
     };
 
@@ -1973,6 +1975,151 @@ private:
         }
     }
 
+    static RunArtifacts runAutoSettingsProbe(const Options& options)
+    {
+        RunArtifacts result;
+        Netplay::NetplayAutoSettings autoSettings;
+        autoSettings.setEnabled(true);
+
+        auto makeParticipant = [](Netplay::ParticipantId id,
+                                  Netplay::PlayerSlot slot,
+                                  uint16_t jitterMs) {
+            Netplay::ParticipantInfo participant;
+            participant.id = id;
+            participant.connected = true;
+            participant.ready = true;
+            participant.romLoaded = true;
+            participant.romCompatible = true;
+            participant.controllerAssignment = slot;
+            participant.jitterMs = jitterMs;
+            return participant;
+        };
+
+        Netplay::RoomState room;
+        room.sessionId = 1;
+        room.timelineEpoch = 1;
+        room.inputDelayFrames = 0;
+        room.predictFrames = 0;
+        room.participants = {
+            makeParticipant(0, 0, 0),
+            makeParticipant(1, 1, 20)
+        };
+
+        Netplay::RollbackStats stats;
+        constexpr uint32_t fps = 60;
+        nlohmann::json scenarios = nlohmann::json::array();
+
+        auto appendScenario = [&](const std::string& name,
+                                  const Netplay::NetplayAutoSettings::Recommendations& recommendations,
+                                  const Netplay::NetplayAutoSettings::Snapshot& snapshot) {
+            scenarios.push_back({
+                {"scenario", name},
+                {"recommendedDelay", recommendations.inputDelayFrames.has_value()
+                    ? nlohmann::json(*recommendations.inputDelayFrames)
+                    : nlohmann::json(nullptr)},
+                {"recommendedPredict", recommendations.predictFrames.has_value()
+                    ? nlohmann::json(*recommendations.predictFrames)
+                    : nlohmann::json(nullptr)},
+                {"currentDelay", snapshot.currentRecommendedDelay},
+                {"currentPredict", snapshot.currentFixedPredict},
+                {"stableFrameCount", snapshot.stableFrameCount},
+                {"lastAdjustmentFrame", snapshot.lastAdjustmentFrame},
+                {"lastDecisionReason", snapshot.lastDecisionReason}
+            });
+        };
+
+        room.state = Netplay::SessionState::ReadyCheck;
+        auto preSession = autoSettings.update(room, stats, 0, fps);
+        appendScenario("pre_session_jitter_bootstrap", preSession, autoSettings.snapshot());
+        if(!preSession.inputDelayFrames.has_value() || *preSession.inputDelayFrames != 3u ||
+           !preSession.predictFrames.has_value() || *preSession.predictFrames != 4u) {
+            result.exitCode = RESULT_FAILED;
+            result.report = {
+                {"status", "failed"},
+                {"failureReason", "Auto settings did not derive expected pre-session delay/predict from jitter."},
+                {"scenarios", scenarios}
+            };
+            return result;
+        }
+
+        room.inputDelayFrames = *preSession.inputDelayFrames;
+        room.predictFrames = *preSession.predictFrames;
+        room.state = Netplay::SessionState::Running;
+        room.currentFrame = 100;
+        auto warmup = autoSettings.update(room, stats, 0, fps);
+        appendScenario("running_window_init", warmup, autoSettings.snapshot());
+        if(warmup.inputDelayFrames.has_value() || warmup.predictFrames.has_value()) {
+            result.exitCode = RESULT_FAILED;
+            result.report = {
+                {"status", "failed"},
+                {"failureReason", "Auto settings should not change parameters immediately on first running window."},
+                {"scenarios", scenarios}
+            };
+            return result;
+        }
+
+        room.currentFrame = 220;
+        stats.playbackStopCount = 1;
+        auto increase = autoSettings.update(room, stats, 0, fps);
+        appendScenario("increase_after_stop", increase, autoSettings.snapshot());
+        if(!increase.inputDelayFrames.has_value() || *increase.inputDelayFrames != 4u) {
+            result.exitCode = RESULT_FAILED;
+            result.report = {
+                {"status", "failed"},
+                {"failureReason", "Auto settings did not increase delay after playback stop."},
+                {"scenarios", scenarios}
+            };
+            return result;
+        }
+        if(increase.predictFrames.has_value()) {
+            result.exitCode = RESULT_FAILED;
+            result.report = {
+                {"status", "failed"},
+                {"failureReason", "Auto settings should keep predict fixed during running session."},
+                {"scenarios", scenarios}
+            };
+            return result;
+        }
+
+        room.inputDelayFrames = *increase.inputDelayFrames;
+        stats.playbackStopCount = 1;
+        for(uint32_t frame : {340u, 460u, 580u, 700u}) {
+            room.currentFrame = frame;
+            auto hold = autoSettings.update(room, stats, 0, fps);
+            appendScenario("stable_hold_" + std::to_string(frame), hold, autoSettings.snapshot());
+            if(hold.inputDelayFrames.has_value()) {
+                result.exitCode = RESULT_FAILED;
+                result.report = {
+                    {"status", "failed"},
+                    {"failureReason", "Auto settings reduced delay too early before enough stability."},
+                    {"scenarios", scenarios}
+                };
+                return result;
+            }
+        }
+
+        room.currentFrame = 820;
+        auto decrease = autoSettings.update(room, stats, 0, fps);
+        appendScenario("decrease_after_stability", decrease, autoSettings.snapshot());
+        if(!decrease.inputDelayFrames.has_value() || *decrease.inputDelayFrames != 3u) {
+            result.exitCode = RESULT_FAILED;
+            result.report = {
+                {"status", "failed"},
+                {"failureReason", "Auto settings did not reduce delay after sustained stability."},
+                {"scenarios", scenarios}
+            };
+            return result;
+        }
+
+        result.exitCode = EXIT_SUCCESS;
+        result.report = {
+            {"status", "ok"},
+            {"probe", "netplay_auto_settings"},
+            {"scenarios", scenarios}
+        };
+        return result;
+    }
+
     static RunArtifacts runSingleCase(const Options& options)
     {
         if(options.predictionScriptMode != PredictionScriptMode::None && options.predictFrames > 0u) {
@@ -2435,9 +2582,11 @@ public:
 
         RunArtifacts result = options.robust
             ? runRobustMatrix(options)
-            : (options.appFlow
+            : (options.autoSettingsProbe
+                ? runAutoSettingsProbe(options)
+                : (options.appFlow
                 ? (options.runtimeFlow ? runSingleCaseRuntimeFlow(options) : runSingleCaseAppFlow(options))
-                : runSingleCase(options));
+                : runSingleCase(options)));
         writeReport(options, result.report);
         return result.exitCode;
     }
