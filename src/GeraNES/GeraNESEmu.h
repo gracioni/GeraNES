@@ -120,6 +120,8 @@ private:
     bool m_netplayLoadStateCleanBoot = false;
     std::vector<uint8_t> m_netplayLoadStateData;
     std::optional<bool> m_netplayLoadStateResult;
+    uint32_t m_manualResetGeneration = 0;
+    uint32_t m_manualLoadStateGeneration = 0;
     bool m_forceSilentAudio = false;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
@@ -1571,6 +1573,7 @@ public:
         if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
             resyncAudioAfterStateLoad();
+            ++m_manualLoadStateGeneration;
             Logger::instance().log("State loaded", Logger::Type::USER);
         }
         else {
@@ -1917,6 +1920,11 @@ public:
         return m_inputBuffer;
     }
 
+    void discardQueuedInputFramesAfter(uint32_t frame)
+    {
+        m_inputBuffer.eraseFramesAfter(frame);
+    }
+
     void fdsSwitchDiskSide()
     {
         m_hardwareActions.fdsSwitchDiskSide();
@@ -2096,7 +2104,18 @@ public:
         m_rewind.reset();
         updateCyclesPerSecond();
         m_cpu.reset();
+        ++m_manualResetGeneration;
         Logger::instance().log("Emulator reset", Logger::Type::USER);
+    }
+
+    uint32_t manualResetGeneration() const
+    {
+        return m_manualResetGeneration;
+    }
+
+    uint32_t manualLoadStateGeneration() const
+    {
+        return m_manualLoadStateGeneration;
     }
 
 };

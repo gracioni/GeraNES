@@ -46,6 +46,7 @@ public:
         uint32_t resyncId = 0;
         FrameNumber targetFrame = 0;
         uint32_t expectedPayloadCrc32 = 0;
+        ResyncReason reason = ResyncReason::Unspecified;
         std::vector<uint8_t> payload;
     };
 
@@ -84,14 +85,11 @@ private:
     FrameNumber m_localSimulationFrame = 0;
     uint32_t m_nextResyncId = 1;
     std::optional<IncomingResyncTransfer> m_incomingResync;
-    std::optional<IncomingResyncTransfer> m_incomingSpectatorSync;
     std::optional<PendingResyncApply> m_pendingResyncApply;
-    std::optional<PendingResyncApply> m_pendingSpectatorSyncApply;
-    std::optional<ParticipantId> m_pendingHostSpectatorSyncParticipant;
+    std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
     std::vector<ParticipantId> m_pendingResyncAcks;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_reconnectReservationDeadlines;
-    bool m_requiresSpectatorSync = false;
     uint32_t m_gameplayReceiveDelayMs = 0;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
 
@@ -116,10 +114,6 @@ private:
     std::vector<uint8_t> buildResyncChunkPacket(const ResyncChunkData& data, std::span<const uint8_t> payloadChunk) const;
     std::vector<uint8_t> buildResyncCompletePacket(const ResyncCompleteData& data) const;
     std::vector<uint8_t> buildResyncAckPacket(const ResyncAckData& data) const;
-    std::vector<uint8_t> buildSpectatorSyncBeginPacket(const SpectatorSyncBeginData& data) const;
-    std::vector<uint8_t> buildSpectatorSyncChunkPacket(const SpectatorSyncChunkData& data, std::span<const uint8_t> payloadChunk) const;
-    std::vector<uint8_t> buildSpectatorSyncCompletePacket(const SpectatorSyncCompleteData& data) const;
-    std::vector<uint8_t> buildSpectatorSyncAckPacket(const SpectatorSyncAckData& data) const;
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
     bool handleControlPacket(ENetPeer* peer, const std::vector<uint8_t>& payload);
     bool handleJoinRoom(ENetPeer* peer, PacketReader& reader);
@@ -133,10 +127,6 @@ private:
     bool handleResyncChunk(PacketReader& reader);
     bool handleResyncComplete(PacketReader& reader);
     bool handleResyncAck(PacketReader& reader);
-    bool handleSpectatorSyncBegin(PacketReader& reader);
-    bool handleSpectatorSyncChunk(PacketReader& reader);
-    bool handleSpectatorSyncComplete(PacketReader& reader);
-    bool handleSpectatorSyncAck(PacketReader& reader);
     bool handlePeerHealth(ENetPeer* peer, PacketReader& reader);
     bool handleInputFrame(ENetPeer* peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
@@ -166,10 +156,13 @@ private:
     void updatePeerHealthFromTransport();
     void updateReconnectReservations();
     void resetRuntimeTimelineStateForSessionStart();
+    void discardTimelineStateAfter(FrameNumber frame);
+    void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
 
 public:
     NetplayCoordinator();
     static bool romValidationMatches(const RomValidationData& a, const RomValidationData& b);
+    static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
     FrameNumber latestPredictedRemoteFrame() const;
 
@@ -196,7 +189,7 @@ public:
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();
     std::optional<FrameNumber> consumePendingHostResyncFrame();
-    std::optional<ParticipantId> consumePendingHostSpectatorSyncParticipant();
+    std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
     const InputTimeline& remoteInputs() const;
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;
@@ -207,12 +200,9 @@ public:
     bool tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     void submitLocalCrc(FrameNumber frame, uint32_t crc32);
     void invalidateLocalCrcHistoryAfter(FrameNumber frame);
-    bool beginResync(FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32);
-    bool beginSpectatorSync(ParticipantId participantId, FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32);
+    bool beginResync(FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32, ResyncReason reason = ResyncReason::Unspecified);
     std::optional<PendingResyncApply> consumePendingResyncApply();
-    std::optional<PendingResyncApply> consumePendingSpectatorSyncApply();
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
-    bool acknowledgeSpectatorSync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
     bool awaitingSpectatorSync() const;
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);
     bool submitLocalRomValidation(bool romLoaded, bool romCompatible, const RomValidationData& romValidation);

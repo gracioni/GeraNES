@@ -63,6 +63,7 @@ public:
         bool runtimeFlow = false;
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
+        bool hostAssignedBeforeJoinOnly = false;
     };
 
 private:
@@ -484,36 +485,6 @@ private:
             const auto clientSlot = localAssignedSlot(clientPeer.coordinator);
             if(hostSlot == std::optional<Netplay::PlayerSlot>(0) &&
                clientSlot == std::optional<Netplay::PlayerSlot>(1)) {
-                if(!hostPeer.coordinator.setLocalReady(true)) {
-                    failureReason = "Host failed to set ready.";
-                    return false;
-                }
-                if(!clientPeer.coordinator.setLocalReady(true)) {
-                    failureReason = "Client failed to set ready.";
-                    return false;
-                }
-
-                bool hostReady = false;
-                bool clientReady = false;
-                for(uint32_t readyStep = 0; readyStep < options.startupTimeoutSteps; ++readyStep) {
-                    pumpNetwork(hostPeer, clientPeer, 1);
-
-                    const Netplay::ParticipantInfo* hostParticipant =
-                        hostPeer.coordinator.session().findParticipant(hostPeer.coordinator.localParticipantId());
-                    const Netplay::ParticipantInfo* clientParticipant =
-                        clientPeer.coordinator.session().findParticipant(clientPeer.coordinator.localParticipantId());
-                    hostReady = hostParticipant != nullptr && hostParticipant->ready;
-                    clientReady = clientParticipant != nullptr && clientParticipant->ready;
-                    if(hostReady && clientReady) {
-                        break;
-                    }
-                }
-
-                if(!hostReady || !clientReady) {
-                    failureReason = "Timed out waiting for ready state sync.";
-                    return false;
-                }
-
                 hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
                 clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
                 if(!hostPeer.coordinator.startSession()) {
@@ -879,15 +850,13 @@ private:
 
     static bool allAssignedParticipantsReadyAndCompatible(const Netplay::RoomState& room)
     {
-        bool anyAssigned = false;
         for(const auto& participant : room.participants) {
             if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) continue;
-            anyAssigned = true;
-            if(!participant.connected || !participant.ready || !participant.romLoaded || !participant.romCompatible) {
+            if(!participant.connected || !participant.romLoaded || !participant.romCompatible) {
                 return false;
             }
         }
-        return anyAssigned;
+        return true;
     }
 
     static nlohmann::json buildRuntimePeerReport(RuntimePeerState& peer)
@@ -1085,6 +1054,18 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
             if(hostPeer.runtime.uiSnapshot().active) {
                 hostedPort = port;
+                if(options.hostAssignedBeforeJoinOnly) {
+                    const auto hostRoomBeforeJoin = hostPeer.runtime.uiSnapshot().room;
+                    const auto hostIdBeforeJoin = findParticipantIdByName(hostRoomBeforeJoin, hostPeer.name);
+                    if(!hostIdBeforeJoin.has_value()) {
+                        failureReason = "Failed to resolve host participant id before client join.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_ERROR;
+                        cleanup();
+                        return result;
+                    }
+                    hostPeer.runtime.assignController(*hostIdBeforeJoin, 0);
+                }
                 clientPeer.runtime.join("127.0.0.1", port, clientPeer.name);
                 hosted = true;
                 break;
@@ -1123,14 +1104,6 @@ private:
 
         if(!waitFor([&]() {
                 const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                return allAssignedParticipantsReadyAndCompatible(hostSnap.room) || allAssignedParticipantsReadyAndCompatible(clientSnap.room);
-            }, 1u, 1u)) {
-            // no-op, only to allow first snapshot refresh after connect/open
-        }
-
-        if(!waitFor([&]() {
-                const auto hostSnap = hostPeer.runtime.uiSnapshot();
                 for(const auto& participant : hostSnap.room.participants) {
                     if(!participant.romLoaded || !participant.romCompatible) {
                         return false;
@@ -1145,6 +1118,41 @@ private:
             return result;
         }
 
+        if(!waitFor([&]() {
+                const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                return hostSnap.room.state == Netplay::SessionState::Running &&
+                       clientSnap.room.state == Netplay::SessionState::Running &&
+                       !hostSnap.awaitingSpectatorSync &&
+                       !clientSnap.awaitingSpectatorSync;
+            }, options.startupTimeoutSteps, 5u)) {
+            failureReason = "Timed out waiting for auto-started running session.";
+            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+            result.exitCode = RESULT_ERROR;
+            cleanup();
+            return result;
+        }
+
+        if(!options.hostAssignedBeforeJoinOnly) {
+            const uint32_t observerOnlyHostFrame = hostPeer.emu.exactEmulationFrame();
+            const uint32_t observerOnlyClientFrame = clientPeer.emu.exactEmulationFrame();
+            if(!waitFor([&]() {
+                    std::array<uint64_t, 4> emptyMasks = {};
+                    hostPeer.runtime.updateLatestRawMasks(emptyMasks);
+                    clientPeer.runtime.updateLatestRawMasks(emptyMasks);
+                    hostPeer.emu.update(16u);
+                    clientPeer.emu.update(16u);
+                    return hostPeer.emu.exactEmulationFrame() >= observerOnlyHostFrame + 4u &&
+                           clientPeer.emu.exactEmulationFrame() >= observerOnlyClientFrame + 4u;
+                }, options.startupTimeoutSteps, 1u)) {
+                failureReason = "Observer-only session did not advance before controller assignment.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
+        }
+
         const auto hostRoom = hostPeer.runtime.uiSnapshot().room;
         const auto hostId = findParticipantIdByName(hostRoom, hostPeer.name);
         const auto clientId = findParticipantIdByName(hostRoom, clientPeer.name);
@@ -1156,57 +1164,56 @@ private:
             return result;
         }
 
-        hostPeer.runtime.assignController(*hostId, 0);
-        hostPeer.runtime.assignController(*clientId, 1);
+        if(options.hostAssignedBeforeJoinOnly) {
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                    const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                    if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                    const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                    const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                    return hostParticipant != nullptr &&
+                           clientParticipant != nullptr &&
+                           hostParticipant->controllerAssignment == 0 &&
+                           clientParticipant->controllerAssignment == Netplay::kObserverPlayerSlot &&
+                           hostSnap.room.state == Netplay::SessionState::Running &&
+                           clientSnap.room.state == Netplay::SessionState::Running &&
+                           !clientSnap.awaitingSpectatorSync;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = "Timed out waiting for late-joining observer to sync after host was already assigned.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
+        } else {
+            hostPeer.runtime.assignController(*hostId, 0);
+            hostPeer.runtime.assignController(*clientId, 1);
 
-        if(!waitFor([&]() {
-                const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
-                const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
-                if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
-                const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
-                const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
-                return hostParticipant != nullptr &&
-                       clientParticipant != nullptr &&
-                       hostParticipant->controllerAssignment == 0 &&
-                       clientParticipant->controllerAssignment == 1;
-            }, options.startupTimeoutSteps, 5u)) {
-            failureReason = "Timed out waiting for controller assignment sync.";
-            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
-            result.exitCode = RESULT_ERROR;
-            cleanup();
-            return result;
-        }
-
-        hostPeer.runtime.setLocalReady(true);
-        clientPeer.runtime.setLocalReady(true);
-        if(!waitFor([&]() {
-                const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                return allAssignedParticipantsReadyAndCompatible(hostSnap.room) &&
-                       allAssignedParticipantsReadyAndCompatible(clientSnap.room);
-            }, options.startupTimeoutSteps, 5u)) {
-            failureReason = "Timed out waiting for ready state sync.";
-            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
-            result.exitCode = RESULT_ERROR;
-            cleanup();
-            return result;
-        }
-
-        hostPeer.runtime.requestStartSession();
-
-        if(!waitFor([&]() {
-                const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                return hostSnap.room.state == Netplay::SessionState::Running &&
-                       clientSnap.room.state == Netplay::SessionState::Running;
-            }, options.startupTimeoutSteps, 5u)) {
-            failureReason = "Timed out waiting for running session state.";
-            result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
-            result.exitCode = RESULT_ERROR;
-            cleanup();
-            return result;
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                    const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                    if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                    const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                    const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                    return hostParticipant != nullptr &&
+                           clientParticipant != nullptr &&
+                           hostParticipant->controllerAssignment == 0 &&
+                           clientParticipant->controllerAssignment == 1 &&
+                           hostSnap.room.state == Netplay::SessionState::Running &&
+                           clientSnap.room.state == Netplay::SessionState::Running &&
+                           hostSnap.room.activeResyncId == 0 &&
+                           clientSnap.room.activeResyncId == 0;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = "Timed out waiting for controller assignment sync and automatic post-assignment resync.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
         }
 
         const uint32_t startHostFrame = hostPeer.emu.exactEmulationFrame();
@@ -1235,7 +1242,7 @@ private:
                 std::max<uint32_t>(1u, clientPeer.emu.getRegionFPS())
             );
             hostMasks[0] = buildPadMask(hostButtons);
-            clientMasks[0] = buildPadMask(clientButtons);
+            clientMasks[0] = options.hostAssignedBeforeJoinOnly ? 0u : buildPadMask(clientButtons);
             hostPeer.runtime.updateLatestRawMasks(hostMasks);
             clientPeer.runtime.updateLatestRawMasks(clientMasks);
             hostPeer.emu.update(16u);
@@ -1253,13 +1260,11 @@ private:
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
                         const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *clientId);
                         return hostSnap.room.state == Netplay::SessionState::Paused &&
-                               hostClientParticipant != nullptr &&
-                               !hostClientParticipant->connected &&
+                               findParticipantIdByName(hostSnap.room, clientPeer.name) == std::nullopt &&
                                !clientSnap.active;
                     }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for paused reconnect reservation after client disconnect.";
+                    failureReason = "Timed out waiting for paused session after assigned client disconnect.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
@@ -1271,30 +1276,50 @@ private:
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
                         const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *clientId);
+                        const auto hostClientId = findParticipantIdByName(hostSnap.room, clientPeer.name);
+                        if(!hostClientId.has_value()) return false;
+                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *hostClientId);
                         const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
                         return clientSnap.connected &&
-                               clientSnap.localParticipantId == previousLocalParticipantId &&
+                               clientSnap.localParticipantId != previousLocalParticipantId &&
                                hostClientParticipant != nullptr &&
-                               hostClientParticipant->connected &&
-                               hostClientParticipant->controllerAssignment == 1 &&
+                               hostClientParticipant->controllerAssignment == Netplay::kObserverPlayerSlot &&
                                clientLocalParticipant != nullptr &&
-                               clientLocalParticipant->controllerAssignment == 1;
+                               clientLocalParticipant->controllerAssignment == Netplay::kObserverPlayerSlot;
                     }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for reconnect participant identity/controller reassociation.";
+                    failureReason = "Timed out waiting for reconnecting client to rejoin as observer.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;
                 }
 
+                const auto rejoinedClientId = findParticipantIdByName(hostPeer.runtime.uiSnapshot().room, clientPeer.name);
+                if(!rejoinedClientId.has_value()) {
+                    failureReason = "Failed to resolve rejoined client participant id.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+
+                hostPeer.runtime.assignController(*rejoinedClientId, 1);
+
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
                         const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        return hostSnap.room.state == Netplay::SessionState::Running &&
-                               clientSnap.room.state == Netplay::SessionState::Running;
+                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *rejoinedClientId);
+                        const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
+                        return hostClientParticipant != nullptr &&
+                               hostClientParticipant->controllerAssignment == 1 &&
+                               clientLocalParticipant != nullptr &&
+                               clientLocalParticipant->controllerAssignment == 1 &&
+                               hostSnap.room.state == Netplay::SessionState::Running &&
+                               clientSnap.room.state == Netplay::SessionState::Running &&
+                               hostSnap.room.activeResyncId == 0 &&
+                               clientSnap.room.activeResyncId == 0;
                     }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for session to resume after reconnect.";
+                    failureReason = "Timed out waiting for host to reassign the reconnecting client and finish automatic resync.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
@@ -1476,35 +1501,6 @@ private:
                clientAssigned &&
                hostSlot == std::optional<Netplay::PlayerSlot>(0) &&
                clientSlot == std::optional<Netplay::PlayerSlot>(1)) {
-                if(!hostPeer.coordinator.setLocalReady(true)) {
-                    failureReason = "Host failed to set ready.";
-                    return false;
-                }
-                if(!clientPeer.coordinator.setLocalReady(true)) {
-                    failureReason = "Client failed to set ready.";
-                    return false;
-                }
-
-                bool hostReady = false;
-                bool clientReady = false;
-                for(uint32_t readyStep = 0; readyStep < options.startupTimeoutSteps; ++readyStep) {
-                    pumpCoordinators(hostPeer, clientPeer, 1);
-                    const Netplay::ParticipantInfo* hostParticipant =
-                        hostPeer.coordinator.session().findParticipant(hostPeer.coordinator.localParticipantId());
-                    const Netplay::ParticipantInfo* clientParticipant =
-                        clientPeer.coordinator.session().findParticipant(clientPeer.coordinator.localParticipantId());
-                    hostReady = hostParticipant != nullptr && hostParticipant->ready;
-                    clientReady = clientParticipant != nullptr && clientParticipant->ready;
-                    if(hostReady && clientReady) {
-                        break;
-                    }
-                }
-
-                if(!hostReady || !clientReady) {
-                    failureReason = "Timed out waiting for ready state sync.";
-                    return false;
-                }
-
                 hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.exactEmulationFrame());
                 clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.exactEmulationFrame());
                 if(!hostPeer.coordinator.startSession()) {

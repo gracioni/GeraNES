@@ -43,6 +43,7 @@ inline void drawNetplayWindow(bool& showWindow,
     const auto snapshot = runtime.uiSnapshot();
     const bool active = snapshot.active;
     const auto& room = snapshot.room;
+    const bool canHost = snapshot.localRomLoaded;
     ImGui::SetNextItemWidth(220.0f);
     ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
     ImGui::SetNextItemWidth(220.0f);
@@ -75,17 +76,18 @@ inline void drawNetplayWindow(bool& showWindow,
     cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
-    if(snapshot.hosting) {
-        ImGui::Checkbox("Resume when all ready##NetplayAutoResume", &cfg.autoResumeWhenReady);
-    }
-
     if(!active) {
+        ImGui::BeginDisabled(!canHost);
         if(ImGui::Button("Host##NetplayHostButton")) {
             runtime.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
         }
+        ImGui::EndDisabled();
         ImGui::SameLine();
         if(ImGui::Button("Join##NetplayJoinButton")) {
             runtime.join(cfg.hostName, static_cast<uint16_t>(cfg.port), cfg.displayName);
+        }
+        if(!canHost) {
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Load a ROM before hosting.");
         }
     } else {
         if(ImGui::Button("Disconnect##NetplayDisconnectButton")) {
@@ -99,6 +101,10 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Hosting: %s", snapshot.hosting ? "Yes" : "No");
         ImGui::Text("Connected: %s", snapshot.connected ? "Yes" : "No");
         ImGui::Text("Local Participant: %d", static_cast<int>(snapshot.localParticipantId));
+        ImGui::Text("Local ROM: %s", snapshot.localRomLoaded ? snapshot.localRomGameName.c_str() : "<none>");
+        if(snapshot.localRomLoaded) {
+            ImGui::Text("Local CRC32: %08X", snapshot.localRomCrc32);
+        }
         ImGui::Text("Delay/Predict: %u / %u",
                     static_cast<unsigned>(room.inputDelayFrames),
                     static_cast<unsigned>(room.predictFrames));
@@ -171,48 +177,7 @@ inline void drawNetplayWindow(bool& showWindow,
         }
     }
 
-    ImGui::Separator();
-    bool localReady = false;
-    ParticipantInfo localParticipant;
-    bool hasLocalParticipant = false;
-    for(const auto& participant : room.participants) {
-        if(participant.id == snapshot.localParticipantId) {
-            localReady = participant.ready;
-            localParticipant = participant;
-            hasLocalParticipant = true;
-            break;
-        }
-    }
-
-    if(ImGui::Checkbox("Ready##NetplayLocalReady", &localReady)) {
-        runtime.setLocalReady(localReady);
-    }
-
     if(snapshot.hosting) {
-        ImGui::SameLine();
-        const bool canStartSession = snapshot.sessionBlockedReason.empty();
-        ImGui::BeginDisabled(!canStartSession);
-        if(ImGui::Button("Start Session##NetplayStartSession")) {
-            runtime.requestStartSession();
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if(room.state == SessionState::Running) {
-            if(ImGui::Button("Pause Session##NetplayPauseSession")) {
-                runtime.pauseSession();
-            }
-        } else if(room.state == SessionState::Paused) {
-            ImGui::BeginDisabled(!canStartSession);
-            if(ImGui::Button("Resume Session##NetplayResumeSession")) {
-                runtime.resumeSession();
-            }
-            ImGui::EndDisabled();
-        } else {
-            ImGui::BeginDisabled();
-            ImGui::Button("Pause Session##NetplayPauseDisabled");
-            ImGui::EndDisabled();
-        }
-        ImGui::SameLine();
         const bool canForceResync =
             room.state == SessionState::Running || room.state == SessionState::Paused;
         ImGui::BeginDisabled(!canForceResync);
@@ -220,30 +185,8 @@ inline void drawNetplayWindow(bool& showWindow,
             runtime.requestForceResync();
         }
         ImGui::EndDisabled();
-        ImGui::SameLine();
-        if(ImGui::Button("End Session##NetplayEndSession")) {
-            runtime.endSession();
-        }
         if(!snapshot.sessionBlockedReason.empty()) {
             ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "%s", snapshot.sessionBlockedReason.c_str());
-        }
-    } else if(hasLocalParticipant && localParticipant.controllerAssignment == kObserverPlayerSlot) {
-        ImGui::Separator();
-        ImGui::TextUnformatted("Request player slot");
-        if(localParticipant.controllerRequestPending) {
-            ImGui::Text("Pending request: P%u",
-                        static_cast<unsigned>(localParticipant.requestedControllerSlot) + 1u);
-            if(ImGui::Button("Cancel Request##NetplayCancelControllerRequest")) {
-                runtime.cancelControllerRequest();
-            }
-        } else {
-            for(int i = 0; i < 4; ++i) {
-                std::string buttonLabel = "Request P" + std::to_string(i + 1) + "##NetplayRequestP" + std::to_string(i + 1);
-                if(ImGui::Button(buttonLabel.c_str())) {
-                    runtime.requestControllerSlot(static_cast<PlayerSlot>(i));
-                }
-                if(i < 3) ImGui::SameLine();
-            }
         }
     }
 
@@ -259,15 +202,14 @@ inline void drawNetplayWindow(bool& showWindow,
                            "Waiting for initial spectator sync...");
     }
 
-    if(ImGui::BeginTable("NetplayParticipants", 8, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    if(ImGui::BeginTable("NetplayParticipants", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthFixed, 45.0f);
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("ROM", ImGuiTableColumnFlags_WidthFixed, 110.0f);
         ImGui::TableSetupColumn("Net", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("Ready", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-        ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 140.0f);
         ImGui::TableHeadersRow();
 
         for(const auto& participant : room.participants) {
@@ -288,8 +230,30 @@ inline void drawNetplayWindow(bool& showWindow,
                 participant.role == ParticipantRole::Player ? "Player" : "Observer"
             );
             ImGui::TableNextColumn();
-            if(participant.controllerAssignment == kObserverPlayerSlot) {
-                ImGui::TextUnformatted("None");
+            if(snapshot.hosting) {
+                int controllerValue = participant.controllerAssignment == kObserverPlayerSlot
+                    ? -1
+                    : static_cast<int>(participant.controllerAssignment);
+                const char* preview =
+                    controllerValue < 0 ? "Observer" :
+                    controllerValue == 0 ? "P1" :
+                    controllerValue == 1 ? "P2" :
+                    controllerValue == 2 ? "P3" : "P4";
+                std::string comboId = "##ctrl" + std::to_string(participant.id);
+                if(ImGui::BeginCombo(comboId.c_str(), preview)) {
+                    if(ImGui::Selectable("Observer", controllerValue < 0)) {
+                        runtime.assignController(participant.id, kObserverPlayerSlot);
+                    }
+                    for(int i = 0; i < 4; ++i) {
+                        const std::string label = "P" + std::to_string(i + 1);
+                        if(ImGui::Selectable(label.c_str(), controllerValue == i)) {
+                            runtime.assignController(participant.id, static_cast<PlayerSlot>(i));
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            } else if(participant.controllerAssignment == kObserverPlayerSlot) {
+                ImGui::TextUnformatted("Observer");
             } else {
                 ImGui::Text("P%u", static_cast<unsigned>(participant.controllerAssignment) + 1u);
             }
@@ -312,8 +276,6 @@ inline void drawNetplayWindow(bool& showWindow,
             } else {
                 ImGui::TextDisabled("reconnect");
             }
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(participant.ready ? "Yes" : "No");
             ImGui::TableNextColumn();
             if(snapshot.hosting && participant.id != snapshot.localParticipantId) {
                 if(ImGui::SmallButton(("Kick##" + std::to_string(participant.id)).c_str())) {

@@ -9,8 +9,10 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <iomanip>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,6 +37,9 @@ public:
         bool hosting = false;
         bool connected = false;
         bool awaitingSpectatorSync = false;
+        bool localRomLoaded = false;
+        std::string localRomGameName;
+        uint32_t localRomCrc32 = 0;
         ParticipantId localParticipantId = kInvalidParticipantId;
         std::string lastError;
         RoomState room;
@@ -72,11 +77,16 @@ private:
     UiSnapshot m_uiSnapshot;
     uint64_t m_cachedReconnectToken = 0;
     bool m_hasCachedReconnectToken = false;
+    std::string m_stickyStatusMessage;
 
     std::chrono::steady_clock::time_point m_runtimeLastTickTime = {};
     std::string m_lastSelectedRomKey;
     std::string m_lastSubmittedValidationKey;
     std::optional<SessionState> m_lastSessionState;
+    std::optional<PlayerSlot> m_lastLocalAssignedSlot;
+    std::string m_lastAssignmentLayoutKey;
+    uint32_t m_lastManualResetGeneration = 0;
+    uint32_t m_lastManualLoadStateGeneration = 0;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
 
@@ -113,6 +123,25 @@ private:
         return selection;
     }
 
+    std::string buildAssignmentLayoutKey() const
+    {
+        if(!m_coordinator.isActive()) return {};
+
+        std::string key;
+        for(const auto& participant : m_coordinator.session().roomState().participants) {
+            key += std::to_string(participant.id);
+            key += ":";
+            key += std::to_string(static_cast<int>(participant.controllerAssignment));
+            key += ";";
+        }
+        return key;
+    }
+
+    void reanchorInputDriver(FrameNumber anchorFrame, std::optional<PlayerSlot> localSlot)
+    {
+        m_inputDriver.reanchor(anchorFrame);
+    }
+
     std::optional<PlayerSlot> localAssignedSlot() const
     {
         if(!m_coordinator.isActive()) return std::nullopt;
@@ -140,39 +169,34 @@ private:
             return "Load a ROM locally to populate room validation.";
         }
 
-        bool anyAssigned = false;
         bool anyMissingRom = false;
         bool anyIncompatibleRom = false;
-        bool anyNotReady = false;
         bool anyDisconnected = false;
 
         for(const auto& participant : room.participants) {
             if(participant.controllerAssignment == kObserverPlayerSlot) continue;
-            anyAssigned = true;
             if(!participant.connected) anyDisconnected = true;
             if(!participant.romLoaded) anyMissingRom = true;
             else if(!participant.romCompatible) anyIncompatibleRom = true;
-            if(!participant.ready) anyNotReady = true;
         }
 
-        if(!anyAssigned) return "Assign at least one participant to a controller slot.";
-        if(anyDisconnected) return "Waiting for a disconnected assigned participant to reconnect.";
+        if(anyDisconnected) return "Session is paused because an assigned participant disconnected. Reassign when they return.";
         if(anyMissingRom) return "Waiting for assigned participants to load the selected ROM.";
         if(anyIncompatibleRom) return "One or more assigned participants have an incompatible ROM.";
-        if(anyNotReady) return "Waiting for assigned participants to mark themselves ready.";
         return "";
     }
 
     void syncRomValidation(const std::optional<RomSelection>& localRom);
     void syncInputDelayFromSettings(GeraNESEmu& emu);
+    void processAutoStartIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom);
     void processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom);
+    void processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu);
     uint32_t consumeWorkerDtMs();
     void handleSessionStateTransitionsOnWorker(GeraNESEmu& emu);
     bool beginInitialSessionSyncOnWorker(GeraNESEmu& emu);
     void processHostResyncIfNeededOnWorker(GeraNESEmu& emu);
-    void processHostSpectatorSyncIfNeededOnWorker(GeraNESEmu& emu);
+    void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
-    void processSpectatorSyncIfNeededOnWorker(GeraNESEmu& emu);
     void processRollbackIfNeededOnWorker(GeraNESEmu& emu);
     bool tryBuildPlaybackConfirmedFrame(uint32_t frame, NetplayCoordinator::ConfirmedFrameInputs& outFrame);
     bool tryBuildPlaybackReplayFrame(uint32_t frame, EmulationHost::ReplayFrameInput& outFrame);
@@ -274,6 +298,26 @@ inline void NetplayAppRuntime::syncRomValidation(const std::optional<RomSelectio
         );
         m_lastSubmittedValidationKey = validationKey;
     }
+
+    if(!m_coordinator.isHosting() &&
+       !room.selectedGameName.empty() &&
+       (!romLoaded || !romCompatible)) {
+        std::ostringstream oss;
+        oss << "Room requires ROM \"" << room.selectedGameName
+            << "\" (CRC " << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
+            << room.romValidation.romCrc32 << ").";
+        m_stickyStatusMessage = oss.str();
+        m_coordinator.disconnect();
+        m_inputDriver.reset();
+        m_runtimeLastTickTime = {};
+        m_lastLocalAssignedSlot.reset();
+        m_lastAssignmentLayoutKey.clear();
+        return;
+    }
+
+    if(!m_coordinator.isHosting() && romLoaded && romCompatible && !room.selectedGameName.empty()) {
+        m_stickyStatusMessage.clear();
+    }
 }
 
 inline void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
@@ -335,11 +379,62 @@ inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<Rom
 
     const auto& room = m_coordinator.session().roomState();
     if(room.state != SessionState::Paused) return;
-    if(!AppSettings::instance().data.netplay.autoResumeWhenReady) return;
+    if(!computeSessionBlockedReason(localRom).empty()) return;
+}
+
+inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu)
+{
+    const uint32_t currentResetGeneration = m_emuHost.manualResetGeneration();
+    const uint32_t currentLoadStateGeneration = m_emuHost.manualLoadStateGeneration();
+
+    if(currentResetGeneration == m_lastManualResetGeneration &&
+       currentLoadStateGeneration == m_lastManualLoadStateGeneration) {
+        return;
+    }
+
+    const bool resetTriggered = currentResetGeneration != m_lastManualResetGeneration;
+    const bool loadStateTriggered = currentLoadStateGeneration != m_lastManualLoadStateGeneration;
+    m_lastManualResetGeneration = currentResetGeneration;
+    m_lastManualLoadStateGeneration = currentLoadStateGeneration;
+
+    if(!m_coordinator.isHosting()) return;
+    const SessionState state = m_coordinator.session().roomState().state;
+    if(state != SessionState::Running && state != SessionState::Paused) return;
+    if(!emu.valid()) return;
+
+    const std::vector<uint8_t> statePayload = emu.saveStateToMemory();
+    if(statePayload.empty()) return;
+
+    const ResyncReason reason = resetTriggered ? ResyncReason::HostReset : ResyncReason::HostLoadedState;
+    const std::string toast = NetplayCoordinator::resyncReasonToast(reason);
+    if(!toast.empty()) {
+        Logger::instance().log(toast, Logger::Type::USER);
+    }
+
+    const uint32_t payloadCrc32 =
+        Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+    m_coordinator.beginResync(emu.frameCount(), statePayload, payloadCrc32, reason);
+}
+
+inline void NetplayAppRuntime::processAutoStartIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom)
+{
+    if(!m_coordinator.isActive() || !m_coordinator.isHosting()) return;
+    if(!localRom.has_value() || !localRom->loaded) return;
+
+    const auto& room = m_coordinator.session().roomState();
+    if(room.selectedGameName.empty()) return;
+    if(room.state == SessionState::Starting ||
+       room.state == SessionState::Running ||
+       room.state == SessionState::Resyncing ||
+       room.state == SessionState::Paused ||
+       room.state == SessionState::Ended) {
+        return;
+    }
     if(!computeSessionBlockedReason(localRom).empty()) return;
 
-    if(m_coordinator.resumeSession()) {
-        Logger::instance().log("Netplay auto-resumed when all participants became ready", Logger::Type::USER);
+    m_coordinator.setLocalSimulationFrame(emu.frameCount());
+    if(m_coordinator.startSession() && emu.frameCount() > 0) {
+        beginInitialSessionSyncOnWorker(emu);
     }
 }
 
@@ -385,17 +480,17 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         m_runtimeLastTickTime = {};
     }
 
+    if(previousState.has_value() &&
+       *previousState != SessionState::Paused &&
+       currentState == SessionState::Paused) {
+        m_emuHost.discardQueuedAudio();
+    }
+
     if(currentState == SessionState::Running &&
        previousState.has_value() &&
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
-        m_inputDriver.reanchor(anchorFrame);
-    }
-
-    if(enteringResync) {
-        Logger::instance().log("Netplay resync in progress", Logger::Type::USER);
-    } else if(leavingResync) {
-        Logger::instance().log("Netplay resync finished", Logger::Type::USER);
+        reanchorInputDriver(anchorFrame, localAssignedSlot());
     }
 
     m_lastSessionState = currentState;
@@ -466,22 +561,27 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
     }
 }
 
-inline void NetplayAppRuntime::processHostSpectatorSyncIfNeededOnWorker(GeraNESEmu& emu)
+inline void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu)
 {
     if(!m_coordinator.isHosting()) return;
 
-    std::optional<ParticipantId> participantId = m_coordinator.consumePendingHostSpectatorSyncParticipant();
+    std::optional<ParticipantId> participantId = m_coordinator.consumePendingHostLateJoinResyncParticipant();
     if(!participantId.has_value()) return;
     if(!emu.valid()) return;
 
-    const std::vector<uint8_t> statePayload = emu.saveStateToMemory();
+    const FrameNumber authoritativeFrame =
+        std::min<FrameNumber>(m_coordinator.session().roomState().lastConfirmedFrame, emu.frameCount());
+    const std::optional<std::vector<uint8_t>> confirmedSnapshot =
+        m_emuHost.netplaySnapshotForFrame(authoritativeFrame);
+    const std::vector<uint8_t> statePayload =
+        confirmedSnapshot.has_value() ? *confirmedSnapshot : emu.saveStateToMemory();
     if(statePayload.empty()) return;
 
     const uint32_t payloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-    if(m_coordinator.beginSpectatorSync(*participantId, emu.frameCount(), statePayload, payloadCrc32)) {
+    if(m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
         Logger::instance().log(
-            "Netplay spectator sync started for participant " +
+            "Netplay late-join resync started for participant " +
             std::to_string(static_cast<int>(*participantId)),
             Logger::Type::INFO
         );
@@ -497,7 +597,7 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
     if(loaded) {
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload);
-        m_inputDriver.reanchor(pending->targetFrame);
+        reanchorInputDriver(pending->targetFrame, localAssignedSlot());
     }
     const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0;
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
@@ -506,27 +606,6 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         Logger::instance().log("Netplay resync applied", Logger::Type::INFO);
     } else {
         Logger::instance().log("Netplay resync failed", Logger::Type::WARNING);
-    }
-}
-
-inline void NetplayAppRuntime::processSpectatorSyncIfNeededOnWorker(GeraNESEmu& emu)
-{
-    std::optional<NetplayCoordinator::PendingResyncApply> pending = m_coordinator.consumePendingSpectatorSyncApply();
-    if(!pending.has_value()) return;
-
-    const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
-    if(loaded) {
-        m_coordinator.setLocalSimulationFrame(pending->targetFrame);
-        m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload);
-        m_inputDriver.reanchor(pending->targetFrame);
-    }
-    const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0;
-    m_coordinator.acknowledgeSpectatorSync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
-
-    if(loaded) {
-        Logger::instance().log("Netplay spectator sync applied", Logger::Type::INFO);
-    } else {
-        Logger::instance().log("Netplay spectator sync failed", Logger::Type::WARNING);
     }
 }
 
@@ -567,7 +646,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     m_emuHost.seedNetplaySnapshot(*rollbackFrame, *snapshotData);
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
-    m_inputDriver.reanchor(*rollbackFrame);
+    reanchorInputDriver(*rollbackFrame, localAssignedSlot());
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -607,8 +686,11 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     snapshot.hosting = m_coordinator.isHosting();
     snapshot.connected = m_coordinator.isConnected();
     snapshot.awaitingSpectatorSync = m_coordinator.awaitingSpectatorSync();
+    snapshot.localRomLoaded = localRom.has_value() && localRom->loaded;
+    snapshot.localRomGameName = localRom.has_value() ? localRom->gameName : "";
+    snapshot.localRomCrc32 = localRom.has_value() ? localRom->validation.romCrc32 : 0;
     snapshot.localParticipantId = m_coordinator.localParticipantId();
-    snapshot.lastError = m_coordinator.lastError();
+    snapshot.lastError = m_coordinator.lastError().empty() ? m_stickyStatusMessage : m_coordinator.lastError();
     snapshot.room = m_coordinator.session().roomState();
     snapshot.localInputCount = m_coordinator.localInputs().size();
     snapshot.remoteInputCount = m_coordinator.remoteInputs().size();
@@ -728,7 +810,12 @@ inline bool NetplayAppRuntime::runtimeRunning() const
 
 inline void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::string& displayName)
 {
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        self.m_stickyStatusMessage.clear();
+        if(!emu.valid()) {
+            self.m_stickyStatusMessage = "Load a ROM before hosting.";
+            return;
+        }
         self.m_coordinator.host(port, maxPeers, displayName);
     });
 }
@@ -736,6 +823,7 @@ inline void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::s
 inline void NetplayAppRuntime::join(const std::string& hostName, uint16_t port, const std::string& displayName)
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_stickyStatusMessage.clear();
         self.m_coordinator.join(hostName, port, displayName);
     });
 }
@@ -888,6 +976,10 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_inputDriver.reset();
         m_runtimeLastTickTime = {};
         m_lastSessionState.reset();
+        m_lastLocalAssignedSlot.reset();
+        m_lastAssignmentLayoutKey.clear();
+        m_lastManualResetGeneration = m_emuHost.manualResetGeneration();
+        m_lastManualLoadStateGeneration = m_emuHost.manualLoadStateGeneration();
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;
     }
@@ -914,6 +1006,8 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
     m_coordinator.update(0);
     handleSessionStateTransitionsOnWorker(emu);
+    processAutoStartIfNeeded(emu, localRom);
+    processHostManualStateChangeResyncIfNeeded(emu);
 
     if(m_coordinator.isHosting() &&
        m_coordinator.session().roomState().state == SessionState::Starting &&
@@ -922,9 +1016,8 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     }
 
     processHostResyncIfNeededOnWorker(emu);
-    processHostSpectatorSyncIfNeededOnWorker(emu);
+    processHostLateJoinResyncIfNeededOnWorker(emu);
     processResyncIfNeededOnWorker(emu);
-    processSpectatorSyncIfNeededOnWorker(emu);
     processAutoResumeIfNeeded(localRom);
     processRollbackIfNeededOnWorker(emu);
 
@@ -940,6 +1033,24 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     }
 
     const std::optional<PlayerSlot> localSlot = localAssignedSlot();
+    const std::string assignmentLayoutKey = buildAssignmentLayoutKey();
+    if(!m_lastAssignmentLayoutKey.empty() && assignmentLayoutKey != m_lastAssignmentLayoutKey) {
+        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+        if(running) {
+            reanchorInputDriver(emu.frameCount(), localSlot);
+        } else {
+            m_inputDriver.reset();
+        }
+    }
+    m_lastAssignmentLayoutKey = assignmentLayoutKey;
+    if(localSlot != m_lastLocalAssignedSlot) {
+        if(running) {
+            reanchorInputDriver(emu.frameCount(), localSlot);
+        } else {
+            m_inputDriver.reset();
+        }
+        m_lastLocalAssignedSlot = localSlot;
+    }
     const uint64_t localPrimaryMask = latestRawMasks[0];
     const uint32_t workerDtMs = consumeWorkerDtMs();
 

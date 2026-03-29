@@ -50,12 +50,7 @@ enum class MessageType : uint16_t
     ResyncChunk,
     ResyncComplete,
     ResyncAck,
-    ResyncAbort,
-
-    SpectatorSyncBegin = 220,
-    SpectatorSyncChunk,
-    SpectatorSyncComplete,
-    SpectatorSyncAck
+    ResyncAbort
 };
 
 enum class ParticipantRole : uint8_t
@@ -63,6 +58,17 @@ enum class ParticipantRole : uint8_t
     Host,
     Player,
     Observer
+};
+
+enum class ResyncReason : uint8_t
+{
+    Unspecified = 0,
+    InitialSessionSync,
+    ConfirmedDesync,
+    AssignmentChanged,
+    ManualForce,
+    HostReset,
+    HostLoadedState
 };
 
 struct PacketHeader
@@ -205,6 +211,7 @@ struct ResyncBeginData
     FrameNumber targetFrame = 0;
     uint32_t payloadSize = 0;
     uint32_t payloadCrc32 = 0;
+    ResyncReason reason = ResyncReason::Unspecified;
 };
 
 struct ResyncChunkData
@@ -227,10 +234,5 @@ struct ResyncAckData
     uint32_t crc32 = 0;
     uint8_t success = 0;
 };
-
-using SpectatorSyncBeginData = ResyncBeginData;
-using SpectatorSyncChunkData = ResyncChunkData;
-using SpectatorSyncCompleteData = ResyncCompleteData;
-using SpectatorSyncAckData = ResyncAckData;
 
 } // namespace Netplay

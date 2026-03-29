@@ -197,6 +197,8 @@ private:
         uint32_t frameCount = 0;
         uint32_t lastFrameReadyFrame = 0;
         uint32_t lastFrameReadyNetplayCrc32 = 0;
+        uint32_t manualResetGeneration = 0;
+        uint32_t manualLoadStateGeneration = 0;
         uint32_t regionFps = 60;
         Settings::Region region = Settings::Region::NTSC;
         std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
@@ -356,6 +358,8 @@ private:
         snapshot.nsfEnded = m_emu.nsfHasEnded();
         snapshot.frameCount = m_emu.frameCount();
         snapshot.regionFps = m_emu.getRegionFPS();
+        snapshot.manualResetGeneration = m_emu.manualResetGeneration();
+        snapshot.manualLoadStateGeneration = m_emu.manualLoadStateGeneration();
         snapshot.region = m_emu.region();
         snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
         snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
@@ -792,6 +796,30 @@ public:
 #endif
     }
 
+    void discardQueuedAudio()
+    {
+#ifdef __EMSCRIPTEN__
+        m_audioOutput.discardQueuedAudio();
+        m_audioOutput.clearAudioBuffers();
+#else
+        postCommand([this](GeraNESEmu&) {
+            m_audioOutput.discardQueuedAudio();
+            m_audioOutput.clearAudioBuffers();
+        });
+#endif
+    }
+
+    void discardQueuedNetplayInputsAfter(uint32_t frame)
+    {
+#ifdef __EMSCRIPTEN__
+        m_emu.discardQueuedInputFramesAfter(frame);
+#else
+        postCommand([frame](GeraNESEmu& emu) {
+            emu.discardQueuedInputFramesAfter(frame);
+        });
+#endif
+    }
+
     void setAudioVolume(float volume)
     {
 #ifdef __EMSCRIPTEN__
@@ -1111,6 +1139,26 @@ public:
 #else
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.frameCount;
+#endif
+    }
+
+    uint32_t manualResetGeneration() const
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.manualResetGeneration();
+#else
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.manualResetGeneration;
+#endif
+    }
+
+    uint32_t manualLoadStateGeneration() const
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.manualLoadStateGeneration();
+#else
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.manualLoadStateGeneration;
 #endif
     }
 

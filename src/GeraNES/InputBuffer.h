@@ -340,6 +340,19 @@ public:
         m_frames.clear();
     }
 
+    void eraseFramesAfter(uint32_t frame)
+    {
+        CircularBuffer<InputFrame> rebuilt(m_capacity, CircularBuffer<InputFrame>::REPLACE);
+        const size_t frameCount = m_frames.size();
+        for(size_t i = 0; i < frameCount; ++i) {
+            const InputFrame& current = m_frames.peakAt(i);
+            if(current.frame <= frame) {
+                rebuilt.write(current);
+            }
+        }
+        m_frames = rebuilt;
+    }
+
     const InputFrame* findByFrame(uint32_t targetFrame) const
     {
         for(size_t i = m_frames.size(); i > 0; --i) {

@@ -512,12 +512,6 @@ private:
             reanchorNetplayLocalTimelineTracking();
         }
 
-        if(enteringResync) {
-            Logger::instance().log("Netplay resync in progress", Logger::Type::USER);
-        } else if(leavingResync) {
-            Logger::instance().log("Netplay resync finished", Logger::Type::USER);
-        }
-
         m_lastNetplaySessionState = currentState;
     }
 
@@ -652,27 +646,6 @@ private:
         }
     }
 
-    void processNetplaySpectatorSyncIfNeeded()
-    {
-        std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending = m_netplayCoordinator.consumePendingSpectatorSyncApply();
-        if(!pending.has_value()) return;
-
-        const bool loaded = m_emu.loadStateFromMemory(pending->payload);
-        if(loaded) {
-            m_netplayCoordinator.setLocalSimulationFrame(pending->targetFrame);
-            m_emu.seedNetplaySnapshot(pending->targetFrame, pending->payload);
-        }
-        const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
-        m_netplayCoordinator.acknowledgeSpectatorSync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
-
-        if(loaded) {
-            reanchorNetplayLocalTimelineTracking();
-            Logger::instance().log("Netplay spectator sync applied", Logger::Type::INFO);
-        } else {
-            Logger::instance().log("Netplay spectator sync failed", Logger::Type::WARNING);
-        }
-    }
-
     void processNetplayHostResyncIfNeeded()
     {
         if(!m_netplayCoordinator.isHosting()) return;
@@ -751,21 +724,26 @@ private:
         return true;
     }
 
-    void processNetplayHostSpectatorSyncIfNeeded()
+    void processNetplayHostLateJoinResyncIfNeeded()
     {
         if(!m_netplayCoordinator.isHosting()) return;
 
-        std::optional<Netplay::ParticipantId> participantId = m_netplayCoordinator.consumePendingHostSpectatorSyncParticipant();
+        std::optional<Netplay::ParticipantId> participantId = m_netplayCoordinator.consumePendingHostLateJoinResyncParticipant();
         if(!participantId.has_value()) return;
         if(!m_emu.valid()) return;
 
-        const std::vector<uint8_t> statePayload = m_emu.saveNetplayStateToMemory();
+        const Netplay::FrameNumber authoritativeFrame =
+            std::min<Netplay::FrameNumber>(m_netplayCoordinator.session().roomState().lastConfirmedFrame, m_emu.frameCount());
+        const std::optional<std::vector<uint8_t>> confirmedSnapshot =
+            m_emu.netplaySnapshotForFrame(authoritativeFrame);
+        const std::vector<uint8_t> statePayload =
+            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveStateToMemory();
         if(statePayload.empty()) return;
 
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        if(m_netplayCoordinator.beginSpectatorSync(*participantId, m_emu.frameCount(), statePayload, payloadCrc32)) {
+        if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
             Logger::instance().log(
-                "Netplay spectator sync started for participant " + std::to_string(static_cast<int>(*participantId)),
+                "Netplay late-join resync started for participant " + std::to_string(static_cast<int>(*participantId)),
                 Logger::Type::INFO
             );
         }

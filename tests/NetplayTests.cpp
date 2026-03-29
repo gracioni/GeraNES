@@ -49,6 +49,28 @@ TEST_CASE("Netplay runtime flow advances under prediction", "[netplay][runtime]"
     REQUIRE(report.at("targetClientFrame").get<uint32_t>() >= report.at("startClientFrame").get<uint32_t>());
 }
 
+TEST_CASE("Late-joining observer receives already-assigned host inputs", "[netplay][runtime][late-join]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.hostAssignedBeforeJoinOnly = true;
+    options.frames = 40;
+    options.inputDelayFrames = 0;
+    options.predictFrames = 2;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_late_join_observer_host_input.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")
 {
     GeraNESTestSupport::requireRomFixture();

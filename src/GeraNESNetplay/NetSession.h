@@ -54,6 +54,7 @@ struct RoomState
     FrameNumber resyncTargetFrame = 0;
     uint32_t resyncPayloadSize = 0;
     uint32_t resyncPayloadCrc32 = 0;
+    ResyncReason activeResyncReason = ResyncReason::Unspecified;
     uint32_t pendingResyncAckCount = 0;
     std::string selectedGameName;
     RomValidationData romValidation;

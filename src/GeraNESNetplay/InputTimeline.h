@@ -99,6 +99,17 @@ public:
         m_entries.push_back(entry);
     }
 
+    void eraseFramesAfter(FrameNumber frame)
+    {
+        for(auto it = m_entries.begin(); it != m_entries.end();) {
+            if(it->frame > frame) {
+                it = m_entries.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     const TimelineInputEntry* latest() const
     {
         return m_entries.empty() ? nullptr : &m_entries.back();
