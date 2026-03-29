@@ -19,6 +19,9 @@ namespace GeraNESTestSupport
                 return std::filesystem::path(env);
             }
         }
+        if(std::string_view(GERANES_DEFAULT_TEST_ROM).empty()) {
+            return {};
+        }
         return std::filesystem::path(GERANES_DEFAULT_TEST_ROM);
     }
 
@@ -26,6 +29,8 @@ namespace GeraNESTestSupport
     {
         const auto rom = romPath();
         INFO("ROM fixture path: " << rom.string());
+        INFO("Define GERANES_TEST_ROM or configure CMake with -DGERANES_DEFAULT_TEST_ROM=<path-to-rom> before running the tests.");
+        REQUIRE_FALSE(rom.empty());
         REQUIRE(std::filesystem::exists(rom));
     }
 

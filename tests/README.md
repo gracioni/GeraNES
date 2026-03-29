@@ -33,23 +33,24 @@ Or filter by tag/name:
 
 ## ROM fixture selection
 
-Tests use a ROM fixture path in this order:
+`GeraNESTests` requires a ROM fixture path. Tests resolve it in this order:
 
 1. `GERANES_TEST_ROM` environment variable
-2. the CMake-configured default fixture
 
-Current default fixture:
+There is no built-in default ROM in this repo. You must define one explicitly before running the test suite.
 
-- `tests/roms/ppu_vbl_nmi/ppu_vbl_nmi.nes`
-
-To override it for the current shell:
+To define it for the current shell:
 
 ```powershell
 $env:GERANES_TEST_ROM="C:\path\to\your\fixture.nes"
 ctest --test-dir build --output-on-failure
 ```
 
-This is especially useful for gameplay-heavy netplay scenarios.
+For the robust netplay matrix, prefer a ROM fixture with:
+
+- sustained player-driven gameplay
+- frequent input changes
+- meaningful remote prediction/rollback opportunities
 
 ## Why one netplay test is skipped by default
 
@@ -57,9 +58,7 @@ The Catch2 test:
 
 - `Netplay robust matrix stays green`
 
-is intentionally skipped when the default `ppu_vbl_nmi.nes` fixture is active. That ROM is great for deterministic smoke coverage, but it does not reliably produce the gameplay/prediction activity required by the full robust netplay matrix.
-
-To enable that test, point `GERANES_TEST_ROM` at a gameplay-oriented fixture ROM.
+is skipped when the selected ROM does not generate enough gameplay/prediction activity for that matrix. This is not tied to a specific title; it is about the characteristics of the fixture.
 
 ## VS Code usage
 
@@ -79,6 +78,10 @@ Typical flow:
 4. Run or debug individual tests
 
 Project settings already enable CMake test explorer integration in `.vscode/settings.json`.
+
+### Selecting the ROM fixture in VS Code
+
+The simplest approach is to start VS Code from a shell that already has `GERANES_TEST_ROM` defined, or define it in the integrated terminal before running the tests.
 
 ## Test layout
 

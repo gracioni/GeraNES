@@ -293,7 +293,9 @@ private:
     {
         return {
             {"frame", point.frame},
-            {"cpuCycle", point.cpuCycle}
+            {"cpuCycle", point.cpuCycle},
+            {"cpuCyclesRemaining", point.cpuCyclesRemaining},
+            {"emulationTick", point.emulationTick}
         };
     }
 
@@ -411,10 +413,10 @@ public:
 
         const bool pointMatch =
             resimulatedPoint.frame == referenceArtifacts->point.frame &&
-            resimulatedPoint.cpuCycle == referenceArtifacts->point.cpuCycle;
+            resimulatedPoint.emulationTick == referenceArtifacts->point.emulationTick;
         const bool exactTargetReached =
             resimulatedPoint.frame == speculativePoint.frame &&
-            resimulatedPoint.cpuCycle == speculativePoint.cpuCycle;
+            resimulatedPoint.emulationTick == speculativePoint.emulationTick;
         const bool stateMatch = resimulatedCanonicalSnapshot == referenceArtifacts->canonicalSnapshot;
         const bool fullStateMatch = resimulatedSnapshot == referenceArtifacts->snapshot;
         const bool audioStayedSilent = resimulationAudioStats.audibleRenderCalls == 0;

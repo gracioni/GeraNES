@@ -407,7 +407,7 @@ if(MINGW)
     endif()
 endif()
 
-set(GERANES_DEFAULT_TEST_ROM "${CMAKE_CURRENT_SOURCE_DIR}/tests/roms/ppu_vbl_nmi/ppu_vbl_nmi.nes" CACHE FILEPATH "Default ROM fixture used by Catch2 tests.")
+set(GERANES_DEFAULT_TEST_ROM "" CACHE FILEPATH "Required ROM fixture used by Catch2 tests. Set this path or define GERANES_TEST_ROM before running GeraNESTests." FORCE)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestConfig.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/TestConfig.h"

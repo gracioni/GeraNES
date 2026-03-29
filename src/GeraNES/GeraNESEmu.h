@@ -59,6 +59,8 @@ public:
     {
         uint32_t frame = 0;
         uint32_t cpuCycle = 0;
+        uint32_t cpuCyclesRemaining = 0;
+        uint64_t emulationTick = 0;
     };
 
 private:
@@ -94,6 +96,7 @@ private:
     uint32_t m_lastAudioRenderedMs;
     double m_vsyncAudioCompMsAcc;
     int m_vsyncAudioSkipMsDebt;
+    uint64_t m_emulationTickCounter;
 
     uint8_t m_openBus;
     uint16_t m_prevControllerReadAddr;
@@ -893,12 +896,13 @@ private:
     static bool executionPointLessThan(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
     {
         if(lhs.frame != rhs.frame) return lhs.frame < rhs.frame;
-        return lhs.cpuCycle < rhs.cpuCycle;
+        return lhs.emulationTick < rhs.emulationTick;
     }
 
     static bool executionPointEqual(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
     {
-        return lhs.frame == rhs.frame && lhs.cpuCycle == rhs.cpuCycle;
+        return lhs.frame == rhs.frame &&
+               lhs.emulationTick == rhs.emulationTick;
     }
 
     GERANES_INLINE void renderAudioMs(uint32_t ms, bool forceSilence = false)
@@ -923,6 +927,7 @@ private:
             return false;
         }
         const bool tickSilentAudio = silentAudio || inputFrame->speculative;
+        ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
             m_cpuCyclesAcc = m_cpu.run();
@@ -1119,6 +1124,7 @@ public:
         m_lastAudioRenderedMs = 0;
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
+        m_emulationTickCounter = 0;
         m_4011WriteCounter = 0;
         m_newFrame = false;
         m_frameStarted = false;
@@ -1482,7 +1488,12 @@ public:
 
     ExecutionPoint executionPoint() const
     {
-        return ExecutionPoint{m_frameCounter, static_cast<uint32_t>(m_cpu.cycleCounter())};
+        return ExecutionPoint{
+            m_frameCounter,
+            static_cast<uint32_t>(m_cpu.cycleCounter()),
+            static_cast<uint32_t>(std::max(m_cpuCyclesAcc, 0)),
+            m_emulationTickCounter
+        };
     }
 
     bool resimulateSilentlyToExecutionPoint(const ExecutionPoint& target, uint32_t maxTicks = 20000000u)
@@ -1866,6 +1877,7 @@ public:
         SERIALIZEDATA(s, m_cyclesPerSecond);
   
         SERIALIZEDATA(s, m_audioRenderCyclesAcc);
+        SERIALIZEDATA(s, m_emulationTickCounter);
 
         SERIALIZEDATA(s, m_openBus);
 

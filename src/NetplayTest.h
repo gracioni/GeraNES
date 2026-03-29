@@ -45,6 +45,7 @@ public:
         uint32_t frameStepLimit = 200000;
         uint32_t settleStepLimit = 2048;
         uint32_t preSessionWarmupFrames = 0;
+        uint32_t gameplayReceiveDelayMs = 0;
         uint32_t forceDesyncFrame = 0;
         uint32_t desyncAddress = 0x0000;
         uint32_t desyncValueXor = 0x01;
@@ -961,7 +962,9 @@ private:
             {"remoteInputCount", snapshot.remoteInputCount},
             {"predictionHitCount", snapshot.predictionStats.predictionHitCount},
             {"predictionMissCount", snapshot.predictionStats.predictionMissCount},
+            {"predictedFrameUseCount", snapshot.predictionStats.predictedFrameUseCount},
             {"rollbackScheduledCount", snapshot.predictionStats.rollbackScheduledCount},
+            {"playbackStopCount", snapshot.predictionStats.playbackStopCount},
             {"confirmedConflictCount", snapshot.predictionStats.confirmedFrameConflictCount},
             {"sessionBlockedReason", snapshot.sessionBlockedReason},
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
@@ -996,6 +999,7 @@ private:
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
+            {"gameplayReceiveDelayMs", options.gameplayReceiveDelayMs},
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
             {"reconnectAfterFrames", options.reconnectAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
@@ -1360,6 +1364,8 @@ private:
         clientPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
         hostPeer.emu.setSimulationSuspended(true);
         clientPeer.emu.setSimulationSuspended(true);
+        hostPeer.coordinator.setGameplayReceiveDelayMs(options.gameplayReceiveDelayMs);
+        clientPeer.coordinator.setGameplayReceiveDelayMs(options.gameplayReceiveDelayMs);
 
         if(options.preSessionWarmupFrames > 0) {
             const bool warmed = hostPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
@@ -2392,6 +2398,7 @@ private:
             predictHit.inputDelayFrames = 2;
             predictHit.predictFrames = 2;
             predictHit.networkPumpStride = 2;
+            predictHit.gameplayReceiveDelayMs = 12;
             addScenario("predict_hit_window", predictHit);
 
             Options predictAllHit = baseOptions;
@@ -2489,12 +2496,17 @@ private:
                 const auto& clientReport = caseResult.report["client"];
                 const uint32_t hostHits = hostReport.value("predictionHitCount", 0u);
                 const uint32_t hostMisses = hostReport.value("predictionMissCount", 0u);
+                const uint32_t hostPredictedUses = hostReport.value("predictedFrameUseCount", 0u);
                 const uint32_t clientHits = clientReport.value("predictionHitCount", 0u);
                 const uint32_t clientMisses = clientReport.value("predictionMissCount", 0u);
+                const uint32_t clientPredictedUses = clientReport.value("predictedFrameUseCount", 0u);
                 const uint32_t rollbacks =
                     hostReport.value("rollbackScheduledCount", 0u) +
                     clientReport.value("rollbackScheduledCount", 0u);
-                const uint32_t predictionActivity = hostHits + hostMisses + clientHits + clientMisses + rollbacks;
+                const uint32_t predictionActivity =
+                    hostHits + hostMisses + hostPredictedUses +
+                    clientHits + clientMisses + clientPredictedUses +
+                    rollbacks;
                 if(predictionActivity == 0u) {
                     caseResult.exitCode = RESULT_FAILED;
                     caseResult.report["status"] = "failed";
@@ -2538,6 +2550,7 @@ private:
                 {"frames", scenario.options.frames},
                 {"inputDelayFrames", scenario.options.inputDelayFrames},
                 {"predictFrames", scenario.options.predictFrames},
+                {"gameplayReceiveDelayMs", scenario.options.gameplayReceiveDelayMs},
                 {"networkPumpStride", scenario.options.networkPumpStride},
                 {"predictionHoldStartFrame", scenario.options.predictionHoldStartFrame},
                 {"predictionHoldFrameCount", scenario.options.predictionHoldFrameCount},
