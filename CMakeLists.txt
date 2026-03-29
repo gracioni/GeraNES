@@ -7,6 +7,9 @@ cmake_minimum_required(VERSION 3.26)
 
 project(GeraNES)
 
+include(CTest)
+enable_testing()
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
@@ -55,6 +58,16 @@ if(NOT EMSCRIPTEN)
 
     INCLUDE_DIRECTORIES(${SDL2_SOURCE_DIR}/include)
 endif()
+
+FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.8.1
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+)
+
+FetchContent_MakeAvailable(Catch2)
 
 FetchContent_Declare(
         stb
@@ -192,11 +205,15 @@ set(gtest_build_tests OFF CACHE BOOL "Disable gtest tests" FORCE)
 set(gtest_build_samples OFF CACHE BOOL "Disable gtest samples" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "Do not install gtest" FORCE)
 
-FetchContent_MakeAvailable(yoga)
-
-if (TARGET yogatests)
-    set_target_properties(yogatests PROPERTIES EXCLUDE_FROM_ALL TRUE)
+FetchContent_GetProperties(yoga)
+if(NOT yoga_POPULATED)
+    FetchContent_Populate(yoga)
 endif()
+
+# We only need the Yoga core library. Pulling in the top-level project adds
+# vendored gtest targets and broken placeholder CTest entries such as
+# `yogatests_NOT_BUILT`, which pollute the VS Code Testing view.
+add_subdirectory("${yoga_SOURCE_DIR}/yoga" "${yoga_BINARY_DIR}/yoga")
 
 # Some Clang-based toolchains can promote gtest char8_t conversion warnings
 # to errors. Keep this scoped to vendored gtest targets and avoid passing
@@ -325,10 +342,16 @@ if(NOT EMSCRIPTEN)
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenUtil\\.cpp$")
 endif()
 
+set(GERANES_LIBRARY_SOURCES ${CPP_FILES})
+list(FILTER GERANES_LIBRARY_SOURCES EXCLUDE REGEX ".*/src/main\\.cpp$")
+list(FILTER GERANES_LIBRARY_SOURCES EXCLUDE REGEX ".*/src/resources\\.rc$")
+
+set(GERANES_EXE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+
 set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} SDL2::SDL2main SDL2::SDL2-static libglew_static nfd stdc++fs enet)
+    set(LIBS ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet)
 else()
 set(LIBS ${LIBS} -lopenal)
 endif()
@@ -336,29 +359,36 @@ endif()
 
 if(WIN32)
     set(APP_ICON_RESOURCE_WINDOWS ${CMAKE_CURRENT_SOURCE_DIR}/src/resources.rc)
-    set(CPP_FILES ${CPP_FILES} ${APP_ICON_RESOURCE_WINDOWS})
+    list(APPEND GERANES_EXE_SOURCES ${APP_ICON_RESOURCE_WINDOWS})
     set(LIBS ${LIBS} -ldwmapi)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(${CMAKE_PROJECT_NAME} ${CPP_FILES})
-target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE ENABLE_NSF_PLAYER=1)
+add_library(GeraNESLib STATIC ${GERANES_LIBRARY_SOURCES})
+target_compile_features(GeraNESLib PUBLIC cxx_std_20)
+target_compile_definitions(GeraNESLib PRIVATE ENABLE_NSF_PLAYER=1)
 if(MINGW)
-    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wa,-mbig-obj)
+    target_compile_options(GeraNESLib PRIVATE -Wa,-mbig-obj)
 endif()
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${LIBS})
+target_link_libraries(GeraNESLib PUBLIC ${LIBS})
 if(MINGW)
-    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
+    target_link_options(GeraNESLib PRIVATE -static-libgcc -static-libstdc++)
+    target_link_libraries(GeraNESLib PRIVATE
         -Wl,-Bstatic
         -lstdc++
         -lgcc
         -lwinpthread
         -Wl,-Bdynamic
     )
+endif()
+
+add_executable(${CMAKE_PROJECT_NAME} ${GERANES_EXE_SOURCES})
+target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE GeraNESLib)
+if(NOT EMSCRIPTEN)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE SDL2::SDL2main)
 endif()
 if(WIN32)
     set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
@@ -376,6 +406,26 @@ if(MINGW)
         )
     endif()
 endif()
+
+set(GERANES_DEFAULT_TEST_ROM "${CMAKE_CURRENT_SOURCE_DIR}/tests/roms/ppu_vbl_nmi/ppu_vbl_nmi.nes" CACHE FILEPATH "Default ROM fixture used by Catch2 tests.")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestConfig.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/TestConfig.h"
+    @ONLY
+)
+
+add_executable(GeraNESTests
+    tests/StateReplayTests.cpp
+    tests/ResimulationTests.cpp
+    tests/NetplayTests.cpp
+)
+target_compile_features(GeraNESTests PUBLIC cxx_std_20)
+target_include_directories(GeraNESTests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(GeraNESTests PRIVATE GeraNESLib Catch2::Catch2WithMain)
+
+list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+include(Catch)
+catch_discover_tests(GeraNESTests)
 
 set(LIBRETRO_CORE_NAME "geranes_libretro")
 
