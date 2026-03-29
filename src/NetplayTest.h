@@ -1214,6 +1214,8 @@ private:
         const uint32_t targetHostFrame = startHostFrame + options.frames;
         const uint32_t targetClientFrame = startClientFrame + options.frames;
         bool reconnectTriggered = false;
+        bool desyncInjected = false;
+        bool hardResyncObserved = false;
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
             std::array<uint64_t, 4> hostMasks = {};
@@ -1253,11 +1255,12 @@ private:
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
                         const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        return hostSnap.room.state == Netplay::SessionState::Paused &&
+                        return (hostSnap.room.state == Netplay::SessionState::Paused ||
+                                hostSnap.room.state == Netplay::SessionState::Running) &&
                                findParticipantIdByName(hostSnap.room, clientPeer.name) == std::nullopt &&
                                !clientSnap.active;
                     }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for paused session after assigned client disconnect.";
+                    failureReason = "Timed out waiting for host/client disconnect state after assigned client disconnect.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
@@ -1322,8 +1325,30 @@ private:
                 reconnectTriggered = true;
             }
 
+            if(options.forceDesyncFrame > 0 &&
+               !desyncInjected &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.forceDesyncFrame &&
+               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.forceDesyncFrame) {
+                clientPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
+                    const uint16_t targetAddress = static_cast<uint16_t>(options.desyncAddress & 0xFFFFu);
+                    const uint8_t originalValue = innerEmu.read(targetAddress);
+                    innerEmu.write(targetAddress,
+                                   static_cast<uint8_t>(originalValue ^ static_cast<uint8_t>(options.desyncValueXor & 0xFFu)));
+                });
+                desyncInjected = true;
+            }
+
             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
+            const auto hostSnap = hostPeer.runtime.uiSnapshot();
+            const auto clientSnap = clientPeer.runtime.uiSnapshot();
+            hardResyncObserved =
+                hardResyncObserved ||
+                hostSnap.predictionStats.hardResyncCount > 0u ||
+                clientSnap.predictionStats.hardResyncCount > 0u ||
+                hostSnap.room.activeResyncId != 0u ||
+                clientSnap.room.activeResyncId != 0u;
+
             if(newHostFrame == hostFrame && newClientFrame == clientFrame) {
                 ++stallSteps;
             } else {
@@ -1339,17 +1364,53 @@ private:
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
                 result.report["targetClientFrame"] = targetClientFrame;
+                result.report["desyncInjected"] = desyncInjected;
+                result.report["hardResyncObserved"] = hardResyncObserved;
+                result.report["reconnectTriggered"] = reconnectTriggered;
                 result.exitCode = RESULT_FAILED;
                 cleanup();
                 return result;
             }
 
             if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
+                if(options.reconnectAfterFrames > 0 && !reconnectTriggered) {
+                    failureReason = "Reconnect scenario never triggered before reaching the target frame.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+                if(options.forceDesyncFrame > 0 && (!desyncInjected || !hardResyncObserved)) {
+                    failureReason = !desyncInjected
+                        ? "Forced desync scenario never injected the divergence."
+                        : "Forced desync scenario completed without observing a hard resync.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
                 result.report["targetClientFrame"] = targetClientFrame;
+                result.report["desyncInjected"] = desyncInjected;
+                result.report["hardResyncObserved"] = hardResyncObserved;
+                result.report["reconnectTriggered"] = reconnectTriggered;
                 result.exitCode = EXIT_SUCCESS;
                 cleanup();
                 return result;
@@ -1362,6 +1423,9 @@ private:
         result.report["startClientFrame"] = startClientFrame;
         result.report["targetHostFrame"] = targetHostFrame;
         result.report["targetClientFrame"] = targetClientFrame;
+        result.report["desyncInjected"] = desyncInjected;
+        result.report["hardResyncObserved"] = hardResyncObserved;
+        result.report["reconnectTriggered"] = reconnectTriggered;
         result.exitCode = RESULT_FAILED;
         cleanup();
         return result;
@@ -2388,6 +2452,24 @@ private:
             predictHit.networkPumpStride = 2;
             predictHit.gameplayReceiveDelayMs = 12;
             addScenario("predict_hit_window", predictHit);
+
+            if(baseOptions.runtimeFlow) {
+                Options reconnect = baseOptions;
+                reconnect.frames = std::max<uint32_t>(baseOptions.frames, 120u);
+                reconnect.reconnectAfterFrames = 24u;
+                reconnect.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                reconnect.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
+                addScenario("reconnect_mid_session", reconnect);
+
+                Options forcedDesync = baseOptions;
+                forcedDesync.frames = std::max<uint32_t>(baseOptions.frames, 120u);
+                forcedDesync.forceDesyncFrame = 28u;
+                forcedDesync.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                forcedDesync.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
+                forcedDesync.desyncAddress = 0x0000u;
+                forcedDesync.desyncValueXor = 0x5Au;
+                addScenario("forced_desync_resync", forcedDesync);
+            }
 
             Options predictAllHit = baseOptions;
             predictAllHit.appFlow = false;

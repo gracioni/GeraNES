@@ -71,6 +71,55 @@ TEST_CASE("Late-joining observer receives already-assigned host inputs", "[netpl
     REQUIRE(report.at("client").at("runtimeRunning") == true);
 }
 
+TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[netplay][runtime][reconnect]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 80;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.reconnectAfterFrames = 24;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reconnect.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("reconnectTriggered") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime flow hard-resyncs after an injected desync", "[netplay][runtime][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 80;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.forceDesyncFrame = 28;
+    options.desyncAddress = 0x0000;
+    options.desyncValueXor = 0x5A;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_forced_desync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("desyncInjected") == true);
+    REQUIRE(report.at("hardResyncObserved") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")
 {
     GeraNESTestSupport::requireRomFixture();
