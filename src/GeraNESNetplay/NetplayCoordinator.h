@@ -193,6 +193,7 @@ public:
     void setLocalSimulationFrame(FrameNumber frame);
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();
+    void discardTimelineAfter(FrameNumber frame);
     std::optional<FrameNumber> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;

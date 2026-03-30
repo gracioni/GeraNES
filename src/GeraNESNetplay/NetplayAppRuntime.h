@@ -646,13 +646,17 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     }
 
     const uint32_t rollbackFromFrame = currentFrame;
-    if(!emu.loadStateFromMemoryOnCleanBoot(*snapshotData)) {
+    emu.loadStateFromMemoryWithAudioPolicy(
+        *snapshotData,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    if(!emu.valid()) {
         Logger::instance().log("Netplay rollback failed", Logger::Type::WARNING);
         return;
     }
 
     m_emuHost.seedNetplaySnapshot(*rollbackFrame, *snapshotData);
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
+    m_coordinator.discardTimelineAfter(*rollbackFrame);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
     reanchorInputDriver(*rollbackFrame, localAssignedSlot());
 

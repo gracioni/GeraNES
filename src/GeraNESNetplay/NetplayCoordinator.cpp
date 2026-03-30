@@ -1082,6 +1082,30 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
 
     m_lastBroadcastConfirmedFrame = std::min(m_lastBroadcastConfirmedFrame, frame);
     m_session.roomState().lastConfirmedFrame = std::min(m_session.roomState().lastConfirmedFrame, frame);
+
+    for(ParticipantInfo& participant : m_session.roomState().participants) {
+        const InputTimeline& timeline =
+            participant.id == m_localParticipantId ? m_localInputs : m_remoteInputs;
+
+        const TimelineInputEntry* latestForParticipant = nullptr;
+        for(auto it = timeline.entries().rbegin(); it != timeline.entries().rend(); ++it) {
+            if(it->participantId != participant.id) continue;
+            latestForParticipant = &(*it);
+            break;
+        }
+
+        if(latestForParticipant != nullptr) {
+            participant.lastReceivedInputFrame = latestForParticipant->frame;
+            participant.lastContiguousInputFrame = latestForParticipant->frame;
+            participant.lastReceivedInputSequence = latestForParticipant->sequence;
+        } else {
+            participant.lastReceivedInputFrame = frame;
+            participant.lastContiguousInputFrame = frame;
+            participant.lastReceivedInputSequence = 0;
+        }
+
+        participant.pendingMissingInputFrom.reset();
+    }
 }
 
 void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame)
@@ -2238,6 +2262,35 @@ std::optional<ParticipantId> NetplayCoordinator::consumePendingHostLateJoinResyn
 const InputTimeline& NetplayCoordinator::localInputs() const
 {
     return m_localInputs;
+}
+
+void NetplayCoordinator::discardTimelineAfter(FrameNumber frame)
+{
+    m_localInputs.eraseFramesAfter(frame);
+
+    while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
+        m_confirmedFrames.pop_back();
+    }
+
+    m_lastBroadcastConfirmedFrame = std::min(m_lastBroadcastConfirmedFrame, frame);
+    m_session.roomState().lastConfirmedFrame = std::min(m_session.roomState().lastConfirmedFrame, frame);
+
+    uint32_t latestLocalSequence = 0;
+    FrameNumber latestLocalFrame = frame;
+    for(auto it = m_localInputs.entries().rbegin(); it != m_localInputs.entries().rend(); ++it) {
+        if(it->participantId != m_localParticipantId) continue;
+        latestLocalSequence = it->sequence;
+        latestLocalFrame = it->frame;
+        break;
+    }
+    m_localInputSequence = latestLocalSequence;
+
+    if(ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId)) {
+        localParticipant->lastReceivedInputFrame = latestLocalFrame;
+        localParticipant->lastContiguousInputFrame = latestLocalFrame;
+        localParticipant->lastReceivedInputSequence = latestLocalSequence;
+        localParticipant->pendingMissingInputFrom.reset();
+    }
 }
 
 const InputTimeline& NetplayCoordinator::remoteInputs() const

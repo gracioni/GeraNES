@@ -63,6 +63,12 @@ public:
         uint64_t emulationTick = 0;
     };
 
+    enum class StateLoadAudioPolicy
+    {
+        ResetOutput,
+        PreserveContinuousOutput
+    };
+
 private:
     const uint32_t MAX_4011_WRITES_TO_DISABLE_OVERCLOCK = 2;
 
@@ -833,19 +839,21 @@ private:
         m_cpu.scheduleImplicitDmcSingleCycleAbort();
     }
 
-    void resyncAudioAfterStateLoad()
+    void resyncAudioAfterStateLoad(StateLoadAudioPolicy audioPolicy = StateLoadAudioPolicy::ResetOutput)
     {
         // Audio output internals (wave generators/FIFOs) are not part of save states.
-        // Re-sync them to the restored APU/settings and drop any already-queued
-        // backend audio so rollback/resync does not overlap old sound with the
-        // restored timeline.
-        m_audioOutput.discardQueuedAudio();
-        m_audioOutput.clearAudioBuffers();
+        // Hard resync/manual load resets the live output, but ordinary rollback
+        // must preserve the active device/queue so transient jitter does not
+        // create long audible dropouts.
+        if(audioPolicy == StateLoadAudioPolicy::ResetOutput) {
+            m_audioOutput.discardQueuedAudio();
+            m_audioOutput.clearAudioBuffers();
+            m_lastAudioRenderedMs = 0;
+            m_vsyncAudioCompMsAcc = 0.0;
+            m_vsyncAudioSkipMsDebt = 0;
+        }
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
-        m_lastAudioRenderedMs = 0;
-        m_vsyncAudioCompMsAcc = 0.0;
-        m_vsyncAudioSkipMsDebt = 0;
         m_apu.updateAudioOutput();
     }
 
@@ -994,8 +1002,13 @@ private:
     {
         if(dt == 0) return;
 
-        // Ignore large hitches; keep normal underflow/prebuffer behavior in the backend.
+        // Large hitches are treated as timeline discontinuities. Carrying their
+        // audio backlog forward leaves playback permanently behind the video
+        // until the device is manually restarted.
         if(dt > 34) {
+            m_audioOutput.discardQueuedAudio();
+            m_audioOutput.clearAudioBuffers();
+            m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
             return;
@@ -1597,25 +1610,37 @@ public:
         else m_loadStateFlag = true;
     }    
 
-    void loadStateFromMemory(const std::vector<uint8_t>& data) override
+    void loadStateFromMemoryWithAudioPolicy(
+        const std::vector<uint8_t>& data,
+        StateLoadAudioPolicy audioPolicy)
     {
         Deserialize d;
         d.setData(data);
         serialization(d);
-        resyncAudioAfterStateLoad();
+        resyncAudioAfterStateLoad(audioPolicy);
         resetVolatileStateAfterStateLoad();
     }
 
-    void loadStateFromMemory(const uint8_t* data, size_t size)
+    void loadStateFromMemory(const std::vector<uint8_t>& data) override
+    {
+        loadStateFromMemoryWithAudioPolicy(data, StateLoadAudioPolicy::ResetOutput);
+    }
+
+    void loadStateFromMemoryWithAudioPolicy(
+        const uint8_t* data,
+        size_t size,
+        StateLoadAudioPolicy audioPolicy)
     {
         Deserialize d;
         d.setData(data, size);
         serialization(d);
-        resyncAudioAfterStateLoad();
+        resyncAudioAfterStateLoad(audioPolicy);
         resetVolatileStateAfterStateLoad();
     }
 
-    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data)
+    bool loadStateFromMemoryOnCleanBoot(
+        const std::vector<uint8_t>& data,
+        StateLoadAudioPolicy audioPolicy = StateLoadAudioPolicy::ResetOutput)
     {
         if(data.empty() || !m_cartridge.isValid()) return false;
 
@@ -1623,7 +1648,7 @@ public:
         if(romPath.empty()) return false;
         if(!open(romPath) || !valid()) return false;
 
-        loadStateFromMemory(data);
+        loadStateFromMemoryWithAudioPolicy(data, audioPolicy);
         return valid();
     }
 

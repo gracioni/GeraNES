@@ -1296,7 +1296,10 @@ public:
 #ifdef __EMSCRIPTEN__
         if(snapshotData.empty()) return false;
         const uint32_t rollbackFrom = m_emu.frameCount();
-        const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(snapshotData);
+        m_emu.loadStateFromMemoryWithAudioPolicy(
+            snapshotData,
+            GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+        const bool loaded = m_emu.valid();
         if(loaded) {
             ++m_netplayDiagnostics.rollbackStats.rollbackCount;
             m_netplayDiagnostics.rollbackStats.lastRollbackFromFrame = rollbackFrom;
@@ -1311,7 +1314,10 @@ public:
         std::scoped_lock emuLock(m_emuMutex);
         if(snapshotData.empty()) return false;
         const uint32_t rollbackFrom = m_emu.frameCount();
-        if(!m_emu.loadStateFromMemoryOnCleanBoot(snapshotData)) {
+        m_emu.loadStateFromMemoryWithAudioPolicy(
+            snapshotData,
+            GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+        if(!m_emu.valid()) {
             return false;
         }
         refreshSnapshotLocked();

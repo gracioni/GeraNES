@@ -2052,6 +2052,7 @@ private:
         }
 
         peer.coordinator.setLocalSimulationFrame(*rollbackFrame);
+        peer.coordinator.discardTimelineAfter(*rollbackFrame);
         peer.coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
         if(!peer.emu.resimulateToFrame(currentFrame, [&](uint32_t frame) {
             EmulationHost::ReplayFrameInput replayInput{};

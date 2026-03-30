@@ -21,6 +21,8 @@ class SDLAudioOutput : public AudioOutputBase
 {
 
 private:
+    static constexpr double TARGET_QUEUE_TIME_SECONDS = BUFFER_TIME;
+    static constexpr double MAX_QUEUE_TIME_SECONDS = BUFFER_TIME * 2.0;
     SDL_AudioDeviceID m_device = 0;
     std::string m_currentDeviceName = "";
 
@@ -70,15 +72,25 @@ public:
         turnOff();
     }
 
-    int sampleRate()
+    int sampleRate() const
     {
         return spec.freq;
     }
 
-    int sampleSize()
+    int sampleSize() const
     {
         //the formats hold the number of bits in the first byte
         return spec.format & 0xFF;       
+    }
+
+    uint32_t targetQueueBytes() const
+    {
+        return static_cast<uint32_t>(sampleRate() * (sampleSize() / 8) * TARGET_QUEUE_TIME_SECONDS);
+    }
+
+    uint32_t maxQueueBytes() const
+    {
+        return static_cast<uint32_t>(sampleRate() * (sampleSize() / 8) * MAX_QUEUE_TIME_SECONDS);
     }
 
     const std::string& currentDeviceName() const override {
@@ -245,12 +257,22 @@ public:
             sampleAcc -= 1000;
         }   
 
-        bool playFlag = SDL_GetQueuedAudioSize(m_device) != 0;
+        uint32_t queuedBytes = SDL_GetQueuedAudioSize(m_device);
+        if(queuedBytes > maxQueueBytes()) {
+            // If the emulator temporarily overproduced relative to playback,
+            // drop stale queued audio instead of letting the output stay
+            // permanently behind the simulation.
+            SDL_ClearQueuedAudio(m_device);
+            queuedBytes = 0;
+        }
 
-        //if(!playFlag) std::cout << "Audio buffer underflow" << std::endl;
-        
-        if(playFlag || m_buffer.size() >= sampleRate()*(sampleSize()/8)*BUFFER_TIME)
-        {   
+        const uint32_t targetBytes = targetQueueBytes();
+        const bool needInitialPrebuffer = queuedBytes == 0;
+        const bool belowTargetLatency = queuedBytes < targetBytes;
+        const bool haveEnoughBufferedSamples = m_buffer.size() >= targetBytes;
+
+        if(!m_buffer.empty() && (needInitialPrebuffer || belowTargetLatency || haveEnoughBufferedSamples))
+        {
             SDL_QueueAudio(m_device, (void*)(&m_buffer[0]), m_buffer.size());
             m_buffer.clear();
         }      

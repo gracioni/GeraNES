@@ -394,6 +394,58 @@ TEST_CASE("Netplay state load flushes previously queued audio", "[netplay][audio
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
+TEST_CASE("Netplay rollback state restore preserves live audio output", "[netplay][audio][rollback]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    queueFrameAndAdvance(emu, 1u, false);
+    queueFrameAndAdvance(emu, 2u, false);
+    const std::vector<uint8_t> state = emu.saveStateToMemory();
+    REQUIRE_FALSE(state.empty());
+
+    queueFrameAndAdvance(emu, 3u, false);
+
+    audio.discardQueuedAudioCalls = 0;
+    audio.clearAudioBuffersCalls = 0;
+    emu.loadStateFromMemoryWithAudioPolicy(
+        state,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    REQUIRE(audio.discardQueuedAudioCalls == 0);
+    REQUIRE(audio.clearAudioBuffersCalls == 0);
+}
+
+TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitch]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.speculative = false;
+    emu.queueInputFrame(frame0);
+    REQUIRE(emu.updateUntilFrame(16u));
+    REQUIRE(emu.frameCount() == 1u);
+
+    audio.discardQueuedAudioCalls = 0;
+    audio.clearAudioBuffersCalls = 0;
+
+    InputFrame frame1 = emu.createInputFrame(1u);
+    frame1.speculative = false;
+    emu.queueInputFrame(frame1);
+    REQUIRE(emu.updateUntilFrame(50u));
+    REQUIRE(emu.frameCount() == 2u);
+    REQUIRE(audio.discardQueuedAudioCalls > 0);
+    REQUIRE(audio.clearAudioBuffersCalls > 0);
+}
+
 TEST_CASE("Netplay speculative playback keeps audio silent", "[netplay][audio][prediction]")
 {
     GeraNESTestSupport::requireRomFixture();
