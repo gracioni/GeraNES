@@ -910,9 +910,15 @@ private:
                lhs.emulationTick == rhs.emulationTick;
     }
 
-    GERANES_INLINE void renderAudioMs(uint32_t ms, bool forceSilence = false)
+    GERANES_INLINE void renderAudioMs(uint32_t ms, bool skipRender = false, bool forceSilence = false)
     {
         if(ms == 0) return;
+        if(skipRender) {
+            // Predicted/silent replay must not enqueue silence or touch the live
+            // output device. Drop only the transient generated sample buffers.
+            m_audioOutput.clearAudioBuffers();
+            return;
+        }
 
         m_audioOutput.setRewinding(m_rewind.isRewinding());
         m_audioOutput.setExpansionAudioVolume(1.0f);
@@ -931,7 +937,7 @@ private:
         if(inputFrame == nullptr) {
             return false;
         }
-        const bool tickSilentAudio = silentAudio || inputFrame->speculative;
+        const bool tickSkipAudioRender = silentAudio || inputFrame->speculative;
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -965,7 +971,7 @@ private:
                 --m_vsyncAudioSkipMsDebt;
             }
             else {
-                renderAudioMs(1, tickSilentAudio);
+                renderAudioMs(1, tickSkipAudioRender);
                 renderedAudioMs += 1;
             }
         }        

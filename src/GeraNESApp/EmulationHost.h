@@ -1371,7 +1371,6 @@ public:
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
         ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
-        m_emu.setForceSilentAudio(true);
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
@@ -1381,7 +1380,6 @@ public:
             hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);
         }
-        m_emu.setForceSilentAudio(false);
         if(hasLastReplayInput) {
             m_pendingInput = lastReplayInput.state;
         }
@@ -1393,7 +1391,6 @@ public:
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
         ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
-        m_emu.setForceSilentAudio(true);
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
@@ -1406,7 +1403,6 @@ public:
             hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);
         }
-        m_emu.setForceSilentAudio(false);
 
         if(hasLastReplayInput) {
             std::scoped_lock pendingInputLock(m_pendingInputMutex);

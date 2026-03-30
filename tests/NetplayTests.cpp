@@ -411,6 +411,10 @@ TEST_CASE("Netplay speculative playback keeps audio silent", "[netplay][audio][p
     REQUIRE(emu.updateUntilFrame(frameDt));
     REQUIRE(emu.frameCount() == 1u);
 
+    const std::vector<uint8_t> rollbackState = emu.saveStateToMemory();
+    REQUIRE_FALSE(rollbackState.empty());
+
+    const uint32_t renderBeforeSpeculative = audio.renderCalls;
     const uint32_t audibleBeforeSpeculative = audio.audibleRenderCalls;
     const uint32_t silentBeforeSpeculative = audio.silentRenderCalls;
 
@@ -420,8 +424,20 @@ TEST_CASE("Netplay speculative playback keeps audio silent", "[netplay][audio][p
     REQUIRE(emu.updateUntilFrame(frameDt));
     REQUIRE(emu.frameCount() == 2u);
 
+    REQUIRE(audio.renderCalls == renderBeforeSpeculative);
     REQUIRE(audio.audibleRenderCalls == audibleBeforeSpeculative);
-    REQUIRE(audio.silentRenderCalls > silentBeforeSpeculative);
+    REQUIRE(audio.silentRenderCalls == silentBeforeSpeculative);
+
+    REQUIRE(emu.loadStateFromMemoryOnCleanBoot(rollbackState));
+    const uint32_t audibleBeforeConfirmedReplay = audio.audibleRenderCalls;
+
+    InputFrame confirmedReplayFrame = emu.createInputFrame(1u);
+    confirmedReplayFrame.speculative = false;
+    emu.queueInputFrame(confirmedReplayFrame);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+
+    REQUIRE(audio.audibleRenderCalls > audibleBeforeConfirmedReplay);
 }
 
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")

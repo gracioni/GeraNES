@@ -658,14 +658,12 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
-    emu.setForceSilentAudio(true);
     while(emu.frameCount() < currentFrame) {
         const uint32_t nextFrame = emu.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = nextFrame > m_inputDriver.confirmedThroughFrame(m_coordinator);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
             Logger::instance().log("Netplay resimulation failed", Logger::Type::WARNING);
-            emu.setForceSilentAudio(false);
             return;
         }
 
@@ -674,7 +672,6 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         emu.queueInputFrame(inputFrame);
         emu.updateUntilFrame(frameDt);
     }
-    emu.setForceSilentAudio(false);
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
 
     Logger::instance().log(
