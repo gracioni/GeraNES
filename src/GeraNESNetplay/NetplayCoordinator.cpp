@@ -90,6 +90,18 @@ std::string controllerAssignmentToast(Netplay::PlayerSlot slot,
     return Netplay::inputAssignmentLabel(slot, room) + " assigned to " + participantName;
 }
 
+Netplay::AssignControllerData makeAssignControllerData(const Netplay::ParticipantInfo& participant)
+{
+    Netplay::AssignControllerData data;
+    data.participantId = participant.id;
+    const size_t count = std::min(participant.controllerAssignments.size(), data.controllerAssignments.size());
+    data.assignmentCount = static_cast<uint8_t>(count);
+    for(size_t i = 0; i < count; ++i) {
+        data.controllerAssignments[i] = participant.controllerAssignments[i];
+    }
+    return data;
+}
+
 }
 
 namespace Netplay {
@@ -268,7 +280,13 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
     writer.writePod(static_cast<uint8_t>(participant.reconnectReserved ? 1 : 0));
     writer.writePod(participant.reservationSecondsRemaining);
     writer.writePod(participant.role);
-    writer.writePod(participant.controllerAssignment);
+    const uint8_t assignmentCount = static_cast<uint8_t>(
+        std::min(participant.controllerAssignments.size(), static_cast<size_t>(kMaxAssignedPlayerSlot + 1))
+    );
+    writer.writePod(assignmentCount);
+    for(uint8_t index = 0; index < assignmentCount; ++index) {
+        writer.writePod(participant.controllerAssignments[index]);
+    }
     writer.writeString(participant.displayName);
 
     return writer.data();
@@ -549,14 +567,14 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
         previousReceivedSequence = participant->lastReceivedInputSequence;
-        if(participant->controllerAssignment != input.playerSlot) {
+        if(!participantHasAssignment(*participant, input.playerSlot)) {
             std::ostringstream oss;
-            oss << "Ignored input for unexpected slot from " << participant->displayName
-                << ": got P" << static_cast<unsigned>(input.playerSlot) + 1u;
-            if(participant->controllerAssignment == kObserverPlayerSlot) {
+            oss << "Ignored input for unexpected assignment from " << participant->displayName
+                << ": got " << inputAssignmentLabel(input.playerSlot, m_session.roomState());
+            if(participantIsObserver(*participant)) {
                 oss << ", expected observer";
             } else {
-                oss << ", expected P" << static_cast<unsigned>(participant->controllerAssignment) + 1u;
+                oss << ", expected one of " << participantAssignmentsLabel(*participant, m_session.roomState());
             }
             pushLog(oss.str());
             return false;
@@ -698,13 +716,14 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, lastFrame);
 
         ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId);
-        if(localParticipant != nullptr &&
-           localParticipant->controllerAssignment != kObserverPlayerSlot) {
+        if(localParticipant != nullptr && !participantIsObserver(*localParticipant)) {
             for(FrameNumber frame = data.startFrame; frame <= lastFrame; ++frame) {
-                TimelineInputEntry* localEntry =
-                    m_localInputs.findMutable(frame, m_localParticipantId, localParticipant->controllerAssignment);
-                if(localEntry != nullptr) {
-                    localEntry->confirmed = true;
+                for(PlayerSlot slot : participantAssignments(*localParticipant)) {
+                    TimelineInputEntry* localEntry =
+                        m_localInputs.findMutable(frame, m_localParticipantId, slot);
+                    if(localEntry != nullptr) {
+                        localEntry->confirmed = true;
+                    }
                 }
             }
             localParticipant->lastContiguousInputFrame = std::max(localParticipant->lastContiguousInputFrame, lastFrame);
@@ -768,10 +787,18 @@ void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, Fra
 
 void NetplayCoordinator::advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot)
 {
+    (void)slot;
     while(true) {
         const FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
-        const TimelineInputEntry* entry = m_remoteInputs.find(nextFrame, participant.id, slot);
-        if(entry == nullptr || !entry->confirmed) {
+        bool haveAllAssignments = true;
+        for(PlayerSlot assignedSlot : participantAssignments(participant)) {
+            const TimelineInputEntry* entry = m_remoteInputs.find(nextFrame, participant.id, assignedSlot);
+            if(entry == nullptr || !entry->confirmed) {
+                haveAllAssignments = false;
+                break;
+            }
+        }
+        if(!haveAllAssignments) {
             break;
         }
         participant.lastContiguousInputFrame = nextFrame;
@@ -960,18 +987,20 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     };
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+        if(participantIsObserver(participant)) continue;
 
-        if(participant.id == m_localParticipantId) {
-            preserveLatestConfirmedInput(m_localInputs,
-                                         participant.id,
-                                         participant.controllerAssignment,
-                                         preservedLocalInputs);
-        } else {
-            preserveLatestConfirmedInput(m_remoteInputs,
-                                         participant.id,
-                                         participant.controllerAssignment,
-                                         preservedRemoteInputs);
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            if(participant.id == m_localParticipantId) {
+                preserveLatestConfirmedInput(m_localInputs,
+                                             participant.id,
+                                             slot,
+                                             preservedLocalInputs);
+            } else {
+                preserveLatestConfirmedInput(m_remoteInputs,
+                                             participant.id,
+                                             slot,
+                                             preservedRemoteInputs);
+            }
         }
     }
 
@@ -1000,18 +1029,18 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     confirmedFrame.inputFrame = makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState());
     bool haveConfirmedFrame = false;
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        const PlayerSlot slot = participant.controllerAssignment;
-        if(slot == kObserverPlayerSlot) continue;
-        haveConfirmedFrame = true;
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            haveConfirmedFrame = true;
 
-        const TimelineInputEntry* preserved =
-            participant.id == m_localParticipantId
-                ? m_localInputs.find(loadedFrame, participant.id, slot)
-                : m_remoteInputs.find(loadedFrame, participant.id, slot);
-        if(preserved != nullptr) {
-            confirmedFrame.buttonMaskLo[slot] = preserved->buttonMaskLo;
-            confirmedFrame.buttonMaskHi[slot] = preserved->buttonMaskHi;
-            applyAssignedContribution(confirmedFrame.inputFrame, slot, preserved->inputFrame);
+            const TimelineInputEntry* preserved =
+                participant.id == m_localParticipantId
+                    ? m_localInputs.find(loadedFrame, participant.id, slot)
+                    : m_remoteInputs.find(loadedFrame, participant.id, slot);
+            if(preserved != nullptr) {
+                confirmedFrame.buttonMaskLo[slot] = preserved->buttonMaskLo;
+                confirmedFrame.buttonMaskHi[slot] = preserved->buttonMaskHi;
+                applyAssignedContribution(confirmedFrame.inputFrame, slot, preserved->inputFrame);
+            }
         }
     }
     if(haveConfirmedFrame) {
@@ -1144,10 +1173,14 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
             std::max({m_localSimulationFrame,
                       m_session.roomState().currentFrame,
                       m_session.roomState().lastConfirmedFrame});
-        const PlayerSlot previousAssignment = participant->controllerAssignment;
-        const bool assignmentChanged = previousAssignment != data.controllerAssignment;
-        participant->controllerAssignment = data.controllerAssignment;
-        participant->role = data.controllerAssignment == kObserverPlayerSlot ? ParticipantRole::Observer : ParticipantRole::Player;
+        const std::vector<PlayerSlot> previousAssignments = participant->controllerAssignments;
+        participant->controllerAssignments.assign(
+            data.controllerAssignments.begin(),
+            data.controllerAssignments.begin() + std::min<size_t>(data.assignmentCount, data.controllerAssignments.size())
+        );
+        const bool keepHostRole = participant->id == m_localParticipantId && m_hosting;
+        syncParticipantRoleWithAssignments(*participant, keepHostRole);
+        const bool assignmentChanged = previousAssignments != participant->controllerAssignments;
         if(assignmentChanged) {
             discardTimelineStateAfter(assignmentBaselineFrame);
             participant->lastReceivedInputFrame = assignmentBaselineFrame;
@@ -1158,12 +1191,18 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
                 m_localInputSequence = 0;
             }
         }
-        if(data.controllerAssignment != kObserverPlayerSlot) {
+        for(PlayerSlot slot : participant->controllerAssignments) {
             participant->lastReceivedInputFrame = assignmentBaselineFrame;
             participant->lastContiguousInputFrame = assignmentBaselineFrame;
-            seedNeutralInputBaseline(data.participantId, data.controllerAssignment, assignmentBaselineFrame);
+            seedNeutralInputBaseline(data.participantId, slot, assignmentBaselineFrame);
         }
-        notifySessionEvent(controllerAssignmentToast(data.controllerAssignment, m_session.roomState(), participantLabel(*participant)));
+        if(participant->controllerAssignments.empty()) {
+            notifySessionEvent(controllerAssignmentToast(kObserverPlayerSlot, m_session.roomState(), participantLabel(*participant)));
+        } else {
+            for(PlayerSlot slot : participant->controllerAssignments) {
+                notifySessionEvent(controllerAssignmentToast(slot, m_session.roomState(), participantLabel(*participant)));
+            }
+        }
         return true;
     }
 
@@ -1530,12 +1569,16 @@ FrameNumber NetplayCoordinator::computeHostConfirmedFrame() const
     bool anyAssigned = false;
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+        if(participantIsObserver(participant)) continue;
 
         FrameNumber latestFrame = 0;
         if(participant.id == m_localParticipantId) {
-            if(const TimelineInputEntry* latest = m_localInputs.latestFor(participant.id, participant.controllerAssignment)) {
-                latestFrame = latest->frame;
+            bool anyLocalAssigned = false;
+            for(PlayerSlot slot : participantAssignments(participant)) {
+                if(const TimelineInputEntry* latest = m_localInputs.latestFor(participant.id, slot)) {
+                    latestFrame = anyLocalAssigned ? std::min(latestFrame, latest->frame) : latest->frame;
+                    anyLocalAssigned = true;
+                }
             }
         } else {
             latestFrame = participant.lastContiguousInputFrame;
@@ -1594,7 +1637,7 @@ bool NetplayCoordinator::allRequiredParticipantsRomCompatible() const
     if(m_session.roomState().selectedGameName.empty()) return false;
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+        if(participantIsObserver(participant)) continue;
         if(!participant.connected || !participant.romLoaded || !participant.romCompatible) return false;
     }
     return true;
@@ -1700,28 +1743,34 @@ void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> po
 
     std::vector<ParticipantId> changedAssignments;
     for(ParticipantInfo& participant : room.participants) {
-        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
-        const bool preserveParticipantAssignment =
-            preservedParticipantId.has_value() &&
-            participant.id == *preservedParticipantId &&
-            preservedAssignment != kObserverPlayerSlot &&
-            isAssignmentAvailable(preservedAssignment, room);
-        if(preserveParticipantAssignment) {
-            continue;
+        if(participantIsObserver(participant)) continue;
+
+        std::vector<PlayerSlot> preservedAssignments;
+        const bool preserveParticipantAssignment = preservedParticipantId.has_value() && participant.id == *preservedParticipantId;
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            const bool preserveSpecificAssignment =
+                preserveParticipantAssignment &&
+                slot == preservedAssignment &&
+                preservedAssignment != kObserverPlayerSlot &&
+                isAssignmentAvailable(preservedAssignment, room);
+            if(preserveSpecificAssignment || isAssignmentAvailable(slot, room)) {
+                preservedAssignments.push_back(slot);
+            }
         }
-        if(isAssignmentAvailable(participant.controllerAssignment, room)) continue;
-        participant.controllerAssignment = kObserverPlayerSlot;
-        participant.role = participant.id == m_localParticipantId ? ParticipantRole::Host : ParticipantRole::Observer;
+
+        if(preservedAssignments == participant.controllerAssignments) continue;
+        participant.controllerAssignments = std::move(preservedAssignments);
+        syncParticipantRoleWithAssignments(participant, participant.id == m_localParticipantId);
         changedAssignments.push_back(participant.id);
-        notifySessionEvent(controllerAssignmentToast(kObserverPlayerSlot, room, participantLabel(participant)));
+        if(participantIsObserver(participant)) {
+            notifySessionEvent(controllerAssignmentToast(kObserverPlayerSlot, room, participantLabel(participant)));
+        }
     }
 
     for(ParticipantId changedId : changedAssignments) {
         ParticipantInfo* changed = m_session.findParticipant(changedId);
         if(changed == nullptr) continue;
-        AssignControllerData data;
-        data.participantId = changedId;
-        data.controllerAssignment = changed->controllerAssignment;
+        const AssignControllerData data = makeAssignControllerData(*changed);
         m_transport.broadcastReliable(Channel::Control, buildAssignControllerPacket(data, room.sessionId));
         m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*changed, 0));
     }
@@ -1753,7 +1802,8 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
     participant.role = ParticipantRole::Observer;
-    participant.controllerAssignment = kObserverPlayerSlot;
+    participant.controllerAssignments.clear();
+    participant.normalizeControllerAssignments();
     if(m_session.roomState().state == SessionState::Starting ||
        m_session.roomState().state == SessionState::Running ||
        m_session.roomState().state == SessionState::Paused ||
@@ -1833,7 +1883,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     uint8_t reconnectReserved = 0;
     uint16_t reservationSecondsRemaining = 0;
     ParticipantRole role = ParticipantRole::Observer;
-    PlayerSlot controllerAssignment = kObserverPlayerSlot;
+    uint8_t assignmentCount = 0;
     std::string displayName;
 
     if(!reader.readPod(participantId)) return false;
@@ -1842,7 +1892,14 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     if(!reader.readPod(reconnectReserved)) return false;
     if(!reader.readPod(reservationSecondsRemaining)) return false;
     if(!reader.readPod(role)) return false;
-    if(!reader.readPod(controllerAssignment)) return false;
+    if(!reader.readPod(assignmentCount)) return false;
+    std::vector<PlayerSlot> controllerAssignments;
+    controllerAssignments.reserve(assignmentCount);
+    for(uint8_t index = 0; index < assignmentCount; ++index) {
+        PlayerSlot slot = kObserverPlayerSlot;
+        if(!reader.readPod(slot)) return false;
+        controllerAssignments.push_back(slot);
+    }
     if(!reader.readString(displayName)) return false;
 
     ParticipantInfo* existingParticipant = m_session.findParticipant(participantId);
@@ -1857,7 +1914,8 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.reconnectReserved = reconnectReserved != 0;
     participant.reservationSecondsRemaining = reservationSecondsRemaining;
     participant.role = role;
-    participant.controllerAssignment = controllerAssignment;
+    participant.controllerAssignments = std::move(controllerAssignments);
+    participant.normalizeControllerAssignments();
 
     if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
         m_localParticipantId = participantId;
@@ -1987,7 +2045,8 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
     ParticipantInfo& hostParticipant = ensureParticipant(m_localParticipantId, m_localDisplayName);
     hostParticipant.connected = true;
     hostParticipant.role = ParticipantRole::Host;
-    hostParticipant.controllerAssignment = kObserverPlayerSlot;
+    hostParticipant.controllerAssignments.clear();
+    hostParticipant.normalizeControllerAssignments();
 
     std::ostringstream oss;
     oss << "Hosting on port " << port << " for up to " << maxPeers << " peers";
@@ -2068,7 +2127,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         ParticipantInfo* participant = m_session.findParticipant(participantId);
                         const bool hadActiveAssignment =
                             participant != nullptr &&
-                            participant->controllerAssignment != kObserverPlayerSlot &&
+                            !participantIsObserver(*participant) &&
                             (m_session.roomState().state == SessionState::Running ||
                              m_session.roomState().state == SessionState::Resyncing ||
                              m_session.roomState().state == SessionState::Paused);
@@ -2342,28 +2401,27 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
     bool haveAssignedParticipant = false;
 
     for(const auto& participant : m_session.roomState().participants) {
-        const PlayerSlot slot = participant.controllerAssignment;
-        if(slot == kObserverPlayerSlot) continue;
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            const TimelineInputEntry* entry =
+                participant.id == m_localParticipantId
+                    ? m_localInputs.find(frame, participant.id, slot)
+                    : m_remoteInputs.find(frame, participant.id, slot);
+            if(entry == nullptr || !entry->confirmed) {
+                return false;
+            }
 
-        const TimelineInputEntry* entry =
-            participant.id == m_localParticipantId
-                ? m_localInputs.find(frame, participant.id, slot)
-                : m_remoteInputs.find(frame, participant.id, slot);
-        if(entry == nullptr || !entry->confirmed) {
-            return false;
+            haveAssignedParticipant = true;
+            outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
+            outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+            applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
         }
-
-        haveAssignedParticipant = true;
-        outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
-        outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
-        applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
     }
 
     return haveAssignedParticipant || std::none_of(
         m_session.roomState().participants.begin(),
         m_session.roomState().participants.end(),
         [](const ParticipantInfo& participant) {
-            return participant.controllerAssignment != kObserverPlayerSlot;
+            return !participantIsObserver(participant);
         }
     );
 }
@@ -2383,38 +2441,37 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
     bool haveAssignedParticipant = false;
 
     for(const auto& participant : m_session.roomState().participants) {
-        const PlayerSlot slot = participant.controllerAssignment;
-        if(slot == kObserverPlayerSlot) continue;
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            const bool isLocalParticipant = participant.id == m_localParticipantId;
+            const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
+            const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
+            if(entry == nullptr && allowPrediction && !isLocalParticipant) {
+                if(!predictRemoteInputFrame(frame, participant.id, slot)) {
+                    return false;
+                }
+                entry = m_remoteInputs.find(frame, participant.id, slot);
+            }
 
-        const bool isLocalParticipant = participant.id == m_localParticipantId;
-        const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
-        const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
-        if(entry == nullptr && allowPrediction && !isLocalParticipant) {
-            if(!predictRemoteInputFrame(frame, participant.id, slot)) {
+            if(entry == nullptr) {
                 return false;
             }
-            entry = m_remoteInputs.find(frame, participant.id, slot);
-        }
 
-        if(entry == nullptr) {
-            return false;
+            haveAssignedParticipant = true;
+            outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
+            outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+            applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
+            if(entry->predicted) {
+                m_predictionStats.recordPredictedFrameUse(frame, slot);
+            }
+            outFrame.predicted = outFrame.predicted || entry->predicted;
         }
-
-        haveAssignedParticipant = true;
-        outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
-        outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
-        applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
-        if(entry->predicted) {
-            m_predictionStats.recordPredictedFrameUse(frame, slot);
-        }
-        outFrame.predicted = outFrame.predicted || entry->predicted;
     }
 
     return haveAssignedParticipant || std::none_of(
         m_session.roomState().participants.begin(),
         m_session.roomState().participants.end(),
         [](const ParticipantInfo& participant) {
-            return participant.controllerAssignment != kObserverPlayerSlot;
+            return !participantIsObserver(participant);
         }
     );
 }
@@ -2573,8 +2630,8 @@ void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == kInvalidParticipantId || participant.id == m_localParticipantId) continue;
 
-        if(participant.controllerAssignment != kObserverPlayerSlot) {
-            predictRemoteInputFrame(frame, participant.id, participant.controllerAssignment);
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            predictRemoteInputFrame(frame, participant.id, slot);
         }
     }
 }
@@ -2731,21 +2788,34 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
 
 bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlot slot)
 {
+    if(slot == kObserverPlayerSlot) {
+        return clearControllerAssignments(participantId);
+    }
+    if(!clearControllerAssignments(participantId)) return false;
+    return addControllerAssignment(participantId, slot);
+}
+
+bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, PlayerSlot slot)
+{
     if(!m_hosting) return false;
     if(!isAssignmentAvailable(slot, m_session.roomState())) return false;
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
-    if(participant->controllerAssignment == slot) return true;
+    if(participantHasAssignment(*participant, slot)) return true;
 
     std::vector<ParticipantId> changedParticipants;
     std::vector<std::pair<PlayerSlot, std::string>> assignmentToasts;
     for(ParticipantInfo& other : m_session.roomState().participants) {
-        if(other.id != participantId && other.controllerAssignment == slot && slot != kObserverPlayerSlot) {
-            other.controllerAssignment = kObserverPlayerSlot;
-            other.role = ParticipantRole::Observer;
+        if(other.id != participantId && participantHasAssignment(other, slot) && slot != kObserverPlayerSlot) {
+            other.controllerAssignments.erase(
+                std::remove(other.controllerAssignments.begin(), other.controllerAssignments.end(), slot),
+                other.controllerAssignments.end()
+            );
+            syncParticipantRoleWithAssignments(other, other.id == m_localParticipantId);
             changedParticipants.push_back(other.id);
-            assignmentToasts.emplace_back(kObserverPlayerSlot, participantLabel(other));
+            assignmentToasts.emplace_back(participantIsObserver(other) ? kObserverPlayerSlot : other.controllerAssignment,
+                                         participantLabel(other));
         }
     }
 
@@ -2753,8 +2823,8 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
         std::max({m_localSimulationFrame,
                   m_session.roomState().currentFrame,
                   m_session.roomState().lastConfirmedFrame});
-    participant->controllerAssignment = slot;
-    participant->role = slot == kObserverPlayerSlot ? ParticipantRole::Observer : ParticipantRole::Player;
+    participant->controllerAssignments.push_back(slot);
+    syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
     participant->lastReceivedInputFrame = assignmentBaselineFrame;
     participant->lastContiguousInputFrame = assignmentBaselineFrame;
@@ -2763,11 +2833,9 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
     if(participantId == m_localParticipantId) {
         m_localInputSequence = 0;
     }
-    if(slot != kObserverPlayerSlot) {
-        participant->lastReceivedInputFrame = assignmentBaselineFrame;
-        participant->lastContiguousInputFrame = assignmentBaselineFrame;
-        seedNeutralInputBaseline(participantId, slot, assignmentBaselineFrame);
-    }
+    participant->lastReceivedInputFrame = assignmentBaselineFrame;
+    participant->lastContiguousInputFrame = assignmentBaselineFrame;
+    seedNeutralInputBaseline(participantId, slot, assignmentBaselineFrame);
     changedParticipants.push_back(participantId);
     assignmentToasts.emplace_back(slot, participantLabel(*participant));
     refreshHostRoomState();
@@ -2775,9 +2843,7 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
     for(ParticipantId changedId : changedParticipants) {
         ParticipantInfo* changed = m_session.findParticipant(changedId);
         if(changed == nullptr) continue;
-        AssignControllerData data;
-        data.participantId = changedId;
-        data.controllerAssignment = changed->controllerAssignment;
+        const AssignControllerData data = makeAssignControllerData(*changed);
         m_transport.broadcastReliable(Channel::Control, buildAssignControllerPacket(data, m_session.roomState().sessionId));
         m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*changed, 0));
     }
@@ -2797,6 +2863,73 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
         notifySessionEvent(controllerAssignmentToast(assignedSlot, m_session.roomState(), participantName));
     }
 
+    return true;
+}
+
+bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId, PlayerSlot slot)
+{
+    if(!m_hosting) return false;
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr) return false;
+    if(!participantHasAssignment(*participant, slot)) return true;
+
+    const FrameNumber assignmentBaselineFrame =
+        std::max({m_localSimulationFrame,
+                  m_session.roomState().currentFrame,
+                  m_session.roomState().lastConfirmedFrame});
+    participant->controllerAssignments.erase(
+        std::remove(participant->controllerAssignments.begin(), participant->controllerAssignments.end(), slot),
+        participant->controllerAssignments.end()
+    );
+    syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
+    discardTimelineStateAfter(assignmentBaselineFrame);
+    participant->lastReceivedInputFrame = assignmentBaselineFrame;
+    participant->lastContiguousInputFrame = assignmentBaselineFrame;
+    participant->lastReceivedInputSequence = 0;
+    participant->pendingMissingInputFrom.reset();
+    if(participantId == m_localParticipantId) {
+        m_localInputSequence = 0;
+    }
+    refreshHostRoomState();
+
+    const AssignControllerData data = makeAssignControllerData(*participant);
+    m_transport.broadcastReliable(Channel::Control, buildAssignControllerPacket(data, m_session.roomState().sessionId));
+    m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0));
+
+    const bool shouldAutoResyncAfterAssignment =
+        (m_session.roomState().state == SessionState::Running ||
+         m_session.roomState().state == SessionState::Paused) &&
+        m_session.roomState().currentFrame > 0;
+    if(shouldAutoResyncAfterAssignment) {
+        if(!m_pendingHostResyncFrame.has_value() || assignmentBaselineFrame < *m_pendingHostResyncFrame) {
+            m_pendingHostResyncFrame = assignmentBaselineFrame;
+        }
+        pushLog("Controller assignment changed; scheduling automatic resync");
+    }
+
+    notifySessionEvent(controllerAssignmentToast(
+        participantIsObserver(*participant) ? kObserverPlayerSlot : participant->controllerAssignment,
+        m_session.roomState(),
+        participantLabel(*participant)
+    ));
+    return true;
+}
+
+bool NetplayCoordinator::clearControllerAssignments(ParticipantId participantId)
+{
+    if(!m_hosting) return false;
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr) return false;
+    if(participantIsObserver(*participant)) return true;
+
+    std::vector<PlayerSlot> assignments = participant->controllerAssignments;
+    for(PlayerSlot slot : assignments) {
+        if(!removeControllerAssignment(participantId, slot)) {
+            return false;
+        }
+    }
     return true;
 }
 

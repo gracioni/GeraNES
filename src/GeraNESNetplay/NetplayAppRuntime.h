@@ -66,7 +66,7 @@ public:
     {
         bool hosting = false;
         bool inputManaged = false;
-        std::optional<PlayerSlot> localAssignment;
+        std::vector<PlayerSlot> localAssignments;
         std::optional<Settings::Device> port1Device;
         std::optional<Settings::Device> port2Device;
         Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
@@ -95,7 +95,7 @@ private:
     std::string m_lastSelectedRomKey;
     std::string m_lastSubmittedValidationKey;
     std::optional<SessionState> m_lastSessionState;
-    std::optional<PlayerSlot> m_lastLocalAssignedSlot;
+    std::vector<PlayerSlot> m_lastLocalAssignedSlots;
     std::string m_lastAssignmentLayoutKey;
     uint32_t m_lastManualResetGeneration = 0;
     uint32_t m_lastManualLoadStateGeneration = 0;
@@ -143,30 +143,35 @@ private:
         for(const auto& participant : m_coordinator.session().roomState().participants) {
             key += std::to_string(participant.id);
             key += ":";
-            key += std::to_string(static_cast<int>(participant.controllerAssignment));
+            bool first = true;
+            for(PlayerSlot slot : participantAssignments(participant)) {
+                if(!first) key += ",";
+                key += std::to_string(static_cast<int>(slot));
+                first = false;
+            }
             key += ";";
         }
         return key;
     }
 
-    void reanchorInputDriver(FrameNumber anchorFrame, std::optional<PlayerSlot> localSlot)
+    void reanchorInputDriver(FrameNumber anchorFrame, const std::vector<PlayerSlot>& localSlots)
     {
+        (void)localSlots;
         m_inputDriver.reanchor(anchorFrame);
     }
 
-    std::optional<PlayerSlot> localAssignedSlot() const
+    std::vector<PlayerSlot> localAssignedSlots() const
     {
-        if(!m_coordinator.isActive()) return std::nullopt;
+        if(!m_coordinator.isActive()) return {};
 
         const ParticipantId localParticipantId = m_coordinator.localParticipantId();
         for(const auto& participant : m_coordinator.session().roomState().participants) {
-            if(participant.id == localParticipantId &&
-               participant.controllerAssignment != kObserverPlayerSlot) {
-                return participant.controllerAssignment;
+            if(participant.id == localParticipantId) {
+                return participant.controllerAssignments;
             }
         }
 
-        return std::nullopt;
+        return {};
     }
 
     std::string computeSessionBlockedReason(const std::optional<RomSelection>& localRom) const
@@ -186,7 +191,7 @@ private:
         bool anyDisconnected = false;
 
         for(const auto& participant : room.participants) {
-            if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+            if(participantIsObserver(participant)) continue;
             if(!participant.connected) anyDisconnected = true;
             if(!participant.romLoaded) anyMissingRom = true;
             else if(!participant.romCompatible) anyIncompatibleRom = true;
@@ -255,6 +260,9 @@ public:
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();
     void assignController(ParticipantId participantId, PlayerSlot slot);
+    void addControllerAssignment(ParticipantId participantId, PlayerSlot slot);
+    void removeControllerAssignment(ParticipantId participantId, PlayerSlot slot);
+    void clearControllerAssignments(ParticipantId participantId);
     void configureInputAssignment(ParticipantId participantId,
                                   std::optional<Settings::Device> port1Device,
                                   std::optional<Settings::Device> port2Device,
@@ -321,7 +329,7 @@ inline void NetplayAppRuntime::syncRomValidation(const std::optional<RomSelectio
         m_coordinator.disconnect();
         m_inputDriver.reset();
         m_runtimeLastTickTime = {};
-        m_lastLocalAssignedSlot.reset();
+        m_lastLocalAssignedSlots.clear();
         m_lastAssignmentLayoutKey.clear();
         return;
     }
@@ -501,7 +509,7 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
        previousState.has_value() &&
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
-        reanchorInputDriver(anchorFrame, localAssignedSlot());
+        reanchorInputDriver(anchorFrame, localAssignedSlots());
     }
 
     m_lastSessionState = currentState;
@@ -608,7 +616,7 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
     if(loaded) {
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload);
-        reanchorInputDriver(pending->targetFrame, localAssignedSlot());
+        reanchorInputDriver(pending->targetFrame, localAssignedSlots());
     }
     const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0;
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
@@ -661,7 +669,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
     m_coordinator.discardTimelineAfter(*rollbackFrame);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
-    reanchorInputDriver(*rollbackFrame, localAssignedSlot());
+    reanchorInputDriver(*rollbackFrame, localAssignedSlots());
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -825,9 +833,7 @@ inline NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
     if(snapshot.inputManaged) {
         for(const auto& participant : m_uiSnapshot.room.participants) {
             if(participant.id != m_uiSnapshot.localParticipantId) continue;
-            if(participant.controllerAssignment != kObserverPlayerSlot) {
-                snapshot.localAssignment = participant.controllerAssignment;
-            }
+            snapshot.localAssignments = participant.controllerAssignments;
             break;
         }
     }
@@ -880,6 +886,27 @@ inline void NetplayAppRuntime::assignController(ParticipantId participantId, Pla
     });
 }
 
+inline void NetplayAppRuntime::addControllerAssignment(ParticipantId participantId, PlayerSlot slot)
+{
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.addControllerAssignment(participantId, slot);
+    });
+}
+
+inline void NetplayAppRuntime::removeControllerAssignment(ParticipantId participantId, PlayerSlot slot)
+{
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.removeControllerAssignment(participantId, slot);
+    });
+}
+
+inline void NetplayAppRuntime::clearControllerAssignments(ParticipantId participantId)
+{
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.clearControllerAssignments(participantId);
+    });
+}
+
 inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participantId,
                                                         std::optional<Settings::Device> port1Device,
                                                         std::optional<Settings::Device> port2Device,
@@ -905,11 +932,11 @@ inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participan
             participantId,
             slot
         );
-        self.m_coordinator.assignController(participantId, slot);
+        self.m_coordinator.addControllerAssignment(participantId, slot);
         emu.discardQueuedInputFramesAfter(rebuildFromFrame);
-        self.reanchorInputDriver(rebuildFromFrame, self.localAssignedSlot());
+        self.reanchorInputDriver(rebuildFromFrame, self.localAssignedSlots());
         self.m_lastAssignmentLayoutKey.clear();
-        self.m_lastLocalAssignedSlot.reset();
+        self.m_lastLocalAssignedSlots.clear();
     });
 }
 
@@ -972,7 +999,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_inputDriver.reset();
         m_runtimeLastTickTime = {};
         m_lastSessionState.reset();
-        m_lastLocalAssignedSlot.reset();
+        m_lastLocalAssignedSlots.clear();
         m_lastAssignmentLayoutKey.clear();
         m_lastManualResetGeneration = m_emuHost.manualResetGeneration();
         m_lastManualLoadStateGeneration = m_emuHost.manualLoadStateGeneration();
@@ -1033,24 +1060,24 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         latestInputState = m_latestInputState;
     }
 
-    const std::optional<PlayerSlot> localSlot = localAssignedSlot();
+    const std::vector<PlayerSlot> localSlots = localAssignedSlots();
     const std::string assignmentLayoutKey = buildAssignmentLayoutKey();
     if(!m_lastAssignmentLayoutKey.empty() && assignmentLayoutKey != m_lastAssignmentLayoutKey) {
         m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
         if(running) {
-            reanchorInputDriver(emu.frameCount(), localSlot);
+            reanchorInputDriver(emu.frameCount(), localSlots);
         } else {
             m_inputDriver.reset();
         }
     }
     m_lastAssignmentLayoutKey = assignmentLayoutKey;
-    if(localSlot != m_lastLocalAssignedSlot) {
+    if(localSlots != m_lastLocalAssignedSlots) {
         if(running) {
-            reanchorInputDriver(emu.frameCount(), localSlot);
+            reanchorInputDriver(emu.frameCount(), localSlots);
         } else {
             m_inputDriver.reset();
         }
-        m_lastLocalAssignedSlot = localSlot;
+        m_lastLocalAssignedSlots = localSlots;
     }
     const uint32_t workerDtMs = consumeWorkerDtMs();
 
@@ -1059,7 +1086,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_coordinator.isActive(),
         false,
         m_coordinator.session().roomState().state,
-        localSlot,
+        localSlots,
         workerDtMs,
         latestInputState,
         m_coordinator.session().roomState(),

@@ -421,7 +421,7 @@ private:
         bool anyDisconnected = false;
 
         for(const auto& participant : room.participants) {
-            if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) continue;
+            if(participant.controllerAssignments.empty()) continue;
             anyAssigned = true;
             if(!participant.connected) anyDisconnected = true;
             if(!participant.romLoaded) anyMissingRom = true;
@@ -467,29 +467,28 @@ private:
         return m_netplayInputDriver.prebufferFrames();
     }
 
-    std::optional<Netplay::PlayerSlot> localNetplayAssignedSlot() const
+    std::vector<Netplay::PlayerSlot> localNetplayAssignedSlots() const
     {
-        if(!m_netplayCoordinator.isActive()) return std::nullopt;
+        if(!m_netplayCoordinator.isActive()) return {};
         const Netplay::ParticipantId localParticipantId = m_netplayCoordinator.localParticipantId();
         for(const auto& participant : m_netplayCoordinator.session().roomState().participants) {
-            if(participant.id == localParticipantId &&
-               participant.controllerAssignment != Netplay::kObserverPlayerSlot) {
-                return participant.controllerAssignment;
+            if(participant.id == localParticipantId) {
+                return participant.controllerAssignments;
             }
         }
-        return std::nullopt;
+        return {};
     }
 
     void produceLocalBufferedNetplayInputs(uint32_t dt, const std::array<uint64_t, 4>& rawMasks)
     {
-        const std::optional<Netplay::PlayerSlot> localSlot = localNetplayAssignedSlot();
+        const std::vector<Netplay::PlayerSlot> localSlots = localNetplayAssignedSlots();
         const uint64_t localPrimaryMask = rawMasks[0];
         m_netplayInputDriver.produceLocalBufferedInputs(
             m_netplayCoordinator,
             m_netplayCoordinator.isActive(),
             false,
             m_netplayCoordinator.session().roomState().state,
-            localSlot,
+            localSlots,
             dt,
             localPrimaryMask,
             m_emu.getRegionFPS(),

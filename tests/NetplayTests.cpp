@@ -267,6 +267,54 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
     REQUIRE(replayState.zapperP2Trigger == true);
 }
 
+TEST_CASE("Netplay allows multiple assignments for the same participant", "[netplay][assignment][multi]")
+{
+    Netplay::RoomState room;
+    room.port1Device = Settings::Device::CONTROLLER;
+    room.port2Device = Settings::Device::ZAPPER;
+
+    Netplay::ParticipantInfo host;
+    host.id = 0;
+    host.displayName = "Host";
+    host.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    host.normalizeControllerAssignments();
+    room.participants.push_back(host);
+
+    REQUIRE(Netplay::canAssignInputCandidate(
+        room,
+        host.id,
+        room.port1Device,
+        room.port2Device,
+        room.expansionDevice,
+        room.nesMultitapDevice,
+        room.famicomMultitapDevice,
+        Netplay::kPort2PlayerSlot
+    ));
+
+    EmulationHost::InputState state{};
+    state.p1Start = true;
+    state.zapperX = 112;
+    state.zapperY = 64;
+    state.zapperP2Trigger = true;
+
+    auto frame = Netplay::makeRoomTopologyBaseFrame(33u, room);
+    Netplay::applyAssignedContribution(
+        frame,
+        Netplay::kPort1PlayerSlot,
+        Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, state, frame)
+    );
+    Netplay::applyAssignedContribution(
+        frame,
+        Netplay::kPort2PlayerSlot,
+        Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, state, frame)
+    );
+
+    REQUIRE(frame.p1Start == true);
+    REQUIRE(frame.zapperP2X == 112);
+    REQUIRE(frame.zapperP2Y == 64);
+    REQUIRE(frame.zapperP2Trigger == true);
+}
+
 TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")
 {
     Netplay::RoomState room;

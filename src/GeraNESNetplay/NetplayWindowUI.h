@@ -201,7 +201,8 @@ inline void drawNetplayWindow(bool& showWindow,
                            room.pendingResyncAckCount);
     }
 
-    const auto drawAssignmentTree = [&](ParticipantId participantId, PlayerSlot selectedSlot) {
+    const auto drawAssignmentTree = [&](const ParticipantInfo& participant) {
+        const ParticipantId participantId = participant.id;
         const auto currentPort1 = room.port1Device.value_or(Settings::Device::NONE);
         const auto currentPort2 = room.port2Device.value_or(Settings::Device::NONE);
         const auto canAssignCandidate = [&](std::optional<Settings::Device> port1Device,
@@ -270,7 +271,7 @@ inline void drawNetplayWindow(bool& showWindow,
                 port == Settings::Port::P_2 ? device : currentPort2
             );
             const bool selected =
-                selectedSlot == slot &&
+                participantHasAssignment(participant, slot) &&
                 room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
                 room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
                 ((port == Settings::Port::P_1 ? currentPort1 : currentPort2) == device);
@@ -290,7 +291,7 @@ inline void drawNetplayWindow(bool& showWindow,
         };
         const auto drawExpansionOption = [&](const char* label, Settings::ExpansionDevice device) {
             const bool selected =
-                selectedSlot == kExpansionPlayerSlot &&
+                participantHasAssignment(participant, kExpansionPlayerSlot) &&
                 room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
                 room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
                 room.expansionDevice == device;
@@ -313,7 +314,7 @@ inline void drawNetplayWindow(bool& showWindow,
                                             Settings::FamicomMultitapDevice famicomDevice,
                                             PlayerSlot slot) {
             const bool selected =
-                selectedSlot == slot &&
+                participantHasAssignment(participant, slot) &&
                 room.nesMultitapDevice == nesDevice &&
                 room.famicomMultitapDevice == famicomDevice;
             const bool enabled = canAssignCandidate(
@@ -475,32 +476,32 @@ inline void drawNetplayWindow(bool& showWindow,
             );
             ImGui::TableNextColumn();
             if(snapshot.hosting) {
-                int controllerValue = participant.controllerAssignment == kObserverPlayerSlot
-                    ? -1
-                    : static_cast<int>(participant.controllerAssignment);
-                const std::string preview =
-                    controllerValue < 0 ? "Observer" : inputAssignmentLabel(participant.controllerAssignment, room);
+                const std::string preview = participantAssignmentsLabel(participant, room);
                 const float comboHeight = ImGui::GetFrameHeight();
-                if(participant.controllerAssignment != kObserverPlayerSlot) {
+                for(PlayerSlot slot : participant.controllerAssignments) {
                     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.12f, 0.12f, 1.0f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75f, 0.18f, 0.18f, 1.0f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.90f, 0.22f, 0.22f, 1.0f));
-                    if(ImGui::Button(("X##observer" + std::to_string(participant.id)).c_str(), ImVec2(comboHeight, 0.0f))) {
-                        runtime.assignController(participant.id, kObserverPlayerSlot);
+                    if(ImGui::Button(("X##assignment" + std::to_string(participant.id) + "_" + std::to_string(slot)).c_str(), ImVec2(comboHeight, 0.0f))) {
+                        runtime.removeControllerAssignment(participant.id, slot);
                     }
                     ImGui::PopStyleColor(3);
                     ImGui::SameLine();
+                    ImGui::TextUnformatted(inputAssignmentLabel(slot, room).c_str());
+                }
+                if(!participant.controllerAssignments.empty()) {
+                    ImGui::Spacing();
                 }
                 std::string comboId = "##ctrl" + std::to_string(participant.id);
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if(ImGui::BeginCombo(comboId.c_str(), preview.c_str())) {
-                    drawAssignmentTree(participant.id, participant.controllerAssignment);
+                    drawAssignmentTree(participant);
                     ImGui::EndCombo();
                 }
-            } else if(participant.controllerAssignment == kObserverPlayerSlot) {
+            } else if(participant.controllerAssignments.empty()) {
                 ImGui::TextUnformatted("Observer");
             } else {
-                const std::string label = inputAssignmentLabel(participant.controllerAssignment, room);
+                const std::string label = participantAssignmentsLabel(participant, room);
                 ImGui::TextUnformatted(label.c_str());
             }
             ImGui::TableNextColumn();

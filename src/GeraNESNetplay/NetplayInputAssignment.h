@@ -9,6 +9,8 @@
 
 namespace Netplay {
 
+inline std::string inputAssignmentLabel(PlayerSlot slot, const RoomState& room);
+
 inline const char* portDeviceLabel(Settings::Device device)
 {
     switch(device) {
@@ -98,6 +100,56 @@ inline bool isMultitapActive(const RoomState& room)
            room.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
 }
 
+inline std::vector<PlayerSlot> participantAssignments(const ParticipantInfo& participant)
+{
+    if(!participant.controllerAssignments.empty()) {
+        return participant.controllerAssignments;
+    }
+    if(participant.controllerAssignment != kObserverPlayerSlot) {
+        return {participant.controllerAssignment};
+    }
+    return {};
+}
+
+inline bool participantHasAssignment(const ParticipantInfo& participant, PlayerSlot slot)
+{
+    if(participant.hasControllerAssignment(slot)) {
+        return true;
+    }
+    return participant.controllerAssignments.empty() && participant.controllerAssignment == slot;
+}
+
+inline bool participantIsObserver(const ParticipantInfo& participant)
+{
+    return participant.controllerAssignments.empty() && participant.controllerAssignment == kObserverPlayerSlot;
+}
+
+inline void syncParticipantRoleWithAssignments(ParticipantInfo& participant, bool keepHostRole = false)
+{
+    participant.normalizeControllerAssignments();
+    if(keepHostRole) {
+        participant.role = ParticipantRole::Host;
+    } else {
+        participant.role = participantIsObserver(participant) ? ParticipantRole::Observer : ParticipantRole::Player;
+    }
+}
+
+inline std::string participantAssignmentsLabel(const ParticipantInfo& participant, const RoomState& room)
+{
+    if(participantIsObserver(participant)) {
+        return "Observer";
+    }
+
+    std::string label;
+    bool first = true;
+    for(PlayerSlot slot : participantAssignments(participant)) {
+        if(!first) label += ", ";
+        label += inputAssignmentLabel(slot, room);
+        first = false;
+    }
+    return label;
+}
+
 inline std::vector<PlayerSlot> availableInputAssignments(const RoomState& room)
 {
     std::vector<PlayerSlot> assignments;
@@ -151,7 +203,7 @@ inline bool isInputAssignmentClaimedByOtherParticipant(const RoomState& room,
 
     for(const auto& participant : room.participants) {
         if(participant.id == participantId) continue;
-        if(participant.controllerAssignment == slot) {
+        if(participantHasAssignment(participant, slot)) {
             return true;
         }
     }
@@ -185,34 +237,43 @@ inline bool canAssignInputCandidate(const RoomState& room,
     if(currentMultitapActive && candidateMultitapActive && multitapFamilyChanged) {
         for(const auto& participant : room.participants) {
             if(participant.id == participantId) continue;
-            switch(participant.controllerAssignment) {
-                case kMultitapP1PlayerSlot:
-                case kMultitapP2PlayerSlot:
-                case kMultitapP3PlayerSlot:
-                case kMultitapP4PlayerSlot:
-                    return false;
-                default:
-                    break;
+            for(PlayerSlot assignedSlot : participantAssignments(participant)) {
+                switch(assignedSlot) {
+                    case kMultitapP1PlayerSlot:
+                    case kMultitapP2PlayerSlot:
+                    case kMultitapP3PlayerSlot:
+                    case kMultitapP4PlayerSlot:
+                        return false;
+                    default:
+                        break;
+                }
             }
         }
     }
 
     std::vector<PlayerSlot> claimedAssignments;
-    claimedAssignments.reserve(candidateRoom.participants.size());
+    claimedAssignments.reserve(candidateRoom.participants.size() * 2u);
 
     for(const auto& participant : candidateRoom.participants) {
-        const PlayerSlot effectiveAssignment =
-            participant.id == participantId ? slot : participant.controllerAssignment;
-        if(effectiveAssignment == kObserverPlayerSlot) {
-            continue;
+        std::vector<PlayerSlot> effectiveAssignments = participantAssignments(participant);
+        if(participant.id == participantId && slot != kObserverPlayerSlot &&
+           std::find(effectiveAssignments.begin(), effectiveAssignments.end(), slot) == effectiveAssignments.end()) {
+            effectiveAssignments.push_back(slot);
         }
-        if(!isAssignmentAvailable(effectiveAssignment, candidateRoom)) {
-            return false;
+
+        std::sort(effectiveAssignments.begin(), effectiveAssignments.end());
+        effectiveAssignments.erase(std::unique(effectiveAssignments.begin(), effectiveAssignments.end()),
+                                   effectiveAssignments.end());
+
+        for(PlayerSlot effectiveAssignment : effectiveAssignments) {
+            if(!isAssignmentAvailable(effectiveAssignment, candidateRoom)) {
+                return false;
+            }
+            if(std::find(claimedAssignments.begin(), claimedAssignments.end(), effectiveAssignment) != claimedAssignments.end()) {
+                return false;
+            }
+            claimedAssignments.push_back(effectiveAssignment);
         }
-        if(std::find(claimedAssignments.begin(), claimedAssignments.end(), effectiveAssignment) != claimedAssignments.end()) {
-            return false;
-        }
-        claimedAssignments.push_back(effectiveAssignment);
     }
 
     return true;

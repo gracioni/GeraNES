@@ -158,7 +158,8 @@ struct FrameStatusData
 struct AssignControllerData
 {
     ParticipantId participantId = kInvalidParticipantId;
-    PlayerSlot controllerAssignment = kObserverPlayerSlot;
+    uint8_t assignmentCount = 0;
+    std::array<PlayerSlot, kMaxAssignedPlayerSlot + 1> controllerAssignments = {};
 };
 
 struct ParticipantLeftData

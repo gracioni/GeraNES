@@ -58,7 +58,9 @@ private:
 
     static bool isAssignedActiveParticipant(const ParticipantInfo& participant)
     {
-        return participant.connected && participant.controllerAssignment != kObserverPlayerSlot;
+        return participant.connected &&
+               (!participant.controllerAssignments.empty() ||
+                participant.controllerAssignment != kObserverPlayerSlot);
     }
 
     static uint8_t clampDelay(uint32_t frames)

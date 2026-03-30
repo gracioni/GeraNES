@@ -213,6 +213,9 @@ public:
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);
     bool submitLocalRomValidation(bool romLoaded, bool romCompatible, const RomValidationData& romValidation);
     bool assignController(ParticipantId participantId, PlayerSlot slot);
+    bool addControllerAssignment(ParticipantId participantId, PlayerSlot slot);
+    bool removeControllerAssignment(ParticipantId participantId, PlayerSlot slot);
+    bool clearControllerAssignments(ParticipantId participantId);
     bool kickParticipant(ParticipantId participantId);
     bool removeReconnectReservation(ParticipantId participantId);
     bool setInputDelayFrames(uint8_t frames);

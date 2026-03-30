@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <string>
@@ -20,6 +21,7 @@ struct ParticipantInfo
     uint16_t reservationSecondsRemaining = 0;
     ParticipantRole role = ParticipantRole::Observer;
     PlayerSlot controllerAssignment = kObserverPlayerSlot;
+    std::vector<PlayerSlot> controllerAssignments;
     bool romLoaded = false;
     bool romCompatible = false;
     uint16_t pingMs = 0;
@@ -35,6 +37,25 @@ struct ParticipantInfo
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
     std::string lastDecision;
+
+    void normalizeControllerAssignments()
+    {
+        controllerAssignments.erase(
+            std::remove(controllerAssignments.begin(), controllerAssignments.end(), kObserverPlayerSlot),
+            controllerAssignments.end()
+        );
+        std::sort(controllerAssignments.begin(), controllerAssignments.end());
+        controllerAssignments.erase(
+            std::unique(controllerAssignments.begin(), controllerAssignments.end()),
+            controllerAssignments.end()
+        );
+        controllerAssignment = controllerAssignments.empty() ? kObserverPlayerSlot : controllerAssignments.front();
+    }
+
+    bool hasControllerAssignment(PlayerSlot slot) const
+    {
+        return std::find(controllerAssignments.begin(), controllerAssignments.end(), slot) != controllerAssignments.end();
+    }
 };
 
 struct RoomState

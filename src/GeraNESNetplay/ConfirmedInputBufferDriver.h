@@ -26,17 +26,19 @@ private:
     std::deque<NetplayCoordinator::ConfirmedFrameInputs> m_pendingFrames;
 
     void seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
-                                      PlayerSlot localSlot,
+                                      const std::vector<PlayerSlot>& localSlots,
                                       const EmulationHost::InputState& localInputState,
                                       const RoomState& room)
     {
         while(m_producedThroughFrame < m_prebufferFrames) {
             ++m_producedThroughFrame;
-            coordinator.recordLocalInputFrame(
-                m_producedThroughFrame,
-                localSlot,
-                buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
-            );
+            for(PlayerSlot localSlot : localSlots) {
+                coordinator.recordLocalInputFrame(
+                    m_producedThroughFrame,
+                    localSlot,
+                    buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+                );
+            }
         }
     }
 
@@ -313,17 +315,48 @@ public:
                                     uint32_t exactFrame,
                                     uint32_t confirmedThroughFrame)
     {
+        std::vector<PlayerSlot> localSlots;
+        if(localSlot.has_value()) {
+            localSlots.push_back(*localSlot);
+        }
+        produceLocalBufferedInputs(
+            coordinator,
+            active,
+            awaitingSync,
+            state,
+            localSlots,
+            dtMs,
+            localInputState,
+            room,
+            regionFps,
+            exactFrame,
+            confirmedThroughFrame
+        );
+    }
+
+    void produceLocalBufferedInputs(NetplayCoordinator& coordinator,
+                                    bool active,
+                                    bool awaitingSync,
+                                    SessionState state,
+                                    const std::vector<PlayerSlot>& localSlots,
+                                    uint32_t dtMs,
+                                    const EmulationHost::InputState& localInputState,
+                                    const RoomState& room,
+                                    uint32_t regionFps,
+                                    uint32_t exactFrame,
+                                    uint32_t confirmedThroughFrame)
+    {
         if(!active || awaitingSync || state != SessionState::Running) {
             reset();
             return;
         }
 
-        if(!localSlot.has_value()) {
+        if(localSlots.empty()) {
             reset();
             return;
         }
 
-        seedInitialPrebufferIfNeeded(coordinator, *localSlot, localInputState, room);
+        seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
 
         const double fps = static_cast<double>(std::max(1u, regionFps));
         const double frameDurationMs = 1000.0 / fps;
@@ -334,20 +367,24 @@ public:
               m_producedThroughFrame < targetBufferedThroughFrame) {
             m_inputProductionAccumulatorMs -= frameDurationMs;
             ++m_producedThroughFrame;
-            coordinator.recordLocalInputFrame(
-                m_producedThroughFrame,
-                *localSlot,
-                buildAssignedContribution(*localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
-            );
+            for(PlayerSlot localSlot : localSlots) {
+                coordinator.recordLocalInputFrame(
+                    m_producedThroughFrame,
+                    localSlot,
+                    buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+                );
+            }
         }
 
         while(m_producedThroughFrame < targetBufferedThroughFrame) {
             ++m_producedThroughFrame;
-            coordinator.recordLocalInputFrame(
-                m_producedThroughFrame,
-                *localSlot,
-                buildAssignedContribution(*localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
-            );
+            for(PlayerSlot localSlot : localSlots) {
+                coordinator.recordLocalInputFrame(
+                    m_producedThroughFrame,
+                    localSlot,
+                    buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+                );
+            }
         }
 
         const double maxBufferedAccumulatorMs =
@@ -368,9 +405,38 @@ public:
                                     uint32_t exactFrame,
                                     uint32_t confirmedThroughFrame)
     {
-        EmulationHost::InputState inputState{};
+        std::vector<PlayerSlot> localSlots;
         if(localSlot.has_value()) {
-            applyPadMaskToInputState(inputState, *localSlot, localPrimaryMask);
+            localSlots.push_back(*localSlot);
+        }
+        produceLocalBufferedInputs(
+            coordinator,
+            active,
+            awaitingSync,
+            state,
+            localSlots,
+            dtMs,
+            localPrimaryMask,
+            regionFps,
+            exactFrame,
+            confirmedThroughFrame
+        );
+    }
+
+    void produceLocalBufferedInputs(NetplayCoordinator& coordinator,
+                                    bool active,
+                                    bool awaitingSync,
+                                    SessionState state,
+                                    const std::vector<PlayerSlot>& localSlots,
+                                    uint32_t dtMs,
+                                    uint64_t localPrimaryMask,
+                                    uint32_t regionFps,
+                                    uint32_t exactFrame,
+                                    uint32_t confirmedThroughFrame)
+    {
+        EmulationHost::InputState inputState{};
+        if(!localSlots.empty()) {
+            applyPadMaskToInputState(inputState, localSlots.front(), localPrimaryMask);
         }
 
         RoomState room = coordinator.session().roomState();
@@ -381,7 +447,7 @@ public:
             active,
             awaitingSync,
             state,
-            localSlot,
+            localSlots,
             dtMs,
             inputState,
             room,
