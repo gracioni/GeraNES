@@ -836,7 +836,10 @@ private:
     void resyncAudioAfterStateLoad()
     {
         // Audio output internals (wave generators/FIFOs) are not part of save states.
-        // Re-sync them to the restored APU/settings to avoid stale buffered audio.
+        // Re-sync them to the restored APU/settings and drop any already-queued
+        // backend audio so rollback/resync does not overlap old sound with the
+        // restored timeline.
+        m_audioOutput.discardQueuedAudio();
         m_audioOutput.clearAudioBuffers();
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);

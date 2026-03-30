@@ -1371,12 +1371,12 @@ public:
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
         ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
+        m_emu.setForceSilentAudio(true);
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
             m_pendingInput = replayInput.state;
             queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
-            m_emu.setForceSilentAudio(replayInput.speculative);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);
@@ -1393,6 +1393,7 @@ public:
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
         ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
+        m_emu.setForceSilentAudio(true);
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
@@ -1401,7 +1402,6 @@ public:
                 m_pendingInput = replayInput.state;
             }
             queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
-            m_emu.setForceSilentAudio(replayInput.speculative);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
             m_emu.updateUntilFrame(frameDt);

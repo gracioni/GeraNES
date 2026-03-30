@@ -12,6 +12,47 @@
 #include "NetplayTest.h"
 #include "TestSupport.h"
 
+namespace
+{
+class RecordingAudioOutput : public IAudioOutput
+{
+public:
+    uint32_t renderCalls = 0;
+    uint32_t silentRenderCalls = 0;
+    uint32_t audibleRenderCalls = 0;
+    uint32_t clearAudioBuffersCalls = 0;
+    uint32_t discardQueuedAudioCalls = 0;
+
+    void render(uint32_t, bool silenceFlag) override
+    {
+        ++renderCalls;
+        if(silenceFlag) ++silentRenderCalls;
+        else ++audibleRenderCalls;
+    }
+
+    void clearAudioBuffers() override
+    {
+        ++clearAudioBuffersCalls;
+    }
+
+    void discardQueuedAudio() override
+    {
+        ++discardQueuedAudioCalls;
+    }
+};
+
+void queueFrameAndAdvance(GeraNESEmu& emu, uint32_t frame, bool speculative = false)
+{
+    InputFrame inputFrame = emu.createInputFrame(frame);
+    inputFrame.speculative = speculative;
+    emu.queueInputFrame(inputFrame);
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == frame);
+}
+}
+
 TEST_CASE("Netplay auto settings probe behaves as expected", "[netplay][autosettings]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -223,6 +264,61 @@ TEST_CASE("Netplay runtime flow hard-resyncs after an injected desync", "[netpla
     REQUIRE(report.at("desyncInjected") == true);
     REQUIRE(report.at("hardResyncObserved") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay state load flushes previously queued audio", "[netplay][audio][state-load]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    queueFrameAndAdvance(emu, 1u, false);
+    queueFrameAndAdvance(emu, 2u, false);
+    REQUIRE(audio.audibleRenderCalls > 0);
+
+    const std::vector<uint8_t> state = emu.saveStateToMemory();
+    REQUIRE_FALSE(state.empty());
+
+    queueFrameAndAdvance(emu, 3u, false);
+
+    audio.discardQueuedAudioCalls = 0;
+    audio.clearAudioBuffersCalls = 0;
+    REQUIRE(emu.loadStateFromMemoryOnCleanBoot(state));
+    REQUIRE(audio.discardQueuedAudioCalls > 0);
+    REQUIRE(audio.clearAudioBuffersCalls > 0);
+}
+
+TEST_CASE("Netplay speculative playback keeps audio silent", "[netplay][audio][prediction]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame confirmedFrame = emu.createInputFrame(0u);
+    confirmedFrame.speculative = false;
+    emu.queueInputFrame(confirmedFrame);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    const uint32_t audibleBeforeSpeculative = audio.audibleRenderCalls;
+    const uint32_t silentBeforeSpeculative = audio.silentRenderCalls;
+
+    InputFrame speculativeFrame = emu.createInputFrame(1u);
+    speculativeFrame.speculative = true;
+    emu.queueInputFrame(speculativeFrame);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+
+    REQUIRE(audio.audibleRenderCalls == audibleBeforeSpeculative);
+    REQUIRE(audio.silentRenderCalls > silentBeforeSpeculative);
 }
 
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")
