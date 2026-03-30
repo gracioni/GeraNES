@@ -65,6 +65,7 @@ public:
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
+        bool hostMultitapAssignedBeforeJoinOnly = false;
         bool assignmentPatternCheck = false;
     };
 
@@ -1334,6 +1335,41 @@ private:
                         return result;
                     }
                 }
+                if(options.hostMultitapAssignedBeforeJoinOnly) {
+                    const auto hostRoomBeforeJoin = hostPeer.runtime.uiSnapshot().room;
+                    const auto hostIdBeforeJoin = findParticipantIdByName(hostRoomBeforeJoin, hostPeer.name);
+                    if(!hostIdBeforeJoin.has_value()) {
+                        failureReason = "Failed to resolve host participant id before Four Score assignment.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_ERROR;
+                        cleanup();
+                        return result;
+                    }
+                    hostPeer.runtime.configureInputAssignment(
+                        *hostIdBeforeJoin,
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        Settings::ExpansionDevice::NONE,
+                        Settings::NesMultitapDevice::FOUR_SCORE,
+                        Settings::FamicomMultitapDevice::NONE,
+                        Netplay::kMultitapP1PlayerSlot
+                    );
+                    if(!waitFor([&]() {
+                            const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                            const auto localId = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                            if(!localId.has_value()) return false;
+                            const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *localId);
+                            return hostParticipant != nullptr &&
+                                   hostSnap.room.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE &&
+                                   hostParticipant->controllerAssignment == Netplay::kMultitapP1PlayerSlot;
+                        }, options.startupTimeoutSteps, 5u)) {
+                        failureReason = "Host-only Four Score P1 assignment did not stick before client join.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_ERROR;
+                        cleanup();
+                        return result;
+                    }
+                }
                 clientPeer.runtime.join("127.0.0.1", port, clientPeer.name);
                 hosted = true;
                 break;
@@ -1422,7 +1458,7 @@ private:
             return result;
         }
 
-        if(options.hostAssignedBeforeJoinOnly) {
+        if(options.hostAssignedBeforeJoinOnly || options.hostMultitapAssignedBeforeJoinOnly) {
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
                     const auto clientSnap = clientPeer.runtime.uiSnapshot();
@@ -1431,14 +1467,26 @@ private:
                     if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
                     const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
                     const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                    const Netplay::PlayerSlot expectedHostAssignment =
+                        options.hostMultitapAssignedBeforeJoinOnly
+                            ? Netplay::kMultitapP1PlayerSlot
+                            : Netplay::kPort1PlayerSlot;
+                    const Settings::NesMultitapDevice expectedNesMultitap =
+                        options.hostMultitapAssignedBeforeJoinOnly
+                            ? Settings::NesMultitapDevice::FOUR_SCORE
+                            : Settings::NesMultitapDevice::NONE;
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
-                           hostParticipant->controllerAssignment == 0 &&
+                           hostParticipant->controllerAssignment == expectedHostAssignment &&
                            clientParticipant->controllerAssignment == Netplay::kObserverPlayerSlot &&
+                           hostSnap.room.nesMultitapDevice == expectedNesMultitap &&
+                           clientSnap.room.nesMultitapDevice == expectedNesMultitap &&
                            hostSnap.room.state == Netplay::SessionState::Running &&
                            clientSnap.room.state == Netplay::SessionState::Running;
                 }, options.startupTimeoutSteps, 5u)) {
-                failureReason = "Timed out waiting for late-joining observer to sync after host was already assigned.";
+                failureReason = options.hostMultitapAssignedBeforeJoinOnly
+                    ? "Timed out waiting for late-joining observer to sync after host was already assigned to Four Score P1."
+                    : "Timed out waiting for late-joining observer to sync after host was already assigned.";
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                 result.exitCode = RESULT_ERROR;
                 cleanup();

@@ -1653,7 +1653,9 @@ void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> po
                                               std::optional<Settings::Device> port2Device,
                                               Settings::ExpansionDevice expansionDevice,
                                               Settings::NesMultitapDevice nesMultitapDevice,
-                                              Settings::FamicomMultitapDevice famicomMultitapDevice)
+                                              Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                              std::optional<ParticipantId> preservedParticipantId,
+                                              PlayerSlot preservedAssignment)
 {
     if(!m_hosting) return;
 
@@ -1675,6 +1677,14 @@ void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> po
     std::vector<ParticipantId> changedAssignments;
     for(ParticipantInfo& participant : room.participants) {
         if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+        const bool preserveParticipantAssignment =
+            preservedParticipantId.has_value() &&
+            participant.id == *preservedParticipantId &&
+            preservedAssignment != kObserverPlayerSlot &&
+            isAssignmentAvailable(preservedAssignment, room);
+        if(preserveParticipantAssignment) {
+            continue;
+        }
         if(isAssignmentAvailable(participant.controllerAssignment, room)) continue;
         participant.controllerAssignment = kObserverPlayerSlot;
         participant.role = participant.id == m_localParticipantId ? ParticipantRole::Host : ParticipantRole::Observer;

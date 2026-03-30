@@ -858,7 +858,8 @@ inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participan
                                                         PlayerSlot slot)
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
-        self.m_coordinator.setLocalSimulationFrame(emu.frameCount());
+        const FrameNumber rebuildFromFrame = emu.frameCount() > 0 ? (emu.frameCount() - 1u) : 0u;
+        self.m_coordinator.setLocalSimulationFrame(rebuildFromFrame);
         emu.setNesMultitapDevice(nesMultitapDevice);
         emu.setFamicomMultitapDevice(famicomMultitapDevice);
         emu.setPortDevice(Settings::Port::P_1, port1Device.value_or(Settings::Device::NONE));
@@ -869,11 +870,13 @@ inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participan
             port2Device,
             expansionDevice,
             nesMultitapDevice,
-            famicomMultitapDevice
+            famicomMultitapDevice,
+            participantId,
+            slot
         );
         self.m_coordinator.assignController(participantId, slot);
-        emu.discardQueuedInputFramesAfter(emu.frameCount());
-        self.reanchorInputDriver(emu.frameCount(), self.localAssignedSlot());
+        emu.discardQueuedInputFramesAfter(rebuildFromFrame);
+        self.reanchorInputDriver(rebuildFromFrame, self.localAssignedSlot());
         self.m_lastAssignmentLayoutKey.clear();
         self.m_lastLocalAssignedSlot.reset();
     });

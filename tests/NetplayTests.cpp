@@ -73,6 +73,35 @@ TEST_CASE("Late-joining observer receives already-assigned host inputs", "[netpl
     REQUIRE(report.at("client").at("runtimeRunning") == true);
 }
 
+TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay][runtime][multitap][late-join]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.hostMultitapAssignedBeforeJoinOnly = true;
+    options.frames = 20;
+    options.inputDelayFrames = 0;
+    options.predictFrames = 2;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_host_multitap_before_join.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    bool hostFound = false;
+    for(const auto& participant : report.at("host").at("participants")) {
+        if(participant.at("name") == "Host") {
+            REQUIRE(participant.at("controllerAssignment") == Netplay::kMultitapP1PlayerSlot);
+            hostFound = true;
+            break;
+        }
+    }
+    REQUIRE(hostFound);
+}
+
 TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[netplay][runtime][reconnect]")
 {
     GeraNESTestSupport::requireRomFixture();

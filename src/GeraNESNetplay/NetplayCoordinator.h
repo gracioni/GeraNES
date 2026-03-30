@@ -167,7 +167,9 @@ public:
                               std::optional<Settings::Device> port2Device,
                               Settings::ExpansionDevice expansionDevice,
                               Settings::NesMultitapDevice nesMultitapDevice,
-                              Settings::FamicomMultitapDevice famicomMultitapDevice);
+                              Settings::FamicomMultitapDevice famicomMultitapDevice,
+                              std::optional<ParticipantId> preservedParticipantId = std::nullopt,
+                              PlayerSlot preservedAssignment = kObserverPlayerSlot);
 
     bool host(uint16_t port, size_t maxPeers, const std::string& displayName);
     bool join(const std::string& hostName, uint16_t port, const std::string& displayName);
