@@ -62,6 +62,15 @@ public:
         RomValidationData validation = {};
     };
 
+    struct MenuSnapshot
+    {
+        bool active = false;
+        bool hosting = false;
+        bool connected = false;
+        ParticipantId localParticipantId = kInvalidParticipantId;
+        RoomState room;
+    };
+
 private:
     using WorkerCommand = std::function<void(NetplayAppRuntime&, GeraNESEmu&)>;
 
@@ -235,6 +244,7 @@ public:
     void updateLatestInputState(const EmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
     UiSnapshot uiSnapshot() const;
+    MenuSnapshot menuSnapshot() const;
     bool runtimeActive() const;
     bool runtimeRunning() const;
 
@@ -802,6 +812,18 @@ inline NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
 {
     std::scoped_lock stateLock(m_stateMutex);
     return m_uiSnapshot;
+}
+
+inline NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    MenuSnapshot snapshot;
+    snapshot.active = m_uiSnapshot.active;
+    snapshot.hosting = m_uiSnapshot.hosting;
+    snapshot.connected = m_uiSnapshot.connected;
+    snapshot.localParticipantId = m_uiSnapshot.localParticipantId;
+    snapshot.room = m_uiSnapshot.room;
+    return snapshot;
 }
 
 inline bool NetplayAppRuntime::runtimeActive() const

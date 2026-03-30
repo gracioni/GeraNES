@@ -247,7 +247,7 @@ private:
     bool isNetplayClientRestricted() const
     {
 #ifndef __EMSCRIPTEN__
-        const auto snapshot = m_netplayRuntime.uiSnapshot();
+        const auto snapshot = m_netplayRuntime.menuSnapshot();
         return snapshot.active && snapshot.connected && !snapshot.hosting;
 #else
         return false;

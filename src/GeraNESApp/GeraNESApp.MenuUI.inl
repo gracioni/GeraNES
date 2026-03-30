@@ -266,7 +266,7 @@ inline void GeraNESApp::menuBar() {
         if (ImGui::BeginMenu("Input"))
         {
 #ifndef __EMSCRIPTEN__
-            const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
+            const auto netplaySnapshot = m_netplayRuntime.menuSnapshot();
             const bool netplayInputManaged = netplaySnapshot.active && netplaySnapshot.connected;
             const auto localNetplayAssignment = [&]() -> std::optional<Netplay::PlayerSlot> {
                 if(!netplayInputManaged) return std::nullopt;
