@@ -241,6 +241,109 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
     }
 }
 
+TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")
+{
+    Netplay::RoomState room;
+    room.port1Device = Settings::Device::CONTROLLER;
+    room.port2Device = Settings::Device::CONTROLLER;
+    room.expansionDevice = Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+
+    Netplay::ParticipantInfo host;
+    host.id = 0;
+    host.displayName = "Host";
+    host.controllerAssignment = Netplay::kPort1PlayerSlot;
+    room.participants.push_back(host);
+
+    Netplay::ParticipantInfo client;
+    client.id = 1;
+    client.displayName = "Client";
+    client.controllerAssignment = Netplay::kObserverPlayerSlot;
+    room.participants.push_back(client);
+
+    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        room.expansionDevice,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
+        Netplay::kPort1PlayerSlot
+    ));
+
+    REQUIRE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        room.expansionDevice,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
+        Netplay::kPort2PlayerSlot
+    ));
+
+    REQUIRE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        room.expansionDevice,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
+        Netplay::kExpansionPlayerSlot
+    ));
+
+    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE,
+        Netplay::kMultitapP1PlayerSlot
+    ));
+
+    room.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+    room.port1Device = Settings::Device::CONTROLLER;
+    room.port2Device = Settings::Device::CONTROLLER;
+    room.expansionDevice = Settings::ExpansionDevice::NONE;
+    room.participants[0].controllerAssignment = Netplay::kMultitapP1PlayerSlot;
+
+    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE,
+        Netplay::kMultitapP1PlayerSlot
+    ));
+
+    REQUIRE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE,
+        Netplay::kMultitapP2PlayerSlot
+    ));
+
+    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+        room,
+        client.id,
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::HORI_ADAPTER,
+        Netplay::kMultitapP2PlayerSlot
+    ));
+}
+
 TEST_CASE("Netplay runtime flow hard-resyncs after an injected desync", "[netplay][runtime][resync]")
 {
     GeraNESTestSupport::requireRomFixture();

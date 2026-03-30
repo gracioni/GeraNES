@@ -204,6 +204,23 @@ inline void drawNetplayWindow(bool& showWindow,
     const auto drawAssignmentTree = [&](ParticipantId participantId, PlayerSlot selectedSlot) {
         const auto currentPort1 = room.port1Device.value_or(Settings::Device::NONE);
         const auto currentPort2 = room.port2Device.value_or(Settings::Device::NONE);
+        const auto canAssignCandidate = [&](std::optional<Settings::Device> port1Device,
+                                            std::optional<Settings::Device> port2Device,
+                                            Settings::ExpansionDevice expansionDevice,
+                                            Settings::NesMultitapDevice nesMultitapDevice,
+                                            Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                            PlayerSlot slot) {
+            return canAssignInputCandidate(
+                room,
+                participantId,
+                port1Device,
+                port2Device,
+                expansionDevice,
+                nesMultitapDevice,
+                famicomMultitapDevice,
+                slot
+            );
+        };
         const auto selectPortDevice = [&](Settings::Port port, Settings::Device device) {
             const auto port1Device = std::optional<Settings::Device>(
                 port == Settings::Port::P_1 ? device : currentPort1
@@ -246,14 +263,30 @@ inline void drawNetplayWindow(bool& showWindow,
             );
         };
         const auto drawPortOption = [&](const char* label, Settings::Port port, Settings::Device device, PlayerSlot slot) {
+            const auto port1Device = std::optional<Settings::Device>(
+                port == Settings::Port::P_1 ? device : currentPort1
+            );
+            const auto port2Device = std::optional<Settings::Device>(
+                port == Settings::Port::P_2 ? device : currentPort2
+            );
             const bool selected =
                 selectedSlot == slot &&
                 room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
                 room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
                 ((port == Settings::Port::P_1 ? currentPort1 : currentPort2) == device);
+            const bool enabled = canAssignCandidate(
+                port1Device,
+                port2Device,
+                room.expansionDevice,
+                Settings::NesMultitapDevice::NONE,
+                Settings::FamicomMultitapDevice::NONE,
+                slot
+            );
+            ImGui::BeginDisabled(!enabled);
             if(ImGui::Selectable(label, selected)) {
                 selectPortDevice(port, device);
             }
+            ImGui::EndDisabled();
         };
         const auto drawExpansionOption = [&](const char* label, Settings::ExpansionDevice device) {
             const bool selected =
@@ -261,9 +294,19 @@ inline void drawNetplayWindow(bool& showWindow,
                 room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
                 room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
                 room.expansionDevice == device;
+            const bool enabled = canAssignCandidate(
+                std::optional<Settings::Device>(currentPort1),
+                std::optional<Settings::Device>(currentPort2),
+                device,
+                Settings::NesMultitapDevice::NONE,
+                Settings::FamicomMultitapDevice::NONE,
+                kExpansionPlayerSlot
+            );
+            ImGui::BeginDisabled(!enabled);
             if(ImGui::Selectable(label, selected)) {
                 selectExpansionDevice(device);
             }
+            ImGui::EndDisabled();
         };
         const auto drawMultitapOption = [&](const char* label,
                                             Settings::NesMultitapDevice nesDevice,
@@ -273,17 +316,22 @@ inline void drawNetplayWindow(bool& showWindow,
                 selectedSlot == slot &&
                 room.nesMultitapDevice == nesDevice &&
                 room.famicomMultitapDevice == famicomDevice;
+            const bool enabled = canAssignCandidate(
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                Settings::ExpansionDevice::NONE,
+                nesDevice,
+                famicomDevice,
+                slot
+            );
+            ImGui::BeginDisabled(!enabled);
             if(ImGui::Selectable(label, selected)) {
                 selectMultitapAssignment(nesDevice, famicomDevice, slot);
             }
+            ImGui::EndDisabled();
         };
 
-        if(ImGui::Selectable("Observer", selectedSlot == kObserverPlayerSlot)) {
-            runtime.assignController(participantId, kObserverPlayerSlot);
-        }
-        ImGui::Separator();
-
-        const ImGuiTreeNodeFlags treeFlags = 0;
+        const ImGuiTreeNodeFlags treeFlags = ImGuiTreeNodeFlags_None;
 
         if(ImGui::TreeNodeEx("Port 1", treeFlags)) {
             drawPortOption("Standard Controller", Settings::Port::P_1, Settings::Device::CONTROLLER, kPort1PlayerSlot);
@@ -378,6 +426,12 @@ inline void drawNetplayWindow(bool& showWindow,
                     : static_cast<int>(participant.controllerAssignment);
                 const std::string preview =
                     controllerValue < 0 ? "Observer" : inputAssignmentLabel(participant.controllerAssignment, room);
+                if(participant.controllerAssignment != kObserverPlayerSlot) {
+                    if(ImGui::SmallButton(("X##observer" + std::to_string(participant.id)).c_str())) {
+                        runtime.assignController(participant.id, kObserverPlayerSlot);
+                    }
+                    ImGui::SameLine();
+                }
                 std::string comboId = "##ctrl" + std::to_string(participant.id);
                 if(ImGui::BeginCombo(comboId.c_str(), preview.c_str())) {
                     drawAssignmentTree(participant.id, participant.controllerAssignment);

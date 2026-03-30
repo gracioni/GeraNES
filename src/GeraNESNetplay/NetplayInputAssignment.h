@@ -128,6 +128,96 @@ inline bool isAssignmentAvailable(PlayerSlot slot, const RoomState& room)
     return std::find(assignments.begin(), assignments.end(), slot) != assignments.end();
 }
 
+inline RoomState roomWithTopology(RoomState room,
+                                  std::optional<Settings::Device> port1Device,
+                                  std::optional<Settings::Device> port2Device,
+                                  Settings::ExpansionDevice expansionDevice,
+                                  Settings::NesMultitapDevice nesMultitapDevice,
+                                  Settings::FamicomMultitapDevice famicomMultitapDevice)
+{
+    room.port1Device = port1Device;
+    room.port2Device = port2Device;
+    room.expansionDevice = expansionDevice;
+    room.nesMultitapDevice = nesMultitapDevice;
+    room.famicomMultitapDevice = famicomMultitapDevice;
+    return room;
+}
+
+inline bool isInputAssignmentClaimedByOtherParticipant(const RoomState& room,
+                                                       ParticipantId participantId,
+                                                       PlayerSlot slot)
+{
+    if(slot == kObserverPlayerSlot) return false;
+
+    for(const auto& participant : room.participants) {
+        if(participant.id == participantId) continue;
+        if(participant.controllerAssignment == slot) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+inline bool canAssignInputCandidate(const RoomState& room,
+                                    ParticipantId participantId,
+                                    std::optional<Settings::Device> port1Device,
+                                    std::optional<Settings::Device> port2Device,
+                                    Settings::ExpansionDevice expansionDevice,
+                                    Settings::NesMultitapDevice nesMultitapDevice,
+                                    Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                    PlayerSlot slot)
+{
+    RoomState candidateRoom = roomWithTopology(
+        room,
+        port1Device,
+        port2Device,
+        expansionDevice,
+        nesMultitapDevice,
+        famicomMultitapDevice
+    );
+
+    const bool currentMultitapActive = isMultitapActive(room);
+    const bool candidateMultitapActive = isMultitapActive(candidateRoom);
+    const bool multitapFamilyChanged =
+        room.nesMultitapDevice != candidateRoom.nesMultitapDevice ||
+        room.famicomMultitapDevice != candidateRoom.famicomMultitapDevice;
+    if(currentMultitapActive && candidateMultitapActive && multitapFamilyChanged) {
+        for(const auto& participant : room.participants) {
+            if(participant.id == participantId) continue;
+            switch(participant.controllerAssignment) {
+                case kMultitapP1PlayerSlot:
+                case kMultitapP2PlayerSlot:
+                case kMultitapP3PlayerSlot:
+                case kMultitapP4PlayerSlot:
+                    return false;
+                default:
+                    break;
+            }
+        }
+    }
+
+    std::vector<PlayerSlot> claimedAssignments;
+    claimedAssignments.reserve(candidateRoom.participants.size());
+
+    for(const auto& participant : candidateRoom.participants) {
+        const PlayerSlot effectiveAssignment =
+            participant.id == participantId ? slot : participant.controllerAssignment;
+        if(effectiveAssignment == kObserverPlayerSlot) {
+            continue;
+        }
+        if(!isAssignmentAvailable(effectiveAssignment, candidateRoom)) {
+            return false;
+        }
+        if(std::find(claimedAssignments.begin(), claimedAssignments.end(), effectiveAssignment) != claimedAssignments.end()) {
+            return false;
+        }
+        claimedAssignments.push_back(effectiveAssignment);
+    }
+
+    return true;
+}
+
 inline std::string inputAssignmentLabel(PlayerSlot slot, const RoomState& room)
 {
     if(slot == kObserverPlayerSlot) {
