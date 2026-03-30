@@ -70,12 +70,12 @@ public:
         turnOff();
     }
 
-    int sampleRate()
+    int sampleRate() const
     {
         return spec.freq;
     }
 
-    int sampleSize()
+    int sampleSize() const
     {
         //the formats hold the number of bits in the first byte
         return spec.format & 0xFF;       

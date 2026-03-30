@@ -248,7 +248,7 @@ private:
     {
 #ifndef __EMSCRIPTEN__
         const auto snapshot = m_netplayRuntime.menuSnapshot();
-        return snapshot.active && snapshot.connected && !snapshot.hosting;
+        return snapshot.inputManaged && !snapshot.hosting;
 #else
         return false;
 #endif

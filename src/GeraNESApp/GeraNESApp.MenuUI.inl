@@ -267,42 +267,35 @@ inline void GeraNESApp::menuBar() {
         {
 #ifndef __EMSCRIPTEN__
             const auto netplaySnapshot = m_netplayRuntime.menuSnapshot();
-            const bool netplayInputManaged = netplaySnapshot.active && netplaySnapshot.connected;
-            const auto localNetplayAssignment = [&]() -> std::optional<Netplay::PlayerSlot> {
-                if(!netplayInputManaged) return std::nullopt;
-                for(const auto& participant : netplaySnapshot.room.participants) {
-                    if(participant.id == netplaySnapshot.localParticipantId &&
-                       participant.controllerAssignment != Netplay::kObserverPlayerSlot) {
-                        return participant.controllerAssignment;
-                    }
-                }
-                return std::nullopt;
-            }();
+            const auto localInputTopology = m_emu.getInputTopologySnapshot();
+            const bool netplayInputManaged = netplaySnapshot.inputManaged;
+            const auto localNetplayAssignment = netplaySnapshot.localAssignment;
             const bool canChangeNetplayManagedInput = !netplayInputManaged;
             const auto effectivePort1Device = netplayInputManaged
-                ? netplaySnapshot.room.port1Device
-                : m_emu.getPortDevice(Settings::Port::P_1);
+                ? netplaySnapshot.port1Device
+                : localInputTopology.port1Device;
             const auto effectivePort2Device = netplayInputManaged
-                ? netplaySnapshot.room.port2Device
-                : m_emu.getPortDevice(Settings::Port::P_2);
+                ? netplaySnapshot.port2Device
+                : localInputTopology.port2Device;
             const auto effectiveExpansionDevice = netplayInputManaged
-                ? netplaySnapshot.room.expansionDevice
-                : m_emu.getExpansionDevice();
+                ? netplaySnapshot.expansionDevice
+                : localInputTopology.expansionDevice;
             const auto effectiveNesMultitapDevice = netplayInputManaged
-                ? netplaySnapshot.room.nesMultitapDevice
-                : m_emu.getNesMultitapDevice();
+                ? netplaySnapshot.nesMultitapDevice
+                : localInputTopology.nesMultitapDevice;
             const auto effectiveFamicomMultitapDevice = netplayInputManaged
-                ? netplaySnapshot.room.famicomMultitapDevice
-                : m_emu.getFamicomMultitapDevice();
+                ? netplaySnapshot.famicomMultitapDevice
+                : localInputTopology.famicomMultitapDevice;
 #else
             const bool netplayInputManaged = false;
             const std::optional<Netplay::PlayerSlot> localNetplayAssignment = std::nullopt;
             const bool canChangeNetplayManagedInput = true;
-            const auto effectivePort1Device = m_emu.getPortDevice(Settings::Port::P_1);
-            const auto effectivePort2Device = m_emu.getPortDevice(Settings::Port::P_2);
-            const auto effectiveExpansionDevice = m_emu.getExpansionDevice();
-            const auto effectiveNesMultitapDevice = m_emu.getNesMultitapDevice();
-            const auto effectiveFamicomMultitapDevice = m_emu.getFamicomMultitapDevice();
+            const auto localInputTopology = m_emu.getInputTopologySnapshot();
+            const auto effectivePort1Device = localInputTopology.port1Device;
+            const auto effectivePort2Device = localInputTopology.port2Device;
+            const auto effectiveExpansionDevice = localInputTopology.expansionDevice;
+            const auto effectiveNesMultitapDevice = localInputTopology.nesMultitapDevice;
+            const auto effectiveFamicomMultitapDevice = localInputTopology.famicomMultitapDevice;
 #endif
             const bool nesFourScoreEnabled = effectiveNesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE;
             const bool famicomHoriEnabled = effectiveFamicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
@@ -585,25 +578,10 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-        const bool hasHardwareActions =
-            m_emu.valid() &&
-            m_emu.withExclusiveAccess([&](auto& emu) {
-                const auto system = emu.getConsole().cartridge().system();
-                return system == GameDatabase::System::FDS ||
-                       system == GameDatabase::System::VsSystem;
-            });
-
-        const bool isFdsRom =
-            hasHardwareActions &&
-            m_emu.withExclusiveAccess([&](auto& emu) {
-                return emu.getConsole().cartridge().system() == GameDatabase::System::FDS;
-            });
-
-        const bool isVsRom =
-            hasHardwareActions &&
-            m_emu.withExclusiveAccess([&](auto& emu) {
-                return emu.getConsole().cartridge().system() == GameDatabase::System::VsSystem;
-            });
+        const GameDatabase::System cartridgeSystem = m_emu.currentCartridgeSystem();
+        const bool isFdsRom = cartridgeSystem == GameDatabase::System::FDS;
+        const bool isVsRom = cartridgeSystem == GameDatabase::System::VsSystem;
+        const bool hasHardwareActions = m_emu.valid() && (isFdsRom || isVsRom);
 
             if (ImGui::BeginMenu("Hardware", hasHardwareActions && !netplayClientRestricted)) {
                 if (ImGui::MenuItem("FDS - Switch Disk Side", nullptr, false, isFdsRom && !netplayClientRestricted)) {

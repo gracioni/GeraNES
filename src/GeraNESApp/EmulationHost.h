@@ -217,6 +217,7 @@ private:
         uint32_t manualLoadStateGeneration = 0;
         uint32_t regionFps = 60;
         Settings::Region region = Settings::Region::NTSC;
+        GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
         std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
         std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
         Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
@@ -228,6 +229,15 @@ private:
         std::vector<std::string> audioDevices;
         float audioVolume = 1.0f;
         std::string audioChannelsJson = "{\"channels\":[]}";
+    };
+
+    struct InputTopologySnapshot
+    {
+        std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
+        std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
+        Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
+        Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
+        Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
     };
 
     struct NetplayStoredSnapshot
@@ -375,6 +385,10 @@ private:
         snapshot.manualResetGeneration = m_emu.manualResetGeneration();
         snapshot.manualLoadStateGeneration = m_emu.manualLoadStateGeneration();
         snapshot.region = m_emu.region();
+        snapshot.cartridgeSystem =
+            m_emu.valid()
+                ? m_emu.getConsole().cartridge().system()
+                : GameDatabase::System::Unknown;
         snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
         snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
         snapshot.expansionDevice = m_emu.getExpansionDevice();
@@ -1039,6 +1053,38 @@ public:
 #else
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.famicomMultitapDevice;
+#endif
+    }
+
+    InputTopologySnapshot getInputTopologySnapshot() const
+    {
+#ifdef __EMSCRIPTEN__
+        InputTopologySnapshot snapshot;
+        snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
+        snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
+        snapshot.expansionDevice = m_emu.getExpansionDevice();
+        snapshot.nesMultitapDevice = m_emu.getNesMultitapDevice();
+        snapshot.famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
+        return snapshot;
+#else
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        InputTopologySnapshot snapshot;
+        snapshot.port1Device = m_snapshot.port1Device;
+        snapshot.port2Device = m_snapshot.port2Device;
+        snapshot.expansionDevice = m_snapshot.expansionDevice;
+        snapshot.nesMultitapDevice = m_snapshot.nesMultitapDevice;
+        snapshot.famicomMultitapDevice = m_snapshot.famicomMultitapDevice;
+        return snapshot;
+#endif
+    }
+
+    GameDatabase::System currentCartridgeSystem() const
+    {
+#ifdef __EMSCRIPTEN__
+        return m_emu.getConsole().cartridge().system();
+#else
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.cartridgeSystem;
 #endif
     }
 

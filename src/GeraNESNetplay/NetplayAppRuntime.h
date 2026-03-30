@@ -64,11 +64,14 @@ public:
 
     struct MenuSnapshot
     {
-        bool active = false;
         bool hosting = false;
-        bool connected = false;
-        ParticipantId localParticipantId = kInvalidParticipantId;
-        RoomState room;
+        bool inputManaged = false;
+        std::optional<PlayerSlot> localAssignment;
+        std::optional<Settings::Device> port1Device;
+        std::optional<Settings::Device> port2Device;
+        Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
+        Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
+        Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
     };
 
 private:
@@ -819,11 +822,22 @@ inline NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
 {
     std::scoped_lock stateLock(m_stateMutex);
     MenuSnapshot snapshot;
-    snapshot.active = m_uiSnapshot.active;
     snapshot.hosting = m_uiSnapshot.hosting;
-    snapshot.connected = m_uiSnapshot.connected;
-    snapshot.localParticipantId = m_uiSnapshot.localParticipantId;
-    snapshot.room = m_uiSnapshot.room;
+    snapshot.inputManaged = m_uiSnapshot.active && m_uiSnapshot.connected;
+    snapshot.port1Device = m_uiSnapshot.room.port1Device;
+    snapshot.port2Device = m_uiSnapshot.room.port2Device;
+    snapshot.expansionDevice = m_uiSnapshot.room.expansionDevice;
+    snapshot.nesMultitapDevice = m_uiSnapshot.room.nesMultitapDevice;
+    snapshot.famicomMultitapDevice = m_uiSnapshot.room.famicomMultitapDevice;
+    if(snapshot.inputManaged) {
+        for(const auto& participant : m_uiSnapshot.room.participants) {
+            if(participant.id != m_uiSnapshot.localParticipantId) continue;
+            if(participant.controllerAssignment != kObserverPlayerSlot) {
+                snapshot.localAssignment = participant.controllerAssignment;
+            }
+            break;
+        }
+    }
     return snapshot;
 }
 
