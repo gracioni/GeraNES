@@ -134,6 +134,93 @@ public:
         }
     }
 
+    static void applyInputFrameToInputState(EmulationHost::InputState& state, const InputFrame& inputFrame)
+    {
+        state.p1A = inputFrame.p1A; state.p1B = inputFrame.p1B; state.p1Select = inputFrame.p1Select; state.p1Start = inputFrame.p1Start;
+        state.p1Up = inputFrame.p1Up; state.p1Down = inputFrame.p1Down; state.p1Left = inputFrame.p1Left; state.p1Right = inputFrame.p1Right;
+        state.p1X = inputFrame.p1X; state.p1Y = inputFrame.p1Y; state.p1L = inputFrame.p1L; state.p1R = inputFrame.p1R;
+        state.p1Up2 = inputFrame.vbP1Up1; state.p1Down2 = inputFrame.vbP1Down1; state.p1Left2 = inputFrame.vbP1Left1; state.p1Right2 = inputFrame.vbP1Right1;
+
+        state.p2A = inputFrame.p2A; state.p2B = inputFrame.p2B; state.p2Select = inputFrame.p2Select; state.p2Start = inputFrame.p2Start;
+        state.p2Up = inputFrame.p2Up; state.p2Down = inputFrame.p2Down; state.p2Left = inputFrame.p2Left; state.p2Right = inputFrame.p2Right;
+        state.p2X = inputFrame.p2X; state.p2Y = inputFrame.p2Y; state.p2L = inputFrame.p2L; state.p2R = inputFrame.p2R;
+        state.p2Up2 = inputFrame.vbP2Up1; state.p2Down2 = inputFrame.vbP2Down1; state.p2Left2 = inputFrame.vbP2Left1; state.p2Right2 = inputFrame.vbP2Right1;
+
+        state.p3A = inputFrame.p3A; state.p3B = inputFrame.p3B; state.p3Select = inputFrame.p3Select; state.p3Start = inputFrame.p3Start;
+        state.p3Up = inputFrame.p3Up; state.p3Down = inputFrame.p3Down; state.p3Left = inputFrame.p3Left; state.p3Right = inputFrame.p3Right;
+        state.p4A = inputFrame.p4A; state.p4B = inputFrame.p4B; state.p4Select = inputFrame.p4Select; state.p4Start = inputFrame.p4Start;
+        state.p4Up = inputFrame.p4Up; state.p4Down = inputFrame.p4Down; state.p4Left = inputFrame.p4Left; state.p4Right = inputFrame.p4Right;
+
+        state.p1PowerPadButtons = inputFrame.powerPadP1Buttons;
+        state.p2PowerPadButtons = inputFrame.powerPadP2Buttons;
+        state.suborKeyboardKeys = inputFrame.suborKeyboardKeys;
+        state.familyBasicKeyboardKeys = inputFrame.familyBasicKeyboardKeys;
+
+        if(inputFrame.zapperP1X != -1 || inputFrame.zapperP1Y != -1 || inputFrame.zapperP1Trigger) {
+            state.zapperX = inputFrame.zapperP1X;
+            state.zapperY = inputFrame.zapperP1Y;
+        } else if(inputFrame.zapperP2X != -1 || inputFrame.zapperP2Y != -1 || inputFrame.zapperP2Trigger) {
+            state.zapperX = inputFrame.zapperP2X;
+            state.zapperY = inputFrame.zapperP2Y;
+        } else if(inputFrame.bandaiX != -1 || inputFrame.bandaiY != -1 || inputFrame.bandaiTrigger) {
+            state.zapperX = inputFrame.bandaiX;
+            state.zapperY = inputFrame.bandaiY;
+        } else {
+            state.zapperX = -1;
+            state.zapperY = -1;
+        }
+
+        if(inputFrame.snesMouseP1DeltaX != 0 || inputFrame.snesMouseP1DeltaY != 0 ||
+           inputFrame.snesMouseP1Left || inputFrame.snesMouseP1Right) {
+            state.mouseDeltaX = inputFrame.snesMouseP1DeltaX;
+            state.mouseDeltaY = inputFrame.snesMouseP1DeltaY;
+            state.mousePrimaryButton = inputFrame.snesMouseP1Left;
+            state.mouseSecondaryButton = inputFrame.snesMouseP1Right;
+        } else if(inputFrame.snesMouseP2DeltaX != 0 || inputFrame.snesMouseP2DeltaY != 0 ||
+                  inputFrame.snesMouseP2Left || inputFrame.snesMouseP2Right) {
+            state.mouseDeltaX = inputFrame.snesMouseP2DeltaX;
+            state.mouseDeltaY = inputFrame.snesMouseP2DeltaY;
+            state.mousePrimaryButton = inputFrame.snesMouseP2Left;
+            state.mouseSecondaryButton = inputFrame.snesMouseP2Right;
+        } else if(inputFrame.suborMouseP1DeltaX != 0 || inputFrame.suborMouseP1DeltaY != 0 ||
+                  inputFrame.suborMouseP1Left || inputFrame.suborMouseP1Right) {
+            state.mouseDeltaX = inputFrame.suborMouseP1DeltaX;
+            state.mouseDeltaY = inputFrame.suborMouseP1DeltaY;
+            state.mousePrimaryButton = inputFrame.suborMouseP1Left;
+            state.mouseSecondaryButton = inputFrame.suborMouseP1Right;
+        } else if(inputFrame.suborMouseP2DeltaX != 0 || inputFrame.suborMouseP2DeltaY != 0 ||
+                  inputFrame.suborMouseP2Left || inputFrame.suborMouseP2Right) {
+            state.mouseDeltaX = inputFrame.suborMouseP2DeltaX;
+            state.mouseDeltaY = inputFrame.suborMouseP2DeltaY;
+            state.mousePrimaryButton = inputFrame.suborMouseP2Left;
+            state.mouseSecondaryButton = inputFrame.suborMouseP2Right;
+        } else {
+            state.mouseDeltaX = 0;
+            state.mouseDeltaY = 0;
+            state.mousePrimaryButton = false;
+            state.mouseSecondaryButton = false;
+        }
+
+        state.arkanoidNesPosition = inputFrame.arkanoidP1Button || inputFrame.arkanoidP1Position != 0.5f
+            ? inputFrame.arkanoidP1Position
+            : inputFrame.arkanoidP2Position;
+        state.arkanoidFamicomPosition = inputFrame.arkanoidFamicomPosition;
+        state.zapperP1Trigger = inputFrame.zapperP1Trigger;
+        state.zapperP2Trigger = inputFrame.zapperP2Trigger;
+        state.bandaiTrigger = inputFrame.bandaiTrigger;
+        state.konamiP1Run = inputFrame.konamiP1Run;
+        state.konamiP1Jump = inputFrame.konamiP1Jump;
+        state.konamiP2Run = inputFrame.konamiP2Run;
+        state.konamiP2Jump = inputFrame.konamiP2Jump;
+
+        if(inputFrame.arkanoidP1Button || inputFrame.arkanoidP2Button || inputFrame.arkanoidFamicomButton) {
+            state.mousePrimaryButton = state.mousePrimaryButton ||
+                                       inputFrame.arkanoidP1Button ||
+                                       inputFrame.arkanoidP2Button ||
+                                       inputFrame.arkanoidFamicomButton;
+        }
+    }
+
 public:
     uint32_t producedThroughFrame() const
     {
@@ -316,10 +403,7 @@ public:
         if(confirmed == nullptr) {
             return state;
         }
-
-        for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
-            applyPadMaskToInputState(state, slot, confirmed->buttonMaskLo[slot]);
-        }
+        applyInputFrameToInputState(state, confirmed->inputFrame);
         return state;
     }
 

@@ -347,45 +347,12 @@ private:
 
     static InputFrame buildEmuInputFrame(PeerState& peer, uint32_t frame)
     {
-        InputFrame inputFrame = peer.emu.createInputFrame(frame);
         const auto* confirmed = peer.coordinator.findConfirmedFrame(frame);
         if(confirmed == nullptr) {
-            return inputFrame;
+            return peer.emu.createInputFrame(frame);
         }
-
-        for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
-            const uint64_t mask = confirmed->buttonMaskLo[slot];
-            const bool a = (mask & (1ull << 0)) != 0;
-            const bool b = (mask & (1ull << 1)) != 0;
-            const bool select = (mask & (1ull << 2)) != 0;
-            const bool start = (mask & (1ull << 3)) != 0;
-            const bool up = (mask & (1ull << 4)) != 0;
-            const bool down = (mask & (1ull << 5)) != 0;
-            const bool left = (mask & (1ull << 6)) != 0;
-            const bool right = (mask & (1ull << 7)) != 0;
-
-            switch(slot) {
-                case 0:
-                    inputFrame.p1A = a; inputFrame.p1B = b; inputFrame.p1Select = select; inputFrame.p1Start = start;
-                    inputFrame.p1Up = up; inputFrame.p1Down = down; inputFrame.p1Left = left; inputFrame.p1Right = right;
-                    break;
-                case 1:
-                    inputFrame.p2A = a; inputFrame.p2B = b; inputFrame.p2Select = select; inputFrame.p2Start = start;
-                    inputFrame.p2Up = up; inputFrame.p2Down = down; inputFrame.p2Left = left; inputFrame.p2Right = right;
-                    break;
-                case 2:
-                    inputFrame.p3A = a; inputFrame.p3B = b; inputFrame.p3Select = select; inputFrame.p3Start = start;
-                    inputFrame.p3Up = up; inputFrame.p3Down = down; inputFrame.p3Left = left; inputFrame.p3Right = right;
-                    break;
-                case 3:
-                    inputFrame.p4A = a; inputFrame.p4B = b; inputFrame.p4Select = select; inputFrame.p4Start = start;
-                    inputFrame.p4Up = up; inputFrame.p4Down = down; inputFrame.p4Left = left; inputFrame.p4Right = right;
-                    break;
-                default:
-                    break;
-            }
-        }
-
+        InputFrame inputFrame = confirmed->inputFrame;
+        inputFrame.frame = frame;
         return inputFrame;
     }
 
@@ -2060,9 +2027,10 @@ private:
             if(!peer.coordinator.tryBuildPlaybackFrame(frame, frame > peer.coordinator.latestConfirmedFrame(), playbackFrame)) {
                 return replayInput;
             }
-            for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
-                Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(replayInput.state, slot, playbackFrame.buttonMaskLo[slot]);
-            }
+            replayInput.hasFrameOverride = true;
+            replayInput.frameOverride = playbackFrame.inputFrame;
+            replayInput.frameOverride.frame = frame;
+            Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, playbackFrame.inputFrame);
             replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {

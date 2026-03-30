@@ -549,9 +549,7 @@ private:
         }
 
         EmulationHost::InputState state{};
-        for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
-            Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(state, slot, playbackFrame.buttonMaskLo[slot]);
-        }
+        Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(state, playbackFrame.inputFrame);
         return state;
     }
 
@@ -622,9 +620,10 @@ private:
             if(!m_netplayCoordinator.tryBuildPlaybackFrame(frame, frame > confirmedNetplayThroughFrame(), playbackFrame)) {
                 return replayInput;
             }
-            for(Netplay::PlayerSlot slot = 0; slot < 4; ++slot) {
-                Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(replayInput.state, slot, playbackFrame.buttonMaskLo[slot]);
-            }
+            replayInput.hasFrameOverride = true;
+            replayInput.frameOverride = playbackFrame.inputFrame;
+            replayInput.frameOverride.frame = frame;
+            Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, playbackFrame.inputFrame);
             replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {

@@ -743,9 +743,7 @@ inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, Emula
     outFrame.hasFrameOverride = true;
     outFrame.frameOverride = playbackFrame.inputFrame;
     outFrame.frameOverride.frame = frame;
-    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
-        ConfirmedInputBufferDriver::applyPadMaskToInputState(outFrame.state, slot, playbackFrame.buttonMaskLo[slot]);
-    }
+    ConfirmedInputBufferDriver::applyInputFrameToInputState(outFrame.state, playbackFrame.inputFrame);
     return true;
 }
 
@@ -799,11 +797,6 @@ inline void NetplayAppRuntime::updateLatestRawMasks(const std::array<uint64_t, 4
 {
     std::scoped_lock stateLock(m_stateMutex);
     m_latestRawMasks = masks;
-    m_latestInputState = {};
-    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kPort1PlayerSlot, masks[0]);
-    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kPort2PlayerSlot, masks[1]);
-    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kExpansionPlayerSlot, masks[2]);
-    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kMultitapP4PlayerSlot, masks[3]);
 }
 
 inline void NetplayAppRuntime::updateLatestInputState(const EmulationHost::InputState& inputState)
@@ -1034,11 +1027,9 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     const bool running = m_coordinator.session().roomState().state == SessionState::Running;
     m_runtimeRunning.store(running, std::memory_order_release);
 
-    std::array<uint64_t, 4> latestRawMasks = {};
     EmulationHost::InputState latestInputState{};
     {
         std::scoped_lock stateLock(m_stateMutex);
-        latestRawMasks = m_latestRawMasks;
         latestInputState = m_latestInputState;
     }
 

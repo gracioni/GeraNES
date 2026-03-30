@@ -241,6 +241,32 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
     }
 }
 
+TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assignment][zapper]")
+{
+    EmulationHost::InputState state{};
+    state.zapperX = 87;
+    state.zapperY = 53;
+    state.zapperP2Trigger = true;
+
+    Netplay::RoomState room;
+    room.port2Device = Settings::Device::ZAPPER;
+
+    auto frame = Netplay::makeRoomTopologyBaseFrame(19u, room);
+    const auto contribution = Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, state, frame);
+    Netplay::applyAssignedContribution(frame, Netplay::kPort2PlayerSlot, contribution);
+
+    REQUIRE(frame.port2Device == Settings::Device::ZAPPER);
+    REQUIRE(frame.zapperP2X == 87);
+    REQUIRE(frame.zapperP2Y == 53);
+    REQUIRE(frame.zapperP2Trigger == true);
+
+    EmulationHost::InputState replayState{};
+    Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayState, frame);
+    REQUIRE(replayState.zapperX == 87);
+    REQUIRE(replayState.zapperY == 53);
+    REQUIRE(replayState.zapperP2Trigger == true);
+}
+
 TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")
 {
     Netplay::RoomState room;
