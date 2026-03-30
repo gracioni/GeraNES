@@ -2,12 +2,19 @@
 
 #include "logger/logger.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
-#include "GeraNES/util/Crc32.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <sstream>
+
+#ifdef ERROR
+#undef ERROR
+#endif
+
+#include "GeraNESNetplay/NetplayInputAssignment.h"
+#include "GeraNES/util/Crc32.h"
+#include "GeraNES/Serialization.h"
 
 namespace {
 
@@ -26,15 +33,61 @@ std::string participantLabel(const Netplay::ParticipantInfo& participant)
 
 std::string controllerAssignmentToast(Netplay::PlayerSlot slot, const std::string& participantName)
 {
-    if(slot == Netplay::kObserverPlayerSlot) {
-        return "Observer assigned to " + participantName;
-    }
-    return "P" + std::to_string(static_cast<unsigned>(slot) + 1u) + " assigned to " + participantName;
+    return Netplay::inputAssignmentLabel(slot, Netplay::RoomState{}) + " assigned to " + participantName;
 }
 
 void notifySessionEvent(std::string_view message)
 {
     Logger::instance().log(message, Logger::Type::USER);
+}
+
+Netplay::InputTopologyData makeTopologyData(const Netplay::RoomState& room)
+{
+    Netplay::InputTopologyData data;
+    data.port1Device = room.port1Device.value_or(Settings::Device::NONE);
+    data.port2Device = room.port2Device.value_or(Settings::Device::NONE);
+    data.expansionDevice = room.expansionDevice;
+    data.nesMultitapDevice = room.nesMultitapDevice;
+    data.famicomMultitapDevice = room.famicomMultitapDevice;
+    return data;
+}
+
+void applyTopologyData(Netplay::RoomState& room, const Netplay::InputTopologyData& data)
+{
+    room.port1Device = data.port1Device;
+    room.port2Device = data.port2Device;
+    room.expansionDevice = data.expansionDevice;
+    room.nesMultitapDevice = data.nesMultitapDevice;
+    room.famicomMultitapDevice = data.famicomMultitapDevice;
+}
+
+std::vector<uint8_t> serializeInputFrame(const InputFrame& inputFrame)
+{
+    Serialize serializer;
+    InputFrame copy = inputFrame;
+    copy.serialization(serializer);
+    return serializer.getData();
+}
+
+bool deserializeInputFrame(const uint8_t* data, size_t size, InputFrame& inputFrame)
+{
+    Deserialize deserializer;
+    deserializer.setData(data, size);
+    inputFrame = {};
+    inputFrame.serialization(deserializer);
+    return !deserializer.error();
+}
+
+bool inputFramesEqual(const InputFrame& a, const InputFrame& b)
+{
+    return serializeInputFrame(a) == serializeInputFrame(b);
+}
+
+std::string controllerAssignmentToast(Netplay::PlayerSlot slot,
+                                      const Netplay::RoomState& room,
+                                      const std::string& participantName)
+{
+    return Netplay::inputAssignmentLabel(slot, room) + " assigned to " + participantName;
 }
 
 }
@@ -231,6 +284,7 @@ std::vector<uint8_t> NetplayCoordinator::buildSelectRomPacket(const std::string&
     writer.writePod(header);
     writer.writeString(gameName);
     writer.writePod(romValidation);
+    writer.writePod(makeTopologyData(m_session.roomState()));
 
     return writer.data();
 }
@@ -346,7 +400,7 @@ std::vector<uint8_t> NetplayCoordinator::buildPeerHealthPacket(const PeerHealthD
     return writer.data();
 }
 
-static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input)
+static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input, const InputFrame& inputFrame)
 {
     PacketWriter writer;
 
@@ -355,6 +409,8 @@ static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input)
     header.sessionId = 0;
     writer.writePod(header);
     writer.writePod(input);
+    const std::vector<uint8_t> payload = serializeInputFrame(inputFrame);
+    writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
 
     return writer.data();
 }
@@ -374,7 +430,10 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
         ConfirmedInputFrameEntry entry;
         entry.buttonMaskLo = frame.buttonMaskLo;
         entry.buttonMaskHi = frame.buttonMaskHi;
+        const std::vector<uint8_t> payload = serializeInputFrame(frame.inputFrame);
+        entry.payloadSize = static_cast<uint16_t>(payload.size());
         writer.writePod(entry);
+        writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
     }
 
     return writer.data();
@@ -458,6 +517,7 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
     data.state = state;
     data.inputDelayFrames = 0;
     data.predictFrames = 0;
+    data.topology = {};
     writer.writePod(data);
 
     return writer.data();
@@ -467,6 +527,10 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
 {
     InputFrameData input;
     if(!reader.readPod(input)) return false;
+    std::vector<uint8_t> payload;
+    if(!reader.readBytes(payload, input.payloadSize)) return false;
+    InputFrame inputFrame;
+    if(!deserializeInputFrame(payload.data(), payload.size(), inputFrame)) return false;
     if(input.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(input.timelineEpoch < m_session.roomState().timelineEpoch) {
             std::ostringstream oss;
@@ -541,9 +605,7 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
     if(existing != nullptr && existing->predicted) {
-        const bool predictionHit =
-            existing->buttonMaskLo == input.buttonMaskLo &&
-            existing->buttonMaskHi == input.buttonMaskHi;
+        const bool predictionHit = inputFramesEqual(existing->inputFrame, inputFrame);
         const FrameNumber currentFrame = m_localSimulationFrame;
         if(input.frame <= currentFrame) {
             m_predictionStats.recordPrediction(predictionHit);
@@ -562,6 +624,7 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     entry.playerSlot = input.playerSlot;
     entry.buttonMaskLo = input.buttonMaskLo;
     entry.buttonMaskHi = input.buttonMaskHi;
+    entry.inputFrame = inputFrame;
     entry.sequence = input.sequence;
     entry.confirmed = true;
     entry.predicted = false;
@@ -598,7 +661,7 @@ bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
     }
 
     if(m_hosting) {
-        m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(input), peer);
+        m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(input, inputFrame), peer);
         publishConfirmedFramesIfReady();
     }
 
@@ -619,11 +682,14 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
     for(uint16_t i = 0; i < data.frameCount; ++i) {
         ConfirmedInputFrameEntry entry;
         if(!reader.readPod(entry)) return false;
+        std::vector<uint8_t> payload;
+        if(!reader.readBytes(payload, entry.payloadSize)) return false;
 
         ConfirmedFrameInputs frame;
         frame.frame = data.startFrame + static_cast<FrameNumber>(i);
         frame.buttonMaskLo = entry.buttonMaskLo;
         frame.buttonMaskHi = entry.buttonMaskHi;
+        if(!deserializeInputFrame(payload.data(), payload.size(), frame.inputFrame)) return false;
         storeConfirmedFrame(frame);
     }
 
@@ -811,6 +877,7 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
     m_session.roomState().lastConfirmedFrame = status.lastConfirmedFrame;
     m_session.roomState().inputDelayFrames = status.inputDelayFrames;
     m_session.roomState().predictFrames = status.predictFrames;
+    applyTopologyData(m_session.roomState(), status.topology);
     return true;
 }
 
@@ -930,10 +997,11 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
 
     ConfirmedFrameInputs confirmedFrame;
     confirmedFrame.frame = loadedFrame;
+    confirmedFrame.inputFrame = makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState());
     bool haveConfirmedFrame = false;
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         const PlayerSlot slot = participant.controllerAssignment;
-        if(slot == kObserverPlayerSlot || slot >= 4) continue;
+        if(slot == kObserverPlayerSlot) continue;
         haveConfirmedFrame = true;
 
         const TimelineInputEntry* preserved =
@@ -943,6 +1011,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
         if(preserved != nullptr) {
             confirmedFrame.buttonMaskLo[slot] = preserved->buttonMaskLo;
             confirmedFrame.buttonMaskHi[slot] = preserved->buttonMaskHi;
+            applyAssignedContribution(confirmedFrame.inputFrame, slot, preserved->inputFrame);
         }
     }
     if(haveConfirmedFrame) {
@@ -1017,7 +1086,7 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
 
 void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame)
 {
-    if(participantId == kInvalidParticipantId || slot == kObserverPlayerSlot || slot >= 4) return;
+    if(participantId == kInvalidParticipantId || slot == kObserverPlayerSlot) return;
 
     InputTimeline* timeline = &m_remoteInputs;
     if(participantId == m_localParticipantId) {
@@ -1034,6 +1103,7 @@ void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, P
     entry.playerSlot = slot;
     entry.buttonMaskLo = 0;
     entry.buttonMaskHi = 0;
+    entry.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(frame, m_session.roomState()));
     entry.sequence = 0;
     entry.predicted = false;
     entry.confirmed = true;
@@ -1050,20 +1120,26 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
             std::max({m_localSimulationFrame,
                       m_session.roomState().currentFrame,
                       m_session.roomState().lastConfirmedFrame});
+        const PlayerSlot previousAssignment = participant->controllerAssignment;
+        const bool assignmentChanged = previousAssignment != data.controllerAssignment;
         participant->controllerAssignment = data.controllerAssignment;
         participant->role = data.controllerAssignment == kObserverPlayerSlot ? ParticipantRole::Observer : ParticipantRole::Player;
-        if(data.controllerAssignment != kObserverPlayerSlot) {
+        if(assignmentChanged) {
             discardTimelineStateAfter(assignmentBaselineFrame);
             participant->lastReceivedInputFrame = assignmentBaselineFrame;
             participant->lastContiguousInputFrame = assignmentBaselineFrame;
             participant->lastReceivedInputSequence = 0;
             participant->pendingMissingInputFrom.reset();
-            seedNeutralInputBaseline(data.participantId, data.controllerAssignment, assignmentBaselineFrame);
             if(data.participantId == m_localParticipantId) {
                 m_localInputSequence = 0;
             }
         }
-        notifySessionEvent(controllerAssignmentToast(data.controllerAssignment, participantLabel(*participant)));
+        if(data.controllerAssignment != kObserverPlayerSlot) {
+            participant->lastReceivedInputFrame = assignmentBaselineFrame;
+            participant->lastContiguousInputFrame = assignmentBaselineFrame;
+            seedNeutralInputBaseline(data.participantId, data.controllerAssignment, assignmentBaselineFrame);
+        }
+        notifySessionEvent(controllerAssignmentToast(data.controllerAssignment, m_session.roomState(), participantLabel(*participant)));
         return true;
     }
 
@@ -1076,6 +1152,8 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
     RomValidationData romValidation;
     if(!reader.readString(gameName)) return false;
     if(!reader.readPod(romValidation)) return false;
+    InputTopologyData topology;
+    if(!reader.readPod(topology)) return false;
 
     const bool activeSession =
         m_session.roomState().state == SessionState::Starting ||
@@ -1084,6 +1162,7 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
         m_session.roomState().state == SessionState::Resyncing;
     m_session.roomState().selectedGameName = gameName;
     m_session.roomState().romValidation = romValidation;
+    applyTopologyData(m_session.roomState(), topology);
     if(!activeSession) {
         m_session.roomState().state = SessionState::ValidatingRom;
         for(ParticipantInfo& participant : m_session.roomState().participants) {
@@ -1343,6 +1422,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     }
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
     m_session.roomState().predictFrames = data.predictFrames;
+    applyTopologyData(m_session.roomState(), data.topology);
     m_session.roomState().state = data.state;
     const bool shouldResetConfirmedState =
         data.state == SessionState::Starting ||
@@ -1459,6 +1539,7 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     status.lastConfirmedFrame = inputConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
     status.predictFrames = m_session.roomState().predictFrames;
+    status.topology = makeTopologyData(m_session.roomState());
 
     const FrameNumber previousCurrentFrame = m_session.roomState().currentFrame;
     const FrameNumber previousConfirmedFrame = m_session.roomState().lastConfirmedFrame;
@@ -1539,6 +1620,7 @@ bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantI
 
     TimelineInputEntry predicted = *lastKnown;
     predicted.frame = frame;
+    predicted.inputFrame = InputFrame::repeatedFrom(lastKnown->inputFrame, frame);
     predicted.predicted = true;
     predicted.confirmed = false;
     m_remoteInputs.push(predicted);
@@ -1565,6 +1647,58 @@ FrameNumber NetplayCoordinator::latestPredictedRemoteFrame() const
         }
     }
     return latest;
+}
+
+void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> port1Device,
+                                              std::optional<Settings::Device> port2Device,
+                                              Settings::ExpansionDevice expansionDevice,
+                                              Settings::NesMultitapDevice nesMultitapDevice,
+                                              Settings::FamicomMultitapDevice famicomMultitapDevice)
+{
+    if(!m_hosting) return;
+
+    RoomState& room = m_session.roomState();
+    const bool changed =
+        room.port1Device != port1Device ||
+        room.port2Device != port2Device ||
+        room.expansionDevice != expansionDevice ||
+        room.nesMultitapDevice != nesMultitapDevice ||
+        room.famicomMultitapDevice != famicomMultitapDevice;
+    if(!changed) return;
+
+    room.port1Device = port1Device;
+    room.port2Device = port2Device;
+    room.expansionDevice = expansionDevice;
+    room.nesMultitapDevice = nesMultitapDevice;
+    room.famicomMultitapDevice = famicomMultitapDevice;
+
+    std::vector<ParticipantId> changedAssignments;
+    for(ParticipantInfo& participant : room.participants) {
+        if(participant.controllerAssignment == kObserverPlayerSlot) continue;
+        if(isAssignmentAvailable(participant.controllerAssignment, room)) continue;
+        participant.controllerAssignment = kObserverPlayerSlot;
+        participant.role = participant.id == m_localParticipantId ? ParticipantRole::Host : ParticipantRole::Observer;
+        changedAssignments.push_back(participant.id);
+        notifySessionEvent(controllerAssignmentToast(kObserverPlayerSlot, room, participantLabel(participant)));
+    }
+
+    for(ParticipantId changedId : changedAssignments) {
+        ParticipantInfo* changed = m_session.findParticipant(changedId);
+        if(changed == nullptr) continue;
+        AssignControllerData data;
+        data.participantId = changedId;
+        data.controllerAssignment = changed->controllerAssignment;
+        m_transport.broadcastReliable(Channel::Control, buildAssignControllerPacket(data, room.sessionId));
+        m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*changed, 0));
+    }
+
+    if(room.state == SessionState::Running || room.state == SessionState::Paused) {
+        const FrameNumber resyncFrame = std::min(m_localSimulationFrame, room.lastConfirmedFrame);
+        if(!m_pendingHostResyncFrame.has_value() || resyncFrame < *m_pendingHostResyncFrame) {
+            m_pendingHostResyncFrame = resyncFrame;
+        }
+        pushLog("Input topology changed; scheduling automatic resync");
+    }
 }
 
 bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
@@ -1616,6 +1750,7 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
     status.predictFrames = m_session.roomState().predictFrames;
+    status.topology = makeTopologyData(m_session.roomState());
     if(!m_transport.sendReliable(peer, Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId))) {
         m_lastError = "Failed to sync frame status";
         pushLog(m_lastError);
@@ -1629,6 +1764,7 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
         sessionData.state = m_session.roomState().state;
         sessionData.inputDelayFrames = m_session.roomState().inputDelayFrames;
         sessionData.predictFrames = m_session.roomState().predictFrames;
+        sessionData.topology = makeTopologyData(m_session.roomState());
         m_transport.sendReliable(peer, Channel::Control, buildStartSessionPacket(sessionData, m_session.roomState().sessionId));
     }
 
@@ -1918,6 +2054,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             data.state = SessionState::Paused;
                             data.inputDelayFrames = m_session.roomState().inputDelayFrames;
                             data.predictFrames = m_session.roomState().predictFrames;
+                            data.topology = makeTopologyData(m_session.roomState());
                             writer.writePod(data);
                             m_transport.broadcastReliable(Channel::Control, writer.data(), event.peer);
                             pushLog("Session paused because an assigned participant disconnected");
@@ -2138,11 +2275,12 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
 {
     outFrame = {};
     outFrame.frame = frame;
+    outFrame.inputFrame = makeRoomTopologyBaseFrame(frame, m_session.roomState());
     bool haveAssignedParticipant = false;
 
     for(const auto& participant : m_session.roomState().participants) {
         const PlayerSlot slot = participant.controllerAssignment;
-        if(slot == kObserverPlayerSlot || slot >= 4) continue;
+        if(slot == kObserverPlayerSlot) continue;
 
         const TimelineInputEntry* entry =
             participant.id == m_localParticipantId
@@ -2155,14 +2293,14 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
         haveAssignedParticipant = true;
         outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
         outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+        applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
     }
 
     return haveAssignedParticipant || std::none_of(
         m_session.roomState().participants.begin(),
         m_session.roomState().participants.end(),
         [](const ParticipantInfo& participant) {
-            return participant.controllerAssignment != kObserverPlayerSlot &&
-                   participant.controllerAssignment < 4;
+            return participant.controllerAssignment != kObserverPlayerSlot;
         }
     );
 }
@@ -2177,12 +2315,13 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
 
     outFrame = {};
     outFrame.frame = frame;
+    outFrame.inputFrame = makeRoomTopologyBaseFrame(frame, m_session.roomState());
     outFrame.predicted = false;
     bool haveAssignedParticipant = false;
 
     for(const auto& participant : m_session.roomState().participants) {
         const PlayerSlot slot = participant.controllerAssignment;
-        if(slot == kObserverPlayerSlot || slot >= 4) continue;
+        if(slot == kObserverPlayerSlot) continue;
 
         const bool isLocalParticipant = participant.id == m_localParticipantId;
         const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
@@ -2201,6 +2340,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
         haveAssignedParticipant = true;
         outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
         outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
+        applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
         if(entry->predicted) {
             m_predictionStats.recordPredictedFrameUse(frame, slot);
         }
@@ -2211,8 +2351,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
         m_session.roomState().participants.begin(),
         m_session.roomState().participants.end(),
         [](const ParticipantInfo& participant) {
-            return participant.controllerAssignment != kObserverPlayerSlot &&
-                   participant.controllerAssignment < 4;
+            return participant.controllerAssignment != kObserverPlayerSlot;
         }
     );
 }
@@ -2265,9 +2404,12 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
 
 }
 
-void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi)
+void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution)
 {
-    if(slot >= 4 || m_localParticipantId == kInvalidParticipantId) return;
+    if(slot == kObserverPlayerSlot || m_localParticipantId == kInvalidParticipantId) return;
+
+    const uint64_t buttonMaskLo = assignedContributionPrimaryMask(slot, contribution);
+    const uint64_t buttonMaskHi = 0;
 
     const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
     if(latest != nullptr && frame != latest->frame + 1u) {
@@ -2281,10 +2423,12 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     const TimelineInputEntry* existing = m_localInputs.find(frame, m_localParticipantId, slot);
     if(existing != nullptr) {
-        if(existing->buttonMaskLo != buttonMaskLo || existing->buttonMaskHi != buttonMaskHi) {
+        if(existing->buttonMaskLo != buttonMaskLo ||
+           existing->buttonMaskHi != buttonMaskHi ||
+           !inputFramesEqual(existing->inputFrame, contribution)) {
             std::ostringstream oss;
             oss << "Ignored attempt to overwrite committed local input on frame " << frame
-                << " slot " << static_cast<unsigned>(slot) + 1u
+                << " assignment " << inputAssignmentLabel(slot, m_session.roomState())
                 << " oldMaskLo " << existing->buttonMaskLo
                 << " newMaskLo " << buttonMaskLo;
             pushLog(oss.str());
@@ -2298,6 +2442,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     entry.playerSlot = slot;
     entry.buttonMaskLo = buttonMaskLo;
     entry.buttonMaskHi = buttonMaskHi;
+    entry.inputFrame = contribution;
     entry.sequence = ++m_localInputSequence;
     entry.confirmed = m_hosting;
     m_localInputs.push(entry);
@@ -2310,7 +2455,8 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     packetData.buttonMaskLo = buttonMaskLo;
     packetData.buttonMaskHi = buttonMaskHi;
     packetData.sequence = entry.sequence;
-    const std::vector<uint8_t> payload = buildInputFramePacket(packetData);
+    packetData.payloadSize = static_cast<uint16_t>(serializeInputFrame(contribution).size());
+    const std::vector<uint8_t> payload = buildInputFramePacket(packetData, contribution);
 
     if(m_hosting) {
         m_transport.broadcastReliable(Channel::Gameplay, payload);
@@ -2320,6 +2466,43 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     if(!m_connected || m_serverPeer == nullptr) return;
     m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
+}
+
+void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,
+                                               PlayerSlot slot,
+                                               uint64_t buttonMaskLo,
+                                               uint64_t /*buttonMaskHi*/)
+{
+    InputFrame contribution = makeContributionBase(makeRoomTopologyBaseFrame(frame, m_session.roomState()));
+    auto bit = [buttonMaskLo](uint32_t index) {
+        return (buttonMaskLo & (1ull << index)) != 0;
+    };
+    switch(slot) {
+        case kPort1PlayerSlot:
+        case kMultitapP1PlayerSlot:
+            contribution.p1A = bit(0); contribution.p1B = bit(1); contribution.p1Select = bit(2); contribution.p1Start = bit(3);
+            contribution.p1Up = bit(4); contribution.p1Down = bit(5); contribution.p1Left = bit(6); contribution.p1Right = bit(7);
+            contribution.p1X = bit(8); contribution.p1Y = bit(9); contribution.p1L = bit(10); contribution.p1R = bit(11);
+            break;
+        case kPort2PlayerSlot:
+        case kMultitapP2PlayerSlot:
+            contribution.p2A = bit(0); contribution.p2B = bit(1); contribution.p2Select = bit(2); contribution.p2Start = bit(3);
+            contribution.p2Up = bit(4); contribution.p2Down = bit(5); contribution.p2Left = bit(6); contribution.p2Right = bit(7);
+            contribution.p2X = bit(8); contribution.p2Y = bit(9); contribution.p2L = bit(10); contribution.p2R = bit(11);
+            break;
+        case kExpansionPlayerSlot:
+        case kMultitapP3PlayerSlot:
+            contribution.p3A = bit(0); contribution.p3B = bit(1); contribution.p3Select = bit(2); contribution.p3Start = bit(3);
+            contribution.p3Up = bit(4); contribution.p3Down = bit(5); contribution.p3Left = bit(6); contribution.p3Right = bit(7);
+            break;
+        case kMultitapP4PlayerSlot:
+            contribution.p4A = bit(0); contribution.p4B = bit(1); contribution.p4Select = bit(2); contribution.p4Start = bit(3);
+            contribution.p4Up = bit(4); contribution.p4Down = bit(5); contribution.p4Left = bit(6); contribution.p4Right = bit(7);
+            break;
+        default:
+            break;
+    }
+    recordLocalInputFrame(frame, slot, contribution);
 }
 
 void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
@@ -2486,9 +2669,11 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
 bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlot slot)
 {
     if(!m_hosting) return false;
+    if(!isAssignmentAvailable(slot, m_session.roomState())) return false;
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
+    if(participant->controllerAssignment == slot) return true;
 
     std::vector<ParticipantId> changedParticipants;
     std::vector<std::pair<PlayerSlot, std::string>> assignmentToasts;
@@ -2507,16 +2692,18 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
                   m_session.roomState().lastConfirmedFrame});
     participant->controllerAssignment = slot;
     participant->role = slot == kObserverPlayerSlot ? ParticipantRole::Observer : ParticipantRole::Player;
+    discardTimelineStateAfter(assignmentBaselineFrame);
+    participant->lastReceivedInputFrame = assignmentBaselineFrame;
+    participant->lastContiguousInputFrame = assignmentBaselineFrame;
+    participant->lastReceivedInputSequence = 0;
+    participant->pendingMissingInputFrom.reset();
+    if(participantId == m_localParticipantId) {
+        m_localInputSequence = 0;
+    }
     if(slot != kObserverPlayerSlot) {
-        discardTimelineStateAfter(assignmentBaselineFrame);
         participant->lastReceivedInputFrame = assignmentBaselineFrame;
         participant->lastContiguousInputFrame = assignmentBaselineFrame;
-        participant->lastReceivedInputSequence = 0;
-        participant->pendingMissingInputFrom.reset();
         seedNeutralInputBaseline(participantId, slot, assignmentBaselineFrame);
-        if(participantId == m_localParticipantId) {
-            m_localInputSequence = 0;
-        }
     }
     changedParticipants.push_back(participantId);
     assignmentToasts.emplace_back(slot, participantLabel(*participant));
@@ -2535,14 +2722,7 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
     const bool shouldAutoResyncAfterAssignment =
         (m_session.roomState().state == SessionState::Running ||
          m_session.roomState().state == SessionState::Paused) &&
-        m_session.roomState().currentFrame > 0 &&
-        std::any_of(
-            m_session.roomState().participants.begin(),
-            m_session.roomState().participants.end(),
-            [this](const ParticipantInfo& info) {
-                return info.id != m_localParticipantId && info.connected;
-            }
-        );
+        m_session.roomState().currentFrame > 0;
     if(shouldAutoResyncAfterAssignment) {
         if(!m_pendingHostResyncFrame.has_value() || assignmentBaselineFrame < *m_pendingHostResyncFrame) {
             m_pendingHostResyncFrame = assignmentBaselineFrame;
@@ -2551,7 +2731,7 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
     }
 
     for(const auto& [assignedSlot, participantName] : assignmentToasts) {
-        notifySessionEvent(controllerAssignmentToast(assignedSlot, participantName));
+        notifySessionEvent(controllerAssignmentToast(assignedSlot, m_session.roomState(), participantName));
     }
 
     return true;
@@ -2572,6 +2752,7 @@ bool NetplayCoordinator::setInputDelayFrames(uint8_t frames)
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
     status.predictFrames = m_session.roomState().predictFrames;
+    status.topology = makeTopologyData(m_session.roomState());
     m_lastBroadcastInputDelayFrames = status.inputDelayFrames;
     m_transport.broadcastReliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
     return true;
@@ -2592,6 +2773,7 @@ bool NetplayCoordinator::setPredictFrames(uint8_t frames)
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
     status.predictFrames = m_session.roomState().predictFrames;
+    status.topology = makeTopologyData(m_session.roomState());
     m_transport.broadcastReliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
     return true;
 }
@@ -2706,6 +2888,7 @@ bool NetplayCoordinator::startSession()
     data.state = m_session.roomState().state;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
+    data.topology = makeTopologyData(m_session.roomState());
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
     pushLog(requiresInitialSync
         ? ("Host started session and is awaiting initial sync at frame " + std::to_string(m_localSimulationFrame))
@@ -2727,6 +2910,7 @@ bool NetplayCoordinator::pauseSession()
     data.state = SessionState::Paused;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
+    data.topology = makeTopologyData(m_session.roomState());
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host paused session");
@@ -2751,6 +2935,7 @@ bool NetplayCoordinator::resumeSession()
     data.state = SessionState::Running;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
+    data.topology = makeTopologyData(m_session.roomState());
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host resumed session");
@@ -2771,6 +2956,7 @@ bool NetplayCoordinator::endSession()
     data.state = SessionState::Ended;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
+    data.topology = makeTopologyData(m_session.roomState());
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host ended session");

@@ -58,12 +58,14 @@ public:
         uint32_t predictionScriptStartFrame = 0;
         uint32_t predictionScriptFrameCount = 0;
         uint32_t reconnectAfterFrames = 0;
+        uint32_t assignmentSwapAfterFrames = 0;
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
+        bool assignmentPatternCheck = false;
     };
 
 private:
@@ -271,6 +273,25 @@ private:
         return buttons;
     }
 
+    static Buttons assignmentPatternButtons(bool hostSide, bool swapped, uint32_t frameIndex)
+    {
+        Buttons buttons{};
+        if(frameIndex < 2u) {
+            return buttons;
+        }
+
+        (void)swapped;
+        const bool even = (frameIndex % 2u) == 0u;
+        if(hostSide) {
+            buttons.start = true;
+            buttons.right = even;
+        } else {
+            buttons.a = true;
+            buttons.up = even;
+        }
+        return buttons;
+    }
+
     static std::optional<Netplay::RomValidationData> captureRomValidation(GeraNESEmu& emu)
     {
         if(!emu.valid()) return std::nullopt;
@@ -299,6 +320,18 @@ private:
     {
         for(const auto& participant : coordinator.session().roomState().participants) {
             if(participant.id == coordinator.localParticipantId() &&
+               participant.controllerAssignment != Netplay::kObserverPlayerSlot) {
+                return participant.controllerAssignment;
+            }
+        }
+        return std::nullopt;
+    }
+
+    static std::optional<Netplay::PlayerSlot> localAssignedSlot(const Netplay::RoomState& room,
+                                                                Netplay::ParticipantId localParticipantId)
+    {
+        for(const auto& participant : room.participants) {
+            if(participant.id == localParticipantId &&
                participant.controllerAssignment != Netplay::kObserverPlayerSlot) {
                 return participant.controllerAssignment;
             }
@@ -793,7 +826,10 @@ private:
                                          const std::string& status,
                                          const std::string& failureReason,
                                          uint32_t lastCheckedFrame,
-                                         uint32_t maxStallSteps)
+                                         uint32_t maxStallSteps,
+                                         bool assignmentSwapTriggered = false,
+                                         bool assignmentSwapVerified = false,
+                                         bool assignmentPatternVerified = false)
     {
         return {
             {"status", status},
@@ -802,6 +838,10 @@ private:
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
+            {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
+            {"assignmentSwapTriggered", assignmentSwapTriggered},
+            {"assignmentSwapVerified", assignmentSwapVerified},
+            {"assignmentPatternVerified", assignmentPatternVerified},
             {"networkPumpStride", options.networkPumpStride},
             {"predictionHoldStartFrame", options.predictionHoldStartFrame},
             {"predictionHoldFrameCount", options.predictionHoldFrameCount},
@@ -855,6 +895,179 @@ private:
             }
         }
         return true;
+    }
+
+    static EmulationHost::InputState buildRuntimeInputStateForSlot(Netplay::PlayerSlot slot, const Buttons& buttons)
+    {
+        EmulationHost::InputState inputState{};
+        Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
+        return inputState;
+    }
+
+    static Buttons runtimeButtonsForPeer(const Options& options,
+                                         const DeterministicInputGenerator& generator,
+                                         bool hostSide,
+                                         bool swapped,
+                                         uint32_t frameIndex,
+                                         uint32_t fps)
+    {
+        if(options.assignmentPatternCheck) {
+            return assignmentPatternButtons(hostSide, swapped, frameIndex);
+        }
+        return playbackButtonsForFrame(options, generator, hostSide, frameIndex, fps);
+    }
+
+    static bool inputFrameMatchesButtonsForSlot(const InputFrame& inputFrame,
+                                                Netplay::PlayerSlot slot,
+                                                const Buttons& buttons)
+    {
+        switch(slot) {
+            case Netplay::kPort1PlayerSlot:
+            case Netplay::kMultitapP1PlayerSlot:
+                return inputFrame.p1A == buttons.a &&
+                       inputFrame.p1B == buttons.b &&
+                       inputFrame.p1Select == buttons.select &&
+                       inputFrame.p1Start == buttons.start &&
+                       inputFrame.p1Up == buttons.up &&
+                       inputFrame.p1Down == buttons.down &&
+                       inputFrame.p1Left == buttons.left &&
+                       inputFrame.p1Right == buttons.right;
+            case Netplay::kPort2PlayerSlot:
+            case Netplay::kMultitapP2PlayerSlot:
+                return inputFrame.p2A == buttons.a &&
+                       inputFrame.p2B == buttons.b &&
+                       inputFrame.p2Select == buttons.select &&
+                       inputFrame.p2Start == buttons.start &&
+                       inputFrame.p2Up == buttons.up &&
+                       inputFrame.p2Down == buttons.down &&
+                       inputFrame.p2Left == buttons.left &&
+                       inputFrame.p2Right == buttons.right;
+            case Netplay::kExpansionPlayerSlot:
+            case Netplay::kMultitapP3PlayerSlot:
+                return inputFrame.p3A == buttons.a &&
+                       inputFrame.p3B == buttons.b &&
+                       inputFrame.p3Select == buttons.select &&
+                       inputFrame.p3Start == buttons.start &&
+                       inputFrame.p3Up == buttons.up &&
+                       inputFrame.p3Down == buttons.down &&
+                       inputFrame.p3Left == buttons.left &&
+                       inputFrame.p3Right == buttons.right;
+            case Netplay::kMultitapP4PlayerSlot:
+                return inputFrame.p4A == buttons.a &&
+                       inputFrame.p4B == buttons.b &&
+                       inputFrame.p4Select == buttons.select &&
+                       inputFrame.p4Start == buttons.start &&
+                       inputFrame.p4Up == buttons.up &&
+                       inputFrame.p4Down == buttons.down &&
+                       inputFrame.p4Left == buttons.left &&
+                       inputFrame.p4Right == buttons.right;
+            default:
+                return false;
+        }
+    }
+
+    template<typename InspectFn>
+    static bool emuHasBufferedPattern(InspectFn&& inspect,
+                                      const DeterministicInputGenerator& hostGenerator,
+                                      const DeterministicInputGenerator& clientGenerator,
+                                      uint32_t windowStartFrame,
+                                      uint32_t windowEndFrame,
+                                      Netplay::PlayerSlot hostSlot,
+                                      Netplay::PlayerSlot clientSlot,
+                                      const Options& options,
+                                      bool swapped)
+    {
+        bool matched = false;
+        inspect([&](auto& innerEmu) {
+            const uint32_t fps = std::max<uint32_t>(1u, innerEmu.getRegionFPS());
+            for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
+                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame);
+                if(inputFrame == nullptr) continue;
+
+                const Buttons hostButtons = runtimeButtonsForPeer(options, hostGenerator, true, swapped, probeFrame, fps);
+                const Buttons clientButtons = runtimeButtonsForPeer(options, clientGenerator, false, swapped, probeFrame, fps);
+                if(inputFrameMatchesButtonsForSlot(*inputFrame, hostSlot, hostButtons) &&
+                   inputFrameMatchesButtonsForSlot(*inputFrame, clientSlot, clientButtons)) {
+                    matched = true;
+                    return;
+                }
+            }
+        });
+        return matched;
+    }
+
+    static bool peerHasBufferedPattern(RuntimePeerState& peer,
+                                       const DeterministicInputGenerator& hostGenerator,
+                                       const DeterministicInputGenerator& clientGenerator,
+                                       uint32_t windowStartFrame,
+                                       uint32_t windowEndFrame,
+                                       Netplay::PlayerSlot hostSlot,
+                                       Netplay::PlayerSlot clientSlot,
+                                       const Options& options,
+                                       bool swapped)
+    {
+        return emuHasBufferedPattern(
+            [&](auto&& fn) {
+                peer.emu.withExclusiveAccess(fn);
+            },
+            hostGenerator,
+            clientGenerator,
+            windowStartFrame,
+            windowEndFrame,
+            hostSlot,
+            clientSlot,
+            options,
+            swapped
+        );
+    }
+
+    static bool peerHasBufferedLocalPattern(RuntimePeerState& peer,
+                                            const DeterministicInputGenerator& generator,
+                                            uint32_t windowStartFrame,
+                                            uint32_t windowEndFrame,
+                                            Netplay::PlayerSlot slot,
+                                            const Options& options)
+    {
+        bool matched = false;
+        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
+            const uint32_t fps = std::max<uint32_t>(1u, innerEmu.getRegionFPS());
+            for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
+                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame);
+                if(inputFrame == nullptr) continue;
+
+                const Buttons buttons = runtimeButtonsForPeer(options, generator, true, false, probeFrame, fps);
+                if(inputFrameMatchesButtonsForSlot(*inputFrame, slot, buttons)) {
+                    matched = true;
+                    return;
+                }
+            }
+        });
+        return matched;
+    }
+
+    static bool peerHasBufferedPattern(AppPeerState& peer,
+                                       const DeterministicInputGenerator& hostGenerator,
+                                       const DeterministicInputGenerator& clientGenerator,
+                                       uint32_t windowStartFrame,
+                                       uint32_t windowEndFrame,
+                                       Netplay::PlayerSlot hostSlot,
+                                       Netplay::PlayerSlot clientSlot,
+                                       const Options& options,
+                                       bool swapped)
+    {
+        return emuHasBufferedPattern(
+            [&](auto&& fn) {
+                peer.emu.withExclusiveAccess(fn);
+            },
+            hostGenerator,
+            clientGenerator,
+            windowStartFrame,
+            windowEndFrame,
+            hostSlot,
+            clientSlot,
+            options,
+            swapped
+        );
     }
 
     static nlohmann::json buildRuntimePeerReport(RuntimePeerState& peer)
@@ -955,7 +1168,10 @@ private:
                                              const std::string& status,
                                              const std::string& failureReason,
                                              uint32_t lastCheckedFrame,
-                                             uint32_t maxStallSteps)
+                                             uint32_t maxStallSteps,
+                                             bool assignmentSwapTriggered = false,
+                                             bool assignmentSwapVerified = false,
+                                             bool assignmentPatternVerified = false)
     {
         return {
             {"status", status},
@@ -967,8 +1183,12 @@ private:
             {"gameplayReceiveDelayMs", options.gameplayReceiveDelayMs},
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
             {"reconnectAfterFrames", options.reconnectAfterFrames},
+            {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
+            {"assignmentSwapTriggered", assignmentSwapTriggered},
+            {"assignmentSwapVerified", assignmentSwapVerified},
+            {"assignmentPatternVerified", assignmentPatternVerified},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
                 : false},
@@ -1042,6 +1262,14 @@ private:
             }
         }
 
+        auto waitFor = [&](auto&& predicate, uint32_t maxSteps, uint32_t sleepMs) -> bool {
+            for(uint32_t i = 0; i < maxSteps; ++i) {
+                if(predicate()) return true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            }
+            return false;
+        };
+
         bool hosted = false;
         uint16_t hostedPort = options.port;
         for(uint32_t portOffset = 0; portOffset < 8u; ++portOffset) {
@@ -1061,6 +1289,50 @@ private:
                         return result;
                     }
                     hostPeer.runtime.assignController(*hostIdBeforeJoin, 0);
+                    if(!waitFor([&]() {
+                            const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                            return hostSnap.room.state == Netplay::SessionState::Running &&
+                                   findParticipantIdByName(hostSnap.room, hostPeer.name).has_value();
+                        }, options.startupTimeoutSteps, 5u)) {
+                        failureReason = "Timed out waiting for host-only session to start before client join.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_ERROR;
+                        cleanup();
+                        return result;
+                    }
+
+                    const uint32_t hostOnlyStartFrame = hostPeer.emu.exactEmulationFrame();
+                    if(!waitFor([&]() {
+                            const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
+                            const Buttons hostButtons = runtimeButtonsForPeer(
+                                options,
+                                hostPeer.generator,
+                                true,
+                                false,
+                                hostFrame,
+                                std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS())
+                            );
+                            hostPeer.runtime.updateLatestInputState(
+                                buildRuntimeInputStateForSlot(Netplay::kPort1PlayerSlot, hostButtons)
+                            );
+                            hostPeer.emu.update(16u);
+                            const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
+                            return newHostFrame >= hostOnlyStartFrame + 4u &&
+                                   peerHasBufferedLocalPattern(
+                                       hostPeer,
+                                       hostPeer.generator,
+                                       newHostFrame + 1u,
+                                       newHostFrame + 8u,
+                                       Netplay::kPort1PlayerSlot,
+                                       options
+                                   );
+                        }, options.startupTimeoutSteps, 1u)) {
+                        failureReason = "Host-only assignment did not produce immediate local input before client join.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_ERROR;
+                        cleanup();
+                        return result;
+                    }
                 }
                 clientPeer.runtime.join("127.0.0.1", port, clientPeer.name);
                 hosted = true;
@@ -1074,14 +1346,6 @@ private:
             cleanup();
             return result;
         }
-
-        auto waitFor = [&](auto&& predicate, uint32_t maxSteps, uint32_t sleepMs) -> bool {
-            for(uint32_t i = 0; i < maxSteps; ++i) {
-                if(predicate()) return true;
-                std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-            }
-            return false;
-        };
 
         if(!waitFor([&]() {
                 const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1216,33 +1480,81 @@ private:
         bool reconnectTriggered = false;
         bool desyncInjected = false;
         bool hardResyncObserved = false;
+        bool assignmentSwapTriggered = false;
+        bool assignmentSwapVerified = false;
+        bool assignmentPatternVerified = !options.assignmentPatternCheck;
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
-            std::array<uint64_t, 4> hostMasks = {};
-            std::array<uint64_t, 4> clientMasks = {};
             const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
-            const Buttons hostButtons = playbackButtonsForFrame(
+            const auto hostLoopSnapshot = hostPeer.runtime.uiSnapshot();
+            const auto clientLoopSnapshot = clientPeer.runtime.uiSnapshot();
+            const auto hostLocalSlot = localAssignedSlot(hostLoopSnapshot.room, hostLoopSnapshot.localParticipantId);
+            const auto clientLocalSlot = localAssignedSlot(clientLoopSnapshot.room, clientLoopSnapshot.localParticipantId);
+            const Buttons hostButtons = runtimeButtonsForPeer(
                 options,
                 hostPeer.generator,
                 true,
+                assignmentSwapVerified,
                 hostFrame,
                 std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS())
             );
-            const Buttons clientButtons = playbackButtonsForFrame(
+            const Buttons clientButtons = runtimeButtonsForPeer(
                 options,
                 clientPeer.generator,
                 false,
+                assignmentSwapVerified,
                 clientFrame,
                 std::max<uint32_t>(1u, clientPeer.emu.getRegionFPS())
             );
-            hostMasks[0] = buildPadMask(hostButtons);
-            clientMasks[0] = options.hostAssignedBeforeJoinOnly ? 0u : buildPadMask(clientButtons);
-            hostPeer.runtime.updateLatestRawMasks(hostMasks);
-            clientPeer.runtime.updateLatestRawMasks(clientMasks);
+            hostPeer.runtime.updateLatestInputState(
+                hostLocalSlot.has_value()
+                    ? buildRuntimeInputStateForSlot(*hostLocalSlot, hostButtons)
+                    : EmulationHost::InputState{}
+            );
+            clientPeer.runtime.updateLatestInputState(
+                options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
+                    ? EmulationHost::InputState{}
+                    : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
+            );
             hostPeer.emu.update(16u);
             clientPeer.emu.update(16u);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+            if(options.assignmentSwapAfterFrames > 0 &&
+               !assignmentSwapTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.assignmentSwapAfterFrames &&
+               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.assignmentSwapAfterFrames) {
+                hostPeer.runtime.assignController(*hostId, 1);
+                hostPeer.runtime.assignController(*clientId, 0);
+                assignmentSwapTriggered = true;
+
+                if(!waitFor([&]() {
+                        const auto hostSwapSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSwapSnap = clientPeer.runtime.uiSnapshot();
+                        const auto* hostParticipant = findParticipantInRoom(hostSwapSnap.room, *hostId);
+                        const auto* clientParticipantHostView = findParticipantInRoom(hostSwapSnap.room, *clientId);
+                        const auto* clientLocalParticipant = findParticipantInRoom(clientSwapSnap.room, clientSwapSnap.localParticipantId);
+                        return hostParticipant != nullptr &&
+                               clientParticipantHostView != nullptr &&
+                               clientLocalParticipant != nullptr &&
+                               hostParticipant->controllerAssignment == Netplay::kPort2PlayerSlot &&
+                               clientParticipantHostView->controllerAssignment == Netplay::kPort1PlayerSlot &&
+                               clientLocalParticipant->controllerAssignment == Netplay::kPort1PlayerSlot &&
+                               hostSwapSnap.room.state == Netplay::SessionState::Running &&
+                               clientSwapSnap.room.state == Netplay::SessionState::Running &&
+                               hostSwapSnap.room.activeResyncId == 0 &&
+                               clientSwapSnap.room.activeResyncId == 0;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for host/client controller swap and automatic resync.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+
+                assignmentSwapVerified = true;
+            }
 
             if(options.reconnectAfterFrames > 0 &&
                !reconnectTriggered &&
@@ -1338,6 +1650,30 @@ private:
                 desyncInjected = true;
             }
 
+            if(options.assignmentPatternCheck && assignmentSwapVerified && !assignmentPatternVerified) {
+                const uint32_t probeStartFrame = std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame()) + 1u;
+                const uint32_t probeEndFrame = probeStartFrame + 12u;
+                assignmentPatternVerified =
+                    peerHasBufferedPattern(hostPeer,
+                                           hostPeer.generator,
+                                           clientPeer.generator,
+                                           probeStartFrame,
+                                           probeEndFrame,
+                                           Netplay::kPort2PlayerSlot,
+                                           Netplay::kPort1PlayerSlot,
+                                           options,
+                                           true) &&
+                    peerHasBufferedPattern(clientPeer,
+                                           hostPeer.generator,
+                                           clientPeer.generator,
+                                           probeStartFrame,
+                                           probeEndFrame,
+                                           Netplay::kPort2PlayerSlot,
+                                           Netplay::kPort1PlayerSlot,
+                                           options,
+                                           true);
+            }
+
             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
             const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1359,7 +1695,7 @@ private:
 
             if(stallSteps > 240u) {
                 failureReason = "Runtime flow stalled after session start.";
-                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -1375,7 +1711,7 @@ private:
             if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
                 if(options.reconnectAfterFrames > 0 && !reconnectTriggered) {
                     failureReason = "Reconnect scenario never triggered before reaching the target frame.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -1391,7 +1727,7 @@ private:
                     failureReason = !desyncInjected
                         ? "Forced desync scenario never injected the divergence."
                         : "Forced desync scenario completed without observing a hard resync.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -1403,7 +1739,22 @@ private:
                     cleanup();
                     return result;
                 }
-                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps);
+                if(options.assignmentPatternCheck && !assignmentPatternVerified) {
+                    failureReason = "Assignment swap completed, but the expected post-swap input pattern was not observed in queued netplay frames.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -1418,7 +1769,7 @@ private:
         }
 
         failureReason = "Runtime-flow netplay test reached the step limit.";
-        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
         result.report["startHostFrame"] = startHostFrame;
         result.report["startClientFrame"] = startClientFrame;
         result.report["targetHostFrame"] = targetHostFrame;
@@ -1591,14 +1942,17 @@ private:
         return false;
     }
 
-    static void produceAppLocalInputs(AppPeerState& peer, const Options& options, uint32_t dtMs)
+    static void produceAppLocalInputs(AppPeerState& peer,
+                                      const Options& options,
+                                      uint32_t dtMs,
+                                      bool swapped)
     {
         const std::optional<Netplay::PlayerSlot> slot = localAssignedSlot(peer.coordinator);
         uint64_t localPrimaryMask = 0;
         if(slot.has_value()) {
             const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
             const uint32_t sourceFrame = peer.driver.producedThroughFrame() + 1u;
-            const Buttons buttons = playbackButtonsForFrame(options, peer.generator, peer.host, sourceFrame, fps);
+            const Buttons buttons = runtimeButtonsForPeer(options, peer.generator, peer.host, swapped, sourceFrame, fps);
             localPrimaryMask = buildPadMask(buttons);
         }
 
@@ -1735,6 +2089,9 @@ private:
         uint32_t maxStallSteps = 0;
         uint32_t maxSimulationFrameSeen = 0;
         bool predictionHoldReleased = false;
+        bool assignmentSwapTriggered = false;
+        bool assignmentSwapVerified = false;
+        bool assignmentPatternVerified = !options.assignmentPatternCheck;
 
         const auto cleanup = [&]() {
             clientPeer.coordinator.disconnect();
@@ -1791,8 +2148,8 @@ private:
             hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.exactEmulationFrame());
             clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.exactEmulationFrame());
 
-            produceAppLocalInputs(hostPeer, options, loopDtMs);
-            produceAppLocalInputs(clientPeer, options, loopDtMs);
+            produceAppLocalInputs(hostPeer, options, loopDtMs, assignmentSwapVerified);
+            produceAppLocalInputs(clientPeer, options, loopDtMs, assignmentSwapVerified);
             const uint32_t simulationFrame = std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame());
             maxSimulationFrameSeen = std::max(maxSimulationFrameSeen, simulationFrame);
             const bool withinPredictionHoldWindow =
@@ -1937,7 +2294,7 @@ private:
             if(hostPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u ||
                clientPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u) {
                 failureReason = "Future InputBuffer horizon grew beyond the expected bound under app flow.";
-                result.report = buildAppReport(options, hostPeer, clientPeer, "buffer_overfill", failureReason, lastCheckedFrame, maxStallSteps);
+                result.report = buildAppReport(options, hostPeer, clientPeer, "buffer_overfill", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.exitCode = RESULT_FAILED;
                 cleanup();
                 return result;
@@ -1946,7 +2303,7 @@ private:
             if(hostPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u ||
                clientPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u) {
                 failureReason = "Pending confirmed frame queue grew beyond the expected bound under app flow.";
-                result.report = buildAppReport(options, hostPeer, clientPeer, "pending_overfill", failureReason, lastCheckedFrame, maxStallSteps);
+                result.report = buildAppReport(options, hostPeer, clientPeer, "pending_overfill", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.exitCode = RESULT_FAILED;
                 cleanup();
                 return result;
@@ -1954,8 +2311,74 @@ private:
 
             if(stallSteps > 240u) {
                 failureReason = "App flow stalled while confirmed frames existed.";
-                result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+                result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.exitCode = RESULT_FAILED;
+                cleanup();
+                return result;
+            }
+
+            if(options.assignmentSwapAfterFrames > 0 &&
+               !assignmentSwapTriggered &&
+               newHostFrame >= startHostFrame + options.assignmentSwapAfterFrames &&
+               newClientFrame >= startClientFrame + options.assignmentSwapAfterFrames) {
+                const auto clientId = findParticipantIdByName(hostPeer.coordinator.session().roomState(), clientPeer.name);
+                if(clientId.has_value()) {
+                    hostPeer.coordinator.assignController(hostPeer.coordinator.localParticipantId(), 1);
+                    hostPeer.coordinator.assignController(*clientId, 0);
+                    assignmentSwapTriggered = true;
+                }
+            }
+
+            if(assignmentSwapTriggered && !assignmentSwapVerified) {
+                const auto& hostRoom = hostPeer.coordinator.session().roomState();
+                const auto& clientRoom = clientPeer.coordinator.session().roomState();
+                const auto* hostParticipant = findParticipantInRoom(hostRoom, hostPeer.coordinator.localParticipantId());
+                const auto* clientParticipantHostView = findParticipantInRoom(hostRoom, clientPeer.coordinator.localParticipantId());
+                const auto* clientLocalParticipant = findParticipantInRoom(clientRoom, clientPeer.coordinator.localParticipantId());
+                assignmentSwapVerified =
+                    hostParticipant != nullptr &&
+                    clientParticipantHostView != nullptr &&
+                    clientLocalParticipant != nullptr &&
+                    hostParticipant->controllerAssignment == Netplay::kPort2PlayerSlot &&
+                    clientParticipantHostView->controllerAssignment == Netplay::kPort1PlayerSlot &&
+                    clientLocalParticipant->controllerAssignment == Netplay::kPort1PlayerSlot &&
+                    hostRoom.state == Netplay::SessionState::Running &&
+                    clientRoom.state == Netplay::SessionState::Running &&
+                    hostRoom.activeResyncId == 0 &&
+                    clientRoom.activeResyncId == 0;
+            }
+
+            if(options.assignmentPatternCheck && assignmentSwapVerified && !assignmentPatternVerified) {
+                const uint32_t probeStartFrame = std::min(hostPeer.driver.queuedThroughFrame(), clientPeer.driver.queuedThroughFrame());
+                const uint32_t probeEndFrame = probeStartFrame + 16u;
+                assignmentPatternVerified =
+                    peerHasBufferedPattern(hostPeer,
+                                           hostPeer.generator,
+                                           clientPeer.generator,
+                                           probeStartFrame,
+                                           probeEndFrame,
+                                           Netplay::kPort2PlayerSlot,
+                                           Netplay::kPort1PlayerSlot,
+                                           options,
+                                           true) &&
+                    peerHasBufferedPattern(clientPeer,
+                                           hostPeer.generator,
+                                           clientPeer.generator,
+                                           probeStartFrame,
+                                           probeEndFrame,
+                                           Netplay::kPort2PlayerSlot,
+                                           Netplay::kPort1PlayerSlot,
+                                           options,
+                                           true);
+            }
+
+            if(options.assignmentPatternCheck && assignmentSwapVerified && assignmentPatternVerified) {
+                result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                result.report["startHostFrame"] = startHostFrame;
+                result.report["startClientFrame"] = startClientFrame;
+                result.report["targetHostFrame"] = targetHostFrame;
+                result.report["targetClientFrame"] = targetClientFrame;
+                result.exitCode = EXIT_SUCCESS;
                 cleanup();
                 return result;
             }
@@ -1991,7 +2414,7 @@ private:
                                          " host=" + std::to_string(hostState[firstDiff]) +
                                          " client=" + std::to_string(clientState[firstDiff]);
                     }
-                    result.report = buildAppReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.report = buildAppReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;
@@ -1999,7 +2422,15 @@ private:
             }
 
             if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
-                result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps);
+                if(options.assignmentPatternCheck && !assignmentPatternVerified) {
+                    failureReason = "Assignment swap completed, but the expected post-swap input pattern was not observed in queued netplay frames.";
+                    result.report = buildAppReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+
+                result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -2011,7 +2442,7 @@ private:
         }
 
         failureReason = "App-flow netplay test reached the step limit.";
-        result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps);
+        result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
         result.report["startHostFrame"] = startHostFrame;
         result.report["startClientFrame"] = startClientFrame;
         result.report["targetHostFrame"] = targetHostFrame;

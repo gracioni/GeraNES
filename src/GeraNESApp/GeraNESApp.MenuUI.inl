@@ -265,21 +265,50 @@ inline void GeraNESApp::menuBar() {
 
         if (ImGui::BeginMenu("Input"))
         {
-            const bool nesFourScoreEnabled = m_emu.getNesMultitapDevice() == Settings::NesMultitapDevice::FOUR_SCORE;
-            const bool famicomHoriEnabled = m_emu.getFamicomMultitapDevice() == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+#ifndef __EMSCRIPTEN__
+            const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
+            const auto effectivePort1Device = netplayClientRestricted
+                ? netplaySnapshot.room.port1Device
+                : m_emu.getPortDevice(Settings::Port::P_1);
+            const auto effectivePort2Device = netplayClientRestricted
+                ? netplaySnapshot.room.port2Device
+                : m_emu.getPortDevice(Settings::Port::P_2);
+            const auto effectiveExpansionDevice = netplayClientRestricted
+                ? netplaySnapshot.room.expansionDevice
+                : m_emu.getExpansionDevice();
+            const auto effectiveNesMultitapDevice = netplayClientRestricted
+                ? netplaySnapshot.room.nesMultitapDevice
+                : m_emu.getNesMultitapDevice();
+            const auto effectiveFamicomMultitapDevice = netplayClientRestricted
+                ? netplaySnapshot.room.famicomMultitapDevice
+                : m_emu.getFamicomMultitapDevice();
+#else
+            const auto effectivePort1Device = m_emu.getPortDevice(Settings::Port::P_1);
+            const auto effectivePort2Device = m_emu.getPortDevice(Settings::Port::P_2);
+            const auto effectiveExpansionDevice = m_emu.getExpansionDevice();
+            const auto effectiveNesMultitapDevice = m_emu.getNesMultitapDevice();
+            const auto effectiveFamicomMultitapDevice = m_emu.getFamicomMultitapDevice();
+#endif
+            const bool nesFourScoreEnabled = effectiveNesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE;
+            const bool famicomHoriEnabled = effectiveFamicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
             const bool anyMultitapActive = nesFourScoreEnabled || famicomHoriEnabled;
 
-            auto drawControllerPortMenuItem = [this, netplayClientRestricted](const char* label, Settings::Port port, Settings::Device device)
+            auto effectivePortDeviceFor = [&](Settings::Port port)
             {
-                const bool selected = m_emu.getPortDevice(port) == std::optional<Settings::Device>(device);
+                return port == Settings::Port::P_1 ? effectivePort1Device : effectivePort2Device;
+            };
+
+            auto drawControllerPortMenuItem = [this, netplayClientRestricted, &effectivePortDeviceFor](const char* label, Settings::Port port, Settings::Device device)
+            {
+                const bool selected = effectivePortDeviceFor(port) == std::optional<Settings::Device>(device);
                 if(ImGui::MenuItem(label, nullptr, selected, !netplayClientRestricted)) {
                     m_emu.setPortDevice(port, device);
                 }
             };
 
-            auto drawControllerPortConfigItem = [this](Settings::Port port)
+            auto drawControllerPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port)
             {
-                const auto device = m_emu.getPortDevice(port);
+                const auto device = effectivePortDeviceFor(port);
                 if(device != std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
                    device != std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER)) {
                     return;
@@ -293,9 +322,9 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto drawArkanoidPortConfigItem = [this](Settings::Port port)
+            auto drawArkanoidPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port)
             {
-                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) {
+                if(effectivePortDeviceFor(port) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) {
                     return;
                 }
 
@@ -305,9 +334,9 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto drawSnesMousePortConfigItem = [this](Settings::Port port)
+            auto drawSnesMousePortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port)
             {
-                const auto device = m_emu.getPortDevice(port);
+                const auto device = effectivePortDeviceFor(port);
                 if(device != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) &&
                    device != std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
                     return;
@@ -319,9 +348,9 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto drawPowerPadPortConfigItem = [this](Settings::Port port)
+            auto drawPowerPadPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port)
             {
-                const auto device = m_emu.getPortDevice(port);
+                const auto device = effectivePortDeviceFor(port);
                 if(device != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) &&
                    device != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) {
                     return;
@@ -333,9 +362,9 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto drawSnesControllerPortConfigItem = [this](Settings::Port port)
+            auto drawSnesControllerPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port)
             {
-                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER)) {
+                if(effectivePortDeviceFor(port) != std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER)) {
                     return;
                 }
 
@@ -346,9 +375,9 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto drawVirtualBoyControllerPortConfigItem = [this](Settings::Port port)
+            auto drawVirtualBoyControllerPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port)
             {
-                if(m_emu.getPortDevice(port) != std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) {
+                if(effectivePortDeviceFor(port) != std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) {
                     return;
                 }
 
@@ -359,9 +388,9 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto drawKonamiHyperShotConfigItem = [this]()
+            auto drawKonamiHyperShotConfigItem = [this, effectiveExpansionDevice]()
             {
-                if(m_emu.getExpansionDevice() != Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
+                if(effectiveExpansionDevice != Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
                     return;
                 }
 
@@ -421,56 +450,56 @@ inline void GeraNESApp::menuBar() {
             }
 
             if (ImGui::BeginMenu("Expansion", !anyMultitapActive)) {
-                if (ImGui::MenuItem("None", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::NONE, !netplayClientRestricted))
+                if (ImGui::MenuItem("None", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::NONE, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::NONE);
                 }
-                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM, !netplayClientRestricted))
+                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM);
                 }
-                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::BANDAI_HYPERSHOT, !netplayClientRestricted))
+                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                 }
-                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::KONAMI_HYPERSHOT, !netplayClientRestricted))
+                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
                 }
-                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A, !netplayClientRestricted))
+                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
                 }
-                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B, !netplayClientRestricted))
+                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
                 }
-                if (ImGui::MenuItem("Subor Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD, !netplayClientRestricted))
+                if (ImGui::MenuItem("Subor Keyboard", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
                 }
-                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD, !netplayClientRestricted))
+                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
                 }
-                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER, !netplayClientRestricted))
+                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER, !netplayClientRestricted))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                 }
-                if(m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
+                if(effectiveExpansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
                     ImGui::Separator();
                     if(ImGui::MenuItem("Config...")) {
                         m_showArkanoidFamicomConfigWindow = true;
                     }
                 }
-                if(m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-                   m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+                if(effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                   effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                     ImGui::Separator();
                     if(ImGui::MenuItem("Config...")) {
                         m_powerPadConfigWindow.show("Family Trainer Config", m_powerPadInfo);
                     }
                 }
-                if(m_emu.getExpansionDevice() == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+                if(effectiveExpansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
                     ImGui::Separator();
                     if(ImGui::MenuItem("Config...")) {
                         m_inputBindingConfigWindow.show("Standard Controller 3", m_controller3);

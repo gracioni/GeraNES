@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 
+#include "GeraNES/Settings.h"
 #include "NetplayTypes.h"
 
 namespace Netplay {
@@ -100,6 +101,15 @@ struct RomValidationResultData
     RomValidationData romValidation = {};
 };
 
+struct InputTopologyData
+{
+    Settings::Device port1Device = Settings::Device::NONE;
+    Settings::Device port2Device = Settings::Device::NONE;
+    Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
+    Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
+    Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
+};
+
 struct InputFrameData
 {
     uint32_t timelineEpoch = 0;
@@ -109,6 +119,7 @@ struct InputFrameData
     uint64_t buttonMaskLo = 0;
     uint64_t buttonMaskHi = 0;
     uint32_t sequence = 0;
+    uint16_t payloadSize = 0;
 };
 
 struct ConfirmedInputFramesData
@@ -120,8 +131,9 @@ struct ConfirmedInputFramesData
 
 struct ConfirmedInputFrameEntry
 {
-    std::array<uint64_t, 4> buttonMaskLo = {};
-    std::array<uint64_t, 4> buttonMaskHi = {};
+    std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
+    std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
+    uint16_t payloadSize = 0;
 };
 
 struct InputAckData
@@ -140,6 +152,7 @@ struct FrameStatusData
     FrameNumber lastConfirmedFrame = 0;
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
+    InputTopologyData topology = {};
 };
 
 struct AssignControllerData
@@ -163,6 +176,7 @@ struct StartSessionData
     SessionState state = SessionState::Lobby;
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
+    InputTopologyData topology = {};
 };
 
 struct PeerHealthData

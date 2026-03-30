@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "GeraNES/Settings.h"
 #include "NetProtocol.h"
 
 namespace Netplay {
@@ -55,6 +56,11 @@ struct RoomState
     uint32_t pendingResyncAckCount = 0;
     std::string selectedGameName;
     RomValidationData romValidation;
+    std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
+    std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
+    Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
+    Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
+    Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
     std::vector<ParticipantInfo> participants;
 };
 

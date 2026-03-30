@@ -3,6 +3,7 @@
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
+#include "GeraNESNetplay/NetplayInputAssignment.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -24,11 +25,18 @@ private:
     mutable std::mutex m_pendingFramesMutex;
     std::deque<NetplayCoordinator::ConfirmedFrameInputs> m_pendingFrames;
 
-    void seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator, PlayerSlot localSlot)
+    void seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
+                                      PlayerSlot localSlot,
+                                      const EmulationHost::InputState& localInputState,
+                                      const RoomState& room)
     {
         while(m_producedThroughFrame < m_prebufferFrames) {
             ++m_producedThroughFrame;
-            coordinator.recordLocalInputFrame(m_producedThroughFrame, localSlot, 0);
+            coordinator.recordLocalInputFrame(
+                m_producedThroughFrame,
+                localSlot,
+                buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+            );
         }
     }
 
@@ -52,23 +60,26 @@ public:
         const bool left2 = (mask & (1ull << 14)) != 0;
         const bool right2 = (mask & (1ull << 15)) != 0;
         switch(slot) {
-            case 0:
+            case kPort1PlayerSlot:
+            case kMultitapP1PlayerSlot:
                 state.p1A = a; state.p1B = b; state.p1Select = select; state.p1Start = start;
                 state.p1Up = up; state.p1Down = down; state.p1Left = left; state.p1Right = right;
                 state.p1X = x; state.p1Y = y; state.p1L = l; state.p1R = r;
                 state.p1Up2 = up2; state.p1Down2 = down2; state.p1Left2 = left2; state.p1Right2 = right2;
                 break;
-            case 1:
+            case kPort2PlayerSlot:
+            case kMultitapP2PlayerSlot:
                 state.p2A = a; state.p2B = b; state.p2Select = select; state.p2Start = start;
                 state.p2Up = up; state.p2Down = down; state.p2Left = left; state.p2Right = right;
                 state.p2X = x; state.p2Y = y; state.p2L = l; state.p2R = r;
                 state.p2Up2 = up2; state.p2Down2 = down2; state.p2Left2 = left2; state.p2Right2 = right2;
                 break;
-            case 2:
+            case kExpansionPlayerSlot:
+            case kMultitapP3PlayerSlot:
                 state.p3A = a; state.p3B = b; state.p3Select = select; state.p3Start = start;
                 state.p3Up = up; state.p3Down = down; state.p3Left = left; state.p3Right = right;
                 break;
-            case 3:
+            case kMultitapP4PlayerSlot:
                 state.p4A = a; state.p4B = b; state.p4Select = select; state.p4Start = start;
                 state.p4Up = up; state.p4Down = down; state.p4Left = left; state.p4Right = right;
                 break;
@@ -97,21 +108,24 @@ public:
         const bool right2 = (mask & (1ull << 15)) != 0;
 
         switch(slot) {
-            case 0:
+            case kPort1PlayerSlot:
+            case kMultitapP1PlayerSlot:
                 inputFrame.p1A = a; inputFrame.p1B = b; inputFrame.p1Select = select; inputFrame.p1Start = start;
                 inputFrame.p1Up = up; inputFrame.p1Down = down; inputFrame.p1Left = left; inputFrame.p1Right = right;
                 inputFrame.p1X = x; inputFrame.p1Y = y; inputFrame.p1L = l; inputFrame.p1R = r;
                 break;
-            case 1:
+            case kPort2PlayerSlot:
+            case kMultitapP2PlayerSlot:
                 inputFrame.p2A = a; inputFrame.p2B = b; inputFrame.p2Select = select; inputFrame.p2Start = start;
                 inputFrame.p2Up = up; inputFrame.p2Down = down; inputFrame.p2Left = left; inputFrame.p2Right = right;
                 inputFrame.p2X = x; inputFrame.p2Y = y; inputFrame.p2L = l; inputFrame.p2R = r;
                 break;
-            case 2:
+            case kExpansionPlayerSlot:
+            case kMultitapP3PlayerSlot:
                 inputFrame.p3A = a; inputFrame.p3B = b; inputFrame.p3Select = select; inputFrame.p3Start = start;
                 inputFrame.p3Up = up; inputFrame.p3Down = down; inputFrame.p3Left = left; inputFrame.p3Right = right;
                 break;
-            case 3:
+            case kMultitapP4PlayerSlot:
                 inputFrame.p4A = a; inputFrame.p4B = b; inputFrame.p4Select = select; inputFrame.p4Start = start;
                 inputFrame.p4Up = up; inputFrame.p4Down = down; inputFrame.p4Left = left; inputFrame.p4Right = right;
                 break;
@@ -206,7 +220,8 @@ public:
                                     SessionState state,
                                     std::optional<PlayerSlot> localSlot,
                                     uint32_t dtMs,
-                                    uint64_t localPrimaryMask,
+                                    const EmulationHost::InputState& localInputState,
+                                    const RoomState& room,
                                     uint32_t regionFps,
                                     uint32_t exactFrame,
                                     uint32_t confirmedThroughFrame)
@@ -221,7 +236,7 @@ public:
             return;
         }
 
-        seedInitialPrebufferIfNeeded(coordinator, *localSlot);
+        seedInitialPrebufferIfNeeded(coordinator, *localSlot, localInputState, room);
 
         const double fps = static_cast<double>(std::max(1u, regionFps));
         const double frameDurationMs = 1000.0 / fps;
@@ -232,12 +247,20 @@ public:
               m_producedThroughFrame < targetBufferedThroughFrame) {
             m_inputProductionAccumulatorMs -= frameDurationMs;
             ++m_producedThroughFrame;
-            coordinator.recordLocalInputFrame(m_producedThroughFrame, *localSlot, localPrimaryMask);
+            coordinator.recordLocalInputFrame(
+                m_producedThroughFrame,
+                *localSlot,
+                buildAssignedContribution(*localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+            );
         }
 
         while(m_producedThroughFrame < targetBufferedThroughFrame) {
             ++m_producedThroughFrame;
-            coordinator.recordLocalInputFrame(m_producedThroughFrame, *localSlot, localPrimaryMask);
+            coordinator.recordLocalInputFrame(
+                m_producedThroughFrame,
+                *localSlot,
+                buildAssignedContribution(*localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+            );
         }
 
         const double maxBufferedAccumulatorMs =
@@ -245,6 +268,40 @@ public:
         if(m_inputProductionAccumulatorMs > maxBufferedAccumulatorMs) {
             m_inputProductionAccumulatorMs = maxBufferedAccumulatorMs;
         }
+    }
+
+    void produceLocalBufferedInputs(NetplayCoordinator& coordinator,
+                                    bool active,
+                                    bool awaitingSync,
+                                    SessionState state,
+                                    std::optional<PlayerSlot> localSlot,
+                                    uint32_t dtMs,
+                                    uint64_t localPrimaryMask,
+                                    uint32_t regionFps,
+                                    uint32_t exactFrame,
+                                    uint32_t confirmedThroughFrame)
+    {
+        EmulationHost::InputState inputState{};
+        if(localSlot.has_value()) {
+            applyPadMaskToInputState(inputState, *localSlot, localPrimaryMask);
+        }
+
+        RoomState room = coordinator.session().roomState();
+        if(room.port1Device == std::nullopt) room.port1Device = Settings::Device::CONTROLLER;
+        if(room.port2Device == std::nullopt) room.port2Device = Settings::Device::CONTROLLER;
+        produceLocalBufferedInputs(
+            coordinator,
+            active,
+            awaitingSync,
+            state,
+            localSlot,
+            dtMs,
+            inputState,
+            room,
+            regionFps,
+            exactFrame,
+            confirmedThroughFrame
+        );
     }
 
     uint32_t confirmedThroughFrame(const NetplayCoordinator& coordinator) const
@@ -260,7 +317,7 @@ public:
             return state;
         }
 
-        for(PlayerSlot slot = 0; slot < 4; ++slot) {
+        for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
             applyPadMaskToInputState(state, slot, confirmed->buttonMaskLo[slot]);
         }
         return state;
@@ -336,11 +393,8 @@ public:
             if(confirmed.frame > currentFrame + m_prebufferFrames + m_predictFrames) {
                 break;
             }
-            InputFrame inputFrame = emu.createInputFrame(confirmed.frame);
+            InputFrame inputFrame = confirmed.inputFrame;
             inputFrame.speculative = confirmed.predicted;
-            for(PlayerSlot slot = 0; slot < 4; ++slot) {
-                applyPadMaskToInputFrame(inputFrame, slot, confirmed.buttonMaskLo[slot]);
-            }
             emu.queueInputFrame(inputFrame);
             m_pendingFrames.pop_front();
         }

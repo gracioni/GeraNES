@@ -1513,6 +1513,7 @@ private:
                 im.isPressed(m_systemInput.speed)
             );
 #ifndef __EMSCRIPTEN__
+            m_netplayRuntime.updateLatestInputState(inputState);
             const uint64_t p1RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
                 p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart,
                 p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,

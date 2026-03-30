@@ -104,6 +104,8 @@ public:
     {
         InputState state{};
         bool speculative = false;
+        bool hasFrameOverride = false;
+        InputFrame frameOverride{};
     };
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
@@ -181,6 +183,20 @@ private:
         emu.queueInputFrame(frame);
         emu.setRewind(input.rewind);
         emu.setSpeedBoost(input.speedBoost);
+    }
+
+    static void queueReplayFrameInputToEmu(GeraNESEmu& emu,
+                                           uint32_t targetFrame,
+                                           const ReplayFrameInput& input)
+    {
+        InputFrame frame = input.hasFrameOverride
+            ? input.frameOverride
+            : buildInputFrameForEmu(emu, targetFrame, input.state, input.speculative);
+        frame.frame = targetFrame;
+        frame.speculative = input.speculative;
+        emu.queueInputFrame(frame);
+        emu.setRewind(input.state.rewind);
+        emu.setSpeedBoost(input.state.speedBoost);
     }
 
     struct Snapshot
@@ -319,9 +335,7 @@ private:
                 if(!m_frameInputResolver(targetFrame, input)) {
                     return;
                 }
-                m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, targetFrame, input.state, input.speculative));
-                m_emu.setRewind(input.state.rewind);
-                m_emu.setSpeedBoost(input.state.speedBoost);
+                queueReplayFrameInputToEmu(m_emu, targetFrame, input);
                 return;
             }
         }
@@ -1361,9 +1375,7 @@ public:
             const uint32_t nextFrame = m_emu.frameCount() + 1;
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
             m_pendingInput = replayInput.state;
-            m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, nextFrame, replayInput.state, replayInput.speculative));
-            m_emu.setRewind(replayInput.state.rewind);
-            m_emu.setSpeedBoost(replayInput.state.speedBoost);
+            queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
             m_emu.setForceSilentAudio(replayInput.speculative);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
@@ -1388,9 +1400,7 @@ public:
                 std::scoped_lock pendingInputLock(m_pendingInputMutex);
                 m_pendingInput = replayInput.state;
             }
-            m_emu.queueInputFrame(buildInputFrameForEmu(m_emu, nextFrame, replayInput.state, replayInput.speculative));
-            m_emu.setRewind(replayInput.state.rewind);
-            m_emu.setSpeedBoost(replayInput.state.speedBoost);
+            queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
             m_emu.setForceSilentAudio(replayInput.speculative);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;

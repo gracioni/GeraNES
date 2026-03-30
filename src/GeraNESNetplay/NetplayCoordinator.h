@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "GeraNES/InputBuffer.h"
+#include "GeraNES/Settings.h"
 #include "InputTimeline.h"
 #include "Diagnostics.h"
 #include "NetSerialization.h"
@@ -25,8 +27,9 @@ public:
     struct ConfirmedFrameInputs
     {
         FrameNumber frame = 0;
-        std::array<uint64_t, 4> buttonMaskLo = {};
-        std::array<uint64_t, 4> buttonMaskHi = {};
+        std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
+        std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
+        InputFrame inputFrame = {};
         bool predicted = false;
     };
 
@@ -160,6 +163,11 @@ public:
     static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
     FrameNumber latestPredictedRemoteFrame() const;
+    void setRoomInputTopology(std::optional<Settings::Device> port1Device,
+                              std::optional<Settings::Device> port2Device,
+                              Settings::ExpansionDevice expansionDevice,
+                              Settings::NesMultitapDevice nesMultitapDevice,
+                              Settings::FamicomMultitapDevice famicomMultitapDevice);
 
     bool host(uint16_t port, size_t maxPeers, const std::string& displayName);
     bool join(const std::string& hostName, uint16_t port, const std::string& displayName);
@@ -190,6 +198,7 @@ public:
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;
     FrameNumber latestConfirmedFrame() const;
     uint8_t predictFrames() const;
+    void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution);
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
     void predictRemoteInputsForFrame(FrameNumber frame);
     bool tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);

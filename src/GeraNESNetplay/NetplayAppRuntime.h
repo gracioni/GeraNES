@@ -73,6 +73,7 @@ private:
     mutable std::mutex m_stateMutex;
     std::deque<WorkerCommand> m_pendingCommands;
     std::array<uint64_t, 4> m_latestRawMasks = {};
+    EmulationHost::InputState m_latestInputState = {};
     UiSnapshot m_uiSnapshot;
     uint64_t m_cachedReconnectToken = 0;
     bool m_hasCachedReconnectToken = false;
@@ -231,6 +232,7 @@ public:
 
     void setLocalReconnectToken(uint64_t token);
     void refreshLocalRomSelectionImmediate();
+    void updateLatestInputState(const EmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
     UiSnapshot uiSnapshot() const;
     bool runtimeActive() const;
@@ -240,6 +242,13 @@ public:
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();
     void assignController(ParticipantId participantId, PlayerSlot slot);
+    void configureInputAssignment(ParticipantId participantId,
+                                  std::optional<Settings::Device> port1Device,
+                                  std::optional<Settings::Device> port2Device,
+                                  Settings::ExpansionDevice expansionDevice,
+                                  Settings::NesMultitapDevice nesMultitapDevice,
+                                  Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                  PlayerSlot slot);
     void kickParticipant(ParticipantId participantId);
     void removeReconnectReservation(ParticipantId participantId);
     void requestForceResync();
@@ -648,11 +657,8 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
             return;
         }
 
-        InputFrame inputFrame = emu.createInputFrame(nextFrame);
+        InputFrame inputFrame = playbackFrame.inputFrame;
         inputFrame.speculative = playbackFrame.predicted;
-        for(PlayerSlot slot = 0; slot < 4; ++slot) {
-            ConfirmedInputBufferDriver::applyPadMaskToInputFrame(inputFrame, slot, playbackFrame.buttonMaskLo[slot]);
-        }
         emu.queueInputFrame(inputFrame);
         emu.setForceSilentAudio(playbackFrame.predicted);
         emu.updateUntilFrame(frameDt);
@@ -719,7 +725,10 @@ inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, Emula
     }
     outFrame = {};
     outFrame.speculative = playbackFrame.predicted;
-    for(PlayerSlot slot = 0; slot < 4; ++slot) {
+    outFrame.hasFrameOverride = true;
+    outFrame.frameOverride = playbackFrame.inputFrame;
+    outFrame.frameOverride.frame = frame;
+    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
         ConfirmedInputBufferDriver::applyPadMaskToInputState(outFrame.state, slot, playbackFrame.buttonMaskLo[slot]);
     }
     return true;
@@ -736,11 +745,8 @@ inline bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint3
         return false;
     }
 
-    InputFrame inputFrame = emu.createInputFrame(frame);
+    InputFrame inputFrame = playbackFrame.inputFrame;
     inputFrame.speculative = playbackFrame.predicted;
-    for(PlayerSlot slot = 0; slot < 4; ++slot) {
-        ConfirmedInputBufferDriver::applyPadMaskToInputFrame(inputFrame, slot, playbackFrame.buttonMaskLo[slot]);
-    }
     emu.queueInputFrame(inputFrame);
     return true;
 }
@@ -778,6 +784,17 @@ inline void NetplayAppRuntime::updateLatestRawMasks(const std::array<uint64_t, 4
 {
     std::scoped_lock stateLock(m_stateMutex);
     m_latestRawMasks = masks;
+    m_latestInputState = {};
+    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kPort1PlayerSlot, masks[0]);
+    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kPort2PlayerSlot, masks[1]);
+    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kExpansionPlayerSlot, masks[2]);
+    ConfirmedInputBufferDriver::applyPadMaskToInputState(m_latestInputState, kMultitapP4PlayerSlot, masks[3]);
+}
+
+inline void NetplayAppRuntime::updateLatestInputState(const EmulationHost::InputState& inputState)
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    m_latestInputState = inputState;
 }
 
 inline NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
@@ -829,6 +846,36 @@ inline void NetplayAppRuntime::assignController(ParticipantId participantId, Pla
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
         self.m_coordinator.assignController(participantId, slot);
+    });
+}
+
+inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participantId,
+                                                        std::optional<Settings::Device> port1Device,
+                                                        std::optional<Settings::Device> port2Device,
+                                                        Settings::ExpansionDevice expansionDevice,
+                                                        Settings::NesMultitapDevice nesMultitapDevice,
+                                                        Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                                        PlayerSlot slot)
+{
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        self.m_coordinator.setLocalSimulationFrame(emu.frameCount());
+        emu.setNesMultitapDevice(nesMultitapDevice);
+        emu.setFamicomMultitapDevice(famicomMultitapDevice);
+        emu.setPortDevice(Settings::Port::P_1, port1Device.value_or(Settings::Device::NONE));
+        emu.setPortDevice(Settings::Port::P_2, port2Device.value_or(Settings::Device::NONE));
+        emu.setExpansionDevice(expansionDevice);
+        self.m_coordinator.setRoomInputTopology(
+            port1Device,
+            port2Device,
+            expansionDevice,
+            nesMultitapDevice,
+            famicomMultitapDevice
+        );
+        self.m_coordinator.assignController(participantId, slot);
+        emu.discardQueuedInputFramesAfter(emu.frameCount());
+        self.reanchorInputDriver(emu.frameCount(), self.localAssignedSlot());
+        self.m_lastAssignmentLayoutKey.clear();
+        self.m_lastLocalAssignedSlot.reset();
     });
 }
 
@@ -917,6 +964,13 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     m_emuHost.setAllowPresenterTimeoutAdvance(true);
 
     const std::optional<RomSelection> localRom = captureCurrentRomSelection(emu);
+    m_coordinator.setRoomInputTopology(
+        emu.getPortDevice(Settings::Port::P_1),
+        emu.getPortDevice(Settings::Port::P_2),
+        emu.getExpansionDevice(),
+        emu.getNesMultitapDevice(),
+        emu.getFamicomMultitapDevice()
+    );
     syncRomValidation(localRom);
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
     m_coordinator.update(0);
@@ -940,9 +994,11 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     m_runtimeRunning.store(running, std::memory_order_release);
 
     std::array<uint64_t, 4> latestRawMasks = {};
+    EmulationHost::InputState latestInputState{};
     {
         std::scoped_lock stateLock(m_stateMutex);
         latestRawMasks = m_latestRawMasks;
+        latestInputState = m_latestInputState;
     }
 
     const std::optional<PlayerSlot> localSlot = localAssignedSlot();
@@ -964,7 +1020,6 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         }
         m_lastLocalAssignedSlot = localSlot;
     }
-    const uint64_t localPrimaryMask = latestRawMasks[0];
     const uint32_t workerDtMs = consumeWorkerDtMs();
 
     m_inputDriver.produceLocalBufferedInputs(
@@ -974,7 +1029,8 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_coordinator.session().roomState().state,
         localSlot,
         workerDtMs,
-        localPrimaryMask,
+        latestInputState,
+        m_coordinator.session().roomState(),
         emu.getRegionFPS(),
         emu.frameCount(),
         m_inputDriver.confirmedThroughFrame(m_coordinator)

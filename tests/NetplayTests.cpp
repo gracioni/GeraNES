@@ -7,6 +7,8 @@
 #undef ERROR
 #endif
 
+#include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "NetplayTest.h"
 #include "TestSupport.h"
 
@@ -93,6 +95,80 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[netplay][assignment][unit]")
+{
+    auto makeInputState = [](Netplay::PlayerSlot slot, uint64_t mask) {
+        EmulationHost::InputState state{};
+        Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(state, slot, mask);
+        return state;
+    };
+    auto hostMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(false, false, false, true, false, false, false, true);
+    auto clientMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, false, true, false, false, false);
+
+    SECTION("port assignments move the same local patterns to the new slots")
+    {
+        Netplay::RoomState room;
+        room.port1Device = Settings::Device::CONTROLLER;
+        room.port2Device = Settings::Device::CONTROLLER;
+
+        const auto hostState = makeInputState(Netplay::kPort1PlayerSlot, hostMask);
+        const auto clientState = makeInputState(Netplay::kPort2PlayerSlot, clientMask);
+        const auto hostSwappedState = makeInputState(Netplay::kPort2PlayerSlot, hostMask);
+        const auto clientSwappedState = makeInputState(Netplay::kPort1PlayerSlot, clientMask);
+
+        auto beforeSwap = Netplay::makeRoomTopologyBaseFrame(30u, room);
+        Netplay::applyAssignedContribution(beforeSwap, Netplay::kPort1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, hostState, beforeSwap));
+        Netplay::applyAssignedContribution(beforeSwap, Netplay::kPort2PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, clientState, beforeSwap));
+
+        REQUIRE(beforeSwap.p1Start == true);
+        REQUIRE(beforeSwap.p1Right == true);
+        REQUIRE(beforeSwap.p2A == true);
+        REQUIRE(beforeSwap.p2Up == true);
+
+        auto afterSwap = Netplay::makeRoomTopologyBaseFrame(31u, room);
+        Netplay::applyAssignedContribution(afterSwap, Netplay::kPort2PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, hostSwappedState, afterSwap));
+        Netplay::applyAssignedContribution(afterSwap, Netplay::kPort1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, clientSwappedState, afterSwap));
+
+        REQUIRE(afterSwap.p1A == true);
+        REQUIRE(afterSwap.p1Up == true);
+        REQUIRE(afterSwap.p1Start == false);
+        REQUIRE(afterSwap.p2Start == true);
+        REQUIRE(afterSwap.p2Right == true);
+        REQUIRE(afterSwap.p2A == false);
+    }
+
+    SECTION("multitap assignments also preserve patterns when swapped")
+    {
+        Netplay::RoomState room;
+        room.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+
+        const auto p1State = makeInputState(Netplay::kMultitapP1PlayerSlot, hostMask);
+        const auto p4State = makeInputState(Netplay::kMultitapP4PlayerSlot, clientMask);
+        const auto p1SwappedState = makeInputState(Netplay::kMultitapP4PlayerSlot, hostMask);
+        const auto p4SwappedState = makeInputState(Netplay::kMultitapP1PlayerSlot, clientMask);
+
+        auto beforeSwap = Netplay::makeRoomTopologyBaseFrame(44u, room);
+        Netplay::applyAssignedContribution(beforeSwap, Netplay::kMultitapP1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP1PlayerSlot, p1State, beforeSwap));
+        Netplay::applyAssignedContribution(beforeSwap, Netplay::kMultitapP4PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP4PlayerSlot, p4State, beforeSwap));
+
+        REQUIRE(beforeSwap.p1Start == true);
+        REQUIRE(beforeSwap.p1Right == true);
+        REQUIRE(beforeSwap.p4A == true);
+        REQUIRE(beforeSwap.p4Up == true);
+
+        auto afterSwap = Netplay::makeRoomTopologyBaseFrame(45u, room);
+        Netplay::applyAssignedContribution(afterSwap, Netplay::kMultitapP4PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP4PlayerSlot, p1SwappedState, afterSwap));
+        Netplay::applyAssignedContribution(afterSwap, Netplay::kMultitapP1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP1PlayerSlot, p4SwappedState, afterSwap));
+
+        REQUIRE(afterSwap.p1A == true);
+        REQUIRE(afterSwap.p1Up == true);
+        REQUIRE(afterSwap.p1Start == false);
+        REQUIRE(afterSwap.p4Start == true);
+        REQUIRE(afterSwap.p4Right == true);
+        REQUIRE(afterSwap.p4A == false);
+    }
 }
 
 TEST_CASE("Netplay runtime flow hard-resyncs after an injected desync", "[netplay][runtime][resync]")

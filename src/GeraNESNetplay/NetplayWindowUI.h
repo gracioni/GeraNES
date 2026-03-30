@@ -6,6 +6,7 @@
 #include <string>
 
 #include "GeraNESNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "imgui.h"
 
 namespace Netplay {
@@ -164,15 +165,17 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Last Remote CRC: %08X @ frame %u", room.lastRemoteCrc32, room.lastRemoteCrcFrame);
 
         if(snapshot.latestLocalInput.has_value()) {
-            ImGui::Text("Latest Local Input: frame %u slot %u mask %04llX",
+            const std::string assignment = inputAssignmentLabel(snapshot.latestLocalInput->playerSlot, room);
+            ImGui::Text("Latest Local Input: frame %u %s mask %04llX",
                         snapshot.latestLocalInput->frame,
-                        static_cast<unsigned>(snapshot.latestLocalInput->playerSlot) + 1u,
+                        assignment.c_str(),
                         static_cast<unsigned long long>(snapshot.latestLocalInput->buttonMaskLo & 0xFFFFull));
         }
         if(snapshot.latestRemoteInput.has_value()) {
-            ImGui::Text("Latest Remote Input: frame %u slot %u mask %04llX",
+            const std::string assignment = inputAssignmentLabel(snapshot.latestRemoteInput->playerSlot, room);
+            ImGui::Text("Latest Remote Input: frame %u %s mask %04llX",
                         snapshot.latestRemoteInput->frame,
-                        static_cast<unsigned>(snapshot.latestRemoteInput->playerSlot) + 1u,
+                        assignment.c_str(),
                         static_cast<unsigned long long>(snapshot.latestRemoteInput->buttonMaskLo & 0xFFFFull));
         }
     }
@@ -197,6 +200,149 @@ inline void drawNetplayWindow(bool& showWindow,
                            room.resyncTargetFrame,
                            room.pendingResyncAckCount);
     }
+
+    const auto drawAssignmentTree = [&](ParticipantId participantId, PlayerSlot selectedSlot) {
+        const auto currentPort1 = room.port1Device.value_or(Settings::Device::NONE);
+        const auto currentPort2 = room.port2Device.value_or(Settings::Device::NONE);
+        const auto selectPortDevice = [&](Settings::Port port, Settings::Device device) {
+            const auto port1Device = std::optional<Settings::Device>(
+                port == Settings::Port::P_1 ? device : currentPort1
+            );
+            const auto port2Device = std::optional<Settings::Device>(
+                port == Settings::Port::P_2 ? device : currentPort2
+            );
+            runtime.configureInputAssignment(
+                participantId,
+                port1Device,
+                port2Device,
+                room.expansionDevice,
+                Settings::NesMultitapDevice::NONE,
+                Settings::FamicomMultitapDevice::NONE,
+                port == Settings::Port::P_1 ? kPort1PlayerSlot : kPort2PlayerSlot
+            );
+        };
+        const auto selectExpansionDevice = [&](Settings::ExpansionDevice device) {
+            runtime.configureInputAssignment(
+                participantId,
+                std::optional<Settings::Device>(currentPort1),
+                std::optional<Settings::Device>(currentPort2),
+                device,
+                Settings::NesMultitapDevice::NONE,
+                Settings::FamicomMultitapDevice::NONE,
+                kExpansionPlayerSlot
+            );
+        };
+        const auto selectMultitapAssignment = [&](Settings::NesMultitapDevice nesDevice,
+                                                  Settings::FamicomMultitapDevice famicomDevice,
+                                                  PlayerSlot slot) {
+            runtime.configureInputAssignment(
+                participantId,
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                Settings::ExpansionDevice::NONE,
+                nesDevice,
+                famicomDevice,
+                slot
+            );
+        };
+        const auto drawPortOption = [&](const char* label, Settings::Port port, Settings::Device device, PlayerSlot slot) {
+            const bool selected =
+                selectedSlot == slot &&
+                room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
+                room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
+                ((port == Settings::Port::P_1 ? currentPort1 : currentPort2) == device);
+            if(ImGui::Selectable(label, selected)) {
+                selectPortDevice(port, device);
+            }
+        };
+        const auto drawExpansionOption = [&](const char* label, Settings::ExpansionDevice device) {
+            const bool selected =
+                selectedSlot == kExpansionPlayerSlot &&
+                room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
+                room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
+                room.expansionDevice == device;
+            if(ImGui::Selectable(label, selected)) {
+                selectExpansionDevice(device);
+            }
+        };
+        const auto drawMultitapOption = [&](const char* label,
+                                            Settings::NesMultitapDevice nesDevice,
+                                            Settings::FamicomMultitapDevice famicomDevice,
+                                            PlayerSlot slot) {
+            const bool selected =
+                selectedSlot == slot &&
+                room.nesMultitapDevice == nesDevice &&
+                room.famicomMultitapDevice == famicomDevice;
+            if(ImGui::Selectable(label, selected)) {
+                selectMultitapAssignment(nesDevice, famicomDevice, slot);
+            }
+        };
+
+        if(ImGui::Selectable("Observer", selectedSlot == kObserverPlayerSlot)) {
+            runtime.assignController(participantId, kObserverPlayerSlot);
+        }
+        ImGui::Separator();
+
+        const ImGuiTreeNodeFlags treeFlags = 0;
+
+        if(ImGui::TreeNodeEx("Port 1", treeFlags)) {
+            drawPortOption("Standard Controller", Settings::Port::P_1, Settings::Device::CONTROLLER, kPort1PlayerSlot);
+            drawPortOption("Famicom Controller", Settings::Port::P_1, Settings::Device::FAMICOM_CONTROLLER, kPort1PlayerSlot);
+            drawPortOption("Zapper", Settings::Port::P_1, Settings::Device::ZAPPER, kPort1PlayerSlot);
+            drawPortOption("Power Pad (Side A)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_A, kPort1PlayerSlot);
+            drawPortOption("Power Pad (Side B)", Settings::Port::P_1, Settings::Device::POWER_PAD_SIDE_B, kPort1PlayerSlot);
+            drawPortOption("SNES Mouse", Settings::Port::P_1, Settings::Device::SNES_MOUSE, kPort1PlayerSlot);
+            drawPortOption("Subor Mouse", Settings::Port::P_1, Settings::Device::SUBOR_MOUSE, kPort1PlayerSlot);
+            drawPortOption("SNES Controller", Settings::Port::P_1, Settings::Device::SNES_CONTROLLER, kPort1PlayerSlot);
+            drawPortOption("Virtual Boy Controller", Settings::Port::P_1, Settings::Device::VIRTUAL_BOY_CONTROLLER, kPort1PlayerSlot);
+            drawPortOption("Arkanoid Controller", Settings::Port::P_1, Settings::Device::ARKANOID_CONTROLLER, kPort1PlayerSlot);
+            ImGui::TreePop();
+        }
+
+        if(ImGui::TreeNodeEx("Port 2", treeFlags)) {
+            drawPortOption("Standard Controller", Settings::Port::P_2, Settings::Device::CONTROLLER, kPort2PlayerSlot);
+            drawPortOption("Famicom Controller", Settings::Port::P_2, Settings::Device::FAMICOM_CONTROLLER, kPort2PlayerSlot);
+            drawPortOption("Zapper", Settings::Port::P_2, Settings::Device::ZAPPER, kPort2PlayerSlot);
+            drawPortOption("Power Pad (Side A)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A, kPort2PlayerSlot);
+            drawPortOption("Power Pad (Side B)", Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B, kPort2PlayerSlot);
+            drawPortOption("SNES Mouse", Settings::Port::P_2, Settings::Device::SNES_MOUSE, kPort2PlayerSlot);
+            drawPortOption("Subor Mouse", Settings::Port::P_2, Settings::Device::SUBOR_MOUSE, kPort2PlayerSlot);
+            drawPortOption("SNES Controller", Settings::Port::P_2, Settings::Device::SNES_CONTROLLER, kPort2PlayerSlot);
+            drawPortOption("Virtual Boy Controller", Settings::Port::P_2, Settings::Device::VIRTUAL_BOY_CONTROLLER, kPort2PlayerSlot);
+            drawPortOption("Arkanoid Controller", Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER, kPort2PlayerSlot);
+            ImGui::TreePop();
+        }
+
+        if(ImGui::TreeNodeEx("Expansion Port", treeFlags)) {
+            drawExpansionOption("Standard Controller (Famicom)", Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM);
+            drawExpansionOption("Bandai Hyper Shot", Settings::ExpansionDevice::BANDAI_HYPERSHOT);
+            drawExpansionOption("Konami Hyper Shot", Settings::ExpansionDevice::KONAMI_HYPERSHOT);
+            drawExpansionOption("Family Trainer (Side A)", Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
+            drawExpansionOption("Family Trainer (Side B)", Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
+            drawExpansionOption("Subor Keyboard", Settings::ExpansionDevice::SUBOR_KEYBOARD);
+            drawExpansionOption("Family Basic Keyboard", Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
+            drawExpansionOption("Arkanoid Controller (Famicom)", Settings::ExpansionDevice::ARKANOID_CONTROLLER);
+            ImGui::TreePop();
+        }
+
+        if(ImGui::TreeNodeEx("Multitap", treeFlags)) {
+            if(ImGui::TreeNodeEx("Four Score", treeFlags)) {
+                drawMultitapOption("P1", Settings::NesMultitapDevice::FOUR_SCORE, Settings::FamicomMultitapDevice::NONE, kMultitapP1PlayerSlot);
+                drawMultitapOption("P2", Settings::NesMultitapDevice::FOUR_SCORE, Settings::FamicomMultitapDevice::NONE, kMultitapP2PlayerSlot);
+                drawMultitapOption("P3", Settings::NesMultitapDevice::FOUR_SCORE, Settings::FamicomMultitapDevice::NONE, kMultitapP3PlayerSlot);
+                drawMultitapOption("P4", Settings::NesMultitapDevice::FOUR_SCORE, Settings::FamicomMultitapDevice::NONE, kMultitapP4PlayerSlot);
+                ImGui::TreePop();
+            }
+            if(ImGui::TreeNodeEx("Hori Adapter", treeFlags)) {
+                drawMultitapOption("P1", Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::HORI_ADAPTER, kMultitapP1PlayerSlot);
+                drawMultitapOption("P2", Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::HORI_ADAPTER, kMultitapP2PlayerSlot);
+                drawMultitapOption("P3", Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::HORI_ADAPTER, kMultitapP3PlayerSlot);
+                drawMultitapOption("P4", Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::HORI_ADAPTER, kMultitapP4PlayerSlot);
+                ImGui::TreePop();
+            }
+            ImGui::TreePop();
+        }
+    };
 
     if(ImGui::BeginTable("NetplayParticipants", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthFixed, 45.0f);
@@ -230,28 +376,18 @@ inline void drawNetplayWindow(bool& showWindow,
                 int controllerValue = participant.controllerAssignment == kObserverPlayerSlot
                     ? -1
                     : static_cast<int>(participant.controllerAssignment);
-                const char* preview =
-                    controllerValue < 0 ? "Observer" :
-                    controllerValue == 0 ? "P1" :
-                    controllerValue == 1 ? "P2" :
-                    controllerValue == 2 ? "P3" : "P4";
+                const std::string preview =
+                    controllerValue < 0 ? "Observer" : inputAssignmentLabel(participant.controllerAssignment, room);
                 std::string comboId = "##ctrl" + std::to_string(participant.id);
-                if(ImGui::BeginCombo(comboId.c_str(), preview)) {
-                    if(ImGui::Selectable("Observer", controllerValue < 0)) {
-                        runtime.assignController(participant.id, kObserverPlayerSlot);
-                    }
-                    for(int i = 0; i < 4; ++i) {
-                        const std::string label = "P" + std::to_string(i + 1);
-                        if(ImGui::Selectable(label.c_str(), controllerValue == i)) {
-                            runtime.assignController(participant.id, static_cast<PlayerSlot>(i));
-                        }
-                    }
+                if(ImGui::BeginCombo(comboId.c_str(), preview.c_str())) {
+                    drawAssignmentTree(participant.id, participant.controllerAssignment);
                     ImGui::EndCombo();
                 }
             } else if(participant.controllerAssignment == kObserverPlayerSlot) {
                 ImGui::TextUnformatted("Observer");
             } else {
-                ImGui::Text("P%u", static_cast<unsigned>(participant.controllerAssignment) + 1u);
+                const std::string label = inputAssignmentLabel(participant.controllerAssignment, room);
+                ImGui::TextUnformatted(label.c_str());
             }
             ImGui::TableNextColumn();
             const char* romLabel =

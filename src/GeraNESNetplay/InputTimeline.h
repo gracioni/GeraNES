@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <deque>
 
+#include "GeraNES/InputBuffer.h"
 #include "NetProtocol.h"
 
 namespace Netplay {
@@ -15,6 +16,7 @@ struct TimelineInputEntry
     PlayerSlot playerSlot = kObserverPlayerSlot;
     uint64_t buttonMaskLo = 0;
     uint64_t buttonMaskHi = 0;
+    InputFrame inputFrame = {};
     uint32_t sequence = 0;
     bool predicted = false;
     bool confirmed = false;
