@@ -131,6 +131,18 @@ public:
         RollbackStats rollbackStats;
     };
 
+    enum class ManualStateChangeKind
+    {
+        Reset,
+        LoadState
+    };
+
+    struct ManualStateChangeRecord
+    {
+        ManualStateChangeKind kind = ManualStateChangeKind::Reset;
+        uint32_t frame = 0;
+    };
+
 private:
     static InputFrame buildInputFrameForEmu(GeraNESEmu& emu,
                                             uint32_t frameNumber,
@@ -307,6 +319,8 @@ private:
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
     size_t m_netplaySnapshotCapacity = 0;
     NetplayDiagnosticsSnapshot m_netplayDiagnostics;
+    mutable std::mutex m_manualStateChangeMutex;
+    std::deque<ManualStateChangeRecord> m_manualStateChanges;
     mutable std::mutex m_pendingInputMutex;
     InputState m_pendingInput;
     mutable std::mutex m_frameInputResolverMutex;
@@ -366,6 +380,18 @@ private:
 
         m_workerWakeRequested.store(true, std::memory_order_release);
         m_presenterCv.notify_one();
+    }
+
+    void onResetExecutedLocked(uint32_t frame)
+    {
+        std::scoped_lock eventLock(m_manualStateChangeMutex);
+        m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::Reset, frame});
+    }
+
+    void onLoadExecutedLocked(uint32_t frame)
+    {
+        std::scoped_lock eventLock(m_manualStateChangeMutex);
+        m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::LoadState, frame});
     }
 
     void refreshSnapshotLocked()
@@ -579,6 +605,8 @@ public:
         : m_emu(audioOutput)
         , m_audioOutput(audioOutput)
     {
+        m_emu.signalResetExecuted.bind(&EmulationHost::onResetExecutedLocked, this);
+        m_emu.signalLoadExecuted.bind(&EmulationHost::onLoadExecutedLocked, this);
 #ifdef __EMSCRIPTEN__
         m_emu.signalFrameStart.bind(&EmulationHost::applyPendingInput, this);
 #else
@@ -846,6 +874,15 @@ public:
             emu.discardQueuedInputFramesAfter(frame);
         });
 #endif
+    }
+
+    std::vector<ManualStateChangeRecord> consumeManualStateChanges()
+    {
+        std::vector<ManualStateChangeRecord> events;
+        std::scoped_lock eventLock(m_manualStateChangeMutex);
+        events.assign(m_manualStateChanges.begin(), m_manualStateChanges.end());
+        m_manualStateChanges.clear();
+        return events;
     }
 
     void setAudioVolume(float volume)

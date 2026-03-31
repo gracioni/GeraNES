@@ -1093,6 +1093,8 @@ public:
     SigSlot::Signal<const std::string&> signalError;
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady;
+    SigSlot::Signal<uint32_t> signalResetExecuted;
+    SigSlot::Signal<uint32_t> signalLoadExecuted;
 
     void onPPUFrameStart()
     {
@@ -1598,6 +1600,7 @@ public:
             serialization(d);
             resyncAudioAfterStateLoad();
             ++m_manualLoadStateGeneration;
+            signalLoadExecuted(m_frameCounter);
             Logger::instance().log("State loaded", Logger::Type::USER);
         }
         else {
@@ -2155,6 +2158,7 @@ public:
         updateCyclesPerSecond();
         m_cpu.reset();
         ++m_manualResetGeneration;
+        signalResetExecuted(m_frameCounter);
         Logger::instance().log("Emulator reset", Logger::Type::USER);
     }
 

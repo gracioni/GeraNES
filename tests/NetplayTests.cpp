@@ -208,6 +208,32 @@ TEST_CASE("Duck Hunt forced resync keeps observer client in identical state", "[
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Duck Hunt host reset resync keeps observer client in identical state", "[netplay][runtime][duckhunt][reset]")
+{
+    const auto rom = duckHuntRomPath();
+    INFO("Duck Hunt ROM path: " << rom.string());
+    INFO("Set GERANES_DUCK_HUNT_ROM to run this regression test.");
+    if(rom.empty() || !std::filesystem::exists(rom)) {
+        SKIP("Duck Hunt ROM not configured.");
+    }
+
+    NetplayTest::Options options;
+    options.romPath = rom.string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 240;
+    options.inputDelayFrames = 2;
+    options.predictFrames = 2;
+    options.forceHostResetFrame = 96;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_duckhunt_host_reset.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[netplay][assignment][unit]")
 {
     auto makeInputState = [](Netplay::PlayerSlot slot, uint64_t mask) {

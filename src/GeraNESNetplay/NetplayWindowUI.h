@@ -222,6 +222,33 @@ inline void drawNetplayWindow(bool& showWindow,
                 slot
             );
         };
+        const auto buildMergedAssignments = [&](std::optional<Settings::Device> port1Device,
+                                                std::optional<Settings::Device> port2Device,
+                                                Settings::ExpansionDevice expansionDevice,
+                                                Settings::NesMultitapDevice nesMultitapDevice,
+                                                Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                                PlayerSlot requestedSlot) {
+            std::vector<PlayerSlot> slots;
+            for(PlayerSlot existingSlot : participant.controllerAssignments) {
+                if(existingSlot == kObserverPlayerSlot || existingSlot == requestedSlot) continue;
+                if(canAssignInputCandidate(
+                       room,
+                       participantId,
+                       port1Device,
+                       port2Device,
+                       expansionDevice,
+                       nesMultitapDevice,
+                       famicomMultitapDevice,
+                       existingSlot
+                   )) {
+                    slots.push_back(existingSlot);
+                }
+            }
+            if(requestedSlot != kObserverPlayerSlot) {
+                slots.push_back(requestedSlot);
+            }
+            return slots;
+        };
         const auto selectPortDevice = [&](Settings::Port port, Settings::Device device) {
             const auto port1Device = std::optional<Settings::Device>(
                 port == Settings::Port::P_1 ? device : currentPort1
@@ -229,38 +256,63 @@ inline void drawNetplayWindow(bool& showWindow,
             const auto port2Device = std::optional<Settings::Device>(
                 port == Settings::Port::P_2 ? device : currentPort2
             );
-            runtime.configureInputAssignment(
+            runtime.configureInputAssignments(
                 participantId,
                 port1Device,
                 port2Device,
                 room.expansionDevice,
                 Settings::NesMultitapDevice::NONE,
                 Settings::FamicomMultitapDevice::NONE,
-                port == Settings::Port::P_1 ? kPort1PlayerSlot : kPort2PlayerSlot
+                buildMergedAssignments(
+                    port1Device,
+                    port2Device,
+                    room.expansionDevice,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    port == Settings::Port::P_1 ? kPort1PlayerSlot : kPort2PlayerSlot
+                )
             );
         };
         const auto selectExpansionDevice = [&](Settings::ExpansionDevice device) {
-            runtime.configureInputAssignment(
+            const auto port1Device = std::optional<Settings::Device>(currentPort1);
+            const auto port2Device = std::optional<Settings::Device>(currentPort2);
+            runtime.configureInputAssignments(
                 participantId,
-                std::optional<Settings::Device>(currentPort1),
-                std::optional<Settings::Device>(currentPort2),
+                port1Device,
+                port2Device,
                 device,
                 Settings::NesMultitapDevice::NONE,
                 Settings::FamicomMultitapDevice::NONE,
-                kExpansionPlayerSlot
+                buildMergedAssignments(
+                    port1Device,
+                    port2Device,
+                    device,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    kExpansionPlayerSlot
+                )
             );
         };
         const auto selectMultitapAssignment = [&](Settings::NesMultitapDevice nesDevice,
                                                   Settings::FamicomMultitapDevice famicomDevice,
                                                   PlayerSlot slot) {
-            runtime.configureInputAssignment(
+            const auto port1Device = std::optional<Settings::Device>(Settings::Device::CONTROLLER);
+            const auto port2Device = std::optional<Settings::Device>(Settings::Device::CONTROLLER);
+            runtime.configureInputAssignments(
                 participantId,
-                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                port1Device,
+                port2Device,
                 Settings::ExpansionDevice::NONE,
                 nesDevice,
                 famicomDevice,
-                slot
+                buildMergedAssignments(
+                    port1Device,
+                    port2Device,
+                    Settings::ExpansionDevice::NONE,
+                    nesDevice,
+                    famicomDevice,
+                    slot
+                )
             );
         };
         const auto drawPortOption = [&](const char* label, Settings::Port port, Settings::Device device, PlayerSlot slot) {

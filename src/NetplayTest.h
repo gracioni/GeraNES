@@ -60,6 +60,7 @@ public:
         uint32_t reconnectAfterFrames = 0;
         uint32_t assignmentSwapAfterFrames = 0;
         uint32_t forceManualResyncFrame = 0;
+        uint32_t forceHostResetFrame = 0;
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
@@ -1579,6 +1580,7 @@ private:
         bool assignmentSwapVerified = false;
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
         bool manualResyncTriggered = false;
+        bool hostResetTriggered = false;
         bool manualResyncObserved = false;
         bool manualResyncCompleted = false;
         uint32_t manualResyncBaselineHardResyncCount = 0;
@@ -1775,6 +1777,14 @@ private:
                 );
                 hostPeer.runtime.requestForceResync();
                 manualResyncTriggered = true;
+            }
+
+            if(options.forceHostResetFrame > 0 &&
+               !hostResetTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.forceHostResetFrame &&
+               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.forceHostResetFrame) {
+                hostPeer.emu.reset();
+                hostResetTriggered = true;
             }
 
             if(options.assignmentPatternCheck && assignmentSwapVerified && !assignmentPatternVerified) {
