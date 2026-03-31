@@ -1599,6 +1599,7 @@ public:
         if(d.loadFromFile(saveStateFileName())) {
             serialization(d);
             resyncAudioAfterStateLoad();
+            resetVolatileStateAfterStateLoad();
             ++m_manualLoadStateGeneration;
             signalLoadExecuted(m_frameCounter);
             Logger::instance().log("State loaded", Logger::Type::USER);

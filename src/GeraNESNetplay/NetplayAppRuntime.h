@@ -211,6 +211,27 @@ private:
         return true;
     }
 
+    bool beginAuthoritativeResyncWithoutLocalReload(GeraNESEmu& emu,
+                                                    FrameNumber authoritativeFrame,
+                                                    const std::vector<uint8_t>& statePayload,
+                                                    ResyncReason reason)
+    {
+        if(statePayload.empty()) return false;
+
+        const uint32_t payloadCrc32 =
+            Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, reason)) {
+            return false;
+        }
+
+        syncEmuInputTimelineEpoch(emu);
+        m_coordinator.invalidateLocalCrcHistoryAfter(authoritativeFrame);
+        m_coordinator.setLocalSimulationFrame(authoritativeFrame);
+        m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload);
+        reanchorInputDriver(authoritativeFrame, localAssignedSlots());
+        return true;
+    }
+
     std::vector<PlayerSlot> localAssignedSlots() const
     {
         if(!m_coordinator.isActive()) return {};
@@ -500,6 +521,13 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
             }
         );
         if(!hasRemotePeers) {
+            continue;
+        }
+
+        if(event.kind == EmulationHost::ManualStateChangeKind::LoadState) {
+            const std::vector<uint8_t> statePayload =
+                buildAuthoritativeStatePayload(emu, eventFrame, false);
+            beginAuthoritativeResyncWithoutLocalReload(emu, eventFrame, statePayload, reason);
             continue;
         }
 

@@ -101,7 +101,7 @@ public:
         return m_disableSpriteLimit;
     }
 
-    GERANES_INLINE std::optional<Device> getPortDevice(Port port)
+    GERANES_INLINE std::optional<Device> getPortDevice(Port port) const
     {
         auto it = m_portDevice.find(port);
         if (it != m_portDevice.end())
