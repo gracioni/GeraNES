@@ -160,6 +160,20 @@ private:
         m_inputDriver.reanchor(anchorFrame);
     }
 
+    bool applyAuthoritativeStateLocally(GeraNESEmu& emu,
+                                        FrameNumber targetFrame,
+                                        const std::vector<uint8_t>& payload)
+    {
+        if(payload.empty()) return false;
+        if(!emu.loadStateFromMemoryOnCleanBoot(payload)) return false;
+
+        syncEmuInputTimelineEpoch(emu);
+        m_coordinator.setLocalSimulationFrame(targetFrame);
+        m_emuHost.seedNetplaySnapshot(targetFrame, payload);
+        reanchorInputDriver(targetFrame, localAssignedSlots());
+        return true;
+    }
+
     std::vector<PlayerSlot> localAssignedSlots() const
     {
         if(!m_coordinator.isActive()) return {};
@@ -218,6 +232,7 @@ private:
     bool tryBuildPlaybackConfirmedFrame(uint32_t frame, NetplayCoordinator::ConfirmedFrameInputs& outFrame);
     bool tryBuildPlaybackReplayFrame(uint32_t frame, EmulationHost::ReplayFrameInput& outFrame);
     void updateUiSnapshot(const std::optional<RomSelection>& localRom);
+    void syncEmuInputTimelineEpoch(GeraNESEmu& emu);
     bool tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame);
     void recordPlaybackStop(FrameNumber frame);
 
@@ -270,6 +285,13 @@ public:
                                   Settings::NesMultitapDevice nesMultitapDevice,
                                   Settings::FamicomMultitapDevice famicomMultitapDevice,
                                   PlayerSlot slot);
+    void configureInputAssignments(ParticipantId participantId,
+                                   std::optional<Settings::Device> port1Device,
+                                   std::optional<Settings::Device> port2Device,
+                                   Settings::ExpansionDevice expansionDevice,
+                                   Settings::NesMultitapDevice nesMultitapDevice,
+                                   Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                   const std::vector<PlayerSlot>& slots);
     void kickParticipant(ParticipantId participantId);
     void removeReconnectReservation(ParticipantId participantId);
     void requestForceResync();
@@ -421,7 +443,7 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
     if(state != SessionState::Running && state != SessionState::Paused) return;
     if(!emu.valid()) return;
 
-    const std::vector<uint8_t> statePayload = emu.saveStateToMemory();
+    const std::vector<uint8_t> statePayload = emu.saveNetplayStateToMemory();
     if(statePayload.empty()) return;
 
     const ResyncReason reason = resetTriggered ? ResyncReason::HostReset : ResyncReason::HostLoadedState;
@@ -432,7 +454,9 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
 
     const uint32_t payloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-    m_coordinator.beginResync(emu.frameCount(), statePayload, payloadCrc32, reason);
+    if(m_coordinator.beginResync(emu.frameCount(), statePayload, payloadCrc32, reason)) {
+        applyAuthoritativeStateLocally(emu, emu.frameCount(), statePayload);
+    }
 }
 
 inline void NetplayAppRuntime::processAutoStartIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom)
@@ -493,6 +517,9 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
     if(enteringResync || leavingResync) {
         m_emuHost.restartAudio();
     }
+    if(enteringResync && !m_coordinator.isHosting()) {
+        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+    }
 
     if(currentState != SessionState::Running) {
         m_inputDriver.reset();
@@ -522,7 +549,7 @@ inline bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(GeraNESEmu& emu)
     if(m_coordinator.session().roomState().state != SessionState::Starting) return false;
 
     const FrameNumber authoritativeFrame = emu.frameCount();
-    const std::vector<uint8_t> statePayload = emu.saveStateToMemory();
+    const std::vector<uint8_t> statePayload = emu.saveNetplayStateToMemory();
     if(statePayload.empty()) return false;
 
     const uint32_t payloadCrc32 =
@@ -530,6 +557,8 @@ inline bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(GeraNESEmu& emu)
     if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
         return false;
     }
+
+    applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
 
     Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
     return true;
@@ -557,17 +586,18 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
         initialSessionSync ? std::nullopt : m_emuHost.netplaySnapshotForFrame(authoritativeFrame);
     std::vector<uint8_t> statePayload;
     if(initialSessionSync) {
-        statePayload = emu.saveStateToMemory();
+        statePayload = emu.saveNetplayStateToMemory();
     } else if(confirmedSnapshot.has_value()) {
         statePayload = *confirmedSnapshot;
     } else {
-        statePayload = emu.saveStateToMemory();
+        statePayload = emu.saveNetplayStateToMemory();
     }
     if(statePayload.empty()) return;
 
     const uint32_t payloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
     if(m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
+        applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
         if(initialSessionSync) {
             Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
         } else {
@@ -593,12 +623,13 @@ inline void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNES
     const std::optional<std::vector<uint8_t>> confirmedSnapshot =
         m_emuHost.netplaySnapshotForFrame(authoritativeFrame);
     const std::vector<uint8_t> statePayload =
-        confirmedSnapshot.has_value() ? *confirmedSnapshot : emu.saveStateToMemory();
+        confirmedSnapshot.has_value() ? *confirmedSnapshot : emu.saveNetplayStateToMemory();
     if(statePayload.empty()) return;
 
     const uint32_t payloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
     if(m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
+        applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
         Logger::instance().log(
             "Netplay late-join resync started for participant " +
             std::to_string(static_cast<int>(*participantId)),
@@ -729,6 +760,15 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     m_uiSnapshot = std::move(snapshot);
 }
 
+inline void NetplayAppRuntime::syncEmuInputTimelineEpoch(GeraNESEmu& emu)
+{
+    const uint32_t timelineEpoch =
+        m_coordinator.isActive() ? m_coordinator.session().roomState().timelineEpoch : 0u;
+    if(emu.inputTimelineEpoch() != timelineEpoch) {
+        emu.setInputTimelineEpoch(timelineEpoch);
+    }
+}
+
 inline bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
                                                               NetplayCoordinator::ConfirmedFrameInputs& outFrame)
 {
@@ -757,7 +797,7 @@ inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, Emula
 
 inline bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame)
 {
-    if(emu.inputBuffer().findByFrame(frame) != nullptr) {
+    if(emu.inputBuffer().findByFrame(frame, emu.inputTimelineEpoch()) != nullptr) {
         return true;
     }
 
@@ -915,8 +955,28 @@ inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participan
                                                         Settings::FamicomMultitapDevice famicomMultitapDevice,
                                                         PlayerSlot slot)
 {
+    configureInputAssignments(
+        participantId,
+        port1Device,
+        port2Device,
+        expansionDevice,
+        nesMultitapDevice,
+        famicomMultitapDevice,
+        std::vector<PlayerSlot>{slot}
+    );
+}
+
+inline void NetplayAppRuntime::configureInputAssignments(ParticipantId participantId,
+                                                         std::optional<Settings::Device> port1Device,
+                                                         std::optional<Settings::Device> port2Device,
+                                                         Settings::ExpansionDevice expansionDevice,
+                                                         Settings::NesMultitapDevice nesMultitapDevice,
+                                                         Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                                         const std::vector<PlayerSlot>& slots)
+{
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
         const FrameNumber rebuildFromFrame = emu.frameCount() > 0 ? (emu.frameCount() - 1u) : 0u;
+        const PlayerSlot preservedSlot = slots.empty() ? kObserverPlayerSlot : slots.front();
         self.m_coordinator.setLocalSimulationFrame(rebuildFromFrame);
         emu.setNesMultitapDevice(nesMultitapDevice);
         emu.setFamicomMultitapDevice(famicomMultitapDevice);
@@ -930,13 +990,38 @@ inline void NetplayAppRuntime::configureInputAssignment(ParticipantId participan
             nesMultitapDevice,
             famicomMultitapDevice,
             participantId,
-            slot
+            preservedSlot
         );
-        self.m_coordinator.addControllerAssignment(participantId, slot);
+        self.m_coordinator.clearControllerAssignments(participantId);
+        for(PlayerSlot slot : slots) {
+            if(slot == kObserverPlayerSlot) continue;
+            self.m_coordinator.addControllerAssignment(participantId, slot);
+        }
         emu.discardQueuedInputFramesAfter(rebuildFromFrame);
         self.reanchorInputDriver(rebuildFromFrame, self.localAssignedSlots());
         self.m_lastAssignmentLayoutKey.clear();
         self.m_lastLocalAssignedSlots.clear();
+
+        const SessionState state = self.m_coordinator.session().roomState().state;
+        const bool shouldResyncImmediately =
+            self.m_coordinator.isHosting() &&
+            emu.valid() &&
+            (state == SessionState::Running || state == SessionState::Paused);
+        if(!shouldResyncImmediately) {
+            return;
+        }
+
+        (void)self.m_coordinator.consumePendingHostResyncFrame();
+
+        const FrameNumber authoritativeFrame = emu.frameCount();
+        const std::vector<uint8_t> statePayload = emu.saveNetplayStateToMemory();
+        if(statePayload.empty()) return;
+
+        const uint32_t payloadCrc32 =
+            Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        if(self.m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
+            self.applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
+        }
     });
 }
 
@@ -962,11 +1047,19 @@ inline void NetplayAppRuntime::requestForceResync()
         if(!emu.valid()) return;
         if(state != SessionState::Running && state != SessionState::Paused) return;
 
-        const std::vector<uint8_t> statePayload = emu.saveStateToMemory();
+        const FrameNumber requestedFrame = self.m_coordinator.session().roomState().lastConfirmedFrame;
+        const FrameNumber authoritativeFrame =
+            std::min<FrameNumber>(requestedFrame, emu.frameCount());
+        const std::optional<std::vector<uint8_t>> confirmedSnapshot =
+            self.m_emuHost.netplaySnapshotForFrame(authoritativeFrame);
+        const std::vector<uint8_t> statePayload =
+            confirmedSnapshot.has_value() ? *confirmedSnapshot : emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return;
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        self.m_coordinator.beginResync(emu.frameCount(), statePayload, payloadCrc32);
+        if(self.m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32)) {
+            self.applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
+        }
     });
 }
 
@@ -1033,8 +1126,10 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         emu.getFamicomMultitapDevice()
     );
     syncRomValidation(localRom);
+    syncEmuInputTimelineEpoch(emu);
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
     m_coordinator.update(0);
+    syncEmuInputTimelineEpoch(emu);
     handleSessionStateTransitionsOnWorker(emu);
     processAutoStartIfNeeded(emu, localRom);
     processHostManualStateChangeResyncIfNeeded(emu);
@@ -1097,7 +1192,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     if(running) {
         const uint32_t currentFrame = emu.frameCount();
-        if(emu.inputBuffer().findByFrame(currentFrame) == nullptr) {
+        if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
             tryQueuePlaybackFrameToEmu(emu, currentFrame);
         }
     }

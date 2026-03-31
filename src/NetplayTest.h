@@ -59,6 +59,7 @@ public:
         uint32_t predictionScriptFrameCount = 0;
         uint32_t reconnectAfterFrames = 0;
         uint32_t assignmentSwapAfterFrames = 0;
+        uint32_t forceManualResyncFrame = 0;
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
@@ -67,6 +68,7 @@ public:
         bool hostAssignedBeforeJoinOnly = false;
         bool hostMultitapAssignedBeforeJoinOnly = false;
         bool assignmentPatternCheck = false;
+        bool hostControllerAndZapperObserverScenario = false;
     };
 
 private:
@@ -182,6 +184,7 @@ private:
             emu.setAllowPresenterTimeoutAdvance(false);
             emu.setFrameInputResolver({});
             emu.setPreAdvanceHook([this](GeraNESEmu& emuRef) {
+                emuRef.setInputTimelineEpoch(coordinator.session().roomState().timelineEpoch);
                 driver.queuePendingFramesToEmu(emuRef);
             });
         }
@@ -603,8 +606,8 @@ private:
         }
         const auto* latestConfirmedFrame = peer.coordinator.findConfirmedFrame(peer.coordinator.latestConfirmedFrame());
 
-        const InputFrame* frame0 = peer.emu.inputBuffer().findByFrame(0);
-        const InputFrame* frame1 = peer.emu.inputBuffer().findByFrame(1);
+        const InputFrame* frame0 = peer.emu.inputBuffer().findByFrame(0, peer.emu.inputTimelineEpoch());
+        const InputFrame* frame1 = peer.emu.inputBuffer().findByFrame(1, peer.emu.inputTimelineEpoch());
         const std::vector<uint8_t> state = peer.emu.saveStateToMemory();
         const auto& predictionStats = peer.coordinator.predictionStats();
 
@@ -711,27 +714,28 @@ private:
         peer.emu.withExclusiveAccess([&](auto& innerEmu) {
             inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
             const uint32_t frame = innerEmu.frameCount();
+            const uint32_t timelineEpoch = innerEmu.inputTimelineEpoch();
             expectedPlaybackFrame = frame;
-            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(frame) != nullptr;
-            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(frame + 1u) != nullptr;
+            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(frame, timelineEpoch) != nullptr;
+            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(frame + 1u, timelineEpoch) != nullptr;
             for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
-                if(innerEmu.inputBuffer().findByFrame(probe) == nullptr) {
+                if(innerEmu.inputBuffer().findByFrame(probe, timelineEpoch) == nullptr) {
                     break;
                 }
                 ++futureBufferedFrames;
             }
-            if(const InputFrame* previousFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount()); previousFrame != nullptr) {
+            if(const InputFrame* previousFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount(), timelineEpoch); previousFrame != nullptr) {
                 previousFrameJson = previousFrame->toJson();
             }
-            if(const InputFrame* nextFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount() + 1u); nextFrame != nullptr) {
+            if(const InputFrame* nextFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount() + 1u, timelineEpoch); nextFrame != nullptr) {
                 nextFrameJson = nextFrame->toJson();
             }
-            if(const InputFrame* currentFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount() + 2u); currentFrame != nullptr) {
+            if(const InputFrame* currentFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount() + 2u, timelineEpoch); currentFrame != nullptr) {
                 currentFrameJson = currentFrame->toJson();
             }
             const uint32_t windowStart = frame > 2u ? frame - 2u : 0u;
             for(uint32_t probe = windowStart; probe <= frame + 4u; ++probe) {
-                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe); entry != nullptr) {
+                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe, timelineEpoch); entry != nullptr) {
                     inputWindow.push_back(entry->toJson());
                 }
             }
@@ -872,6 +876,34 @@ private:
         return inputState;
     }
 
+    static EmulationHost::InputState buildDuckHuntLikeRuntimeInputState(uint32_t frameIndex, uint32_t fps)
+    {
+        EmulationHost::InputState inputState{};
+
+        const uint32_t startupQuietFrames = std::max<uint32_t>(fps / 2u, 20u);
+        if(frameIndex < startupQuietFrames) {
+            inputState.zapperX = 128;
+            inputState.zapperY = 96;
+            return inputState;
+        }
+
+        const uint32_t activeFrame = frameIndex - startupQuietFrames;
+
+        // Nudge the title/menu flow with a brief Start pulse, then keep feeding
+        // deterministic zapper motion/trigger data so any post-resync input
+        // divergence shows up quickly in the emulated state.
+        if(activeFrame >= 4u && activeFrame < 8u) {
+            inputState.p1Start = true;
+        }
+
+        inputState.zapperX = static_cast<int>(96 + ((activeFrame * 17u) % 64u));
+        inputState.zapperY = static_cast<int>(72 + ((activeFrame * 11u) % 80u));
+        inputState.zapperP2Trigger =
+            activeFrame >= 12u &&
+            ((activeFrame % 19u) == 0u || (activeFrame % 19u) == 1u);
+        return inputState;
+    }
+
     static Buttons runtimeButtonsForPeer(const Options& options,
                                          const DeterministicInputGenerator& generator,
                                          bool hostSide,
@@ -883,6 +915,20 @@ private:
             return assignmentPatternButtons(hostSide, swapped, frameIndex);
         }
         return playbackButtonsForFrame(options, generator, hostSide, frameIndex, fps);
+    }
+
+    static bool participantHasAssignments(const Netplay::RoomState& room,
+                                          Netplay::ParticipantId participantId,
+                                          std::initializer_list<Netplay::PlayerSlot> expectedAssignments)
+    {
+        const auto* participant = findParticipantInRoom(room, participantId);
+        if(participant == nullptr) return false;
+        for(Netplay::PlayerSlot slot : expectedAssignments) {
+            if(!participant->hasControllerAssignment(slot)) {
+                return false;
+            }
+        }
+        return participant->controllerAssignments.size() == expectedAssignments.size();
     }
 
     static bool inputFrameMatchesButtonsForSlot(const InputFrame& inputFrame,
@@ -949,7 +995,7 @@ private:
         inspect([&](auto& innerEmu) {
             const uint32_t fps = std::max<uint32_t>(1u, innerEmu.getRegionFPS());
             for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
-                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame);
+                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame, innerEmu.inputTimelineEpoch());
                 if(inputFrame == nullptr) continue;
 
                 const Buttons hostButtons = runtimeButtonsForPeer(options, hostGenerator, true, swapped, probeFrame, fps);
@@ -1000,7 +1046,7 @@ private:
         peer.emu.withExclusiveAccess([&](auto& innerEmu) {
             const uint32_t fps = std::max<uint32_t>(1u, innerEmu.getRegionFPS());
             for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
-                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame);
+                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame, innerEmu.inputTimelineEpoch());
                 if(inputFrame == nullptr) continue;
 
                 const Buttons buttons = runtimeButtonsForPeer(options, generator, true, false, probeFrame, fps);
@@ -1053,23 +1099,24 @@ private:
         peer.emu.withExclusiveAccess([&](auto& innerEmu) {
             inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
             expectedPlaybackFrame = innerEmu.frameCount();
-            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame) != nullptr;
-            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u) != nullptr;
-            if(const InputFrame* current = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame); current != nullptr) {
+            const uint32_t timelineEpoch = innerEmu.inputTimelineEpoch();
+            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame, timelineEpoch) != nullptr;
+            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u, timelineEpoch) != nullptr;
+            if(const InputFrame* current = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame, timelineEpoch); current != nullptr) {
                 currentFrameJson = current->toJson();
             }
-            if(const InputFrame* next = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u); next != nullptr) {
+            if(const InputFrame* next = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u, timelineEpoch); next != nullptr) {
                 nextFrameJson = next->toJson();
             }
             for(uint32_t probe = expectedPlaybackFrame + 1u; probe < expectedPlaybackFrame + 256u; ++probe) {
-                if(innerEmu.inputBuffer().findByFrame(probe) == nullptr) {
+                if(innerEmu.inputBuffer().findByFrame(probe, timelineEpoch) == nullptr) {
                     break;
                 }
                 ++futureBufferedFrames;
             }
             const uint32_t windowStart = expectedPlaybackFrame > 2u ? expectedPlaybackFrame - 2u : 0u;
             for(uint32_t probe = windowStart; probe <= expectedPlaybackFrame + 4u; ++probe) {
-                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe); entry != nullptr) {
+                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe, timelineEpoch); entry != nullptr) {
                     inputWindow.push_back(entry->toJson());
                 }
             }
@@ -1459,6 +1506,39 @@ private:
                 cleanup();
                 return result;
             }
+        } else if(options.hostControllerAndZapperObserverScenario) {
+            hostPeer.runtime.clearControllerAssignments(*clientId);
+            hostPeer.runtime.configureInputAssignments(
+                *hostId,
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                std::optional<Settings::Device>(Settings::Device::ZAPPER),
+                Settings::ExpansionDevice::NONE,
+                Settings::NesMultitapDevice::NONE,
+                Settings::FamicomMultitapDevice::NONE,
+                {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}
+            );
+
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    return hostSnap.room.state == Netplay::SessionState::Running &&
+                           clientSnap.room.state == Netplay::SessionState::Running &&
+                           hostSnap.room.activeResyncId == 0 &&
+                           clientSnap.room.activeResyncId == 0 &&
+                           hostSnap.room.port1Device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
+                           hostSnap.room.port2Device == std::optional<Settings::Device>(Settings::Device::ZAPPER) &&
+                           clientSnap.room.port1Device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
+                           clientSnap.room.port2Device == std::optional<Settings::Device>(Settings::Device::ZAPPER) &&
+                           participantHasAssignments(hostSnap.room, *hostId, {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}) &&
+                           participantHasAssignments(clientSnap.room, *hostId, {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}) &&
+                           localAssignedSlot(clientSnap.room, clientSnap.localParticipantId) == std::nullopt;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = "Timed out waiting for host controller+zapper observer scenario to settle.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
+            }
         } else {
             hostPeer.runtime.assignController(*hostId, 0);
             hostPeer.runtime.assignController(*clientId, 1);
@@ -1498,6 +1578,13 @@ private:
         bool assignmentSwapTriggered = false;
         bool assignmentSwapVerified = false;
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
+        bool manualResyncTriggered = false;
+        bool manualResyncObserved = false;
+        bool manualResyncCompleted = false;
+        uint32_t manualResyncBaselineHardResyncCount = 0;
+        uint32_t manualResyncBaselineHostForceResyncEvents = 0;
+        uint32_t postResyncCrcCheckStartFrame = 0;
+        uint32_t postResyncCrcMismatchFrame = 0;
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
             const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
@@ -1522,16 +1609,23 @@ private:
                 clientFrame,
                 std::max<uint32_t>(1u, clientPeer.emu.getRegionFPS())
             );
-            hostPeer.runtime.updateLatestInputState(
-                hostLocalSlot.has_value()
-                    ? buildRuntimeInputStateForSlot(*hostLocalSlot, hostButtons)
-                    : EmulationHost::InputState{}
-            );
-            clientPeer.runtime.updateLatestInputState(
-                options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
-                    ? EmulationHost::InputState{}
-                    : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
-            );
+            if(options.hostControllerAndZapperObserverScenario) {
+                hostPeer.runtime.updateLatestInputState(
+                    buildDuckHuntLikeRuntimeInputState(hostFrame, std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()))
+                );
+                clientPeer.runtime.updateLatestInputState(EmulationHost::InputState{});
+            } else {
+                hostPeer.runtime.updateLatestInputState(
+                    hostLocalSlot.has_value()
+                        ? buildRuntimeInputStateForSlot(*hostLocalSlot, hostButtons)
+                        : EmulationHost::InputState{}
+                );
+                clientPeer.runtime.updateLatestInputState(
+                    options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
+                        ? EmulationHost::InputState{}
+                        : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
+                );
+            }
             hostPeer.emu.update(16u);
             clientPeer.emu.update(16u);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -1665,6 +1759,24 @@ private:
                 desyncInjected = true;
             }
 
+            if(options.forceManualResyncFrame > 0 &&
+               !manualResyncTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.forceManualResyncFrame &&
+               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.forceManualResyncFrame) {
+                manualResyncBaselineHardResyncCount =
+                    hostLoopSnapshot.predictionStats.hardResyncCount +
+                    clientLoopSnapshot.predictionStats.hardResyncCount;
+                manualResyncBaselineHostForceResyncEvents = static_cast<uint32_t>(
+                    std::count(
+                        hostLoopSnapshot.eventLog.begin(),
+                        hostLoopSnapshot.eventLog.end(),
+                        std::string("Host forced resync")
+                    )
+                );
+                hostPeer.runtime.requestForceResync();
+                manualResyncTriggered = true;
+            }
+
             if(options.assignmentPatternCheck && assignmentSwapVerified && !assignmentPatternVerified) {
                 const uint32_t probeStartFrame = std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame()) + 1u;
                 const uint32_t probeEndFrame = probeStartFrame + 12u;
@@ -1699,6 +1811,62 @@ private:
                 clientSnap.predictionStats.hardResyncCount > 0u ||
                 hostSnap.room.activeResyncId != 0u ||
                 clientSnap.room.activeResyncId != 0u;
+            const uint32_t currentHardResyncCount =
+                hostSnap.predictionStats.hardResyncCount +
+                clientSnap.predictionStats.hardResyncCount;
+            const uint32_t currentHostForceResyncEvents = static_cast<uint32_t>(
+                std::count(
+                    hostSnap.eventLog.begin(),
+                    hostSnap.eventLog.end(),
+                    std::string("Host forced resync")
+                )
+            );
+            manualResyncObserved =
+                manualResyncObserved ||
+                (manualResyncTriggered &&
+                 (hostSnap.room.activeResyncId != 0u ||
+                  clientSnap.room.activeResyncId != 0u ||
+                  currentHardResyncCount > manualResyncBaselineHardResyncCount ||
+                  currentHostForceResyncEvents > manualResyncBaselineHostForceResyncEvents));
+
+            if(manualResyncTriggered &&
+               manualResyncObserved &&
+               !manualResyncCompleted &&
+               hostSnap.room.state == Netplay::SessionState::Running &&
+               clientSnap.room.state == Netplay::SessionState::Running &&
+               hostSnap.room.activeResyncId == 0u &&
+               clientSnap.room.activeResyncId == 0u) {
+                manualResyncCompleted = true;
+                postResyncCrcCheckStartFrame =
+                    std::min(hostPeer.emu.lastFrameReadyFrame(), clientPeer.emu.lastFrameReadyFrame());
+            }
+
+            if(manualResyncCompleted &&
+               postResyncCrcMismatchFrame == 0u &&
+               hostPeer.emu.lastFrameReadyFrame() == clientPeer.emu.lastFrameReadyFrame() &&
+               hostPeer.emu.lastFrameReadyFrame() >= postResyncCrcCheckStartFrame &&
+               hostPeer.emu.lastFrameReadyNetplayCrc32() != clientPeer.emu.lastFrameReadyNetplayCrc32()) {
+                postResyncCrcMismatchFrame = hostPeer.emu.lastFrameReadyFrame();
+                failureReason =
+                    "Host/client netplay CRC diverged after forced resync at frame " +
+                    std::to_string(postResyncCrcMismatchFrame) + ".";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                result.report["startHostFrame"] = startHostFrame;
+                result.report["startClientFrame"] = startClientFrame;
+                result.report["targetHostFrame"] = targetHostFrame;
+                result.report["targetClientFrame"] = targetClientFrame;
+                result.report["desyncInjected"] = desyncInjected;
+                result.report["hardResyncObserved"] = hardResyncObserved;
+                result.report["reconnectTriggered"] = reconnectTriggered;
+                result.report["manualResyncTriggered"] = manualResyncTriggered;
+                result.report["manualResyncObserved"] = manualResyncObserved;
+                result.report["manualResyncCompleted"] = manualResyncCompleted;
+                result.report["postResyncCrcCheckStartFrame"] = postResyncCrcCheckStartFrame;
+                result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
+                result.exitCode = RESULT_FAILED;
+                cleanup();
+                return result;
+            }
 
             if(newHostFrame == hostFrame && newClientFrame == clientFrame) {
                 ++stallSteps;
@@ -1768,6 +1936,31 @@ private:
                     cleanup();
                     return result;
                 }
+                if(options.forceManualResyncFrame > 0 &&
+                   (!manualResyncTriggered || !manualResyncObserved || !manualResyncCompleted)) {
+                    failureReason =
+                        !manualResyncTriggered
+                            ? "Forced resync scenario never requested the manual resync."
+                            : (!manualResyncObserved
+                                   ? "Forced resync scenario never observed the room enter resyncing."
+                                   : "Forced resync scenario never returned to running after the resync.");
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["manualResyncTriggered"] = manualResyncTriggered;
+                    result.report["manualResyncObserved"] = manualResyncObserved;
+                    result.report["manualResyncCompleted"] = manualResyncCompleted;
+                    result.report["postResyncCrcCheckStartFrame"] = postResyncCrcCheckStartFrame;
+                    result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
 
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
@@ -1777,6 +1970,11 @@ private:
                 result.report["desyncInjected"] = desyncInjected;
                 result.report["hardResyncObserved"] = hardResyncObserved;
                 result.report["reconnectTriggered"] = reconnectTriggered;
+                result.report["manualResyncTriggered"] = manualResyncTriggered;
+                result.report["manualResyncObserved"] = manualResyncObserved;
+                result.report["manualResyncCompleted"] = manualResyncCompleted;
+                result.report["postResyncCrcCheckStartFrame"] = postResyncCrcCheckStartFrame;
+                result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
                 result.exitCode = EXIT_SUCCESS;
                 cleanup();
                 return result;
@@ -2062,8 +2260,8 @@ private:
             initialSessionSync ? std::nullopt : peer.emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
             initialSessionSync
-                ? peer.emu.saveStateToMemory()
-                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : peer.emu.saveStateToMemory());
+                ? peer.emu.saveNetplayStateToMemory()
+                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
         if(statePayload.empty()) return;
 
         if(!initialSessionSync && confirmedSnapshot.has_value()) {
@@ -2088,7 +2286,7 @@ private:
         if(peer.coordinator.session().roomState().state != Netplay::SessionState::Starting) return false;
 
         const Netplay::FrameNumber authoritativeFrame = peer.emu.exactEmulationFrame();
-        const std::vector<uint8_t> statePayload = peer.emu.saveStateToMemory();
+        const std::vector<uint8_t> statePayload = peer.emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return false;
 
         const uint32_t payloadCrc32 =
@@ -2276,7 +2474,7 @@ private:
                 uint32_t futureBufferedFrames = 0;
                 const uint32_t frame = emu.frameCount();
                 for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
-                    if(emu.inputBuffer().findByFrame(probe) == nullptr) {
+                    if(emu.inputBuffer().findByFrame(probe, emu.inputTimelineEpoch()) == nullptr) {
                         break;
                     }
                     ++futureBufferedFrames;
@@ -2291,7 +2489,7 @@ private:
                 uint32_t futureBufferedFrames = 0;
                 const uint32_t frame = emu.frameCount();
                 for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
-                    if(emu.inputBuffer().findByFrame(probe) == nullptr) {
+                    if(emu.inputBuffer().findByFrame(probe, emu.inputTimelineEpoch()) == nullptr) {
                         break;
                     }
                     ++futureBufferedFrames;
@@ -2808,10 +3006,10 @@ private:
 
             const bool hostCanAdvance =
                 hostPeer.emu.frameCount() < options.frames &&
-                hostPeer.emu.inputBuffer().findByFrame(hostPeer.emu.frameCount() + 1u) != nullptr;
+                hostPeer.emu.inputBuffer().findByFrame(hostPeer.emu.frameCount() + 1u, hostPeer.emu.inputTimelineEpoch()) != nullptr;
             const bool clientCanAdvance =
                 clientPeer.emu.frameCount() < options.frames &&
-                clientPeer.emu.inputBuffer().findByFrame(clientPeer.emu.frameCount() + 1u) != nullptr;
+                clientPeer.emu.inputBuffer().findByFrame(clientPeer.emu.frameCount() + 1u, clientPeer.emu.inputTimelineEpoch()) != nullptr;
 
             if(hostCanAdvance != clientCanAdvance) {
                 failureReason = "Only one peer can advance the next frame.";

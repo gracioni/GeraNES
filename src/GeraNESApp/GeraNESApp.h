@@ -515,6 +515,8 @@ private:
         const bool leavingResync = previousState.has_value() && *previousState == Netplay::SessionState::Resyncing && currentState != Netplay::SessionState::Resyncing;
         if(enteringResync || leavingResync) {
             m_emu.restartAudio();
+            m_hasLastMousePosition = false;
+            m_forceImGuiMouseResync = true;
         }
 
         if(currentState != Netplay::SessionState::Running) {
@@ -682,7 +684,7 @@ private:
             initialSessionSync ? std::nullopt : m_emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
             initialSessionSync
-                ? m_emu.saveStateToMemory()
+                ? m_emu.saveNetplayStateToMemory()
                 : (confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveNetplayStateToMemory());
         if(statePayload.empty()) return;
 
@@ -725,7 +727,7 @@ private:
         if(m_netplayCoordinator.session().roomState().state != Netplay::SessionState::Starting) return false;
 
         const Netplay::FrameNumber authoritativeFrame = m_emu.frameCount();
-        const std::vector<uint8_t> statePayload = m_emu.saveStateToMemory();
+        const std::vector<uint8_t> statePayload = m_emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return false;
 
         const uint32_t payloadCrc32 =
@@ -751,7 +753,7 @@ private:
         const std::optional<std::vector<uint8_t>> confirmedSnapshot =
             m_emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
-            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveStateToMemory();
+            confirmedSnapshot.has_value() ? *confirmedSnapshot : m_emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return;
 
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
@@ -1408,7 +1410,7 @@ private:
                     const float arkanoidSensitivity = std::clamp(AppSettings::instance().data.input.arkanoid.sensitivity, 0.05f, 4.0f);
                     arkanoidNesPosition = std::clamp(arkanoidNesPosition + (static_cast<float>(relativeX) * (arkanoidSensitivity / 512.0f)), 0.0f, 1.0f);
                     arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition + (static_cast<float>(relativeX) * (arkanoidSensitivity / 512.0f)), 0.0f, 1.0f);
-                } else if(!useSnesMouse) {
+                } else if(mouseAllowed && !useSnesMouse) {
                     if(!m_hasLastMousePosition) {
                         m_lastMouseX = mx;
                         m_lastMouseY = my;
@@ -1418,10 +1420,12 @@ private:
                     mouseDeltaY = my - m_lastMouseY;
                     m_lastMouseX = mx;
                     m_lastMouseY = my;
+                } else if(!pointerGrabActive) {
+                    m_hasLastMousePosition = false;
                 }
 
-                zapperX = rightClick ? -1 : nesX;
-                zapperY = rightClick ? -1 : nesY;
+                zapperX = mouseAllowed ? (rightClick ? -1 : nesX) : -1;
+                zapperY = mouseAllowed ? (rightClick ? -1 : nesY) : -1;
                 p1ZapperTrigger = rightClick;
                 p2ZapperTrigger = leftClick || rightClick;
                 bandaiTrigger = leftClick || rightClick;

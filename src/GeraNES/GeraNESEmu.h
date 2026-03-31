@@ -126,6 +126,7 @@ private:
     bool m_netplayLoadStateCleanBoot = false;
     std::vector<uint8_t> m_netplayLoadStateData;
     std::optional<bool> m_netplayLoadStateResult;
+    uint32_t m_inputTimelineEpoch = 0;
     uint32_t m_manualResetGeneration = 0;
     uint32_t m_manualLoadStateGeneration = 0;
     bool m_forceSilentAudio = false;
@@ -386,6 +387,7 @@ private:
     {
         InputFrame inputFrame;
         inputFrame.frame = frame;
+        inputFrame.timelineEpoch = m_inputTimelineEpoch;
         inputFrame.port1Device = m_settings.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
         inputFrame.port2Device = m_settings.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
         inputFrame.expansionDevice = m_settings.getExpansionDevice();
@@ -806,7 +808,7 @@ private:
         m_nsfPlayer.onFrameStart();
         updateCyclesPerSecond();        
         
-        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(m_frameCounter); inputFrame != nullptr) {
+        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch); inputFrame != nullptr) {
             applyInputFrame(*inputFrame);
             m_lastAppliedInputFrame = *inputFrame;
         }
@@ -941,7 +943,7 @@ private:
                                           bool silentAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
-        const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame);
+        const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame, m_inputTimelineEpoch);
         if(inputFrame == nullptr) {
             return false;
         }
@@ -1715,7 +1717,7 @@ public:
         const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
         const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
         InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
-        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter);
+        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
            currentPlaybackInput != nullptr) {
             serializedPlaybackInput = *currentPlaybackInput;
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
@@ -1924,6 +1926,7 @@ public:
         SERIALIZEDATA(s, m_newFrame);
         SERIALIZEDATA(s, m_frameStarted);
         SERIALIZEDATA(s, m_frameCounter);
+        SERIALIZEDATA(s, m_inputTimelineEpoch);
         m_hardwareActions.serialization(s);
 
         SERIALIZEDATA(s, m_runningLoop);
@@ -1937,6 +1940,19 @@ public:
     void queueInputFrame(const InputFrame& inputFrame)
     {
         m_inputBuffer.push(inputFrame);
+    }
+
+    void setInputTimelineEpoch(uint32_t timelineEpoch)
+    {
+        if(m_inputTimelineEpoch == timelineEpoch) return;
+        m_inputTimelineEpoch = timelineEpoch;
+        m_inputBuffer.eraseFramesNotMatchingTimelineEpoch(timelineEpoch);
+        m_lastAppliedInputFrame.timelineEpoch = timelineEpoch;
+    }
+
+    uint32_t inputTimelineEpoch() const
+    {
+        return m_inputTimelineEpoch;
     }
 
     void setForceSilentAudio(bool silent)

@@ -17,6 +17,7 @@
 struct InputFrame
 {
     uint32_t frame = 0;
+    uint32_t timelineEpoch = 0;
     bool speculative = false;
 
     Settings::Device port1Device = Settings::Device::NONE;
@@ -171,6 +172,7 @@ struct InputFrame
     void serialization(SerializationBase& s)
     {
         SERIALIZEDATA(s, frame);
+        SERIALIZEDATA(s, timelineEpoch);
         SERIALIZEDATA(s, port1Device);
         SERIALIZEDATA(s, port2Device);
         SERIALIZEDATA(s, expansionDevice);
@@ -226,6 +228,7 @@ struct InputFrame
     {
         return {
             {"frame", frame},
+            {"timelineEpoch", timelineEpoch},
             {"speculative", speculative},
             {"devices", {
                 {"port1", static_cast<int>(port1Device)},
@@ -353,6 +356,19 @@ public:
         m_frames = rebuilt;
     }
 
+    void eraseFramesNotMatchingTimelineEpoch(uint32_t timelineEpoch)
+    {
+        CircularBuffer<InputFrame> rebuilt(m_capacity, CircularBuffer<InputFrame>::REPLACE);
+        const size_t frameCount = m_frames.size();
+        for(size_t i = 0; i < frameCount; ++i) {
+            const InputFrame& current = m_frames.peakAt(i);
+            if(current.timelineEpoch == timelineEpoch) {
+                rebuilt.write(current);
+            }
+        }
+        m_frames = rebuilt;
+    }
+
     const InputFrame* findByFrame(uint32_t targetFrame) const
     {
         for(size_t i = m_frames.size(); i > 0; --i) {
@@ -363,13 +379,31 @@ public:
         return nullptr;
     }
 
+    const InputFrame* findByFrame(uint32_t targetFrame, uint32_t targetTimelineEpoch) const
+    {
+        for(size_t i = m_frames.size(); i > 0; --i) {
+            const InputFrame& frame = m_frames.peakAt(i - 1);
+            if(frame.frame > targetFrame) {
+                continue;
+            }
+            if(frame.frame < targetFrame) {
+                break;
+            }
+            if(frame.timelineEpoch == targetTimelineEpoch) {
+                return &frame;
+            }
+        }
+        return nullptr;
+    }
+
     void push(const InputFrame& frame)
     {
         const size_t frameCount = m_frames.size();
 
         for(size_t i = 0; i < frameCount; ++i) {
             InputFrame& existing = m_frames.peakAt(i);
-            if(existing.frame == frame.frame) {
+            if(existing.frame == frame.frame &&
+               existing.timelineEpoch == frame.timelineEpoch) {
                 existing = frame;
                 return;
             }

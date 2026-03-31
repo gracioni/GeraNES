@@ -1444,6 +1444,7 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         startData.state = SessionState::Running;
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
         startData.predictFrames = m_session.roomState().predictFrames;
+        startData.topology = makeTopologyData(m_session.roomState());
         writer.writePod(startData);
         m_transport.broadcastReliable(Channel::Control, writer.data());
     } else {

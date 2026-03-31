@@ -51,6 +51,16 @@ void queueFrameAndAdvance(GeraNESEmu& emu, uint32_t frame, bool speculative = fa
     REQUIRE(emu.updateUntilFrame(frameDt));
     REQUIRE(emu.frameCount() == frame);
 }
+
+std::filesystem::path duckHuntRomPath()
+{
+    if(const char* env = std::getenv("GERANES_DUCK_HUNT_ROM")) {
+        if(env[0] != '\0') {
+            return std::filesystem::path(env);
+        }
+    }
+    return {};
+}
 }
 
 TEST_CASE("Netplay auto settings probe behaves as expected", "[netplay][autosettings]")
@@ -164,6 +174,37 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     REQUIRE(report.at("reconnectTriggered") == true);
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Duck Hunt forced resync keeps observer client in identical state", "[netplay][runtime][duckhunt][resync]")
+{
+    const auto rom = duckHuntRomPath();
+    INFO("Duck Hunt ROM path: " << rom.string());
+    INFO("Set GERANES_DUCK_HUNT_ROM to run this regression test.");
+    if(rom.empty() || !std::filesystem::exists(rom)) {
+        SKIP("Duck Hunt ROM not configured.");
+    }
+
+    NetplayTest::Options options;
+    options.romPath = rom.string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 240;
+    options.inputDelayFrames = 2;
+    options.predictFrames = 2;
+    options.forceManualResyncFrame = 96;
+    options.hostControllerAndZapperObserverScenario = true;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_duckhunt_force_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
@@ -313,6 +354,83 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
     REQUIRE(frame.zapperP2X == 112);
     REQUIRE(frame.zapperP2Y == 64);
     REQUIRE(frame.zapperP2Trigger == true);
+}
+
+TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload", "[netplay][assignment][controller]")
+{
+    EmulationHost::InputState state{};
+    state.p1Start = true;
+    state.zapperX = 87;
+    state.zapperY = 53;
+    state.zapperP2Trigger = true;
+    state.mouseDeltaX = 4;
+    state.mouseDeltaY = -3;
+    state.mousePrimaryButton = true;
+
+    Netplay::RoomState room;
+    room.port1Device = Settings::Device::CONTROLLER;
+    room.port2Device = Settings::Device::ZAPPER;
+
+    const auto baseFrame = Netplay::makeRoomTopologyBaseFrame(19u, room);
+    const auto contribution = Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, state, baseFrame);
+
+    REQUIRE(contribution.p1Start == true);
+    REQUIRE(contribution.zapperP1Trigger == false);
+    REQUIRE(contribution.zapperP1X == -1);
+    REQUIRE(contribution.zapperP1Y == -1);
+    REQUIRE(contribution.arkanoidP1Button == false);
+    REQUIRE(contribution.snesMouseP1Left == false);
+    REQUIRE(contribution.snesMouseP1Right == false);
+    REQUIRE(contribution.snesMouseP1DeltaX == 0);
+    REQUIRE(contribution.snesMouseP1DeltaY == 0);
+}
+
+TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from previous topology", "[netplay][assignment][topology]")
+{
+    Netplay::RoomState oldRoom;
+    oldRoom.port2Device = Settings::Device::ZAPPER;
+    InputFrame staleZapperContribution = Netplay::makeRoomTopologyBaseFrame(21u, oldRoom);
+    staleZapperContribution.zapperP2X = 87;
+    staleZapperContribution.zapperP2Y = 53;
+    staleZapperContribution.zapperP2Trigger = true;
+
+    Netplay::RoomState newRoom;
+    newRoom.port2Device = Settings::Device::CONTROLLER;
+    InputFrame target = Netplay::makeRoomTopologyBaseFrame(21u, newRoom);
+    Netplay::applyAssignedContribution(target, Netplay::kPort2PlayerSlot, staleZapperContribution);
+
+    REQUIRE(target.port2Device == Settings::Device::CONTROLLER);
+    REQUIRE(target.zapperP2Trigger == false);
+    REQUIRE(target.zapperP2X == -1);
+    REQUIRE(target.zapperP2Y == -1);
+    REQUIRE(target.p2A == false);
+    REQUIRE(target.p2Down == false);
+}
+
+TEST_CASE("Emulator input buffer drops stale timeline epoch frames when timeline changes", "[netplay][epoch][emu]")
+{
+    GeraNESEmu emu{DummyAudioOutput::instance()};
+
+    InputFrame oldFrame = emu.createInputFrame(10u);
+    oldFrame.p1Start = true;
+    emu.queueInputFrame(oldFrame);
+    REQUIRE(emu.inputBuffer().findByFrame(10u, 0u) != nullptr);
+
+    emu.setInputTimelineEpoch(1u);
+
+    REQUIRE(emu.inputTimelineEpoch() == 1u);
+    REQUIRE(emu.inputBuffer().findByFrame(10u, 0u) == nullptr);
+    REQUIRE(emu.inputBuffer().findByFrame(10u, 1u) == nullptr);
+
+    InputFrame newFrame = emu.createInputFrame(10u);
+    newFrame.p1A = true;
+    emu.queueInputFrame(newFrame);
+
+    const InputFrame* queued = emu.inputBuffer().findByFrame(10u, 1u);
+    REQUIRE(queued != nullptr);
+    REQUIRE(queued->timelineEpoch == 1u);
+    REQUIRE(queued->p1A == true);
+    REQUIRE(queued->p1Start == false);
 }
 
 TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")

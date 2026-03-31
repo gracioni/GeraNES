@@ -752,7 +752,7 @@ int axisToPixel(int16_t axis, int size)
 InputFrame libretroInputFrameForNextFrame()
 {
     const uint32_t nextFrame = g_emu.frameCount() + 1u;
-    if(const InputFrame* existing = g_emu.inputBuffer().findByFrame(nextFrame); existing != nullptr) {
+    if(const InputFrame* existing = g_emu.inputBuffer().findByFrame(nextFrame, g_emu.inputTimelineEpoch()); existing != nullptr) {
         return *existing;
     }
     return g_emu.createInputFrame(nextFrame);
