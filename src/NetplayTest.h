@@ -2422,11 +2422,11 @@ private:
         if(!pending.has_value()) return;
 
         const bool loaded = peer.emu.loadStateFromMemory(pending->payload);
+        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0u;
         if(loaded) {
             peer.coordinator.setLocalSimulationFrame(pending->targetFrame);
-            peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload);
+            peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
         }
-        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0u;
         peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
     }
 
@@ -2509,7 +2509,11 @@ private:
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32);
+        const uint32_t stateCrc32 =
+            (!initialSessionSync && confirmedSnapshot.has_value())
+                ? 0u
+                : peer.emu.canonicalNetplayStateCrc32();
+        peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32);
     }
 
     static bool beginAppInitialSessionSync(AppPeerState& peer)
@@ -2524,7 +2528,8 @@ private:
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        return peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32);
+        const uint32_t stateCrc32 = peer.emu.canonicalNetplayStateCrc32();
+        return peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32);
     }
 
     static RunArtifacts runSingleCaseAppFlow(const Options& options)

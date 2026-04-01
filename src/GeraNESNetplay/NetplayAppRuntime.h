@@ -179,9 +179,10 @@ private:
         if(payload.empty()) return false;
         if(!emu.loadStateFromMemoryOnCleanBoot(payload)) return false;
 
+        const uint32_t loadedCrc32 = emu.canonicalNetplayStateCrc32();
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(targetFrame);
-        m_emuHost.seedNetplaySnapshot(targetFrame, payload);
+        m_emuHost.seedNetplaySnapshot(targetFrame, payload, loadedCrc32);
         reanchorInputDriver(targetFrame, localAssignedSlots());
         return true;
     }
@@ -201,16 +202,32 @@ private:
         return emu.saveNetplayStateToMemory();
     }
 
+    uint32_t computeAuthoritativeStateCrc32(GeraNESEmu& emu,
+                                            FrameNumber authoritativeFrame,
+                                            bool preferConfirmedSnapshot) const
+    {
+        if(!preferConfirmedSnapshot &&
+           emu.valid() &&
+           emu.frameCount() == authoritativeFrame) {
+            return emu.canonicalNetplayStateCrc32();
+        }
+
+        return 0;
+    }
+
     bool beginAuthoritativeResync(GeraNESEmu& emu,
                                   FrameNumber authoritativeFrame,
                                   const std::vector<uint8_t>& statePayload,
+                                  bool preferConfirmedSnapshot,
                                   ResyncReason reason = ResyncReason::Unspecified)
     {
         if(statePayload.empty()) return false;
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, reason)) {
+        const uint32_t stateCrc32 =
+            computeAuthoritativeStateCrc32(emu, authoritativeFrame, preferConfirmedSnapshot);
+        if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, reason)) {
             return false;
         }
 
@@ -221,20 +238,27 @@ private:
     bool beginAuthoritativeResyncWithoutLocalReload(GeraNESEmu& emu,
                                                     FrameNumber authoritativeFrame,
                                                     const std::vector<uint8_t>& statePayload,
+                                                    bool preferConfirmedSnapshot,
                                                     ResyncReason reason)
     {
         if(statePayload.empty()) return false;
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, reason)) {
+        const uint32_t stateCrc32 =
+            computeAuthoritativeStateCrc32(emu, authoritativeFrame, preferConfirmedSnapshot);
+        if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, reason)) {
             return false;
         }
 
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.invalidateLocalCrcHistoryAfter(authoritativeFrame);
         m_coordinator.setLocalSimulationFrame(authoritativeFrame);
-        m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload);
+        if(stateCrc32 != 0) {
+            m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload, stateCrc32);
+        } else {
+            m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload);
+        }
         reanchorInputDriver(authoritativeFrame, localAssignedSlots());
         return true;
     }
@@ -565,7 +589,7 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
             }
 
             m_pendingManualStateResyncs.clear();
-            beginAuthoritativeResync(emu, eventFrame, statePayload, reason);
+            beginAuthoritativeResync(emu, eventFrame, statePayload, false, reason);
             continue;
         }
 
@@ -600,7 +624,7 @@ inline void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(GeraNESEm
             return;
         }
 
-        if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, pending.reason)) {
+        if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false, pending.reason)) {
             m_pendingManualStateResyncs.pop_front();
         } else {
             return;
@@ -737,7 +761,7 @@ inline bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(GeraNESEmu& emu)
     const FrameNumber authoritativeFrame = emu.frameCount();
     const std::vector<uint8_t> statePayload =
         buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
-    if(!beginAuthoritativeResync(emu, authoritativeFrame, statePayload)) {
+    if(!beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false)) {
         return false;
     }
 
@@ -767,7 +791,7 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
         buildAuthoritativeStatePayload(emu, authoritativeFrame, !initialSessionSync);
     if(statePayload.empty()) return;
 
-    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload)) {
+    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, !initialSessionSync)) {
         if(initialSessionSync) {
             Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
         } else {
@@ -794,7 +818,7 @@ inline void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNES
         buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
     if(statePayload.empty()) return;
 
-    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload)) {
+    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, true)) {
         Logger::instance().log(
             "Netplay late-join resync started for participant " +
             std::to_string(static_cast<int>(*participantId)),
@@ -809,12 +833,12 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
     if(!pending.has_value()) return;
 
     const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
+    const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0;
     if(loaded) {
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
-        m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload);
+        m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
     }
-    const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0;
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
 
     if(loaded) {
@@ -1231,7 +1255,7 @@ inline void NetplayAppRuntime::configureInputAssignments(ParticipantId participa
         const FrameNumber authoritativeFrame = emu.frameCount();
         const std::vector<uint8_t> statePayload =
             self.buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
-        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload);
+        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false);
     });
 }
 
@@ -1262,7 +1286,7 @@ inline void NetplayAppRuntime::requestForceResync()
             std::min<FrameNumber>(requestedFrame, emu.frameCount());
         const std::vector<uint8_t> statePayload =
             self.buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
-        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload);
+        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, true);
     });
 }
 

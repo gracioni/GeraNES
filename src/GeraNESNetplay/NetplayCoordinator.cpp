@@ -976,6 +976,7 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_session.roomState().resyncPayloadSize = 0;
     m_session.roomState().resyncPayloadCrc32 = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
+    m_activeResyncExpectedStateCrc32 = 0;
     m_session.roomState().state = SessionState::Paused;
     pushLog(reason);
 }
@@ -1270,6 +1271,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_pendingHostLateJoinResyncParticipant.reset();
     m_pendingResyncApply.reset();
     m_pendingResyncAcks.clear();
+    m_activeResyncExpectedStateCrc32 = 0;
     m_recentLocalCrcHistory.clear();
     m_lastBroadcastConfirmedFrame = 0;
     m_lastLocalCrcFrame = 0;
@@ -1644,6 +1646,25 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         return true;
     }
 
+    if(data.loadedFrame != m_session.roomState().resyncTargetFrame) {
+        scheduleResyncRetry(
+            m_session.roomState().resyncTargetFrame,
+            "Resync ACK loaded unexpected frame from participant " +
+                std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+        );
+        return true;
+    }
+
+    if(m_activeResyncExpectedStateCrc32 != 0 &&
+       data.crc32 != m_activeResyncExpectedStateCrc32) {
+        scheduleResyncRetry(
+            m_session.roomState().resyncTargetFrame,
+            "Resync ACK state CRC mismatch from participant " +
+                std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+        );
+        return true;
+    }
+
     m_pendingResyncAcks.erase(
         std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), data.participantId),
         m_pendingResyncAcks.end()
@@ -1657,6 +1678,7 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         m_session.roomState().resyncPayloadSize = 0;
         m_session.roomState().resyncPayloadCrc32 = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
+        m_activeResyncExpectedStateCrc32 = 0;
 
         PacketWriter writer;
         PacketHeader header;
@@ -3158,6 +3180,7 @@ void NetplayCoordinator::invalidateLocalCrcHistoryAfter(FrameNumber frame)
 bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
                                      const std::vector<uint8_t>& payload,
                                      uint32_t payloadCrc32,
+                                     uint32_t stateCrc32,
                                      ResyncReason reason)
 {
     if(!m_hosting || payload.empty()) return false;
@@ -3178,6 +3201,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_session.roomState().resyncPayloadSize = static_cast<uint32_t>(payload.size());
     m_session.roomState().resyncPayloadCrc32 = payloadCrc32;
     m_session.roomState().activeResyncReason = reason;
+    m_activeResyncExpectedStateCrc32 = stateCrc32;
     m_pendingResyncAcks.clear();
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
@@ -3199,6 +3223,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_session.roomState().resyncPayloadSize = 0;
         m_session.roomState().resyncPayloadCrc32 = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
+        m_activeResyncExpectedStateCrc32 = 0;
         pushLog("Resync skipped: no remote peers");
         return true;
     }
@@ -3209,6 +3234,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     beginData.targetFrame = targetFrame;
     beginData.payloadSize = static_cast<uint32_t>(payload.size());
     beginData.payloadCrc32 = payloadCrc32;
+    beginData.stateCrc32 = m_activeResyncExpectedStateCrc32;
     beginData.reason = reason;
     m_transport.broadcastReliable(Channel::Control, buildResyncBeginPacket(beginData));
 

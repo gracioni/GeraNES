@@ -94,6 +94,7 @@ private:
     uint8_t m_consecutiveCrcMismatchCount = 0;
     FrameNumber m_localSimulationFrame = 0;
     uint32_t m_nextResyncId = 1;
+    uint32_t m_activeResyncExpectedStateCrc32 = 0;
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<PendingResyncApply> m_pendingResyncApply;
     std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
@@ -240,7 +241,11 @@ public:
     bool tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     void submitLocalCrc(FrameNumber frame, uint32_t crc32);
     void invalidateLocalCrcHistoryAfter(FrameNumber frame);
-    bool beginResync(FrameNumber targetFrame, const std::vector<uint8_t>& payload, uint32_t payloadCrc32, ResyncReason reason = ResyncReason::Unspecified);
+    bool beginResync(FrameNumber targetFrame,
+                     const std::vector<uint8_t>& payload,
+                     uint32_t payloadCrc32,
+                     uint32_t stateCrc32,
+                     ResyncReason reason = ResyncReason::Unspecified);
     std::optional<PendingResyncApply> consumePendingResyncApply();
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);

@@ -213,6 +213,7 @@ struct ResyncBeginData
     FrameNumber targetFrame = 0;
     uint32_t payloadSize = 0;
     uint32_t payloadCrc32 = 0;
+    uint32_t stateCrc32 = 0;
     ResyncReason reason = ResyncReason::Unspecified;
 };
 

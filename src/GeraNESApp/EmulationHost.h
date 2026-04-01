@@ -1592,11 +1592,16 @@ public:
         return it->crc32;
     }
 
-    void seedNetplaySnapshot(uint32_t frame, const std::vector<uint8_t>& data)
+    void seedNetplaySnapshot(uint32_t frame,
+                             const std::vector<uint8_t>& data,
+                             std::optional<uint32_t> canonicalCrc32 = std::nullopt)
     {
         if(data.empty()) return;
 
-        const uint32_t crc32 = Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+        const uint32_t crc32 =
+            canonicalCrc32.has_value()
+                ? *canonicalCrc32
+                : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         auto existing = std::find_if(
             m_netplaySnapshots.begin(),

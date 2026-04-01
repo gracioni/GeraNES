@@ -1652,6 +1652,39 @@ TEST_CASE("Netplay runtime stays deterministic after repeated host load states d
     }
 }
 
+TEST_CASE("Netplay desync monitor still hard-resyncs after repeated host load-state stress", "[netplay][runtime][load-state][desync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 210;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 4;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36, 37, 38, 39};
+    options.forceDesyncFrame = 64;
+    options.desyncAddress = 0x0000u;
+    options.desyncValueXor = 0x5Au;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_repeated_load_state_desync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("desyncInjected") == true);
+    REQUIRE(report.at("hardResyncObserved") == true);
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")
 {
     GeraNESTestSupport::requireRomFixture();
