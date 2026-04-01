@@ -130,6 +130,8 @@ private:
     uint32_t m_manualResetGeneration = 0;
     uint32_t m_manualLoadStateGeneration = 0;
     bool m_forceSilentAudio = false;
+    std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
+    bool m_currentPlaybackFrameRenderedAudibly = false;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
 
@@ -817,8 +819,7 @@ private:
     }    
 
     void onFrameReady() {
-        ++m_frameCounter;        
-        signalFrameReady();
+        ++m_frameCounter;
     }
 
     void onPPUScanlineStart()
@@ -853,6 +854,12 @@ private:
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
+            if(m_frameCounter == 0) {
+                m_lastAudiblyRenderedPlaybackFrame.reset();
+            }
+            else {
+                m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
+            }
         }
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
@@ -879,6 +886,7 @@ private:
         m_pendingNsfPrevSong = false;
         m_applyingPendingNsfActions = false;
         m_forceSilentAudio = false;
+        m_currentPlaybackFrameRenderedAudibly = false;
     }
 
     void processDeferredNetplaySnapshot()
@@ -920,20 +928,22 @@ private:
                lhs.emulationTick == rhs.emulationTick;
     }
 
-    GERANES_INLINE void renderAudioMs(uint32_t ms, bool skipRender = false, bool forceSilence = false)
+    GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender = false, bool forceSilence = false)
     {
-        if(ms == 0) return;
+        if(ms == 0) return false;
         if(skipRender) {
             // Predicted/silent replay must not enqueue silence or touch the live
             // output device. Drop only the transient generated sample buffers.
             m_audioOutput.clearAudioBuffers();
-            return;
+            return false;
         }
 
         m_audioOutput.setRewinding(m_rewind.isRewinding());
         m_audioOutput.setExpansionAudioVolume(1.0f);
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
-        m_audioOutput.render(ms, forceSilence || !enableAudio || m_nsfPlayer.forceMute());
+        const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
+        m_audioOutput.render(ms, silentRender);
+        return !silentRender;
     }
 
     template<bool consumeUpdateBudget>
@@ -947,7 +957,11 @@ private:
         if(inputFrame == nullptr) {
             return false;
         }
-        const bool tickSkipAudioRender = silentAudio || inputFrame->speculative;
+        const bool playbackFrameAlreadyRenderedAudibly =
+            m_lastAudiblyRenderedPlaybackFrame.has_value() &&
+            playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
+        const bool tickSkipAudioRender =
+            silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -963,9 +977,15 @@ private:
             }
 
             if(m_newFrame) {
+                const bool completedFrameRenderedAudibly = m_currentPlaybackFrameRenderedAudibly;
                 onFrameReady();
+                if(completedFrameRenderedAudibly) {
+                    m_lastAudiblyRenderedPlaybackFrame = playbackFrame;
+                }
+                m_currentPlaybackFrameRenderedAudibly = false;
                 m_rewind.newFrame();
                 frameReady = true;
+                signalFrameReady();
                 m_newFrame = false;
             }
         }
@@ -981,7 +1001,9 @@ private:
                 --m_vsyncAudioSkipMsDebt;
             }
             else {
-                renderAudioMs(1, tickSkipAudioRender);
+                if(renderAudioMs(1, tickSkipAudioRender)) {
+                    m_currentPlaybackFrameRenderedAudibly = true;
+                }
                 renderedAudioMs += 1;
             }
         }        
@@ -1156,6 +1178,8 @@ public:
         m_4011WriteCounter = 0;
         m_newFrame = false;
         m_frameStarted = false;
+        m_lastAudiblyRenderedPlaybackFrame.reset();
+        m_currentPlaybackFrameRenderedAudibly = false;
 
         m_frameCounter = 0;
         m_inputBuffer.clear();
@@ -1746,6 +1770,38 @@ public:
         m_hardwareActions = savedHardwareActions;
         m_updateCyclesAcc = savedUpdateCyclesAcc;
         m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
+        return s.getData();
+    }
+
+    std::vector<uint8_t> saveNetplayRollbackStateToMemory()
+    {
+        const InputBuffer savedInputBuffer = m_inputBuffer;
+        const bool savedNewFrame = m_newFrame;
+        const bool savedFrameStarted = m_frameStarted;
+        const bool savedRunningLoop = m_runningLoop;
+        const HardwareActions savedHardwareActions = m_hardwareActions;
+        InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
+        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
+           currentPlaybackInput != nullptr) {
+            serializedPlaybackInput = *currentPlaybackInput;
+        } else if(serializedPlaybackInput.frame != m_frameCounter) {
+            serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
+        }
+        m_inputBuffer.clear();
+        m_inputBuffer.push(serializedPlaybackInput);
+        m_newFrame = false;
+        m_frameStarted = false;
+        m_runningLoop = false;
+        m_hardwareActions.reset();
+
+        Serialize s;
+        serialization(s);
+
+        m_inputBuffer = savedInputBuffer;
+        m_newFrame = savedNewFrame;
+        m_frameStarted = savedFrameStarted;
+        m_runningLoop = savedRunningLoop;
+        m_hardwareActions = savedHardwareActions;
         return s.getData();
     }
 

@@ -459,7 +459,7 @@ private:
         }
 
         if(snapshotCapacity > 0) {
-            snapshotData = m_emu.saveNetplayStateToMemory();
+            snapshotData = m_emu.saveNetplayRollbackStateToMemory();
             if(!snapshotData.empty()) {
                 std::scoped_lock netplayLock(m_netplaySnapshotMutex);
                 auto existing = std::find_if(

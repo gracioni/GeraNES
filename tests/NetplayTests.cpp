@@ -2,6 +2,7 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include <cmath>
 
 #ifdef ERROR
 #undef ERROR
@@ -9,6 +10,7 @@
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
+#include "GeraNESApp/AudioOutputBase.h"
 #include "NetplayTest.h"
 #include "TestSupport.h"
 
@@ -41,6 +43,45 @@ public:
     }
 };
 
+class BufferedRecordingAudioOutput : public AudioOutputBase
+{
+private:
+    uint64_t m_sampleAcc = 0;
+    std::vector<float> m_committedSamples;
+
+public:
+    bool init() override
+    {
+        AudioOutputBase::init();
+        initChannels(outputSampleRate());
+        m_sampleAcc = 0;
+        return true;
+    }
+
+    void render(uint32_t dt, bool silenceFlag) override
+    {
+        m_sampleAcc += static_cast<uint64_t>(dt) * static_cast<uint64_t>(outputSampleRate());
+        while(m_sampleAcc >= 1000u) {
+            const float sample = silenceFlag ? 0.0f : mix();
+            captureMixedSample(sample);
+            m_committedSamples.push_back(sample);
+            m_sampleAcc -= 1000u;
+        }
+    }
+
+    void discardQueuedAudio() override
+    {
+        m_committedSamples.clear();
+        m_sampleAcc = 0;
+        clearAudioBuffers();
+    }
+
+    const std::vector<float>& committedSamples() const
+    {
+        return m_committedSamples;
+    }
+};
+
 void queueFrameAndAdvance(GeraNESEmu& emu, uint32_t frame, bool speculative = false)
 {
     InputFrame inputFrame = emu.createInputFrame(frame);
@@ -52,6 +93,21 @@ void queueFrameAndAdvance(GeraNESEmu& emu, uint32_t frame, bool speculative = fa
     REQUIRE(emu.frameCount() == frame);
 }
 
+void queueFrameAndAdvanceFreeRunning(GeraNESEmu& emu, uint32_t frame, bool speculative = false, uint32_t maxMs = 5000u)
+{
+    InputFrame inputFrame = emu.createInputFrame(frame);
+    inputFrame.speculative = speculative;
+    emu.queueInputFrame(inputFrame);
+
+    uint32_t elapsedMs = 0u;
+    const uint32_t targetFrameCount = frame + 1u;
+    while(emu.frameCount() < targetFrameCount && elapsedMs < maxMs) {
+        emu.update(1u);
+        ++elapsedMs;
+    }
+    REQUIRE(emu.frameCount() == targetFrameCount);
+}
+
 std::filesystem::path duckHuntRomPath()
 {
     if(const char* env = std::getenv("GERANES_DUCK_HUNT_ROM")) {
@@ -60,6 +116,16 @@ std::filesystem::path duckHuntRomPath()
         }
     }
     return {};
+}
+
+void requireSampleStreamsEqual(const std::vector<float>& lhs,
+                               const std::vector<float>& rhs,
+                               float epsilon = 1.0e-6f)
+{
+    REQUIRE(lhs.size() == rhs.size());
+    for(size_t i = 0; i < lhs.size(); ++i) {
+        REQUIRE(std::fabs(lhs[i] - rhs[i]) <= epsilon);
+    }
 }
 }
 
@@ -1104,6 +1170,377 @@ TEST_CASE("Netplay speculative playback keeps audio silent", "[netplay][audio][p
     REQUIRE(emu.frameCount() == 2u);
 
     REQUIRE(audio.audibleRenderCalls > audibleBeforeConfirmedReplay);
+}
+
+TEST_CASE("Netplay rollback does not replay audio for frames that were already emitted", "[netplay][audio][rollback][dedupe]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.speculative = false;
+    emu.queueInputFrame(frame0);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    const std::vector<uint8_t> rollbackState = emu.saveStateToMemory();
+    REQUIRE_FALSE(rollbackState.empty());
+
+    InputFrame frame1 = emu.createInputFrame(1u);
+    frame1.speculative = false;
+    emu.queueInputFrame(frame1);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+
+    const uint32_t audibleAfterOriginalFrame1 = audio.audibleRenderCalls;
+    REQUIRE(audibleAfterOriginalFrame1 > 0u);
+
+    emu.loadStateFromMemoryWithAudioPolicy(
+        rollbackState,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    REQUIRE(emu.valid());
+
+    InputFrame replayFrame1 = emu.createInputFrame(1u);
+    replayFrame1.speculative = false;
+    emu.queueInputFrame(replayFrame1);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+    REQUIRE(audio.audibleRenderCalls == audibleAfterOriginalFrame1);
+}
+
+TEST_CASE("Netplay rollback replays previously silent speculative frames audibly", "[netplay][audio][rollback][prediction]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.speculative = false;
+    emu.queueInputFrame(frame0);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    const std::vector<uint8_t> rollbackState = emu.saveStateToMemory();
+    REQUIRE_FALSE(rollbackState.empty());
+
+    const uint32_t audibleBeforePrediction = audio.audibleRenderCalls;
+
+    InputFrame speculativeFrame1 = emu.createInputFrame(1u);
+    speculativeFrame1.speculative = true;
+    emu.queueInputFrame(speculativeFrame1);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+
+    InputFrame speculativeFrame2 = emu.createInputFrame(2u);
+    speculativeFrame2.speculative = true;
+    emu.queueInputFrame(speculativeFrame2);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 3u);
+
+    REQUIRE(audio.audibleRenderCalls == audibleBeforePrediction);
+
+    emu.loadStateFromMemoryWithAudioPolicy(
+        rollbackState,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    REQUIRE(emu.valid());
+
+    const uint32_t audibleBeforeReplay = audio.audibleRenderCalls;
+
+    InputFrame confirmedReplayFrame1 = emu.createInputFrame(1u);
+    confirmedReplayFrame1.speculative = false;
+    emu.queueInputFrame(confirmedReplayFrame1);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+    REQUIRE(audio.audibleRenderCalls > audibleBeforeReplay);
+
+    const uint32_t audibleAfterReplayFrame1 = audio.audibleRenderCalls;
+
+    InputFrame confirmedReplayFrame2 = emu.createInputFrame(2u);
+    confirmedReplayFrame2.speculative = false;
+    emu.queueInputFrame(confirmedReplayFrame2);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 3u);
+    REQUIRE(audio.audibleRenderCalls > audibleAfterReplayFrame1);
+}
+
+TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[netplay][audio][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.speculative = false;
+    emu.queueInputFrame(frame0);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    const std::vector<uint8_t> resyncState = emu.saveStateToMemory();
+    REQUIRE_FALSE(resyncState.empty());
+
+    InputFrame frame1 = emu.createInputFrame(1u);
+    frame1.speculative = false;
+    emu.queueInputFrame(frame1);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+
+    const uint32_t audibleBeforeResync = audio.audibleRenderCalls;
+    REQUIRE(audibleBeforeResync > 0u);
+
+    REQUIRE(emu.loadStateFromMemoryOnCleanBoot(resyncState));
+    REQUIRE(emu.valid());
+
+    const uint32_t audibleAfterResyncLoad = audio.audibleRenderCalls;
+
+    InputFrame replayFrame1 = emu.createInputFrame(1u);
+    replayFrame1.speculative = false;
+    emu.queueInputFrame(replayFrame1);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+    REQUIRE(audio.audibleRenderCalls > audibleAfterResyncLoad);
+}
+
+TEST_CASE("Netplay rollback preserves the same final audio stream as offline playback", "[netplay][audio][continuity][rollback]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint32_t frameDt = 1000u / std::max<uint32_t>(1u, 60u);
+
+    BufferedRecordingAudioOutput offlineAudio;
+    GeraNESEmu offlineEmu(offlineAudio);
+    REQUIRE(offlineEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(offlineEmu.valid());
+
+    for(uint32_t frame = 0u; frame <= 3u; ++frame) {
+        InputFrame input = offlineEmu.createInputFrame(frame);
+        input.speculative = false;
+        offlineEmu.queueInputFrame(input);
+        REQUIRE(offlineEmu.updateUntilFrame(frameDt));
+    }
+    REQUIRE(offlineEmu.frameCount() == 4u);
+    REQUIRE_FALSE(offlineAudio.committedSamples().empty());
+
+    BufferedRecordingAudioOutput netplayAudio;
+    GeraNESEmu netplayEmu(netplayAudio);
+    REQUIRE(netplayEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(netplayEmu.valid());
+
+    InputFrame confirmedFrame0 = netplayEmu.createInputFrame(0u);
+    confirmedFrame0.speculative = false;
+    netplayEmu.queueInputFrame(confirmedFrame0);
+    REQUIRE(netplayEmu.updateUntilFrame(frameDt));
+    REQUIRE(netplayEmu.frameCount() == 1u);
+
+    const std::vector<uint8_t> rollbackState = netplayEmu.saveStateToMemory();
+    REQUIRE_FALSE(rollbackState.empty());
+
+    for(uint32_t frame = 1u; frame <= 3u; ++frame) {
+        InputFrame predicted = netplayEmu.createInputFrame(frame);
+        predicted.speculative = true;
+        netplayEmu.queueInputFrame(predicted);
+        REQUIRE(netplayEmu.updateUntilFrame(frameDt));
+    }
+    REQUIRE(netplayEmu.frameCount() == 4u);
+
+    netplayEmu.loadStateFromMemoryWithAudioPolicy(
+        rollbackState,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    REQUIRE(netplayEmu.valid());
+
+    for(uint32_t frame = 1u; frame <= 3u; ++frame) {
+        InputFrame corrected = netplayEmu.createInputFrame(frame);
+        corrected.speculative = false;
+        netplayEmu.queueInputFrame(corrected);
+        REQUIRE(netplayEmu.updateUntilFrame(frameDt));
+    }
+    REQUIRE(netplayEmu.frameCount() == 4u);
+
+    requireSampleStreamsEqual(netplayAudio.committedSamples(), offlineAudio.committedSamples());
+}
+
+TEST_CASE("Netplay rollback keeps audio output continuous while matching offline playback", "[netplay][audio][continuity][prediction]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint32_t frameDt = 1000u / std::max<uint32_t>(1u, 60u);
+
+    BufferedRecordingAudioOutput offlineAudio;
+    EmulationHost offlineEmu(offlineAudio);
+    offlineEmu.setSimulationSuspended(true);
+    offlineEmu.setAllowPresenterTimeoutAdvance(false);
+    REQUIRE(offlineEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(offlineEmu.valid());
+
+    offlineEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+        for(uint32_t frame = 0u; frame <= 5u; ++frame) {
+            InputFrame input = innerEmu.createInputFrame(frame);
+            input.speculative = false;
+            innerEmu.queueInputFrame(input);
+            REQUIRE(innerEmu.updateUntilFrame(frameDt));
+        }
+        REQUIRE(innerEmu.frameCount() == 6u);
+    });
+
+    BufferedRecordingAudioOutput netplayAudio;
+    GeraNESEmu netplayEmu(netplayAudio);
+    REQUIRE(netplayEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(netplayEmu.valid());
+
+    for(uint32_t frame = 0u; frame <= 1u; ++frame) {
+        InputFrame confirmed = netplayEmu.createInputFrame(frame);
+        confirmed.speculative = false;
+        netplayEmu.queueInputFrame(confirmed);
+        REQUIRE(netplayEmu.updateUntilFrame(frameDt));
+    }
+    REQUIRE(netplayEmu.frameCount() == 2u);
+
+    const std::vector<uint8_t> rollbackState = netplayEmu.saveStateToMemory();
+    REQUIRE_FALSE(rollbackState.empty());
+    const size_t committedSamplesBeforePrediction = netplayAudio.committedSamples().size();
+
+    for(uint32_t frame = 2u; frame <= 5u; ++frame) {
+        InputFrame predicted = netplayEmu.createInputFrame(frame);
+        predicted.speculative = true;
+        netplayEmu.queueInputFrame(predicted);
+        REQUIRE(netplayEmu.updateUntilFrame(frameDt));
+    }
+    REQUIRE(netplayEmu.frameCount() == 6u);
+    REQUIRE(netplayAudio.committedSamples().size() == committedSamplesBeforePrediction);
+
+    netplayEmu.loadStateFromMemoryWithAudioPolicy(
+        rollbackState,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    REQUIRE(netplayEmu.valid());
+
+    for(uint32_t frame = 2u; frame <= 5u; ++frame) {
+        InputFrame corrected = netplayEmu.createInputFrame(frame);
+        corrected.speculative = false;
+        netplayEmu.queueInputFrame(corrected);
+        REQUIRE(netplayEmu.updateUntilFrame(frameDt));
+    }
+    REQUIRE(netplayEmu.frameCount() == 6u);
+
+    requireSampleStreamsEqual(netplayAudio.committedSamples(), offlineAudio.committedSamples());
+}
+
+TEST_CASE("Netplay emulation host rollback preserves final audio stream continuity", "[netplay][audio][host][continuity]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    BufferedRecordingAudioOutput offlineAudio;
+    EmulationHost offlineEmu(offlineAudio);
+    offlineEmu.setSimulationSuspended(true);
+    offlineEmu.setAllowPresenterTimeoutAdvance(false);
+    REQUIRE(offlineEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(offlineEmu.valid());
+
+    offlineEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+        for(uint32_t frame = 0u; frame <= 5u; ++frame) {
+            queueFrameAndAdvanceFreeRunning(innerEmu, frame, false);
+        }
+        REQUIRE(innerEmu.frameCount() == 6u);
+    });
+
+    BufferedRecordingAudioOutput hostAudio;
+    EmulationHost hostEmu(hostAudio);
+    hostEmu.setSimulationSuspended(true);
+    hostEmu.setAllowPresenterTimeoutAdvance(false);
+    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostEmu.valid());
+    hostEmu.configureNetplaySnapshots(16u);
+
+    std::vector<uint8_t> rollbackSnapshot;
+    uint32_t rollbackFrame = 0u;
+    hostEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+        for(uint32_t frame = 0u; frame <= 1u; ++frame) {
+            queueFrameAndAdvanceFreeRunning(innerEmu, frame, false);
+        }
+        rollbackFrame = innerEmu.frameCount();
+        rollbackSnapshot = innerEmu.saveNetplayRollbackStateToMemory();
+    });
+    REQUIRE_FALSE(rollbackSnapshot.empty());
+    REQUIRE(rollbackFrame == 2u);
+    hostEmu.seedNetplaySnapshot(rollbackFrame, rollbackSnapshot);
+
+    const size_t committedSamplesBeforePrediction = hostAudio.committedSamples().size();
+
+    hostEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+        for(uint32_t frame = 2u; frame <= 5u; ++frame) {
+            queueFrameAndAdvanceFreeRunning(innerEmu, frame, true);
+        }
+        REQUIRE(innerEmu.frameCount() == 6u);
+    });
+    REQUIRE(hostAudio.committedSamples().size() == committedSamplesBeforePrediction);
+
+    REQUIRE(hostEmu.rollbackToFrame(rollbackFrame));
+    REQUIRE(hostEmu.resimulateToFrame(6u, [&](uint32_t frame) {
+        (void)frame;
+        EmulationHost::ReplayFrameInput replay{};
+        replay.speculative = false;
+        return replay;
+    }));
+    REQUIRE(hostEmu.exactEmulationFrame() == 6u);
+
+    requireSampleStreamsEqual(hostAudio.committedSamples(), offlineAudio.committedSamples());
+}
+
+TEST_CASE("Netplay emulation host speculative playback defers audio until resimulation", "[netplay][audio][host][prediction]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    BufferedRecordingAudioOutput hostAudio;
+    EmulationHost hostEmu(hostAudio);
+    hostEmu.setSimulationSuspended(true);
+    hostEmu.setAllowPresenterTimeoutAdvance(false);
+    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostEmu.valid());
+    hostEmu.configureNetplaySnapshots(8u);
+
+    std::vector<uint8_t> rollbackSnapshot;
+    uint32_t rollbackFrame = 0u;
+    hostEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+        queueFrameAndAdvanceFreeRunning(innerEmu, 0u, false);
+        rollbackFrame = innerEmu.frameCount();
+        rollbackSnapshot = innerEmu.saveNetplayRollbackStateToMemory();
+    });
+    REQUIRE_FALSE(rollbackSnapshot.empty());
+    REQUIRE(rollbackFrame == 1u);
+    hostEmu.seedNetplaySnapshot(rollbackFrame, rollbackSnapshot);
+
+    const size_t committedBeforePrediction = hostAudio.committedSamples().size();
+
+    hostEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+        for(uint32_t frame = 1u; frame <= 3u; ++frame) {
+            queueFrameAndAdvanceFreeRunning(innerEmu, frame, true);
+        }
+    });
+    REQUIRE(hostAudio.committedSamples().size() == committedBeforePrediction);
+
+    REQUIRE(hostEmu.rollbackToFrame(rollbackFrame));
+    REQUIRE(hostEmu.resimulateToFrame(4u, [&](uint32_t frame) {
+        (void)frame;
+        EmulationHost::ReplayFrameInput replay{};
+        replay.speculative = false;
+        return replay;
+    }));
+
+    REQUIRE(hostAudio.committedSamples().size() > committedBeforePrediction);
 }
 
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")
