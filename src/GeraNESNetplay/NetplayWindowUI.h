@@ -33,7 +33,11 @@ inline void drawNetplayWindow(bool& showWindow,
     if(!showWindow) return;
 
     auto& cfg = AppSettings::instance().data.netplay;
-    ImGui::SetNextWindowSize(ImVec2(760, 680), ImGuiCond_FirstUseEver);
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float maxInitialHeight = viewport != nullptr ? viewport->WorkSize.y * 0.8f : 680.0f;
+    const float estimatedInitialHeight = 610.0f;
+    ImGui::SetNextWindowSize(ImVec2(760, std::min(estimatedInitialHeight, maxInitialHeight)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(620.0f, 420.0f), ImVec2(FLT_MAX, maxInitialHeight));
     ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
     if(!ImGui::Begin("Netplay", &showWindow)) {
@@ -131,7 +135,6 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.3f, 1.0f), "%s", snapshot.lastError.c_str());
     }
 
-    ImGui::Separator();
     if(ImGui::CollapsingHeader("Session##NetplaySession")) {
         ImGui::Text("Session Id: %u", room.sessionId);
         ImGui::Text("State: %s", sessionStateLabel(room.state));
@@ -514,7 +517,15 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::EndDisabled();
     };
 
-    if(ImGui::BeginTable("NetplayParticipants", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+    const float participantRowHeight = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().FramePadding.y * 2.0f;
+    const float participantsTableHeight = participantRowHeight * 4.0f;
+    if(ImGui::BeginTable("NetplayParticipants",
+                         7,
+                         ImGuiTableFlags_Borders |
+                             ImGuiTableFlags_RowBg |
+                             ImGuiTableFlags_SizingStretchProp |
+                             ImGuiTableFlags_ScrollY,
+                         ImVec2(0.0f, participantsTableHeight))) {
         ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthFixed, 45.0f);
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 60.0f);
@@ -608,6 +619,7 @@ inline void drawNetplayWindow(bool& showWindow,
     }
 
     ImGui::Separator();
+    ImGui::TextUnformatted("Log");
     if(ImGui::BeginChild("NetplayLog", ImVec2(0.0f, 180.0f), true)) {
         for(const std::string& line : snapshot.eventLog) {
             ImGui::TextUnformatted(line.c_str());
