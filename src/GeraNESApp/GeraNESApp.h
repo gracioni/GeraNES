@@ -282,6 +282,25 @@ private:
         Logger::instance().log(message, Logger::Type::INFO);
     }
 
+    bool isNetplayPauseRestricted() const
+    {
+#ifndef __EMSCRIPTEN__
+        const auto snapshot = m_netplayRuntime.uiSnapshot();
+        return snapshot.active || snapshot.connected || snapshot.reconnecting || snapshot.hosting;
+#else
+        return false;
+#endif
+    }
+
+    void notifyNetplayPauseRestrictedAction()
+    {
+        if(!isNetplayPauseRestricted()) return;
+
+        const std::string message = "Pause is disabled while netplay is active";
+        m_userToast.show(message);
+        Logger::instance().log(message, Logger::Type::INFO);
+    }
+
     static void setIfNegative(std::string& dst, int value)
     {
         dst = value >= 0 ? std::to_string(value) : "";
@@ -1675,8 +1694,8 @@ private:
 
         m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
             if(!m_emu.valid()) return;
-            if(isNetplayClientRestricted()) {
-                notifyNetplayClientRestrictedAction("Pause");
+            if(isNetplayPauseRestricted()) {
+                notifyNetplayPauseRestrictedAction();
                 return;
             }
             m_emu.togglePaused();
