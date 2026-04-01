@@ -75,6 +75,7 @@ private:
     bool m_pendingJoinRomLoaded = false;
     RomValidationData m_pendingJoinRomValidation = {};
     bool m_disconnectExpectedAfterJoinReject = false;
+    bool m_disconnectExpectedAfterHostShutdown = false;
     bool m_gracefulDisconnectPending = false;
     std::chrono::steady_clock::time_point m_gracefulDisconnectDeadline = {};
     std::string m_lastError;

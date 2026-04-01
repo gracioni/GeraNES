@@ -69,6 +69,7 @@ public:
         uint32_t dropClientIncomingResyncCompleteMessages = 0;
         uint32_t reconnectReservationSecondsForTests = 0;
         uint32_t hostSaveStateFrame = 0;
+        uint32_t hostDisconnectFrame = 0;
         bool reconnectDuringResync = false;
         bool expectReconnectReservationExpiry = false;
         bool robust = false;
@@ -1177,6 +1178,8 @@ private:
             {"runtimeActive", snapshot.active},
             {"runtimeRunning", peer.runtime.runtimeRunning()},
             {"connected", snapshot.connected},
+            {"reconnecting", snapshot.reconnecting},
+            {"lastError", snapshot.lastError},
             {"localParticipantId", snapshot.localParticipantId},
             {"sessionState", static_cast<int>(snapshot.room.state)},
             {"currentFrame", snapshot.room.currentFrame},
@@ -1232,6 +1235,7 @@ private:
             {"dropClientIncomingResyncChunkMessages", options.dropClientIncomingResyncChunkMessages},
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
             {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
+            {"hostDisconnectFrame", options.hostDisconnectFrame},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
@@ -1622,6 +1626,7 @@ private:
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
         bool manualResyncTriggered = false;
         bool hostResetTriggered = false;
+        bool hostDisconnectTriggered = false;
         bool manualResyncObserved = false;
         bool manualResyncCompleted = false;
         bool hostSaveStateCaptured = false;
@@ -1949,6 +1954,13 @@ private:
                 ++hostManualLoadTriggerIndex;
             }
 
+            if(options.hostDisconnectFrame > 0 &&
+               !hostDisconnectTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.hostDisconnectFrame) {
+                hostPeer.runtime.disconnect();
+                hostDisconnectTriggered = true;
+            }
+
             if(options.forceHostResetFrame > 0 &&
                !hostResetTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.forceHostResetFrame &&
@@ -1985,6 +1997,26 @@ private:
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
             const auto hostSnap = hostPeer.runtime.uiSnapshot();
             const auto clientSnap = clientPeer.runtime.uiSnapshot();
+
+            if(hostDisconnectTriggered) {
+                if(clientSnap.room.state == Netplay::SessionState::Ended &&
+                   !clientSnap.reconnecting &&
+                   clientSnap.lastError == "Host closed the room") {
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["hostDisconnectTriggered"] = hostDisconnectTriggered;
+                    result.exitCode = EXIT_SUCCESS;
+                    cleanup();
+                    return result;
+                }
+            }
+
             hardResyncObserved =
                 hardResyncObserved ||
                 hostSnap.predictionStats.hardResyncCount > 0u ||
@@ -2101,6 +2133,17 @@ private:
                     result.report["desyncInjected"] = desyncInjected;
                     result.report["hardResyncObserved"] = hardResyncObserved;
                     result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+                if(options.hostDisconnectFrame > 0 && !hostDisconnectTriggered) {
+                    failureReason = "Host-disconnect scenario never triggered before reaching the target frame.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["hostDisconnectTriggered"] = hostDisconnectTriggered;
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;

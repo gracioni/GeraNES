@@ -186,6 +186,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingJoinRomLoaded = false;
     m_pendingJoinRomValidation = {};
     m_disconnectExpectedAfterJoinReject = false;
+    m_disconnectExpectedAfterHostShutdown = false;
     m_gracefulDisconnectPending = false;
     m_gracefulDisconnectDeadline = {};
     m_session.reset();
@@ -1758,6 +1759,12 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     }
     if(data.state == SessionState::Starting) {
         pushLog("Session starting: waiting for authoritative sync");
+    } else if(data.state == SessionState::Ended) {
+        clearReconnectAttemptState();
+        m_disconnectExpectedAfterHostShutdown = true;
+        m_lastError = "Host closed the room";
+        pushLog("Host closed the room");
+        notifySessionEvent("Host closed the room");
     } else {
         pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
     }
@@ -2459,7 +2466,10 @@ void NetplayCoordinator::disconnect()
     clearReconnectAttemptState();
     if(m_transport.isActive()) {
         if(m_hosting) {
+            endSession();
+            m_transport.flush();
             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(m_localParticipantId));
+            m_transport.flush();
             m_transport.disconnectAll();
             completeLocalDisconnect();
             return;
@@ -2513,6 +2523,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                     } else if(m_disconnectExpectedAfterJoinReject) {
                         const std::string preservedError = m_lastError;
                         m_disconnectExpectedAfterJoinReject = false;
+                        completeLocalDisconnect();
+                        m_lastError = preservedError;
+                    } else if(m_disconnectExpectedAfterHostShutdown) {
+                        const std::string preservedError = m_lastError.empty() ? std::string("Host closed the room") : m_lastError;
+                        m_disconnectExpectedAfterHostShutdown = false;
                         completeLocalDisconnect();
                         m_lastError = preservedError;
                     } else if(m_localParticipantId != kInvalidParticipantId &&

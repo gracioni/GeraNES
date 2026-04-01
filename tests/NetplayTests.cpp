@@ -646,6 +646,39 @@ TEST_CASE("Netplay runtime expires reconnect reservation when client does not re
     REQUIRE(report.at("reconnectTriggered") == true);
 }
 
+TEST_CASE("Netplay host intentional disconnect closes the room without client reconnect attempts", "[netplay][runtime][disconnect][host]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 120;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.hostDisconnectFrame = 28;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_host_intentional_disconnect.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostDisconnectTriggered") == true);
+    REQUIRE(report.at("client").at("reconnecting") == false);
+    REQUIRE(report.at("client").at("lastError") == "Host closed the room");
+    REQUIRE(report.at("client").at("sessionState") == static_cast<int>(Netplay::SessionState::Ended));
+
+    bool sawExplicitCloseLog = false;
+    for(const auto& entry : report.at("client").at("eventLogTail")) {
+        if(entry.get<std::string>() == "Host closed the room") {
+            sawExplicitCloseLog = true;
+            break;
+        }
+    }
+    REQUIRE(sawExplicitCloseLog);
+}
+
 TEST_CASE("Duck Hunt forced resync keeps observer client in identical state", "[netplay][runtime][duckhunt][resync]")
 {
     const auto rom = duckHuntRomPath();
