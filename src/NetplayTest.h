@@ -65,7 +65,11 @@ public:
         uint32_t assignmentSwapAfterFrames = 0;
         uint32_t forceManualResyncFrame = 0;
         uint32_t forceHostResetFrame = 0;
+        uint32_t dropClientIncomingResyncChunkMessages = 0;
+        uint32_t dropClientIncomingResyncCompleteMessages = 0;
+        uint32_t reconnectReservationSecondsForTests = 0;
         bool reconnectDuringResync = false;
+        bool expectReconnectReservationExpiry = false;
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
@@ -683,6 +687,10 @@ private:
             {"predictionScriptFrameCount", options.predictionScriptFrameCount},
             {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
             {"reconnectDuringResync", options.reconnectDuringResync},
+            {"dropClientIncomingResyncChunkMessages", options.dropClientIncomingResyncChunkMessages},
+            {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
+            {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
+            {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"lastCheckedFrame", lastCheckedFrame},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
@@ -836,6 +844,10 @@ private:
             {"predictionScriptFrameCount", options.predictionScriptFrameCount},
             {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
             {"reconnectDuringResync", options.reconnectDuringResync},
+            {"dropClientIncomingResyncChunkMessages", options.dropClientIncomingResyncChunkMessages},
+            {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
+            {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
+            {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
@@ -1215,6 +1227,10 @@ private:
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
             {"reconnectAfterFrames", options.reconnectAfterFrames},
             {"reconnectDuringResync", options.reconnectDuringResync},
+            {"dropClientIncomingResyncChunkMessages", options.dropClientIncomingResyncChunkMessages},
+            {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
+            {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
+            {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
@@ -1310,6 +1326,9 @@ private:
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
             if(hostPeer.runtime.uiSnapshot().active) {
                 hostedPort = port;
+                if(options.reconnectReservationSecondsForTests > 0u) {
+                    hostPeer.runtime.setReconnectReservationTimeoutForTests(options.reconnectReservationSecondsForTests);
+                }
                 if(options.hostAssignedBeforeJoinOnly) {
                     const auto hostRoomBeforeJoin = hostPeer.runtime.uiSnapshot().room;
                     const auto hostIdBeforeJoin = findParticipantIdByName(hostRoomBeforeJoin, hostPeer.name);
@@ -1775,6 +1794,60 @@ private:
             if(options.reconnectAfterFrames > 0 &&
                !reconnectTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.reconnectAfterFrames) {
+                if(options.expectReconnectReservationExpiry) {
+                    clientPeer.runtime.disconnect();
+
+                    if(!waitFor([&]() {
+                            const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                            const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                            const auto hostClientId = findParticipantIdByName(hostSnap.room, clientPeer.name);
+                            const auto* reservedParticipant =
+                                hostClientId.has_value()
+                                    ? findParticipantInRoom(hostSnap.room, *hostClientId)
+                                    : nullptr;
+                            return hostClientId.has_value() &&
+                                   reservedParticipant != nullptr &&
+                                   !reservedParticipant->connected &&
+                                   reservedParticipant->reconnectReserved &&
+                                   !clientSnap.active;
+                        }, options.startupTimeoutSteps, 5u)) {
+                        failureReason = "Timed out waiting for reconnect reservation to be created.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_FAILED;
+                        cleanup();
+                        return result;
+                    }
+
+                    if(!waitFor([&]() {
+                            const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                            return findParticipantIdByName(hostSnap.room, clientPeer.name) == std::nullopt;
+                        }, options.startupTimeoutSteps, 10u)) {
+                        failureReason = "Timed out waiting for reconnect reservation expiry and participant removal.";
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                        result.exitCode = RESULT_FAILED;
+                        cleanup();
+                        return result;
+                    }
+
+                    reconnectTriggered = true;
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["manualResyncTriggered"] = manualResyncTriggered;
+                    result.report["manualResyncObserved"] = manualResyncObserved;
+                    result.report["manualResyncCompleted"] = manualResyncCompleted;
+                    result.report["postResyncCrcCheckStartFrame"] = postResyncCrcCheckStartFrame;
+                    result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
+                    result.exitCode = EXIT_SUCCESS;
+                    cleanup();
+                    return result;
+                }
+
                 if(!performRuntimeReconnect("assigned client disconnect")) {
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_FAILED;
@@ -1800,6 +1873,18 @@ private:
                !manualResyncTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.forceManualResyncFrame &&
                clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.forceManualResyncFrame) {
+                if(options.dropClientIncomingResyncChunkMessages > 0u) {
+                    clientPeer.runtime.injectDropNextIncomingMessages(
+                        Netplay::MessageType::ResyncChunk,
+                        options.dropClientIncomingResyncChunkMessages
+                    );
+                }
+                if(options.dropClientIncomingResyncCompleteMessages > 0u) {
+                    clientPeer.runtime.injectDropNextIncomingMessages(
+                        Netplay::MessageType::ResyncComplete,
+                        options.dropClientIncomingResyncCompleteMessages
+                    );
+                }
                 manualResyncBaselineHardResyncCount =
                     hostLoopSnapshot.predictionStats.hardResyncCount +
                     clientLoopSnapshot.predictionStats.hardResyncCount;
@@ -3266,6 +3351,24 @@ private:
                 reconnectDuringResync.forceManualResyncFrame = 42u;
                 reconnectDuringResync.reconnectDuringResync = true;
                 addScenario("reconnect_during_resync_asymmetric", reconnectDuringResync);
+
+                Options resyncPacketLoss = baseOptions;
+                resyncPacketLoss.frames = std::max<uint32_t>(baseOptions.frames, 170u);
+                resyncPacketLoss.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                resyncPacketLoss.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
+                resyncPacketLoss.forceManualResyncFrame = 44u;
+                resyncPacketLoss.dropClientIncomingResyncChunkMessages = 1u;
+                resyncPacketLoss.dropClientIncomingResyncCompleteMessages = 1u;
+                addScenario("resync_packet_loss_retry", resyncPacketLoss);
+
+                Options reconnectExpiry = baseOptions;
+                reconnectExpiry.frames = std::max<uint32_t>(baseOptions.frames, 120u);
+                reconnectExpiry.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                reconnectExpiry.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
+                reconnectExpiry.reconnectAfterFrames = 28u;
+                reconnectExpiry.reconnectReservationSecondsForTests = 1u;
+                reconnectExpiry.expectReconnectReservationExpiry = true;
+                addScenario("reconnect_reservation_expiry", reconnectExpiry);
             }
 
             Options predictAllHit = baseOptions;

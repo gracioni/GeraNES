@@ -41,6 +41,7 @@ private:
         uint32_t expectedPayloadCrc32 = 0;
         std::vector<uint8_t> payload;
         std::vector<uint8_t> receivedMask;
+        std::chrono::steady_clock::time_point lastActivityAt = {};
     };
 
 public:
@@ -107,6 +108,8 @@ private:
     std::chrono::steady_clock::time_point m_reconnectDeadline = {};
     uint32_t m_gameplayReceiveDelayMs = 0;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
+    std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
+    std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -206,6 +209,9 @@ public:
     void setPendingJoinRomValidation(bool romLoaded, const RomValidationData& romValidation);
     uint32_t gameplayReceiveDelayMs() const;
     void setGameplayReceiveDelayMs(uint32_t delayMs);
+    void dropNextIncomingMessages(MessageType type, uint32_t count);
+    void clearIncomingMessageDrops();
+    void setReconnectReservationDurationForTests(uint32_t seconds);
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;

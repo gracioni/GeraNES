@@ -524,6 +524,55 @@ TEST_CASE("Netplay runtime reconnects during active resync under asymmetric paci
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay runtime retries resync after dropped resync packets", "[netplay][runtime][resync][packet-loss]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.forceManualResyncFrame = 44;
+    options.dropClientIncomingResyncChunkMessages = 1;
+    options.dropClientIncomingResyncCompleteMessages = 1;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_resync_packet_loss.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime expires reconnect reservation when client does not return", "[netplay][runtime][reconnect][expiry]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 120;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.reconnectAfterFrames = 28;
+    options.reconnectReservationSecondsForTests = 1;
+    options.expectReconnectReservationExpiry = true;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reconnect_expiry.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("reconnectTriggered") == true);
+}
+
 TEST_CASE("Duck Hunt forced resync keeps observer client in identical state", "[netplay][runtime][duckhunt][resync]")
 {
     const auto rom = duckHuntRomPath();

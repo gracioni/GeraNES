@@ -331,6 +331,9 @@ public:
     MenuSnapshot menuSnapshot() const;
     bool runtimeActive() const;
     bool runtimeRunning() const;
+    void injectDropNextIncomingMessages(MessageType type, uint32_t count);
+    void clearIncomingMessageDrops();
+    void setReconnectReservationTimeoutForTests(uint32_t seconds);
 
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
@@ -994,6 +997,27 @@ inline bool NetplayAppRuntime::runtimeActive() const
 inline bool NetplayAppRuntime::runtimeRunning() const
 {
     return m_runtimeRunning.load(std::memory_order_acquire);
+}
+
+inline void NetplayAppRuntime::injectDropNextIncomingMessages(MessageType type, uint32_t count)
+{
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.dropNextIncomingMessages(type, count);
+    });
+}
+
+inline void NetplayAppRuntime::clearIncomingMessageDrops()
+{
+    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.clearIncomingMessageDrops();
+    });
+}
+
+inline void NetplayAppRuntime::setReconnectReservationTimeoutForTests(uint32_t seconds)
+{
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.setReconnectReservationDurationForTests(seconds);
+    });
 }
 
 inline void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::string& displayName)

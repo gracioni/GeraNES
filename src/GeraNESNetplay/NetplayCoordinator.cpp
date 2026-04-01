@@ -25,6 +25,7 @@ constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 constexpr uint16_t kReconnectReservationSeconds = 300;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
+constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -303,14 +304,14 @@ void NetplayCoordinator::scheduleReconnectAttempt()
 
     const auto now = std::chrono::steady_clock::now();
     if(!m_reconnectPending) {
-        m_reconnectDeadline = now + std::chrono::seconds(kReconnectReservationSeconds);
+        m_reconnectDeadline = now + m_reconnectReservationDuration;
         pushLog("Connection lost; attempting automatic reconnect");
     }
 
     m_reconnectPending = true;
     m_reconnectAttemptInFlight = false;
     m_nextReconnectAttempt = now;
-    m_reconnectSecondsRemaining = kReconnectReservationSeconds;
+    m_reconnectSecondsRemaining = static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
     m_lastError = "Disconnected from host; reconnecting...";
 }
 
@@ -1525,6 +1526,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     m_incomingResync->expectedPayloadCrc32 = data.payloadCrc32;
     m_incomingResync->payload.resize(data.payloadSize);
     m_incomingResync->receivedMask.assign(data.payloadSize, 0);
+    m_incomingResync->lastActivityAt = std::chrono::steady_clock::now();
 
     m_session.roomState().activeResyncId = data.resyncId;
     m_session.roomState().timelineEpoch = data.timelineEpoch;
@@ -1552,6 +1554,7 @@ bool NetplayCoordinator::handleResyncChunk(PacketReader& reader)
 
     std::vector<uint8_t> chunk;
     if(!reader.readBytes(chunk, data.size)) return false;
+    m_incomingResync->lastActivityAt = std::chrono::steady_clock::now();
 
     if(data.size > 0) {
         std::memcpy(m_incomingResync->payload.data() + data.offset, chunk.data(), data.size);
@@ -2490,9 +2493,10 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         if(participant != nullptr && reserveReconnect) {
                             participant->connected = false;
                             participant->reconnectReserved = true;
-                            participant->reservationSecondsRemaining = kReconnectReservationSeconds;
+                            participant->reservationSecondsRemaining =
+                                static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
                             m_reconnectReservationDeadlines[participantId] =
-                                std::chrono::steady_clock::now() + std::chrono::seconds(kReconnectReservationSeconds);
+                                std::chrono::steady_clock::now() + m_reconnectReservationDuration;
                             m_pendingResyncAcks.erase(
                                 std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
                                 m_pendingResyncAcks.end()
@@ -2551,6 +2555,19 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     };
 
     const auto queueOrHandleEvent = [&](NetTransport::Event event) {
+        if(event.type == NetTransport::Event::Type::PacketReceived && event.payload.size() >= sizeof(PacketHeader)) {
+            PacketHeader header{};
+            std::memcpy(&header, event.payload.data(), sizeof(PacketHeader));
+            auto it = m_dropIncomingMessageCounts.find(static_cast<uint16_t>(header.type));
+            if(it != m_dropIncomingMessageCounts.end() && it->second > 0u) {
+                --it->second;
+                if(it->second == 0u) {
+                    m_dropIncomingMessageCounts.erase(it);
+                }
+                pushLog("Dropped incoming " + messageTypeLabel(header.type) + " packet via fault injection");
+                return;
+            }
+        }
         const bool shouldDelayGameplay =
             m_gameplayReceiveDelayMs > 0 &&
             event.type == NetTransport::Event::Type::PacketReceived &&
@@ -2574,6 +2591,20 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         DelayedPacketEvent delayed = std::move(m_delayedPacketEvents.front());
         m_delayedPacketEvents.pop_front();
         handleEvent(delayed.event);
+    }
+
+    if(!m_hosting &&
+       m_incomingResync.has_value() &&
+       m_serverPeer != nullptr &&
+       m_incomingResync->lastActivityAt != std::chrono::steady_clock::time_point{} &&
+       now - m_incomingResync->lastActivityAt >= kIncomingResyncTimeout) {
+        pushLog("Incoming resync timed out; requesting retry");
+        ResyncAbortData abort;
+        abort.resyncId = m_incomingResync->resyncId;
+        abort.participantId = m_localParticipantId;
+        abort.reason = 3;
+        m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncAbortPacket(abort));
+        m_incomingResync.reset();
     }
 
     updatePeerHealthFromTransport();
@@ -2628,6 +2659,26 @@ uint32_t NetplayCoordinator::gameplayReceiveDelayMs() const
 void NetplayCoordinator::setGameplayReceiveDelayMs(uint32_t delayMs)
 {
     m_gameplayReceiveDelayMs = delayMs;
+}
+
+void NetplayCoordinator::dropNextIncomingMessages(MessageType type, uint32_t count)
+{
+    if(count == 0u) return;
+    m_dropIncomingMessageCounts[static_cast<uint16_t>(type)] += count;
+}
+
+void NetplayCoordinator::clearIncomingMessageDrops()
+{
+    m_dropIncomingMessageCounts.clear();
+}
+
+void NetplayCoordinator::setReconnectReservationDurationForTests(uint32_t seconds)
+{
+    m_reconnectReservationDuration = std::chrono::seconds(std::max<uint32_t>(1u, seconds));
+    if(m_reconnectPending) {
+        m_reconnectSecondsRemaining =
+            static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
+    }
 }
 
 ParticipantId NetplayCoordinator::localParticipantId() const
