@@ -1014,6 +1014,14 @@ inline void NetplayAppRuntime::join(const std::string& hostName, uint16_t port, 
 
 inline void NetplayAppRuntime::disconnect()
 {
+    {
+        std::scoped_lock stateLock(m_stateMutex);
+        m_uiSnapshot.active = false;
+        m_uiSnapshot.hosting = false;
+        m_uiSnapshot.connected = false;
+        m_uiSnapshot.reconnecting = false;
+        m_uiSnapshot.reconnectSecondsRemaining = 0;
+    }
     enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_coordinator.disconnect();
         self.m_inputDriver.reset();

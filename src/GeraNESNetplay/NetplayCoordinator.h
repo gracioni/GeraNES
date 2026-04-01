@@ -73,6 +73,8 @@ private:
     bool m_pendingJoinRomLoaded = false;
     RomValidationData m_pendingJoinRomValidation = {};
     bool m_disconnectExpectedAfterJoinReject = false;
+    bool m_gracefulDisconnectPending = false;
+    std::chrono::steady_clock::time_point m_gracefulDisconnectDeadline = {};
     std::string m_lastError;
     bool m_hosting = false;
     bool m_connected = false;
@@ -118,6 +120,7 @@ private:
     ParticipantInfo* findParticipantByReconnectToken(uint64_t reconnectToken);
     void removeParticipant(ParticipantId participantId);
     void clearReconnectAttemptState();
+    void completeLocalDisconnect();
     void scheduleReconnectAttempt();
     void processPendingReconnect();
     std::vector<uint8_t> buildJoinRoomPacket() const;

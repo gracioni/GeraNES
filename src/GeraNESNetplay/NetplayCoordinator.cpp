@@ -22,8 +22,9 @@ constexpr size_t kResyncChunkPayloadBytes = 1024;
 constexpr size_t kRecentLocalCrcHistoryCapacity = 512;
 constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
 constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
-constexpr uint16_t kReconnectReservationSeconds = 15;
+constexpr uint16_t kReconnectReservationSeconds = 300;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
+constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -184,6 +185,8 @@ void NetplayCoordinator::resetSessionState()
     m_pendingJoinRomLoaded = false;
     m_pendingJoinRomValidation = {};
     m_disconnectExpectedAfterJoinReject = false;
+    m_gracefulDisconnectPending = false;
+    m_gracefulDisconnectDeadline = {};
     m_session.reset();
     m_localInputs.clear();
     m_remoteInputs.clear();
@@ -281,6 +284,14 @@ void NetplayCoordinator::clearReconnectAttemptState()
     m_reconnectSecondsRemaining = 0;
     m_nextReconnectAttempt = {};
     m_reconnectDeadline = {};
+}
+
+void NetplayCoordinator::completeLocalDisconnect()
+{
+    if(m_transport.isActive()) {
+        m_transport.shutdown();
+    }
+    resetSessionState();
 }
 
 void NetplayCoordinator::scheduleReconnectAttempt()
@@ -2323,19 +2334,22 @@ void NetplayCoordinator::disconnect()
     if(m_transport.isActive()) {
         if(m_hosting) {
             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(m_localParticipantId));
-            m_transport.flush();
+            m_transport.disconnectAll();
+            completeLocalDisconnect();
+            return;
         } else if(m_serverPeer != nullptr && m_localParticipantId != kInvalidParticipantId) {
             m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
             m_transport.flush();
+            m_transport.disconnectPeer(m_serverPeer);
+            m_gracefulDisconnectPending = true;
+            m_gracefulDisconnectDeadline = std::chrono::steady_clock::now() + kGracefulDisconnectTimeout;
+            m_connected = false;
+            m_session.roomState().state = SessionState::Ended;
+            return;
         }
     }
 
-    if(m_transport.isActive()) {
-        m_transport.disconnectAll();
-        m_transport.shutdown();
-    }
-
-    resetSessionState();
+    completeLocalDisconnect();
 }
 
 void NetplayCoordinator::update(uint32_t timeoutMs)
@@ -2368,8 +2382,13 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                     m_connected = false;
                     m_session.roomState().state = SessionState::Ended;
                     m_reconnectAttemptInFlight = false;
-                    if(m_disconnectExpectedAfterJoinReject) {
+                    if(m_gracefulDisconnectPending) {
+                        completeLocalDisconnect();
+                    } else if(m_disconnectExpectedAfterJoinReject) {
+                        const std::string preservedError = m_lastError;
                         m_disconnectExpectedAfterJoinReject = false;
+                        completeLocalDisconnect();
+                        m_lastError = preservedError;
                     } else if(m_localParticipantId != kInvalidParticipantId &&
                        m_localReconnectToken != 0 &&
                        !m_lastJoinHostName.empty()) {
@@ -2489,6 +2508,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     updateReconnectReservations();
     broadcastFrameStatusIfNeeded();
     broadcastPeerHealthIfNeeded();
+    if(m_gracefulDisconnectPending &&
+       m_gracefulDisconnectDeadline != std::chrono::steady_clock::time_point{} &&
+       std::chrono::steady_clock::now() >= m_gracefulDisconnectDeadline) {
+        completeLocalDisconnect();
+        return;
+    }
     processPendingReconnect();
 }
 
