@@ -177,6 +177,353 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay core advances only when the exact next numbered input frame exists", "[netplay][core][frames]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu emu(DummyAudioOutput::instance());
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    SECTION("future frames do not skip a missing intermediate frame")
+    {
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 1u);
+
+        InputFrame frame3 = emu.createInputFrame(3u);
+        emu.queueInputFrame(frame3);
+
+        REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 1u);
+
+        InputFrame frame1 = emu.createInputFrame(1u);
+        emu.queueInputFrame(frame1);
+
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 2u);
+
+        REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 2u);
+
+        InputFrame frame2 = emu.createInputFrame(2u);
+        emu.queueInputFrame(frame2);
+
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 3u);
+    }
+
+    SECTION("simulation stops as soon as the next required numbered frame is absent")
+    {
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 1u);
+
+        InputFrame frame1 = emu.createInputFrame(1u);
+        emu.queueInputFrame(frame1);
+
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 2u);
+
+        REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 2u);
+
+        InputFrame frame2 = emu.createInputFrame(2u);
+        emu.queueInputFrame(frame2);
+
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 3u);
+    }
+}
+
+TEST_CASE("Netplay core rejects stale timeline epoch inputs after reanchor", "[netplay][core][timeline]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu emu(DummyAudioOutput::instance());
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame staleFrame = emu.createInputFrame(0u);
+    emu.queueInputFrame(staleFrame);
+
+    emu.setInputTimelineEpoch(1u);
+
+    REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 0u);
+
+    InputFrame freshFrame0 = emu.createInputFrame(0u);
+    REQUIRE(freshFrame0.timelineEpoch == 1u);
+    emu.queueInputFrame(freshFrame0);
+
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+
+    InputFrame freshFrame1 = emu.createInputFrame(1u);
+    REQUIRE(freshFrame1.timelineEpoch == 1u);
+    emu.queueInputFrame(freshFrame1);
+
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+}
+
+TEST_CASE("Netplay runtime flow stays deterministic under sparse network pumping", "[netplay][runtime][sparse-pump]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 60;
+    options.inputDelayFrames = 0;
+    options.predictFrames = 2;
+    options.networkPumpStride = 3;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_sparse_pump.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay runtime flow stays deterministic with asymmetric peer pacing", "[netplay][runtime][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 90;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_asymmetric_pacing.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay runtime host reset stays deterministic with asymmetric peer pacing", "[netplay][runtime][reset][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 120;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceHostResetFrame = 36;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reset_asymmetric_pacing.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime stays deterministic under extreme jitter and asymmetric pacing", "[netplay][runtime][jitter][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 140;
+    options.inputDelayFrames = 2;
+    options.predictFrames = 4;
+    options.gameplayReceiveDelayMs = 30;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 7;
+    options.clientLoopDtMs = 41;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_extreme_jitter_asymmetric.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay runtime reconnect stays deterministic under asymmetric pacing", "[netplay][runtime][reconnect][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 140;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.reconnectAfterFrames = 32;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reconnect_asymmetric_pacing.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("reconnectTriggered") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay runtime forced resync after host reset stays deterministic under asymmetric pacing", "[netplay][runtime][reset][resync][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 160;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceHostResetFrame = 36;
+    options.forceManualResyncFrame = 44;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reset_then_manual_resync_asymmetric.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime survives burst packet starvation under asymmetric pacing", "[netplay][runtime][burst-loss][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.predictionHoldStartFrame = 48;
+    options.predictionHoldFrameCount = 14;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_burst_loss_asymmetric.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay runtime hard-resyncs under extreme jitter and asymmetric pacing", "[netplay][runtime][resync][jitter][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 160;
+    options.inputDelayFrames = 2;
+    options.predictFrames = 4;
+    options.gameplayReceiveDelayMs = 30;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 7;
+    options.clientLoopDtMs = 41;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.forceDesyncFrame = 52;
+    options.desyncAddress = 0x0000;
+    options.desyncValueXor = 0x5A;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_resync_extreme_jitter_asymmetric.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("desyncInjected") == true);
+    REQUIRE(report.at("hardResyncObserved") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime reconnects during active resync under asymmetric pacing", "[netplay][runtime][reconnect][resync][asymmetric-pacing]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceManualResyncFrame = 42;
+    options.reconnectDuringResync = true;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reconnect_during_resync_asymmetric.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("reconnectTriggered") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Duck Hunt forced resync keeps observer client in identical state", "[netplay][runtime][duckhunt][resync]")
 {
     const auto rom = duckHuntRomPath();

@@ -357,24 +357,10 @@ public:
         }
 
         seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
-
-        const double fps = static_cast<double>(std::max(1u, regionFps));
-        const double frameDurationMs = 1000.0 / fps;
-        m_inputProductionAccumulatorMs += static_cast<double>(dtMs);
+        (void)dtMs;
+        (void)regionFps;
 
         const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames + m_predictFrames;
-        while(m_inputProductionAccumulatorMs >= frameDurationMs &&
-              m_producedThroughFrame < targetBufferedThroughFrame) {
-            m_inputProductionAccumulatorMs -= frameDurationMs;
-            ++m_producedThroughFrame;
-            for(PlayerSlot localSlot : localSlots) {
-                coordinator.recordLocalInputFrame(
-                    m_producedThroughFrame,
-                    localSlot,
-                    buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
-                );
-            }
-        }
 
         while(m_producedThroughFrame < targetBufferedThroughFrame) {
             ++m_producedThroughFrame;
@@ -386,12 +372,7 @@ public:
                 );
             }
         }
-
-        const double maxBufferedAccumulatorMs =
-            frameDurationMs * static_cast<double>(m_prebufferFrames + m_predictFrames);
-        if(m_inputProductionAccumulatorMs > maxBufferedAccumulatorMs) {
-            m_inputProductionAccumulatorMs = maxBufferedAccumulatorMs;
-        }
+        m_inputProductionAccumulatorMs = 0.0;
     }
 
     void produceLocalBufferedInputs(NetplayCoordinator& coordinator,

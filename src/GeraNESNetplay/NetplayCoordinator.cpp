@@ -2378,6 +2378,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
 {
     const bool pendingJoinRomLoaded = m_pendingJoinRomLoaded;
     const RomValidationData pendingJoinRomValidation = m_pendingJoinRomValidation;
+    const uint64_t pendingReconnectToken = m_localReconnectToken;
     disconnect();
 
     m_localDisplayName = displayName.empty() ? defaultDisplayName() : displayName;
@@ -2391,6 +2392,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     }
 
     resetSessionState();
+    m_localReconnectToken = pendingReconnectToken;
     m_pendingJoinRomLoaded = pendingJoinRomLoaded;
     m_pendingJoinRomValidation = pendingJoinRomValidation;
     m_session.roomState().state = SessionState::Lobby;

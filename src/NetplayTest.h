@@ -46,6 +46,10 @@ public:
         uint32_t settleStepLimit = 2048;
         uint32_t preSessionWarmupFrames = 0;
         uint32_t gameplayReceiveDelayMs = 0;
+        uint32_t hostLoopDtMs = 16;
+        uint32_t clientLoopDtMs = 16;
+        uint32_t hostStepStride = 1;
+        uint32_t clientStepStride = 1;
         uint32_t forceDesyncFrame = 0;
         uint32_t desyncAddress = 0x0000;
         uint32_t desyncValueXor = 0x01;
@@ -61,6 +65,7 @@ public:
         uint32_t assignmentSwapAfterFrames = 0;
         uint32_t forceManualResyncFrame = 0;
         uint32_t forceHostResetFrame = 0;
+        bool reconnectDuringResync = false;
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
@@ -668,11 +673,16 @@ private:
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
             {"networkPumpStride", options.networkPumpStride},
+            {"hostLoopDtMs", options.hostLoopDtMs},
+            {"clientLoopDtMs", options.clientLoopDtMs},
+            {"hostStepStride", options.hostStepStride},
+            {"clientStepStride", options.clientStepStride},
             {"predictionHoldStartFrame", options.predictionHoldStartFrame},
             {"predictionHoldFrameCount", options.predictionHoldFrameCount},
             {"predictionScriptStartFrame", options.predictionScriptStartFrame},
             {"predictionScriptFrameCount", options.predictionScriptFrameCount},
             {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
+            {"reconnectDuringResync", options.reconnectDuringResync},
             {"lastCheckedFrame", lastCheckedFrame},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
@@ -816,11 +826,16 @@ private:
             {"assignmentSwapVerified", assignmentSwapVerified},
             {"assignmentPatternVerified", assignmentPatternVerified},
             {"networkPumpStride", options.networkPumpStride},
+            {"hostLoopDtMs", options.hostLoopDtMs},
+            {"clientLoopDtMs", options.clientLoopDtMs},
+            {"hostStepStride", options.hostStepStride},
+            {"clientStepStride", options.clientStepStride},
             {"predictionHoldStartFrame", options.predictionHoldStartFrame},
             {"predictionHoldFrameCount", options.predictionHoldFrameCount},
             {"predictionScriptStartFrame", options.predictionScriptStartFrame},
             {"predictionScriptFrameCount", options.predictionScriptFrameCount},
             {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
+            {"reconnectDuringResync", options.reconnectDuringResync},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
@@ -1199,6 +1214,7 @@ private:
             {"gameplayReceiveDelayMs", options.gameplayReceiveDelayMs},
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
             {"reconnectAfterFrames", options.reconnectAfterFrames},
+            {"reconnectDuringResync", options.reconnectDuringResync},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
@@ -1573,6 +1589,10 @@ private:
         const uint32_t startClientFrame = clientPeer.emu.exactEmulationFrame();
         const uint32_t targetHostFrame = startHostFrame + options.frames;
         const uint32_t targetClientFrame = startClientFrame + options.frames;
+        const uint32_t hostLoopDtMs = std::max<uint32_t>(1u, options.hostLoopDtMs);
+        const uint32_t clientLoopDtMs = std::max<uint32_t>(1u, options.clientLoopDtMs);
+        const uint32_t hostStepStride = std::max<uint32_t>(1u, options.hostStepStride);
+        const uint32_t clientStepStride = std::max<uint32_t>(1u, options.clientStepStride);
         bool reconnectTriggered = false;
         bool desyncInjected = false;
         bool hardResyncObserved = false;
@@ -1587,6 +1607,87 @@ private:
         uint32_t manualResyncBaselineHostForceResyncEvents = 0;
         uint32_t postResyncCrcCheckStartFrame = 0;
         uint32_t postResyncCrcMismatchFrame = 0;
+        const auto performRuntimeReconnect = [&](const char* triggerDescription) -> bool {
+            const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
+            const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
+            const auto previousHostViewClientId = findParticipantIdByName(hostPeer.runtime.uiSnapshot().room, clientPeer.name);
+
+            clientPeer.runtime.disconnect();
+
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    const auto hostClientId = findParticipantIdByName(hostSnap.room, clientPeer.name);
+                    const auto* reservedParticipant =
+                        hostClientId.has_value()
+                            ? findParticipantInRoom(hostSnap.room, *hostClientId)
+                            : nullptr;
+                    return (hostSnap.room.state == Netplay::SessionState::Paused ||
+                            hostSnap.room.state == Netplay::SessionState::Running ||
+                            hostSnap.room.state == Netplay::SessionState::Resyncing) &&
+                           hostClientId.has_value() &&
+                           reservedParticipant != nullptr &&
+                           !reservedParticipant->connected &&
+                           reservedParticipant->reconnectReserved &&
+                           !clientSnap.active;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = std::string("Timed out waiting for host/client disconnect state after ") + triggerDescription + ".";
+                return false;
+            }
+
+            clientPeer.runtime.join("127.0.0.1", hostedPort, clientPeer.name);
+
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    const auto hostClientId = findParticipantIdByName(hostSnap.room, clientPeer.name);
+                    if(!hostClientId.has_value()) return false;
+                    const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *hostClientId);
+                    const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
+                    return clientSnap.connected &&
+                           clientSnap.active &&
+                           clientSnap.localParticipantId == previousLocalParticipantId &&
+                           (!previousHostViewClientId.has_value() || *hostClientId == *previousHostViewClientId) &&
+                           hostClientParticipant != nullptr &&
+                           hostClientParticipant->connected &&
+                           !hostClientParticipant->reconnectReserved &&
+                           hostClientParticipant->controllerAssignment == 1 &&
+                           clientLocalParticipant != nullptr &&
+                           clientLocalParticipant->controllerAssignment == 1;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = std::string("Timed out waiting for reconnecting client to reclaim its reservation and assignment after ") + triggerDescription + ".";
+                return false;
+            }
+
+            const auto rejoinedClientId = findParticipantIdByName(hostPeer.runtime.uiSnapshot().room, clientPeer.name);
+            if(!rejoinedClientId.has_value()) {
+                failureReason = "Failed to resolve rejoined client participant id.";
+                return false;
+            }
+
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *rejoinedClientId);
+                    const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
+                    return hostClientParticipant != nullptr &&
+                           hostClientParticipant->controllerAssignment == 1 &&
+                           hostClientParticipant->connected &&
+                           !hostClientParticipant->reconnectReserved &&
+                           clientLocalParticipant != nullptr &&
+                           clientLocalParticipant->controllerAssignment == 1 &&
+                           hostSnap.room.state == Netplay::SessionState::Running &&
+                           clientSnap.room.state == Netplay::SessionState::Running &&
+                           hostSnap.room.activeResyncId == 0 &&
+                           clientSnap.room.activeResyncId == 0;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = std::string("Timed out waiting for reconnect automatic resync and session resume after ") + triggerDescription + ".";
+                return false;
+            }
+
+            reconnectTriggered = true;
+            return true;
+        };
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
             const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
@@ -1628,8 +1729,12 @@ private:
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
                 );
             }
-            hostPeer.emu.update(16u);
-            clientPeer.emu.update(16u);
+            if((step % hostStepStride) == 0u) {
+                hostPeer.emu.update(hostLoopDtMs);
+            }
+            if((step % clientStepStride) == 0u) {
+                clientPeer.emu.update(clientLoopDtMs);
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
             if(options.assignmentSwapAfterFrames > 0 &&
@@ -1670,82 +1775,12 @@ private:
             if(options.reconnectAfterFrames > 0 &&
                !reconnectTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.reconnectAfterFrames) {
-                const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
-                const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
-
-                clientPeer.runtime.disconnect();
-
-                if(!waitFor([&]() {
-                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        return (hostSnap.room.state == Netplay::SessionState::Paused ||
-                                hostSnap.room.state == Netplay::SessionState::Running) &&
-                               findParticipantIdByName(hostSnap.room, clientPeer.name) == std::nullopt &&
-                               !clientSnap.active;
-                    }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for host/client disconnect state after assigned client disconnect.";
+                if(!performRuntimeReconnect("assigned client disconnect")) {
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;
                 }
-
-                clientPeer.runtime.join("127.0.0.1", hostedPort, clientPeer.name);
-
-                if(!waitFor([&]() {
-                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        const auto hostClientId = findParticipantIdByName(hostSnap.room, clientPeer.name);
-                        if(!hostClientId.has_value()) return false;
-                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *hostClientId);
-                        const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
-                        return clientSnap.connected &&
-                               clientSnap.localParticipantId != previousLocalParticipantId &&
-                               hostClientParticipant != nullptr &&
-                               hostClientParticipant->controllerAssignment == Netplay::kObserverPlayerSlot &&
-                               clientLocalParticipant != nullptr &&
-                               clientLocalParticipant->controllerAssignment == Netplay::kObserverPlayerSlot;
-                    }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for reconnecting client to rejoin as observer.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-
-                const auto rejoinedClientId = findParticipantIdByName(hostPeer.runtime.uiSnapshot().room, clientPeer.name);
-                if(!rejoinedClientId.has_value()) {
-                    failureReason = "Failed to resolve rejoined client participant id.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-
-                hostPeer.runtime.assignController(*rejoinedClientId, 1);
-
-                if(!waitFor([&]() {
-                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                        const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *rejoinedClientId);
-                        const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
-                        return hostClientParticipant != nullptr &&
-                               hostClientParticipant->controllerAssignment == 1 &&
-                               clientLocalParticipant != nullptr &&
-                               clientLocalParticipant->controllerAssignment == 1 &&
-                               hostSnap.room.state == Netplay::SessionState::Running &&
-                               clientSnap.room.state == Netplay::SessionState::Running &&
-                               hostSnap.room.activeResyncId == 0 &&
-                               clientSnap.room.activeResyncId == 0;
-                    }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for host to reassign the reconnecting client and finish automatic resync.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-
-                reconnectTriggered = true;
             }
 
             if(options.forceDesyncFrame > 0 &&
@@ -1839,6 +1874,25 @@ private:
                   currentHardResyncCount > manualResyncBaselineHardResyncCount ||
                   currentHostForceResyncEvents > manualResyncBaselineHostForceResyncEvents));
 
+            if(options.reconnectDuringResync &&
+               manualResyncTriggered &&
+               manualResyncObserved &&
+               !manualResyncCompleted &&
+               !reconnectTriggered &&
+               (hostSnap.room.state == Netplay::SessionState::Resyncing ||
+                clientSnap.room.state == Netplay::SessionState::Resyncing ||
+                hostSnap.room.activeResyncId != 0u ||
+                clientSnap.room.activeResyncId != 0u ||
+                hostSnap.room.state == Netplay::SessionState::Running ||
+                clientSnap.room.state == Netplay::SessionState::Running)) {
+                if(!performRuntimeReconnect("disconnect during active or just-observed resync")) {
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+            }
+
             if(manualResyncTriggered &&
                manualResyncObserved &&
                !manualResyncCompleted &&
@@ -1904,6 +1958,20 @@ private:
             if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
                 if(options.reconnectAfterFrames > 0 && !reconnectTriggered) {
                     failureReason = "Reconnect scenario never triggered before reaching the target frame.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
+                if(options.reconnectDuringResync && !reconnectTriggered) {
+                    failureReason = "Reconnect-during-resync scenario never triggered before reaching the target frame.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
@@ -2338,7 +2406,10 @@ private:
         const uint32_t targetHostFrame = startHostFrame + options.frames;
         const uint32_t targetClientFrame = startClientFrame + options.frames;
 
-        const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()));
+        const uint32_t hostLoopDtMs = std::max<uint32_t>(1u, options.hostLoopDtMs);
+        const uint32_t clientLoopDtMs = std::max<uint32_t>(1u, options.clientLoopDtMs);
+        const uint32_t hostStepStride = std::max<uint32_t>(1u, options.hostStepStride);
+        const uint32_t clientStepStride = std::max<uint32_t>(1u, options.clientStepStride);
         auto lastLoopTime = std::chrono::steady_clock::now();
         const bool useSyntheticLoopDt =
             options.predictionScriptMode != PredictionScriptMode::None;
@@ -2360,21 +2431,24 @@ private:
         };
 
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
-            uint32_t loopDtMs = frameDt;
+            uint32_t hostStepDtMs = hostLoopDtMs;
+            uint32_t clientStepDtMs = clientLoopDtMs;
             if(!useSyntheticLoopDt) {
                 const auto now = std::chrono::steady_clock::now();
-                loopDtMs = std::max<uint32_t>(
+                const uint32_t observedDtMs = std::max<uint32_t>(
                     1u,
                     static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLoopTime).count())
                 );
                 lastLoopTime = now;
+                hostStepDtMs = observedDtMs;
+                clientStepDtMs = observedDtMs;
             }
 
             hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.exactEmulationFrame());
             clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.exactEmulationFrame());
 
-            produceAppLocalInputs(hostPeer, options, loopDtMs, assignmentSwapVerified);
-            produceAppLocalInputs(clientPeer, options, loopDtMs, assignmentSwapVerified);
+            produceAppLocalInputs(hostPeer, options, hostStepDtMs, assignmentSwapVerified);
+            produceAppLocalInputs(clientPeer, options, clientStepDtMs, assignmentSwapVerified);
             const uint32_t simulationFrame = std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame());
             maxSimulationFrameSeen = std::max(maxSimulationFrameSeen, simulationFrame);
             const bool withinPredictionHoldWindow =
@@ -2468,8 +2542,8 @@ private:
 
             hostPeer.emu.setSimulationSuspended(!hostCanAdvance);
             clientPeer.emu.setSimulationSuspended(!clientCanAdvance);
-            if(hostCanAdvance) hostPeer.emu.update(loopDtMs);
-            if(clientCanAdvance) clientPeer.emu.update(loopDtMs);
+            if(hostCanAdvance && (step % hostStepStride) == 0u) hostPeer.emu.update(hostStepDtMs);
+            if(clientCanAdvance && (step % clientStepStride) == 0u) clientPeer.emu.update(clientStepDtMs);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
@@ -3125,6 +3199,73 @@ private:
                 forcedDesync.desyncAddress = 0x0000u;
                 forcedDesync.desyncValueXor = 0x5Au;
                 addScenario("forced_desync_resync", forcedDesync);
+
+                Options asymmetricReconnect = reconnect;
+                asymmetricReconnect.frames = std::max<uint32_t>(baseOptions.frames, 140u);
+                asymmetricReconnect.reconnectAfterFrames = 32u;
+                asymmetricReconnect.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
+                asymmetricReconnect.hostLoopDtMs = 8u;
+                asymmetricReconnect.clientLoopDtMs = 33u;
+                asymmetricReconnect.hostStepStride = 1u;
+                asymmetricReconnect.clientStepStride = 2u;
+                addScenario("reconnect_asymmetric_pacing", asymmetricReconnect);
+
+                Options resetThenResync = baseOptions;
+                resetThenResync.frames = std::max<uint32_t>(baseOptions.frames, 160u);
+                resetThenResync.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                resetThenResync.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
+                resetThenResync.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
+                resetThenResync.hostLoopDtMs = 8u;
+                resetThenResync.clientLoopDtMs = 33u;
+                resetThenResync.hostStepStride = 1u;
+                resetThenResync.clientStepStride = 2u;
+                resetThenResync.forceHostResetFrame = 36u;
+                resetThenResync.forceManualResyncFrame = 44u;
+                addScenario("reset_then_manual_resync_asymmetric", resetThenResync);
+
+                Options extremeJitter = baseOptions;
+                extremeJitter.frames = std::max<uint32_t>(baseOptions.frames, 140u);
+                extremeJitter.inputDelayFrames = std::max<uint32_t>(2u, baseOptions.inputDelayFrames);
+                extremeJitter.predictFrames = std::max<uint32_t>(4u, baseOptions.predictFrames);
+                extremeJitter.gameplayReceiveDelayMs = std::max<uint32_t>(30u, baseOptions.gameplayReceiveDelayMs);
+                extremeJitter.networkPumpStride = std::max<uint32_t>(5u, baseOptions.networkPumpStride);
+                extremeJitter.hostLoopDtMs = 7u;
+                extremeJitter.clientLoopDtMs = 41u;
+                extremeJitter.hostStepStride = 1u;
+                extremeJitter.clientStepStride = 3u;
+                addScenario("extreme_jitter_asymmetric", extremeJitter);
+
+                Options burstLoss = baseOptions;
+                burstLoss.frames = std::max<uint32_t>(baseOptions.frames, 170u);
+                burstLoss.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                burstLoss.predictFrames = std::max<uint32_t>(5u, baseOptions.predictFrames);
+                burstLoss.hostLoopDtMs = 8u;
+                burstLoss.clientLoopDtMs = 33u;
+                burstLoss.hostStepStride = 1u;
+                burstLoss.clientStepStride = 2u;
+                burstLoss.predictionHoldStartFrame = 48u;
+                burstLoss.predictionHoldFrameCount = 14u;
+                addScenario("burst_loss_asymmetric", burstLoss);
+
+                Options jitterDesync = extremeJitter;
+                jitterDesync.frames = std::max<uint32_t>(baseOptions.frames, 160u);
+                jitterDesync.forceDesyncFrame = 52u;
+                jitterDesync.desyncAddress = 0x0000u;
+                jitterDesync.desyncValueXor = 0x5Au;
+                addScenario("forced_desync_extreme_jitter", jitterDesync);
+
+                Options reconnectDuringResync = baseOptions;
+                reconnectDuringResync.frames = std::max<uint32_t>(baseOptions.frames, 180u);
+                reconnectDuringResync.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                reconnectDuringResync.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
+                reconnectDuringResync.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
+                reconnectDuringResync.hostLoopDtMs = 8u;
+                reconnectDuringResync.clientLoopDtMs = 33u;
+                reconnectDuringResync.hostStepStride = 1u;
+                reconnectDuringResync.clientStepStride = 2u;
+                reconnectDuringResync.forceManualResyncFrame = 42u;
+                reconnectDuringResync.reconnectDuringResync = true;
+                addScenario("reconnect_during_resync_asymmetric", reconnectDuringResync);
             }
 
             Options predictAllHit = baseOptions;
@@ -3283,6 +3424,7 @@ private:
                 {"predictionScriptStartFrame", scenario.options.predictionScriptStartFrame},
                 {"predictionScriptFrameCount", scenario.options.predictionScriptFrameCount},
                 {"predictionScriptMode", static_cast<int>(scenario.options.predictionScriptMode)},
+                {"reconnectDuringResync", scenario.options.reconnectDuringResync},
                 {"hostSeed", scenario.options.hostInputSeed},
                 {"clientSeed", scenario.options.clientInputSeed},
                 {"baselineLockstep", scenario.options.baselineLockstep},

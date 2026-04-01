@@ -2425,10 +2425,15 @@ public:
             m_fpsTimer %= 1000; 
         }
 
+        bool netplayPacingOverrideActive = false;
+#ifndef __EMSCRIPTEN__
+        netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
+#endif
         const bool allowVsyncLock =
             m_vsyncMode != OFF &&
             displayFrameRate == m_emu.getRegionFPS() &&
-            !isWindowsTitleBarInteractionActive();
+            !isWindowsTitleBarInteractionActive() &&
+            !netplayPacingOverrideActive;
         if(!allowVsyncLock) {
             m_emu.setSimulationSuspended(false);
             if( m_emu.update(dt) ) render();

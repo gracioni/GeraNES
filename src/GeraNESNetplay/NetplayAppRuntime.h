@@ -859,6 +859,10 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     snapshot.eventLog = m_coordinator.eventLog();
 
     std::scoped_lock stateLock(m_stateMutex);
+    if(m_coordinator.localReconnectToken() != 0) {
+        m_cachedReconnectToken = m_coordinator.localReconnectToken();
+        m_hasCachedReconnectToken = true;
+    }
     m_uiSnapshot = std::move(snapshot);
 }
 
@@ -1009,6 +1013,9 @@ inline void NetplayAppRuntime::join(const std::string& hostName, uint16_t port, 
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_stickyStatusMessage.clear();
         const auto localRom = captureCurrentRomSelection(emu);
+        if(self.m_hasCachedReconnectToken) {
+            self.m_coordinator.setLocalReconnectToken(self.m_cachedReconnectToken);
+        }
         self.m_coordinator.setPendingJoinRomValidation(
             localRom.has_value() && localRom->loaded,
             localRom.has_value() ? localRom->validation : RomValidationData{}
@@ -1231,7 +1238,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     } else {
         m_emuHost.setFrameInputResolver({});
     }
-    m_emuHost.setAllowPresenterTimeoutAdvance(true);
+    m_emuHost.setAllowPresenterTimeoutAdvance(false);
 
     const std::optional<RomSelection> localRom = captureCurrentRomSelection(emu);
     m_coordinator.setRoomInputTopology(
