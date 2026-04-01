@@ -140,6 +140,7 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
     switch(type) {
         case MessageType::CreateRoom: return "CreateRoom";
         case MessageType::JoinRoom: return "JoinRoom";
+        case MessageType::JoinRejected: return "JoinRejected";
         case MessageType::ParticipantJoined: return "ParticipantJoined";
         case MessageType::ParticipantLeft: return "ParticipantLeft";
         case MessageType::LeaveRoom: return "LeaveRoom";
@@ -180,6 +181,9 @@ void NetplayCoordinator::resetSessionState()
     m_serverPeer = nullptr;
     m_localParticipantId = kInvalidParticipantId;
     m_localReconnectToken = 0;
+    m_pendingJoinRomLoaded = false;
+    m_pendingJoinRomValidation = {};
+    m_disconnectExpectedAfterJoinReject = false;
     m_session.reset();
     m_localInputs.clear();
     m_remoteInputs.clear();
@@ -322,6 +326,8 @@ void NetplayCoordinator::processPendingReconnect()
     const std::string displayName = m_localDisplayName;
     const std::string hostName = m_lastJoinHostName;
     const uint16_t port = m_lastJoinPort;
+    const bool pendingJoinRomLoaded = m_pendingJoinRomLoaded;
+    const RomValidationData pendingJoinRomValidation = m_pendingJoinRomValidation;
     const auto reconnectDeadline = m_reconnectDeadline;
     const uint16_t reconnectSecondsRemaining = m_reconnectSecondsRemaining;
 
@@ -333,6 +339,8 @@ void NetplayCoordinator::processPendingReconnect()
     resetSessionState();
     m_localReconnectToken = reconnectToken;
     m_localDisplayName = displayName;
+    m_pendingJoinRomLoaded = pendingJoinRomLoaded;
+    m_pendingJoinRomValidation = pendingJoinRomValidation;
     m_lastJoinHostName = hostName;
     m_lastJoinPort = port;
     m_reconnectPending = true;
@@ -362,6 +370,8 @@ std::vector<uint8_t> NetplayCoordinator::buildJoinRoomPacket() const
     writer.writePod(header);
     JoinRoomData joinData;
     joinData.reconnectToken = m_localReconnectToken;
+    joinData.romLoaded = m_pendingJoinRomLoaded ? 1 : 0;
+    joinData.romValidation = m_pendingJoinRomValidation;
     writer.writePod(joinData);
     writer.writeString(m_localDisplayName);
 
@@ -390,6 +400,25 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
         writer.writePod(participant.controllerAssignments[index]);
     }
     writer.writeString(participant.displayName);
+
+    return writer.data();
+}
+
+std::vector<uint8_t> NetplayCoordinator::buildJoinRejectedPacket(const std::string& gameName,
+                                                                 const RomValidationData& romValidation) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::JoinRejected;
+    header.sessionId = m_session.roomState().sessionId;
+    writer.writePod(header);
+
+    JoinRejectedData data;
+    data.reason = 1;
+    data.romValidation = romValidation;
+    writer.writePod(data);
+    writer.writeString(gameName);
 
     return writer.data();
 }
@@ -1945,6 +1974,23 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     std::string displayName;
     if(!reader.readString(displayName)) return false;
 
+    const bool hostRequiresSpecificRom = !m_session.roomState().selectedGameName.empty();
+    const bool joinRomCompatible =
+        !hostRequiresSpecificRom ||
+        (joinData.romLoaded != 0 &&
+         romValidationMatches(joinData.romValidation, m_session.roomState().romValidation));
+    if(!joinRomCompatible) {
+        pushLog("Rejected join from " + displayName + " due to ROM mismatch");
+        m_transport.sendReliable(
+            peer,
+            Channel::Control,
+            buildJoinRejectedPacket(m_session.roomState().selectedGameName, m_session.roomState().romValidation)
+        );
+        m_transport.flush();
+        m_transport.disconnectPeer(peer);
+        return true;
+    }
+
     ParticipantInfo* reconnectParticipant = findParticipantByReconnectToken(joinData.reconnectToken);
     const bool reusedReconnectReservation =
         reconnectParticipant != nullptr &&
@@ -1961,28 +2007,22 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     participant.reservationSecondsRemaining = 0;
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
+    participant.romLoaded = joinData.romLoaded != 0;
+    participant.romCompatible = joinRomCompatible;
     if(!reusedReconnectReservation) {
         participant.role = ParticipantRole::Observer;
         participant.controllerAssignments.clear();
         participant.normalizeControllerAssignments();
     }
 
-    if(!reusedReconnectReservation &&
-       (m_session.roomState().state == SessionState::Starting ||
-        m_session.roomState().state == SessionState::Running ||
-        m_session.roomState().state == SessionState::Paused ||
-        m_session.roomState().state == SessionState::Resyncing)) {
+    if(m_session.roomState().state == SessionState::Starting ||
+       m_session.roomState().state == SessionState::Running ||
+       m_session.roomState().state == SessionState::Paused ||
+       m_session.roomState().state == SessionState::Resyncing) {
         m_pendingHostLateJoinResyncParticipant = participant.id;
-    } else if(reusedReconnectReservation &&
-              (m_session.roomState().state == SessionState::Running ||
-               m_session.roomState().state == SessionState::Paused ||
-               m_session.roomState().state == SessionState::Resyncing)) {
-        const FrameNumber resyncFrame =
-            std::min<FrameNumber>(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
-        if(!m_pendingHostResyncFrame.has_value() || resyncFrame < *m_pendingHostResyncFrame) {
-            m_pendingHostResyncFrame = resyncFrame;
+        if(reusedReconnectReservation) {
+            pushLog("Reconnect reservation claimed; waiting for ROM validation before automatic resync");
         }
-        pushLog("Reconnect reservation claimed; scheduling automatic resync");
     }
 
     peer->data = reinterpret_cast<void*>(static_cast<uintptr_t>(participant.id) + 1u);
@@ -2115,6 +2155,25 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     return true;
 }
 
+bool NetplayCoordinator::handleJoinRejected(PacketReader& reader)
+{
+    JoinRejectedData data;
+    if(!reader.readPod(data)) return false;
+
+    std::string gameName;
+    if(!reader.readString(gameName)) return false;
+
+    std::ostringstream oss;
+    oss << "Host requires ROM \"" << gameName << "\" (CRC "
+        << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
+        << data.romValidation.romCrc32 << ")";
+    m_lastError = oss.str();
+    pushLog("Join rejected: ROM mismatch");
+    clearReconnectAttemptState();
+    m_disconnectExpectedAfterJoinReject = true;
+    return true;
+}
+
 bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<uint8_t>& payload)
 {
     PacketReader reader(payload.data(), payload.size());
@@ -2139,6 +2198,9 @@ bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<u
     switch(header.type) {
         case MessageType::JoinRoom:
             return handleJoinRoom(peer, reader);
+
+        case MessageType::JoinRejected:
+            return handleJoinRejected(reader);
 
         case MessageType::ParticipantJoined:
             return handleParticipantJoined(reader);
@@ -2233,6 +2295,8 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
 
 bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const std::string& displayName)
 {
+    const bool pendingJoinRomLoaded = m_pendingJoinRomLoaded;
+    const RomValidationData pendingJoinRomValidation = m_pendingJoinRomValidation;
     disconnect();
 
     m_localDisplayName = displayName.empty() ? defaultDisplayName() : displayName;
@@ -2246,6 +2310,8 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     }
 
     resetSessionState();
+    m_pendingJoinRomLoaded = pendingJoinRomLoaded;
+    m_pendingJoinRomValidation = pendingJoinRomValidation;
     m_session.roomState().state = SessionState::Lobby;
     pushLog("Connecting to " + hostName + ":" + std::to_string(port));
     return true;
@@ -2302,7 +2368,9 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                     m_connected = false;
                     m_session.roomState().state = SessionState::Ended;
                     m_reconnectAttemptInFlight = false;
-                    if(m_localParticipantId != kInvalidParticipantId &&
+                    if(m_disconnectExpectedAfterJoinReject) {
+                        m_disconnectExpectedAfterJoinReject = false;
+                    } else if(m_localParticipantId != kInvalidParticipantId &&
                        m_localReconnectToken != 0 &&
                        !m_lastJoinHostName.empty()) {
                         scheduleReconnectAttempt();
@@ -2319,8 +2387,15 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             (m_session.roomState().state == SessionState::Running ||
                              m_session.roomState().state == SessionState::Resyncing ||
                              m_session.roomState().state == SessionState::Paused);
-                        const bool reserveReconnect = participant != nullptr && participant->reconnectToken != 0;
+                        const bool reserveReconnect =
+                            participant != nullptr &&
+                            participant->reconnectToken != 0 &&
+                            (participant->romCompatible || !participantIsObserver(*participant));
                         pushLog("Peer disconnected: participant " + std::to_string(static_cast<int>(participantId)));
+                        if(m_pendingHostLateJoinResyncParticipant.has_value() &&
+                           *m_pendingHostLateJoinResyncParticipant == participantId) {
+                            m_pendingHostLateJoinResyncParticipant.reset();
+                        }
                         if(participant != nullptr && reserveReconnect) {
                             participant->connected = false;
                             participant->reconnectReserved = true;
@@ -2440,6 +2515,12 @@ bool NetplayCoordinator::reconnectPending() const
 uint16_t NetplayCoordinator::reconnectSecondsRemaining() const
 {
     return m_reconnectSecondsRemaining;
+}
+
+void NetplayCoordinator::setPendingJoinRomValidation(bool romLoaded, const RomValidationData& romValidation)
+{
+    m_pendingJoinRomLoaded = romLoaded;
+    m_pendingJoinRomValidation = romValidation;
 }
 
 uint32_t NetplayCoordinator::gameplayReceiveDelayMs() const

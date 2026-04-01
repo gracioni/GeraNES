@@ -257,7 +257,8 @@ private:
     bool isNetplayRomChangeRestricted() const
     {
 #ifndef __EMSCRIPTEN__
-        return m_netplayRuntime.uiSnapshot().active;
+        const auto snapshot = m_netplayRuntime.uiSnapshot();
+        return snapshot.hosting || snapshot.connected || snapshot.reconnecting;
 #else
         return false;
 #endif

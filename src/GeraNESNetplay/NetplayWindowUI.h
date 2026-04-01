@@ -43,6 +43,7 @@ inline void drawNetplayWindow(bool& showWindow,
 
     const auto snapshot = runtime.uiSnapshot();
     const bool active = snapshot.active;
+    const bool showConnectedControls = snapshot.hosting || snapshot.connected;
     const auto& room = snapshot.room;
     const bool canHost = snapshot.localRomLoaded;
     ImGui::SetNextItemWidth(220.0f);
@@ -87,7 +88,7 @@ inline void drawNetplayWindow(bool& showWindow,
         if(ImGui::Button("Cancel##NetplayCancelReconnectButton")) {
             runtime.disconnect();
         }
-    } else if(!active) {
+    } else if(!active || !showConnectedControls) {
         ImGui::BeginDisabled(!canHost);
         if(ImGui::Button("Host##NetplayHostButton")) {
             runtime.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
@@ -516,11 +517,11 @@ inline void drawNetplayWindow(bool& showWindow,
     if(ImGui::BeginTable("NetplayParticipants", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_WidthFixed, 45.0f);
         ImGui::TableSetupColumn("Name");
-        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed, 260.0f);
-        ImGui::TableSetupColumn("ROM", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthFixed, 260.0f);
+        ImGui::TableSetupColumn("ROM", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Net", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+        ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableHeadersRow();
 
         for(const auto& participant : room.participants) {

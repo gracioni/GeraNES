@@ -1001,8 +1001,13 @@ inline void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::s
 
 inline void NetplayAppRuntime::join(const std::string& hostName, uint16_t port, const std::string& displayName)
 {
-    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
+    enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_stickyStatusMessage.clear();
+        const auto localRom = captureCurrentRomSelection(emu);
+        self.m_coordinator.setPendingJoinRomValidation(
+            localRom.has_value() && localRom->loaded,
+            localRom.has_value() ? localRom->validation : RomValidationData{}
+        );
         self.m_coordinator.join(hostName, port, displayName);
     });
 }

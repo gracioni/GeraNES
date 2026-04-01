@@ -70,6 +70,9 @@ private:
     ParticipantId m_localParticipantId = kInvalidParticipantId;
     std::string m_localDisplayName;
     uint64_t m_localReconnectToken = 0;
+    bool m_pendingJoinRomLoaded = false;
+    RomValidationData m_pendingJoinRomValidation = {};
+    bool m_disconnectExpectedAfterJoinReject = false;
     std::string m_lastError;
     bool m_hosting = false;
     bool m_connected = false;
@@ -118,6 +121,7 @@ private:
     void scheduleReconnectAttempt();
     void processPendingReconnect();
     std::vector<uint8_t> buildJoinRoomPacket() const;
+    std::vector<uint8_t> buildJoinRejectedPacket(const std::string& gameName, const RomValidationData& romValidation) const;
     std::vector<uint8_t> buildParticipantJoinedPacket(const ParticipantInfo& participant, uint64_t reconnectToken) const;
     std::vector<uint8_t> buildSelectRomPacket(const std::string& gameName, const RomValidationData& romValidation) const;
     std::vector<uint8_t> buildRomValidationResultPacket(const RomValidationResultData& result) const;
@@ -130,6 +134,7 @@ private:
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
     bool handleControlPacket(ENetPeer* peer, const std::vector<uint8_t>& payload);
     bool handleJoinRoom(ENetPeer* peer, PacketReader& reader);
+    bool handleJoinRejected(PacketReader& reader);
     bool handleParticipantJoined(PacketReader& reader);
     bool handleSelectRom(PacketReader& reader);
     bool handleRomValidationResult(ENetPeer* peer, PacketReader& reader);
@@ -192,6 +197,7 @@ public:
     bool isConnected() const;
     bool reconnectPending() const;
     uint16_t reconnectSecondsRemaining() const;
+    void setPendingJoinRomValidation(bool romLoaded, const RomValidationData& romValidation);
     uint32_t gameplayReceiveDelayMs() const;
     void setGameplayReceiveDelayMs(uint32_t delayMs);
     ParticipantId localParticipantId() const;

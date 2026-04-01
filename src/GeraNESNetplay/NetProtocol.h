@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 2;
+constexpr uint8_t kProtocolVersion = 3;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -25,6 +25,7 @@ enum class MessageType : uint16_t
 {
     CreateRoom = 1,
     JoinRoom,
+    JoinRejected,
     ParticipantJoined,
     ParticipantLeft,
     LeaveRoom,
@@ -76,11 +77,6 @@ struct PacketHeader
     uint32_t sessionId = 0;
 };
 
-struct JoinRoomData
-{
-    uint64_t reconnectToken = 0;
-};
-
 struct RomValidationData
 {
     uint32_t romCrc32 = 0;
@@ -91,6 +87,19 @@ struct RomValidationData
     uint32_t chrRamSize = 0;
     uint32_t fileSize = 0;
     std::array<uint8_t, kMaxRomHashBytes> contentHash = {};
+};
+
+struct JoinRoomData
+{
+    uint64_t reconnectToken = 0;
+    uint8_t romLoaded = 0;
+    RomValidationData romValidation = {};
+};
+
+struct JoinRejectedData
+{
+    uint8_t reason = 0;
+    RomValidationData romValidation = {};
 };
 
 struct RomValidationResultData
