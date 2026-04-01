@@ -1009,10 +1009,17 @@ inline void NetplayAppRuntime::join(const std::string& hostName, uint16_t port, 
 
 inline void NetplayAppRuntime::disconnect()
 {
-    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
+    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_coordinator.disconnect();
         self.m_inputDriver.reset();
         self.m_runtimeLastTickTime = {};
+        self.m_lastSelectedRomKey.clear();
+        self.m_lastSubmittedValidationKey.clear();
+        self.m_lastSessionState.reset();
+        self.m_lastLocalAssignedSlots.clear();
+        self.m_lastAssignmentLayoutKey.clear();
+        self.m_pendingManualStateResyncs.clear();
+        self.updateUiSnapshot(captureCurrentRomSelection(emu));
     });
 }
 
@@ -1181,6 +1188,8 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_runtimeRunning.store(false, std::memory_order_release);
         m_inputDriver.reset();
         m_runtimeLastTickTime = {};
+        m_lastSelectedRomKey.clear();
+        m_lastSubmittedValidationKey.clear();
         m_lastSessionState.reset();
         m_lastLocalAssignedSlots.clear();
         m_lastAssignmentLayoutKey.clear();
