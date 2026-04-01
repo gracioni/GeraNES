@@ -1543,6 +1543,108 @@ TEST_CASE("Netplay emulation host speculative playback defers audio until resimu
     REQUIRE(hostAudio.committedSamples().size() > committedBeforePrediction);
 }
 
+TEST_CASE("Netplay host loaded state canonicalizes local future inputs before resync", "[netplay][load-state][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, 60u));
+
+    GeraNESEmu savedStateSource(DummyAudioOutput::instance());
+    REQUIRE(savedStateSource.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(savedStateSource.valid());
+
+    InputFrame frame0 = savedStateSource.createInputFrame(0u);
+    frame0.speculative = false;
+    savedStateSource.queueInputFrame(frame0);
+    REQUIRE(savedStateSource.updateUntilFrame(frameDt));
+    REQUIRE(savedStateSource.frameCount() == 1u);
+
+    InputFrame staleFrame1 = savedStateSource.createInputFrame(1u);
+    staleFrame1.p1A = true;
+    savedStateSource.queueInputFrame(staleFrame1);
+
+    InputFrame staleFrame2 = savedStateSource.createInputFrame(2u);
+    staleFrame2.p1Right = true;
+    savedStateSource.queueInputFrame(staleFrame2);
+
+    const std::vector<uint8_t> fullLoadedState = savedStateSource.saveStateToMemory();
+    REQUIRE_FALSE(fullLoadedState.empty());
+
+    GeraNESEmu hostLoaded(DummyAudioOutput::instance());
+    REQUIRE(hostLoaded.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostLoaded.loadStateFromMemoryOnCleanBoot(fullLoadedState));
+    REQUIRE(hostLoaded.valid());
+    REQUIRE(hostLoaded.frameCount() == 1u);
+    REQUIRE(hostLoaded.inputBuffer().findByFrame(1u, hostLoaded.inputTimelineEpoch()) != nullptr);
+    REQUIRE(hostLoaded.inputBuffer().findByFrame(2u, hostLoaded.inputTimelineEpoch()) != nullptr);
+
+    const std::vector<uint8_t> canonicalPayload = hostLoaded.saveNetplayStateToMemory();
+    REQUIRE_FALSE(canonicalPayload.empty());
+
+    GeraNESEmu hostCanonicalized(DummyAudioOutput::instance());
+    REQUIRE(hostCanonicalized.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostCanonicalized.loadStateFromMemoryOnCleanBoot(canonicalPayload));
+    REQUIRE(hostCanonicalized.valid());
+    REQUIRE(hostCanonicalized.frameCount() == 1u);
+    REQUIRE(hostCanonicalized.inputBuffer().findByFrame(1u, hostCanonicalized.inputTimelineEpoch()) != nullptr);
+    REQUIRE(hostCanonicalized.inputBuffer().findByFrame(2u, hostCanonicalized.inputTimelineEpoch()) == nullptr);
+
+    GeraNESEmu clientAfterResync(DummyAudioOutput::instance());
+    REQUIRE(clientAfterResync.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(clientAfterResync.loadStateFromMemoryOnCleanBoot(canonicalPayload));
+    REQUIRE(clientAfterResync.valid());
+    REQUIRE(clientAfterResync.frameCount() == 1u);
+
+    for(uint32_t frame = 1u; frame <= 3u; ++frame) {
+        InputFrame correctedHost = hostCanonicalized.createInputFrame(frame);
+        correctedHost.p1B = (frame % 2u) == 0u;
+        correctedHost.p1Left = frame == 3u;
+        hostCanonicalized.queueInputFrame(correctedHost);
+
+        InputFrame correctedClient = clientAfterResync.createInputFrame(frame);
+        correctedClient.p1B = correctedHost.p1B;
+        correctedClient.p1Left = correctedHost.p1Left;
+        clientAfterResync.queueInputFrame(correctedClient);
+
+        REQUIRE(hostCanonicalized.updateUntilFrame(frameDt));
+        REQUIRE(clientAfterResync.updateUntilFrame(frameDt));
+    }
+
+    REQUIRE(hostCanonicalized.frameCount() == clientAfterResync.frameCount());
+    REQUIRE(hostCanonicalized.canonicalNetplayStateCrc32() == clientAfterResync.canonicalNetplayStateCrc32());
+}
+
+TEST_CASE("Netplay runtime stays deterministic after repeated host load states during active resync", "[netplay][runtime][load-state][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 190;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36, 37, 38};
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_repeated_load_state_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    for(const auto& entry : report.at("client").at("eventLogTail")) {
+        REQUIRE(entry.get<std::string>().find("Rejected non-sequential input sequence") == std::string::npos);
+    }
+}
+
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")
 {
     GeraNESTestSupport::requireRomFixture();

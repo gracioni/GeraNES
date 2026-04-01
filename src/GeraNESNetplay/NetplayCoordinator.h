@@ -97,6 +97,7 @@ private:
     std::optional<PendingResyncApply> m_pendingResyncApply;
     std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
     std::vector<ParticipantId> m_pendingResyncAcks;
+    std::vector<ParticipantId> m_pendingSequenceResetParticipants;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_reconnectReservationDeadlines;
     std::string m_lastJoinHostName;

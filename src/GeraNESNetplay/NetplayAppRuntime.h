@@ -83,6 +83,7 @@ private:
     {
         ResyncReason reason = ResyncReason::Unspecified;
         FrameNumber eventFrame = 0;
+        bool waitForAdvance = true;
     };
 
     EmulationHost& m_emuHost;
@@ -501,7 +502,11 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
 
         const RoomState& room = m_coordinator.session().roomState();
         const SessionState state = room.state;
-        if(state != SessionState::Running && state != SessionState::Paused) continue;
+        if(state != SessionState::Running &&
+           state != SessionState::Paused &&
+           state != SessionState::Resyncing) {
+            continue;
+        }
         if(!emu.valid()) continue;
 
         const ResyncReason reason =
@@ -514,11 +519,12 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
         }
 
         const FrameNumber eventFrame = std::min<FrameNumber>(event.frame, emu.frameCount());
+        const bool resyncBusy =
+            state == SessionState::Resyncing ||
+            room.activeResyncId != 0 ||
+            room.pendingResyncAckCount != 0;
         emu.discardQueuedInputFramesAfter(eventFrame);
         syncEmuInputTimelineEpoch(emu);
-        m_coordinator.discardTimelineAfter(eventFrame);
-        m_coordinator.invalidateLocalCrcHistoryAfter(eventFrame);
-        m_coordinator.setLocalSimulationFrame(eventFrame);
         reanchorInputDriver(eventFrame, localAssignedSlots());
 
         const bool hasRemotePeers = std::any_of(
@@ -532,6 +538,20 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
             continue;
         }
 
+        if(resyncBusy) {
+            m_pendingManualStateResyncs.clear();
+            m_pendingManualStateResyncs.push_back(PendingManualStateResync{
+                reason,
+                eventFrame,
+                event.kind == EmulationHost::ManualStateChangeKind::Reset
+            });
+            continue;
+        }
+
+        m_coordinator.discardTimelineAfter(eventFrame);
+        m_coordinator.invalidateLocalCrcHistoryAfter(eventFrame);
+        m_coordinator.setLocalSimulationFrame(eventFrame);
+
         if(event.kind == EmulationHost::ManualStateChangeKind::LoadState) {
             const std::vector<uint8_t> statePayload =
                 buildAuthoritativeStatePayload(emu, eventFrame, false);
@@ -540,12 +560,12 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
             }
 
             m_pendingManualStateResyncs.clear();
-            beginAuthoritativeResyncWithoutLocalReload(emu, eventFrame, statePayload, reason);
+            beginAuthoritativeResync(emu, eventFrame, statePayload, reason);
             continue;
         }
 
         m_pendingManualStateResyncs.clear();
-        m_pendingManualStateResyncs.push_back(PendingManualStateResync{reason, eventFrame});
+        m_pendingManualStateResyncs.push_back(PendingManualStateResync{reason, eventFrame, true});
     }
 }
 
@@ -564,7 +584,7 @@ inline void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(GeraNESEm
 
     while(!m_pendingManualStateResyncs.empty()) {
         const PendingManualStateResync pending = m_pendingManualStateResyncs.front();
-        if(emu.frameCount() <= pending.eventFrame) {
+        if(pending.waitForAdvance && emu.frameCount() <= pending.eventFrame) {
             return;
         }
 

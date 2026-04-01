@@ -68,6 +68,7 @@ public:
         uint32_t dropClientIncomingResyncChunkMessages = 0;
         uint32_t dropClientIncomingResyncCompleteMessages = 0;
         uint32_t reconnectReservationSecondsForTests = 0;
+        uint32_t hostSaveStateFrame = 0;
         bool reconnectDuringResync = false;
         bool expectReconnectReservationExpiry = false;
         bool robust = false;
@@ -79,6 +80,7 @@ public:
         bool hostMultitapAssignedBeforeJoinOnly = false;
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
+        std::vector<uint32_t> hostManualLoadStateFrames;
     };
 
 private:
@@ -1622,10 +1624,14 @@ private:
         bool hostResetTriggered = false;
         bool manualResyncObserved = false;
         bool manualResyncCompleted = false;
+        bool hostSaveStateCaptured = false;
+        bool hostManualLoadDuringResyncObserved = false;
         uint32_t manualResyncBaselineHardResyncCount = 0;
         uint32_t manualResyncBaselineHostForceResyncEvents = 0;
         uint32_t postResyncCrcCheckStartFrame = 0;
         uint32_t postResyncCrcMismatchFrame = 0;
+        size_t hostManualLoadTriggerIndex = 0;
+        std::vector<uint8_t> hostSavedManualLoadState;
         const auto performRuntimeReconnect = [&](const char* triggerDescription) -> bool {
             const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
             const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
@@ -1899,6 +1905,50 @@ private:
                 manualResyncTriggered = true;
             }
 
+            if(options.hostSaveStateFrame > 0 &&
+               !hostSaveStateCaptured &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.hostSaveStateFrame &&
+               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.hostSaveStateFrame) {
+                hostSavedManualLoadState = hostPeer.emu.saveStateToMemory();
+                if(hostSavedManualLoadState.empty()) {
+                    failureReason = "Failed to capture host save state for manual load-state scenario.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+                hostSaveStateCaptured = true;
+            }
+
+            while(hostManualLoadTriggerIndex < options.hostManualLoadStateFrames.size() &&
+                  hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.hostManualLoadStateFrames[hostManualLoadTriggerIndex] &&
+                  clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.hostManualLoadStateFrames[hostManualLoadTriggerIndex]) {
+                if(hostSavedManualLoadState.empty()) {
+                    failureReason = "Host manual load-state scenario triggered before a save state was captured.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+
+                if(hostLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                   clientLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                   hostLoopSnapshot.room.activeResyncId != 0u ||
+                   clientLoopSnapshot.room.activeResyncId != 0u) {
+                    hostManualLoadDuringResyncObserved = true;
+                }
+
+                if(!hostPeer.emu.loadStateFromMemoryAsManualStateChange(hostSavedManualLoadState)) {
+                    failureReason = "Host failed to load the saved state during the repeated load-state scenario.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+
+                ++hostManualLoadTriggerIndex;
+            }
+
             if(options.forceHostResetFrame > 0 &&
                !hostResetTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.forceHostResetFrame &&
@@ -2124,6 +2174,24 @@ private:
                     cleanup();
                     return result;
                 }
+                if(!options.hostManualLoadStateFrames.empty() &&
+                   hostManualLoadTriggerIndex != options.hostManualLoadStateFrames.size()) {
+                    failureReason =
+                        "Repeated host load-state scenario never triggered all requested load events.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["hostManualLoadDuringResyncObserved"] = hostManualLoadDuringResyncObserved;
+                    result.report["hostManualLoadTriggerCount"] = hostManualLoadTriggerIndex;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
 
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
@@ -2138,6 +2206,8 @@ private:
                 result.report["manualResyncCompleted"] = manualResyncCompleted;
                 result.report["postResyncCrcCheckStartFrame"] = postResyncCrcCheckStartFrame;
                 result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
+                result.report["hostManualLoadDuringResyncObserved"] = hostManualLoadDuringResyncObserved;
+                result.report["hostManualLoadTriggerCount"] = hostManualLoadTriggerIndex;
                 result.exitCode = EXIT_SUCCESS;
                 cleanup();
                 return result;
@@ -3369,6 +3439,19 @@ private:
                 reconnectExpiry.reconnectReservationSecondsForTests = 1u;
                 reconnectExpiry.expectReconnectReservationExpiry = true;
                 addScenario("reconnect_reservation_expiry", reconnectExpiry);
+
+                Options repeatedLoadState = baseOptions;
+                repeatedLoadState.frames = std::max<uint32_t>(baseOptions.frames, 190u);
+                repeatedLoadState.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
+                repeatedLoadState.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
+                repeatedLoadState.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
+                repeatedLoadState.hostLoopDtMs = 8u;
+                repeatedLoadState.clientLoopDtMs = 33u;
+                repeatedLoadState.hostStepStride = 1u;
+                repeatedLoadState.clientStepStride = 2u;
+                repeatedLoadState.hostSaveStateFrame = 20u;
+                repeatedLoadState.hostManualLoadStateFrames = {36u, 37u, 38u};
+                addScenario("repeated_host_load_state_asymmetric", repeatedLoadState);
             }
 
             Options predictAllHit = baseOptions;

@@ -1451,6 +1451,27 @@ public:
 #endif
     }
 
+    bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data)
+    {
+#ifdef __EMSCRIPTEN__
+        if(data.empty()) return false;
+        const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
+        if(loaded) {
+            onLoadExecutedLocked(m_emu.frameCount());
+        }
+        return loaded;
+#else
+        if(data.empty()) return false;
+        std::scoped_lock emuLock(m_emuMutex);
+        if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
+            return false;
+        }
+        refreshSnapshotLocked();
+        onLoadExecutedLocked(m_emu.frameCount());
+        return true;
+#endif
+    }
+
     template<typename InputProvider>
     bool resimulateToFrame(uint32_t targetFrame, InputProvider&& inputProvider)
     {
