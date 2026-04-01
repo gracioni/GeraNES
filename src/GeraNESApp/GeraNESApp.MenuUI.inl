@@ -4,6 +4,7 @@ inline void GeraNESApp::menuBar() {
 
     bool show_menu = true;
     const bool netplayClientRestricted = isNetplayClientRestricted();
+    const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
 
     if (show_menu && ImGui::BeginMainMenuBar())
     {
@@ -12,7 +13,7 @@ inline void GeraNESApp::menuBar() {
             auto sc = m_shortcuts.get("openRom");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, !netplayClientRestricted))
+                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, !netplayRomChangeRestricted))
                 {
                     sc->action();
                 }
@@ -35,7 +36,7 @@ inline void GeraNESApp::menuBar() {
             #endif
 
             auto recentFiles = AppSettings::instance().data.getRecentFiles();
-            if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0 && !netplayClientRestricted))
+            if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0 && !netplayRomChangeRestricted))
             {
                 for(int i = 0; i < recentFiles.size(); i++) {
                     if(ImGui::MenuItem(recentFiles[i].c_str())) {

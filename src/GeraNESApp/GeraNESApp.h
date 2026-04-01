@@ -254,11 +254,29 @@ private:
 #endif
     }
 
+    bool isNetplayRomChangeRestricted() const
+    {
+#ifndef __EMSCRIPTEN__
+        return m_netplayRuntime.uiSnapshot().active;
+#else
+        return false;
+#endif
+    }
+
     void notifyNetplayClientRestrictedAction(const char* action)
     {
         if(!isNetplayClientRestricted()) return;
 
         const std::string message = std::string(action) + " is disabled while connected as a netplay client";
+        m_userToast.show(message);
+        Logger::instance().log(message, Logger::Type::INFO);
+    }
+
+    void notifyNetplayRomChangeRestrictedAction(const char* action)
+    {
+        if(!isNetplayRomChangeRestricted()) return;
+
+        const std::string message = std::string(action) + " is disabled while netplay is active";
         m_userToast.show(message);
         Logger::instance().log(message, Logger::Type::INFO);
     }
@@ -1547,6 +1565,10 @@ private:
     }
 
     void openFile(const char* path) {
+        if(isNetplayRomChangeRestricted()) {
+            notifyNetplayRomChangeRestrictedAction("Open ROM");
+            return;
+        }
 
         AppSettings::instance().data.addRecentFile(path);
         AppSettings::instance().data.setLastFolder(path);
@@ -1613,8 +1635,8 @@ private:
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"openRom", "Open Rom", "Alt+O", [this]() {
-            if(isNetplayClientRestricted()) {
-                notifyNetplayClientRestrictedAction("Open ROM");
+            if(isNetplayRomChangeRestricted()) {
+                notifyNetplayRomChangeRestrictedAction("Open ROM");
                 return;
             }
             openRom();
@@ -1842,8 +1864,8 @@ public:
     }
 
     void openRom() {
-        if(isNetplayClientRestricted()) {
-            notifyNetplayClientRestrictedAction("Open ROM");
+        if(isNetplayRomChangeRestricted()) {
+            notifyNetplayRomChangeRestrictedAction("Open ROM");
             return;
         }
 
