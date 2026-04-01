@@ -9,6 +9,7 @@
 #endif
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESApp/AudioOutputBase.h"
 #include "NetplayTest.h"
@@ -143,6 +144,12 @@ TEST_CASE("Netplay auto settings probe behaves as expected", "[netplay][autosett
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("probe") == "netplay_auto_settings");
+}
+
+TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
+{
+    REQUIRE(Netplay::kDesyncMonitorEnabled == true);
+    REQUIRE(Netplay::kDesyncCrcIntervalFrames == 30u);
 }
 
 TEST_CASE("Netplay runtime flow advances under prediction", "[netplay][runtime]")

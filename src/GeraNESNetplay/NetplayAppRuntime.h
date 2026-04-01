@@ -22,6 +22,7 @@
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayAutoSettings.h"
+#include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 #include "logger/logger.h"
 
@@ -107,6 +108,9 @@ private:
     std::vector<PlayerSlot> m_lastLocalAssignedSlots;
     std::string m_lastAssignmentLayoutKey;
     std::deque<PendingManualStateResync> m_pendingManualStateResyncs;
+    FrameNumber m_lastSubmittedLocalCrcFrame = 0;
+    FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
+    bool m_forceNextConfirmedCrcSubmission = false;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
 
@@ -284,6 +288,7 @@ private:
     void processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom);
     void processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu);
     void processPendingManualStateResyncIfNeeded(GeraNESEmu& emu);
+    void processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu);
     uint32_t consumeWorkerDtMs();
     void handleSessionStateTransitionsOnWorker(GeraNESEmu& emu);
     bool beginInitialSessionSyncOnWorker(GeraNESEmu& emu);
@@ -644,6 +649,9 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         m_lastSessionState.reset();
         m_inputDriver.reset();
         m_runtimeLastTickTime = {};
+        m_lastSubmittedLocalCrcFrame = 0;
+        m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
+        m_forceNextConfirmedCrcSubmission = false;
         return;
     }
 
@@ -683,7 +691,41 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         reanchorInputDriver(anchorFrame, localAssignedSlots());
     }
 
+    if(currentState == SessionState::Running &&
+       (!previousState.has_value() || *previousState != SessionState::Running)) {
+        m_forceNextConfirmedCrcSubmission = true;
+    }
+
     m_lastSessionState = currentState;
+}
+
+inline void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu)
+{
+    if(!kDesyncMonitorEnabled) return;
+    if(!m_coordinator.isActive()) return;
+    if(m_coordinator.session().roomState().state != SessionState::Running) return;
+    if(!emu.valid()) return;
+
+    const FrameNumber confirmedFrame = m_coordinator.latestConfirmedFrame();
+    if(confirmedFrame == 0) return;
+
+    const bool periodicDue = confirmedFrame >= m_nextScheduledLocalCrcFrame;
+    const bool forcedDue =
+        m_forceNextConfirmedCrcSubmission &&
+        confirmedFrame != m_lastSubmittedLocalCrcFrame;
+    if(!periodicDue && !forcedDue) return;
+
+    std::optional<uint32_t> crc32 = m_emuHost.netplaySnapshotCrc32ForFrame(confirmedFrame);
+    if(!crc32.has_value() && emu.frameCount() == confirmedFrame) {
+        crc32 = emu.canonicalNetplayStateCrc32();
+    }
+    if(!crc32.has_value()) return;
+
+    m_coordinator.submitLocalCrc(confirmedFrame, *crc32);
+    m_lastSubmittedLocalCrcFrame = confirmedFrame;
+    m_forceNextConfirmedCrcSubmission = false;
+    m_nextScheduledLocalCrcFrame =
+        ((confirmedFrame / kDesyncCrcIntervalFrames) + 1u) * kDesyncCrcIntervalFrames;
 }
 
 inline bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(GeraNESEmu& emu)
@@ -1263,6 +1305,9 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastLocalAssignedSlots.clear();
         m_lastAssignmentLayoutKey.clear();
         m_pendingManualStateResyncs.clear();
+        m_lastSubmittedLocalCrcFrame = 0;
+        m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
+        m_forceNextConfirmedCrcSubmission = false;
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;
     }
@@ -1364,6 +1409,8 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
             tryQueuePlaybackFrameToEmu(emu, currentFrame);
         }
     }
+
+    processPeriodicLocalCrcIfNeeded(emu);
 
     updateUiSnapshot(localRom);
 }

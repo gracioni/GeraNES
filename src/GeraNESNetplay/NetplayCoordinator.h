@@ -18,6 +18,7 @@
 #include "NetSerialization.h"
 #include "NetSession.h"
 #include "NetTransport.h"
+#include "NetplayConfig.h"
 
 namespace Netplay {
 

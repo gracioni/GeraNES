@@ -1087,6 +1087,7 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 {
     CrcReportData report;
     if(!reader.readPod(report)) return false;
+    if(!kDesyncMonitorEnabled) return true;
     if(report.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(report.timelineEpoch < m_session.roomState().timelineEpoch) {
             pushLog("Ignored stale CRC report from previous timeline epoch");
@@ -3110,6 +3111,7 @@ void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
 
 void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 {
+    if(!kDesyncMonitorEnabled) return;
     if(m_session.roomState().state != SessionState::Running) return;
 
     m_lastLocalCrcFrame = frame;
