@@ -22,6 +22,8 @@ constexpr size_t kResyncChunkPayloadBytes = 1024;
 constexpr size_t kRecentLocalCrcHistoryCapacity = 512;
 constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
 constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
+constexpr uint16_t kReconnectReservationSeconds = 15;
+constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -204,6 +206,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingHostLateJoinResyncParticipant.reset();
     m_pendingResyncAcks.clear();
     m_reconnectReservationDeadlines.clear();
+    clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
 }
 
@@ -231,6 +234,17 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
     return m_session.roomState().participants.back();
 }
 
+ParticipantInfo* NetplayCoordinator::findParticipantByReconnectToken(uint64_t reconnectToken)
+{
+    if(reconnectToken == 0) return nullptr;
+    for(auto& participant : m_session.roomState().participants) {
+        if(participant.reconnectToken == reconnectToken) {
+            return &participant;
+        }
+    }
+    return nullptr;
+}
+
 ParticipantId NetplayCoordinator::participantIdFromPeer(ENetPeer* peer) const
 {
     if(peer == nullptr || peer->data == nullptr) return kInvalidParticipantId;
@@ -248,6 +262,94 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
         }),
         participants.end()
     );
+    m_reconnectReservationDeadlines.erase(participantId);
+    m_pendingResyncAcks.erase(
+        std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
+        m_pendingResyncAcks.end()
+    );
+    m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
+}
+
+void NetplayCoordinator::clearReconnectAttemptState()
+{
+    m_reconnectPending = false;
+    m_reconnectAttemptInFlight = false;
+    m_reconnectSecondsRemaining = 0;
+    m_nextReconnectAttempt = {};
+    m_reconnectDeadline = {};
+}
+
+void NetplayCoordinator::scheduleReconnectAttempt()
+{
+    if(m_hosting || m_localReconnectToken == 0 || m_lastJoinHostName.empty() || m_lastJoinPort == 0) {
+        clearReconnectAttemptState();
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if(!m_reconnectPending) {
+        m_reconnectDeadline = now + std::chrono::seconds(kReconnectReservationSeconds);
+        pushLog("Connection lost; attempting automatic reconnect");
+    }
+
+    m_reconnectPending = true;
+    m_reconnectAttemptInFlight = false;
+    m_nextReconnectAttempt = now;
+    m_reconnectSecondsRemaining = kReconnectReservationSeconds;
+    m_lastError = "Disconnected from host; reconnecting...";
+}
+
+void NetplayCoordinator::processPendingReconnect()
+{
+    if(m_hosting || !m_reconnectPending) return;
+
+    const auto now = std::chrono::steady_clock::now();
+    if(m_reconnectDeadline != std::chrono::steady_clock::time_point{}) {
+        if(now >= m_reconnectDeadline) {
+            pushLog("Reconnect window expired");
+            m_lastError = "Reconnect window expired";
+            clearReconnectAttemptState();
+            return;
+        }
+
+        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(m_reconnectDeadline - now);
+        m_reconnectSecondsRemaining = static_cast<uint16_t>(std::max<int64_t>(1, remaining.count() + 1));
+    }
+
+    if(m_reconnectAttemptInFlight || now < m_nextReconnectAttempt) return;
+
+    const uint64_t reconnectToken = m_localReconnectToken;
+    const std::string displayName = m_localDisplayName;
+    const std::string hostName = m_lastJoinHostName;
+    const uint16_t port = m_lastJoinPort;
+    const auto reconnectDeadline = m_reconnectDeadline;
+    const uint16_t reconnectSecondsRemaining = m_reconnectSecondsRemaining;
+
+    if(m_transport.isActive()) {
+        m_transport.disconnectAll();
+        m_transport.shutdown();
+    }
+
+    resetSessionState();
+    m_localReconnectToken = reconnectToken;
+    m_localDisplayName = displayName;
+    m_lastJoinHostName = hostName;
+    m_lastJoinPort = port;
+    m_reconnectPending = true;
+    m_reconnectAttemptInFlight = true;
+    m_reconnectDeadline = reconnectDeadline;
+    m_reconnectSecondsRemaining = reconnectSecondsRemaining;
+    m_nextReconnectAttempt = now + kReconnectRetryDelay;
+    m_session.roomState().state = SessionState::Lobby;
+
+    if(!m_transport.connectToHost(hostName, port)) {
+        m_reconnectAttemptInFlight = false;
+        m_lastError = "Failed to reconnect to host";
+        pushLog(m_lastError);
+        return;
+    }
+
+    pushLog("Attempting reconnect to " + hostName + ":" + std::to_string(port));
 }
 
 std::vector<uint8_t> NetplayCoordinator::buildJoinRoomPacket() const
@@ -1300,6 +1402,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
         m_lastError = "Host closed the room";
+        clearReconnectAttemptState();
     } else {
         pushLog("Participant left: " + participantName);
         notifySessionEvent(participantName + " left");
@@ -1662,8 +1765,55 @@ void NetplayCoordinator::refreshHostRoomState()
 void NetplayCoordinator::updateReconnectReservations()
 {
     if(!m_hosting) return;
-    if(!m_reconnectReservationDeadlines.empty()) {
-        m_reconnectReservationDeadlines.clear();
+
+    const auto now = std::chrono::steady_clock::now();
+    std::vector<ParticipantId> expiredParticipants;
+    std::vector<ParticipantId> changedParticipants;
+    for(auto& participant : m_session.roomState().participants) {
+        if(!participant.reconnectReserved) continue;
+
+        const auto it = m_reconnectReservationDeadlines.find(participant.id);
+        if(it == m_reconnectReservationDeadlines.end()) {
+            participant.reconnectReserved = false;
+            participant.reservationSecondsRemaining = 0;
+            changedParticipants.push_back(participant.id);
+            continue;
+        }
+
+        if(now >= it->second) {
+            expiredParticipants.push_back(participant.id);
+            continue;
+        }
+
+        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(it->second - now);
+        const uint16_t secondsRemaining = static_cast<uint16_t>(std::max<int64_t>(1, remaining.count() + 1));
+        if(participant.reservationSecondsRemaining != secondsRemaining) {
+            participant.reservationSecondsRemaining = secondsRemaining;
+            changedParticipants.push_back(participant.id);
+        }
+    }
+
+    for(ParticipantId participantId : changedParticipants) {
+        if(const ParticipantInfo* participant = m_session.findParticipant(participantId)) {
+            m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0));
+        }
+    }
+
+    for(ParticipantId participantId : expiredParticipants) {
+        const ParticipantInfo* participant = m_session.findParticipant(participantId);
+        const std::string name =
+            participant != nullptr && !participant->displayName.empty()
+                ? participant->displayName
+                : std::to_string(static_cast<int>(participantId));
+        pushLog("Reconnect reservation expired for " + name);
+        m_reconnectReservationDeadlines.erase(participantId);
+        removeParticipant(participantId);
+        m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId));
+        notifySessionEvent(name + " did not reconnect");
+    }
+
+    if(!expiredParticipants.empty()) {
+        refreshHostRoomState();
     }
 }
 
@@ -1795,21 +1945,44 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     std::string displayName;
     if(!reader.readString(displayName)) return false;
 
-    ParticipantInfo& participant = ensureParticipant(m_nextAssignedParticipantId++, displayName);
+    ParticipantInfo* reconnectParticipant = findParticipantByReconnectToken(joinData.reconnectToken);
+    const bool reusedReconnectReservation =
+        reconnectParticipant != nullptr &&
+        reconnectParticipant->reconnectReserved &&
+        !reconnectParticipant->connected;
+
+    ParticipantInfo& participant =
+        reusedReconnectReservation
+            ? *reconnectParticipant
+            : ensureParticipant(m_nextAssignedParticipantId++, displayName);
     participant.displayName = displayName;
     participant.connected = true;
     participant.reconnectReserved = false;
     participant.reservationSecondsRemaining = 0;
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
-    participant.role = ParticipantRole::Observer;
-    participant.controllerAssignments.clear();
-    participant.normalizeControllerAssignments();
-    if(m_session.roomState().state == SessionState::Starting ||
-       m_session.roomState().state == SessionState::Running ||
-       m_session.roomState().state == SessionState::Paused ||
-       m_session.roomState().state == SessionState::Resyncing) {
+    if(!reusedReconnectReservation) {
+        participant.role = ParticipantRole::Observer;
+        participant.controllerAssignments.clear();
+        participant.normalizeControllerAssignments();
+    }
+
+    if(!reusedReconnectReservation &&
+       (m_session.roomState().state == SessionState::Starting ||
+        m_session.roomState().state == SessionState::Running ||
+        m_session.roomState().state == SessionState::Paused ||
+        m_session.roomState().state == SessionState::Resyncing)) {
         m_pendingHostLateJoinResyncParticipant = participant.id;
+    } else if(reusedReconnectReservation &&
+              (m_session.roomState().state == SessionState::Running ||
+               m_session.roomState().state == SessionState::Paused ||
+               m_session.roomState().state == SessionState::Resyncing)) {
+        const FrameNumber resyncFrame =
+            std::min<FrameNumber>(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
+        if(!m_pendingHostResyncFrame.has_value() || resyncFrame < *m_pendingHostResyncFrame) {
+            m_pendingHostResyncFrame = resyncFrame;
+        }
+        pushLog("Reconnect reservation claimed; scheduling automatic resync");
     }
 
     peer->data = reinterpret_cast<void*>(static_cast<uintptr_t>(participant.id) + 1u);
@@ -1869,10 +2042,11 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
     }
 
     std::ostringstream oss;
-    oss << "Participant joined as observer: " << participant.displayName
+    oss << (reusedReconnectReservation ? "Participant reconnected: " : "Participant joined as observer: ")
+        << participant.displayName
         << " (id " << static_cast<int>(participant.id) << ")";
     pushLog(oss.str());
-    notifySessionEvent(participantLabel(participant) + " joined");
+    notifySessionEvent(participantLabel(participant) + (reusedReconnectReservation ? " reconnected" : " joined"));
     return true;
 }
 
@@ -1924,6 +2098,8 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
         if(participant.reconnectToken != 0) {
             m_localReconnectToken = participant.reconnectToken;
         }
+        m_lastError.clear();
+        clearReconnectAttemptState();
     }
 
     if(isNewParticipant && participantId != m_localParticipantId) {
@@ -2060,6 +2236,8 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     disconnect();
 
     m_localDisplayName = displayName.empty() ? defaultDisplayName() : displayName;
+    m_lastJoinHostName = hostName;
+    m_lastJoinPort = port;
 
     if(!m_transport.connectToHost(hostName, port)) {
         m_lastError = "Failed to connect to host";
@@ -2075,6 +2253,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
 
 void NetplayCoordinator::disconnect()
 {
+    clearReconnectAttemptState();
     if(m_transport.isActive()) {
         if(m_hosting) {
             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(m_localParticipantId));
@@ -2095,7 +2274,10 @@ void NetplayCoordinator::disconnect()
 
 void NetplayCoordinator::update(uint32_t timeoutMs)
 {
-    if(!m_transport.isActive()) return;
+    if(!m_transport.isActive()) {
+        processPendingReconnect();
+        return;
+    }
 
     const auto handleEvent = [&](const NetTransport::Event& event) {
         switch(event.type) {
@@ -2119,7 +2301,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                     m_serverPeer = nullptr;
                     m_connected = false;
                     m_session.roomState().state = SessionState::Ended;
-                    if(m_session.roomState().currentFrame > 0) {
+                    m_reconnectAttemptInFlight = false;
+                    if(m_localParticipantId != kInvalidParticipantId &&
+                       m_localReconnectToken != 0 &&
+                       !m_lastJoinHostName.empty()) {
+                        scheduleReconnectAttempt();
+                    } else if(m_session.roomState().currentFrame > 0) {
                         m_lastError = "Host disconnected during session";
                     }
                 } else if(m_hosting) {
@@ -2132,9 +2319,25 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             (m_session.roomState().state == SessionState::Running ||
                              m_session.roomState().state == SessionState::Resyncing ||
                              m_session.roomState().state == SessionState::Paused);
+                        const bool reserveReconnect = participant != nullptr && participant->reconnectToken != 0;
                         pushLog("Peer disconnected: participant " + std::to_string(static_cast<int>(participantId)));
-                        removeParticipant(participantId);
-                        m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), event.peer);
+                        if(participant != nullptr && reserveReconnect) {
+                            participant->connected = false;
+                            participant->reconnectReserved = true;
+                            participant->reservationSecondsRemaining = kReconnectReservationSeconds;
+                            m_reconnectReservationDeadlines[participantId] =
+                                std::chrono::steady_clock::now() + std::chrono::seconds(kReconnectReservationSeconds);
+                            m_pendingResyncAcks.erase(
+                                std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
+                                m_pendingResyncAcks.end()
+                            );
+                            m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
+                            m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), event.peer);
+                            notifySessionEvent(participantLabel(*participant) + " disconnected; reconnect reserved");
+                        } else {
+                            removeParticipant(participantId);
+                            m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), event.peer);
+                        }
                         if(hadActiveAssignment &&
                            (m_session.roomState().state == SessionState::Running ||
                             m_session.roomState().state == SessionState::Resyncing)) {
@@ -2211,6 +2414,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     updateReconnectReservations();
     broadcastFrameStatusIfNeeded();
     broadcastPeerHealthIfNeeded();
+    processPendingReconnect();
 }
 
 bool NetplayCoordinator::isActive() const
@@ -2226,6 +2430,16 @@ bool NetplayCoordinator::isHosting() const
 bool NetplayCoordinator::isConnected() const
 {
     return m_connected;
+}
+
+bool NetplayCoordinator::reconnectPending() const
+{
+    return m_reconnectPending;
+}
+
+uint16_t NetplayCoordinator::reconnectSecondsRemaining() const
+{
+    return m_reconnectSecondsRemaining;
 }
 
 uint32_t NetplayCoordinator::gameplayReceiveDelayMs() const

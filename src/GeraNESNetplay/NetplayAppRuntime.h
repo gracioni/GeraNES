@@ -36,6 +36,8 @@ public:
         bool active = false;
         bool hosting = false;
         bool connected = false;
+        bool reconnecting = false;
+        uint16_t reconnectSecondsRemaining = 0;
         bool localRomLoaded = false;
         std::string localRomGameName;
         uint32_t localRomCrc32 = 0;
@@ -479,7 +481,10 @@ inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<Rom
 
     const auto& room = m_coordinator.session().roomState();
     if(room.state != SessionState::Paused) return;
+    if(room.activeResyncId != 0 || room.pendingResyncAckCount != 0) return;
     if(!computeSessionBlockedReason(localRom).empty()) return;
+
+    (void)m_coordinator.resumeSession();
 }
 
 inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu)
@@ -824,6 +829,8 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     snapshot.active = m_coordinator.isActive();
     snapshot.hosting = m_coordinator.isHosting();
     snapshot.connected = m_coordinator.isConnected();
+    snapshot.reconnecting = m_coordinator.reconnectPending();
+    snapshot.reconnectSecondsRemaining = m_coordinator.reconnectSecondsRemaining();
     snapshot.localRomLoaded = localRom.has_value() && localRom->loaded;
     snapshot.localRomGameName = localRom.has_value() ? localRom->gameName : "";
     snapshot.localRomCrc32 = localRom.has_value() ? localRom->validation.romCrc32 : 0;
@@ -1160,6 +1167,10 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     }
 
     syncInputDelayFromSettings(emu);
+
+    if(!m_coordinator.isActive() && m_coordinator.reconnectPending()) {
+        m_coordinator.update(0);
+    }
 
     if(!m_coordinator.isActive()) {
         (void)m_emuHost.consumeManualStateChanges();

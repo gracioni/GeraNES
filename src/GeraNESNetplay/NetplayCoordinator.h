@@ -93,6 +93,13 @@ private:
     std::vector<ParticipantId> m_pendingResyncAcks;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_reconnectReservationDeadlines;
+    std::string m_lastJoinHostName;
+    uint16_t m_lastJoinPort = 0;
+    bool m_reconnectPending = false;
+    bool m_reconnectAttemptInFlight = false;
+    uint16_t m_reconnectSecondsRemaining = 0;
+    std::chrono::steady_clock::time_point m_nextReconnectAttempt = {};
+    std::chrono::steady_clock::time_point m_reconnectDeadline = {};
     uint32_t m_gameplayReceiveDelayMs = 0;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
 
@@ -105,7 +112,11 @@ private:
     void pushLog(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
     ParticipantId participantIdFromPeer(ENetPeer* peer) const;
+    ParticipantInfo* findParticipantByReconnectToken(uint64_t reconnectToken);
     void removeParticipant(ParticipantId participantId);
+    void clearReconnectAttemptState();
+    void scheduleReconnectAttempt();
+    void processPendingReconnect();
     std::vector<uint8_t> buildJoinRoomPacket() const;
     std::vector<uint8_t> buildParticipantJoinedPacket(const ParticipantInfo& participant, uint64_t reconnectToken) const;
     std::vector<uint8_t> buildSelectRomPacket(const std::string& gameName, const RomValidationData& romValidation) const;
@@ -179,6 +190,8 @@ public:
     bool isActive() const;
     bool isHosting() const;
     bool isConnected() const;
+    bool reconnectPending() const;
+    uint16_t reconnectSecondsRemaining() const;
     uint32_t gameplayReceiveDelayMs() const;
     void setGameplayReceiveDelayMs(uint32_t delayMs);
     ParticipantId localParticipantId() const;

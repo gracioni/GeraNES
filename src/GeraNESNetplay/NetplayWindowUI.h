@@ -77,7 +77,17 @@ inline void drawNetplayWindow(bool& showWindow,
     cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
-    if(!active) {
+    if(snapshot.reconnecting) {
+        ImGui::TextColored(
+            ImVec4(0.95f, 0.8f, 0.35f, 1.0f),
+            "Reconnecting to host... %us",
+            static_cast<unsigned>(snapshot.reconnectSecondsRemaining)
+        );
+        ImGui::SameLine();
+        if(ImGui::Button("Cancel##NetplayCancelReconnectButton")) {
+            runtime.disconnect();
+        }
+    } else if(!active) {
         ImGui::BeginDisabled(!canHost);
         if(ImGui::Button("Host##NetplayHostButton")) {
             runtime.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
@@ -101,6 +111,10 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Transport Active: %s", active ? "Yes" : "No");
         ImGui::Text("Hosting: %s", snapshot.hosting ? "Yes" : "No");
         ImGui::Text("Connected: %s", snapshot.connected ? "Yes" : "No");
+        ImGui::Text("Reconnecting: %s", snapshot.reconnecting ? "Yes" : "No");
+        if(snapshot.reconnecting) {
+            ImGui::Text("Reconnect Window: %us", static_cast<unsigned>(snapshot.reconnectSecondsRemaining));
+        }
         ImGui::Text("Local Participant: %d", static_cast<int>(snapshot.localParticipantId));
         ImGui::Text("Local ROM: %s", snapshot.localRomLoaded ? snapshot.localRomGameName.c_str() : "<none>");
         if(snapshot.localRomLoaded) {
@@ -571,13 +585,17 @@ inline void drawNetplayWindow(bool& showWindow,
             } else if(participant.connected) {
                 ImGui::Text("%ums / %ums", participant.pingMs, participant.jitterMs);
             } else if(participant.reconnectReserved) {
-                ImGui::TextDisabled("reserved");
+                ImGui::TextDisabled("%us left", static_cast<unsigned>(participant.reservationSecondsRemaining));
             } else {
                 ImGui::TextDisabled("reconnect");
             }
             ImGui::TableNextColumn();
             if(snapshot.hosting && participant.id != snapshot.localParticipantId) {
-                if(ImGui::SmallButton(("Kick##" + std::to_string(participant.id)).c_str())) {
+                if(participant.reconnectReserved) {
+                    if(ImGui::SmallButton(("Remove Reservation##" + std::to_string(participant.id)).c_str())) {
+                        runtime.removeReconnectReservation(participant.id);
+                    }
+                } else if(ImGui::SmallButton(("Kick##" + std::to_string(participant.id)).c_str())) {
                     runtime.kickParticipant(participant.id);
                 }
             } else {
