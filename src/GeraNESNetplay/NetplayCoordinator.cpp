@@ -547,6 +547,19 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncAckPacket(const ResyncAckDat
     return writer.data();
 }
 
+std::vector<uint8_t> NetplayCoordinator::buildResyncAbortPacket(const ResyncAbortData& data) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ResyncAbort;
+    header.sessionId = m_session.roomState().sessionId;
+    writer.writePod(header);
+    writer.writePod(data);
+
+    return writer.data();
+}
+
 std::vector<uint8_t> NetplayCoordinator::buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const
 {
     PacketWriter writer;
@@ -945,6 +958,25 @@ void NetplayCoordinator::advanceParticipantContiguousInputFrame(ParticipantInfo&
         }
         participant.lastContiguousInputFrame = nextFrame;
     }
+}
+
+void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std::string& reason)
+{
+    if(!m_hosting) return;
+
+    if(!m_pendingHostResyncFrame.has_value() || targetFrame < *m_pendingHostResyncFrame) {
+        m_pendingHostResyncFrame = targetFrame;
+    }
+
+    m_pendingResyncAcks.clear();
+    m_session.roomState().pendingResyncAckCount = 0;
+    m_session.roomState().activeResyncId = 0;
+    m_session.roomState().resyncTargetFrame = 0;
+    m_session.roomState().resyncPayloadSize = 0;
+    m_session.roomState().resyncPayloadCrc32 = 0;
+    m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
+    m_session.roomState().state = SessionState::Paused;
+    pushLog(reason);
 }
 
 void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
@@ -1536,15 +1568,29 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
 
     if(std::find(m_incomingResync->receivedMask.begin(), m_incomingResync->receivedMask.end(), uint8_t{0}) != m_incomingResync->receivedMask.end()) {
         pushLog("Resync payload incomplete");
+        if(!m_hosting && m_serverPeer != nullptr) {
+            ResyncAbortData abort;
+            abort.resyncId = data.resyncId;
+            abort.participantId = m_localParticipantId;
+            abort.reason = 1;
+            m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncAbortPacket(abort));
+        }
         m_incomingResync.reset();
-        return false;
+        return true;
     }
 
     const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(m_incomingResync->payload.data()), m_incomingResync->payload.size());
     if(payloadCrc32 != m_incomingResync->expectedPayloadCrc32) {
         pushLog("Resync payload CRC mismatch");
+        if(!m_hosting && m_serverPeer != nullptr) {
+            ResyncAbortData abort;
+            abort.resyncId = data.resyncId;
+            abort.participantId = m_localParticipantId;
+            abort.reason = 2;
+            m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncAbortPacket(abort));
+        }
         m_incomingResync.reset();
-        return false;
+        return true;
     }
 
     PendingResyncApply pending;
@@ -1563,6 +1609,14 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
     ResyncAckData data;
     if(!reader.readPod(data)) return false;
     if(!m_hosting || data.resyncId != m_session.roomState().activeResyncId) return true;
+
+    if(data.success == 0) {
+        scheduleResyncRetry(
+            m_session.roomState().resyncTargetFrame,
+            "Resync ACK failure from participant " + std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+        );
+        return true;
+    }
 
     m_pendingResyncAcks.erase(
         std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), data.participantId),
@@ -1594,6 +1648,19 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
     }
 
+    return true;
+}
+
+bool NetplayCoordinator::handleResyncAbort(PacketReader& reader)
+{
+    ResyncAbortData data;
+    if(!reader.readPod(data)) return false;
+    if(!m_hosting || data.resyncId != m_session.roomState().activeResyncId) return true;
+
+    scheduleResyncRetry(
+        m_session.roomState().resyncTargetFrame,
+        "Resync aborted by participant " + std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+    );
     return true;
 }
 
@@ -2233,6 +2300,9 @@ bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<u
 
         case MessageType::ResyncAck:
             return handleResyncAck(reader);
+
+        case MessageType::ResyncAbort:
+            return handleResyncAbort(reader);
 
         case MessageType::PeerHealth:
             return handlePeerHealth(peer, reader);
@@ -3028,7 +3098,9 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_pendingResyncAcks.clear();
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.id != m_localParticipantId) {
+        if(participant.id != m_localParticipantId &&
+           participant.connected &&
+           !participant.reconnectReserved) {
             m_pendingResyncAcks.push_back(participant.id);
         }
     }

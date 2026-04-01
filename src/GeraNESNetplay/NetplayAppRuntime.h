@@ -532,6 +532,11 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
         if(event.kind == EmulationHost::ManualStateChangeKind::LoadState) {
             const std::vector<uint8_t> statePayload =
                 buildAuthoritativeStatePayload(emu, eventFrame, false);
+            if(statePayload.empty()) {
+                continue;
+            }
+
+            m_pendingManualStateResyncs.clear();
             beginAuthoritativeResyncWithoutLocalReload(emu, eventFrame, statePayload, reason);
             continue;
         }

@@ -134,6 +134,7 @@ private:
     std::vector<uint8_t> buildResyncChunkPacket(const ResyncChunkData& data, std::span<const uint8_t> payloadChunk) const;
     std::vector<uint8_t> buildResyncCompletePacket(const ResyncCompleteData& data) const;
     std::vector<uint8_t> buildResyncAckPacket(const ResyncAckData& data) const;
+    std::vector<uint8_t> buildResyncAbortPacket(const ResyncAbortData& data) const;
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
     bool handleControlPacket(ENetPeer* peer, const std::vector<uint8_t>& payload);
     bool handleJoinRoom(ENetPeer* peer, PacketReader& reader);
@@ -147,6 +148,7 @@ private:
     bool handleResyncChunk(PacketReader& reader);
     bool handleResyncComplete(PacketReader& reader);
     bool handleResyncAck(PacketReader& reader);
+    bool handleResyncAbort(PacketReader& reader);
     bool handlePeerHealth(ENetPeer* peer, PacketReader& reader);
     bool handleInputFrame(ENetPeer* peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
@@ -175,6 +177,7 @@ private:
     void resetRuntimeTimelineStateForSessionStart();
     void discardTimelineStateAfter(FrameNumber frame);
     void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
+    void scheduleResyncRetry(FrameNumber targetFrame, const std::string& reason);
 
 public:
     NetplayCoordinator();

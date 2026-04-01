@@ -237,4 +237,11 @@ struct ResyncAckData
     uint8_t success = 0;
 };
 
+struct ResyncAbortData
+{
+    uint32_t resyncId = 0;
+    ParticipantId participantId = kInvalidParticipantId;
+    uint8_t reason = 0;
+};
+
 } // namespace Netplay
