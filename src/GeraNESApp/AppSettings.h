@@ -172,8 +172,8 @@ public:
 
                 ControllerInfo i;
 
-                i.a = "Left Alt";
-                i.b = "Left Ctrl";
+                i.a = "X";
+                i.b = "Z";
                 i.select = "Space";
                 i.start = "Return";        
                 i.up = "Up";
