@@ -59,6 +59,13 @@ enum class ParticipantRole : uint8_t
     Observer
 };
 
+enum class JoinRejectReason : uint8_t
+{
+    Unknown = 0,
+    RomMismatch = 1,
+    EmulatorVersionMismatch = 2
+};
+
 enum class ResyncReason : uint8_t
 {
     Unspecified = 0,
@@ -98,7 +105,7 @@ struct JoinRoomData
 
 struct JoinRejectedData
 {
-    uint8_t reason = 0;
+    JoinRejectReason reason = JoinRejectReason::Unknown;
     RomValidationData romValidation = {};
 };
 

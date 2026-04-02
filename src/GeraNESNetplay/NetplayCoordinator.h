@@ -72,6 +72,7 @@ private:
     uint64_t m_localReconnectToken = 0;
     bool m_pendingJoinRomLoaded = false;
     RomValidationData m_pendingJoinRomValidation = {};
+    std::string m_localEmulatorVersion;
     bool m_disconnectExpectedAfterJoinReject = false;
     bool m_disconnectExpectedAfterHostShutdown = false;
     bool m_gracefulDisconnectPending = false;
@@ -129,7 +130,10 @@ private:
     void scheduleReconnectAttempt();
     void processPendingReconnect();
     std::vector<uint8_t> buildJoinRoomPacket() const;
-    std::vector<uint8_t> buildJoinRejectedPacket(const std::string& gameName, const RomValidationData& romValidation) const;
+    std::vector<uint8_t> buildJoinRejectedPacket(JoinRejectReason reason,
+                                                 const std::string& gameName,
+                                                 const RomValidationData& romValidation,
+                                                 const std::string& expectedEmulatorVersion = {}) const;
     std::vector<uint8_t> buildParticipantJoinedPacket(const ParticipantInfo& participant, uint64_t reconnectToken) const;
     std::vector<uint8_t> buildSelectRomPacket(const std::string& gameName, const RomValidationData& romValidation) const;
     std::vector<uint8_t> buildRomValidationResultPacket(const RomValidationResultData& result) const;
@@ -218,6 +222,7 @@ public:
     void dropNextIncomingMessages(MessageType type, uint32_t count);
     void clearIncomingMessageDrops();
     void setReconnectReservationDurationForTests(uint32_t seconds);
+    void setLocalEmulatorVersionForTests(const std::string& version);
     void simulateTransportFailureForTests();
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;

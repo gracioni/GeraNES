@@ -11,6 +11,7 @@
 #endif
 
 #include "GeraNESNetplay/NetplayInputAssignment.h"
+#include "GeraNES/defines.h"
 #include "GeraNES/util/Crc32.h"
 #include "GeraNES/Serialization.h"
 
@@ -110,6 +111,7 @@ namespace Netplay {
 
 NetplayCoordinator::NetplayCoordinator()
     : m_localDisplayName(defaultDisplayName())
+    , m_localEmulatorVersion(GERANES_VERSION)
 {
     m_localInputs.configure(2400);
     m_remoteInputs.configure(2400);
@@ -389,6 +391,7 @@ std::vector<uint8_t> NetplayCoordinator::buildJoinRoomPacket() const
     joinData.romValidation = m_pendingJoinRomValidation;
     writer.writePod(joinData);
     writer.writeString(m_localDisplayName);
+    writer.writeString(m_localEmulatorVersion);
 
     return writer.data();
 }
@@ -419,8 +422,10 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
     return writer.data();
 }
 
-std::vector<uint8_t> NetplayCoordinator::buildJoinRejectedPacket(const std::string& gameName,
-                                                                 const RomValidationData& romValidation) const
+std::vector<uint8_t> NetplayCoordinator::buildJoinRejectedPacket(JoinRejectReason reason,
+                                                                 const std::string& gameName,
+                                                                 const RomValidationData& romValidation,
+                                                                 const std::string& expectedEmulatorVersion) const
 {
     PacketWriter writer;
 
@@ -430,10 +435,11 @@ std::vector<uint8_t> NetplayCoordinator::buildJoinRejectedPacket(const std::stri
     writer.writePod(header);
 
     JoinRejectedData data;
-    data.reason = 1;
+    data.reason = reason;
     data.romValidation = romValidation;
     writer.writePod(data);
     writer.writeString(gameName);
+    writer.writeString(expectedEmulatorVersion);
 
     return writer.data();
 }
@@ -2108,8 +2114,28 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
 
     std::string displayName;
     if(!reader.readString(displayName)) return false;
+    std::string emulatorVersion;
+    if(reader.remaining() > 0 && !reader.readString(emulatorVersion)) return false;
 
     const bool hostRequiresSpecificRom = !m_session.roomState().selectedGameName.empty();
+    const bool joinVersionCompatible = !emulatorVersion.empty() && emulatorVersion == m_localEmulatorVersion;
+    if(!joinVersionCompatible) {
+        pushLog("Rejected join from " + displayName + " due to emulator version mismatch");
+        m_transport.sendReliable(
+            peer,
+            Channel::Control,
+            buildJoinRejectedPacket(
+                JoinRejectReason::EmulatorVersionMismatch,
+                m_session.roomState().selectedGameName,
+                m_session.roomState().romValidation,
+                m_localEmulatorVersion
+            )
+        );
+        m_transport.flush();
+        m_transport.disconnectPeer(peer);
+        return true;
+    }
+
     const bool joinRomCompatible =
         !hostRequiresSpecificRom ||
         (joinData.romLoaded != 0 &&
@@ -2119,7 +2145,11 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         m_transport.sendReliable(
             peer,
             Channel::Control,
-            buildJoinRejectedPacket(m_session.roomState().selectedGameName, m_session.roomState().romValidation)
+            buildJoinRejectedPacket(
+                JoinRejectReason::RomMismatch,
+                m_session.roomState().selectedGameName,
+                m_session.roomState().romValidation
+            )
         );
         m_transport.flush();
         m_transport.disconnectPeer(peer);
@@ -2303,13 +2333,31 @@ bool NetplayCoordinator::handleJoinRejected(PacketReader& reader)
 
     std::string gameName;
     if(!reader.readString(gameName)) return false;
+    std::string expectedEmulatorVersion;
+    if(reader.remaining() > 0 && !reader.readString(expectedEmulatorVersion)) return false;
 
-    std::ostringstream oss;
-    oss << "Host requires ROM \"" << gameName << "\" (CRC "
-        << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
-        << data.romValidation.romCrc32 << ")";
-    m_lastError = oss.str();
-    pushLog("Join rejected: ROM mismatch");
+    switch(data.reason) {
+        case JoinRejectReason::EmulatorVersionMismatch: {
+            std::ostringstream oss;
+            oss << "Emulator version mismatch: host is "
+                << (expectedEmulatorVersion.empty() ? "<unknown>" : expectedEmulatorVersion)
+                << ", client is "
+                << m_localEmulatorVersion;
+            m_lastError = oss.str();
+            pushLog("Join rejected: emulator version mismatch");
+            break;
+        }
+        case JoinRejectReason::RomMismatch:
+        default: {
+            std::ostringstream oss;
+            oss << "Host requires ROM \"" << gameName << "\" (CRC "
+                << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
+                << data.romValidation.romCrc32 << ")";
+            m_lastError = oss.str();
+            pushLog("Join rejected: ROM mismatch");
+            break;
+        }
+    }
     clearReconnectAttemptState();
     m_disconnectExpectedAfterJoinReject = true;
     return true;
@@ -2773,6 +2821,11 @@ void NetplayCoordinator::setReconnectReservationDurationForTests(uint32_t second
         m_reconnectSecondsRemaining =
             static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
     }
+}
+
+void NetplayCoordinator::setLocalEmulatorVersionForTests(const std::string& version)
+{
+    m_localEmulatorVersion = version.empty() ? std::string(GERANES_VERSION) : version;
 }
 
 void NetplayCoordinator::simulateTransportFailureForTests()

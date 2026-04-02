@@ -81,12 +81,18 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::EndDisabled();
     };
 
-    const auto drawWebRtcConfig = [&]() {
-        ImGui::Checkbox("Embedded Signaling Server##NetplayEmbeddedSignaling", &cfg.useEmbeddedSignalingServer);
+    const auto drawWebRtcConfig = [&](bool hostMode) {
         ImGui::SetNextItemWidth(220.0f);
         ImGui::InputText("Room Id##NetplaySignalingRoomId", &cfg.signalingRoomId);
+        if(hostMode) {
+            ImGui::Checkbox("Embedded Signaling Server##NetplayEmbeddedSignaling", &cfg.useEmbeddedSignalingServer);
+        }
         if(cfg.useEmbeddedSignalingServer) {
-            ImGui::TextWrapped("Host mode will start signaling on the selected port. Join mode will use ws://<host>:<port> automatically.");
+            if(hostMode) {
+                ImGui::TextWrapped("Host mode will start signaling on the selected port. Client mode will use ws://<host>:<port> automatically.");
+            } else {
+                ImGui::TextWrapped("Client mode will use ws://<host>:<port> automatically.");
+            }
         } else {
             ImGui::SetNextItemWidth(320.0f);
             ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
@@ -150,7 +156,7 @@ inline void drawNetplayWindow(bool& showWindow,
                 ImGui::TextDisabled("Create a room and wait for players.");
                 drawBackendSelector();
                 if(usingWebRtc) {
-                    drawWebRtcConfig();
+                    drawWebRtcConfig(true);
                 }
                 ImGui::SetNextItemWidth(120.0f);
                 ImGui::InputInt("Port##NetplayHostPort", &cfg.port);
@@ -174,11 +180,11 @@ inline void drawNetplayWindow(bool& showWindow,
                 }
                 ImGui::EndTabItem();
             }
-            if(ImGui::BeginTabItem("Join")) {
+            if(ImGui::BeginTabItem("Client")) {
                 ImGui::TextDisabled("Connect to an existing room.");
                 drawBackendSelector();
                 if(usingWebRtc) {
-                    drawWebRtcConfig();
+                    drawWebRtcConfig(false);
                 }
                 ImGui::SetNextItemWidth(220.0f);
                 ImGui::InputText("Host##NetplayHostName", &cfg.hostName);

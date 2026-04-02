@@ -381,6 +381,74 @@ private:
         }
     }
 
+    static bool verifyEmulatorVersionJoinRejection(const Options& options,
+                                                   nlohmann::json& report,
+                                                   std::string& failureReason)
+    {
+        PeerState hostPeer("Host", true, options.hostInputSeed);
+        PeerState clientPeer("Client", false, options.clientInputSeed);
+        const auto cleanup = [&]() {
+            clientPeer.coordinator.disconnect();
+            hostPeer.coordinator.disconnect();
+        };
+
+        bool hostStarted = false;
+        bool joinStarted = false;
+        uint16_t selectedPort = 0;
+        for(uint32_t portOffset = 0; portOffset < 8u; ++portOffset) {
+            const uint16_t port = static_cast<uint16_t>(options.port + 100u + portOffset);
+            hostPeer.coordinator.disconnect();
+            clientPeer.coordinator.disconnect();
+            clientPeer.coordinator.setLocalEmulatorVersionForTests("mismatch-test-version");
+            if(!hostPeer.coordinator.host(port, 1, hostPeer.name)) {
+                continue;
+            }
+            hostStarted = true;
+            selectedPort = port;
+            if(!clientPeer.coordinator.join("127.0.0.1", port, clientPeer.name)) {
+                continue;
+            }
+            joinStarted = true;
+            break;
+        }
+
+        report["hostStarted"] = hostStarted;
+        report["joinStarted"] = joinStarted;
+        report["port"] = selectedPort;
+
+        if(!hostStarted) {
+            failureReason = "Failed to start temporary host for emulator version mismatch validation.";
+            cleanup();
+            return false;
+        }
+        if(!joinStarted) {
+            failureReason = "Failed to start temporary client join for emulator version mismatch validation.";
+            cleanup();
+            return false;
+        }
+
+        bool rejected = false;
+        for(uint32_t step = 0; step < options.startupTimeoutSteps; ++step) {
+            pumpNetwork(hostPeer, clientPeer, 1);
+            if(clientPeer.coordinator.lastError().find("Emulator version mismatch") != std::string::npos) {
+                rejected = true;
+                break;
+            }
+        }
+
+        report["clientError"] = clientPeer.coordinator.lastError();
+        report["hostLog"] = hostPeer.coordinator.eventLog();
+
+        if(!rejected) {
+            failureReason = "Client with mismatched emulator version was not rejected with the expected message.";
+            cleanup();
+            return false;
+        }
+
+        cleanup();
+        return true;
+    }
+
     template<typename HostPeer, typename ClientPeer>
     static void pumpCoordinators(HostPeer& hostPeer, ClientPeer& clientPeer, uint32_t timeoutMs = 0)
     {
@@ -3695,6 +3763,22 @@ public:
             << " clientSeed=" << options.clientInputSeed
             << std::endl;
 
+        nlohmann::json compatibilityChecks;
+        std::string compatibilityFailureReason;
+        if(!verifyEmulatorVersionJoinRejection(
+               options,
+               compatibilityChecks["emulatorVersionMismatchJoinRejected"],
+               compatibilityFailureReason
+           )) {
+            RunArtifacts result;
+            result.exitCode = RESULT_FAILED;
+            result.report["status"] = "failed";
+            result.report["failureReason"] = compatibilityFailureReason;
+            result.report["compatibilityChecks"] = compatibilityChecks;
+            writeReport(options, result.report);
+            return result.exitCode;
+        }
+
         RunArtifacts result = options.robust
             ? runRobustMatrix(options)
             : (options.autoSettingsProbe
@@ -3702,6 +3786,7 @@ public:
                 : (options.appFlow
                 ? (options.runtimeFlow ? runSingleCaseRuntimeFlow(options) : runSingleCaseAppFlow(options))
                 : runSingleCase(options)));
+        result.report["compatibilityChecks"] = compatibilityChecks;
         writeReport(options, result.report);
         return result.exitCode;
     }
