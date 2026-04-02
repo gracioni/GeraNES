@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -17,6 +18,11 @@ struct WebRtcSignalingConfig
         return !url.empty() && !roomId.empty();
     }
 };
+
+inline std::string buildWebRtcSignalingUrl(const std::string& hostName, uint16_t port)
+{
+    return "ws://" + hostName + ":" + std::to_string(static_cast<unsigned>(port));
+}
 
 enum class WebRtcSignalType
 {

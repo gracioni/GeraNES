@@ -7,6 +7,7 @@
 #include <thread>
 
 #if !defined(__EMSCRIPTEN__)
+#include <exception>
 #include <websocketpp/client.hpp>
 #include <websocketpp/config/asio_no_tls_client.hpp>
 #endif
@@ -29,6 +30,7 @@ private:
     bool m_connected = false;
     bool m_connectResolved = false;
     bool m_connectSucceeded = false;
+    std::string m_connectError;
     std::string m_lastError;
     std::deque<Event> m_events;
     std::thread m_thread;
@@ -52,11 +54,20 @@ private:
             std::scoped_lock lock(m_mutex);
             m_connectResolved = true;
             m_connectSucceeded = success;
-            if(!error.empty()) {
-                m_lastError = error;
-            }
+            m_connectError = error;
         }
         m_connectCondition.notify_all();
+    }
+
+    void reportRuntimeError(const std::string& error)
+    {
+        {
+            std::scoped_lock lock(m_mutex);
+            m_hasConnection = false;
+            m_connected = false;
+        }
+        pushEvent(Event{Event::Type::Error, {}, error});
+        markConnectResolved(false, error);
     }
 
 public:
@@ -89,16 +100,18 @@ public:
             std::scoped_lock lock(m_mutex);
             m_connectResolved = false;
             m_connectSucceeded = false;
+            m_connectError.clear();
+            m_hasConnection = false;
             m_connected = false;
             m_lastError.clear();
             m_events.clear();
         }
 
         m_client->set_open_handler([this](websocketpp::connection_hdl hdl) {
-            m_connection = hdl;
-            m_hasConnection = true;
             {
                 std::scoped_lock lock(m_mutex);
+                m_connection = hdl;
+                m_hasConnection = true;
                 m_connected = true;
             }
             pushEvent(Event{Event::Type::Connected, {}, {}});
@@ -108,6 +121,7 @@ public:
         m_client->set_close_handler([this](websocketpp::connection_hdl) {
             {
                 std::scoped_lock lock(m_mutex);
+                m_hasConnection = false;
                 m_connected = false;
             }
             pushEvent(Event{Event::Type::Disconnected, {}, {}});
@@ -127,8 +141,8 @@ public:
 
             {
                 std::scoped_lock lock(m_mutex);
+                m_hasConnection = false;
                 m_connected = false;
-                m_lastError = error;
             }
             pushEvent(Event{Event::Type::Error, {}, error});
             markConnectResolved(false, error);
@@ -146,7 +160,20 @@ public:
         });
 
         websocketpp::lib::error_code ec;
-        Client::connection_ptr connection = m_client->get_connection(options.config.url, ec);
+        Client::connection_ptr connection;
+        try {
+            connection = m_client->get_connection(options.config.url, ec);
+        } catch(const std::exception& ex) {
+            m_client->stop_perpetual();
+            m_client.reset();
+            m_lastError = std::string("WebRTC signaling setup failed: ") + ex.what();
+            return false;
+        } catch(...) {
+            m_client->stop_perpetual();
+            m_client.reset();
+            m_lastError = "WebRTC signaling setup failed";
+            return false;
+        }
         if(ec) {
             m_client->stop_perpetual();
             m_client.reset();
@@ -154,13 +181,30 @@ public:
             return false;
         }
 
+        try {
+            m_client->connect(connection);
+        } catch(const std::exception& ex) {
+            m_lastError = std::string("WebRTC signaling connect failed: ") + ex.what();
+            disconnect();
+            return false;
+        } catch(...) {
+            m_lastError = "WebRTC signaling connect failed";
+            disconnect();
+            return false;
+        }
+        connection.reset();
+
         m_thread = std::thread([this]() {
-            if(m_client) {
-                m_client->run();
+            try {
+                if(m_client) {
+                    m_client->run();
+                }
+            } catch(const std::exception& ex) {
+                reportRuntimeError(std::string("WebRTC signaling runtime failed: ") + ex.what());
+            } catch(...) {
+                reportRuntimeError("WebRTC signaling runtime failed");
             }
         });
-
-        m_client->connect(connection);
 
         std::unique_lock lock(m_mutex);
         const bool resolved = m_connectCondition.wait_for(
@@ -175,19 +219,43 @@ public:
             return false;
         }
 
-        return m_connectSucceeded;
+        const bool connectSucceeded = m_connectSucceeded;
+        const std::string connectError = m_connectError;
+        lock.unlock();
+
+        if(!connectSucceeded) {
+            m_lastError = connectError.empty() ? "WebRTC signaling connection failed" : connectError;
+            disconnect();
+            return false;
+        }
+
+        return true;
     }
 
     void disconnect() override
     {
-        if(m_client && m_hasConnection) {
+        bool hasConnection = false;
+        websocketpp::connection_hdl connection;
+        {
+            std::scoped_lock lock(m_mutex);
+            hasConnection = m_hasConnection;
+            connection = m_connection;
+        }
+
+        if(m_client && hasConnection) {
             websocketpp::lib::error_code ec;
-            m_client->close(m_connection, websocketpp::close::status::going_away, "", ec);
+            try {
+                m_client->close(connection, websocketpp::close::status::going_away, "", ec);
+            } catch(...) {
+            }
         }
 
         if(m_client) {
-            m_client->stop_perpetual();
-            m_client->stop();
+            try {
+                m_client->stop_perpetual();
+                m_client->stop();
+            } catch(...) {
+            }
         }
 
         if(m_thread.joinable()) {
@@ -196,25 +264,44 @@ public:
 
         {
             std::scoped_lock lock(m_mutex);
+            m_hasConnection = false;
             m_connected = false;
             m_connectResolved = false;
             m_connectSucceeded = false;
+            m_connectError.clear();
             m_events.clear();
         }
 
-        m_hasConnection = false;
         m_client.reset();
     }
 
     bool send(const WebRtcSignalingMessage& message) override
     {
-        if(!isConnected() || !m_client || !m_hasConnection) {
+        websocketpp::connection_hdl connection;
+        bool connected = false;
+        bool hasConnection = false;
+        {
+            std::scoped_lock lock(m_mutex);
+            connection = m_connection;
+            connected = m_connected;
+            hasConnection = m_hasConnection;
+        }
+
+        if(!connected || !m_client || !hasConnection) {
             m_lastError = "WebRTC signaling socket is not connected";
             return false;
         }
 
         websocketpp::lib::error_code ec;
-        m_client->send(m_connection, message.toText(), websocketpp::frame::opcode::text, ec);
+        try {
+            m_client->send(connection, message.toText(), websocketpp::frame::opcode::text, ec);
+        } catch(const std::exception& ex) {
+            m_lastError = std::string("WebRTC signaling send failed: ") + ex.what();
+            return false;
+        } catch(...) {
+            m_lastError = "WebRTC signaling send failed";
+            return false;
+        }
         if(ec) {
             m_lastError = "WebRTC signaling send failed: " + ec.message();
             return false;

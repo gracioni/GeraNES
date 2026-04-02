@@ -1,6 +1,7 @@
 #include "GeraNESNetplay/NetTransport.h"
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
 #include "GeraNESNetplay/WebRtcSignalingClient.h"
+#include "GeraNESNetplay/WebRtcSignalingServer.h"
 
 #include <chrono>
 #include <optional>
@@ -306,8 +307,10 @@ private:
 
     NetTransportOptions m_options;
     std::string m_lastError;
+    std::unique_ptr<IWebRtcSignalingServer> m_signalingServer;
     std::unique_ptr<IWebRtcSignalingClient> m_signalingClient;
     std::string m_localPeerId;
+    std::optional<WebRtcSignalingConfig> m_activeSignalingConfig;
     std::optional<WebRtcPeerState> m_peer;
     PeerHandle m_nextPeerHandle = 1;
     bool m_signalingReady = false;
@@ -327,6 +330,13 @@ private:
         m_active = false;
     }
 
+    bool ensureSignalingServer()
+    {
+        if(m_signalingServer) return true;
+        m_signalingServer = createWebRtcSignalingServer();
+        return static_cast<bool>(m_signalingServer);
+    }
+
     bool ensureSignalingClient()
     {
         if(m_signalingClient) return true;
@@ -341,9 +351,30 @@ private:
         return std::string(host ? "host-" : "peer-") + std::to_string(static_cast<long long>(ticks));
     }
 
-    bool hasValidSignaling() const
+    std::optional<WebRtcSignalingConfig> resolveSignalingConfig(bool host,
+                                                                const std::string& hostName,
+                                                                uint16_t port) const
     {
-        return m_options.webRtcSignaling.has_value() && m_options.webRtcSignaling->valid();
+        WebRtcSignalingConfig config;
+        if(m_options.webRtcSignaling.has_value()) {
+            config = *m_options.webRtcSignaling;
+        }
+        if(config.roomId.empty()) {
+            config.roomId = "default";
+        }
+
+        if(m_options.useEmbeddedWebRtcSignalingServer) {
+            const std::string signalingHost = host ? "127.0.0.1" : hostName;
+            if(signalingHost.empty() || port == 0) {
+                return std::nullopt;
+            }
+            config.url = buildWebRtcSignalingUrl(signalingHost, port);
+        }
+        else if(config.url.empty()) {
+            return std::nullopt;
+        }
+
+        return config.valid() ? std::optional<WebRtcSignalingConfig>(std::move(config)) : std::nullopt;
     }
 
     bool ensurePeerConnection(std::unique_ptr<IWebRtcPeerConnection>& connection)
@@ -364,7 +395,11 @@ private:
 
         m_localPeerId = generatePeerId(host);
         WebRtcSignalingClientOptions options;
-        options.config = *m_options.webRtcSignaling;
+        if(!m_activeSignalingConfig.has_value()) {
+            m_lastError = "Configure signaling URL and room id for WebRTC";
+            return false;
+        }
+        options.config = *m_activeSignalingConfig;
         options.localPeerId = m_localPeerId;
         options.host = host;
 
@@ -526,7 +561,7 @@ private:
                 case IWebRtcPeerConnection::Event::Type::LocalDescriptionReady: {
                     WebRtcSignalingMessage message;
                     message.type = event.descriptionIsOffer ? WebRtcSignalType::Offer : WebRtcSignalType::Answer;
-                    message.roomId = m_options.webRtcSignaling ? m_options.webRtcSignaling->roomId : std::string{};
+                    message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
                     message.peerId = m_localPeerId;
                     message.targetPeerId = peer.remotePeerId;
                     message.sdp = event.sdp;
@@ -537,7 +572,7 @@ private:
                 case IWebRtcPeerConnection::Event::Type::IceCandidateReady: {
                     WebRtcSignalingMessage message;
                     message.type = WebRtcSignalType::IceCandidate;
-                    message.roomId = m_options.webRtcSignaling ? m_options.webRtcSignaling->roomId : std::string{};
+                    message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
                     message.peerId = m_localPeerId;
                     message.targetPeerId = peer.remotePeerId;
                     message.candidate = event.candidate;
@@ -687,19 +722,45 @@ public:
         if(m_signalingClient) {
             m_signalingClient->disconnect();
         }
+        if(m_signalingServer) {
+            m_signalingServer->stop();
+        }
         clearRuntimeState();
     }
     void setOptions(const NetTransportOptions& options) override { m_options = options; }
     const NetTransportOptions& options() const override { return m_options; }
     const std::string& lastError() const override { return m_lastError; }
-    bool hostSession(uint16_t, size_t) override
+    bool hostSession(uint16_t port, size_t) override
     {
-        if(!hasValidSignaling()) {
+        m_activeSignalingConfig = resolveSignalingConfig(true, {}, port);
+        if(!m_activeSignalingConfig.has_value()) {
+            if(m_options.useEmbeddedWebRtcSignalingServer && port != 0) {
+                WebRtcSignalingConfig fallbackConfig;
+                fallbackConfig.url = buildWebRtcSignalingUrl("127.0.0.1", port);
+                fallbackConfig.roomId = "default";
+                m_activeSignalingConfig = std::move(fallbackConfig);
+            }
+        }
+        if(!m_activeSignalingConfig.has_value()) {
             m_lastError = "Configure signaling URL and room id for WebRTC";
             return false;
         }
 
+        if(m_options.useEmbeddedWebRtcSignalingServer) {
+            if(!ensureSignalingServer()) {
+                m_lastError = "Embedded WebRTC signaling server could not be created";
+                return false;
+            }
+            if(!m_signalingServer->start(port)) {
+                m_lastError = m_signalingServer->lastError();
+                return false;
+            }
+        }
+
         if(!bootstrapSignaling(true)) {
+            if(m_signalingServer) {
+                m_signalingServer->stop();
+            }
             return false;
         }
 
@@ -708,9 +769,18 @@ public:
         m_lastError.clear();
         return true;
     }
-    bool connectToHost(const std::string&, uint16_t, size_t = 3) override
+    bool connectToHost(const std::string& hostName, uint16_t port, size_t = 3) override
     {
-        if(!hasValidSignaling()) {
+        m_activeSignalingConfig = resolveSignalingConfig(false, hostName, port);
+        if(!m_activeSignalingConfig.has_value()) {
+            if(m_options.useEmbeddedWebRtcSignalingServer && !hostName.empty() && port != 0) {
+                WebRtcSignalingConfig fallbackConfig;
+                fallbackConfig.url = buildWebRtcSignalingUrl(hostName, port);
+                fallbackConfig.roomId = "default";
+                m_activeSignalingConfig = std::move(fallbackConfig);
+            }
+        }
+        if(!m_activeSignalingConfig.has_value()) {
             m_lastError = "Configure signaling URL and room id for WebRTC";
             return false;
         }

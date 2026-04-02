@@ -82,24 +82,26 @@ inline void drawNetplayWindow(bool& showWindow,
     };
 
     const auto drawWebRtcConfig = [&]() {
-        ImGui::SetNextItemWidth(320.0f);
-        ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
+        ImGui::Checkbox("Embedded Signaling Server##NetplayEmbeddedSignaling", &cfg.useEmbeddedSignalingServer);
         ImGui::SetNextItemWidth(220.0f);
         ImGui::InputText("Room Id##NetplaySignalingRoomId", &cfg.signalingRoomId);
-        const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
-        if(!signalingConfig.valid()) {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Configure signaling URL and room id for WebRTC.");
+        if(cfg.useEmbeddedSignalingServer) {
+            ImGui::TextWrapped("Host mode will start signaling on the selected port. Join mode will use ws://<host>:<port> automatically.");
         } else {
-            ImGui::TextWrapped("WebRTC signaling will use %s (room %s).", cfg.signalingUrl.c_str(), cfg.signalingRoomId.c_str());
+            ImGui::SetNextItemWidth(320.0f);
+            ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
+            const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
+            if(!signalingConfig.valid()) {
+                ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Configure signaling URL and room id for manual WebRTC signaling.");
+            } else {
+                ImGui::TextWrapped("Manual signaling will use %s (room %s).", cfg.signalingUrl.c_str(), cfg.signalingRoomId.c_str());
+            }
         }
     };
 
     ImGui::SetNextItemWidth(220.0f);
     ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
     const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
-    if(usingWebRtc) {
-        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
-    }
 #ifndef NDEBUG
     ImGui::Checkbox("Auto Gameplay Tuning##NetplayAutoGameplayTuning", &cfg.autoGameplayTuning);
     if(!cfg.autoGameplayTuning) {
@@ -159,7 +161,10 @@ inline void drawNetplayWindow(bool& showWindow,
                 ImGui::BeginDisabled(!canHost);
                 if(ImGui::Button("Create Room##NetplayHostButton")) {
                     if(usingWebRtc) {
-                        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+                        NetTransportOptions transportOptions;
+                        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.useEmbeddedSignalingServer;
+                        transportOptions.webRtcSignaling = WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
+                        runtime.setTransportOptions(transportOptions);
                     }
                     runtime.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
                 }
@@ -182,7 +187,10 @@ inline void drawNetplayWindow(bool& showWindow,
                 cfg.port = std::clamp(cfg.port, 1, 65535);
                 if(ImGui::Button("Join Room##NetplayJoinButton")) {
                     if(usingWebRtc) {
-                        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+                        NetTransportOptions transportOptions;
+                        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.useEmbeddedSignalingServer;
+                        transportOptions.webRtcSignaling = WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
+                        runtime.setTransportOptions(transportOptions);
                     }
                     runtime.join(cfg.hostName, static_cast<uint16_t>(cfg.port), cfg.displayName);
                 }

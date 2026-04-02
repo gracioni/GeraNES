@@ -23,6 +23,7 @@ NetTransportBackend defaultNetTransportBackend();
 
 struct NetTransportOptions
 {
+    bool useEmbeddedWebRtcSignalingServer = true;
     std::optional<WebRtcSignalingConfig> webRtcSignaling;
 };
 

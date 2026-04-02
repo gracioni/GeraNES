@@ -1641,6 +1641,7 @@ private:
             cfg.netplay.transportBackend = static_cast<int>(configuredBackend);
         }
         Netplay::NetTransportOptions transportOptions;
+        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.netplay.useEmbeddedSignalingServer;
         transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{cfg.netplay.signalingUrl, cfg.netplay.signalingRoomId};
         m_netplayRuntime.setTransportOptions(transportOptions);
         m_netplayRuntime.setTransportBackend(configuredBackend);
