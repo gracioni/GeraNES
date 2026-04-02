@@ -4,6 +4,7 @@
 #include "GeraNESNetplay/WebRtcSignalingServer.h"
 
 #include <chrono>
+#include <deque>
 #include <optional>
 #include <thread>
 
@@ -294,6 +295,18 @@ public:
 class WebRTCTransport final : public INetTransport
 {
 private:
+    static constexpr auto kWebRtcPeerHandshakeTimeout = std::chrono::seconds(5);
+
+    enum class PeerHandshakeState : uint8_t
+    {
+        Idle,
+        WaitingForOffer,
+        CreatingOffer,
+        WaitingForAnswer,
+        Negotiating,
+        Connected
+    };
+
     struct WebRtcPeerState
     {
         PeerHandle handle = kInvalidPeerHandle;
@@ -309,6 +322,7 @@ private:
     std::string m_lastError;
     std::unique_ptr<IWebRtcSignalingServer> m_signalingServer;
     std::unique_ptr<IWebRtcSignalingClient> m_signalingClient;
+    std::deque<IWebRtcSignalingClient::Event> m_pendingSignalingEvents;
     std::string m_localPeerId;
     std::optional<WebRtcSignalingConfig> m_activeSignalingConfig;
     std::vector<std::string> m_signaledIceServers;
@@ -317,6 +331,8 @@ private:
     bool m_signalingReady = false;
     bool m_hosting = false;
     bool m_active = false;
+    PeerHandshakeState m_peerHandshakeState = PeerHandshakeState::Idle;
+    std::optional<std::chrono::steady_clock::time_point> m_peerHandshakeDeadline;
 
     void clearRuntimeState()
     {
@@ -327,9 +343,72 @@ private:
         m_signalingReady = false;
         m_localPeerId.clear();
         m_signaledIceServers.clear();
+        m_pendingSignalingEvents.clear();
         m_nextPeerHandle = 1;
         m_hosting = false;
         m_active = false;
+        m_peerHandshakeState = PeerHandshakeState::Idle;
+        m_peerHandshakeDeadline.reset();
+    }
+
+    void startPeerHandshake(PeerHandshakeState state)
+    {
+        m_peerHandshakeState = state;
+        m_peerHandshakeDeadline = std::chrono::steady_clock::now() + kWebRtcPeerHandshakeTimeout;
+    }
+
+    void resetPeerHandshakeState()
+    {
+        m_peerHandshakeState = PeerHandshakeState::Idle;
+        m_peerHandshakeDeadline.reset();
+    }
+
+    void noteHandshakeProgress(PeerHandshakeState state)
+    {
+        m_peerHandshakeState = state;
+        if(m_peerHandshakeDeadline.has_value()) {
+            m_peerHandshakeDeadline = std::chrono::steady_clock::now() + kWebRtcPeerHandshakeTimeout;
+        }
+    }
+
+    void updateHandshakeTimeout()
+    {
+        if(!m_active || !m_signalingReady || !m_peerHandshakeDeadline.has_value()) {
+            return;
+        }
+        if(m_peerHandshakeState == PeerHandshakeState::Idle ||
+           m_peerHandshakeState == PeerHandshakeState::Connected) {
+            return;
+        }
+        if(std::chrono::steady_clock::now() < *m_peerHandshakeDeadline) {
+            return;
+        }
+        if(!m_lastError.empty()) {
+            return;
+        }
+
+        std::string stage;
+        switch(m_peerHandshakeState) {
+            case PeerHandshakeState::WaitingForOffer:
+                stage = "waiting for WebRTC offer from host";
+                break;
+            case PeerHandshakeState::CreatingOffer:
+                stage = "creating WebRTC offer";
+                break;
+            case PeerHandshakeState::WaitingForAnswer:
+                stage = "waiting for WebRTC answer from client";
+                break;
+            case PeerHandshakeState::Negotiating:
+                stage = "waiting for ICE/data channel negotiation";
+                break;
+            case PeerHandshakeState::Idle:
+            case PeerHandshakeState::Connected:
+            default:
+                stage = "waiting for peer handshake";
+                break;
+        }
+
+        m_lastError = "WebRTC peer handshake timed out (" + stage + ")";
     }
 
     bool ensureSignalingServer()
@@ -461,6 +540,8 @@ private:
                     m_lastError = !event.message.error.empty() ? event.message.error : "WebRTC signaling reported an error";
                     m_signalingClient->disconnect();
                     return false;
+                } else {
+                    m_pendingSignalingEvents.push_back(event);
                 }
             }
 
@@ -476,6 +557,9 @@ private:
         }
 
         m_signalingReady = true;
+        if(!host) {
+            startPeerHandshake(PeerHandshakeState::WaitingForOffer);
+        }
         return true;
     }
 
@@ -537,6 +621,8 @@ private:
             peer.connection->close();
         }
         m_peer.reset();
+        resetPeerHandshakeState();
+        m_lastError.clear();
     }
 
     std::vector<uint8_t> wrapPayload(Channel channel, const std::vector<uint8_t>& payload) const
@@ -570,6 +656,11 @@ private:
                 case IWebRtcPeerConnection::Event::Type::LocalDescriptionReady: {
                     WebRtcSignalingMessage message;
                     message.type = event.descriptionIsOffer ? WebRtcSignalType::Offer : WebRtcSignalType::Answer;
+                    if(event.descriptionIsOffer) {
+                        noteHandshakeProgress(PeerHandshakeState::WaitingForAnswer);
+                    } else {
+                        noteHandshakeProgress(PeerHandshakeState::Negotiating);
+                    }
                     message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
                     message.peerId = m_localPeerId;
                     message.targetPeerId = peer.remotePeerId;
@@ -581,6 +672,7 @@ private:
                 case IWebRtcPeerConnection::Event::Type::IceCandidateReady: {
                     WebRtcSignalingMessage message;
                     message.type = WebRtcSignalType::IceCandidate;
+                    noteHandshakeProgress(PeerHandshakeState::Negotiating);
                     message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
                     message.peerId = m_localPeerId;
                     message.targetPeerId = peer.remotePeerId;
@@ -594,6 +686,8 @@ private:
                 case IWebRtcPeerConnection::Event::Type::DataChannelOpen: {
                     if(!peer.connected) {
                         peer.connected = true;
+                        m_peerHandshakeState = PeerHandshakeState::Connected;
+                        m_peerHandshakeDeadline.reset();
                         Event connected;
                         connected.type = Event::Type::Connected;
                         connected.peer = peer.handle;
@@ -640,7 +734,12 @@ private:
     {
         if(!m_signalingClient) return;
 
+        std::deque<IWebRtcSignalingClient::Event> signalingEvents = std::move(m_pendingSignalingEvents);
         for(const auto& event : m_signalingClient->poll()) {
+            signalingEvents.push_back(event);
+        }
+
+        for(const auto& event : signalingEvents) {
             if(event.type == IWebRtcSignalingClient::Event::Type::Disconnected) {
                 if(m_peer.has_value()) {
                     closePeer(*m_peer, &events);
@@ -663,6 +762,7 @@ private:
             switch(message.type) {
                 case WebRtcSignalType::PeerJoined:
                     if(m_hosting && message.peerId != m_localPeerId) {
+                        startPeerHandshake(PeerHandshakeState::CreatingOffer);
                         if(initializePeerConnection(message.peerId, true)) {
                             WebRtcPeerState* peer = findPeerByRemoteId(message.peerId);
                             if(peer && peer->connection && !peer->connection->createOffer()) {
@@ -682,6 +782,7 @@ private:
                     if(message.peerId == m_localPeerId) {
                         break;
                     }
+                    noteHandshakeProgress(PeerHandshakeState::Negotiating);
                     if(!initializePeerConnection(message.peerId, false)) {
                         break;
                     }
@@ -700,6 +801,7 @@ private:
                     if(message.peerId == m_localPeerId) {
                         break;
                     }
+                    noteHandshakeProgress(PeerHandshakeState::Negotiating);
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
                         if(!peer->connection->setRemoteDescription(message.sdp, false)) {
                             m_lastError = peer->connection->lastError();
@@ -711,6 +813,7 @@ private:
                     if(message.peerId == m_localPeerId) {
                         break;
                     }
+                    noteHandshakeProgress(PeerHandshakeState::Negotiating);
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
                         if(!peer->connection->addRemoteIceCandidate(message.candidate, message.mid, message.mlineIndex)) {
                             m_lastError = peer->connection->lastError();
@@ -817,6 +920,8 @@ public:
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } while(std::chrono::steady_clock::now() < deadline);
+
+        updateHandshakeTimeout();
 
         return events;
     }

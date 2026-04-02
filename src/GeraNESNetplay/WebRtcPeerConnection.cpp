@@ -1,5 +1,6 @@
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
 
+#include <algorithm>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -14,6 +15,39 @@ namespace {
 
 #if !defined(__EMSCRIPTEN__)
 constexpr const char* kNetplayDataChannelLabel = "geranes";
+
+std::string trimAsciiWhitespace(const std::string& value)
+{
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    });
+    if(first == value.end()) {
+        return {};
+    }
+
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    }).base();
+    return std::string(first, last);
+}
+
+int createPeerConnectionWithIceServers(const std::vector<std::string>& iceServers)
+{
+    rtcConfiguration config{};
+    config.disableAutoNegotiation = true;
+
+    std::vector<const char*> iceServerViews;
+    if(!iceServers.empty()) {
+        iceServerViews.reserve(iceServers.size());
+        for(const auto& iceServer : iceServers) {
+            iceServerViews.push_back(iceServer.c_str());
+        }
+        config.iceServers = iceServerViews.data();
+        config.iceServersCount = static_cast<int>(iceServerViews.size());
+    }
+
+    return rtcCreatePeerConnection(&config);
+}
 
 class DesktopWebRtcPeerConnection final : public IWebRtcPeerConnection
 {
@@ -155,18 +189,22 @@ public:
     {
         close();
 
-        rtcConfiguration config{};
-        std::vector<const char*> iceServerViews;
+        std::vector<std::string> sanitizedIceServers;
         if(!options.iceServers.empty()) {
-            iceServerViews.reserve(options.iceServers.size());
+            sanitizedIceServers.reserve(options.iceServers.size());
             for(const auto& iceServer : options.iceServers) {
-                iceServerViews.push_back(iceServer.c_str());
+                std::string trimmedIceServer = trimAsciiWhitespace(iceServer);
+                if(trimmedIceServer.empty()) {
+                    continue;
+                }
+                sanitizedIceServers.push_back(std::move(trimmedIceServer));
             }
-            config.iceServers = iceServerViews.data();
-            config.iceServersCount = static_cast<int>(iceServerViews.size());
         }
-        config.disableAutoNegotiation = true;
-        m_peerConnection = rtcCreatePeerConnection(&config);
+
+        m_peerConnection = createPeerConnectionWithIceServers(sanitizedIceServers);
+        if(m_peerConnection <= 0 && !sanitizedIceServers.empty()) {
+            m_peerConnection = createPeerConnectionWithIceServers({});
+        }
         if(m_peerConnection <= 0) {
             m_lastError = "Failed to create WebRTC peer connection";
             return false;

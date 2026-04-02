@@ -220,6 +220,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingHostLateJoinResyncParticipant.reset();
     m_pendingResyncAcks.clear();
     m_reconnectReservationDeadlines.clear();
+    m_lastTransportError.clear();
     clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
 }
@@ -2713,6 +2714,15 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         DelayedPacketEvent delayed = std::move(m_delayedPacketEvents.front());
         m_delayedPacketEvents.pop_front();
         handleEvent(delayed.event);
+    }
+
+    const std::string transportError = m_transport.lastError();
+    if(!transportError.empty() && transportError != m_lastTransportError) {
+        m_lastTransportError = transportError;
+        m_lastError = transportError;
+        pushLog("Transport error: " + transportError);
+    } else if(transportError.empty()) {
+        m_lastTransportError.clear();
     }
 
     if(!m_hosting &&

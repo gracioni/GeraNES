@@ -78,6 +78,7 @@ private:
     bool m_gracefulDisconnectPending = false;
     std::chrono::steady_clock::time_point m_gracefulDisconnectDeadline = {};
     std::string m_lastError;
+    std::string m_lastTransportError;
     bool m_hosting = false;
     bool m_connected = false;
     ParticipantId m_nextAssignedParticipantId = 1;
