@@ -734,14 +734,6 @@ public:
     {
         m_activeSignalingConfig = resolveSignalingConfig(true, {}, port);
         if(!m_activeSignalingConfig.has_value()) {
-            if(m_options.useEmbeddedWebRtcSignalingServer && port != 0) {
-                WebRtcSignalingConfig fallbackConfig;
-                fallbackConfig.url = buildWebRtcSignalingUrl("127.0.0.1", port);
-                fallbackConfig.roomId = "default";
-                m_activeSignalingConfig = std::move(fallbackConfig);
-            }
-        }
-        if(!m_activeSignalingConfig.has_value()) {
             m_lastError = "Configure signaling URL and room id for WebRTC";
             return false;
         }
@@ -772,14 +764,6 @@ public:
     bool connectToHost(const std::string& hostName, uint16_t port, size_t = 3) override
     {
         m_activeSignalingConfig = resolveSignalingConfig(false, hostName, port);
-        if(!m_activeSignalingConfig.has_value()) {
-            if(m_options.useEmbeddedWebRtcSignalingServer && !hostName.empty() && port != 0) {
-                WebRtcSignalingConfig fallbackConfig;
-                fallbackConfig.url = buildWebRtcSignalingUrl(hostName, port);
-                fallbackConfig.roomId = "default";
-                m_activeSignalingConfig = std::move(fallbackConfig);
-            }
-        }
         if(!m_activeSignalingConfig.has_value()) {
             m_lastError = "Configure signaling URL and room id for WebRTC";
             return false;
