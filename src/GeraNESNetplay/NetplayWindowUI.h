@@ -47,6 +47,7 @@ inline void drawNetplayWindow(bool& showWindow,
     const auto snapshot = runtime.uiSnapshot();
     const bool active = snapshot.active;
     const bool showConnectedControls = snapshot.hosting || snapshot.connected;
+    const bool connecting = active && !snapshot.hosting && !snapshot.connected && !snapshot.reconnecting;
     const auto& room = snapshot.room;
     const bool canHost = snapshot.localRomLoaded;
     auto availableBackends = availableNetTransportBackends();
@@ -60,45 +61,45 @@ inline void drawNetplayWindow(bool& showWindow,
         cfg.transportBackend = configuredBackend;
         runtime.setTransportBackend(static_cast<NetTransportBackend>(configuredBackend));
     }
-    ImGui::SetNextItemWidth(220.0f);
-    ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
-    ImGui::SetNextItemWidth(220.0f);
-    ImGui::BeginDisabled(active || showConnectedControls);
-    if(ImGui::BeginCombo("Backend##NetplayBackend",
-                         netTransportBackendLabel(static_cast<NetTransportBackend>(configuredBackend)))) {
-        for(NetTransportBackend backend : availableBackends) {
-            const bool selected = configuredBackend == static_cast<int>(backend);
-            if(ImGui::Selectable(netTransportBackendLabel(backend), selected)) {
-                cfg.transportBackend = static_cast<int>(backend);
-                runtime.setTransportBackend(backend);
+    const auto drawBackendSelector = [&]() {
+        ImGui::SetNextItemWidth(220.0f);
+        ImGui::BeginDisabled(active || showConnectedControls);
+        if(ImGui::BeginCombo("Backend##NetplayBackend",
+                             netTransportBackendLabel(static_cast<NetTransportBackend>(configuredBackend)))) {
+            for(NetTransportBackend backend : availableBackends) {
+                const bool selected = configuredBackend == static_cast<int>(backend);
+                if(ImGui::Selectable(netTransportBackendLabel(backend), selected)) {
+                    cfg.transportBackend = static_cast<int>(backend);
+                    runtime.setTransportBackend(backend);
+                }
+                if(selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
             }
-            if(selected) {
-                ImGui::SetItemDefaultFocus();
-            }
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
-    }
-    ImGui::EndDisabled();
-    const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
-    if(usingWebRtc) {
-        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
-    }
-    if(usingWebRtc) {
+        ImGui::EndDisabled();
+    };
+
+    const auto drawWebRtcConfig = [&]() {
         ImGui::SetNextItemWidth(320.0f);
         ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
         ImGui::SetNextItemWidth(220.0f);
         ImGui::InputText("Room Id##NetplaySignalingRoomId", &cfg.signalingRoomId);
-    }
+        const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
+        if(!signalingConfig.valid()) {
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Configure signaling URL and room id for WebRTC.");
+        } else {
+            ImGui::TextWrapped("WebRTC signaling will use %s (room %s).", cfg.signalingUrl.c_str(), cfg.signalingRoomId.c_str());
+        }
+    };
+
     ImGui::SetNextItemWidth(220.0f);
-    ImGui::InputText("Host##NetplayHostName", &cfg.hostName);
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::InputInt("Port##NetplayPort", &cfg.port);
-    cfg.port = std::clamp(cfg.port, 1, 65535);
-
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
-    cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
-
+    ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
+    const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
+    if(usingWebRtc) {
+        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+    }
 #ifndef NDEBUG
     ImGui::Checkbox("Auto Gameplay Tuning##NetplayAutoGameplayTuning", &cfg.autoGameplayTuning);
     if(!cfg.autoGameplayTuning) {
@@ -119,6 +120,8 @@ inline void drawNetplayWindow(bool& showWindow,
     cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
+    cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
+
     if(snapshot.reconnecting) {
         ImGui::TextColored(
             ImVec4(0.95f, 0.8f, 0.35f, 1.0f),
@@ -129,32 +132,63 @@ inline void drawNetplayWindow(bool& showWindow,
         if(ImGui::Button("Cancel##NetplayCancelReconnectButton")) {
             runtime.disconnect();
         }
+    } else if(connecting) {
+        ImGui::TextColored(
+            ImVec4(0.45f, 0.8f, 0.95f, 1.0f),
+            "Trying to connect to %s:%d...",
+            cfg.hostName.c_str(),
+            cfg.port
+        );
+        if(ImGui::Button("Cancel##NetplayCancelConnectButton")) {
+            runtime.disconnect();
+        }
     } else if(!active || !showConnectedControls) {
-        ImGui::BeginDisabled(!canHost);
-        if(ImGui::Button("Host##NetplayHostButton")) {
-            if(usingWebRtc) {
-                runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+        if(ImGui::BeginTabBar("NetplayEntryTabs")) {
+            if(ImGui::BeginTabItem("Host")) {
+                ImGui::TextDisabled("Create a room and wait for players.");
+                drawBackendSelector();
+                if(usingWebRtc) {
+                    drawWebRtcConfig();
+                }
+                ImGui::SetNextItemWidth(120.0f);
+                ImGui::InputInt("Port##NetplayHostPort", &cfg.port);
+                cfg.port = std::clamp(cfg.port, 1, 65535);
+                ImGui::SetNextItemWidth(120.0f);
+                ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
+                cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
+                ImGui::BeginDisabled(!canHost);
+                if(ImGui::Button("Create Room##NetplayHostButton")) {
+                    if(usingWebRtc) {
+                        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+                    }
+                    runtime.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
+                }
+                ImGui::EndDisabled();
+                if(!canHost) {
+                    ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Load a ROM before hosting.");
+                }
+                ImGui::EndTabItem();
             }
-            runtime.host(static_cast<uint16_t>(cfg.port), static_cast<size_t>(cfg.maxPeers), cfg.displayName);
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if(ImGui::Button("Join##NetplayJoinButton")) {
-            if(usingWebRtc) {
-                runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+            if(ImGui::BeginTabItem("Join")) {
+                ImGui::TextDisabled("Connect to an existing room.");
+                drawBackendSelector();
+                if(usingWebRtc) {
+                    drawWebRtcConfig();
+                }
+                ImGui::SetNextItemWidth(220.0f);
+                ImGui::InputText("Host##NetplayHostName", &cfg.hostName);
+                ImGui::SetNextItemWidth(120.0f);
+                ImGui::InputInt("Port##NetplayJoinPort", &cfg.port);
+                cfg.port = std::clamp(cfg.port, 1, 65535);
+                if(ImGui::Button("Join Room##NetplayJoinButton")) {
+                    if(usingWebRtc) {
+                        runtime.setTransportOptions(NetTransportOptions{WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId}});
+                    }
+                    runtime.join(cfg.hostName, static_cast<uint16_t>(cfg.port), cfg.displayName);
+                }
+                ImGui::EndTabItem();
             }
-            runtime.join(cfg.hostName, static_cast<uint16_t>(cfg.port), cfg.displayName);
-        }
-        if(usingWebRtc) {
-            const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
-            if(!signalingConfig.valid()) {
-                ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Configure signaling URL and room id for WebRTC.");
-            } else {
-                ImGui::TextWrapped("WebRTC signaling will use %s (room %s).", cfg.signalingUrl.c_str(), cfg.signalingRoomId.c_str());
-            }
-        }
-        if(!canHost) {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Load a ROM before hosting.");
+            ImGui::EndTabBar();
         }
     } else {
         if(ImGui::Button("Disconnect##NetplayDisconnectButton")) {
