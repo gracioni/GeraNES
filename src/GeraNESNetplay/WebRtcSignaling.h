@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -84,6 +85,7 @@ struct WebRtcSignalingMessage
     std::string mid;
     int mlineIndex = -1;
     std::string error;
+    std::vector<std::string> iceServers;
 
     nlohmann::json toJson() const
     {
@@ -100,6 +102,7 @@ struct WebRtcSignalingMessage
         if(!mid.empty()) json["mid"] = mid;
         if(mlineIndex >= 0) json["mlineIndex"] = mlineIndex;
         if(!error.empty()) json["error"] = error;
+        if(!iceServers.empty()) json["iceServers"] = iceServers;
         return json;
     }
 
@@ -127,6 +130,13 @@ struct WebRtcSignalingMessage
         message.mid = json.value("mid", std::string{});
         message.mlineIndex = json.value("mlineIndex", -1);
         message.error = json.value("error", std::string{});
+        if(json.contains("iceServers") && json["iceServers"].is_array()) {
+            for(const auto& entry : json["iceServers"]) {
+                if(entry.is_string()) {
+                    message.iceServers.push_back(entry.get<std::string>());
+                }
+            }
+        }
         return message;
     }
 

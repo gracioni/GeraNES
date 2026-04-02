@@ -11,6 +11,7 @@ struct WebRtcPeerConnectionOptions
 {
     std::string localPeerId;
     std::string remotePeerId;
+    std::vector<std::string> iceServers;
     bool host = false;
 };
 

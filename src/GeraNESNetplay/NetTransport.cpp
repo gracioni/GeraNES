@@ -311,6 +311,7 @@ private:
     std::unique_ptr<IWebRtcSignalingClient> m_signalingClient;
     std::string m_localPeerId;
     std::optional<WebRtcSignalingConfig> m_activeSignalingConfig;
+    std::vector<std::string> m_signaledIceServers;
     std::optional<WebRtcPeerState> m_peer;
     PeerHandle m_nextPeerHandle = 1;
     bool m_signalingReady = false;
@@ -325,6 +326,7 @@ private:
         m_peer.reset();
         m_signalingReady = false;
         m_localPeerId.clear();
+        m_signaledIceServers.clear();
         m_nextPeerHandle = 1;
         m_hosting = false;
         m_active = false;
@@ -446,9 +448,15 @@ private:
 
                 if(event.message.type == WebRtcSignalType::Welcome) {
                     sawWelcome = true;
+                    if(!event.message.iceServers.empty()) {
+                        m_signaledIceServers = event.message.iceServers;
+                    }
                 } else if(event.message.type == WebRtcSignalType::RoomJoined &&
                           event.message.roomId == options.config.roomId) {
                     sawRoomJoined = true;
+                    if(!event.message.iceServers.empty()) {
+                        m_signaledIceServers = event.message.iceServers;
+                    }
                 } else if(event.message.type == WebRtcSignalType::Error) {
                     m_lastError = !event.message.error.empty() ? event.message.error : "WebRTC signaling reported an error";
                     m_signalingClient->disconnect();
@@ -505,6 +513,7 @@ private:
         WebRtcPeerConnectionOptions options;
         options.localPeerId = m_localPeerId;
         options.remotePeerId = remotePeerId;
+        options.iceServers = m_signaledIceServers;
         options.host = host;
 
         if(!state.connection->open(options)) {

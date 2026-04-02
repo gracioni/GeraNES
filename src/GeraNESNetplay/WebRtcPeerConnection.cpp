@@ -156,6 +156,15 @@ public:
         close();
 
         rtcConfiguration config{};
+        std::vector<const char*> iceServerViews;
+        if(!options.iceServers.empty()) {
+            iceServerViews.reserve(options.iceServers.size());
+            for(const auto& iceServer : options.iceServers) {
+                iceServerViews.push_back(iceServer.c_str());
+            }
+            config.iceServers = iceServerViews.data();
+            config.iceServersCount = static_cast<int>(iceServerViews.size());
+        }
         config.disableAutoNegotiation = true;
         m_peerConnection = rtcCreatePeerConnection(&config);
         if(m_peerConnection <= 0) {
