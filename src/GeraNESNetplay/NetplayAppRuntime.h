@@ -364,6 +364,7 @@ public:
     void injectDropNextIncomingMessages(MessageType type, uint32_t count);
     void clearIncomingMessageDrops();
     void setReconnectReservationTimeoutForTests(uint32_t seconds);
+    void simulateTransportFailureForTests();
 
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
@@ -1103,6 +1104,24 @@ inline void NetplayAppRuntime::setReconnectReservationTimeoutForTests(uint32_t s
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
         self.m_coordinator.setReconnectReservationDurationForTests(seconds);
+    });
+}
+
+inline void NetplayAppRuntime::simulateTransportFailureForTests()
+{
+    {
+        std::scoped_lock stateLock(m_stateMutex);
+        m_uiSnapshot.active = false;
+        m_uiSnapshot.hosting = false;
+        m_uiSnapshot.connected = false;
+        m_uiSnapshot.reconnecting = false;
+        m_uiSnapshot.reconnectSecondsRemaining = 0;
+    }
+    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        self.m_coordinator.simulateTransportFailureForTests();
+        self.m_inputDriver.reset();
+        self.m_runtimeLastTickTime = {};
+        self.updateUiSnapshot(captureCurrentRomSelection(emu));
     });
 }
 

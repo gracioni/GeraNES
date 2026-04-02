@@ -152,6 +152,21 @@ TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
     REQUIRE(Netplay::kDesyncCrcIntervalFrames == 30u);
 }
 
+TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")
+{
+    Netplay::NetplayCoordinator coordinator;
+
+    REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::WebRTC);
+
+    REQUIRE_FALSE(coordinator.host(27991, 1, "Host"));
+    REQUIRE(coordinator.lastError() == "Failed to host WebRTC session");
+
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
+}
+
 TEST_CASE("Netplay runtime flow advances under prediction", "[netplay][runtime]")
 {
     GeraNESTestSupport::requireRomFixture();

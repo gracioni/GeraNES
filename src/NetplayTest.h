@@ -1806,7 +1806,7 @@ private:
                !reconnectTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.reconnectAfterFrames) {
                 if(options.expectReconnectReservationExpiry) {
-                    clientPeer.runtime.disconnect();
+                    clientPeer.runtime.simulateTransportFailureForTests();
 
                     if(!waitFor([&]() {
                             const auto hostSnap = hostPeer.runtime.uiSnapshot();

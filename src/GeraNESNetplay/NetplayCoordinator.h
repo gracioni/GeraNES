@@ -68,7 +68,7 @@ private:
     InputTimeline m_remoteInputs;
     std::deque<ConfirmedFrameInputs> m_confirmedFrames;
     std::vector<std::string> m_eventLog;
-    ENetPeer* m_serverPeer = nullptr;
+    NetTransport::PeerHandle m_serverPeer = NetTransport::kInvalidPeerHandle;
     ParticipantId m_localParticipantId = kInvalidParticipantId;
     std::string m_localDisplayName;
     uint64_t m_localReconnectToken = 0;
@@ -123,7 +123,7 @@ private:
     void resetSessionState();
     void pushLog(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
-    ParticipantId participantIdFromPeer(ENetPeer* peer) const;
+    ParticipantId participantIdFromPeer(NetTransport::PeerHandle peer) const;
     ParticipantInfo* findParticipantByReconnectToken(uint64_t reconnectToken);
     void removeParticipant(ParticipantId participantId);
     void clearReconnectAttemptState();
@@ -143,21 +143,21 @@ private:
     std::vector<uint8_t> buildResyncAckPacket(const ResyncAckData& data) const;
     std::vector<uint8_t> buildResyncAbortPacket(const ResyncAbortData& data) const;
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
-    bool handleControlPacket(ENetPeer* peer, const std::vector<uint8_t>& payload);
-    bool handleJoinRoom(ENetPeer* peer, PacketReader& reader);
+    bool handleControlPacket(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload);
+    bool handleJoinRoom(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleJoinRejected(PacketReader& reader);
     bool handleParticipantJoined(PacketReader& reader);
     bool handleSelectRom(PacketReader& reader);
-    bool handleRomValidationResult(ENetPeer* peer, PacketReader& reader);
+    bool handleRomValidationResult(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleParticipantLeft(PacketReader& reader);
-    bool handleLeaveRoom(ENetPeer* peer, PacketReader& reader);
+    bool handleLeaveRoom(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleResyncBegin(PacketReader& reader);
     bool handleResyncChunk(PacketReader& reader);
     bool handleResyncComplete(PacketReader& reader);
     bool handleResyncAck(PacketReader& reader);
     bool handleResyncAbort(PacketReader& reader);
-    bool handlePeerHealth(ENetPeer* peer, PacketReader& reader);
-    bool handleInputFrame(ENetPeer* peer, PacketReader& reader);
+    bool handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
     bool handleInputAck(PacketReader& reader);
     bool handleFrameStatus(PacketReader& reader);
@@ -204,6 +204,8 @@ public:
     bool join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();
     void update(uint32_t timeoutMs = 0);
+    bool setTransportBackend(NetTransportBackend backend);
+    NetTransportBackend transportBackend() const;
 
     bool isActive() const;
     bool isHosting() const;
@@ -216,6 +218,7 @@ public:
     void dropNextIncomingMessages(MessageType type, uint32_t count);
     void clearIncomingMessageDrops();
     void setReconnectReservationDurationForTests(uint32_t seconds);
+    void simulateTransportFailureForTests();
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;

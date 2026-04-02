@@ -137,6 +137,15 @@ uint64_t NetplayCoordinator::generateReconnectToken()
     return mixed != 0 ? mixed : 1ull;
 }
 
+static const char* transportBackendLabel(NetTransportBackend backend)
+{
+    switch(backend) {
+        case NetTransportBackend::ENet: return "ENet";
+        case NetTransportBackend::WebRTC: return "WebRTC";
+        default: return "transport";
+    }
+}
+
 std::string NetplayCoordinator::messageTypeLabel(MessageType type)
 {
     switch(type) {
@@ -180,7 +189,7 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
 
 void NetplayCoordinator::resetSessionState()
 {
-    m_serverPeer = nullptr;
+    m_serverPeer = NetTransport::kInvalidPeerHandle;
     m_localParticipantId = kInvalidParticipantId;
     m_localReconnectToken = 0;
     m_pendingJoinRomLoaded = false;
@@ -254,10 +263,9 @@ ParticipantInfo* NetplayCoordinator::findParticipantByReconnectToken(uint64_t re
     return nullptr;
 }
 
-ParticipantId NetplayCoordinator::participantIdFromPeer(ENetPeer* peer) const
+ParticipantId NetplayCoordinator::participantIdFromPeer(NetTransport::PeerHandle peer) const
 {
-    if(peer == nullptr || peer->data == nullptr) return kInvalidParticipantId;
-    const uintptr_t stored = reinterpret_cast<uintptr_t>(peer->data);
+    const uintptr_t stored = m_transport.peerTag(peer);
     if(stored == 0) return kInvalidParticipantId;
     return static_cast<ParticipantId>(stored - 1u);
 }
@@ -698,7 +706,7 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
     return writer.data();
 }
 
-bool NetplayCoordinator::handleInputFrame(ENetPeer* peer, PacketReader& reader)
+bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     InputFrameData input;
     if(!reader.readPod(input)) return false;
@@ -1440,7 +1448,7 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
     return true;
 }
 
-bool NetplayCoordinator::handleRomValidationResult(ENetPeer* peer, PacketReader& reader)
+bool NetplayCoordinator::handleRomValidationResult(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     RomValidationResultData result;
     if(!reader.readPod(result)) return false;
@@ -1496,7 +1504,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
     removeParticipant(data.participantId);
     if(hostLeft) {
         pushLog("Host left the room");
-        m_serverPeer = nullptr;
+        m_serverPeer = NetTransport::kInvalidPeerHandle;
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
         m_lastError = "Host closed the room";
@@ -1508,7 +1516,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
     return true;
 }
 
-bool NetplayCoordinator::handleLeaveRoom(ENetPeer* peer, PacketReader& reader)
+bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     LeaveRoomData data;
     if(!reader.readPod(data)) return false;
@@ -1597,7 +1605,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
 
     if(std::find(m_incomingResync->receivedMask.begin(), m_incomingResync->receivedMask.end(), uint8_t{0}) != m_incomingResync->receivedMask.end()) {
         pushLog("Resync payload incomplete");
-        if(!m_hosting && m_serverPeer != nullptr) {
+        if(!m_hosting && m_serverPeer != NetTransport::kInvalidPeerHandle) {
             ResyncAbortData abort;
             abort.resyncId = data.resyncId;
             abort.participantId = m_localParticipantId;
@@ -1611,7 +1619,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
     const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(m_incomingResync->payload.data()), m_incomingResync->payload.size());
     if(payloadCrc32 != m_incomingResync->expectedPayloadCrc32) {
         pushLog("Resync payload CRC mismatch");
-        if(!m_hosting && m_serverPeer != nullptr) {
+        if(!m_hosting && m_serverPeer != NetTransport::kInvalidPeerHandle) {
             ResyncAbortData abort;
             abort.resyncId = data.resyncId;
             abort.participantId = m_localParticipantId;
@@ -1713,7 +1721,7 @@ bool NetplayCoordinator::handleResyncAbort(PacketReader& reader)
     return true;
 }
 
-bool NetplayCoordinator::handlePeerHealth(ENetPeer* peer, PacketReader& reader)
+bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     PeerHealthData data;
     if(!reader.readPod(data)) return false;
@@ -1782,11 +1790,11 @@ void NetplayCoordinator::updatePeerHealthFromTransport()
         }
     }
 
-    for(ENetPeer* peer : m_transport.connectedPeers()) {
+    for(NetTransport::PeerHandle peer : m_transport.connectedPeers()) {
         const ParticipantId participantId = participantIdFromPeer(peer);
         if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
-            participant->pingMs = static_cast<uint16_t>(std::min<uint32_t>(peer->roundTripTime, 65535u));
-            participant->jitterMs = static_cast<uint16_t>(std::min<uint32_t>(peer->roundTripTimeVariance, 65535u));
+            participant->pingMs = static_cast<uint16_t>(std::min<uint32_t>(m_transport.peerRoundTripTime(peer), 65535u));
+            participant->jitterMs = static_cast<uint16_t>(std::min<uint32_t>(m_transport.peerRoundTripVariance(peer), 65535u));
         }
     }
 }
@@ -1812,9 +1820,9 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
             Channel::Diagnostics,
             buildPeerHealthPacket(data, m_session.roomState().sessionId)
         );
-    } else if(m_serverPeer != nullptr) {
-        data.pingMs = static_cast<uint16_t>(std::min<uint32_t>(m_serverPeer->roundTripTime, 65535u));
-        data.jitterMs = static_cast<uint16_t>(std::min<uint32_t>(m_serverPeer->roundTripTimeVariance, 65535u));
+    } else if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
+        data.pingMs = static_cast<uint16_t>(std::min<uint32_t>(m_transport.peerRoundTripTime(m_serverPeer), 65535u));
+        data.jitterMs = static_cast<uint16_t>(std::min<uint32_t>(m_transport.peerRoundTripVariance(m_serverPeer), 65535u));
 
         if(ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId)) {
             participant->pingMs = data.pingMs;
@@ -2097,7 +2105,7 @@ void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> po
     }
 }
 
-bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
+bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     if(!m_hosting) return false;
 
@@ -2164,7 +2172,7 @@ bool NetplayCoordinator::handleJoinRoom(ENetPeer* peer, PacketReader& reader)
         }
     }
 
-    peer->data = reinterpret_cast<void*>(static_cast<uintptr_t>(participant.id) + 1u);
+    m_transport.setPeerTag(peer, static_cast<uintptr_t>(participant.id) + 1u);
 
     if(!m_transport.sendReliable(peer, Channel::Control, buildParticipantJoinedPacket(participant, participant.reconnectToken))) {
         m_lastError = "Failed to send ParticipantJoined";
@@ -2313,7 +2321,7 @@ bool NetplayCoordinator::handleJoinRejected(PacketReader& reader)
     return true;
 }
 
-bool NetplayCoordinator::handleControlPacket(ENetPeer* peer, const std::vector<uint8_t>& payload)
+bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload)
 {
     PacketReader reader(payload.data(), payload.size());
     PacketHeader header;
@@ -2411,7 +2419,7 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
     m_localDisplayName = displayName.empty() ? defaultDisplayName() : displayName;
 
     if(!m_transport.hostSession(port, maxPeers)) {
-        m_lastError = "Failed to host ENet session";
+        m_lastError = std::string("Failed to host ") + transportBackendLabel(m_transport.backend()) + " session";
         pushLog(m_lastError);
         return false;
     }
@@ -2447,7 +2455,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     m_lastJoinPort = port;
 
     if(!m_transport.connectToHost(hostName, port)) {
-        m_lastError = "Failed to connect to host";
+        m_lastError = std::string("Failed to connect to host using ") + transportBackendLabel(m_transport.backend());
         pushLog(m_lastError);
         return false;
     }
@@ -2473,7 +2481,7 @@ void NetplayCoordinator::disconnect()
             m_transport.disconnectAll();
             completeLocalDisconnect();
             return;
-        } else if(m_serverPeer != nullptr && m_localParticipantId != kInvalidParticipantId) {
+        } else if(m_serverPeer != NetTransport::kInvalidPeerHandle && m_localParticipantId != kInvalidParticipantId) {
             m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
             m_transport.flush();
             m_transport.disconnectPeer(m_serverPeer);
@@ -2514,7 +2522,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
             case NetTransport::Event::Type::Disconnected:
                 if(event.peer == m_serverPeer) {
                     pushLog("Disconnected from host");
-                    m_serverPeer = nullptr;
+                    m_serverPeer = NetTransport::kInvalidPeerHandle;
                     m_connected = false;
                     m_session.roomState().state = SessionState::Ended;
                     m_reconnectAttemptInFlight = false;
@@ -2661,7 +2669,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
 
     if(!m_hosting &&
        m_incomingResync.has_value() &&
-       m_serverPeer != nullptr &&
+       m_serverPeer != NetTransport::kInvalidPeerHandle &&
        m_incomingResync->lastActivityAt != std::chrono::steady_clock::time_point{} &&
        now - m_incomingResync->lastActivityAt >= kIncomingResyncTimeout) {
         pushLog("Incoming resync timed out; requesting retry");
@@ -2684,6 +2692,16 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         return;
     }
     processPendingReconnect();
+}
+
+bool NetplayCoordinator::setTransportBackend(NetTransportBackend backend)
+{
+    return m_transport.setBackend(backend);
+}
+
+NetTransportBackend NetplayCoordinator::transportBackend() const
+{
+    return m_transport.backend();
 }
 
 bool NetplayCoordinator::isActive() const
@@ -2745,6 +2763,21 @@ void NetplayCoordinator::setReconnectReservationDurationForTests(uint32_t second
         m_reconnectSecondsRemaining =
             static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
     }
+}
+
+void NetplayCoordinator::simulateTransportFailureForTests()
+{
+    clearReconnectAttemptState();
+
+    if(!m_transport.isActive()) {
+        completeLocalDisconnect();
+        return;
+    }
+
+    m_gracefulDisconnectPending = true;
+    m_gracefulDisconnectDeadline = std::chrono::steady_clock::now() + kGracefulDisconnectTimeout;
+    m_transport.disconnectAll();
+    m_transport.flush();
 }
 
 ParticipantId NetplayCoordinator::localParticipantId() const
@@ -3094,7 +3127,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
         return;
     }
 
-    if(!m_connected || m_serverPeer == nullptr) return;
+    if(!m_connected || m_serverPeer == NetTransport::kInvalidPeerHandle) return;
     m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
 }
 
@@ -3170,7 +3203,7 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 
     if(m_hosting) {
         m_transport.broadcastReliable(Channel::Diagnostics, payload);
-    } else if(m_serverPeer != nullptr) {
+    } else if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
         m_transport.sendReliable(m_serverPeer, Channel::Diagnostics, payload);
     }
 }
@@ -3281,7 +3314,7 @@ std::optional<NetplayCoordinator::PendingResyncApply> NetplayCoordinator::consum
 
 bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success)
 {
-    if(m_hosting || m_serverPeer == nullptr) return false;
+    if(m_hosting || m_serverPeer == NetTransport::kInvalidPeerHandle) return false;
 
     ResyncAckData ack;
     ack.resyncId = resyncId;
@@ -3502,7 +3535,7 @@ bool NetplayCoordinator::kickParticipant(ParticipantId participantId)
         return false;
     }
 
-    for(ENetPeer* peer : m_transport.connectedPeers()) {
+    for(NetTransport::PeerHandle peer : m_transport.connectedPeers()) {
         if(participantIdFromPeer(peer) == participantId) {
             m_transport.disconnectPeer(peer);
             break;
@@ -3579,7 +3612,7 @@ bool NetplayCoordinator::submitLocalRomValidation(bool romLoaded, bool romCompat
         return true;
     }
 
-    if(m_serverPeer != nullptr) {
+    if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
         return m_transport.sendReliable(m_serverPeer, Channel::Control, buildRomValidationResultPacket(result));
     }
 
