@@ -46,10 +46,8 @@ namespace fs = std::filesystem;
 #include "SDLOpenGLWindow.h"
 
 #include "GeraNESApp/EmulationHost.h"
-#ifndef __EMSCRIPTEN__
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/NetplayWindowUI.h"
-#endif
 
 #include "GeraNES/defines.h"
 
@@ -166,9 +164,7 @@ private:
     NsfVisualizerUI m_nsfVisualizer;
 #endif
 
-#ifndef __EMSCRIPTEN__
     Netplay::NetplayAppRuntime m_netplayRuntime;
-#endif
 
     struct RomDatabaseEditorData {
         bool loaded = false;
@@ -1561,7 +1557,6 @@ private:
             inputState.speedBoost = !keyboardExpansionActive && (
                 im.isPressed(m_systemInput.speed)
             );
-#ifndef __EMSCRIPTEN__
             m_netplayRuntime.updateLatestInputState(inputState);
             const uint64_t p1RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
                 p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart,
@@ -1584,7 +1579,6 @@ private:
                 p4Up, p4Down, p4Left, p4Right
             );
             m_netplayRuntime.updateLatestRawMasks({p1RawMask, p2RawMask, p3RawMask, p4RawMask});
-#endif
             m_emu.setPendingInput(inputState);
         }
         else {
@@ -1605,9 +1599,7 @@ private:
             const std::string filename = fs::path(path).filename().string();
             setTitle((std::string("GeraNES (") + filename + ")").c_str());
             Logger::instance().log("Rom loaded", Logger::Type::USER);
-#ifndef __EMSCRIPTEN__
             m_netplayRuntime.refreshLocalRomSelectionImmediate();
-#endif
         }
         else {
             Logger::instance().log("Failed to load ROM", Logger::Type::USER);
@@ -1641,9 +1633,17 @@ private:
         m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
         m_emu.enableOverclock(cfg.improvements.overclock);
         m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.rollbackWindowFrames));
-#ifndef __EMSCRIPTEN__
         m_netplayRuntime.setLocalReconnectToken(cfg.netplay.reconnectToken);
-#endif
+        const auto availableBackends = Netplay::availableNetTransportBackends();
+        Netplay::NetTransportBackend configuredBackend = static_cast<Netplay::NetTransportBackend>(std::clamp(cfg.netplay.transportBackend, 0, 1));
+        if(std::find(availableBackends.begin(), availableBackends.end(), configuredBackend) == availableBackends.end()) {
+            configuredBackend = Netplay::defaultNetTransportBackend();
+            cfg.netplay.transportBackend = static_cast<int>(configuredBackend);
+        }
+        Netplay::NetTransportOptions transportOptions;
+        transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{cfg.netplay.signalingUrl, cfg.netplay.signalingRoomId};
+        m_netplayRuntime.setTransportOptions(transportOptions);
+        m_netplayRuntime.setTransportBackend(configuredBackend);
 
         m_vsyncMode = (VSyncMode)cfg.video.vsyncMode;
         m_filterMode = (FilterMode)cfg.video.filterMode;
@@ -1772,18 +1772,12 @@ private:
 public:
 
     GeraNESApp()
-#ifndef __EMSCRIPTEN__
         : m_emu(m_audioOutput)
         , m_netplayRuntime(m_emu)
-#else
-        : m_emu(m_audioOutput)
-#endif
     {
-#ifndef __EMSCRIPTEN__
         m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
             m_netplayRuntime.runOnEmulationThread(emu);
         });
-#endif
 
         //reset log file content
         std::ofstream file(LOG_FILE);
@@ -1883,9 +1877,7 @@ public:
     }
 
     virtual ~GeraNESApp() {
-#ifndef __EMSCRIPTEN__
         m_netplayRuntime.shutdown();
-#endif
         m_emu.shutdown();
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
@@ -2418,9 +2410,7 @@ public:
 
         m_touch->update(dt);
         dispatch_queued_calls();
-#ifndef __EMSCRIPTEN__
         pollAndPrepareInput();
-#endif
 
         m_mainLoopLastTime = tempTime;
  
@@ -2435,9 +2425,7 @@ public:
         }
 
         bool netplayPacingOverrideActive = false;
-#ifndef __EMSCRIPTEN__
         netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
-#endif
         const bool allowVsyncLock =
             m_vsyncMode != OFF &&
             displayFrameRate == m_emu.getRegionFPS() &&

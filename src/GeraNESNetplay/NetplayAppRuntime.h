@@ -1,7 +1,5 @@
 #pragma once
 
-#ifndef __EMSCRIPTEN__
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -42,6 +40,7 @@ public:
         bool localRomLoaded = false;
         std::string localRomGameName;
         uint32_t localRomCrc32 = 0;
+        NetTransportBackend transportBackend = defaultNetTransportBackend();
         ParticipantId localParticipantId = kInvalidParticipantId;
         std::string lastError;
         RoomState room;
@@ -69,6 +68,7 @@ public:
     {
         bool hosting = false;
         bool inputManaged = false;
+        NetTransportBackend transportBackend = defaultNetTransportBackend();
         std::vector<PlayerSlot> localAssignments;
         std::optional<Settings::Device> port1Device;
         std::optional<Settings::Device> port2Device;
@@ -365,6 +365,10 @@ public:
     void clearIncomingMessageDrops();
     void setReconnectReservationTimeoutForTests(uint32_t seconds);
     void simulateTransportFailureForTests();
+    void setTransportBackend(NetTransportBackend backend);
+    void setTransportOptions(const NetTransportOptions& options);
+    NetTransportOptions transportOptions() const;
+    NetTransportBackend transportBackend() const;
 
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
@@ -929,6 +933,7 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
     snapshot.localRomLoaded = localRom.has_value() && localRom->loaded;
     snapshot.localRomGameName = localRom.has_value() ? localRom->gameName : "";
     snapshot.localRomCrc32 = localRom.has_value() ? localRom->validation.romCrc32 : 0;
+    snapshot.transportBackend = m_coordinator.transportBackend();
     snapshot.localParticipantId = m_coordinator.localParticipantId();
     snapshot.lastError = m_coordinator.lastError().empty() ? m_stickyStatusMessage : m_coordinator.lastError();
     snapshot.room = m_coordinator.session().roomState();
@@ -1061,6 +1066,7 @@ inline NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
     MenuSnapshot snapshot;
     snapshot.hosting = m_uiSnapshot.hosting;
     snapshot.inputManaged = m_uiSnapshot.active && m_uiSnapshot.connected;
+    snapshot.transportBackend = m_uiSnapshot.transportBackend;
     snapshot.port1Device = m_uiSnapshot.room.port1Device;
     snapshot.port2Device = m_uiSnapshot.room.port2Device;
     snapshot.expansionDevice = m_uiSnapshot.room.expansionDevice;
@@ -1123,6 +1129,38 @@ inline void NetplayAppRuntime::simulateTransportFailureForTests()
         self.m_runtimeLastTickTime = {};
         self.updateUiSnapshot(captureCurrentRomSelection(emu));
     });
+}
+
+inline void NetplayAppRuntime::setTransportBackend(NetTransportBackend backend)
+{
+    enqueueCommand([backend](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        const bool changed = self.m_coordinator.setTransportBackend(backend);
+        if(!changed && self.m_coordinator.isActive()) {
+            self.m_stickyStatusMessage = "Disconnect before changing the netplay backend.";
+        } else if(changed) {
+            self.m_stickyStatusMessage.clear();
+        }
+        self.updateUiSnapshot(captureCurrentRomSelection(emu));
+    });
+}
+
+inline void NetplayAppRuntime::setTransportOptions(const NetTransportOptions& options)
+{
+    enqueueCommand([options](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        self.m_coordinator.setTransportOptions(options);
+        self.updateUiSnapshot(captureCurrentRomSelection(emu));
+    });
+}
+
+inline NetTransportOptions NetplayAppRuntime::transportOptions() const
+{
+    return m_coordinator.transportOptions();
+}
+
+inline NetTransportBackend NetplayAppRuntime::transportBackend() const
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    return m_uiSnapshot.transportBackend;
 }
 
 inline void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::string& displayName)
@@ -1459,5 +1497,3 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 }
 
 } // namespace Netplay
-
-#endif

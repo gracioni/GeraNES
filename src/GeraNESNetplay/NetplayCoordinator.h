@@ -1,7 +1,5 @@
 #pragma once
 
-#ifndef __EMSCRIPTEN__
-
 #include <cstdint>
 #include <chrono>
 #include <deque>
@@ -205,6 +203,8 @@ public:
     void disconnect();
     void update(uint32_t timeoutMs = 0);
     bool setTransportBackend(NetTransportBackend backend);
+    void setTransportOptions(const NetTransportOptions& options);
+    const NetTransportOptions& transportOptions() const;
     NetTransportBackend transportBackend() const;
 
     bool isActive() const;
@@ -269,5 +269,3 @@ public:
 };
 
 } // namespace Netplay
-
-#endif

@@ -133,11 +133,9 @@ inline void GeraNESApp::showGui()
         m_showKonamiHyperShotConfigWindow = false;
     }
 
-#ifndef __EMSCRIPTEN__
     if(m_showNetplayWindow) {
         Netplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, viewportCenter);
     }
-#endif
 
     if(m_showNetplayDiagnosticsWindow) {
         ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);

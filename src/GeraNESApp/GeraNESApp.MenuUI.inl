@@ -668,12 +668,10 @@ inline void GeraNESApp::menuBar() {
                 m_showLogWindow = true;
             }
 
-#ifndef __EMSCRIPTEN__
             if (ImGui::MenuItem("Netplay"))
             {
                 m_showNetplayWindow = true;
             }
-#endif
 
             if (ImGui::MenuItem("Netplay Diagnostics"))
             {

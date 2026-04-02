@@ -335,6 +335,9 @@ public:
     struct Netplay {
 
         int rollbackWindowFrames = 600;
+        int transportBackend = 0;
+        std::string signalingUrl = "ws://127.0.0.1:27990";
+        std::string signalingRoomId = "default";
         bool autoGameplayTuning = true;
         int inputDelayFrames = 2;
         int predictFrames = 0;
@@ -345,7 +348,7 @@ public:
         int port = 27888;
         int maxPeers = 4;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, autoGameplayTuning, inputDelayFrames, predictFrames, gameplayReceiveDelayMs, displayName, reconnectToken, hostName, port, maxPeers)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, transportBackend, signalingUrl, signalingRoomId, autoGameplayTuning, inputDelayFrames, predictFrames, gameplayReceiveDelayMs, displayName, reconnectToken, hostName, port, maxPeers)
     };
 
     const int MAX_RECENT_FILES = 10;    

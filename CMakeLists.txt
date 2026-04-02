@@ -279,6 +279,76 @@ if(NOT EMSCRIPTEN)
 
     FetchContent_MakeAvailable(enet)
     INCLUDE_DIRECTORIES(${enet_SOURCE_DIR}/include)
+
+    FetchContent_Declare(
+        asio
+        GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
+        GIT_TAG asio-1-30-2
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+
+    FetchContent_MakeAvailable(asio)
+    INCLUDE_DIRECTORIES(${asio_SOURCE_DIR}/asio/include)
+
+    FetchContent_Declare(
+        websocketpp
+        GIT_REPOSITORY https://github.com/zaphoyd/websocketpp.git
+        GIT_TAG 0.8.2
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+
+    FetchContent_MakeAvailable(websocketpp)
+    INCLUDE_DIRECTORIES(${websocketpp_SOURCE_DIR})
+
+    FetchContent_Declare(
+        mbedtls
+        GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+        GIT_TAG v3.6.2
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+
+    set(ENABLE_PROGRAMS OFF CACHE BOOL "Disable mbedtls programs" FORCE)
+    set(ENABLE_TESTING OFF CACHE BOOL "Disable mbedtls tests" FORCE)
+    set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "Use static mbedtls libraries" FORCE)
+    set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "Build static mbedtls libraries" FORCE)
+
+    FetchContent_MakeAvailable(mbedtls)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+        foreach(_mbedtls_target mbedtls mbedx509 mbedcrypto)
+            if(TARGET ${_mbedtls_target})
+                target_compile_options(${_mbedtls_target} PRIVATE
+                    -Wno-error=unterminated-string-initialization
+                    -Wno-unterminated-string-initialization
+                )
+            endif()
+        endforeach()
+    endif()
+    foreach(_mbedtls_target mbedtls mbedx509 mbedcrypto)
+        if(TARGET ${_mbedtls_target})
+            target_compile_definitions(${_mbedtls_target} PUBLIC MBEDTLS_USER_CONFIG_FILE=\"mbedtls_user_config.h\")
+            target_include_directories(${_mbedtls_target} PUBLIC ${CMAKE_CURRENT_LIST_DIR}/cmake)
+        endif()
+    endforeach()
+
+    set(NO_TESTS ON CACHE BOOL "Disable libdatachannel tests" FORCE)
+    set(NO_EXAMPLES ON CACHE BOOL "Disable libdatachannel examples" FORCE)
+    set(NO_MEDIA ON CACHE BOOL "Disable libdatachannel media" FORCE)
+    set(USE_NICE OFF CACHE BOOL "Disable libnice backend" FORCE)
+    set(USE_GNUTLS OFF CACHE BOOL "Disable GnuTLS backend for libdatachannel" FORCE)
+    set(USE_MBEDTLS ON CACHE BOOL "Use Mbed TLS backend for libdatachannel" FORCE)
+
+    FetchContent_Declare(
+        libdatachannel
+        GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+        GIT_TAG v0.22.4
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+
+    FetchContent_MakeAvailable(libdatachannel)
 endif()
 
 set(FLIPS_PATH ${flips_SOURCE_DIR})
@@ -351,7 +421,7 @@ set(GERANES_EXE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet)
+    set(LIBS ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet LibDataChannel::LibDataChannelStatic)
 else()
 set(LIBS ${LIBS} -lopenal)
 endif()
@@ -369,6 +439,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(GeraNESLib STATIC ${GERANES_LIBRARY_SOURCES})
 target_compile_features(GeraNESLib PUBLIC cxx_std_20)
 target_compile_definitions(GeraNESLib PRIVATE ENABLE_NSF_PLAYER=1)
+if(NOT EMSCRIPTEN)
+    target_compile_definitions(GeraNESLib PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
+endif()
 if(MINGW)
     target_compile_options(GeraNESLib PRIVATE -Wa,-mbig-obj)
 endif()
@@ -421,7 +494,13 @@ add_executable(GeraNESTests
 )
 target_compile_features(GeraNESTests PUBLIC cxx_std_20)
 target_include_directories(GeraNESTests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(NOT EMSCRIPTEN)
+    target_compile_definitions(GeraNESTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
+endif()
 target_link_libraries(GeraNESTests PRIVATE GeraNESLib Catch2::Catch2WithMain)
+if(WIN32)
+    target_link_libraries(GeraNESTests PRIVATE mswsock)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)

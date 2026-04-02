@@ -2,21 +2,233 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <deque>
+#include <mutex>
+#include <optional>
+#include <thread>
+#include <vector>
 
 #ifdef ERROR
 #undef ERROR
 #endif
 
+#if !defined(__EMSCRIPTEN__)
+#include <websocketpp/config/asio_no_tls.hpp>
+#include <websocketpp/server.hpp>
+#endif
+
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
+#include "GeraNESNetplay/WebRtcPeerConnection.h"
+#include "GeraNESNetplay/WebRtcSignaling.h"
+#include "GeraNESNetplay/WebRtcSignalingClient.h"
 #include "GeraNESApp/AudioOutputBase.h"
 #include "NetplayTest.h"
 #include "TestSupport.h"
 
 namespace
 {
+#if !defined(__EMSCRIPTEN__)
+uint16_t reserveLoopbackPort()
+{
+    SOCKET socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    REQUIRE(socketHandle != INVALID_SOCKET);
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    REQUIRE(bind(socketHandle, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
+
+    sockaddr_in boundAddress{};
+    int boundAddressSize = sizeof(boundAddress);
+    REQUIRE(getsockname(socketHandle, reinterpret_cast<sockaddr*>(&boundAddress), &boundAddressSize) == 0);
+
+    const uint16_t port = ntohs(boundAddress.sin_port);
+    closesocket(socketHandle);
+    return port;
+}
+
+class LocalWebSocketSignalingServer
+{
+private:
+    using Server = websocketpp::server<websocketpp::config::asio>;
+    struct PeerInfo
+    {
+        websocketpp::connection_hdl connection;
+        std::string peerId;
+        std::string roomId;
+    };
+
+    uint16_t m_port = 0;
+    Server m_server;
+    std::thread m_thread;
+    std::mutex m_mutex;
+    std::deque<std::string> m_receivedTexts;
+    std::vector<PeerInfo> m_peers;
+
+    void sendMessage(const websocketpp::connection_hdl& hdl, const Netplay::WebRtcSignalingMessage& message)
+    {
+        websocketpp::lib::error_code ec;
+        m_server.send(hdl, message.toText(), websocketpp::frame::opcode::text, ec);
+    }
+
+public:
+    explicit LocalWebSocketSignalingServer(uint16_t port)
+        : m_port(port)
+    {
+        m_server.clear_access_channels(websocketpp::log::alevel::all);
+        m_server.clear_error_channels(websocketpp::log::elevel::all);
+        m_server.init_asio();
+        m_server.set_reuse_addr(true);
+
+        m_server.set_open_handler([this](websocketpp::connection_hdl hdl) {
+            Netplay::WebRtcSignalingMessage welcome;
+            welcome.type = Netplay::WebRtcSignalType::Welcome;
+            welcome.peerId = "signal-server";
+            sendMessage(hdl, welcome);
+        });
+
+        m_server.set_message_handler([this](websocketpp::connection_hdl hdl, Server::message_ptr message) {
+            const auto parsed = Netplay::WebRtcSignalingMessage::fromText(message->get_payload());
+            std::vector<PeerInfo> existingPeers;
+            {
+                std::scoped_lock lock(m_mutex);
+                m_receivedTexts.push_back(message->get_payload());
+                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
+                    for(const auto& peer : m_peers) {
+                        if(peer.roomId == parsed->roomId && peer.peerId != parsed->peerId) {
+                            existingPeers.push_back(peer);
+                        }
+                    }
+
+                    m_peers.erase(
+                        std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
+                            return peer.peerId == parsed->peerId;
+                        }),
+                        m_peers.end());
+                    m_peers.push_back(PeerInfo{hdl, parsed->peerId, parsed->roomId});
+                }
+            }
+
+            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
+                Netplay::WebRtcSignalingMessage joined;
+                joined.type = Netplay::WebRtcSignalType::RoomJoined;
+                joined.roomId = parsed->roomId;
+                joined.peerId = "signal-server";
+                joined.targetPeerId = parsed->peerId;
+                sendMessage(hdl, joined);
+
+                for(const auto& peer : existingPeers) {
+                    Netplay::WebRtcSignalingMessage toExisting;
+                    toExisting.type = Netplay::WebRtcSignalType::PeerJoined;
+                    toExisting.roomId = parsed->roomId;
+                    toExisting.peerId = parsed->peerId;
+                    sendMessage(peer.connection, toExisting);
+
+                    Netplay::WebRtcSignalingMessage toJoining;
+                    toJoining.type = Netplay::WebRtcSignalType::PeerJoined;
+                    toJoining.roomId = parsed->roomId;
+                    toJoining.peerId = peer.peerId;
+                    sendMessage(hdl, toJoining);
+                }
+            } else if(parsed.has_value() &&
+                      (parsed->type == Netplay::WebRtcSignalType::Offer ||
+                       parsed->type == Netplay::WebRtcSignalType::Answer ||
+                       parsed->type == Netplay::WebRtcSignalType::IceCandidate)) {
+                std::optional<PeerInfo> targetPeer;
+                {
+                    std::scoped_lock lock(m_mutex);
+                    for(const auto& peer : m_peers) {
+                        if(peer.peerId == parsed->targetPeerId) {
+                            targetPeer = peer;
+                            break;
+                        }
+                    }
+                }
+                if(targetPeer.has_value()) {
+                    sendMessage(targetPeer->connection, *parsed);
+                }
+            }
+        });
+
+        m_server.set_close_handler([this](websocketpp::connection_hdl hdl) {
+            std::optional<PeerInfo> closedPeer;
+            std::vector<PeerInfo> remainingPeers;
+            {
+                std::scoped_lock lock(m_mutex);
+                for(const auto& peer : m_peers) {
+                    if(peer.connection.lock().get() == hdl.lock().get()) {
+                        closedPeer = peer;
+                    } else {
+                        remainingPeers.push_back(peer);
+                    }
+                }
+                m_peers = remainingPeers;
+            }
+
+            if(closedPeer.has_value()) {
+                for(const auto& peer : remainingPeers) {
+                    if(peer.roomId != closedPeer->roomId) continue;
+                    Netplay::WebRtcSignalingMessage left;
+                    left.type = Netplay::WebRtcSignalType::PeerLeft;
+                    left.roomId = closedPeer->roomId;
+                    left.peerId = closedPeer->peerId;
+                    sendMessage(peer.connection, left);
+                }
+            }
+        });
+
+        m_server.listen(m_port);
+        m_server.start_accept();
+        m_thread = std::thread([this]() { m_server.run(); });
+    }
+
+    ~LocalWebSocketSignalingServer()
+    {
+        std::vector<websocketpp::connection_hdl> connections;
+        {
+            std::scoped_lock lock(m_mutex);
+            for(const auto& peer : m_peers) {
+                connections.push_back(peer.connection);
+            }
+        }
+        for(const auto& connection : connections) {
+            websocketpp::lib::error_code ec;
+            m_server.close(connection, websocketpp::close::status::normal, "", ec);
+        }
+
+        m_server.stop_listening();
+        m_server.stop();
+        if(m_thread.joinable()) {
+            m_thread.join();
+        }
+    }
+
+    bool hasReceivedMessageType(Netplay::WebRtcSignalType type)
+    {
+        std::scoped_lock lock(m_mutex);
+        for(const std::string& text : m_receivedTexts) {
+            const auto parsed = Netplay::WebRtcSignalingMessage::fromText(text);
+            if(parsed.has_value() && parsed->type == type) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    size_t connectedPeerCount()
+    {
+        std::scoped_lock lock(m_mutex);
+        return m_peers.size();
+    }
+};
+#endif
+
 class RecordingAudioOutput : public IAudioOutput
 {
 public:
@@ -155,16 +367,263 @@ TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")
 {
     Netplay::NetplayCoordinator coordinator;
+    const auto availableBackends = Netplay::availableNetTransportBackends();
 
+    REQUIRE(Netplay::defaultNetTransportBackend() == Netplay::NetTransportBackend::ENet);
+    REQUIRE(std::find(availableBackends.begin(), availableBackends.end(), Netplay::NetTransportBackend::ENet) != availableBackends.end());
+    REQUIRE(std::find(availableBackends.begin(), availableBackends.end(), Netplay::NetTransportBackend::WebRTC) != availableBackends.end());
     REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
     REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
     REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::WebRTC);
 
     REQUIRE_FALSE(coordinator.host(27991, 1, "Host"));
-    REQUIRE(coordinator.lastError() == "Failed to host WebRTC session");
+    REQUIRE(coordinator.lastError() == "Failed to host WebRTC session: Configure signaling URL and room id for WebRTC");
+
+#if !defined(__EMSCRIPTEN__)
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+    coordinator.setTransportOptions(Netplay::NetTransportOptions{
+        Netplay::WebRtcSignalingConfig{"ws://127.0.0.1:" + std::to_string(signalingPort), "room"}
+    });
+    REQUIRE(coordinator.host(27991, 1, "Host"));
+    REQUIRE(coordinator.lastError().empty());
+    coordinator.disconnect();
+#endif
 
     REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
     REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
+}
+
+TEST_CASE("WebRTC signaling client validates desktop connection prerequisites",
+          "[netplay][webrtc][signaling][transport]")
+{
+    auto signalingClient = Netplay::createWebRtcSignalingClient();
+    REQUIRE(signalingClient != nullptr);
+    REQUIRE_FALSE(signalingClient->isConnected());
+
+    Netplay::WebRtcSignalingClientOptions options;
+    options.config.url = "http://127.0.0.1:27990";
+    options.config.roomId = "room";
+    options.localPeerId = "host";
+    options.host = true;
+
+    REQUIRE_FALSE(signalingClient->connect(options));
+    REQUIRE(signalingClient->lastError() == "WebRTC signaling currently supports only ws:// URLs on desktop");
+    REQUIRE_FALSE(signalingClient->isConnected());
+
+    Netplay::WebRtcSignalingMessage offer;
+    offer.type = Netplay::WebRtcSignalType::Offer;
+    offer.roomId = "room";
+    offer.peerId = "host";
+    offer.targetPeerId = "client";
+    offer.sdp = "dummy";
+
+    REQUIRE_FALSE(signalingClient->send(offer));
+    REQUIRE(signalingClient->lastError() == "WebRTC signaling socket is not connected");
+}
+
+TEST_CASE("WebRTC peer connection factory can open and start offer generation on desktop",
+          "[netplay][webrtc][peer]")
+{
+    auto peerConnection = Netplay::createWebRtcPeerConnection();
+    REQUIRE(peerConnection != nullptr);
+    REQUIRE_FALSE(peerConnection->isOpen());
+    REQUIRE_FALSE(peerConnection->isDataChannelOpen());
+
+    Netplay::WebRtcPeerConnectionOptions options;
+    options.localPeerId = "host";
+    options.remotePeerId = "client";
+    options.host = true;
+
+    REQUIRE(peerConnection->open(options));
+    REQUIRE(peerConnection->isOpen());
+
+    REQUIRE(peerConnection->createOffer());
+}
+
+#if !defined(__EMSCRIPTEN__)
+TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages",
+          "[netplay][webrtc][signaling][desktop-loopback]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    auto signalingClient = Netplay::createWebRtcSignalingClient();
+    REQUIRE(signalingClient != nullptr);
+
+    Netplay::WebRtcSignalingClientOptions options;
+    options.config.url = "ws://127.0.0.1:" + std::to_string(port);
+    options.config.roomId = "room";
+    options.localPeerId = "host";
+    options.host = true;
+
+    REQUIRE(signalingClient->connect(options));
+    REQUIRE(signalingClient->isConnected());
+
+    bool sawConnected = false;
+    bool sawWelcome = false;
+    for(int attempt = 0; attempt < 50 && (!sawConnected || !sawWelcome); ++attempt) {
+        for(const auto& event : signalingClient->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Connected) {
+                sawConnected = true;
+            }
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::Welcome) {
+                sawWelcome = true;
+            }
+        }
+        if(!sawConnected || !sawWelcome) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(sawConnected);
+    REQUIRE(sawWelcome);
+
+    Netplay::WebRtcSignalingMessage hello;
+    hello.type = Netplay::WebRtcSignalType::Hello;
+    hello.roomId = "room";
+    hello.peerId = "host";
+    REQUIRE(signalingClient->send(hello));
+
+    bool sawHelloOnServer = false;
+    for(int attempt = 0; attempt < 50 && !sawHelloOnServer; ++attempt) {
+        sawHelloOnServer = server.hasReceivedMessageType(Netplay::WebRtcSignalType::Hello);
+        if(!sawHelloOnServer) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(sawHelloOnServer);
+
+    Netplay::WebRtcSignalingMessage joinRoom;
+    joinRoom.type = Netplay::WebRtcSignalType::JoinRoom;
+    joinRoom.roomId = "room";
+    joinRoom.peerId = "host";
+    REQUIRE(signalingClient->send(joinRoom));
+
+    bool sawRoomJoined = false;
+    for(int attempt = 0; attempt < 50 && !sawRoomJoined; ++attempt) {
+        if(server.hasReceivedMessageType(Netplay::WebRtcSignalType::JoinRoom)) {
+            for(const auto& event : signalingClient->poll()) {
+                if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+                   event.message.type == Netplay::WebRtcSignalType::RoomJoined) {
+                    sawRoomJoined = true;
+                }
+            }
+        }
+        if(!sawRoomJoined) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(server.hasReceivedMessageType(Netplay::WebRtcSignalType::JoinRoom));
+    REQUIRE(sawRoomJoined);
+}
+
+TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and client",
+          "[netplay][webrtc][transport][desktop-loopback]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
+    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+
+    const Netplay::NetTransportOptions options{
+        Netplay::WebRtcSignalingConfig{"ws://127.0.0.1:" + std::to_string(port), "room"}
+    };
+    hostTransport.setOptions(options);
+    clientTransport.setOptions(options);
+
+    REQUIRE(hostTransport.hostSession(0, 1));
+    REQUIRE(clientTransport.connectToHost("", 0));
+
+    bool hostConnected = false;
+    bool clientConnected = false;
+    Netplay::NetTransport::PeerHandle hostPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    Netplay::NetTransport::PeerHandle clientPeer = Netplay::NetTransport::kInvalidPeerHandle;
+
+    for(int attempt = 0; attempt < 500 && (!hostConnected || !clientConnected); ++attempt) {
+        for(const auto& event : hostTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                hostConnected = true;
+                hostPeer = event.peer;
+            }
+        }
+        for(const auto& event : clientTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                clientConnected = true;
+                clientPeer = event.peer;
+            }
+        }
+
+        if(!hostConnected || !clientConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(server.connectedPeerCount() == 2u);
+    REQUIRE(hostConnected);
+    REQUIRE(clientConnected);
+    REQUIRE(hostPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientPeer != Netplay::NetTransport::kInvalidPeerHandle);
+
+    const std::vector<uint8_t> payload = {1, 2, 3, 4, 5};
+    REQUIRE(hostTransport.sendReliable(hostPeer, Netplay::Channel::Control, payload));
+
+    bool payloadDelivered = false;
+    for(int attempt = 0; attempt < 500 && !payloadDelivered; ++attempt) {
+        for(const auto& event : clientTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == Netplay::Channel::Control);
+                REQUIRE(event.payload == payload);
+                payloadDelivered = true;
+            }
+        }
+        if(!payloadDelivered) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(payloadDelivered);
+
+    hostTransport.disconnectAll();
+    clientTransport.disconnectAll();
+}
+#endif
+
+TEST_CASE("WebRTC signaling messages round-trip through JSON", "[netplay][webrtc][signaling]")
+{
+    Netplay::WebRtcSignalingMessage offer;
+    offer.type = Netplay::WebRtcSignalType::Offer;
+    offer.roomId = "room-123";
+    offer.peerId = "host";
+    offer.targetPeerId = "client";
+    offer.sdp = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n";
+
+    const auto parsedOffer = Netplay::WebRtcSignalingMessage::fromText(offer.toText());
+    REQUIRE(parsedOffer.has_value());
+    REQUIRE(parsedOffer->type == Netplay::WebRtcSignalType::Offer);
+    REQUIRE(parsedOffer->roomId == "room-123");
+    REQUIRE(parsedOffer->peerId == "host");
+    REQUIRE(parsedOffer->targetPeerId == "client");
+    REQUIRE(parsedOffer->sdp == offer.sdp);
+
+    Netplay::WebRtcSignalingMessage ice;
+    ice.type = Netplay::WebRtcSignalType::IceCandidate;
+    ice.roomId = "room-123";
+    ice.peerId = "client";
+    ice.targetPeerId = "host";
+    ice.candidate = "candidate:0 1 UDP 2122252543 192.168.0.2 53421 typ host";
+    ice.mid = "0";
+    ice.mlineIndex = 0;
+
+    const auto parsedIce = Netplay::WebRtcSignalingMessage::fromJson(ice.toJson());
+    REQUIRE(parsedIce.has_value());
+    REQUIRE(parsedIce->type == Netplay::WebRtcSignalType::IceCandidate);
+    REQUIRE(parsedIce->candidate == ice.candidate);
+    REQUIRE(parsedIce->mid == "0");
+    REQUIRE(parsedIce->mlineIndex == 0);
 }
 
 TEST_CASE("Netplay runtime flow advances under prediction", "[netplay][runtime]")

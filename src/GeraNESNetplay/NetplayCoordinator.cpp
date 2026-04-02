@@ -1,5 +1,3 @@
-#ifndef __EMSCRIPTEN__
-
 #include "logger/logger.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 
@@ -139,11 +137,7 @@ uint64_t NetplayCoordinator::generateReconnectToken()
 
 static const char* transportBackendLabel(NetTransportBackend backend)
 {
-    switch(backend) {
-        case NetTransportBackend::ENet: return "ENet";
-        case NetTransportBackend::WebRTC: return "WebRTC";
-        default: return "transport";
-    }
+    return netTransportBackendLabel(backend);
 }
 
 std::string NetplayCoordinator::messageTypeLabel(MessageType type)
@@ -2420,6 +2414,9 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
 
     if(!m_transport.hostSession(port, maxPeers)) {
         m_lastError = std::string("Failed to host ") + transportBackendLabel(m_transport.backend()) + " session";
+        if(!m_transport.lastError().empty()) {
+            m_lastError += ": " + m_transport.lastError();
+        }
         pushLog(m_lastError);
         return false;
     }
@@ -2456,6 +2453,9 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
 
     if(!m_transport.connectToHost(hostName, port)) {
         m_lastError = std::string("Failed to connect to host using ") + transportBackendLabel(m_transport.backend());
+        if(!m_transport.lastError().empty()) {
+            m_lastError += ": " + m_transport.lastError();
+        }
         pushLog(m_lastError);
         return false;
     }
@@ -2697,6 +2697,16 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
 bool NetplayCoordinator::setTransportBackend(NetTransportBackend backend)
 {
     return m_transport.setBackend(backend);
+}
+
+void NetplayCoordinator::setTransportOptions(const NetTransportOptions& options)
+{
+    m_transport.setOptions(options);
+}
+
+const NetTransportOptions& NetplayCoordinator::transportOptions() const
+{
+    return m_transport.options();
 }
 
 NetTransportBackend NetplayCoordinator::transportBackend() const
@@ -3710,5 +3720,3 @@ bool NetplayCoordinator::endSession()
 }
 
 } // namespace Netplay
-
-#endif

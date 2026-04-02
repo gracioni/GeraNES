@@ -1,13 +1,13 @@
 #pragma once
 
-#ifndef __EMSCRIPTEN__
-
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "NetProtocol.h"
+#include "WebRtcSignaling.h"
 
 namespace Netplay {
 
@@ -15,6 +15,15 @@ enum class NetTransportBackend : uint8_t
 {
     ENet = 0,
     WebRTC = 1
+};
+
+const char* netTransportBackendLabel(NetTransportBackend backend);
+std::vector<NetTransportBackend> availableNetTransportBackends();
+NetTransportBackend defaultNetTransportBackend();
+
+struct NetTransportOptions
+{
+    std::optional<WebRtcSignalingConfig> webRtcSignaling;
 };
 
 class INetTransport
@@ -43,6 +52,9 @@ public:
 
     virtual bool initialize() = 0;
     virtual void shutdown() = 0;
+    virtual void setOptions(const NetTransportOptions& options) = 0;
+    virtual const NetTransportOptions& options() const = 0;
+    virtual const std::string& lastError() const = 0;
 
     virtual bool hostSession(uint16_t port, size_t maxPeers) = 0;
     virtual bool connectToHost(const std::string& hostName, uint16_t port, size_t channelCount = 3) = 0;
@@ -85,6 +97,9 @@ public:
 
     bool setBackend(NetTransportBackend backend);
     NetTransportBackend backend() const;
+    void setOptions(const NetTransportOptions& options);
+    const NetTransportOptions& options() const;
+    const std::string& lastError() const;
 
     bool initialize();
     void shutdown();
@@ -112,5 +127,3 @@ public:
 };
 
 } // namespace Netplay
-
-#endif
