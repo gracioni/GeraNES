@@ -941,7 +941,7 @@ private:
     }
 
     void updateMVP() {
-        glm::mat4 proj = glm::ortho(0.0f, (float)width(), (float)height(), 0.0f, -1.0f, 1.0f);           
+        glm::mat4 proj = glm::ortho(0.0f, (float)this->width(), (float)this->height(), 0.0f, -1.0f, 1.0f);
         m_mvp = proj * glm::mat4(1.0f);
     }    
 
@@ -1265,7 +1265,7 @@ private:
         if(m_arkanoidGrabActive == active) return;
         m_arkanoidGrabActive = active;
 #ifndef __EMSCRIPTEN__
-        SDL_SetWindowGrab(sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
+        SDL_SetWindowGrab(this->sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
 #endif
         SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
         if(active) {
@@ -1284,7 +1284,7 @@ private:
         if(m_snesMouseGrabActive == active) return;
         m_snesMouseGrabActive = active;
 #ifndef __EMSCRIPTEN__
-        SDL_SetWindowGrab(sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
+        SDL_SetWindowGrab(this->sdlWindow(), active ? SDL_TRUE : SDL_FALSE);
 #endif
         SDL_SetRelativeMouseMode(active ? SDL_TRUE : SDL_FALSE);
         if(active) {
@@ -1597,7 +1597,7 @@ private:
         AppSettings::instance().data.setLastFolder(path);
         if(m_emu.open(path)) {
             const std::string filename = fs::path(path).filename().string();
-            setTitle((std::string("GeraNES (") + filename + ")").c_str());
+            this->setTitle((std::string("GeraNES (") + filename + ")").c_str());
             Logger::instance().log("Rom loaded", Logger::Type::USER);
             m_netplayRuntime.refreshLocalRomSelectionImmediate();
         }
@@ -1659,8 +1659,8 @@ private:
         // std::string shortcut;
         // std::function<void()> action;
         m_shortcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "Alt+F", [this]() {
-            m_fullScreen = !isFullScreen();
-            setFullScreen(m_fullScreen);            
+            m_fullScreen = !this->isFullScreen();
+            this->setFullScreen(m_fullScreen);
             AppSettings::instance().data.video.fullScreen = m_fullScreen;
         }});
 
@@ -1903,7 +1903,7 @@ public:
         });
         setWindowsNativePumpEnabled(false);
 
-        const bool restoreAfterDialog = isFullScreen();
+        const bool restoreAfterDialog = this->isFullScreen();
 #ifndef _WIN32
         if(restoreAfterDialog) minimizeWindow();
 #endif
@@ -1967,14 +1967,16 @@ public:
             emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
         #endif
 
-        if(restoreAfterDialog) restoreWindow();
+        #ifndef __EMSCRIPTEN__
+        if(restoreAfterDialog) this->restoreWindow();
+        #endif
     } 
 
     void updateVSyncConfig() {
         switch(m_vsyncMode) {
-            case OFF: setVSync(0); break;
-            case SYNCRONIZED: setVSync(1); break;
-            case ADAPTATIVE: setVSync(-1); break;
+            case OFF: this->setVSync(0); break;
+            case SYNCRONIZED: this->setVSync(1); break;
+            case ADAPTATIVE: this->setVSync(-1); break;
         }
     }
 
@@ -2027,7 +2029,7 @@ public:
         m_crossCursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
         m_sizeWECursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
 
-        setFullScreen(m_fullScreen);
+        this->setFullScreen(m_fullScreen);
 
         if (SDL_Init(SDL_INIT_TIMER) < 0) {
             Logger::instance().log("SDL_Init error", Logger::Type::ERROR);
@@ -2098,7 +2100,7 @@ public:
         const char* glsl_version = "#version 100";
 
         // Setup Platform/Renderer bindings
-        ImGui_ImplSDL2_InitForOpenGL(sdlWindow(), glContext());
+        ImGui_ImplSDL2_InitForOpenGL(this->sdlWindow(), this->glContext());
         ImGui_ImplOpenGL3_Init(glsl_version);
 
 
@@ -2147,7 +2149,7 @@ public:
 
         updateMVP();
 
-        m_touch = std::make_unique<TouchControls>(m_controller1, width(), height(), GetWindowDPI());
+        m_touch = std::make_unique<TouchControls>(m_controller1, this->width(), this->height(), GetWindowDPI());
 
         return true;
     }
@@ -2214,9 +2216,9 @@ public:
 
         std::vector<GLfloat> data;
 
-        SDL_Rect clientArea = { 0, m_menuBarHeight, width(), std::max(0, height() - m_menuBarHeight) };
+        SDL_Rect clientArea = { 0, m_menuBarHeight, this->width(), std::max(0, this->height() - m_menuBarHeight) };
 
-        if( width()/256.0 >= height()/(240.0-2*m_clipHeightValue))
+        if(this->width()/256.0 >= this->height()/(240.0-2*m_clipHeightValue))
         {
             GLfloat drawWidth = m_horizontalStretch ? clientArea.w : 256.0/(240.0-2*m_clipHeightValue) * clientArea.h;
             GLfloat offsetX = (clientArea.w - drawWidth)/2.0;
@@ -2379,7 +2381,7 @@ public:
 
                     case SDL_WINDOWEVENT_SIZE_CHANGED:
                         updateMVP();
-                        m_touch->onResize(width(),height());               
+                        m_touch->onResize(this->width(), this->height());
                         m_updateObjectsFlag = true;
                         break;
                 }

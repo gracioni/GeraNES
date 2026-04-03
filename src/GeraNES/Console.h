@@ -25,5 +25,9 @@ class Console {
         PPU& ppu() { return m_ppu; }
         APU& apu() { return m_apu; }
         Cartridge& cartridge() { return m_cartridge; }
+        const CPU2A03& cpu() const { return m_cpu; }
+        const PPU& ppu() const { return m_ppu; }
+        const APU& apu() const { return m_apu; }
+        const Cartridge& cartridge() const { return m_cartridge; }
 
 };

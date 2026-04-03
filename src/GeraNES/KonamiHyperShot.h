@@ -25,7 +25,7 @@ public:
         m_player2Jump = bB;
     }
 
-    void setPlayersButtons(bool p1Run, bool p1Jump, bool p2Run, bool p2Jump)
+    void setPlayersButtons(bool p1Run, bool p1Jump, bool p2Run, bool p2Jump) override
     {
         m_player1Run = p1Run;
         m_player1Jump = p1Jump;

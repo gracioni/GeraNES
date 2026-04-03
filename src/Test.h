@@ -26,7 +26,7 @@ private:
         static constexpr float BEEP_QUIET_SAMPLE_THRESHOLD = 0.01f;
         static constexpr int BEEP_MIN_QUIET_STEPS = 2;
 
-        std::array<float, 5> m_volume = {0, 0, 0, 0, 0};
+        std::array<float, 6> m_volume = {0, 0, 0, 0, 0, 0};
         bool m_volumeActive = false;
         bool m_sampleActivityThisStep = false;
         float m_stepMaxAbsSample = 0.0f;
@@ -46,6 +46,7 @@ private:
             case Channel::Triangle: return 2;
             case Channel::Noise: return 3;
             case Channel::Sample: return 4;
+            case Channel::Expansion: return 5;
             }
             return 0;
         }
@@ -56,9 +57,13 @@ private:
             const float tri = m_volume[2];
             const float noi = m_volume[3];
             const float smp = m_volume[4];
-            const float level = (pulse > tri ? pulse : tri) > (noi > smp ? noi : smp)
+            const float exp = m_volume[5];
+            const float secondary = (noi > smp ? noi : smp) > exp
+                ? (noi > smp ? noi : smp)
+                : exp;
+            const float level = (pulse > tri ? pulse : tri) > secondary
                 ? (pulse > tri ? pulse : tri)
-                : (noi > smp ? noi : smp);
+                : secondary;
             m_volumeActive = level >= VOLUME_ACTIVE_THRESHOLD;
         }
 

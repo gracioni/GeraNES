@@ -81,7 +81,7 @@ public:
         }
     }
 
-    GERANES_INLINE int overclockLines()
+    GERANES_INLINE int overclockLines() const
     {
         return m_overclockLines;
     }
@@ -96,7 +96,7 @@ public:
         m_disableSpriteLimit = flag;
     }
 
-    GERANES_INLINE bool spriteLimitDisabled()
+    GERANES_INLINE bool spriteLimitDisabled() const
     {
         return m_disableSpriteLimit;
     }

@@ -259,6 +259,25 @@ private:
         std::vector<uint8_t> data;
     };
 
+    mutable std::mutex m_netplaySnapshotMutex;
+    std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
+    size_t m_netplaySnapshotCapacity = 0;
+    NetplayDiagnosticsSnapshot m_netplayDiagnostics;
+    mutable std::mutex m_manualStateChangeMutex;
+    std::deque<ManualStateChangeRecord> m_manualStateChanges;
+
+    void onResetExecutedLocked(uint32_t frame)
+    {
+        std::scoped_lock eventLock(m_manualStateChangeMutex);
+        m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::Reset, frame});
+    }
+
+    void onLoadExecutedLocked(uint32_t frame)
+    {
+        std::scoped_lock eventLock(m_manualStateChangeMutex);
+        m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::LoadState, frame});
+    }
+
 #ifdef __EMSCRIPTEN__
     GeraNESEmu m_emu;
     IAudioOutput& m_audioOutput;
@@ -297,7 +316,6 @@ private:
     IAudioOutput& m_audioOutput;
     mutable std::mutex m_emuMutex;
     mutable std::mutex m_snapshotMutex;
-    mutable std::mutex m_netplaySnapshotMutex;
     mutable std::mutex m_workerReadyMutex;
     std::condition_variable m_workerReadyCv;
     bool m_workerReady = false;
@@ -316,11 +334,6 @@ private:
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)
     };
     Snapshot m_snapshot;
-    std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
-    size_t m_netplaySnapshotCapacity = 0;
-    NetplayDiagnosticsSnapshot m_netplayDiagnostics;
-    mutable std::mutex m_manualStateChangeMutex;
-    std::deque<ManualStateChangeRecord> m_manualStateChanges;
     mutable std::mutex m_pendingInputMutex;
     InputState m_pendingInput;
     mutable std::mutex m_frameInputResolverMutex;
@@ -380,18 +393,6 @@ private:
 
         m_workerWakeRequested.store(true, std::memory_order_release);
         m_presenterCv.notify_one();
-    }
-
-    void onResetExecutedLocked(uint32_t frame)
-    {
-        std::scoped_lock eventLock(m_manualStateChangeMutex);
-        m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::Reset, frame});
-    }
-
-    void onLoadExecutedLocked(uint32_t frame)
-    {
-        std::scoped_lock eventLock(m_manualStateChangeMutex);
-        m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::LoadState, frame});
     }
 
     void refreshSnapshotLocked()
@@ -718,7 +719,7 @@ public:
     void setAllowPresenterTimeoutAdvance(bool enabled)
     {
 #ifdef __EMSCRIPTEN__
-        m_allowPresenterTimeoutAdvance = enabled;
+        (void)enabled;
 #else
         m_allowPresenterTimeoutAdvance.store(enabled, std::memory_order_release);
         m_workerWakeRequested.store(true, std::memory_order_release);
@@ -1262,10 +1263,10 @@ public:
     uint32_t exactEmulationFrame() const
     {
 #ifdef __EMSCRIPTEN__
-        return const_cast<GeraNESEmu&>(m_emu).frameCount();
+        return m_emu.frameCount();
 #else
         std::scoped_lock emuLock(m_emuMutex);
-        return const_cast<GeraNESEmu&>(m_emu).frameCount();
+        return m_emu.frameCount();
 #endif
     }
 

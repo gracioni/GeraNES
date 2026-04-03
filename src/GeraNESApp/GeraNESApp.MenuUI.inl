@@ -289,7 +289,7 @@ inline void GeraNESApp::menuBar() {
                 : localInputTopology.famicomMultitapDevice;
 #else
             const bool netplayInputManaged = false;
-            const std::optional<Netplay::PlayerSlot> localNetplayAssignment = std::nullopt;
+            const std::vector<Netplay::PlayerSlot> localNetplayAssignments;
             const bool canChangeNetplayManagedInput = true;
             const auto localInputTopology = m_emu.getInputTopologySnapshot();
             const auto effectivePort1Device = localInputTopology.port1Device;

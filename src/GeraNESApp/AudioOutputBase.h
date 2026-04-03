@@ -169,6 +169,7 @@ public:
             case Channel::Triangle: m_triangleWave.setFrequency(frequency); break;
             case Channel::Noise: m_noise.setFrequency(frequency); break;
             case Channel::Sample: m_sample.setFrequency(frequency); break;
+            case Channel::Expansion: break;
         }
     }
     

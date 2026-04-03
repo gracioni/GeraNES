@@ -1,7 +1,5 @@
 #pragma once
 
-#ifndef __EMSCRIPTEN__
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -31,6 +29,45 @@ public:
         std::optional<uint8_t> inputDelayFrames;
         std::optional<uint8_t> predictFrames;
     };
+
+#ifdef __EMSCRIPTEN__
+public:
+    void setEnabled(bool enabled)
+    {
+        m_enabled = enabled;
+        if(!m_enabled) {
+            m_snapshot.lastDecisionReason = "Automatic gameplay tuning unavailable on Emscripten";
+        }
+    }
+
+    bool enabled() const
+    {
+        return m_enabled;
+    }
+
+    Recommendations update(const RoomState& room,
+                           const RollbackStats&,
+                           uint32_t,
+                           uint32_t)
+    {
+        m_snapshot.enabled = m_enabled;
+        m_snapshot.currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
+        m_snapshot.currentFixedPredict = static_cast<uint8_t>(room.predictFrames);
+        if(m_enabled) {
+            m_snapshot.lastDecisionReason.clear();
+        }
+        return {};
+    }
+
+    Snapshot snapshot() const
+    {
+        return m_snapshot;
+    }
+
+private:
+    bool m_enabled = true;
+    Snapshot m_snapshot;
+#else
 
 private:
     bool m_enabled = true;
@@ -284,8 +321,7 @@ public:
         snapshot.lastDecisionReason = m_lastDecisionReason;
         return snapshot;
     }
+#endif
 };
 
 } // namespace Netplay
-
-#endif

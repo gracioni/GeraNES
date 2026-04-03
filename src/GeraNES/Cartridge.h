@@ -949,7 +949,7 @@ public:
         m_mapper->applyExternalActions(pending);
     }
 
-    GERANES_INLINE GameDatabase::System system()
+    GERANES_INLINE GameDatabase::System system() const
     {
         return m_nesCartridgeData->sistem();
     }
@@ -964,7 +964,7 @@ public:
         return m_nesCartridgeData->vsPpuModel();
     }
 
-    GERANES_INLINE bool isValid()
+    GERANES_INLINE bool isValid() const
     {
         return m_isValid;
     }
@@ -1181,7 +1181,5 @@ public:
     }
 
 };
-
-
 
 

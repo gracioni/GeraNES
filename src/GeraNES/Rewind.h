@@ -118,7 +118,7 @@ public:
         m_activeFlag = state;
     }
 
-    bool isRewinding()
+    bool isRewinding() const
     {
         return m_buffer != nullptr && m_activeFlag;
     }

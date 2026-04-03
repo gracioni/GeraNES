@@ -2107,7 +2107,7 @@ yyy NNYY YYYX XXXX
         fillFramebuffer(0xFF000000);
     }
 
-    GERANES_INLINE const uint32_t* getFramebuffer()
+    GERANES_INLINE const uint32_t* getFramebuffer() const
     {
         return m_framebufferFriendly;
     }

@@ -1590,7 +1590,7 @@ public:
         return executionPointEqual(executionPoint(), target);
     }
 
-    GERANES_INLINE const uint32_t* getFramebuffer()
+    GERANES_INLINE const uint32_t* getFramebuffer() const
     {
         return m_ppu.getFramebuffer();
     }
@@ -1805,16 +1805,16 @@ public:
         return s.getData();
     }
 
-    uint32_t canonicalStateCrc32()
+    uint32_t canonicalStateCrc32() const
     {
-        const std::vector<uint8_t> data = saveStateToMemory();
+        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveStateToMemory();
         if(data.empty()) return 0;
         return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }
 
-    uint32_t canonicalNetplayStateCrc32()
+    uint32_t canonicalNetplayStateCrc32() const
     {
-        const std::vector<uint8_t> data = saveNetplayStateToMemory();
+        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveNetplayStateToMemory();
         if(data.empty()) return 0;
         return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -1830,7 +1830,7 @@ public:
     }
     */
 
-    GERANES_INLINE std::optional<Settings::Device> getPortDevice(Settings::Port port)
+    GERANES_INLINE std::optional<Settings::Device> getPortDevice(Settings::Port port) const
     {
         return m_settings.getPortDevice(port);
     }
@@ -1880,7 +1880,7 @@ public:
         recreateInputRouting();
     }
 
-    bool overclocked()
+    bool overclocked() const
     {
         return m_settings.overclockLines() > 0;
     }
@@ -1912,7 +1912,7 @@ public:
         m_settings.disableSpriteLimit(state);
     }
 
-    bool spriteLimitDisabled()
+    bool spriteLimitDisabled() const
     {
         return m_settings.spriteLimitDisabled();
     }
@@ -1927,7 +1927,7 @@ public:
         }
     }
 
-    Settings::Region region()
+    Settings::Region region() const
     {
         return m_settings.region();
     }
@@ -2130,17 +2130,21 @@ public:
         return m_console;
     }
 
-    bool valid() //ready to run
+    const Console& getConsole() const {
+        return m_console;
+    }
+
+    bool valid() const //ready to run
     {
         return m_cartridge.isValid();
     }
 
-    bool isRewinding()
+    bool isRewinding() const
     {
         return m_rewind.isRewinding();
     }
 
-    uint32_t getRegionFPS() {
+    uint32_t getRegionFPS() const {
 
         switch(m_settings.region()) {
 
@@ -2162,7 +2166,7 @@ public:
         return getRegionFPS();
     }
 
-    uint32_t frameCount() {
+    uint32_t frameCount() const {
         return m_frameCounter;
     }
 
@@ -2230,9 +2234,6 @@ public:
     }
 
 };
-
-
-
 
 
 
