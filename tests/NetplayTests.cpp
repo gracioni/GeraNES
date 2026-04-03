@@ -382,9 +382,12 @@ TEST_CASE("Netplay transport backend can be selected before session startup", "[
 #if !defined(__EMSCRIPTEN__)
     const uint16_t signalingPort = reserveLoopbackPort();
     LocalWebSocketSignalingServer signalingServer(signalingPort);
-    coordinator.setTransportOptions(Netplay::NetTransportOptions{
-        Netplay::WebRtcSignalingConfig{"ws://127.0.0.1:" + std::to_string(signalingPort), "room"}
-    });
+    Netplay::NetTransportOptions transportOptions;
+    transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "room"
+    };
+    coordinator.setTransportOptions(transportOptions);
     REQUIRE(coordinator.host(27991, 1, "Host"));
     REQUIRE(coordinator.lastError().empty());
     coordinator.disconnect();
@@ -529,8 +532,10 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
     Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
     Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
 
-    const Netplay::NetTransportOptions options{
-        Netplay::WebRtcSignalingConfig{"ws://127.0.0.1:" + std::to_string(port), "room"}
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(port),
+        "room"
     };
     hostTransport.setOptions(options);
     clientTransport.setOptions(options);
@@ -722,6 +727,132 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay coordinator recovers from an explicit participant suspend", "[netplay][suspend][explicit][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Running;
+    room.currentFrame = 120;
+    room.lastConfirmedFrame = 120;
+    room.selectedGameName = "SuspendTest";
+
+    Netplay::ParticipantInfo* localParticipant = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == coordinator.localParticipantId()) {
+            localParticipant = &participant;
+            break;
+        }
+    }
+    REQUIRE(localParticipant != nullptr);
+    localParticipant->connected = true;
+    localParticipant->romLoaded = true;
+    localParticipant->romCompatible = true;
+    localParticipant->role = Netplay::ParticipantRole::Player;
+    localParticipant->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    localParticipant->normalizeControllerAssignments();
+
+    Netplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = Netplay::ParticipantRole::Player;
+    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+    localParticipant = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == coordinator.localParticipantId()) {
+            localParticipant = &participant;
+            break;
+        }
+    }
+    REQUIRE(localParticipant != nullptr);
+
+    coordinator.setLocalSuspended(true);
+    REQUIRE(room.state == Netplay::SessionState::Paused);
+    REQUIRE(localParticipant->suspended == true);
+    REQUIRE(std::find(
+        coordinator.eventLog().begin(),
+        coordinator.eventLog().end(),
+        std::string("Session paused while waiting for a suspended participant to resume")
+    ) != coordinator.eventLog().end());
+
+    coordinator.setLocalSuspended(false);
+    REQUIRE(localParticipant->suspended == false);
+    REQUIRE(coordinator.resumeSession());
+    REQUIRE(room.state == Netplay::SessionState::Running);
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Netplay coordinator recovers from an implicit participant suspend", "[netplay][suspend][implicit][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Running;
+    room.currentFrame = 180;
+    room.lastConfirmedFrame = 180;
+    room.selectedGameName = "SuspendTest";
+
+    Netplay::ParticipantInfo* localParticipant = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == coordinator.localParticipantId()) {
+            localParticipant = &participant;
+            break;
+        }
+    }
+    REQUIRE(localParticipant != nullptr);
+    localParticipant->connected = true;
+    localParticipant->romLoaded = true;
+    localParticipant->romCompatible = true;
+    localParticipant->role = Netplay::ParticipantRole::Player;
+    localParticipant->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    localParticipant->normalizeControllerAssignments();
+
+    Netplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = Netplay::ParticipantRole::Player;
+    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+    localParticipant = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == coordinator.localParticipantId()) {
+            localParticipant = &participant;
+            break;
+        }
+    }
+    REQUIRE(localParticipant != nullptr);
+
+    coordinator.recordPlaybackStop(181, true);
+    REQUIRE(room.state == Netplay::SessionState::Paused);
+    REQUIRE(localParticipant->suspended == false);
+    REQUIRE(std::find(
+        coordinator.eventLog().begin(),
+        coordinator.eventLog().end(),
+        std::string("Session paused while waiting for participant inputs to catch up")
+    ) != coordinator.eventLog().end());
+
+    REQUIRE(coordinator.resumeSession());
+    REQUIRE(room.state == Netplay::SessionState::Running);
+
+    coordinator.disconnect();
 }
 
 TEST_CASE("Netplay core advances only when the exact next numbered input frame exists", "[netplay][core][frames]")
