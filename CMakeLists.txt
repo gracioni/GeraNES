@@ -289,7 +289,10 @@ if(NOT EMSCRIPTEN)
     )
 
     FetchContent_MakeAvailable(asio)
-    INCLUDE_DIRECTORIES(${asio_SOURCE_DIR}/asio/include)
+    add_library(asio_headers INTERFACE)
+    target_include_directories(asio_headers SYSTEM INTERFACE
+        ${asio_SOURCE_DIR}/asio/include
+    )
 
     FetchContent_Declare(
         websocketpp
@@ -300,7 +303,10 @@ if(NOT EMSCRIPTEN)
     )
 
     FetchContent_MakeAvailable(websocketpp)
-    INCLUDE_DIRECTORIES(${websocketpp_SOURCE_DIR})
+    add_library(websocketpp_headers INTERFACE)
+    target_include_directories(websocketpp_headers SYSTEM INTERFACE
+        ${websocketpp_SOURCE_DIR}
+    )
 
     FetchContent_Declare(
         mbedtls
@@ -451,6 +457,9 @@ if(MINGW)
     target_compile_options(GeraNESLib PRIVATE -Wa,-mbig-obj)
 endif()
 target_link_libraries(GeraNESLib PUBLIC ${LIBS})
+if(NOT EMSCRIPTEN)
+    target_link_libraries(GeraNESLib PRIVATE asio_headers websocketpp_headers)
+endif()
 if(MINGW)
     target_link_options(GeraNESLib PRIVATE -static-libgcc -static-libstdc++)
     target_link_libraries(GeraNESLib PRIVATE
@@ -509,6 +518,9 @@ if(NOT EMSCRIPTEN)
     target_compile_definitions(GeraNESTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
 endif()
 target_link_libraries(GeraNESTests PRIVATE GeraNESLib Catch2::Catch2WithMain)
+if(NOT EMSCRIPTEN)
+    target_link_libraries(GeraNESTests PRIVATE asio_headers websocketpp_headers)
+endif()
 if(WIN32)
     target_link_libraries(GeraNESTests PRIVATE mswsock)
 endif()
