@@ -788,7 +788,7 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
     const FrameNumber requestedFrame =
         initialSessionSync
             ? emu.frameCount()
-            : m_coordinator.session().roomState().lastConfirmedFrame;
+            : *pendingFrame;
     const FrameNumber authoritativeFrame =
         std::min<FrameNumber>(requestedFrame, emu.frameCount());
 

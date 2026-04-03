@@ -54,6 +54,14 @@ public:
     };
 
 private:
+    struct PendingImplicitRecovery
+    {
+        ParticipantId participantId = kInvalidParticipantId;
+        PlayerSlot playerSlot = kObserverPlayerSlot;
+        FrameNumber stalledFrame = 0;
+        uint32_t observedPeerHealthSerial = 0;
+    };
+
     struct DelayedPacketEvent
     {
         std::chrono::steady_clock::time_point releaseAt = {};
@@ -99,6 +107,7 @@ private:
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<PendingResyncApply> m_pendingResyncApply;
     std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
+    std::optional<PendingImplicitRecovery> m_pendingImplicitRecovery;
     std::vector<ParticipantId> m_pendingResyncAcks;
     std::vector<ParticipantId> m_pendingSequenceResetParticipants;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
@@ -176,6 +185,9 @@ private:
     void publishConfirmedFramesIfReady();
     void handleResolvedPredictedInput(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot, bool predictionMatched);
     bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
+    void noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
+    void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
+    void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
     bool tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     FrameNumber computeHostConfirmedFrame() const;
     void broadcastFrameStatusIfNeeded();

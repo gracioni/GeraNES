@@ -263,6 +263,7 @@ void NetplayCoordinator::resetSessionState()
     m_incomingResync.reset();
     m_pendingResyncApply.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
+    m_pendingImplicitRecovery.reset();
     m_pendingResyncAcks.clear();
     m_reconnectReservationDeadlines.clear();
     m_lastTransportError.clear();
@@ -327,6 +328,9 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
         m_pendingResyncAcks.end()
     );
     m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
+    if(m_pendingImplicitRecovery.has_value() && m_pendingImplicitRecovery->participantId == participantId) {
+        m_pendingImplicitRecovery.reset();
+    }
 }
 
 void NetplayCoordinator::clearReconnectAttemptState()
@@ -889,6 +893,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             pushLog(oss.str());
             participant->pendingMissingInputFrom.reset();
         }
+
+        clearImplicitRemoteInputStall(participant->id, participant->lastContiguousInputFrame);
     }
 
     if(m_hosting) {
@@ -1034,8 +1040,85 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_session.roomState().resyncPayloadCrc32 = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
     m_activeResyncExpectedStateCrc32 = 0;
+    m_pendingImplicitRecovery.reset();
     m_session.roomState().state = SessionState::Paused;
     pushLog(reason);
+}
+
+void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame)
+{
+    if(!m_hosting || m_session.roomState().state != SessionState::Running) return;
+    if(participantId == kInvalidParticipantId || participantId == m_localParticipantId) return;
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr || !participant->connected || participantIsObserver(*participant)) return;
+
+    if(m_pendingImplicitRecovery.has_value() &&
+       m_pendingImplicitRecovery->participantId == participantId &&
+       m_pendingImplicitRecovery->playerSlot == slot &&
+       m_pendingImplicitRecovery->stalledFrame == frame) {
+        return;
+    }
+
+    PendingImplicitRecovery pending;
+    pending.participantId = participantId;
+    pending.playerSlot = slot;
+    pending.stalledFrame = frame;
+    pending.observedPeerHealthSerial = participant->peerHealthSerial;
+    m_pendingImplicitRecovery = pending;
+
+    participant->lastDecisionFrame = frame;
+    participant->lastDecisionSlot = slot;
+    participant->lastDecision = "Implicit stall detected; waiting for peer health";
+
+    std::ostringstream oss;
+    oss << "Implicit input stall detected for " << participant->displayName
+        << " at frame " << frame
+        << "; waiting for fresh peer health before recovery resync";
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame)
+{
+    if(!m_pendingImplicitRecovery.has_value()) return;
+    if(m_pendingImplicitRecovery->participantId != participantId) return;
+    if(recoveredThroughFrame < m_pendingImplicitRecovery->stalledFrame) return;
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant != nullptr) {
+        std::ostringstream oss;
+        oss << "Implicit input stall recovered for " << participant->displayName
+            << " by input frame " << recoveredThroughFrame;
+        pushLog(oss.str());
+    }
+
+    m_pendingImplicitRecovery.reset();
+}
+
+void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& participant)
+{
+    if(!m_hosting || !m_pendingImplicitRecovery.has_value()) return;
+    if(m_pendingImplicitRecovery->participantId != participant.id) return;
+    if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
+    if(participant.peerHealthSerial <= m_pendingImplicitRecovery->observedPeerHealthSerial) return;
+
+    const FrameNumber resyncFrame =
+        m_session.roomState().lastConfirmedFrame > 0
+            ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+            : m_localSimulationFrame;
+
+    if(!m_pendingHostResyncFrame.has_value() || resyncFrame < *m_pendingHostResyncFrame) {
+        m_pendingHostResyncFrame = resyncFrame;
+    }
+
+    std::ostringstream oss;
+    oss << "Fresh peer health received from " << participant.displayName
+        << " after implicit input stall; scheduling recovery resync from frame "
+        << resyncFrame;
+    pushLog(oss.str());
+
+    m_pendingImplicitRecovery.reset();
 }
 
 void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
@@ -1326,6 +1409,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
+    m_pendingImplicitRecovery.reset();
     m_pendingResyncApply.reset();
     m_pendingResyncAcks.clear();
     m_activeResyncExpectedStateCrc32 = 0;
@@ -1777,6 +1861,10 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         participant->pingMs = data.pingMs;
         participant->jitterMs = data.jitterMs;
+        participant->lastReportedCurrentFrame = data.currentFrame;
+        participant->lastReportedConfirmedFrame = data.lastConfirmedFrame;
+        ++participant->peerHealthSerial;
+        tryScheduleImplicitRecoveryResync(*participant);
     }
 
     if(m_hosting) {
@@ -3115,12 +3203,16 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
             const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
             if(entry == nullptr && allowPrediction && !isLocalParticipant) {
                 if(!predictRemoteInputFrame(frame, participant.id, slot)) {
+                    noteImplicitRemoteInputStall(participant.id, slot, frame);
                     return false;
                 }
                 entry = m_remoteInputs.find(frame, participant.id, slot);
             }
 
             if(entry == nullptr) {
+                if(!isLocalParticipant) {
+                    noteImplicitRemoteInputStall(participant.id, slot, frame);
+                }
                 return false;
             }
 
@@ -3375,6 +3467,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_session.roomState().resyncPayloadCrc32 = payloadCrc32;
     m_session.roomState().activeResyncReason = reason;
     m_activeResyncExpectedStateCrc32 = stateCrc32;
+    m_pendingImplicitRecovery.reset();
     m_pendingResyncAcks.clear();
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {

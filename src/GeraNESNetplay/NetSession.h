@@ -24,9 +24,11 @@ struct ParticipantInfo
     std::vector<PlayerSlot> controllerAssignments;
     bool romLoaded = false;
     bool romCompatible = false;
-    bool suspended = false;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
+    FrameNumber lastReportedCurrentFrame = 0;
+    FrameNumber lastReportedConfirmedFrame = 0;
+    uint32_t peerHealthSerial = 0;
     FrameNumber lastReceivedInputFrame = 0;
     FrameNumber lastContiguousInputFrame = 0;
     uint32_t lastReceivedInputSequence = 0;

@@ -783,6 +783,105 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer health", "[netplay][implicit-stall][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        const auto& hostRoom = host.session().roomState();
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            hostRoom.participants.size() >= 2;
+
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.selectedGameName = "ImplicitRecovery";
+    clientRoom.selectedGameName = "ImplicitRecovery";
+    hostRoom.currentFrame = 180;
+    clientRoom.currentFrame = 180;
+    hostRoom.lastConfirmedFrame = 180;
+    clientRoom.lastConfirmedFrame = 180;
+
+    Netplay::ParticipantInfo* hostLocal = nullptr;
+    Netplay::ParticipantInfo* hostRemote = nullptr;
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            participant.role = Netplay::ParticipantRole::Host;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            hostRemote = &participant;
+            participant.role = Netplay::ParticipantRole::Player;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+    REQUIRE(hostLocal != nullptr);
+    REQUIRE(hostRemote != nullptr);
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::Player;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::Host;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(180);
+    client.setLocalSimulationFrame(180);
+    host.recordLocalInputFrame(181, Netplay::kPort1PlayerSlot, 0);
+
+    Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+    REQUIRE_FALSE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
+    host.recordPlaybackStop(181, false);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(550));
+    for(int step = 0; step < 120; ++step) {
+        client.update(0);
+        host.update(0);
+        const std::optional<Netplay::FrameNumber> pending = host.consumePendingHostResyncFrame();
+        if(pending.has_value()) {
+            REQUIRE(*pending == 180u);
+            host.disconnect();
+            client.disconnect();
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    FAIL("Host never scheduled an implicit recovery resync after the client sent fresh peer health.");
+}
+
 TEST_CASE("Netplay core advances only when the exact next numbered input frame exists", "[netplay][core][frames]")
 {
     GeraNESTestSupport::requireRomFixture();
