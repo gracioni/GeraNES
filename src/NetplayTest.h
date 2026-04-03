@@ -70,10 +70,6 @@ public:
         uint32_t reconnectReservationSecondsForTests = 0;
         uint32_t hostSaveStateFrame = 0;
         uint32_t hostDisconnectFrame = 0;
-        uint32_t explicitSuspendAfterFrames = 0;
-        uint32_t explicitSuspendHoldSteps = 0;
-        uint32_t implicitSuspendAfterFrames = 0;
-        uint32_t implicitSuspendHoldSteps = 0;
         bool reconnectDuringResync = false;
         bool expectReconnectReservationExpiry = false;
         bool robust = false;
@@ -1308,10 +1304,6 @@ private:
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
             {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
             {"hostDisconnectFrame", options.hostDisconnectFrame},
-            {"explicitSuspendAfterFrames", options.explicitSuspendAfterFrames},
-            {"explicitSuspendHoldSteps", options.explicitSuspendHoldSteps},
-            {"implicitSuspendAfterFrames", options.implicitSuspendAfterFrames},
-            {"implicitSuspendHoldSteps", options.implicitSuspendHoldSteps},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
@@ -1707,21 +1699,10 @@ private:
         bool manualResyncCompleted = false;
         bool hostSaveStateCaptured = false;
         bool hostManualLoadDuringResyncObserved = false;
-        bool explicitSuspendTriggered = false;
-        bool explicitSuspendObserved = false;
-        bool explicitSuspendCleared = false;
-        bool explicitSuspendCompleted = false;
-        bool implicitSuspendTriggered = false;
-        bool implicitSuspendObserved = false;
-        bool implicitSuspendCompleted = false;
         uint32_t manualResyncBaselineHardResyncCount = 0;
         uint32_t manualResyncBaselineHostForceResyncEvents = 0;
         uint32_t postResyncCrcCheckStartFrame = 0;
         uint32_t postResyncCrcMismatchFrame = 0;
-        uint32_t explicitSuspendObservedStep = 0;
-        uint32_t implicitSuspendObservedStep = 0;
-        uint32_t implicitSuspendBaselinePlaybackStopCount = 0;
-        uint32_t implicitSuspendBaselineHardResyncCount = 0;
         size_t hostManualLoadTriggerIndex = 0;
         std::vector<uint8_t> hostSavedManualLoadState;
         const auto performRuntimeReconnect = [&](const char* triggerDescription) -> bool {
@@ -1846,55 +1827,13 @@ private:
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
                 );
             }
-            if(options.explicitSuspendAfterFrames > 0 &&
-               !explicitSuspendTriggered &&
-               hostFrame >= startHostFrame + options.explicitSuspendAfterFrames &&
-               clientFrame >= startClientFrame + options.explicitSuspendAfterFrames) {
-                clientPeer.runtime.setLocalSuspended(true);
-                explicitSuspendTriggered = true;
-            }
-
-            bool skipClientUpdateForImplicitSuspend = false;
-            if(options.implicitSuspendAfterFrames > 0 && !implicitSuspendCompleted) {
-                if(!implicitSuspendTriggered &&
-                   hostFrame >= startHostFrame + options.implicitSuspendAfterFrames &&
-                   clientFrame >= startClientFrame + options.implicitSuspendAfterFrames) {
-                    implicitSuspendTriggered = true;
-                    implicitSuspendBaselinePlaybackStopCount =
-                        hostLoopSnapshot.predictionStats.playbackStopCount +
-                        clientLoopSnapshot.predictionStats.playbackStopCount;
-                    implicitSuspendBaselineHardResyncCount =
-                        hostLoopSnapshot.predictionStats.hardResyncCount +
-                        clientLoopSnapshot.predictionStats.hardResyncCount;
-                }
-
-                if(implicitSuspendTriggered && !implicitSuspendObserved) {
-                    skipClientUpdateForImplicitSuspend = true;
-                } else if(implicitSuspendTriggered &&
-                          implicitSuspendObserved &&
-                          (step - implicitSuspendObservedStep) < std::max<uint32_t>(1u, options.implicitSuspendHoldSteps)) {
-                    skipClientUpdateForImplicitSuspend = true;
-                }
-            }
             if((step % hostStepStride) == 0u) {
                 hostPeer.emu.update(hostLoopDtMs);
             }
-            if(!skipClientUpdateForImplicitSuspend &&
-               (step % clientStepStride) == 0u) {
+            if((step % clientStepStride) == 0u) {
                 clientPeer.emu.update(clientLoopDtMs);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
-
-            if(options.explicitSuspendAfterFrames > 0 &&
-               explicitSuspendTriggered &&
-               !explicitSuspendCompleted) {
-                hostPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
-                    hostPeer.runtime.runOnEmulationThread(innerEmu);
-                });
-                clientPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
-                    clientPeer.runtime.runOnEmulationThread(innerEmu);
-                });
-            }
 
             if(options.assignmentSwapAfterFrames > 0 &&
                !assignmentSwapTriggered &&
@@ -2126,75 +2065,9 @@ private:
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
             const auto hostSnap = hostPeer.runtime.uiSnapshot();
             const auto clientSnap = clientPeer.runtime.uiSnapshot();
-            const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *clientId);
-            const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
-            const uint32_t currentPlaybackStopCount =
-                hostSnap.predictionStats.playbackStopCount +
-                clientSnap.predictionStats.playbackStopCount;
             const uint32_t currentHardResyncCount =
                 hostSnap.predictionStats.hardResyncCount +
                 clientSnap.predictionStats.hardResyncCount;
-
-            if(explicitSuspendTriggered && !explicitSuspendObserved) {
-                const bool hostPausedForSuspend = hostSnap.room.state == Netplay::SessionState::Paused;
-                const bool clientMarkedSuspended =
-                    (hostClientParticipant != nullptr && hostClientParticipant->suspended) ||
-                    (clientLocalParticipant != nullptr && clientLocalParticipant->suspended);
-                const bool hostLoggedSuspendPause = std::find(
-                    hostSnap.eventLog.begin(),
-                    hostSnap.eventLog.end(),
-                    std::string("Session paused while waiting for a suspended participant to resume")
-                ) != hostSnap.eventLog.end();
-                if((hostPausedForSuspend && clientMarkedSuspended) || hostLoggedSuspendPause) {
-                    explicitSuspendObserved = true;
-                    explicitSuspendObservedStep = step;
-                }
-            }
-
-            if(explicitSuspendObserved &&
-               !explicitSuspendCleared &&
-               (step - explicitSuspendObservedStep) >= std::max<uint32_t>(1u, options.explicitSuspendHoldSteps)) {
-                clientPeer.runtime.setLocalSuspended(false);
-                explicitSuspendCleared = true;
-            }
-
-            if(explicitSuspendCleared && !explicitSuspendCompleted) {
-                const bool clientSuspended =
-                    (hostClientParticipant != nullptr && hostClientParticipant->suspended) ||
-                    (clientLocalParticipant != nullptr && clientLocalParticipant->suspended);
-                if(!clientSuspended &&
-                   hostSnap.room.state == Netplay::SessionState::Running &&
-                   clientSnap.room.state == Netplay::SessionState::Running &&
-                   hostSnap.room.activeResyncId == 0u &&
-                   clientSnap.room.activeResyncId == 0u) {
-                    explicitSuspendCompleted = true;
-                }
-            }
-
-            if(implicitSuspendTriggered && !implicitSuspendObserved) {
-                const bool playbackStopObserved =
-                    currentPlaybackStopCount > implicitSuspendBaselinePlaybackStopCount;
-                const bool recoveryResyncObserved =
-                    currentHardResyncCount > implicitSuspendBaselineHardResyncCount ||
-                    hostSnap.room.activeResyncId != 0u ||
-                    clientSnap.room.activeResyncId != 0u ||
-                    hostSnap.room.state == Netplay::SessionState::Resyncing ||
-                    clientSnap.room.state == Netplay::SessionState::Resyncing;
-                if(playbackStopObserved || recoveryResyncObserved) {
-                    implicitSuspendObserved = true;
-                    implicitSuspendObservedStep = step;
-                }
-            }
-
-            if(implicitSuspendObserved &&
-               !implicitSuspendCompleted &&
-               hardResyncObserved &&
-               hostSnap.room.state == Netplay::SessionState::Running &&
-               clientSnap.room.state == Netplay::SessionState::Running &&
-               hostSnap.room.activeResyncId == 0u &&
-               clientSnap.room.activeResyncId == 0u) {
-                implicitSuspendCompleted = true;
-            }
 
             if(hostDisconnectTriggered) {
                 if(clientSnap.room.state == Netplay::SessionState::Ended &&
@@ -2357,41 +2230,6 @@ private:
                     cleanup();
                     return result;
                 }
-                if(options.explicitSuspendAfterFrames > 0 &&
-                   (!explicitSuspendTriggered || !explicitSuspendObserved || !explicitSuspendCompleted)) {
-                    failureReason =
-                        !explicitSuspendTriggered
-                            ? "Explicit suspend scenario never triggered the local suspend."
-                            : (!explicitSuspendObserved
-                                   ? "Explicit suspend scenario never paused both peers with the participant marked suspended."
-                                   : "Explicit suspend scenario never returned to running after the participant resumed.");
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                    result.report["explicitSuspendTriggered"] = explicitSuspendTriggered;
-                    result.report["explicitSuspendObserved"] = explicitSuspendObserved;
-                    result.report["explicitSuspendCompleted"] = explicitSuspendCompleted;
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-                if(options.implicitSuspendAfterFrames > 0 &&
-                   (!implicitSuspendTriggered || !implicitSuspendObserved || !implicitSuspendCompleted || !hardResyncObserved)) {
-                    failureReason =
-                        !implicitSuspendTriggered
-                            ? "Implicit suspend scenario never stopped the client runtime."
-                            : (!implicitSuspendObserved
-                                   ? "Implicit suspend scenario never produced the expected paused playback-stop recovery state."
-                                   : (!hardResyncObserved
-                                          ? "Implicit suspend scenario resumed without observing the expected recovery resync."
-                                          : "Implicit suspend scenario never returned to running after recovery."));
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                    result.report["implicitSuspendTriggered"] = implicitSuspendTriggered;
-                    result.report["implicitSuspendObserved"] = implicitSuspendObserved;
-                    result.report["implicitSuspendCompleted"] = implicitSuspendCompleted;
-                    result.report["hardResyncObserved"] = hardResyncObserved;
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
                 if(options.forceDesyncFrame > 0 && (!desyncInjected || !hardResyncObserved)) {
                     failureReason = !desyncInjected
                         ? "Forced desync scenario never injected the divergence."
@@ -2481,12 +2319,6 @@ private:
                 result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
                 result.report["hostManualLoadDuringResyncObserved"] = hostManualLoadDuringResyncObserved;
                 result.report["hostManualLoadTriggerCount"] = hostManualLoadTriggerIndex;
-                result.report["explicitSuspendTriggered"] = explicitSuspendTriggered;
-                result.report["explicitSuspendObserved"] = explicitSuspendObserved;
-                result.report["explicitSuspendCompleted"] = explicitSuspendCompleted;
-                result.report["implicitSuspendTriggered"] = implicitSuspendTriggered;
-                result.report["implicitSuspendObserved"] = implicitSuspendObserved;
-                result.report["implicitSuspendCompleted"] = implicitSuspendCompleted;
                 result.exitCode = EXIT_SUCCESS;
                 cleanup();
                 return result;
@@ -2824,22 +2656,12 @@ private:
         bool assignmentSwapTriggered = false;
         bool assignmentSwapVerified = false;
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
-        bool explicitSuspendTriggered = false;
-        bool explicitSuspendObserved = false;
-        bool explicitSuspendCleared = false;
-        bool explicitSuspendCompleted = false;
-        uint32_t explicitSuspendObservedStep = 0;
 
         const auto cleanup = [&]() {
             clientPeer.coordinator.disconnect();
             hostPeer.coordinator.disconnect();
             clientPeer.emu.shutdown();
             hostPeer.emu.shutdown();
-        };
-        const auto appendSuspendFields = [&](nlohmann::json& report) {
-            report["explicitSuspendTriggered"] = explicitSuspendTriggered;
-            report["explicitSuspendObserved"] = explicitSuspendObserved;
-            report["explicitSuspendCompleted"] = explicitSuspendCompleted;
         };
 
         std::string failureReason;
@@ -2918,13 +2740,6 @@ private:
             processAppPendingResync(clientPeer);
             if(shouldPumpNetwork) {
                 pumpCoordinators(hostPeer, clientPeer, 0);
-            }
-            if(options.explicitSuspendAfterFrames > 0 &&
-               !explicitSuspendTriggered &&
-               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.explicitSuspendAfterFrames &&
-               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.explicitSuspendAfterFrames) {
-                clientPeer.coordinator.setLocalSuspended(true);
-                explicitSuspendTriggered = true;
             }
             processAppRollback(hostPeer);
             processAppRollback(clientPeer);
@@ -3046,50 +2861,10 @@ private:
             }
             maxStallSteps = std::max(maxStallSteps, stallSteps);
 
-            if(explicitSuspendTriggered && !explicitSuspendObserved) {
-                const auto& hostRoom = hostPeer.coordinator.session().roomState();
-                const auto& clientRoom = clientPeer.coordinator.session().roomState();
-                const auto* hostClientParticipant = findParticipantInRoom(hostRoom, clientPeer.coordinator.localParticipantId());
-                const auto* clientLocalParticipant = findParticipantInRoom(clientRoom, clientPeer.coordinator.localParticipantId());
-                if(hostRoom.state == Netplay::SessionState::Paused &&
-                   clientRoom.state == Netplay::SessionState::Paused &&
-                   hostClientParticipant != nullptr &&
-                   clientLocalParticipant != nullptr &&
-                   hostClientParticipant->suspended &&
-                   clientLocalParticipant->suspended) {
-                    explicitSuspendObserved = true;
-                    explicitSuspendObservedStep = step;
-                }
-            }
-
-            if(explicitSuspendObserved &&
-               !explicitSuspendCleared &&
-               (step - explicitSuspendObservedStep) >= std::max<uint32_t>(1u, options.explicitSuspendHoldSteps)) {
-                clientPeer.coordinator.setLocalSuspended(false);
-                explicitSuspendCleared = true;
-            }
-
-            if(explicitSuspendCleared && !explicitSuspendCompleted) {
-                const auto& hostRoom = hostPeer.coordinator.session().roomState();
-                const auto& clientRoom = clientPeer.coordinator.session().roomState();
-                const auto* hostClientParticipant = findParticipantInRoom(hostRoom, clientPeer.coordinator.localParticipantId());
-                const auto* clientLocalParticipant = findParticipantInRoom(clientRoom, clientPeer.coordinator.localParticipantId());
-                (void)hostPeer.coordinator.resumeSession();
-                if(hostRoom.state == Netplay::SessionState::Running &&
-                   clientRoom.state == Netplay::SessionState::Running &&
-                   hostClientParticipant != nullptr &&
-                   clientLocalParticipant != nullptr &&
-                   !hostClientParticipant->suspended &&
-                   !clientLocalParticipant->suspended) {
-                    explicitSuspendCompleted = true;
-                }
-            }
-
             if(hostPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u ||
                clientPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u) {
                 failureReason = "Future InputBuffer horizon grew beyond the expected bound under app flow.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "buffer_overfill", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                appendSuspendFields(result.report);
                 result.exitCode = RESULT_FAILED;
                 cleanup();
                 return result;
@@ -3099,7 +2874,6 @@ private:
                clientPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u) {
                 failureReason = "Pending confirmed frame queue grew beyond the expected bound under app flow.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "pending_overfill", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                appendSuspendFields(result.report);
                 result.exitCode = RESULT_FAILED;
                 cleanup();
                 return result;
@@ -3108,7 +2882,6 @@ private:
             if(stallSteps > 240u) {
                 failureReason = "App flow stalled while confirmed frames existed.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                appendSuspendFields(result.report);
                 result.exitCode = RESULT_FAILED;
                 cleanup();
                 return result;
@@ -3171,7 +2944,6 @@ private:
 
             if(options.assignmentPatternCheck && assignmentSwapVerified && assignmentPatternVerified) {
                 result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                appendSuspendFields(result.report);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -3213,7 +2985,6 @@ private:
                                          " client=" + std::to_string(clientState[firstDiff]);
                     }
                     result.report = buildAppReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                    appendSuspendFields(result.report);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;
@@ -3221,31 +2992,15 @@ private:
             }
 
             if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
-                if(options.explicitSuspendAfterFrames > 0 &&
-                   (!explicitSuspendTriggered || !explicitSuspendObserved || !explicitSuspendCompleted)) {
-                    failureReason =
-                        !explicitSuspendTriggered
-                            ? "Explicit suspend scenario never triggered the participant suspend."
-                            : (!explicitSuspendObserved
-                                   ? "Explicit suspend scenario never entered paused state with the participant marked suspended."
-                                   : "Explicit suspend scenario never returned to running after the participant resumed.");
-                    result.report = buildAppReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                    appendSuspendFields(result.report);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
                 if(options.assignmentPatternCheck && !assignmentPatternVerified) {
                     failureReason = "Assignment swap completed, but the expected post-swap input pattern was not observed in queued netplay frames.";
                     result.report = buildAppReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                    appendSuspendFields(result.report);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;
                 }
 
                 result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-                appendSuspendFields(result.report);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -3258,7 +3013,6 @@ private:
 
         failureReason = "App-flow netplay test reached the step limit.";
         result.report = buildAppReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
-        appendSuspendFields(result.report);
         result.report["startHostFrame"] = startHostFrame;
         result.report["startClientFrame"] = startClientFrame;
         result.report["targetHostFrame"] = targetHostFrame;
@@ -3707,27 +3461,6 @@ private:
                 reconnect.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
                 reconnect.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
                 addScenario("reconnect_mid_session", reconnect);
-
-                Options explicitSuspend = baseOptions;
-                explicitSuspend.frames = std::max<uint32_t>(baseOptions.frames, 120u);
-                explicitSuspend.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                explicitSuspend.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
-                explicitSuspend.explicitSuspendAfterFrames = 24u;
-                explicitSuspend.explicitSuspendHoldSteps = 16u;
-                addScenario("explicit_suspend_resume", explicitSuspend);
-
-                Options implicitSuspend = baseOptions;
-                implicitSuspend.frames = std::max<uint32_t>(baseOptions.frames, 140u);
-                implicitSuspend.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                implicitSuspend.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
-                implicitSuspend.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
-                implicitSuspend.hostLoopDtMs = 8u;
-                implicitSuspend.clientLoopDtMs = 33u;
-                implicitSuspend.hostStepStride = 1u;
-                implicitSuspend.clientStepStride = 2u;
-                implicitSuspend.implicitSuspendAfterFrames = 24u;
-                implicitSuspend.implicitSuspendHoldSteps = 12u;
-                addScenario("implicit_suspend_recovery", implicitSuspend);
 
                 Options forcedDesync = baseOptions;
                 forcedDesync.frames = std::max<uint32_t>(baseOptions.frames, 120u);

@@ -1880,10 +1880,6 @@ public:
         m_emu.restartAudio();
     }
 
-    void onWebVisibilityChanged(bool visible) {
-        m_netplayRuntime.setLocalSuspended(!visible);
-    }
-
     void onSessionImportComplete() {
         syncSettings();
     }

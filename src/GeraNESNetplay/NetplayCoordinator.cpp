@@ -233,7 +233,6 @@ void NetplayCoordinator::resetSessionState()
     m_serverPeer = NetTransport::kInvalidPeerHandle;
     m_localParticipantId = kInvalidParticipantId;
     m_localReconnectToken = 0;
-    m_localSuspended = false;
     m_pendingJoinRomLoaded = false;
     m_pendingJoinRomValidation = {};
     m_disconnectExpectedAfterJoinReject = false;
@@ -1778,14 +1777,6 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         participant->pingMs = data.pingMs;
         participant->jitterMs = data.jitterMs;
-        participant->suspended = data.suspended != 0;
-        if(m_hosting &&
-           participant->connected &&
-           !participantIsObserver(*participant) &&
-           participant->suspended &&
-           m_session.roomState().state == SessionState::Running) {
-            (void)pauseSessionForInputStall();
-        }
     }
 
     if(m_hosting) {
@@ -1871,7 +1862,6 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
     data.participantId = m_localParticipantId;
     data.currentFrame = m_session.roomState().currentFrame;
     data.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
-    data.suspended = m_localSuspended ? 1 : 0;
 
     if(m_hosting) {
         m_transport.broadcastUnreliable(
@@ -1970,18 +1960,9 @@ bool NetplayCoordinator::allRequiredParticipantsRomCompatible() const
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participantIsObserver(participant)) continue;
-        if(!participant.connected || !participant.romLoaded || !participant.romCompatible || participant.suspended) return false;
+        if(!participant.connected || !participant.romLoaded || !participant.romCompatible) return false;
     }
     return true;
-}
-
-bool NetplayCoordinator::hasSuspendedAssignedParticipant() const
-{
-    for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participantIsObserver(participant)) continue;
-        if(participant.suspended) return true;
-    }
-    return false;
 }
 
 void NetplayCoordinator::refreshHostRoomState()
@@ -2235,7 +2216,6 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
             : ensureParticipant(m_nextAssignedParticipantId++, displayName);
     participant.displayName = displayName;
     participant.connected = true;
-    participant.suspended = false;
     participant.reconnectReserved = false;
     participant.reservationSecondsRemaining = 0;
     m_reconnectReservationDeadlines.erase(participant.id);
@@ -2549,7 +2529,6 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
 
     ParticipantInfo& hostParticipant = ensureParticipant(m_localParticipantId, m_localDisplayName);
     hostParticipant.connected = true;
-    hostParticipant.suspended = false;
     hostParticipant.role = ParticipantRole::Host;
     hostParticipant.controllerAssignments.clear();
     hostParticipant.normalizeControllerAssignments();
@@ -2946,45 +2925,6 @@ void NetplayCoordinator::setLocalReconnectToken(uint64_t token)
     m_localReconnectToken = token;
 }
 
-void NetplayCoordinator::setLocalSuspended(bool suspended)
-{
-    if(m_localSuspended == suspended) return;
-    m_localSuspended = suspended;
-
-    if(ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId)) {
-        participant->suspended = suspended;
-    }
-
-    if(m_hosting && suspended && m_session.roomState().state == SessionState::Running) {
-        (void)pauseSessionForInputStall();
-    }
-
-    if(!m_transport.isActive() || !m_connected || m_localParticipantId == kInvalidParticipantId) {
-        return;
-    }
-
-    PeerHealthData data;
-    data.participantId = m_localParticipantId;
-    data.currentFrame = m_session.roomState().currentFrame;
-    data.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
-    data.suspended = suspended ? 1 : 0;
-
-    if(m_hosting) {
-        m_transport.broadcastReliable(
-            Channel::Diagnostics,
-            buildPeerHealthPacket(data, m_session.roomState().sessionId)
-        );
-    } else if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
-        data.pingMs = static_cast<uint16_t>(std::min<uint32_t>(m_transport.peerRoundTripTime(m_serverPeer), 65535u));
-        data.jitterMs = static_cast<uint16_t>(std::min<uint32_t>(m_transport.peerRoundTripVariance(m_serverPeer), 65535u));
-        m_transport.sendReliable(
-            m_serverPeer,
-            Channel::Diagnostics,
-            buildPeerHealthPacket(data, m_session.roomState().sessionId)
-        );
-    }
-}
-
 const std::string& NetplayCoordinator::lastError() const
 {
     return m_lastError;
@@ -3008,10 +2948,6 @@ const RollbackStats& NetplayCoordinator::predictionStats() const
 void NetplayCoordinator::recordPlaybackStop(FrameNumber frame, bool predictionLimitReached)
 {
     m_predictionStats.recordPlaybackStop(frame, predictionLimitReached);
-    if(predictionLimitReached) {
-        (void)frame;
-        (void)pauseSessionForInputStall();
-    }
 }
 
 void NetplayCoordinator::setLocalSimulationFrame(FrameNumber frame)
@@ -3849,31 +3785,6 @@ bool NetplayCoordinator::pauseSession()
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Host paused session");
-    return true;
-}
-
-bool NetplayCoordinator::pauseSessionForInputStall()
-{
-    if(!m_hosting || m_session.roomState().state != SessionState::Running) return false;
-
-    m_session.roomState().state = SessionState::Paused;
-    PacketWriter writer;
-    PacketHeader header;
-    header.type = MessageType::PauseSession;
-    header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    StartSessionData data;
-    data.state = SessionState::Paused;
-    data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
-    data.topology = makeTopologyData(m_session.roomState());
-    writer.writePod(data);
-    m_transport.broadcastReliable(Channel::Control, writer.data());
-    pushLog(
-        hasSuspendedAssignedParticipant()
-            ? "Session paused while waiting for a suspended participant to resume"
-            : "Session paused while waiting for participant inputs to catch up"
-    );
     return true;
 }
 

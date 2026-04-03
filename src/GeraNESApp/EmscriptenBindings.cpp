@@ -15,10 +15,6 @@ extern "C" {
         reinterpret_cast<GeraNESApp*>(handler)->restartAudioModule();
     }
 
-    void EMSCRIPTEN_KEEPALIVE onWebVisibilityChanged(intptr_t handler, int visible) {
-        reinterpret_cast<GeraNESApp*>(handler)->onWebVisibilityChanged(visible != 0);
-    }
-
     void EMSCRIPTEN_KEEPALIVE onSessionImportComplete(intptr_t handler) {
         reinterpret_cast<GeraNESApp*>(handler)->onSessionImportComplete();
     }   
