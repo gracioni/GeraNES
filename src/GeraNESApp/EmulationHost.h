@@ -284,6 +284,7 @@ private:
     InputState m_pendingInput;
     FrameInputResolver m_frameInputResolver;
     bool m_autoQueuePendingInputOnFrameStart = true;
+    std::function<void(GeraNESEmu&)> m_preAdvanceHook;
 
     void applyPendingInput()
     {
@@ -303,6 +304,13 @@ private:
         }
 
         applyInputStateToEmu(m_emu, m_pendingInput);
+    }
+
+    void runPreAdvanceHook()
+    {
+        if(m_preAdvanceHook) {
+            m_preAdvanceHook(m_emu);
+        }
     }
 #else
     enum class FramePacingMode : uint8_t
@@ -730,7 +738,7 @@ public:
     void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook)
     {
 #ifdef __EMSCRIPTEN__
-        (void)hook;
+        m_preAdvanceHook = std::move(hook);
 #else
         {
             std::scoped_lock hookLock(m_preAdvanceHookMutex);
@@ -1322,7 +1330,7 @@ public:
     bool update(uint32_t dt)
     {
 #ifdef __EMSCRIPTEN__
-        const uint32_t previousFrame = m_emu.frameCount()+1;
+        runPreAdvanceHook();
         const bool advanced = m_emu.update(dt);
         return advanced;
 #else
@@ -1339,7 +1347,7 @@ public:
     void updateUntilFrame(uint32_t dt)
     {
 #ifdef __EMSCRIPTEN__
-        const uint32_t previousFrame = m_emu.frameCount()+1;
+        runPreAdvanceHook();
         m_emu.updateUntilFrame(dt);
 #else
         m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);

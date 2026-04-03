@@ -336,7 +336,11 @@ public:
 
         int rollbackWindowFrames = 600;
         int transportBackend = 0;
+#ifdef __EMSCRIPTEN__
+        bool useEmbeddedSignalingServer = false;
+#else
         bool useEmbeddedSignalingServer = true;
+#endif
         std::string signalingUrl = "ws://127.0.0.1:27990";
         std::string signalingRoomId = "default";
         bool autoGameplayTuning = true;
@@ -426,6 +430,9 @@ public:
     }
 
     void sanitizeDefaults() {        
+#ifdef __EMSCRIPTEN__
+        data.netplay.useEmbeddedSignalingServer = false;
+#endif
         data.input.sanitizeDefaults();        
         data.sanitizeDefaults();  
     }

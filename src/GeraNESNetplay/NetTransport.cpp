@@ -296,6 +296,7 @@ class WebRTCTransport final : public INetTransport
 {
 private:
     static constexpr auto kWebRtcPeerHandshakeTimeout = std::chrono::seconds(5);
+    static constexpr auto kWebRtcGracefulDisconnectDelay = std::chrono::milliseconds(350);
 
     enum class PeerHandshakeState : uint8_t
     {
@@ -331,6 +332,14 @@ private:
     bool m_signalingReady = false;
     bool m_hosting = false;
     bool m_active = false;
+    std::optional<std::chrono::steady_clock::time_point> m_pendingPeerCloseDeadline;
+#if defined(__EMSCRIPTEN__)
+    bool m_bootstrapPending = false;
+    bool m_bootstrapHost = false;
+    bool m_bootstrapHelloSent = false;
+    bool m_bootstrapSawWelcome = false;
+    bool m_bootstrapSawRoomJoined = false;
+#endif
     PeerHandshakeState m_peerHandshakeState = PeerHandshakeState::Idle;
     std::optional<std::chrono::steady_clock::time_point> m_peerHandshakeDeadline;
 
@@ -347,6 +356,14 @@ private:
         m_nextPeerHandle = 1;
         m_hosting = false;
         m_active = false;
+        m_pendingPeerCloseDeadline.reset();
+#if defined(__EMSCRIPTEN__)
+        m_bootstrapPending = false;
+        m_bootstrapHost = false;
+        m_bootstrapHelloSent = false;
+        m_bootstrapSawWelcome = false;
+        m_bootstrapSawRoomJoined = false;
+#endif
         m_peerHandshakeState = PeerHandshakeState::Idle;
         m_peerHandshakeDeadline.reset();
     }
@@ -484,6 +501,19 @@ private:
         options.localPeerId = m_localPeerId;
         options.host = host;
 
+#if defined(__EMSCRIPTEN__)
+        if(!m_signalingClient->connect(options)) {
+            m_lastError = m_signalingClient->lastError();
+            return false;
+        }
+
+        m_bootstrapPending = true;
+        m_bootstrapHost = host;
+        m_bootstrapHelloSent = false;
+        m_bootstrapSawWelcome = false;
+        m_bootstrapSawRoomJoined = false;
+        return true;
+#else
         if(!m_signalingClient->connect(options)) {
             m_lastError = m_signalingClient->lastError();
             return false;
@@ -561,6 +591,7 @@ private:
             startPeerHandshake(PeerHandshakeState::WaitingForOffer);
         }
         return true;
+#endif
     }
 
     WebRtcPeerState* findPeerByHandle(PeerHandle handle)
@@ -623,6 +654,41 @@ private:
         m_peer.reset();
         resetPeerHandshakeState();
         m_lastError.clear();
+        m_pendingPeerCloseDeadline.reset();
+    }
+
+    void schedulePeerClose()
+    {
+        if(!m_peer.has_value()) {
+            return;
+        }
+        m_pendingPeerCloseDeadline = std::chrono::steady_clock::now() + kWebRtcGracefulDisconnectDelay;
+    }
+
+    void processPendingPeerClose(std::vector<Event>& events)
+    {
+        if(!m_pendingPeerCloseDeadline.has_value() || !m_peer.has_value()) {
+            return;
+        }
+        if(std::chrono::steady_clock::now() < *m_pendingPeerCloseDeadline) {
+            return;
+        }
+        closePeer(*m_peer, &events);
+    }
+
+    bool shouldIgnoreExpectedPeerError(const std::string& error) const
+    {
+        if(error.empty()) {
+            return false;
+        }
+
+        if(!m_pendingPeerCloseDeadline.has_value()) {
+            return false;
+        }
+
+        return error.find("User-Initiated Abort") != std::string::npos ||
+               error.find("detail=sctp-failure") != std::string::npos ||
+               error.find("sctpCauseCode=12") != std::string::npos;
     }
 
     std::vector<uint8_t> wrapPayload(Channel channel, const std::vector<uint8_t>& payload) const
@@ -721,8 +787,13 @@ private:
                 }
 
                 case IWebRtcPeerConnection::Event::Type::Error:
-                    m_lastError = event.text.empty() ? peer.connection->lastError() : event.text;
+                {
+                    const std::string error = event.text.empty() ? peer.connection->lastError() : event.text;
+                    if(!shouldIgnoreExpectedPeerError(error)) {
+                        m_lastError = error;
+                    }
                     break;
+                }
 
                 default:
                     break;
@@ -744,6 +815,15 @@ private:
                 if(m_peer.has_value()) {
                     closePeer(*m_peer, &events);
                 }
+#if defined(__EMSCRIPTEN__)
+                if(m_bootstrapPending && m_lastError.empty()) {
+                    m_lastError = "WebRTC signaling disconnected during connection setup";
+                }
+                m_bootstrapPending = false;
+                m_bootstrapHelloSent = false;
+                m_bootstrapSawWelcome = false;
+                m_bootstrapSawRoomJoined = false;
+#endif
                 m_signalingReady = false;
                 m_active = false;
                 continue;
@@ -754,11 +834,70 @@ private:
                 continue;
             }
 
+            if(event.type == IWebRtcSignalingClient::Event::Type::Connected) {
+#if defined(__EMSCRIPTEN__)
+                if(m_bootstrapPending && !m_bootstrapHelloSent) {
+                    WebRtcSignalingMessage hello;
+                    hello.type = WebRtcSignalType::Hello;
+                    hello.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
+                    hello.peerId = m_localPeerId;
+                    if(!sendSignalingMessage(hello)) {
+                        m_bootstrapPending = false;
+                        continue;
+                    }
+
+                    WebRtcSignalingMessage joinRoom;
+                    joinRoom.type = WebRtcSignalType::JoinRoom;
+                    joinRoom.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
+                    joinRoom.peerId = m_localPeerId;
+                    if(!sendSignalingMessage(joinRoom)) {
+                        m_bootstrapPending = false;
+                        continue;
+                    }
+
+                    m_bootstrapHelloSent = true;
+                }
+#endif
+                continue;
+            }
+
             if(event.type != IWebRtcSignalingClient::Event::Type::Message) {
                 continue;
             }
 
             const WebRtcSignalingMessage& message = event.message;
+#if defined(__EMSCRIPTEN__)
+            if(m_bootstrapPending) {
+                if(message.type == WebRtcSignalType::Welcome) {
+                    m_bootstrapSawWelcome = true;
+                    if(!message.iceServers.empty()) {
+                        m_signaledIceServers = message.iceServers;
+                    }
+                } else if(message.type == WebRtcSignalType::RoomJoined &&
+                          m_activeSignalingConfig.has_value() &&
+                          message.roomId == m_activeSignalingConfig->roomId) {
+                    m_bootstrapSawRoomJoined = true;
+                    if(!message.iceServers.empty()) {
+                        m_signaledIceServers = message.iceServers;
+                    }
+                } else if(message.type == WebRtcSignalType::Error) {
+                    m_lastError = !message.error.empty() ? message.error : "WebRTC signaling reported an error";
+                    m_bootstrapPending = false;
+                    continue;
+                } else {
+                    m_pendingSignalingEvents.push_back(event);
+                }
+
+                if(m_bootstrapSawWelcome && m_bootstrapSawRoomJoined) {
+                    m_signalingReady = true;
+                    m_bootstrapPending = false;
+                    if(!m_bootstrapHost) {
+                        startPeerHandshake(PeerHandshakeState::WaitingForOffer);
+                    }
+                }
+                continue;
+            }
+#endif
             switch(message.type) {
                 case WebRtcSignalType::PeerJoined:
                     if(m_hosting && message.peerId != m_localPeerId) {
@@ -850,6 +989,13 @@ public:
             return false;
         }
 
+#if defined(__EMSCRIPTEN__)
+        if(m_options.useEmbeddedWebRtcSignalingServer) {
+            m_lastError = "Embedded WebRTC signaling server is not available in the web build";
+            return false;
+        }
+#endif
+
         if(m_options.useEmbeddedWebRtcSignalingServer) {
             if(!ensureSignalingServer()) {
                 m_lastError = "Embedded WebRTC signaling server could not be created";
@@ -894,7 +1040,11 @@ public:
     void disconnectPeer(PeerHandle peer, uint32_t = 0) override
     {
         if(WebRtcPeerState* state = findPeerByHandle(peer)) {
-            closePeer(*state);
+            if(state->connected) {
+                schedulePeerClose();
+            } else {
+                closePeer(*state);
+            }
         }
     }
     void flush() override {}
@@ -915,6 +1065,7 @@ public:
             if(m_peer.has_value()) {
                 drainPeerEvents(*m_peer, events);
             }
+            processPendingPeerClose(events);
             if(!events.empty() || timeoutMs == 0) {
                 break;
             }

@@ -84,9 +84,14 @@ inline void drawNetplayWindow(bool& showWindow,
     const auto drawWebRtcConfig = [&](bool hostMode) {
         ImGui::SetNextItemWidth(220.0f);
         ImGui::InputText("Room Id##NetplaySignalingRoomId", &cfg.signalingRoomId);
+#ifdef __EMSCRIPTEN__
+        cfg.useEmbeddedSignalingServer = false;
+        ImGui::TextWrapped("Web builds require an external WebRTC signaling server URL.");
+#else
         if(hostMode) {
             ImGui::Checkbox("Embedded Signaling Server##NetplayEmbeddedSignaling", &cfg.useEmbeddedSignalingServer);
         }
+#endif
         if(cfg.useEmbeddedSignalingServer) {
             if(hostMode) {
                 ImGui::TextWrapped("Host mode will start signaling on the selected port. Client mode will use ws://<host>:<port> automatically.");

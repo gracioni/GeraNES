@@ -2360,7 +2360,10 @@ bool NetplayCoordinator::handleJoinRejected(PacketReader& reader)
         }
     }
     clearReconnectAttemptState();
-    m_disconnectExpectedAfterJoinReject = true;
+    m_disconnectExpectedAfterJoinReject = false;
+    const std::string preservedError = m_lastError;
+    completeLocalDisconnect();
+    m_lastError = preservedError;
     return true;
 }
 
@@ -2719,8 +2722,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     const std::string transportError = m_transport.lastError();
     if(!transportError.empty() && transportError != m_lastTransportError) {
         m_lastTransportError = transportError;
-        m_lastError = transportError;
-        pushLog("Transport error: " + transportError);
+        if(m_disconnectExpectedAfterJoinReject && !m_lastError.empty()) {
+            pushLog("Transport closed after join rejection: " + transportError);
+        } else {
+            m_lastError = transportError;
+            pushLog("Transport error: " + transportError);
+        }
     } else if(transportError.empty()) {
         m_lastTransportError.clear();
     }
