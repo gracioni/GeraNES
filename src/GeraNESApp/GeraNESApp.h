@@ -1827,20 +1827,45 @@ public:
 #ifdef __EMSCRIPTEN__
 
     void processUploadedFile(const char* fileName, size_t fileSize, const uint8_t* fileContent) {
+        Logger::instance().log(
+            std::string("Processing uploaded file: ") + (fileName ? fileName : "<null>") +
+            " (" + std::to_string(fileSize) + " bytes)",
+            Logger::Type::INFO
+        );
 
-        FILE* file = fopen(fileName, "w");
+        if(fileName == nullptr || fileContent == nullptr || fileSize == 0) {
+            Logger::instance().log("Uploaded file payload is invalid", Logger::Type::ERROR);
+            return;
+        }
+
+        const fs::path uploadDir = "/uploads";
+        std::error_code ec;
+        fs::create_directories(uploadDir, ec);
+        if(ec) {
+            Logger::instance().log(
+                std::string("Failed to prepare upload directory: ") + ec.message(),
+                Logger::Type::ERROR
+            );
+            return;
+        }
+
+        const fs::path targetPath = uploadDir / fs::path(fileName).filename();
+        FILE* file = fopen(targetPath.string().c_str(), "wb");
 
         if (file) {
-            
-            size_t written = fwrite(fileContent, sizeof(uint8_t), fileSize, file);
+            const size_t written = fwrite(fileContent, sizeof(uint8_t), fileSize, file);
+            fclose(file);
 
             if (written != fileSize) {
                 Logger::instance().log("Failed writing file in processUploadedFile call", Logger::Type::ERROR);
+                return;
             }
 
-            fclose(file);
-
-            openFile(fileName);
+            Logger::instance().log(
+                std::string("Uploaded file stored at: ") + targetPath.string(),
+                Logger::Type::INFO
+            );
+            openFile(targetPath.string().c_str());
 
         } else {
             Logger::instance().log("Failed to open file for writing in processUploadedFile call", Logger::Type::ERROR);

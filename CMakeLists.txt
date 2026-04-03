@@ -417,6 +417,11 @@ list(FILTER GERANES_LIBRARY_SOURCES EXCLUDE REGEX ".*/src/main\\.cpp$")
 list(FILTER GERANES_LIBRARY_SOURCES EXCLUDE REGEX ".*/src/resources\\.rc$")
 
 set(GERANES_EXE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+if(EMSCRIPTEN)
+    list(APPEND GERANES_EXE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESApp/EmscriptenBindings.cpp"
+    )
+endif()
 
 set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
