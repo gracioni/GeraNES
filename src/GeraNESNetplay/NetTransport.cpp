@@ -462,11 +462,13 @@ private:
         }
 
         if(m_options.useEmbeddedWebRtcSignalingServer) {
-            const std::string signalingHost = host ? "127.0.0.1" : hostName;
-            if(signalingHost.empty() || port == 0) {
-                return std::nullopt;
+            if(config.url.empty()) {
+                const std::string signalingHost = host ? "127.0.0.1" : hostName;
+                if(signalingHost.empty() || port == 0) {
+                    return std::nullopt;
+                }
+                config.url = buildWebRtcSignalingUrl(signalingHost, port);
             }
-            config.url = buildWebRtcSignalingUrl(signalingHost, port);
         }
         else if(config.url.empty()) {
             return std::nullopt;
@@ -997,11 +999,17 @@ public:
 #endif
 
         if(m_options.useEmbeddedWebRtcSignalingServer) {
+            const std::optional<uint16_t> signalingPort =
+                parseWebRtcSignalingUrlPort(m_activeSignalingConfig->url);
+            if(!signalingPort.has_value()) {
+                m_lastError = "Embedded WebRTC signaling requires a signaling URL with an explicit port";
+                return false;
+            }
             if(!ensureSignalingServer()) {
                 m_lastError = "Embedded WebRTC signaling server could not be created";
                 return false;
             }
-            if(!m_signalingServer->start(port)) {
+            if(!m_signalingServer->start(*signalingPort)) {
                 m_lastError = m_signalingServer->lastError();
                 return false;
             }

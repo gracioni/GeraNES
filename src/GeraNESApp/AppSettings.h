@@ -339,7 +339,7 @@ public:
 #ifdef __EMSCRIPTEN__
         bool useEmbeddedSignalingServer = false;
 #else
-        bool useEmbeddedSignalingServer = true;
+        bool useEmbeddedSignalingServer = false;
 #endif
         std::string signalingUrl = "ws://127.0.0.1:27990";
         std::string signalingRoomId = "default";

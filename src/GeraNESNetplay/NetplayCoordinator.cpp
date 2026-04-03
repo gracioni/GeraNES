@@ -39,6 +39,51 @@ std::string controllerAssignmentToast(Netplay::PlayerSlot slot, const std::strin
     return Netplay::inputAssignmentLabel(slot, Netplay::RoomState{}) + " assigned to " + participantName;
 }
 
+bool hasReconnectTarget(Netplay::NetTransportBackend backend,
+                        const Netplay::NetTransportOptions& options,
+                        const std::string& hostName,
+                        uint16_t port)
+{
+    if(backend == Netplay::NetTransportBackend::WebRTC) {
+        return options.webRtcSignaling.has_value() && options.webRtcSignaling->valid();
+    }
+    return !hostName.empty() && port != 0;
+}
+
+std::string describeConnectTarget(Netplay::NetTransportBackend backend,
+                                  const Netplay::NetTransportOptions& options,
+                                  const std::string& hostName,
+                                  uint16_t port)
+{
+    if(backend == Netplay::NetTransportBackend::WebRTC) {
+        if(options.webRtcSignaling.has_value() && options.webRtcSignaling->valid()) {
+            return "room " + options.webRtcSignaling->roomId + " via " + options.webRtcSignaling->url;
+        }
+        return "configured WebRTC room";
+    }
+    return hostName + ":" + std::to_string(port);
+}
+
+std::string describeHostTarget(Netplay::NetTransportBackend backend,
+                               const Netplay::NetTransportOptions& options,
+                               uint16_t port,
+                               size_t maxPeers)
+{
+    std::ostringstream oss;
+    if(backend == Netplay::NetTransportBackend::WebRTC) {
+        if(options.webRtcSignaling.has_value() && options.webRtcSignaling->valid()) {
+            oss << "Hosting WebRTC room " << options.webRtcSignaling->roomId
+                << " via " << options.webRtcSignaling->url;
+        } else {
+            oss << "Hosting WebRTC room";
+        }
+    } else {
+        oss << "Hosting on port " << port;
+    }
+    oss << " for up to " << maxPeers << " peers";
+    return oss.str();
+}
+
 void notifySessionEvent(std::string_view message)
 {
     Logger::instance().log(message, Logger::Type::USER);
@@ -304,7 +349,9 @@ void NetplayCoordinator::completeLocalDisconnect()
 
 void NetplayCoordinator::scheduleReconnectAttempt()
 {
-    if(m_hosting || m_localReconnectToken == 0 || m_lastJoinHostName.empty() || m_lastJoinPort == 0) {
+    if(m_hosting ||
+       m_localReconnectToken == 0 ||
+       !hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
         clearReconnectAttemptState();
         return;
     }
@@ -376,7 +423,7 @@ void NetplayCoordinator::processPendingReconnect()
         return;
     }
 
-    pushLog("Attempting reconnect to " + hostName + ":" + std::to_string(port));
+    pushLog("Attempting reconnect to " + describeConnectTarget(m_transport.backend(), m_transport.options(), hostName, port));
 }
 
 std::vector<uint8_t> NetplayCoordinator::buildJoinRoomPacket() const
@@ -2507,9 +2554,7 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
     hostParticipant.controllerAssignments.clear();
     hostParticipant.normalizeControllerAssignments();
 
-    std::ostringstream oss;
-    oss << "Hosting on port " << port << " for up to " << maxPeers << " peers";
-    pushLog(oss.str());
+    pushLog(describeHostTarget(m_transport.backend(), m_transport.options(), port, maxPeers));
     return true;
 }
 
@@ -2538,7 +2583,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     m_pendingJoinRomLoaded = pendingJoinRomLoaded;
     m_pendingJoinRomValidation = pendingJoinRomValidation;
     m_session.roomState().state = SessionState::Lobby;
-    pushLog("Connecting to " + hostName + ":" + std::to_string(port));
+    pushLog("Connecting to " + describeConnectTarget(m_transport.backend(), m_transport.options(), hostName, port));
     return true;
 }
 
@@ -2612,8 +2657,8 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         completeLocalDisconnect();
                         m_lastError = preservedError;
                     } else if(m_localParticipantId != kInvalidParticipantId &&
-                       m_localReconnectToken != 0 &&
-                       !m_lastJoinHostName.empty()) {
+                              m_localReconnectToken != 0 &&
+                              hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
                         scheduleReconnectAttempt();
                     } else if(m_session.roomState().currentFrame > 0) {
                         m_lastError = "Host disconnected during session";

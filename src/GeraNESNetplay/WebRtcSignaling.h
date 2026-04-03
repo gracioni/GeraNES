@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -23,6 +24,52 @@ struct WebRtcSignalingConfig
 inline std::string buildWebRtcSignalingUrl(const std::string& hostName, uint16_t port)
 {
     return "ws://" + hostName + ":" + std::to_string(static_cast<unsigned>(port));
+}
+
+inline std::optional<uint16_t> parseWebRtcSignalingUrlPort(const std::string& url)
+{
+    if(url.empty()) return std::nullopt;
+
+    const size_t schemeEnd = url.find("://");
+    const size_t hostStart = schemeEnd == std::string::npos ? 0 : schemeEnd + 3;
+    if(hostStart >= url.size()) return std::nullopt;
+
+    const size_t pathStart = url.find('/', hostStart);
+    const size_t hostEnd = pathStart == std::string::npos ? url.size() : pathStart;
+    if(hostEnd <= hostStart) return std::nullopt;
+
+    const std::string authority = url.substr(hostStart, hostEnd - hostStart);
+    if(authority.empty()) return std::nullopt;
+
+    const size_t atPos = authority.rfind('@');
+    const std::string hostPort = atPos == std::string::npos ? authority : authority.substr(atPos + 1);
+    if(hostPort.empty()) return std::nullopt;
+
+    const bool bracketedIpv6 = !hostPort.empty() && hostPort.front() == '[';
+    size_t colonPos = std::string::npos;
+    if(bracketedIpv6) {
+        const size_t closingBracket = hostPort.find(']');
+        if(closingBracket == std::string::npos || closingBracket + 1 >= hostPort.size() || hostPort[closingBracket + 1] != ':') {
+            return std::nullopt;
+        }
+        colonPos = closingBracket + 1;
+    } else {
+        colonPos = hostPort.rfind(':');
+        if(colonPos == std::string::npos) {
+            return std::nullopt;
+        }
+    }
+
+    const std::string portText = hostPort.substr(colonPos + 1);
+    if(portText.empty()) return std::nullopt;
+
+    char* end = nullptr;
+    const unsigned long parsed = std::strtoul(portText.c_str(), &end, 10);
+    if(end == nullptr || *end != '\0' || parsed == 0 || parsed > 65535ul) {
+        return std::nullopt;
+    }
+
+    return static_cast<uint16_t>(parsed);
 }
 
 enum class WebRtcSignalType

@@ -26,7 +26,7 @@ struct NetTransportOptions
 #if defined(__EMSCRIPTEN__)
     bool useEmbeddedWebRtcSignalingServer = false;
 #else
-    bool useEmbeddedWebRtcSignalingServer = true;
+    bool useEmbeddedWebRtcSignalingServer = false;
 #endif
     std::optional<WebRtcSignalingConfig> webRtcSignaling;
 };
