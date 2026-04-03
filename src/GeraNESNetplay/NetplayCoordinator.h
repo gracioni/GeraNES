@@ -114,6 +114,7 @@ private:
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
     std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
+    bool m_localSuspended = false;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -181,9 +182,11 @@ private:
     void broadcastFrameStatusIfNeeded();
     void broadcastPeerHealthIfNeeded();
     bool allRequiredParticipantsRomCompatible() const;
+    bool hasSuspendedAssignedParticipant() const;
     void refreshHostRoomState();
     void updatePeerHealthFromTransport();
     void updateReconnectReservations();
+    bool pauseSessionForInputStall();
     void resetRuntimeTimelineStateForSessionStart();
     void discardTimelineStateAfter(FrameNumber frame);
     void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
@@ -229,6 +232,7 @@ public:
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;
     void setLocalReconnectToken(uint64_t token);
+    void setLocalSuspended(bool suspended);
     const std::string& lastError() const;
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;

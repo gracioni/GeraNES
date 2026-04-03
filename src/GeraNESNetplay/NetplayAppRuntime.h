@@ -111,6 +111,7 @@ private:
     FrameNumber m_lastSubmittedLocalCrcFrame = 0;
     FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
     bool m_forceNextConfirmedCrcSubmission = false;
+    bool m_pendingRecoveryResync = false;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
 
@@ -292,15 +293,18 @@ private:
         bool anyMissingRom = false;
         bool anyIncompatibleRom = false;
         bool anyDisconnected = false;
+        bool anySuspended = false;
 
         for(const auto& participant : room.participants) {
             if(participantIsObserver(participant)) continue;
             if(!participant.connected) anyDisconnected = true;
+            if(participant.suspended) anySuspended = true;
             if(!participant.romLoaded) anyMissingRom = true;
             else if(!participant.romCompatible) anyIncompatibleRom = true;
         }
 
         if(anyDisconnected) return "Session is paused because an assigned participant disconnected. Reassign when they return.";
+        if(anySuspended) return "Waiting for a temporarily suspended participant to resume netplay.";
         if(anyMissingRom) return "Waiting for assigned participants to load the selected ROM.";
         if(anyIncompatibleRom) return "One or more assigned participants have an incompatible ROM.";
         return "";
@@ -309,7 +313,7 @@ private:
     void syncRomValidation(const std::optional<RomSelection>& localRom);
     void syncInputDelayFromSettings(GeraNESEmu& emu);
     void processAutoStartIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom);
-    void processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom);
+    void processAutoResumeIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom);
     void processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu);
     void processPendingManualStateResyncIfNeeded(GeraNESEmu& emu);
     void processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu);
@@ -354,6 +358,7 @@ public:
     }
 
     void setLocalReconnectToken(uint64_t token);
+    void setLocalSuspended(bool suspended);
     void refreshLocalRomSelectionImmediate();
     void updateLatestInputState(const EmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
@@ -513,7 +518,7 @@ inline void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
     cfg.predictFrames = static_cast<int>(effectiveRoom.predictFrames);
 }
 
-inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom)
+inline void NetplayAppRuntime::processAutoResumeIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom)
 {
     if(!m_coordinator.isActive() || !m_coordinator.isHosting()) return;
 
@@ -521,6 +526,21 @@ inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<Rom
     if(room.state != SessionState::Paused) return;
     if(room.activeResyncId != 0 || room.pendingResyncAckCount != 0) return;
     if(!computeSessionBlockedReason(localRom).empty()) return;
+    NetplayCoordinator::ConfirmedFrameInputs nextFrame;
+    if(!m_coordinator.tryBuildPlaybackFrame(room.currentFrame + 1u, false, nextFrame)) return;
+
+    if(m_pendingRecoveryResync && emu.valid()) {
+        const FrameNumber authoritativeFrame =
+            std::min<FrameNumber>(room.lastConfirmedFrame, emu.frameCount());
+        const std::vector<uint8_t> statePayload =
+            buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
+        if(!statePayload.empty()) {
+            if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, true)) {
+                m_pendingRecoveryResync = false;
+            }
+        }
+        return;
+    }
 
     (void)m_coordinator.resumeSession();
 }
@@ -1030,6 +1050,9 @@ inline void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)
     const FrameNumber predictedThroughFrame =
         confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
     const bool predictionLimitReached = frame > predictedThroughFrame;
+    if(predictionLimitReached && m_coordinator.isHosting()) {
+        m_pendingRecoveryResync = true;
+    }
     m_coordinator.recordPlaybackStop(frame, predictionLimitReached);
 }
 
@@ -1042,6 +1065,16 @@ inline void NetplayAppRuntime::setLocalReconnectToken(uint64_t token)
     }
     enqueueCommand([token](NetplayAppRuntime& self, GeraNESEmu&) {
         self.m_coordinator.setLocalReconnectToken(token);
+    });
+}
+
+inline void NetplayAppRuntime::setLocalSuspended(bool suspended)
+{
+    enqueueCommand([suspended](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.setLocalSuspended(suspended);
+        if(!suspended) {
+            self.m_runtimeLastTickTime = {};
+        }
     });
 }
 
@@ -1400,6 +1433,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastSubmittedLocalCrcFrame = 0;
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
         m_forceNextConfirmedCrcSubmission = false;
+        m_pendingRecoveryResync = false;
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;
     }
@@ -1448,7 +1482,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     processHostResyncIfNeededOnWorker(emu);
     processHostLateJoinResyncIfNeededOnWorker(emu);
     processResyncIfNeededOnWorker(emu);
-    processAutoResumeIfNeeded(localRom);
+    processAutoResumeIfNeeded(emu, localRom);
     processRollbackIfNeededOnWorker(emu);
 
     const bool running = m_coordinator.session().roomState().state == SessionState::Running;

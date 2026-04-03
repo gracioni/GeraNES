@@ -79,10 +79,14 @@ void emcriptenRegisterAudioReset(intptr_t handler)
 {
     EM_ASM({
         var handler = Number($0);
+        window.__geranes_app_handler = handler;
         function resolveCcall() {
             if (typeof ccall === 'function') return ccall;
             if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
             return null;
+        }
+        function currentHandler() {
+            return Number(window.__geranes_app_handler || 0);
         }
         function restartAudioIfNeeded() {
             var ccallFn = resolveCcall();
@@ -92,11 +96,25 @@ void emcriptenRegisterAudioReset(intptr_t handler)
                     'restartAudioModule',
                     null,
                     ['number'],
-                    [handler]
+                    [currentHandler()]
                 );
                 console.log("Audio restarted");
             } catch (e) {
                 console.error("Failed to call restartAudioModule:", e);
+            }
+        }
+        function notifyVisibilityChanged(visible) {
+            var ccallFn = resolveCcall();
+            if (!ccallFn) return;
+            try {
+                ccallFn(
+                    'onWebVisibilityChanged',
+                    null,
+                    ['number', 'number'],
+                    [currentHandler(), visible ? 1 : 0]
+                );
+            } catch (e) {
+                console.error("Failed to call onWebVisibilityChanged:", e);
             }
         }
 
@@ -106,15 +124,19 @@ void emcriptenRegisterAudioReset(intptr_t handler)
 
             document.addEventListener('visibilitychange', function () {
                 if (document.visibilityState === 'visible') {
+                    notifyVisibilityChanged(true);
                     restartAudioIfNeeded();
+                } else {
+                    notifyVisibilityChanged(false);
                 }
             });
 
             window.addEventListener('focus', function () {
+                notifyVisibilityChanged(true);
                 restartAudioIfNeeded();
             });
 
-            console.log("Audio auto-reset listeners installed for handler:", handler);
+            console.log("Audio/netplay visibility listeners installed for handler:", handler);
         }
 
     }, handler);

@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 3;
+constexpr uint8_t kProtocolVersion = 4;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -203,6 +203,7 @@ struct PeerHealthData
     FrameNumber lastConfirmedFrame = 0;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
+    uint8_t suspended = 0;
 };
 
 struct CrcReportData
