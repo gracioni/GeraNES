@@ -353,7 +353,43 @@ public:
         int port = 27888;
         int maxPeers = 4;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Netplay, rollbackWindowFrames, transportBackend, useEmbeddedSignalingServer, signalingUrl, signalingRoomId, autoGameplayTuning, inputDelayFrames, predictFrames, gameplayReceiveDelayMs, displayName, reconnectToken, hostName, port, maxPeers)
+        friend void to_json(nlohmann::json& j, const Netplay& value)
+        {
+            j = nlohmann::json{
+                {"rollbackWindowFrames", value.rollbackWindowFrames},
+                {"useEmbeddedSignalingServer", value.useEmbeddedSignalingServer},
+                {"signalingUrl", value.signalingUrl},
+                {"signalingRoomId", value.signalingRoomId},
+                {"autoGameplayTuning", value.autoGameplayTuning},
+                {"inputDelayFrames", value.inputDelayFrames},
+                {"predictFrames", value.predictFrames},
+                {"gameplayReceiveDelayMs", value.gameplayReceiveDelayMs},
+                {"displayName", value.displayName},
+                {"reconnectToken", value.reconnectToken},
+                {"hostName", value.hostName},
+                {"port", value.port},
+                {"maxPeers", value.maxPeers}
+            };
+        }
+
+        friend void from_json(const nlohmann::json& j, Netplay& value)
+        {
+            const Netplay defaults;
+            value.rollbackWindowFrames = j.value("rollbackWindowFrames", defaults.rollbackWindowFrames);
+            value.transportBackend = defaults.transportBackend;
+            value.useEmbeddedSignalingServer = j.value("useEmbeddedSignalingServer", defaults.useEmbeddedSignalingServer);
+            value.signalingUrl = j.value("signalingUrl", defaults.signalingUrl);
+            value.signalingRoomId = j.value("signalingRoomId", defaults.signalingRoomId);
+            value.autoGameplayTuning = j.value("autoGameplayTuning", defaults.autoGameplayTuning);
+            value.inputDelayFrames = j.value("inputDelayFrames", defaults.inputDelayFrames);
+            value.predictFrames = j.value("predictFrames", defaults.predictFrames);
+            value.gameplayReceiveDelayMs = j.value("gameplayReceiveDelayMs", defaults.gameplayReceiveDelayMs);
+            value.displayName = j.value("displayName", defaults.displayName);
+            value.reconnectToken = j.value("reconnectToken", defaults.reconnectToken);
+            value.hostName = j.value("hostName", defaults.hostName);
+            value.port = j.value("port", defaults.port);
+            value.maxPeers = j.value("maxPeers", defaults.maxPeers);
+        }
     };
 
     const int MAX_RECENT_FILES = 10;    
@@ -431,7 +467,10 @@ public:
 
     void sanitizeDefaults() {        
 #ifdef __EMSCRIPTEN__
+        data.netplay.transportBackend = 1;
         data.netplay.useEmbeddedSignalingServer = false;
+#else
+        data.netplay.transportBackend = 0;
 #endif
         data.input.sanitizeDefaults();        
         data.sanitizeDefaults();  
