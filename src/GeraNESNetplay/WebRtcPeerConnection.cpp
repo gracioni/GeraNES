@@ -490,13 +490,10 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
         function attachChannel(dc) {
             state.dc = dc;
             dc.binaryType = 'arraybuffer';
-            console.log('[GeraNES][RTC] data channel attached', { label: dc.label, ordered: dc.ordered, readyState: dc.readyState });
             dc.onopen = function() {
-                console.log('[GeraNES][RTC] data channel open', { label: dc.label, readyState: dc.readyState });
                 Module.ccall('geranes_rtc_on_channel_open', null, ['number'], [self]);
             };
             dc.onclose = function() {
-                console.warn('[GeraNES][RTC] data channel close', { label: dc.label, readyState: dc.readyState });
                 Module.ccall('geranes_rtc_on_channel_close', null, ['number'], [self]);
             };
             dc.onerror = function(err) {
@@ -521,14 +518,8 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
 
         pc.onicecandidate = function(event) {
             if(!event.candidate) {
-                console.log('[GeraNES][RTC] icecandidate complete');
                 return;
             }
-            console.log('[GeraNES][RTC] local ice candidate', {
-                candidate: event.candidate.candidate || '',
-                mid: event.candidate.sdpMid || '',
-                mlineIndex: typeof event.candidate.sdpMLineIndex === 'number' ? event.candidate.sdpMLineIndex : -1
-            });
             Module.ccall(
                 'geranes_rtc_on_ice_candidate',
                 null,
@@ -542,32 +533,14 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
             );
         };
         pc.onconnectionstatechange = function() {
-            console.log('[GeraNES][RTC] connection state change', {
-                connectionState: pc.connectionState,
-                iceConnectionState: pc.iceConnectionState,
-                iceGatheringState: pc.iceGatheringState,
-                signalingState: pc.signalingState
-            });
             if(pc.connectionState === 'failed') {
                 reportError(self, scope.describeRtcError('WebRTC peer connection failed', pc, state.dc));
             } else if(pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
                 Module.ccall('geranes_rtc_on_channel_close', null, ['number'], [self]);
             }
         };
-        pc.oniceconnectionstatechange = function() {
-            console.log('[GeraNES][RTC] ice connection state change', {
-                iceConnectionState: pc.iceConnectionState,
-                connectionState: pc.connectionState,
-                signalingState: pc.signalingState
-            });
-        };
-        pc.onsignalingstatechange = function() {
-            console.log('[GeraNES][RTC] signaling state change', {
-                signalingState: pc.signalingState,
-                connectionState: pc.connectionState,
-                iceConnectionState: pc.iceConnectionState
-            });
-        };
+        pc.oniceconnectionstatechange = function() {};
+        pc.onsignalingstatechange = function() {};
         pc.ondatachannel = function(event) {
             if(event && event.channel) {
                 attachChannel(event.channel);
@@ -643,7 +616,6 @@ EM_JS(int, geranes_rtc_create_offer_bridge, (int handle, intptr_t self, intptr_t
             const pc = scope.peers[handle].pc;
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            console.log('[GeraNES][RTC] local offer created');
             Module.ccall(
                 'geranes_rtc_on_local_description',
                 null,
@@ -682,7 +654,6 @@ EM_JS(int, geranes_rtc_create_answer_bridge, (int handle, intptr_t self), {
             const pc = scope.peers[handle].pc;
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            console.log('[GeraNES][RTC] local answer created');
             Module.ccall(
                 'geranes_rtc_on_local_description',
                 null,
@@ -721,7 +692,6 @@ EM_JS(int, geranes_rtc_set_remote_description_bridge, (int handle, const char* s
     (async function() {
         try {
             const pc = scope.peers[handle].pc;
-            console.log('[GeraNES][RTC] set remote description', { type: offer ? 'offer' : 'answer', sdp: sdp });
             await pc.setRemoteDescription({
                 type: offer ? 'offer' : 'answer',
                 sdp: sdp
@@ -763,11 +733,6 @@ EM_JS(int, geranes_rtc_add_ice_candidate_bridge, (int handle,
     (async function() {
         try {
             const pc = scope.peers[handle].pc;
-            console.log('[GeraNES][RTC] add remote ice candidate', {
-                candidate: candidate,
-                mid: mid,
-                mlineIndex: mlineIndex
-            });
             await pc.addIceCandidate({
                 candidate: candidate,
                 sdpMid: mid || null,

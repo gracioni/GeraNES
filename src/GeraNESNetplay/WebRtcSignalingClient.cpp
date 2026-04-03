@@ -375,30 +375,15 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
 
     try {
         const url = UTF8ToString(urlPtr);
-        console.log('[GeraNES][WS] connect bridge start', {
-            url: url,
-            self: self,
-            pageProtocol: window.location.protocol,
-            pageOrigin: window.location.origin
-        });
         const handle = scope.nextHandle++;
         const ws = new WebSocket(url);
         ws.binaryType = 'arraybuffer';
         scope.sockets[handle] = ws;
 
         ws.onopen = function() {
-            console.log('[GeraNES][WS] open', { handle: handle, url: url, readyState: ws.readyState });
             Module.ccall('geranes_ws_on_open', null, ['number'], [self]);
         };
         ws.onclose = function(event) {
-            console.warn('[GeraNES][WS] close', {
-                handle: handle,
-                url: url,
-                readyState: ws.readyState,
-                code: event && typeof event.code === 'number' ? event.code : null,
-                reason: event && event.reason ? event.reason : '',
-                wasClean: event ? !!event.wasClean : false
-            });
             Module.ccall('geranes_ws_on_close', null, ['number'], [self]);
         };
         ws.onerror = function(event) {
@@ -414,7 +399,6 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
             const text = (typeof event.data === 'string')
                 ? event.data
                 : '';
-            console.log('[GeraNES][WS] message', { handle: handle, url: url, text: text });
             Module.ccall('geranes_ws_on_message', null, ['number', 'string'], [self, text]);
         };
 
@@ -437,7 +421,6 @@ EM_JS(void, geranes_ws_close_bridge, (int handle), {
     const ws = scope.sockets[handle];
     delete scope.sockets[handle];
     try {
-        console.log('[GeraNES][WS] close bridge requested', { handle: handle, url: ws.url, readyState: ws.readyState });
         ws.onopen = null;
         ws.onclose = null;
         ws.onerror = null;
@@ -458,7 +441,6 @@ EM_JS(int, geranes_ws_send_bridge, (int handle, const char* textPtr), {
     }
     try {
         const text = UTF8ToString(textPtr);
-        console.log('[GeraNES][WS] send', { handle: handle, url: ws.url, text: text });
         ws.send(text);
         return 1;
     } catch(_) {
@@ -496,7 +478,6 @@ private:
 public:
     void onOpen()
     {
-        Logger::instance().log("WebRTC signaling WebSocket opened", Logger::Type::INFO);
         setConnected(true);
         pushEvent(Event{Event::Type::Connected, {}, {}});
     }
@@ -522,7 +503,6 @@ public:
         Event event;
         event.type = Event::Type::Message;
         event.text = text != nullptr ? text : "";
-        Logger::instance().log(std::string("WebRTC signaling message: ") + event.text, Logger::Type::INFO);
         if(const auto parsed = WebRtcSignalingMessage::fromText(event.text); parsed.has_value()) {
             event.message = *parsed;
         }
@@ -541,12 +521,6 @@ public:
             m_lastError = "Configure signaling URL and room id for WebRTC";
             return false;
         }
-
-        Logger::instance().log(
-            std::string("WebRTC signaling connect requested: ") + options.config.url +
-            " (room " + options.config.roomId + ")",
-            Logger::Type::INFO
-        );
 
         {
             std::scoped_lock lock(m_mutex);
