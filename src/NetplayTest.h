@@ -15,6 +15,7 @@
 
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/EmulationHost.h"
+#include "GeraNESApp/SingleThreadEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/NetplayAutoSettings.h"
@@ -75,6 +76,7 @@ public:
         bool robust = false;
         bool appFlow = false;
         bool runtimeFlow = false;
+        bool singleThreadRuntimeFlow = false;
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
@@ -203,17 +205,18 @@ private:
         }
     };
 
-    struct RuntimePeerState
+    template<typename HostT>
+    struct RuntimePeerStateT
     {
         std::string name;
         bool host = false;
-        EmulationHost emu{DummyAudioOutput::instance()};
+        HostT emu{DummyAudioOutput::instance()};
         Netplay::NetplayAppRuntime runtime{emu};
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
 
-        explicit RuntimePeerState(const std::string& peerName, bool isHost, uint32_t seed)
+        explicit RuntimePeerStateT(const std::string& peerName, bool isHost, uint32_t seed)
             : name(peerName)
             , host(isHost)
             , generator(seed)
@@ -224,6 +227,9 @@ private:
             });
         }
     };
+
+    using RuntimePeerState = RuntimePeerStateT<EmulationHost>;
+    using SingleThreadRuntimePeerState = RuntimePeerStateT<SingleThreadEmulationHost>;
 
     static constexpr int RESULT_FAILED = 1;
     static constexpr int RESULT_ERROR = 2;
@@ -968,16 +974,16 @@ private:
         return true;
     }
 
-    static EmulationHost::InputState buildRuntimeInputStateForSlot(Netplay::PlayerSlot slot, const Buttons& buttons)
+    static IEmulationHost::InputState buildRuntimeInputStateForSlot(Netplay::PlayerSlot slot, const Buttons& buttons)
     {
-        EmulationHost::InputState inputState{};
+        IEmulationHost::InputState inputState{};
         Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
         return inputState;
     }
 
-    static EmulationHost::InputState buildDuckHuntLikeRuntimeInputState(uint32_t frameIndex, uint32_t fps)
+    static IEmulationHost::InputState buildDuckHuntLikeRuntimeInputState(uint32_t frameIndex, uint32_t fps)
     {
-        EmulationHost::InputState inputState{};
+        IEmulationHost::InputState inputState{};
 
         const uint32_t startupQuietFrames = std::max<uint32_t>(fps / 2u, 20u);
         if(frameIndex < startupQuietFrames) {
@@ -1109,7 +1115,8 @@ private:
         return matched;
     }
 
-    static bool peerHasBufferedPattern(RuntimePeerState& peer,
+    template<typename PeerT>
+    static bool peerHasBufferedPattern(PeerT& peer,
                                        const DeterministicInputGenerator& hostGenerator,
                                        const DeterministicInputGenerator& clientGenerator,
                                        uint32_t windowStartFrame,
@@ -1134,7 +1141,8 @@ private:
         );
     }
 
-    static bool peerHasBufferedLocalPattern(RuntimePeerState& peer,
+    template<typename PeerT>
+    static bool peerHasBufferedLocalPattern(PeerT& peer,
                                             const DeterministicInputGenerator& generator,
                                             uint32_t windowStartFrame,
                                             uint32_t windowEndFrame,
@@ -1183,7 +1191,8 @@ private:
         );
     }
 
-    static nlohmann::json buildRuntimePeerReport(RuntimePeerState& peer)
+    template<typename PeerT>
+    static nlohmann::json buildRuntimePeerReport(PeerT& peer)
     {
         const auto snapshot = peer.runtime.uiSnapshot();
 
@@ -1278,9 +1287,10 @@ private:
         };
     }
 
+    template<typename PeerT>
     static nlohmann::json buildRuntimeReport(const Options& options,
-                                             RuntimePeerState& hostPeer,
-                                             RuntimePeerState& clientPeer,
+                                             PeerT& hostPeer,
+                                             PeerT& clientPeer,
                                              const std::string& status,
                                              const std::string& failureReason,
                                              uint32_t lastCheckedFrame,
@@ -1296,6 +1306,7 @@ private:
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
+            {"singleThreadRuntimeFlow", options.singleThreadRuntimeFlow},
             {"gameplayReceiveDelayMs", options.gameplayReceiveDelayMs},
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
             {"reconnectAfterFrames", options.reconnectAfterFrames},
@@ -1325,11 +1336,12 @@ private:
         };
     }
 
-    static RunArtifacts runSingleCaseRuntimeFlow(const Options& options)
+    template<typename PeerT>
+    static RunArtifacts runSingleCaseRuntimeFlowImpl(const Options& options)
     {
         RunArtifacts result;
-        RuntimePeerState hostPeer("Host", true, options.hostInputSeed);
-        RuntimePeerState clientPeer("Client", false, options.clientInputSeed);
+        PeerT hostPeer("Host", true, options.hostInputSeed);
+        PeerT clientPeer("Client", false, options.clientInputSeed);
         uint32_t lastCheckedFrame = 0;
         uint32_t stallSteps = 0;
         uint32_t maxStallSteps = 0;
@@ -1814,16 +1826,16 @@ private:
                 hostPeer.runtime.updateLatestInputState(
                     buildDuckHuntLikeRuntimeInputState(hostFrame, std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()))
                 );
-                clientPeer.runtime.updateLatestInputState(EmulationHost::InputState{});
+                clientPeer.runtime.updateLatestInputState(IEmulationHost::InputState{});
             } else {
                 hostPeer.runtime.updateLatestInputState(
                     hostLocalSlot.has_value()
                         ? buildRuntimeInputStateForSlot(*hostLocalSlot, hostButtons)
-                        : EmulationHost::InputState{}
+                        : IEmulationHost::InputState{}
                 );
                 clientPeer.runtime.updateLatestInputState(
                     options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
-                        ? EmulationHost::InputState{}
+                        ? IEmulationHost::InputState{}
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
                 );
             }
@@ -2337,6 +2349,13 @@ private:
         result.exitCode = RESULT_FAILED;
         cleanup();
         return result;
+    }
+
+    static RunArtifacts runSingleCaseRuntimeFlow(const Options& options)
+    {
+        return options.singleThreadRuntimeFlow
+            ? runSingleCaseRuntimeFlowImpl<SingleThreadRuntimePeerState>(options)
+            : runSingleCaseRuntimeFlowImpl<RuntimePeerState>(options);
     }
 
     static bool bootstrapSession(AppPeerState& hostPeer, AppPeerState& clientPeer, const Options& options, std::string& failureReason)

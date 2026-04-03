@@ -141,6 +141,7 @@ private:
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
+    std::deque<std::function<void(GeraNESEmu&)>> m_pendingCommands;
 
     void onResetExecutedLocked(uint32_t frame)
     {
@@ -224,6 +225,17 @@ private:
         }
     }
 
+    void dispatchQueuedCommands()
+    {
+        while(!m_pendingCommands.empty()) {
+            std::function<void(GeraNESEmu&)> command = std::move(m_pendingCommands.front());
+            m_pendingCommands.pop_front();
+            if(command) {
+                command(m_emu);
+            }
+        }
+    }
+
     void onFrameReady()
     {
         recordFrameReadyNetplayState(m_emu);
@@ -290,12 +302,15 @@ public:
 
     void postCommand(std::function<void(GeraNESEmu&)> command)
     {
-        if(command) command(m_emu);
+        if(command) {
+            m_pendingCommands.push_back(std::move(command));
+        }
     }
 
     template<typename Fn>
     decltype(auto) withExclusiveAccess(Fn&& fn)
     {
+        dispatchQueuedCommands();
         return std::forward<Fn>(fn)(m_emu);
     }
 
@@ -597,6 +612,7 @@ public:
 
     bool update(uint32_t dt)
     {
+        dispatchQueuedCommands();
         runPreAdvanceHook();
         const bool advanced = m_emu.update(dt);
         return advanced;
@@ -604,6 +620,7 @@ public:
 
     void updateUntilFrame(uint32_t dt)
     {
+        dispatchQueuedCommands();
         runPreAdvanceHook();
         m_emu.updateUntilFrame(dt);
     }

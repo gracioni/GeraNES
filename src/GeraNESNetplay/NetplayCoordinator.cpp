@@ -1340,12 +1340,16 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     m_session.roomState().lastConfirmedFrame = loadedFrame;
     m_lastBroadcastConfirmedFrame = loadedFrame;
 
+    const auto hasPendingSequenceReset = [&](ParticipantId participantId) -> bool {
+        return std::find(
+                   m_pendingSequenceResetParticipants.begin(),
+                   m_pendingSequenceResetParticipants.end(),
+                   participantId
+               ) != m_pendingSequenceResetParticipants.end();
+    };
+
     const auto latestSequenceForParticipant = [&](ParticipantId participantId) -> uint32_t {
-        if(std::find(
-               m_pendingSequenceResetParticipants.begin(),
-               m_pendingSequenceResetParticipants.end(),
-               participantId
-           ) != m_pendingSequenceResetParticipants.end()) {
+        if(hasPendingSequenceReset(participantId)) {
             return 0;
         }
 
@@ -1359,7 +1363,20 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
         return latestSequence;
     };
 
-    m_localInputSequence = latestSequenceForParticipant(m_localParticipantId);
+    const uint32_t rebuiltLocalInputSequence = latestSequenceForParticipant(m_localParticipantId);
+#if defined(__EMSCRIPTEN__)
+    // The browser client can enter authoritative realignment before it has
+    // received echoes/acks for every local input it already sent. If we rewind
+    // the local sequence counter to the preserved timeline's latest confirmed
+    // sequence, the next locally produced inputs reuse old sequence numbers and
+    // the host rejects them as stale/duplicate. Keep the sequence monotonic on
+    // web unless an explicit sequence reset was requested.
+    m_localInputSequence = hasPendingSequenceReset(m_localParticipantId)
+        ? 0u
+        : std::max(m_localInputSequence, rebuiltLocalInputSequence);
+#else
+    m_localInputSequence = rebuiltLocalInputSequence;
+#endif
 
     ConfirmedFrameInputs confirmedFrame;
     confirmedFrame.frame = loadedFrame;

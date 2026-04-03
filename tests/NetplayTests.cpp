@@ -1255,6 +1255,37 @@ TEST_CASE("Netplay runtime retries resync after dropped resync packets", "[netpl
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay web runtime force resync stays deterministic on single-thread host path", "[netplay][runtime][web][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceManualResyncFrame = 44;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_web_runtime_force_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("singleThreadRuntimeFlow") == true);
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay runtime expires reconnect reservation when client does not return", "[netplay][runtime][reconnect][expiry]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -1276,6 +1307,38 @@ TEST_CASE("Netplay runtime expires reconnect reservation when client does not re
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("reconnectTriggered") == true);
+}
+
+TEST_CASE("Netplay web runtime host reset then resync stays deterministic on single-thread host path", "[netplay][runtime][web][reset][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceHostResetFrame = 36;
+    options.forceManualResyncFrame = 44;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_web_runtime_reset_then_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("singleThreadRuntimeFlow") == true);
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
 TEST_CASE("Netplay host intentional disconnect closes the room without client reconnect attempts", "[netplay][runtime][disconnect][host]")
@@ -2310,6 +2373,39 @@ TEST_CASE("Netplay runtime stays deterministic after repeated host load states d
 
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    for(const auto& entry : report.at("client").at("eventLogTail")) {
+        REQUIRE(entry.get<std::string>().find("Rejected non-sequential input sequence") == std::string::npos);
+    }
+}
+
+TEST_CASE("Netplay web runtime stays deterministic after repeated host load states", "[netplay][runtime][web][load-state]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.frames = 190;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36, 37, 38};
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_web_runtime_repeated_load_state.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("singleThreadRuntimeFlow") == true);
     REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
     for(const auto& entry : report.at("client").at("eventLogTail")) {
