@@ -26,6 +26,21 @@
 
 namespace Netplay {
 
+inline const char* netplayRuntimeSessionStateLabel(SessionState state)
+{
+    switch(state) {
+        case SessionState::Lobby: return "Lobby";
+        case SessionState::ValidatingRom: return "ValidatingRom";
+        case SessionState::ReadyCheck: return "ReadyCheck";
+        case SessionState::Starting: return "Starting";
+        case SessionState::Running: return "Running";
+        case SessionState::Resyncing: return "Resyncing";
+        case SessionState::Paused: return "Paused";
+        case SessionState::Ended: return "Ended";
+        default: return "Unknown";
+    }
+}
+
 class NetplayAppRuntime
 {
 public:
@@ -111,6 +126,7 @@ private:
     FrameNumber m_lastSubmittedLocalCrcFrame = 0;
     FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
     bool m_forceNextConfirmedCrcSubmission = false;
+    FrameNumber m_lastLoggedPlaybackStopFrame = 0;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
 
@@ -690,6 +706,17 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         return;
     }
 
+    {
+        std::ostringstream oss;
+        oss << "Netplay runtime session state -> " << netplayRuntimeSessionStateLabel(currentState)
+            << " (frame=" << emu.frameCount()
+            << ", confirmed=" << m_coordinator.session().roomState().lastConfirmedFrame
+            << ", timelineEpoch=" << m_coordinator.session().roomState().timelineEpoch
+            << ", activeResyncId=" << m_coordinator.session().roomState().activeResyncId
+            << ")";
+        Logger::instance().log(oss.str(), Logger::Type::INFO);
+    }
+
     const bool enteringResync = currentState == SessionState::Resyncing;
     const bool leavingResync =
         previousState.has_value() &&
@@ -837,18 +864,41 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
     std::optional<NetplayCoordinator::PendingResyncApply> pending = m_coordinator.consumePendingResyncApply();
     if(!pending.has_value()) return;
 
+    {
+        std::ostringstream oss;
+        oss << "Netplay applying resync payload"
+            << " (resyncId=" << pending->resyncId
+            << ", targetFrame=" << pending->targetFrame
+            << ", bytes=" << pending->payload.size()
+            << ")";
+        Logger::instance().log(oss.str(), Logger::Type::INFO);
+    }
+
     const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
-    const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0;
-    if(loaded) {
+    const uint32_t loadedFrame = emu.frameCount();
+    const bool loadedExpectedFrame =
+        loaded &&
+        (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
+    const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0;
+    if(loadedExpectedFrame) {
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
     }
-    m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
+    m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
 
-    if(loaded) {
+    if(loadedExpectedFrame) {
         Logger::instance().log("Netplay resync applied", Logger::Type::INFO);
     } else {
+        if(loaded && loadedFrame != pending->targetFrame) {
+            std::ostringstream oss;
+            oss << "Netplay resync load frame mismatch: expected "
+                << pending->targetFrame
+                << ", got "
+                << loadedFrame
+                << " after clean-boot state load";
+            Logger::instance().log(oss.str(), Logger::Type::WARNING);
+        }
         Logger::instance().log("Netplay resync failed", Logger::Type::WARNING);
     }
 }
@@ -1019,6 +1069,17 @@ inline void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)
     const FrameNumber predictedThroughFrame =
         confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
     const bool predictionLimitReached = frame > predictedThroughFrame;
+    if(frame != m_lastLoggedPlaybackStopFrame) {
+        m_lastLoggedPlaybackStopFrame = frame;
+        std::ostringstream oss;
+        oss << "Netplay playback waiting for frame " << frame
+            << " (confirmedThrough=" << confirmedThroughFrame
+            << ", predictedThrough=" << predictedThroughFrame
+            << ", localSimFrame=" << m_coordinator.session().roomState().currentFrame
+            << ", roomState=" << netplayRuntimeSessionStateLabel(m_coordinator.session().roomState().state)
+            << ")";
+        Logger::instance().log(oss.str(), Logger::Type::INFO);
+    }
     m_coordinator.recordPlaybackStop(frame, predictionLimitReached);
 }
 
