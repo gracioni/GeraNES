@@ -17,7 +17,7 @@
 
 #include "GeraNES/util/Crc32.h"
 #include "GeraNESApp/AppSettings.h"
-#include "GeraNESApp/EmulationHost.h"
+#include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayAutoSettings.h"
 #include "GeraNESNetplay/NetplayConfig.h"
@@ -52,7 +52,7 @@ public:
         NetplayAutoSettings::Snapshot autoSettings;
         uint32_t unresolvedPredictedRemoteFrameCount = 0;
         FrameNumber latestPredictedRemoteFrame = 0;
-        EmulationHost::NetplayDiagnosticsSnapshot runtimeDiagnostics;
+        IEmulationHost::NetplayDiagnosticsSnapshot runtimeDiagnostics;
         std::string sessionBlockedReason;
         std::vector<std::string> eventLog;
     };
@@ -87,7 +87,7 @@ private:
         bool waitForAdvance = true;
     };
 
-    EmulationHost& m_emuHost;
+    IEmulationHost& m_emuHost;
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
     NetplayAutoSettings m_autoSettings;
@@ -95,7 +95,7 @@ private:
     mutable std::mutex m_stateMutex;
     std::deque<WorkerCommand> m_pendingCommands;
     std::array<uint64_t, 4> m_latestRawMasks = {};
-    EmulationHost::InputState m_latestInputState = {};
+    IEmulationHost::InputState m_latestInputState = {};
     UiSnapshot m_uiSnapshot;
     uint64_t m_cachedReconnectToken = 0;
     bool m_hasCachedReconnectToken = false;
@@ -321,7 +321,7 @@ private:
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processRollbackIfNeededOnWorker(GeraNESEmu& emu);
     bool tryBuildPlaybackConfirmedFrame(uint32_t frame, NetplayCoordinator::ConfirmedFrameInputs& outFrame);
-    bool tryBuildPlaybackReplayFrame(uint32_t frame, EmulationHost::ReplayFrameInput& outFrame);
+    bool tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame);
     void updateUiSnapshot(const std::optional<RomSelection>& localRom);
     void syncEmuInputTimelineEpoch(GeraNESEmu& emu);
     bool tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame);
@@ -348,14 +348,14 @@ private:
     }
 
 public:
-    explicit NetplayAppRuntime(EmulationHost& emuHost)
+    explicit NetplayAppRuntime(IEmulationHost& emuHost)
         : m_emuHost(emuHost)
     {
     }
 
     void setLocalReconnectToken(uint64_t token);
     void refreshLocalRomSelectionImmediate();
-    void updateLatestInputState(const EmulationHost::InputState& inputState);
+    void updateLatestInputState(const IEmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
     UiSnapshot uiSnapshot() const;
     MenuSnapshot menuSnapshot() const;
@@ -527,7 +527,7 @@ inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<Rom
 
 inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu)
 {
-    const std::vector<EmulationHost::ManualStateChangeRecord> events =
+    const std::vector<IEmulationHost::ManualStateChangeRecord> events =
         m_emuHost.consumeManualStateChanges();
     if(events.empty()) return;
 
@@ -544,7 +544,7 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
         if(!emu.valid()) continue;
 
         const ResyncReason reason =
-            event.kind == EmulationHost::ManualStateChangeKind::Reset
+            event.kind == IEmulationHost::ManualStateChangeKind::Reset
                 ? ResyncReason::HostReset
                 : ResyncReason::HostLoadedState;
         const std::string toast = NetplayCoordinator::resyncReasonToast(reason);
@@ -577,7 +577,7 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
             m_pendingManualStateResyncs.push_back(PendingManualStateResync{
                 reason,
                 eventFrame,
-                event.kind == EmulationHost::ManualStateChangeKind::Reset
+                event.kind == IEmulationHost::ManualStateChangeKind::Reset
             });
             continue;
         }
@@ -586,7 +586,7 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
         m_coordinator.invalidateLocalCrcHistoryAfter(eventFrame);
         m_coordinator.setLocalSimulationFrame(eventFrame);
 
-        if(event.kind == EmulationHost::ManualStateChangeKind::LoadState) {
+        if(event.kind == IEmulationHost::ManualStateChangeKind::LoadState) {
             const std::vector<uint8_t> statePayload =
                 buildAuthoritativeStatePayload(emu, eventFrame, false);
             if(statePayload.empty()) {
@@ -992,7 +992,7 @@ inline bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
     return true;
 }
 
-inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, EmulationHost::ReplayFrameInput& outFrame)
+inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame)
 {
     NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
     if(!tryBuildPlaybackConfirmedFrame(frame, playbackFrame)) {
@@ -1059,7 +1059,7 @@ inline void NetplayAppRuntime::updateLatestRawMasks(const std::array<uint64_t, 4
     m_latestRawMasks = masks;
 }
 
-inline void NetplayAppRuntime::updateLatestInputState(const EmulationHost::InputState& inputState)
+inline void NetplayAppRuntime::updateLatestInputState(const IEmulationHost::InputState& inputState)
 {
     std::scoped_lock stateLock(m_stateMutex);
     m_latestInputState = inputState;
@@ -1413,7 +1413,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         currentRoomState == SessionState::Paused;
     m_emuHost.setAutoQueuePendingInputOnFrameStart(!netplayOwnsEmulationInput);
     if(netplayOwnsEmulationInput) {
-        m_emuHost.setFrameInputResolver([this](uint32_t frame, EmulationHost::ReplayFrameInput& outFrame) {
+        m_emuHost.setFrameInputResolver([this](uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame) {
             return tryBuildPlaybackReplayFrame(frame, outFrame);
         });
     } else {
@@ -1454,7 +1454,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     const bool running = m_coordinator.session().roomState().state == SessionState::Running;
     m_runtimeRunning.store(running, std::memory_order_release);
 
-    EmulationHost::InputState latestInputState{};
+    IEmulationHost::InputState latestInputState{};
     {
         std::scoped_lock stateLock(m_stateMutex);
         latestInputState = m_latestInputState;

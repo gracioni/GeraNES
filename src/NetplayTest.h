@@ -1396,8 +1396,16 @@ private:
             }
         }
 
+        auto pumpPeerRuntime = [](auto& peer) {
+            peer.emu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+                peer.runtime.runOnEmulationThread(innerEmu);
+            });
+        };
+
         auto waitFor = [&](auto&& predicate, uint32_t maxSteps, uint32_t sleepMs) -> bool {
             for(uint32_t i = 0; i < maxSteps; ++i) {
+                pumpPeerRuntime(hostPeer);
+                pumpPeerRuntime(clientPeer);
                 if(predicate()) return true;
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
             }
@@ -1409,6 +1417,7 @@ private:
         for(uint32_t portOffset = 0; portOffset < 8u; ++portOffset) {
             const uint16_t port = static_cast<uint16_t>(options.port + portOffset);
             hostPeer.runtime.host(port, 1, hostPeer.name);
+            pumpPeerRuntime(hostPeer);
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
             if(hostPeer.runtime.uiSnapshot().active) {
                 hostedPort = port;
@@ -1507,6 +1516,7 @@ private:
                     }
                 }
                 clientPeer.runtime.join("127.0.0.1", port, clientPeer.name);
+                pumpPeerRuntime(clientPeer);
                 hosted = true;
                 break;
             }
