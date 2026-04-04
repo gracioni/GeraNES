@@ -683,8 +683,15 @@ private:
         const bool loaded = m_emu.loadStateFromMemory(pending->payload);
         const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
         if(loaded) {
+            m_emu.withExclusiveAccess([&](GeraNESEmu& emu) {
+                emu.setInputTimelineEpoch(m_netplayCoordinator.session().roomState().timelineEpoch);
+            });
             m_netplayCoordinator.setLocalSimulationFrame(pending->targetFrame);
             m_emu.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
+            m_emu.setAuthoritativeFrameReadyState(
+                pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame,
+                pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
+            );
         }
         m_netplayCoordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
 
@@ -743,9 +750,12 @@ private:
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
         const uint32_t stateCrc32 =
             (!initialSessionSync && confirmedSnapshot.has_value())
-                ? 0u
+                ? m_emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : m_emu.canonicalNetplayStateCrc32();
         if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32)) {
+            if(stateCrc32 != 0u) {
+                m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
+            }
             if(initialSessionSync) {
                 Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
             } else {
@@ -774,6 +784,7 @@ private:
         if(!m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32)) {
             return false;
         }
+        m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
 
         Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
         return true;
@@ -798,9 +809,12 @@ private:
         const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
         const uint32_t stateCrc32 =
             confirmedSnapshot.has_value()
-                ? 0u
+                ? m_emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : m_emu.canonicalNetplayStateCrc32();
         if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32)) {
+            if(stateCrc32 != 0u) {
+                m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
+            }
             Logger::instance().log(
                 "Netplay late-join resync started for participant " + std::to_string(static_cast<int>(*participantId)),
                 Logger::Type::INFO

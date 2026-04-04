@@ -11,6 +11,8 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <sstream>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -147,15 +149,31 @@ private:
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     mutable std::mutex m_manualStateChangeMutex;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
+    mutable std::mutex m_debugTraceMutex;
+    std::function<void(const std::string&)> m_debugTraceSink;
+
+    void traceEvent(const std::string& event)
+    {
+        std::function<void(const std::string&)> sink;
+        {
+            std::scoped_lock traceLock(m_debugTraceMutex);
+            sink = m_debugTraceSink;
+        }
+        if(sink) {
+            sink(event);
+        }
+    }
 
     void onResetExecutedLocked(uint32_t frame)
     {
+        traceEvent("signal.reset frame=" + std::to_string(frame));
         std::scoped_lock eventLock(m_manualStateChangeMutex);
         m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::Reset, frame});
     }
 
     void onLoadExecutedLocked(uint32_t frame)
     {
+        traceEvent("signal.load frame=" + std::to_string(frame));
         std::scoped_lock eventLock(m_manualStateChangeMutex);
         m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::LoadState, frame});
     }
@@ -164,6 +182,7 @@ private:
     {
         const uint32_t frame = emu.frameCount();
         const uint32_t crc32 = emu.canonicalNetplayStateCrc32();
+        traceEvent("signal.frameReady frame=" + std::to_string(frame) + " crc=" + std::to_string(crc32));
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = crc32;
 
@@ -252,7 +271,12 @@ private:
             hook = m_preAdvanceHook;
         }
         if(hook) {
+            const uint32_t beforeFrame = m_emu.frameCount();
+            traceEvent("preAdvanceHook.begin frame=" + std::to_string(beforeFrame));
             hook(m_emu);
+            std::ostringstream oss;
+            oss << "preAdvanceHook.end before=" << beforeFrame << " after=" << m_emu.frameCount();
+            traceEvent(oss.str());
         }
     }
 
@@ -271,8 +295,11 @@ private:
             std::scoped_lock resolverLock(m_frameInputResolverMutex);
             if(m_frameInputResolver) {
                 if(!m_frameInputResolver(targetFrame, input)) {
+                    traceEvent("applyPendingInput.miss frame=" + std::to_string(targetFrame));
                     return;
                 }
+                traceEvent("applyPendingInput.resolver frame=" + std::to_string(targetFrame) +
+                           " speculative=" + std::to_string(input.speculative ? 1 : 0));
                 queueReplayFrameInputToEmu(m_emu, targetFrame, input);
                 return;
             }
@@ -282,12 +309,14 @@ private:
             std::scoped_lock pendingInputLock(m_pendingInputMutex);
             input.state = m_pendingInput;
         }
+        traceEvent("applyPendingInput.pending frame=" + std::to_string(targetFrame));
         applyInputStateToEmu(m_emu, input.state);
     }
 
     void onCommand(std::function<void(GeraNESEmu&)> command)
     {
         if(command) {
+            traceEvent("dispatch.command frame=" + std::to_string(m_emu.frameCount()));
             command(m_emu);
             refreshSnapshotLocked();
         }
@@ -566,6 +595,12 @@ public:
         }
         m_workerWakeRequested.store(true, std::memory_order_release);
         m_presenterCv.notify_one();
+    }
+
+    void setDebugTraceSink(std::function<void(const std::string&)> sink)
+    {
+        std::scoped_lock traceLock(m_debugTraceMutex);
+        m_debugTraceSink = std::move(sink);
     }
 
     void postCommand(std::function<void(GeraNESEmu&)> command)
@@ -932,6 +967,7 @@ public:
 
     void setPresenterLockActive(bool active)
     {
+        traceEvent(std::string("setPresenterLockActive active=") + (active ? "1" : "0"));
         if(active) {
             m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
         } else {
@@ -943,6 +979,7 @@ public:
 
     void setSimulationSuspended(bool suspended)
     {
+        traceEvent(std::string("setSimulationSuspended value=") + (suspended ? "1" : "0"));
         if(suspended) {
             m_framePacingMode.store(FramePacingMode::Suspended, std::memory_order_release);
             m_pendingPresenterTicks.store(0, std::memory_order_release);
@@ -954,6 +991,7 @@ public:
 
     bool update(uint32_t dt)
     {
+        traceEvent("update.begin dt=" + std::to_string(dt));
         (void)dt;
         if(m_framePacingMode.load(std::memory_order_acquire) != FramePacingMode::Suspended) {
             m_framePacingMode.store(FramePacingMode::FreeRunning, std::memory_order_release);
@@ -965,6 +1003,7 @@ public:
 
     void updateUntilFrame(uint32_t dt)
     {
+        traceEvent("updateUntilFrame.begin dt=" + std::to_string(dt));
         m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);
         m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
         m_pendingPresenterTicks.store(1, std::memory_order_release);
@@ -1107,6 +1146,17 @@ public:
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.lastFrameReadyNetplayCrc32;
+    }
+
+    void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32)
+    {
+        traceEvent("setAuthoritativeFrameReadyState frame=" + std::to_string(frame) +
+                   " crc=" + std::to_string(canonicalCrc32));
+        m_lastFrameReadyFrameValue = frame;
+        m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        m_snapshot.lastFrameReadyFrame = frame;
+        m_snapshot.lastFrameReadyNetplayCrc32 = canonicalCrc32;
     }
 
     std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const

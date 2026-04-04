@@ -32,6 +32,7 @@ struct ParticipantInfo
     FrameNumber lastReceivedInputFrame = 0;
     FrameNumber lastContiguousInputFrame = 0;
     uint32_t lastReceivedInputSequence = 0;
+    bool sequenceRebasePending = false;
     std::optional<FrameNumber> pendingMissingInputFrom;
     uint32_t missingInputGapCount = 0;
     uint32_t rollbackScheduledCount = 0;
@@ -74,8 +75,12 @@ struct RoomState
     uint32_t lastRemoteCrc32 = 0;
     uint32_t activeResyncId = 0;
     FrameNumber resyncTargetFrame = 0;
+    FrameNumber resyncConfirmedFrame = 0;
+    FrameNumber resyncFrameReadyFrame = 0;
     uint32_t resyncPayloadSize = 0;
     uint32_t resyncPayloadCrc32 = 0;
+    uint32_t resyncFrameReadyCrc32 = 0;
+    uint32_t resyncInputSequenceBase = 0;
     ResyncReason activeResyncReason = ResyncReason::Unspecified;
     uint32_t pendingResyncAckCount = 0;
     std::string selectedGameName;

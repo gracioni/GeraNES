@@ -48,7 +48,11 @@ public:
     {
         uint32_t resyncId = 0;
         FrameNumber targetFrame = 0;
+        FrameNumber confirmedFrame = 0;
+        FrameNumber frameReadyFrame = 0;
         uint32_t expectedPayloadCrc32 = 0;
+        uint32_t frameReadyCrc32 = 0;
+        uint32_t inputSequenceBase = 0;
         ResyncReason reason = ResyncReason::Unspecified;
         std::vector<uint8_t> payload;
     };
@@ -177,7 +181,9 @@ private:
     bool handleAssignController(PacketReader& reader);
     bool handleStartSession(PacketReader& reader);
     std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
-    void realignAuthoritativeState(FrameNumber loadedFrame);
+    void realignAuthoritativeState(FrameNumber loadedFrame,
+                                   bool resetInputSequences = false,
+                                   uint32_t inputSequenceBase = 0);
     void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);

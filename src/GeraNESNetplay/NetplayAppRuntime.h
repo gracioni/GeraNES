@@ -183,6 +183,7 @@ private:
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(targetFrame);
         m_emuHost.seedNetplaySnapshot(targetFrame, payload, loadedCrc32);
+        m_emuHost.setAuthoritativeFrameReadyState(targetFrame, loadedCrc32);
         reanchorInputDriver(targetFrame, localAssignedSlots());
         return true;
     }
@@ -206,6 +207,14 @@ private:
                                             FrameNumber authoritativeFrame,
                                             bool preferConfirmedSnapshot) const
     {
+        if(preferConfirmedSnapshot) {
+            if(const std::optional<uint32_t> snapshotCrc32 =
+                   m_emuHost.netplaySnapshotCrc32ForFrame(authoritativeFrame);
+               snapshotCrc32.has_value()) {
+                return *snapshotCrc32;
+            }
+        }
+
         if(!preferConfirmedSnapshot &&
            emu.valid() &&
            emu.frameCount() == authoritativeFrame) {
@@ -256,6 +265,7 @@ private:
         m_coordinator.setLocalSimulationFrame(authoritativeFrame);
         if(stateCrc32 != 0) {
             m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload, stateCrc32);
+            m_emuHost.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
         } else {
             m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload);
         }
@@ -698,8 +708,12 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
     if(enteringResync || leavingResync) {
         m_emuHost.restartAudio();
     }
-    if(enteringResync && !m_coordinator.isHosting()) {
-        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+    if(enteringResync) {
+        const uint32_t discardAfterFrame =
+            m_coordinator.session().roomState().resyncTargetFrame != 0u
+                ? m_coordinator.session().roomState().resyncTargetFrame
+                : emu.frameCount();
+        m_emuHost.discardQueuedNetplayInputsAfter(discardAfterFrame);
     }
 
     if(currentState != SessionState::Running) {
@@ -844,8 +858,13 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
     const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0;
     if(loadedExpectedFrame) {
+        syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
+        m_emuHost.setAuthoritativeFrameReadyState(
+            pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame,
+            pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
+        );
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);

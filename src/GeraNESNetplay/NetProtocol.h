@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 3;
+constexpr uint8_t kProtocolVersion = 5;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -218,9 +218,13 @@ struct ResyncBeginData
     uint32_t resyncId = 0;
     uint32_t timelineEpoch = 0;
     FrameNumber targetFrame = 0;
+    FrameNumber confirmedFrame = 0;
+    FrameNumber frameReadyFrame = 0;
     uint32_t payloadSize = 0;
     uint32_t payloadCrc32 = 0;
     uint32_t stateCrc32 = 0;
+    uint32_t frameReadyCrc32 = 0;
+    uint32_t inputSequenceBase = 0;
     ResyncReason reason = ResyncReason::Unspecified;
 };
 

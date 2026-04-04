@@ -808,7 +808,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
 
         const uint32_t expectedSequence = participant->lastReceivedInputSequence + 1u;
-        if(input.sequence != expectedSequence) {
+        const FrameNumber expectedFrame = participant->lastContiguousInputFrame + 1u;
+        const bool allowSequenceRebase =
+            participant->sequenceRebasePending &&
+            input.frame == expectedFrame &&
+            input.sequence > participant->lastReceivedInputSequence;
+        if(input.sequence != expectedSequence && !allowSequenceRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input sequence from " << participant->displayName
                 << " seq " << input.sequence
@@ -818,7 +823,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
 
-        const FrameNumber expectedFrame = participant->lastContiguousInputFrame + 1u;
         if(input.frame != expectedFrame) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
@@ -831,6 +835,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
         participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
+        participant->sequenceRebasePending = false;
     }
 
     InputTimeline* destinationTimeline = &m_remoteInputs;
@@ -1036,8 +1041,12 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_session.roomState().pendingResyncAckCount = 0;
     m_session.roomState().activeResyncId = 0;
     m_session.roomState().resyncTargetFrame = 0;
+    m_session.roomState().resyncConfirmedFrame = 0;
+    m_session.roomState().resyncFrameReadyFrame = 0;
     m_session.roomState().resyncPayloadSize = 0;
     m_session.roomState().resyncPayloadCrc32 = 0;
+    m_session.roomState().resyncFrameReadyCrc32 = 0;
+    m_session.roomState().resyncInputSequenceBase = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
     m_activeResyncExpectedStateCrc32 = 0;
     m_pendingImplicitRecovery.reset();
@@ -1279,7 +1288,9 @@ std::optional<uint32_t> NetplayCoordinator::findRecentLocalCrc(FrameNumber frame
     return std::nullopt;
 }
 
-void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
+void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
+                                                   bool resetInputSequences,
+                                                   uint32_t inputSequenceBase)
 {
     std::vector<TimelineInputEntry> preservedLocalInputs;
     std::vector<TimelineInputEntry> preservedRemoteInputs;
@@ -1298,6 +1309,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
             entry.frame = loadedFrame;
             entry.predicted = false;
             entry.confirmed = true;
+            if(resetInputSequences) {
+                entry.sequence = inputSequenceBase;
+            }
             preserved.push_back(std::move(entry));
             break;
         }
@@ -1349,6 +1363,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     };
 
     const auto latestSequenceForParticipant = [&](ParticipantId participantId) -> uint32_t {
+        if(resetInputSequences) {
+            return inputSequenceBase;
+        }
         if(hasPendingSequenceReset(participantId)) {
             return 0;
         }
@@ -1371,9 +1388,13 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
     // sequence, the next locally produced inputs reuse old sequence numbers and
     // the host rejects them as stale/duplicate. Keep the sequence monotonic on
     // web unless an explicit sequence reset was requested.
-    m_localInputSequence = hasPendingSequenceReset(m_localParticipantId)
-        ? 0u
-        : std::max(m_localInputSequence, rebuiltLocalInputSequence);
+    if(resetInputSequences) {
+        m_localInputSequence = inputSequenceBase;
+    } else {
+        m_localInputSequence = hasPendingSequenceReset(m_localParticipantId)
+            ? 0u
+            : std::max(m_localInputSequence, rebuiltLocalInputSequence);
+    }
 #else
     m_localInputSequence = rebuiltLocalInputSequence;
 #endif
@@ -1405,6 +1426,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame)
         participant.lastReceivedInputFrame = loadedFrame;
         participant.lastContiguousInputFrame = loadedFrame;
         participant.lastReceivedInputSequence = latestSequenceForParticipant(participant.id);
+        participant.sequenceRebasePending = resetInputSequences;
         participant.pendingMissingInputFrom.reset();
         participant.lastDecisionFrame = loadedFrame;
         participant.lastDecisionSlot = kObserverPlayerSlot;
@@ -1444,12 +1466,20 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_session.roomState().currentFrame = 0;
     m_session.roomState().lastConfirmedFrame = 0;
     m_session.roomState().activeResyncId = 0;
+    m_session.roomState().resyncTargetFrame = 0;
+    m_session.roomState().resyncConfirmedFrame = 0;
+    m_session.roomState().resyncFrameReadyFrame = 0;
+    m_session.roomState().resyncPayloadSize = 0;
+    m_session.roomState().resyncPayloadCrc32 = 0;
+    m_session.roomState().resyncFrameReadyCrc32 = 0;
+    m_session.roomState().resyncInputSequenceBase = 0;
     m_session.roomState().pendingResyncAckCount = 0;
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         participant.lastReceivedInputFrame = 0;
         participant.lastContiguousInputFrame = 0;
         participant.lastReceivedInputSequence = 0;
+        participant.sequenceRebasePending = false;
         participant.pendingMissingInputFrom.reset();
         participant.lastDecision.clear();
         participant.lastDecisionFrame = 0;
@@ -1490,6 +1520,7 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
             participant.lastReceivedInputSequence = 0;
         }
 
+        participant.sequenceRebasePending = false;
         participant.pendingMissingInputFrom.reset();
     }
 }
@@ -1702,7 +1733,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     ResyncBeginData data;
     if(!reader.readPod(data)) return false;
 
-    realignAuthoritativeState(data.targetFrame);
+    realignAuthoritativeState(data.targetFrame, true, data.inputSequenceBase);
     m_incomingResync = IncomingResyncTransfer{};
     m_incomingResync->resyncId = data.resyncId;
     m_incomingResync->targetFrame = data.targetFrame;
@@ -1714,8 +1745,12 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     m_session.roomState().activeResyncId = data.resyncId;
     m_session.roomState().timelineEpoch = data.timelineEpoch;
     m_session.roomState().resyncTargetFrame = data.targetFrame;
+    m_session.roomState().resyncConfirmedFrame = data.confirmedFrame;
+    m_session.roomState().resyncFrameReadyFrame = data.frameReadyFrame;
     m_session.roomState().resyncPayloadSize = data.payloadSize;
     m_session.roomState().resyncPayloadCrc32 = data.payloadCrc32;
+    m_session.roomState().resyncFrameReadyCrc32 = data.frameReadyCrc32;
+    m_session.roomState().resyncInputSequenceBase = data.inputSequenceBase;
     m_session.roomState().activeResyncReason = data.reason;
     m_session.roomState().state = SessionState::Resyncing;
 
@@ -1782,7 +1817,11 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
     PendingResyncApply pending;
     pending.resyncId = m_incomingResync->resyncId;
     pending.targetFrame = m_incomingResync->targetFrame;
+    pending.confirmedFrame = m_session.roomState().resyncConfirmedFrame;
+    pending.frameReadyFrame = m_session.roomState().resyncFrameReadyFrame;
     pending.expectedPayloadCrc32 = m_incomingResync->expectedPayloadCrc32;
+    pending.frameReadyCrc32 = m_session.roomState().resyncFrameReadyCrc32;
+    pending.inputSequenceBase = m_session.roomState().resyncInputSequenceBase;
     pending.reason = m_session.roomState().activeResyncReason;
     pending.payload = std::move(m_incomingResync->payload);
     m_pendingResyncApply = std::move(pending);
@@ -1833,8 +1872,12 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         m_session.roomState().pendingResyncAckCount = 0;
         m_session.roomState().activeResyncId = 0;
         m_session.roomState().resyncTargetFrame = 0;
+        m_session.roomState().resyncConfirmedFrame = 0;
+        m_session.roomState().resyncFrameReadyFrame = 0;
         m_session.roomState().resyncPayloadSize = 0;
         m_session.roomState().resyncPayloadCrc32 = 0;
+        m_session.roomState().resyncFrameReadyCrc32 = 0;
+        m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
         m_activeResyncExpectedStateCrc32 = 0;
 
@@ -3470,7 +3513,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     const bool initialSessionSync = m_session.roomState().state == SessionState::Starting;
     const uint32_t resyncId = m_nextResyncId++;
     ++m_session.roomState().timelineEpoch;
-    realignAuthoritativeState(targetFrame);
+    realignAuthoritativeState(targetFrame, true, 0u);
     if(initialSessionSync) {
         m_localInputSequence = 0;
         for(ParticipantInfo& participant : m_session.roomState().participants) {
@@ -3480,8 +3523,12 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_session.roomState().state = SessionState::Resyncing;
     m_session.roomState().activeResyncId = resyncId;
     m_session.roomState().resyncTargetFrame = targetFrame;
+    m_session.roomState().resyncConfirmedFrame = targetFrame;
+    m_session.roomState().resyncFrameReadyFrame = targetFrame;
     m_session.roomState().resyncPayloadSize = static_cast<uint32_t>(payload.size());
     m_session.roomState().resyncPayloadCrc32 = payloadCrc32;
+    m_session.roomState().resyncFrameReadyCrc32 = stateCrc32;
+    m_session.roomState().resyncInputSequenceBase = 0;
     m_session.roomState().activeResyncReason = reason;
     m_activeResyncExpectedStateCrc32 = stateCrc32;
     m_pendingImplicitRecovery.reset();
@@ -3503,8 +3550,12 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_session.roomState().state = SessionState::Running;
         m_session.roomState().activeResyncId = 0;
         m_session.roomState().resyncTargetFrame = 0;
+        m_session.roomState().resyncConfirmedFrame = 0;
+        m_session.roomState().resyncFrameReadyFrame = 0;
         m_session.roomState().resyncPayloadSize = 0;
         m_session.roomState().resyncPayloadCrc32 = 0;
+        m_session.roomState().resyncFrameReadyCrc32 = 0;
+        m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
         m_activeResyncExpectedStateCrc32 = 0;
         pushLog("Resync skipped: no remote peers");
@@ -3515,9 +3566,13 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     beginData.resyncId = resyncId;
     beginData.timelineEpoch = m_session.roomState().timelineEpoch;
     beginData.targetFrame = targetFrame;
+    beginData.confirmedFrame = m_session.roomState().lastConfirmedFrame;
+    beginData.frameReadyFrame = m_session.roomState().resyncFrameReadyFrame;
     beginData.payloadSize = static_cast<uint32_t>(payload.size());
     beginData.payloadCrc32 = payloadCrc32;
     beginData.stateCrc32 = m_activeResyncExpectedStateCrc32;
+    beginData.frameReadyCrc32 = m_session.roomState().resyncFrameReadyCrc32;
+    beginData.inputSequenceBase = m_session.roomState().resyncInputSequenceBase;
     beginData.reason = reason;
     m_transport.broadcastReliable(Channel::Control, buildResyncBeginPacket(beginData));
 
@@ -3559,11 +3614,19 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
     ack.success = success ? 1 : 0;
 
     if(success) {
-        realignAuthoritativeState(loadedFrame);
+        realignAuthoritativeState(
+            loadedFrame,
+            true,
+            m_session.roomState().resyncInputSequenceBase
+        );
         m_session.roomState().activeResyncId = 0;
         m_session.roomState().resyncTargetFrame = 0;
+        m_session.roomState().resyncConfirmedFrame = 0;
+        m_session.roomState().resyncFrameReadyFrame = 0;
         m_session.roomState().resyncPayloadSize = 0;
         m_session.roomState().resyncPayloadCrc32 = 0;
+        m_session.roomState().resyncFrameReadyCrc32 = 0;
+        m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().pendingResyncAckCount = 0;
         m_session.roomState().state = SessionState::Resyncing;
     }

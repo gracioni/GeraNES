@@ -77,6 +77,7 @@ public:
         bool appFlow = false;
         bool runtimeFlow = false;
         bool singleThreadRuntimeFlow = false;
+        bool captureHostTrace = false;
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
@@ -230,6 +231,17 @@ private:
 
     using RuntimePeerState = RuntimePeerStateT<EmulationHost>;
     using SingleThreadRuntimePeerState = RuntimePeerStateT<SingleThreadEmulationHost>;
+
+    template<typename HostT>
+    static void configureHostTraceSinkIfSupported(HostT& emu, std::function<void(const std::string&)> sink)
+    {
+        if constexpr(requires { emu.setDebugTraceSink(std::move(sink)); }) {
+            emu.setDebugTraceSink(std::move(sink));
+        } else {
+            (void)emu;
+            (void)sink;
+        }
+    }
 
     static constexpr int RESULT_FAILED = 1;
     static constexpr int RESULT_ERROR = 2;
@@ -779,6 +791,8 @@ private:
 
     static nlohmann::json buildAppPeerReport(AppPeerState& peer)
     {
+        const uint32_t exactFrame = peer.emu.exactEmulationFrame();
+
         nlohmann::json participants = nlohmann::json::array();
         for(const auto& participant : peer.coordinator.session().roomState().participants) {
             participants.push_back({
@@ -809,7 +823,7 @@ private:
         nlohmann::json inputWindow = nlohmann::json::array();
         peer.emu.withExclusiveAccess([&](auto& innerEmu) {
             inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
-            const uint32_t frame = innerEmu.frameCount();
+            const uint32_t frame = exactFrame;
             const uint32_t timelineEpoch = innerEmu.inputTimelineEpoch();
             expectedPlaybackFrame = frame;
             hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(frame, timelineEpoch) != nullptr;
@@ -820,13 +834,13 @@ private:
                 }
                 ++futureBufferedFrames;
             }
-            if(const InputFrame* previousFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount(), timelineEpoch); previousFrame != nullptr) {
+            if(const InputFrame* previousFrame = innerEmu.inputBuffer().findByFrame(frame, timelineEpoch); previousFrame != nullptr) {
                 previousFrameJson = previousFrame->toJson();
             }
-            if(const InputFrame* nextFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount() + 1u, timelineEpoch); nextFrame != nullptr) {
+            if(const InputFrame* nextFrame = innerEmu.inputBuffer().findByFrame(frame + 1u, timelineEpoch); nextFrame != nullptr) {
                 nextFrameJson = nextFrame->toJson();
             }
-            if(const InputFrame* currentFrame = innerEmu.inputBuffer().findByFrame(innerEmu.frameCount() + 2u, timelineEpoch); currentFrame != nullptr) {
+            if(const InputFrame* currentFrame = innerEmu.inputBuffer().findByFrame(frame + 2u, timelineEpoch); currentFrame != nullptr) {
                 currentFrameJson = currentFrame->toJson();
             }
             const uint32_t windowStart = frame > 2u ? frame - 2u : 0u;
@@ -856,7 +870,7 @@ private:
         return {
             {"name", peer.name},
             {"host", peer.host},
-            {"frame", peer.emu.frameCount()},
+            {"frame", exactFrame},
             {"lastFrameReadyFrame", peer.emu.lastFrameReadyFrame()},
             {"lastFrameReadyNetplayCrc32", peer.emu.lastFrameReadyNetplayCrc32()},
             {"sessionState", static_cast<int>(peer.coordinator.session().roomState().state)},
@@ -899,6 +913,40 @@ private:
                                          bool assignmentSwapVerified = false,
                                          bool assignmentPatternVerified = false)
     {
+        nlohmann::json hostReport = buildAppPeerReport(hostPeer);
+        nlohmann::json clientReport = buildAppPeerReport(clientPeer);
+        const uint32_t hostReadyFrame = hostReport.at("lastFrameReadyFrame");
+        const uint32_t clientReadyFrame = clientReport.at("lastFrameReadyFrame");
+        const uint32_t commonReadyFrame = std::min(hostReadyFrame, clientReadyFrame);
+        const auto resolveFrameReadyCrc = [](IEmulationHost& emu,
+                                             uint32_t readyFrame,
+                                             uint32_t readyCrc,
+                                             uint32_t probeFrame) -> std::optional<uint32_t> {
+            if(probeFrame == 0u) {
+                return std::nullopt;
+            }
+            if(probeFrame == readyFrame) {
+                return readyCrc;
+            }
+            return emu.netplaySnapshotCrc32ForFrame(probeFrame);
+        };
+        const std::optional<uint32_t> hostCommonReadyCrc = resolveFrameReadyCrc(
+            hostPeer.emu,
+            hostReadyFrame,
+            hostReport.at("lastFrameReadyNetplayCrc32"),
+            commonReadyFrame
+        );
+        const std::optional<uint32_t> clientCommonReadyCrc = resolveFrameReadyCrc(
+            clientPeer.emu,
+            clientReadyFrame,
+            clientReport.at("lastFrameReadyNetplayCrc32"),
+            commonReadyFrame
+        );
+        const bool finalFrameReadyCrcMatch =
+            commonReadyFrame >= lastCheckedFrame &&
+            hostCommonReadyCrc.has_value() &&
+            clientCommonReadyCrc.has_value() &&
+            *hostCommonReadyCrc == *clientCommonReadyCrc;
         return {
             {"status", status},
             {"failureReason", failureReason},
@@ -933,11 +981,11 @@ private:
             {"finalNetplayCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalNetplayStateCrc32() == clientPeer.emu.canonicalNetplayStateCrc32())
                 : false},
-            {"finalFrameReadyCrcMatch", hostPeer.emu.lastFrameReadyFrame() == clientPeer.emu.lastFrameReadyFrame()
-                ? (hostPeer.emu.lastFrameReadyNetplayCrc32() == clientPeer.emu.lastFrameReadyNetplayCrc32())
-                : false},
-            {"host", buildAppPeerReport(hostPeer)},
-            {"client", buildAppPeerReport(clientPeer)}
+            {"finalFrameReadyFrameAligned", hostReadyFrame == clientReadyFrame},
+            {"finalCommonFrameReadyFrame", commonReadyFrame},
+            {"finalFrameReadyCrcMatch", finalFrameReadyCrcMatch},
+            {"host", std::move(hostReport)},
+            {"client", std::move(clientReport)}
         };
     }
 
@@ -1299,6 +1347,40 @@ private:
                                              bool assignmentSwapVerified = false,
                                              bool assignmentPatternVerified = false)
     {
+        nlohmann::json hostReport = buildRuntimePeerReport(hostPeer);
+        nlohmann::json clientReport = buildRuntimePeerReport(clientPeer);
+        const uint32_t hostReadyFrame = hostReport.at("lastFrameReadyFrame");
+        const uint32_t clientReadyFrame = clientReport.at("lastFrameReadyFrame");
+        const uint32_t commonReadyFrame = std::min(hostReadyFrame, clientReadyFrame);
+        const auto resolveFrameReadyCrc = [](const auto& peer,
+                                             uint32_t readyFrame,
+                                             uint32_t readyCrc,
+                                             uint32_t probeFrame) -> std::optional<uint32_t> {
+            if(probeFrame == 0u) {
+                return std::nullopt;
+            }
+            if(probeFrame == readyFrame) {
+                return readyCrc;
+            }
+            return peer.emu.netplaySnapshotCrc32ForFrame(probeFrame);
+        };
+        const std::optional<uint32_t> hostCommonReadyCrc = resolveFrameReadyCrc(
+            hostPeer,
+            hostReadyFrame,
+            hostReport.at("lastFrameReadyNetplayCrc32"),
+            commonReadyFrame
+        );
+        const std::optional<uint32_t> clientCommonReadyCrc = resolveFrameReadyCrc(
+            clientPeer,
+            clientReadyFrame,
+            clientReport.at("lastFrameReadyNetplayCrc32"),
+            commonReadyFrame
+        );
+        const bool finalFrameReadyCrcMatch =
+            commonReadyFrame >= lastCheckedFrame &&
+            hostCommonReadyCrc.has_value() &&
+            clientCommonReadyCrc.has_value() &&
+            *hostCommonReadyCrc == *clientCommonReadyCrc;
         return {
             {"status", status},
             {"failureReason", failureReason},
@@ -1328,11 +1410,11 @@ private:
             {"finalNetplayCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalNetplayStateCrc32() == clientPeer.emu.canonicalNetplayStateCrc32())
                 : false},
-            {"finalFrameReadyCrcMatch", hostPeer.emu.lastFrameReadyFrame() == clientPeer.emu.lastFrameReadyFrame()
-                ? (hostPeer.emu.lastFrameReadyNetplayCrc32() == clientPeer.emu.lastFrameReadyNetplayCrc32())
-                : false},
-            {"host", buildRuntimePeerReport(hostPeer)},
-            {"client", buildRuntimePeerReport(clientPeer)}
+            {"finalFrameReadyFrameAligned", hostReadyFrame == clientReadyFrame},
+            {"finalCommonFrameReadyFrame", commonReadyFrame},
+            {"finalFrameReadyCrcMatch", finalFrameReadyCrcMatch},
+            {"host", std::move(hostReport)},
+            {"client", std::move(clientReport)}
         };
     }
 
@@ -1342,6 +1424,26 @@ private:
         RunArtifacts result;
         PeerT hostPeer("Host", true, options.hostInputSeed);
         PeerT clientPeer("Client", false, options.clientInputSeed);
+        std::ofstream hostTraceFile;
+        std::ofstream clientTraceFile;
+        if(options.captureHostTrace) {
+            const std::filesystem::path reportPath =
+                options.reportPath.empty()
+                    ? std::filesystem::path("build/test_reports/runtime_trace.json")
+                    : std::filesystem::path(options.reportPath);
+            const std::filesystem::path hostTracePath =
+                reportPath.parent_path() / (reportPath.stem().string() + ".host_trace.log");
+            const std::filesystem::path clientTracePath =
+                reportPath.parent_path() / (reportPath.stem().string() + ".client_trace.log");
+            hostTraceFile.open(hostTracePath, std::ios::out | std::ios::trunc);
+            clientTraceFile.open(clientTracePath, std::ios::out | std::ios::trunc);
+            configureHostTraceSinkIfSupported(hostPeer.emu, [&](const std::string& line) {
+                if(hostTraceFile.is_open()) hostTraceFile << line << '\n';
+            });
+            configureHostTraceSinkIfSupported(clientPeer.emu, [&](const std::string& line) {
+                if(clientTraceFile.is_open()) clientTraceFile << line << '\n';
+            });
+        }
         uint32_t lastCheckedFrame = 0;
         uint32_t stallSteps = 0;
         uint32_t maxStallSteps = 0;
@@ -2564,8 +2666,15 @@ private:
         const bool loaded = peer.emu.loadStateFromMemory(pending->payload);
         const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0u;
         if(loaded) {
+            peer.emu.withExclusiveAccess([&](auto& emu) {
+                emu.setInputTimelineEpoch(peer.coordinator.session().roomState().timelineEpoch);
+            });
             peer.coordinator.setLocalSimulationFrame(pending->targetFrame);
             peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
+            peer.emu.setAuthoritativeFrameReadyState(
+                pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame,
+                pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
+            );
         }
         peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
     }
@@ -2651,9 +2760,124 @@ private:
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
         const uint32_t stateCrc32 =
             (!initialSessionSync && confirmedSnapshot.has_value())
-                ? 0u
+                ? peer.emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : peer.emu.canonicalNetplayStateCrc32();
-        peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32);
+        if(peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32) &&
+           stateCrc32 != 0u) {
+            peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
+        }
+    }
+
+    static void refreshAppPeerPlayback(AppPeerState& peer)
+    {
+        processAppHostResync(peer);
+        processAppPendingResync(peer);
+        processAppRollback(peer);
+        peer.driver.preparePlaybackFramesForEmulationThread(
+            peer.coordinator,
+            peer.coordinator.isActive(),
+            false,
+            peer.coordinator.session().roomState().state,
+            peer.emu.frameCount()
+        );
+    }
+
+    static bool appPeerHasImmediateNextFrameInput(AppPeerState& peer, uint32_t frame)
+    {
+        bool hasNextFrameInput = false;
+        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
+            hasNextFrameInput =
+                innerEmu.inputBuffer().findByFrame(frame + 1u, innerEmu.inputTimelineEpoch()) != nullptr;
+        });
+        return hasNextFrameInput;
+    }
+
+    static bool advanceAppPeerExactlyOneFrame(AppPeerState& peer)
+    {
+        if(!peer.emu.valid()) {
+            return false;
+        }
+
+        const uint32_t previousFrame = peer.emu.frameCount();
+        peer.emu.setSimulationSuspended(false);
+        peer.emu.updateUntilFrame(1u);
+
+        for(uint32_t guard = 0; guard < 256u; ++guard) {
+            if(peer.emu.frameCount() > previousFrame) {
+                return peer.emu.frameCount() == previousFrame + 1u;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        return false;
+    }
+
+    static void settleAppFrameReadyState(AppPeerState& hostPeer, AppPeerState& clientPeer, uint32_t maxIterations = 256u)
+    {
+        uint32_t stableCount = 0u;
+        uint32_t lastHostReadyFrame = 0u;
+        uint32_t lastClientReadyFrame = 0u;
+        uint32_t lastHostReadyCrc = 0u;
+        uint32_t lastClientReadyCrc = 0u;
+        bool lastHostCanAdvance = false;
+        bool lastClientCanAdvance = false;
+
+        for(uint32_t i = 0; i < maxIterations; ++i) {
+            pumpCoordinators(hostPeer, clientPeer, 1);
+            refreshAppPeerPlayback(hostPeer);
+            refreshAppPeerPlayback(clientPeer);
+
+            const uint32_t hostFrame = hostPeer.emu.frameCount();
+            const uint32_t clientFrame = clientPeer.emu.frameCount();
+            const bool hostCanAdvance = appPeerHasImmediateNextFrameInput(hostPeer, hostFrame);
+            const bool clientCanAdvance = appPeerHasImmediateNextFrameInput(clientPeer, clientFrame);
+
+            if(hostCanAdvance && clientCanAdvance) {
+                if(!advanceAppPeerExactlyOneFrame(hostPeer) || !advanceAppPeerExactlyOneFrame(clientPeer)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+            } else {
+                hostPeer.emu.setSimulationSuspended(true);
+                clientPeer.emu.setSimulationSuspended(true);
+            }
+
+            const uint32_t hostReadyFrame = hostPeer.emu.lastFrameReadyFrame();
+            const uint32_t clientReadyFrame = clientPeer.emu.lastFrameReadyFrame();
+            const uint32_t hostReadyCrc = hostPeer.emu.lastFrameReadyNetplayCrc32();
+            const uint32_t clientReadyCrc = clientPeer.emu.lastFrameReadyNetplayCrc32();
+
+            if(hostReadyFrame == clientReadyFrame &&
+               hostReadyCrc == clientReadyCrc &&
+               !hostCanAdvance &&
+               !clientCanAdvance) {
+                ++stableCount;
+                if(stableCount >= 2u) {
+                    return;
+                }
+            } else {
+                stableCount = 0u;
+            }
+
+            const bool unchanged =
+                hostReadyFrame == lastHostReadyFrame &&
+                clientReadyFrame == lastClientReadyFrame &&
+                hostReadyCrc == lastHostReadyCrc &&
+                clientReadyCrc == lastClientReadyCrc &&
+                hostCanAdvance == lastHostCanAdvance &&
+                clientCanAdvance == lastClientCanAdvance;
+            lastHostReadyFrame = hostReadyFrame;
+            lastClientReadyFrame = clientReadyFrame;
+            lastHostReadyCrc = hostReadyCrc;
+            lastClientReadyCrc = clientReadyCrc;
+            lastHostCanAdvance = hostCanAdvance;
+            lastClientCanAdvance = clientCanAdvance;
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if(unchanged && !hostCanAdvance && !clientCanAdvance && i > 8u) {
+                return;
+            }
+        }
     }
 
     static bool beginAppInitialSessionSync(AppPeerState& peer)
@@ -2669,7 +2893,11 @@ private:
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
         const uint32_t stateCrc32 = peer.emu.canonicalNetplayStateCrc32();
-        return peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32);
+        const bool started = peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32);
+        if(started) {
+            peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
+        }
+        return started;
     }
 
     static RunArtifacts runSingleCaseAppFlow(const Options& options)
@@ -2972,6 +3200,8 @@ private:
             }
 
             if(options.assignmentPatternCheck && assignmentSwapVerified && assignmentPatternVerified) {
+                settleAppFrameReadyState(hostPeer, clientPeer);
+                freezePeersForInspection();
                 result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
@@ -3029,6 +3259,8 @@ private:
                     return result;
                 }
 
+                settleAppFrameReadyState(hostPeer, clientPeer);
+                freezePeersForInspection();
                 result.report = buildAppReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;

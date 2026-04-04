@@ -1117,6 +1117,7 @@ TEST_CASE("Netplay runtime forced resync after host reset stays deterministic un
     options.romPath = GeraNESTestSupport::romPath().string();
     options.appFlow = true;
     options.runtimeFlow = true;
+    options.captureHostTrace = true;
     options.frames = 160;
     options.inputDelayFrames = 1;
     options.predictFrames = 3;
@@ -1264,6 +1265,7 @@ TEST_CASE("Netplay web runtime force resync stays deterministic on single-thread
     options.appFlow = true;
     options.runtimeFlow = true;
     options.singleThreadRuntimeFlow = true;
+    options.captureHostTrace = true;
     options.frames = 170;
     options.inputDelayFrames = 1;
     options.predictFrames = 3;
@@ -1318,6 +1320,7 @@ TEST_CASE("Netplay web runtime host reset then resync stays deterministic on sin
     options.appFlow = true;
     options.runtimeFlow = true;
     options.singleThreadRuntimeFlow = true;
+    options.captureHostTrace = true;
     options.frames = 180;
     options.inputDelayFrames = 1;
     options.predictFrames = 3;
@@ -2357,6 +2360,7 @@ TEST_CASE("Netplay runtime stays deterministic after repeated host load states d
     options.romPath = GeraNESTestSupport::romPath().string();
     options.appFlow = true;
     options.runtimeFlow = true;
+    options.captureHostTrace = true;
     options.frames = 190;
     options.inputDelayFrames = 1;
     options.predictFrames = 3;
@@ -2389,6 +2393,7 @@ TEST_CASE("Netplay web runtime stays deterministic after repeated host load stat
     options.appFlow = true;
     options.runtimeFlow = true;
     options.singleThreadRuntimeFlow = true;
+    options.captureHostTrace = true;
     options.frames = 190;
     options.inputDelayFrames = 1;
     options.predictFrames = 3;
