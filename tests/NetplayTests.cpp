@@ -21,6 +21,7 @@
 #endif
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/DesyncMonitor.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
@@ -362,6 +363,21 @@ TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
 {
     REQUIRE(Netplay::kDesyncMonitorEnabled == true);
     REQUIRE(Netplay::kDesyncCrcIntervalFrames == 30u);
+}
+
+TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives before local CRC", "[netplay][crc][monitor]")
+{
+    Netplay::DesyncMonitor monitor;
+
+    const auto remoteOnly = monitor.submitRemoteCrc(120u, 0x12345678u);
+    REQUIRE(remoteOnly.compared == false);
+    REQUIRE(remoteOnly.mismatchDetected == false);
+
+    const auto mismatch = monitor.submitLocalCrc(120u, 0x87654321u);
+    REQUIRE(mismatch.compared == true);
+    REQUIRE(mismatch.mismatchDetected == true);
+    REQUIRE(mismatch.frame == 120u);
+    REQUIRE(mismatch.consecutiveMismatchCount == 1u);
 }
 
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")

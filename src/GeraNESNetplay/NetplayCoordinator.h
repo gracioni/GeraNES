@@ -11,6 +11,7 @@
 
 #include "GeraNES/InputBuffer.h"
 #include "GeraNES/Settings.h"
+#include "DesyncMonitor.h"
 #include "InputTimeline.h"
 #include "Diagnostics.h"
 #include "NetSerialization.h"
@@ -100,11 +101,7 @@ private:
     std::optional<FrameNumber> m_pendingHostResyncFrame;
     FrameNumber m_lastBroadcastConfirmedFrame = 0;
     uint8_t m_lastBroadcastInputDelayFrames = 0;
-    FrameNumber m_lastLocalCrcFrame = 0;
-    uint32_t m_lastLocalCrc32 = 0;
-    std::deque<std::pair<FrameNumber, uint32_t>> m_recentLocalCrcHistory;
-    FrameNumber m_lastCrcMismatchFrame = 0;
-    uint8_t m_consecutiveCrcMismatchCount = 0;
+    DesyncMonitor m_desyncMonitor;
     FrameNumber m_localSimulationFrame = 0;
     uint32_t m_nextResyncId = 1;
     uint32_t m_activeResyncExpectedStateCrc32 = 0;
@@ -178,6 +175,7 @@ private:
     bool handleInputAck(PacketReader& reader);
     bool handleFrameStatus(PacketReader& reader);
     bool handleCrcReport(PacketReader& reader);
+    void applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source);
     bool handleAssignController(PacketReader& reader);
     bool handleStartSession(PacketReader& reader);
     std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;

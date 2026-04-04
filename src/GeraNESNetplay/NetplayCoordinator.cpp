@@ -18,7 +18,6 @@
 namespace {
 
 constexpr size_t kResyncChunkPayloadBytes = 1024;
-constexpr size_t kRecentLocalCrcHistoryCapacity = 512;
 constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
 constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 constexpr uint16_t kReconnectReservationSeconds = 300;
@@ -253,11 +252,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingHostResyncFrame.reset();
     m_lastBroadcastConfirmedFrame = 0;
     m_lastBroadcastInputDelayFrames = 0;
-    m_lastLocalCrcFrame = 0;
-    m_lastLocalCrc32 = 0;
-    m_recentLocalCrcHistory.clear();
-    m_lastCrcMismatchFrame = 0;
-    m_consecutiveCrcMismatchCount = 0;
+    m_desyncMonitor.reset();
     m_localSimulationFrame = 0;
     m_nextResyncId = 1;
     m_incomingResync.reset();
@@ -1252,40 +1247,28 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 
     m_session.roomState().lastRemoteCrcFrame = report.frame;
     m_session.roomState().lastRemoteCrc32 = report.crc32;
-
-    const std::optional<uint32_t> matchingLocalCrc = findRecentLocalCrc(report.frame);
-    if(matchingLocalCrc.has_value() && *matchingLocalCrc != 0 && *matchingLocalCrc != report.crc32) {
-        pushLog("CRC mismatch detected on frame " + std::to_string(report.frame));
-
-        if(m_lastCrcMismatchFrame != 0 && report.frame >= m_lastCrcMismatchFrame) {
-            m_consecutiveCrcMismatchCount = static_cast<uint8_t>(std::min<unsigned>(255u, m_consecutiveCrcMismatchCount + 1u));
-        } else {
-            m_consecutiveCrcMismatchCount = 1;
-        }
-        m_lastCrcMismatchFrame = report.frame;
-
-        if(m_hosting &&
-           m_session.roomState().state != SessionState::Resyncing &&
-           m_consecutiveCrcMismatchCount >= 1 &&
-           (!m_pendingHostResyncFrame.has_value() || report.frame < *m_pendingHostResyncFrame)) {
-            m_pendingHostResyncFrame = report.frame;
-        }
-    } else if(matchingLocalCrc.has_value() && *matchingLocalCrc == report.crc32) {
-        m_lastCrcMismatchFrame = 0;
-        m_consecutiveCrcMismatchCount = 0;
-    }
+    applyDesyncMonitorUpdate(m_desyncMonitor.submitRemoteCrc(report.frame, report.crc32), "remote CRC report");
 
     return true;
 }
 
-std::optional<uint32_t> NetplayCoordinator::findRecentLocalCrc(FrameNumber frame) const
+void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source)
 {
-    for(auto it = m_recentLocalCrcHistory.rbegin(); it != m_recentLocalCrcHistory.rend(); ++it) {
-        if(it->first == frame) {
-            return it->second;
-        }
+    if(!update.mismatchDetected) return;
+
+    std::ostringstream oss;
+    oss << "CRC mismatch detected on frame " << update.frame;
+    if(source != nullptr && *source != '\0') {
+        oss << " via " << source;
     }
-    return std::nullopt;
+    pushLog(oss.str());
+
+    if(!m_hosting) return;
+    if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
+    if(!m_pendingHostResyncFrame.has_value() || update.frame < *m_pendingHostResyncFrame) {
+        m_pendingHostResyncFrame = update.frame;
+    }
 }
 
 void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
@@ -1348,8 +1331,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     m_predictionStats.lastDecision.clear();
     m_predictionStats.lastDecisionFrame = loadedFrame;
     m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
-    m_lastCrcMismatchFrame = 0;
-    m_consecutiveCrcMismatchCount = 0;
+    m_desyncMonitor.reset();
     m_session.roomState().currentFrame = loadedFrame;
     m_session.roomState().lastConfirmedFrame = loadedFrame;
     m_lastBroadcastConfirmedFrame = loadedFrame;
@@ -1433,9 +1415,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         participant.lastDecision.clear();
     }
 
-    m_recentLocalCrcHistory.clear();
-    m_lastLocalCrcFrame = loadedFrame;
-    m_lastLocalCrc32 = 0;
     m_localSimulationFrame = loadedFrame;
     m_pendingSequenceResetParticipants.clear();
 }
@@ -1452,12 +1431,8 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_pendingResyncApply.reset();
     m_pendingResyncAcks.clear();
     m_activeResyncExpectedStateCrc32 = 0;
-    m_recentLocalCrcHistory.clear();
+    m_desyncMonitor.reset();
     m_lastBroadcastConfirmedFrame = 0;
-    m_lastLocalCrcFrame = 0;
-    m_lastLocalCrc32 = 0;
-    m_lastCrcMismatchFrame = 0;
-    m_consecutiveCrcMismatchCount = 0;
     m_localInputSequence = 0;
     m_localSimulationFrame = 0;
     m_predictionStats.lastDecision.clear();
@@ -3461,12 +3436,7 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
     if(!kDesyncMonitorEnabled) return;
     if(m_session.roomState().state != SessionState::Running) return;
 
-    m_lastLocalCrcFrame = frame;
-    m_lastLocalCrc32 = crc32;
-    m_recentLocalCrcHistory.emplace_back(frame, crc32);
-    while(m_recentLocalCrcHistory.size() > kRecentLocalCrcHistoryCapacity) {
-        m_recentLocalCrcHistory.pop_front();
-    }
+    applyDesyncMonitorUpdate(m_desyncMonitor.submitLocalCrc(frame, crc32), "local CRC submission");
 
     if(!m_connected || !m_transport.isActive()) return;
 
@@ -3487,19 +3457,7 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 
 void NetplayCoordinator::invalidateLocalCrcHistoryAfter(FrameNumber frame)
 {
-    while(!m_recentLocalCrcHistory.empty() && m_recentLocalCrcHistory.back().first > frame) {
-        m_recentLocalCrcHistory.pop_back();
-    }
-
-    if(m_lastLocalCrcFrame > frame) {
-        if(!m_recentLocalCrcHistory.empty()) {
-            m_lastLocalCrcFrame = m_recentLocalCrcHistory.back().first;
-            m_lastLocalCrc32 = m_recentLocalCrcHistory.back().second;
-        } else {
-            m_lastLocalCrcFrame = frame;
-            m_lastLocalCrc32 = 0;
-        }
-    }
+    m_desyncMonitor.invalidateLocalHistoryAfter(frame);
 }
 
 bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
