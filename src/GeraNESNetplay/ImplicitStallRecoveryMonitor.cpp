@@ -1,0 +1,63 @@
+#include "GeraNESNetplay/ImplicitStallRecoveryMonitor.h"
+
+namespace Netplay {
+
+void ImplicitStallRecoveryMonitor::reset()
+{
+    m_pending.reset();
+}
+
+ImplicitStallRecoveryMonitor::StallUpdate ImplicitStallRecoveryMonitor::noteStall(ParticipantId participantId,
+                                                                                  PlayerSlot slot,
+                                                                                  FrameNumber frame,
+                                                                                  uint32_t observedPeerHealthSerial)
+{
+    StallUpdate update;
+    if(m_pending.has_value() &&
+       m_pending->participantId == participantId &&
+       m_pending->playerSlot == slot &&
+       m_pending->stalledFrame == frame) {
+        update.recovery = *m_pending;
+        return update;
+    }
+
+    m_pending = PendingRecovery{participantId, slot, frame, observedPeerHealthSerial};
+    update.newlyTracked = true;
+    update.recovery = *m_pending;
+    return update;
+}
+
+ImplicitStallRecoveryMonitor::RecoveryUpdate ImplicitStallRecoveryMonitor::clearRecovered(ParticipantId participantId,
+                                                                                          FrameNumber recoveredThroughFrame)
+{
+    RecoveryUpdate update;
+    if(!m_pending.has_value()) return update;
+    if(m_pending->participantId != participantId) return update;
+    if(recoveredThroughFrame < m_pending->stalledFrame) return update;
+
+    update.cleared = true;
+    update.recovery = *m_pending;
+    m_pending.reset();
+    return update;
+}
+
+ImplicitStallRecoveryMonitor::PeerHealthUpdate ImplicitStallRecoveryMonitor::onPeerHealth(ParticipantId participantId,
+                                                                                          uint32_t peerHealthSerial)
+{
+    PeerHealthUpdate update;
+    if(!m_pending.has_value()) return update;
+    if(m_pending->participantId != participantId) return update;
+    if(peerHealthSerial <= m_pending->observedPeerHealthSerial) return update;
+
+    update.shouldScheduleResync = true;
+    update.recovery = *m_pending;
+    m_pending.reset();
+    return update;
+}
+
+const std::optional<ImplicitStallRecoveryMonitor::PendingRecovery>& ImplicitStallRecoveryMonitor::pending() const
+{
+    return m_pending;
+}
+
+} // namespace Netplay

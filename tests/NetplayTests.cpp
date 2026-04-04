@@ -22,6 +22,7 @@
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/DesyncMonitor.h"
+#include "GeraNESNetplay/ImplicitStallRecoveryMonitor.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
@@ -378,6 +379,21 @@ TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives befor
     REQUIRE(mismatch.mismatchDetected == true);
     REQUIRE(mismatch.frame == 120u);
     REQUIRE(mismatch.consecutiveMismatchCount == 1u);
+}
+
+TEST_CASE("Netplay implicit stall recovery monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
+{
+    Netplay::ImplicitStallRecoveryMonitor monitor;
+
+    const auto stall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 181u, 4u);
+    REQUIRE(stall.newlyTracked == true);
+
+    const auto staleHealth = monitor.onPeerHealth(2u, 4u);
+    REQUIRE(staleHealth.shouldScheduleResync == false);
+
+    const auto freshHealth = monitor.onPeerHealth(2u, 5u);
+    REQUIRE(freshHealth.shouldScheduleResync == true);
+    REQUIRE(freshHealth.recovery.stalledFrame == 181u);
 }
 
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")

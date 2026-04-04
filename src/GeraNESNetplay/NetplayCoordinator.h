@@ -12,6 +12,7 @@
 #include "GeraNES/InputBuffer.h"
 #include "GeraNES/Settings.h"
 #include "DesyncMonitor.h"
+#include "ImplicitStallRecoveryMonitor.h"
 #include "InputTimeline.h"
 #include "Diagnostics.h"
 #include "NetSerialization.h"
@@ -59,14 +60,6 @@ public:
     };
 
 private:
-    struct PendingImplicitRecovery
-    {
-        ParticipantId participantId = kInvalidParticipantId;
-        PlayerSlot playerSlot = kObserverPlayerSlot;
-        FrameNumber stalledFrame = 0;
-        uint32_t observedPeerHealthSerial = 0;
-    };
-
     struct DelayedPacketEvent
     {
         std::chrono::steady_clock::time_point releaseAt = {};
@@ -108,7 +101,7 @@ private:
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<PendingResyncApply> m_pendingResyncApply;
     std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
-    std::optional<PendingImplicitRecovery> m_pendingImplicitRecovery;
+    ImplicitStallRecoveryMonitor m_implicitRecoveryMonitor;
     std::vector<ParticipantId> m_pendingResyncAcks;
     std::vector<ParticipantId> m_pendingSequenceResetParticipants;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
