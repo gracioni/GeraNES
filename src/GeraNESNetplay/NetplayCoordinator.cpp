@@ -1266,7 +1266,7 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 
         if(m_hosting &&
            m_session.roomState().state != SessionState::Resyncing &&
-           m_consecutiveCrcMismatchCount >= 2 &&
+           m_consecutiveCrcMismatchCount >= 1 &&
            (!m_pendingHostResyncFrame.has_value() || report.frame < *m_pendingHostResyncFrame)) {
             m_pendingHostResyncFrame = report.frame;
         }

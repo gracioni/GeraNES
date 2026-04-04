@@ -1773,6 +1773,7 @@ TEST_CASE("Netplay runtime flow hard-resyncs after an injected desync", "[netpla
     options.frames = 80;
     options.inputDelayFrames = 1;
     options.predictFrames = 2;
+    options.captureHostTrace = true;
     options.forceDesyncFrame = 28;
     options.desyncAddress = 0x0000;
     options.desyncValueXor = 0x5A;

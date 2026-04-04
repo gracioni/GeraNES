@@ -357,6 +357,8 @@ private:
         snapshot.audioDevices = m_audioOutput.getAudioList();
         snapshot.audioVolume = m_audioOutput.getVolume();
         snapshot.audioChannelsJson = m_audioOutput.getAudioChannelsJson();
+        snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
+        snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
 
         const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
         std::memcpy(
