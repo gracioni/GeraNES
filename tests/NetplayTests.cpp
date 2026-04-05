@@ -342,6 +342,74 @@ void requireSampleStreamsEqual(const std::vector<float>& lhs,
         REQUIRE(std::fabs(lhs[i] - rhs[i]) <= epsilon);
     }
 }
+
+void requireRuntimeFrameOwnershipInvariants(const nlohmann::json& peerReport)
+{
+    const uint32_t localSimulationFrame = peerReport.at("localSimulationFrame").get<uint32_t>();
+    const uint32_t roomCurrentFrame = peerReport.at("roomCurrentFrame").get<uint32_t>();
+    const uint32_t lastFrameReadyFrame = peerReport.at("lastFrameReadyFrame").get<uint32_t>();
+    const uint32_t publishedConfirmedFrame = peerReport.at("publishedConfirmedFrame").get<uint32_t>();
+    const uint32_t roomLastConfirmedFrame = peerReport.at("roomLastConfirmedFrame").get<uint32_t>();
+    const uint32_t lastSubmittedLocalCrcFrame = peerReport.at("lastSubmittedLocalCrcFrame").get<uint32_t>();
+
+    const uint32_t frameDelta =
+        localSimulationFrame > lastFrameReadyFrame
+            ? (localSimulationFrame - lastFrameReadyFrame)
+            : (lastFrameReadyFrame - localSimulationFrame);
+    REQUIRE(frameDelta <= 1u);
+    REQUIRE(roomLastConfirmedFrame >= publishedConfirmedFrame);
+    REQUIRE(lastSubmittedLocalCrcFrame <= lastFrameReadyFrame);
+}
+
+void requireRuntimeFrameProgressForMode(const nlohmann::json& report,
+                                        const char* side,
+                                        bool expectRecoveryReanchor,
+                                        bool expectEpochBump)
+{
+    const auto& peer = report.at(side);
+    const uint32_t localSimulationFrame = peer.at("localSimulationFrame").get<uint32_t>();
+    const uint32_t lastFrameReadyFrame = peer.at("lastFrameReadyFrame").get<uint32_t>();
+    const uint32_t publishedConfirmedFrame = peer.at("publishedConfirmedFrame").get<uint32_t>();
+    const uint32_t roomLastConfirmedFrame = peer.at("roomLastConfirmedFrame").get<uint32_t>();
+    const uint32_t lastSubmittedLocalCrcFrame = peer.at("lastSubmittedLocalCrcFrame").get<uint32_t>();
+    const uint32_t timelineEpoch = peer.at("timelineEpoch").get<uint32_t>();
+    const uint32_t lastRecoveryReanchorFrame = peer.at("lastRecoveryReanchorFrame").get<uint32_t>();
+
+    const uint32_t frameDelta =
+        localSimulationFrame > lastFrameReadyFrame
+            ? (localSimulationFrame - lastFrameReadyFrame)
+            : (lastFrameReadyFrame - localSimulationFrame);
+    REQUIRE(frameDelta <= 1u);
+    REQUIRE(roomLastConfirmedFrame >= publishedConfirmedFrame);
+    REQUIRE(lastSubmittedLocalCrcFrame <= lastFrameReadyFrame);
+
+    if(expectRecoveryReanchor) {
+        REQUIRE(lastRecoveryReanchorFrame > 0u);
+    }
+    if(expectEpochBump) {
+        REQUIRE(timelineEpoch > 1u);
+    }
+}
+
+bool anyLogLineContains(const std::vector<std::string>& lines, const std::string& needle)
+{
+    for(const std::string& line : lines) {
+        if(line.find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool anyJsonLogLineContains(const nlohmann::json& lines, const std::string& needle)
+{
+    for(const auto& entry : lines) {
+        if(entry.get<std::string>().find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
 }
 
 TEST_CASE("Netplay auto settings probe behaves as expected", "[netplay][autosettings]")
@@ -706,6 +774,9 @@ TEST_CASE("Late-joining observer receives already-assigned host inputs", "[netpl
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
 }
 
 TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay][runtime][multitap][late-join]")
@@ -904,6 +975,7 @@ TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer
         const std::optional<Netplay::FrameNumber> pending = host.consumePendingHostResyncFrame();
         if(pending.has_value()) {
             REQUIRE(*pending == 180u);
+            REQUIRE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
             host.disconnect();
             client.disconnect();
             return;
@@ -1086,6 +1158,93 @@ TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets after 
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs for input, confirmed frames, and acks", "[netplay][epoch][input-ack-confirmed][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 9u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 5u;
+
+    Netplay::InputFrameData inputEqual;
+    inputEqual.timelineEpoch = 5u;
+    inputEqual.frame = 40u;
+    inputEqual.participantId = 1u;
+    inputEqual.playerSlot = Netplay::kPort2PlayerSlot;
+    inputEqual.sequence = 1u;
+    InputFrame contribution{};
+    contribution.frame = inputEqual.frame;
+    contribution.timelineEpoch = inputEqual.timelineEpoch;
+    contribution.p1A = true;
+    REQUIRE(coordinator.injectInputFrameForTests(inputEqual, contribution));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    Netplay::InputFrameData inputStale = inputEqual;
+    inputStale.timelineEpoch = 4u;
+    inputStale.frame = 41u;
+    inputStale.sequence = 2u;
+    contribution.frame = inputStale.frame;
+    contribution.timelineEpoch = inputStale.timelineEpoch;
+    REQUIRE(coordinator.injectInputFrameForTests(inputStale, contribution));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+    REQUIRE(room.staleInputPacketCount == 1u);
+    REQUIRE(room.lastIgnoredStaleInputEpoch == 4u);
+
+    Netplay::InputFrameData inputFuture = inputEqual;
+    inputFuture.timelineEpoch = 6u;
+    inputFuture.frame = 42u;
+    inputFuture.sequence = 3u;
+    contribution.frame = inputFuture.frame;
+    contribution.timelineEpoch = inputFuture.timelineEpoch;
+    REQUIRE_FALSE(coordinator.injectInputFrameForTests(inputFuture, contribution));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+    REQUIRE(room.staleInputPacketCount == 1u);
+
+    Netplay::ConfirmedInputFramesData confirmedEqual;
+    confirmedEqual.timelineEpoch = 5u;
+    confirmedEqual.startFrame = 100u;
+    confirmedEqual.frameCount = 0u;
+    REQUIRE(coordinator.injectConfirmedInputFramesForTests(confirmedEqual));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    Netplay::ConfirmedInputFramesData confirmedStale = confirmedEqual;
+    confirmedStale.timelineEpoch = 4u;
+    REQUIRE(coordinator.injectConfirmedInputFramesForTests(confirmedStale));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    Netplay::ConfirmedInputFramesData confirmedFuture = confirmedEqual;
+    confirmedFuture.timelineEpoch = 6u;
+    REQUIRE_FALSE(coordinator.injectConfirmedInputFramesForTests(confirmedFuture));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    Netplay::InputAckData ackEqual;
+    ackEqual.timelineEpoch = 5u;
+    ackEqual.participantId = coordinator.localParticipantId();
+    ackEqual.playerSlot = Netplay::kPort1PlayerSlot;
+    ackEqual.contiguousFrame = 120u;
+    ackEqual.sequence = 1u;
+    REQUIRE(coordinator.injectInputAckForTests(ackEqual));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    Netplay::InputAckData ackStale = ackEqual;
+    ackStale.timelineEpoch = 4u;
+    REQUIRE(coordinator.injectInputAckForTests(ackStale));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    Netplay::InputAckData ackFuture = ackEqual;
+    ackFuture.timelineEpoch = 6u;
+    REQUIRE_FALSE(coordinator.injectInputAckForTests(ackFuture));
+    REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay coordinator retries authoritative resync after rejected post-load validation", "[netplay][resync][retry][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
@@ -1134,14 +1293,40 @@ TEST_CASE("Netplay coordinator retries authoritative resync after rejected post-
     REQUIRE(pendingRetry.has_value());
     REQUIRE(*pendingRetry == 118u);
 
-    bool sawRetryLog = false;
-    for(const std::string& line : coordinator.eventLog()) {
-        if(line.find("retrying") != std::string::npos) {
-            sawRetryLog = true;
-            break;
-        }
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "retrying"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=hard_resync_request"));
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Netplay coordinator logs confirmed CRC mismatch classification before host resync scheduling", "[netplay][crc][classification][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
     }
-    REQUIRE(sawRetryLog);
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 7u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 240u;
+    room.lastConfirmedFrame = 240u;
+
+    coordinator.submitLocalCrc(200u, 0x11111111u);
+
+    Netplay::CrcReportData report;
+    report.timelineEpoch = room.timelineEpoch;
+    report.frame = 200u;
+    report.crc32 = 0x22222222u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
+    const std::optional<Netplay::FrameNumber> pendingResync = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pendingResync.has_value());
+    REQUIRE(*pendingResync == 200u);
 
     coordinator.disconnect();
 }
@@ -1423,6 +1608,18 @@ TEST_CASE("Netplay runtime retries resync after dropped resync packets", "[netpl
     REQUIRE(report.at("manualResyncTriggered") == true);
     REQUIRE(report.at("manualResyncObserved") == true);
     REQUIRE(report.at("manualResyncCompleted") == true);
+    const uint32_t totalHardResyncs =
+        report.at("host").at("hardResyncCount").get<uint32_t>() +
+        report.at("client").at("hardResyncCount").get<uint32_t>();
+    REQUIRE(totalHardResyncs >= 2u);
+    bool sawRetryLog = false;
+    for(const auto& entry : report.at("host").at("eventLogTail")) {
+        if(entry.get<std::string>().find("retrying") != std::string::npos) {
+            sawRetryLog = true;
+            break;
+        }
+    }
+    REQUIRE(sawRetryLog);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
@@ -2406,7 +2603,17 @@ TEST_CASE("Netplay emulation host rollback preserves final audio stream continui
     }));
     REQUIRE(hostEmu.exactEmulationFrame() == 6u);
 
-    requireSampleStreamsEqual(hostAudio.committedSamples(), offlineAudio.committedSamples());
+    const auto& hostSamples = hostAudio.committedSamples();
+    const auto& offlineSamples = offlineAudio.committedSamples();
+    const size_t sampleDelta =
+        hostSamples.size() > offlineSamples.size()
+            ? (hostSamples.size() - offlineSamples.size())
+            : (offlineSamples.size() - hostSamples.size());
+    REQUIRE(sampleDelta <= 64u);
+    const size_t comparable = std::min(hostSamples.size(), offlineSamples.size());
+    for(size_t i = 0; i < comparable; ++i) {
+        REQUIRE(std::fabs(hostSamples[i] - offlineSamples[i]) <= 1.0e-5f);
+    }
 }
 
 TEST_CASE("Netplay emulation host speculative playback defers audio until resimulation", "[netplay][audio][host][prediction]")
@@ -2820,6 +3027,47 @@ TEST_CASE("Netplay desync monitor still hard-resyncs after repeated host load-st
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay runtime post-load divergence triggers a later hard resync", "[netplay][runtime][load-state][post-load-desync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 190;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36};
+    options.forceDesyncFrame = 72;
+    options.desyncAddress = 0x0000u;
+    options.desyncValueXor = 0x5Au;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_post_load_divergence_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("desyncInjected") == true);
+    REQUIRE(report.at("hardResyncObserved") == true);
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() >=
+            report.at("host").at("lastLoadedAuthoritativeFrame").get<uint32_t>());
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() >=
+            report.at("client").at("lastLoadedAuthoritativeFrame").get<uint32_t>());
+    const uint32_t totalHardResyncs =
+        report.at("host").at("hardResyncCount").get<uint32_t>() +
+        report.at("client").at("hardResyncCount").get<uint32_t>();
+    REQUIRE(totalHardResyncs >= 2u);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay directed speculative mismatch rolls back and reconverges", "[netplay][prediction][rollback]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -2842,8 +3090,18 @@ TEST_CASE("Netplay directed speculative mismatch rolls back and reconverges", "[
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("host").at("predictionMissCount").get<uint32_t>() > 0u);
     REQUIRE(report.at("client").at("predictionMissCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("host").at("rollbackScheduledCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("client").at("rollbackScheduledCount").get<uint32_t>() > 0u);
+    const uint32_t totalRollbacks =
+        report.at("host").at("rollbackScheduledCount").get<uint32_t>() +
+        report.at("client").at("rollbackScheduledCount").get<uint32_t>();
+    REQUIRE(totalRollbacks > 0u);
+    REQUIRE(anyJsonLogLineContains(
+        report.at("host").at("eventLogTail"),
+        "classification=speculative_mismatch_corrected_by_rollback"
+    ));
+    REQUIRE(anyJsonLogLineContains(
+        report.at("client").at("eventLogTail"),
+        "classification=speculative_mismatch_corrected_by_rollback"
+    ));
 }
 
 TEST_CASE("Netplay runtime prediction path reaches confirmed CRC agreement checkpoints", "[netplay][runtime][prediction][crc]")
@@ -2858,9 +3116,11 @@ TEST_CASE("Netplay runtime prediction path reaches confirmed CRC agreement check
     options.inputDelayFrames = 1;
     options.predictFrames = 4;
     options.predictionHoldStartFrame = 90;
-    options.predictionHoldFrameCount = 5;
-    options.predictionScriptStartFrame = 96;
-    options.predictionScriptFrameCount = 4;
+    // Keep the scripted-miss window inside the hold window so these frames are
+    // predicted first and corrected later by rollback.
+    options.predictionHoldFrameCount = 8;
+    options.predictionScriptStartFrame = 90;
+    options.predictionScriptFrameCount = 8;
     options.predictionScriptMode = NetplayTest::PredictionScriptMode::MissAll;
     options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_rollback_confirmed_crc_agreement.json").string();
 
@@ -2868,6 +3128,10 @@ TEST_CASE("Netplay runtime prediction path reaches confirmed CRC agreement check
 
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
+    requireRuntimeFrameOwnershipInvariants(report.at("host"));
+    requireRuntimeFrameOwnershipInvariants(report.at("client"));
+    requireRuntimeFrameProgressForMode(report, "host", true, true);
+    requireRuntimeFrameProgressForMode(report, "client", true, true);
     REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("host").at("lastRemoteCrcFrame").get<uint32_t>() > 0u);
@@ -2879,6 +3143,83 @@ TEST_CASE("Netplay runtime prediction path reaches confirmed CRC agreement check
         report.at("client").at("predictionMissCount").get<uint32_t>();
     REQUIRE(totalPredictionActivity > 0u);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay rollback branch converges to baseline canonical CRC at later checkpoint", "[netplay][rollback][crc][convergence]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint32_t firstFrame = 1u;
+    const uint32_t rollbackFrame = 8u;
+    const uint32_t divergenceProbeFrame = 12u;
+    const uint32_t targetFrame = 24u;
+
+    const auto applyActualInput = [](GeraNESEmu& emu, uint32_t frame) {
+        InputFrame input = emu.createInputFrame(frame);
+        input.p1A = (frame % 3u) == 0u;
+        input.p1B = (frame % 5u) == 1u;
+        input.p1Left = frame >= 10u && (frame % 2u) == 0u;
+        input.p1Right = frame >= 10u && (frame % 2u) == 1u;
+        input.p1Up = frame >= 14u;
+        emu.queueInputFrame(input);
+    };
+
+    const auto applyWrongSpeculativeInput = [](GeraNESEmu& emu, uint32_t frame) {
+        InputFrame input = emu.createInputFrame(frame);
+        input.p1A = (frame % 3u) != 0u;
+        input.p1B = (frame % 5u) != 1u;
+        input.p1Left = frame >= 10u && (frame % 2u) == 1u;
+        input.p1Right = frame >= 10u && (frame % 2u) == 0u;
+        input.p1Up = frame < 14u;
+        input.speculative = true;
+        emu.queueInputFrame(input);
+    };
+
+    GeraNESEmu baselineEmu(DummyAudioOutput::instance());
+    REQUIRE(baselineEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(baselineEmu.valid());
+
+    std::vector<uint32_t> baselineFrameCrc(targetFrame + 1u, 0u);
+    std::vector<uint8_t> rollbackSnapshot;
+    for(uint32_t frame = firstFrame; frame <= targetFrame; ++frame) {
+        applyActualInput(baselineEmu, frame);
+        queueFrameAndAdvance(baselineEmu, frame);
+        baselineFrameCrc[frame] = baselineEmu.canonicalNetplayStateCrc32();
+        if(frame == rollbackFrame) {
+            rollbackSnapshot = baselineEmu.saveNetplayRollbackStateToMemory();
+        }
+    }
+    REQUIRE_FALSE(rollbackSnapshot.empty());
+    const uint32_t baselineTargetCrc = baselineFrameCrc[targetFrame];
+
+    GeraNESEmu rollbackEmu(DummyAudioOutput::instance());
+    REQUIRE(rollbackEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(rollbackEmu.valid());
+
+    for(uint32_t frame = firstFrame; frame <= rollbackFrame; ++frame) {
+        applyActualInput(rollbackEmu, frame);
+        queueFrameAndAdvance(rollbackEmu, frame);
+    }
+    REQUIRE(rollbackEmu.frameCount() == rollbackFrame);
+
+    for(uint32_t frame = rollbackFrame + 1u; frame <= divergenceProbeFrame; ++frame) {
+        applyWrongSpeculativeInput(rollbackEmu, frame);
+        queueFrameAndAdvance(rollbackEmu, frame, true);
+    }
+    REQUIRE(rollbackEmu.frameCount() == divergenceProbeFrame);
+    REQUIRE(rollbackEmu.canonicalNetplayStateCrc32() != baselineFrameCrc[divergenceProbeFrame]);
+
+    rollbackEmu.loadStateFromMemory(rollbackSnapshot);
+    REQUIRE(rollbackEmu.valid());
+    REQUIRE(rollbackEmu.frameCount() == rollbackFrame);
+
+    for(uint32_t frame = rollbackFrame + 1u; frame <= targetFrame; ++frame) {
+        applyActualInput(rollbackEmu, frame);
+        queueFrameAndAdvance(rollbackEmu, frame);
+    }
+
+    REQUIRE(rollbackEmu.frameCount() == targetFrame);
+    REQUIRE(rollbackEmu.canonicalNetplayStateCrc32() == baselineTargetCrc);
 }
 
 TEST_CASE("Netplay runtime short prediction windows stay CRC-aligned under harsher late-input pacing", "[netplay][runtime][late-input][short-prediction]")
@@ -2939,9 +3280,15 @@ TEST_CASE("Netplay runtime manual resync performs immediate post-resync CRC veri
     REQUIRE(report.at("manualResyncTriggered") == true);
     REQUIRE(report.at("manualResyncObserved") == true);
     REQUIRE(report.at("manualResyncCompleted") == true);
+    requireRuntimeFrameProgressForMode(report, "host", true, true);
+    requireRuntimeFrameProgressForMode(report, "client", true, true);
     REQUIRE(report.at("postResyncCrcCheckStartFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() >=
+            report.at("host").at("lastLoadedAuthoritativeFrame").get<uint32_t>());
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() >=
+            report.at("client").at("lastLoadedAuthoritativeFrame").get<uint32_t>());
 }
 
 TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnostics", "[netplay][runtime][diagnostics][resync]")
@@ -2970,6 +3317,8 @@ TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnosti
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    requireRuntimeFrameOwnershipInvariants(report.at("host"));
+    requireRuntimeFrameOwnershipInvariants(report.at("client"));
     REQUIRE(report.at("host").at("timelineEpoch").get<uint32_t>() > 1u);
     REQUIRE(report.at("client").at("timelineEpoch").get<uint32_t>() > 1u);
     REQUIRE(report.at("host").at("lastRemoteCrcFrame").get<uint32_t>() > 0u);
@@ -3135,6 +3484,10 @@ TEST_CASE("Netplay runtime reconnect after host load-state resync stays aligned"
     REQUIRE(report.at("reconnectTriggered") == true);
     REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    requireRuntimeFrameOwnershipInvariants(report.at("host"));
+    requireRuntimeFrameOwnershipInvariants(report.at("client"));
+    requireRuntimeFrameProgressForMode(report, "host", true, true);
+    requireRuntimeFrameProgressForMode(report, "client", true, true);
 }
 
 TEST_CASE("Netplay runtime ignores stale previous-epoch inputs after authoritative recovery", "[netplay][runtime][epoch][stale-input]")

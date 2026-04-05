@@ -3134,6 +3134,34 @@ bool NetplayCoordinator::injectFrameStatusForTests(const FrameStatusData& status
     return handleFrameStatus(reader);
 }
 
+bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution)
+{
+    PacketWriter writer;
+    const std::vector<uint8_t> payload = serializeInputFrame(contribution);
+    InputFrameData inputWithPayload = input;
+    inputWithPayload.payloadSize = static_cast<uint16_t>(payload.size());
+    writer.writePod(inputWithPayload);
+    writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleInputFrame(NetTransport::kInvalidPeerHandle, reader);
+}
+
+bool NetplayCoordinator::injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data)
+{
+    PacketWriter writer;
+    writer.writePod(data);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleConfirmedInputFrames(reader);
+}
+
+bool NetplayCoordinator::injectInputAckForTests(const InputAckData& ack)
+{
+    PacketWriter writer;
+    writer.writePod(ack);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleInputAck(reader);
+}
+
 bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
 {
     PacketWriter writer;

@@ -1373,6 +1373,7 @@ private:
             {"predictionHitCount", snapshot.predictionStats.predictionHitCount},
             {"predictionMissCount", snapshot.predictionStats.predictionMissCount},
             {"predictedFrameUseCount", snapshot.predictionStats.predictedFrameUseCount},
+            {"hardResyncCount", snapshot.predictionStats.hardResyncCount},
             {"rollbackScheduledCount", snapshot.predictionStats.rollbackScheduledCount},
             {"playbackStopCount", snapshot.predictionStats.playbackStopCount},
             {"confirmedConflictCount", snapshot.predictionStats.confirmedFrameConflictCount},

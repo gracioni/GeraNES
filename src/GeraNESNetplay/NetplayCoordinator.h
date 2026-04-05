@@ -248,6 +248,9 @@ public:
     void setReconnectReservationDurationForTests(uint32_t seconds);
     void setLocalEmulatorVersionForTests(const std::string& version);
     void simulateTransportFailureForTests();
+    bool injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution);
+    bool injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data);
+    bool injectInputAckForTests(const InputAckData& ack);
     bool injectFrameStatusForTests(const FrameStatusData& status);
     bool injectCrcReportForTests(const CrcReportData& report);
     bool injectResyncAckForTests(const ResyncAckData& ack);

@@ -209,6 +209,7 @@ private:
         m_coordinator.setLocalSimulationFrame(targetFrame);
         m_emuHost.seedNetplaySnapshot(targetFrame, payload, loadedCrc32);
         m_emuHost.setAuthoritativeFrameReadyState(targetFrame, loadedCrc32);
+        m_lastLoadedAuthoritativeFrame = targetFrame;
         reanchorInputDriver(targetFrame, localAssignedSlots());
         return true;
     }
@@ -801,31 +802,47 @@ inline void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu)
     if(!emu.valid()) return;
 
     const FrameNumber confirmedFrame = m_coordinator.latestConfirmedFrame();
-    if(confirmedFrame == 0) return;
+    const FrameNumber lastFrameReadyFrame = m_emuHost.lastFrameReadyFrame();
+    const FrameNumber safeConfirmedFrame =
+        confirmedFrame == 0u ? 0u : std::min(confirmedFrame, lastFrameReadyFrame);
+    const FrameNumber authoritativeCheckpointFrame =
+        (m_lastLoadedAuthoritativeFrame != 0u &&
+         lastFrameReadyFrame == m_lastLoadedAuthoritativeFrame)
+            ? m_lastLoadedAuthoritativeFrame
+            : 0u;
+    const FrameNumber crcCheckpointFrame = std::max(safeConfirmedFrame, authoritativeCheckpointFrame);
+    if(crcCheckpointFrame == 0) return;
 
-    const bool periodicDue = confirmedFrame >= m_nextScheduledLocalCrcFrame;
+    const bool periodicDue = crcCheckpointFrame >= m_nextScheduledLocalCrcFrame;
     const bool postRecoveryRapidDue =
-        confirmedFrame > m_lastSubmittedLocalCrcFrame &&
-        confirmedFrame <= m_postRecoveryRapidCrcThroughFrame;
+        crcCheckpointFrame > m_lastSubmittedLocalCrcFrame &&
+        crcCheckpointFrame <= std::max(m_postRecoveryRapidCrcThroughFrame, authoritativeCheckpointFrame);
     const bool forcedDue =
         m_forceNextConfirmedCrcSubmission &&
-        confirmedFrame != m_lastSubmittedLocalCrcFrame;
+        crcCheckpointFrame != m_lastSubmittedLocalCrcFrame;
     if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return;
 
-    std::optional<uint32_t> crc32 = m_emuHost.netplaySnapshotCrc32ForFrame(confirmedFrame);
-    if(!crc32.has_value() && emu.frameCount() == confirmedFrame) {
+    std::optional<uint32_t> crc32;
+    if(crcCheckpointFrame == authoritativeCheckpointFrame &&
+       m_emuHost.lastFrameReadyNetplayCrc32() != 0u) {
+        crc32 = m_emuHost.lastFrameReadyNetplayCrc32();
+    }
+    if(!crc32.has_value()) {
+        crc32 = m_emuHost.netplaySnapshotCrc32ForFrame(crcCheckpointFrame);
+    }
+    if(!crc32.has_value() && emu.frameCount() == crcCheckpointFrame) {
         crc32 = emu.canonicalNetplayStateCrc32();
     }
     if(!crc32.has_value()) return;
 
-    m_coordinator.submitLocalCrc(confirmedFrame, *crc32);
-    m_lastSubmittedLocalCrcFrame = confirmedFrame;
+    m_coordinator.submitLocalCrc(crcCheckpointFrame, *crc32);
+    m_lastSubmittedLocalCrcFrame = crcCheckpointFrame;
     m_forceNextConfirmedCrcSubmission = false;
-    if(confirmedFrame >= m_postRecoveryRapidCrcThroughFrame) {
+    if(crcCheckpointFrame >= m_postRecoveryRapidCrcThroughFrame) {
         m_postRecoveryRapidCrcThroughFrame = 0;
     }
     m_nextScheduledLocalCrcFrame =
-        ((confirmedFrame / kDesyncCrcIntervalFrames) + 1u) * kDesyncCrcIntervalFrames;
+        ((crcCheckpointFrame / kDesyncCrcIntervalFrames) + 1u) * kDesyncCrcIntervalFrames;
 }
 
 inline bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(GeraNESEmu& emu)
