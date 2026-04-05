@@ -790,6 +790,7 @@ public:
 
     void reset()
     {
+        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.reset();
@@ -806,6 +807,7 @@ public:
 
     void loadState()
     {
+        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.loadState();

@@ -579,6 +579,7 @@ public:
 
     void reset()
     {
+        m_holdPresentedFramebufferUntilFrameReady = true;
         postCommand([this](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             traceEvent("reset.command frame=" + std::to_string(emu.frameCount()));
@@ -597,6 +598,7 @@ public:
 
     void loadState()
     {
+        m_holdPresentedFramebufferUntilFrameReady = true;
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.loadState();
