@@ -1195,10 +1195,16 @@ public:
     {
         if(data.empty()) return;
 
-        const uint32_t crc32 =
-            canonicalCrc32.has_value()
-                ? *canonicalCrc32
-                : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+        if(!canonicalCrc32.has_value()) {
+            Logger::instance().log(
+                "Netplay snapshot seeded without canonical CRC; using payload CRC bookkeeping only",
+                Logger::Type::WARNING
+            );
+        }
+
+        const uint32_t crc32 = canonicalCrc32.value_or(
+            Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size())
+        );
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         auto existing = std::find_if(
             m_netplaySnapshots.begin(),

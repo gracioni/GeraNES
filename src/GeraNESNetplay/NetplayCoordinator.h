@@ -174,7 +174,9 @@ private:
     std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
     void realignAuthoritativeState(FrameNumber loadedFrame,
                                    bool resetInputSequences = false,
-                                   uint32_t inputSequenceBase = 0);
+                                   uint32_t inputSequenceBase = 0,
+                                   bool preserveConfirmedInputs = true);
+    static bool preserveConfirmedInputsAcrossRealignment(ResyncReason reason);
     void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);

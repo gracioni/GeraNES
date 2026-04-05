@@ -110,6 +110,7 @@ private:
     std::deque<PendingManualStateResync> m_pendingManualStateResyncs;
     FrameNumber m_lastSubmittedLocalCrcFrame = 0;
     FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
+    FrameNumber m_postRecoveryRapidCrcThroughFrame = 0;
     bool m_forceNextConfirmedCrcSubmission = false;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
@@ -690,6 +691,7 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         m_runtimeLastTickTime = {};
         m_lastSubmittedLocalCrcFrame = 0;
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
+        m_postRecoveryRapidCrcThroughFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         return;
     }
@@ -732,6 +734,7 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         reanchorInputDriver(anchorFrame, localAssignedSlots());
+        m_postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
     }
 
     if(currentState == SessionState::Running &&
@@ -744,6 +747,9 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
 
 inline void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu)
 {
+    // Desync monitoring compares confirmed or freshly recovered authoritative
+    // checkpoints only. Predicted-frame divergence is expected and should be
+    // corrected by rollback before it becomes CRC-visible.
     if(!kDesyncMonitorEnabled) return;
     if(!m_coordinator.isActive()) return;
     if(m_coordinator.session().roomState().state != SessionState::Running) return;
@@ -753,10 +759,13 @@ inline void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu)
     if(confirmedFrame == 0) return;
 
     const bool periodicDue = confirmedFrame >= m_nextScheduledLocalCrcFrame;
+    const bool postRecoveryRapidDue =
+        confirmedFrame > m_lastSubmittedLocalCrcFrame &&
+        confirmedFrame <= m_postRecoveryRapidCrcThroughFrame;
     const bool forcedDue =
         m_forceNextConfirmedCrcSubmission &&
         confirmedFrame != m_lastSubmittedLocalCrcFrame;
-    if(!periodicDue && !forcedDue) return;
+    if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return;
 
     std::optional<uint32_t> crc32 = m_emuHost.netplaySnapshotCrc32ForFrame(confirmedFrame);
     if(!crc32.has_value() && emu.frameCount() == confirmedFrame) {
@@ -767,6 +776,9 @@ inline void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu)
     m_coordinator.submitLocalCrc(confirmedFrame, *crc32);
     m_lastSubmittedLocalCrcFrame = confirmedFrame;
     m_forceNextConfirmedCrcSubmission = false;
+    if(confirmedFrame >= m_postRecoveryRapidCrcThroughFrame) {
+        m_postRecoveryRapidCrcThroughFrame = 0;
+    }
     m_nextScheduledLocalCrcFrame =
         ((confirmedFrame / kDesyncCrcIntervalFrames) + 1u) * kDesyncCrcIntervalFrames;
 }
@@ -920,7 +932,8 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         return;
     }
 
-    m_emuHost.seedNetplaySnapshot(*rollbackFrame, *snapshotData);
+    const uint32_t rollbackCanonicalCrc32 = emu.canonicalNetplayStateCrc32();
+    m_emuHost.seedNetplaySnapshot(*rollbackFrame, *snapshotData, rollbackCanonicalCrc32);
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
     m_coordinator.discardTimelineAfter(*rollbackFrame);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
@@ -1418,6 +1431,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_pendingManualStateResyncs.clear();
         m_lastSubmittedLocalCrcFrame = 0;
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
+        m_postRecoveryRapidCrcThroughFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;

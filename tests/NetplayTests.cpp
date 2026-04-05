@@ -2417,6 +2417,38 @@ TEST_CASE("Netplay runtime stays deterministic after repeated host load states d
     }
 }
 
+TEST_CASE("Netplay runtime host load state during active resync preserves deterministic recovery", "[netplay][runtime][load-state][active-resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.captureHostTrace = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {45};
+    options.forceManualResyncFrame = 44;
+    options.requireHostManualLoadDuringResync = true;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_host_load_state_during_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostManualLoadDuringResyncObserved") == true);
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay web runtime stays deterministic after repeated host load states", "[netplay][runtime][web][load-state]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -2481,6 +2513,32 @@ TEST_CASE("Netplay desync monitor still hard-resyncs after repeated host load-st
     REQUIRE(report.at("desyncInjected") == true);
     REQUIRE(report.at("hardResyncObserved") == true);
     REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime host reset performs authoritative bootstrap recovery", "[netplay][runtime][reset][bootstrap]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceHostResetFrame = 36;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_host_reset_bootstrap.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
