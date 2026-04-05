@@ -925,6 +925,7 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
     std::optional<NetplayCoordinator::PendingResyncApply> pending = m_coordinator.consumePendingResyncApply();
     if(!pending.has_value()) return;
 
+    m_emuHost.beginPresentationHoldUntilNextFrameReady();
     const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
     const uint32_t loadedFrame = emu.frameCount();
     const bool loadedExpectedFrame =
@@ -996,6 +997,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     }
 
     const uint32_t rollbackFromFrame = currentFrame;
+    m_emuHost.beginPresentationHoldUntilNextFrameReady();
     emu.loadStateFromMemoryWithAudioPolicy(
         *snapshotData,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);

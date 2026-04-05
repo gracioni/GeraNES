@@ -248,6 +248,7 @@ private:
     std::atomic<uint32_t> m_pendingPresenterTicks{0};
     std::atomic<bool> m_workerWakeRequested{false};
     std::atomic<int> m_frontFramebufferIndex{0};
+    std::atomic<bool> m_holdPresentedFramebufferUntilFrameReady{false};
     std::array<std::vector<uint32_t>, 2> m_framebuffers{
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0),
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)
@@ -359,23 +360,28 @@ private:
         snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
         snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
 
-        const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
-        std::memcpy(
-            m_framebuffers[backIndex].data(),
-            m_emu.getFramebuffer(),
-            m_framebuffers[backIndex].size() * sizeof(uint32_t)
-        );
+        const bool holdPresentedFramebuffer =
+            m_holdPresentedFramebufferUntilFrameReady.load(std::memory_order_acquire);
+        if(!holdPresentedFramebuffer) {
+            const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
+            std::memcpy(
+                m_framebuffers[backIndex].data(),
+                m_emu.getFramebuffer(),
+                m_framebuffers[backIndex].size() * sizeof(uint32_t)
+            );
+            m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+        }
 
         {
             std::scoped_lock snapshotLock(m_snapshotMutex);
             m_snapshot = snapshot;
         }
-        m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
     }
 
     void onFrameReadyLocked()
     {
         recordFrameReadyNetplayState(m_emu);
+        m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
         {
             std::scoped_lock snapshotLock(m_snapshotMutex);
             m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
@@ -966,6 +972,12 @@ public:
         return m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)].data();
     }
 
+    void beginPresentationHoldUntilNextFrameReady() override
+    {
+        traceEvent("beginPresentationHoldUntilNextFrameReady");
+        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
+    }
+
     void setPresenterLockActive(bool active)
     {
         traceEvent(std::string("setPresenterLockActive active=") + (active ? "1" : "0"));
@@ -1041,6 +1053,7 @@ public:
 
         std::scoped_lock emuLock(m_emuMutex);
         if(snapshotData.empty()) return false;
+        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         const uint32_t rollbackFrom = m_emu.frameCount();
         m_emu.loadStateFromMemoryWithAudioPolicy(
             snapshotData,
@@ -1075,6 +1088,7 @@ public:
     {
         if(data.empty()) return false;
         std::scoped_lock emuLock(m_emuMutex);
+        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
             return false;
         }
@@ -1086,6 +1100,7 @@ public:
     {
         if(data.empty()) return false;
         std::scoped_lock emuLock(m_emuMutex);
+        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
             return false;
         }

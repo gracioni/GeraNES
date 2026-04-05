@@ -323,6 +323,18 @@ void queueFrameAndAdvanceFreeRunning(GeraNESEmu& emu, uint32_t frame, bool specu
     REQUIRE(emu.frameCount() == targetFrameCount);
 }
 
+uint64_t framebufferChecksum(const uint32_t* framebuffer)
+{
+    if(framebuffer == nullptr) return 0u;
+    constexpr size_t kPixels = 256u * 240u;
+    uint64_t checksum = 1469598103934665603ull;
+    for(size_t i = 0; i < kPixels; ++i) {
+        checksum ^= static_cast<uint64_t>(framebuffer[i]);
+        checksum *= 1099511628211ull;
+    }
+    return checksum;
+}
+
 std::filesystem::path duckHuntRomPath()
 {
     if(const char* env = std::getenv("GERANES_DUCK_HUNT_ROM")) {
@@ -2614,6 +2626,63 @@ TEST_CASE("Netplay emulation host rollback preserves final audio stream continui
     for(size_t i = 0; i < comparable; ++i) {
         REQUIRE(std::fabs(hostSamples[i] - offlineSamples[i]) <= 1.0e-5f);
     }
+}
+
+TEST_CASE("Netplay presentation hold keeps last frame visible across authoritative state load", "[netplay][presentation][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    BufferedRecordingAudioOutput audio;
+    EmulationHost host(audio);
+    host.setSimulationSuspended(true);
+    host.setAllowPresenterTimeoutAdvance(false);
+    REQUIRE(host.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(host.valid());
+
+    std::vector<uint8_t> earlyState;
+    host.withExclusiveAccess([&](GeraNESEmu& emu) {
+        const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+        for(uint32_t frame = 1u; frame <= 2u; ++frame) {
+            InputFrame input = emu.createInputFrame(frame);
+            emu.queueInputFrame(input);
+            REQUIRE(emu.updateUntilFrame(frameDt));
+        }
+        earlyState = emu.saveStateToMemory();
+        REQUIRE_FALSE(earlyState.empty());
+
+        for(uint32_t frame = 3u; frame <= 16u; ++frame) {
+            InputFrame input = emu.createInputFrame(frame);
+            input.p1A = (frame % 2u) == 0u;
+            emu.queueInputFrame(input);
+            REQUIRE(emu.updateUntilFrame(frameDt));
+        }
+    });
+
+    const uint64_t checksumBeforeLoad = framebufferChecksum(host.getFramebuffer());
+    REQUIRE(checksumBeforeLoad != 0u);
+
+    host.beginPresentationHoldUntilNextFrameReady();
+    host.withExclusiveAccess([&](GeraNESEmu& emu) {
+        REQUIRE(emu.loadStateFromMemoryOnCleanBoot(earlyState));
+    });
+
+    const uint64_t checksumImmediatelyAfterLoad = framebufferChecksum(host.getFramebuffer());
+    REQUIRE(checksumImmediatelyAfterLoad == checksumBeforeLoad);
+
+    bool sawFramebufferSwapAfterResume = false;
+    for(int step = 0; step < 8 && !sawFramebufferSwapAfterResume; ++step) {
+        host.withExclusiveAccess([&](GeraNESEmu& emu) {
+            const uint32_t nextFrame = emu.frameCount() + 1u;
+            const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+            InputFrame input = emu.createInputFrame(nextFrame);
+            input.p1B = (nextFrame % 3u) == 0u;
+            emu.queueInputFrame(input);
+            REQUIRE(emu.updateUntilFrame(frameDt));
+        });
+        sawFramebufferSwapAfterResume = framebufferChecksum(host.getFramebuffer()) != checksumBeforeLoad;
+    }
+
+    REQUIRE(sawFramebufferSwapAfterResume);
 }
 
 TEST_CASE("Netplay emulation host speculative playback defers audio until resimulation", "[netplay][audio][host][prediction]")

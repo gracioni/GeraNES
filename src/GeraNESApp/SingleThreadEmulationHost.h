@@ -221,6 +221,9 @@ private:
 
     GeraNESEmu m_emu;
     IAudioOutput& m_audioOutput;
+    bool m_holdPresentedFramebufferUntilFrameReady = false;
+    std::vector<uint32_t> m_presentedFramebuffer =
+        std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0);
     InputState m_pendingInput;
     FrameInputResolver m_frameInputResolver;
     bool m_autoQueuePendingInputOnFrameStart = true;
@@ -340,6 +343,22 @@ private:
     void onFrameReady()
     {
         recordFrameReadyNetplayState(m_emu);
+        m_holdPresentedFramebufferUntilFrameReady = false;
+        std::memcpy(
+            m_presentedFramebuffer.data(),
+            m_emu.getFramebuffer(),
+            m_presentedFramebuffer.size() * sizeof(uint32_t)
+        );
+    }
+
+    void refreshPresentedFramebuffer()
+    {
+        if(m_holdPresentedFramebufferUntilFrameReady) return;
+        std::memcpy(
+            m_presentedFramebuffer.data(),
+            m_emu.getFramebuffer(),
+            m_presentedFramebuffer.size() * sizeof(uint32_t)
+        );
     }
 
 public:
@@ -421,7 +440,14 @@ public:
     decltype(auto) withExclusiveAccess(Fn&& fn)
     {
         dispatchQueuedCommands();
-        return std::forward<Fn>(fn)(m_emu);
+        if constexpr(std::is_void_v<std::invoke_result_t<Fn, GeraNESEmu&>>) {
+            std::forward<Fn>(fn)(m_emu);
+            refreshPresentedFramebuffer();
+        } else {
+            auto result = std::forward<Fn>(fn)(m_emu);
+            refreshPresentedFramebuffer();
+            return result;
+        }
     }
 
     template<typename Fn>
@@ -433,7 +459,9 @@ public:
     bool open(const std::string& path)
     {
         resetFreeRunningPacing();
-        return m_emu.open(path);
+        const bool opened = m_emu.open(path);
+        refreshPresentedFramebuffer();
+        return opened;
     }
 
     std::vector<std::string> getAudioList() const
@@ -715,7 +743,13 @@ public:
 
     const uint32_t* getFramebuffer() const
     {
-        return m_emu.getFramebuffer();
+        return m_presentedFramebuffer.data();
+    }
+
+    void beginPresentationHoldUntilNextFrameReady() override
+    {
+        traceEvent("beginPresentationHoldUntilNextFrameReady");
+        m_holdPresentedFramebufferUntilFrameReady = true;
     }
 
     void setPresenterLockActive(bool active)
@@ -754,10 +788,13 @@ public:
         m_pendingPresenterTicks = 0;
         if(m_framePacingMode == FramePacingMode::Suspended) {
             dispatchQueuedCommands();
+            refreshPresentedFramebuffer();
             traceEvent("update.suspended frame=" + std::to_string(m_emu.frameCount()));
             return false;
         }
-        return pumpFreeRunningWorkerSteps();
+        const bool advanced = pumpFreeRunningWorkerSteps();
+        refreshPresentedFramebuffer();
+        return advanced;
     }
 
     void updateUntilFrame(uint32_t dt)
@@ -768,11 +805,13 @@ public:
         ++m_pendingPresenterTicks;
         dispatchQueuedCommands();
         if(m_framePacingMode == FramePacingMode::Suspended) {
+            refreshPresentedFramebuffer();
             traceEvent("updateUntilFrame.suspended frame=" + std::to_string(m_emu.frameCount()));
             return;
         }
         const uint32_t frameBefore = m_emu.frameCount();
         if(runPreAdvanceHook()) {
+            refreshPresentedFramebuffer();
             traceFrameEvent("updateUntilFrame.end", frameBefore, m_emu.frameCount());
             return;
         }
@@ -782,6 +821,7 @@ public:
         } else if(m_emu.valid() && m_allowPresenterTimeoutAdvance) {
             m_emu.update(m_presenterTickDtMs);
         }
+        refreshPresentedFramebuffer();
         traceFrameEvent("updateUntilFrame.end", frameBefore, m_emu.frameCount());
     }
 
@@ -811,6 +851,7 @@ public:
         snapshotData = it->data;
 
         if(snapshotData.empty()) return false;
+        m_holdPresentedFramebufferUntilFrameReady = true;
         const uint32_t rollbackFrom = m_emu.frameCount();
         m_emu.loadStateFromMemoryWithAudioPolicy(
             snapshotData,
@@ -845,9 +886,11 @@ public:
     {
         if(data.empty()) return false;
         traceEvent("loadState.begin frame=" + std::to_string(m_emu.frameCount()));
+        m_holdPresentedFramebufferUntilFrameReady = true;
         const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
         if(loaded) {
             resetFreeRunningPacing();
+            refreshPresentedFramebuffer();
         }
         traceEvent(std::string("loadState.end loaded=") + (loaded ? "1" : "0") +
                    " frame=" + std::to_string(m_emu.frameCount()));
@@ -858,10 +901,12 @@ public:
     {
         if(data.empty()) return false;
         traceEvent("manualLoadState.begin frame=" + std::to_string(m_emu.frameCount()));
+        m_holdPresentedFramebufferUntilFrameReady = true;
         const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
         if(loaded) {
             resetFreeRunningPacing();
             onLoadExecutedLocked(m_emu.frameCount());
+            refreshPresentedFramebuffer();
         }
         traceEvent(std::string("manualLoadState.end loaded=") + (loaded ? "1" : "0") +
                    " frame=" + std::to_string(m_emu.frameCount()));
