@@ -49,6 +49,12 @@ public:
         std::optional<TimelineInputEntry> latestLocalInput;
         std::optional<TimelineInputEntry> latestRemoteInput;
         RollbackStats predictionStats;
+        FrameNumber localSimulationFrame = 0;
+        FrameNumber publishedConfirmedFrame = 0;
+        FrameNumber lastSubmittedLocalCrcFrame = 0;
+        FrameNumber lastRollbackTargetFrame = 0;
+        FrameNumber lastLoadedAuthoritativeFrame = 0;
+        FrameNumber lastRecoveryReanchorFrame = 0;
         NetplayAutoSettings::Snapshot autoSettings;
         uint32_t unresolvedPredictedRemoteFrameCount = 0;
         FrameNumber latestPredictedRemoteFrame = 0;
@@ -111,6 +117,9 @@ private:
     FrameNumber m_lastSubmittedLocalCrcFrame = 0;
     FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
     FrameNumber m_postRecoveryRapidCrcThroughFrame = 0;
+    FrameNumber m_lastRollbackTargetFrame = 0;
+    FrameNumber m_lastLoadedAuthoritativeFrame = 0;
+    FrameNumber m_lastRecoveryReanchorFrame = 0;
     bool m_forceNextConfirmedCrcSubmission = false;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
@@ -129,6 +138,20 @@ private:
                std::to_string(v.chrRamSize) + "|" +
                std::to_string(v.fileSize);
     }
+
+    // Recovery entry points and ownership:
+    // - `processRollbackIfNeededOnWorker`: local rollback correction after
+    //   prediction mismatch; preserves the current epoch and resimulates.
+    // - `processHostResyncIfNeededOnWorker`: host-authoritative hard resync for
+    //   confirmed divergence or explicit recovery requests.
+    // - `processHostLateJoinResyncIfNeededOnWorker`: host-authoritative sync for
+    //   reconnect/late-join style bootstrap.
+    // - `processHostManualStateChangeResyncIfNeeded` +
+    //   `processPendingManualStateResyncIfNeeded`: host reset/load-state
+    //   bootstrap; these replace the old causal timeline and reanchor runtime
+    //   producers/consumers to the loaded frame.
+    // - `processResyncIfNeededOnWorker`: client-side application/acknowledgement
+    //   of authoritative state after a host-directed resync transfer.
 
     static std::optional<RomSelection> captureCurrentRomSelection(GeraNESEmu& emu)
     {
@@ -171,6 +194,7 @@ private:
     {
         (void)localSlots;
         m_inputDriver.reanchor(anchorFrame);
+        m_lastRecoveryReanchorFrame = anchorFrame;
     }
 
     bool applyAuthoritativeStateLocally(GeraNESEmu& emu,
@@ -558,6 +582,15 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
             event.kind == IEmulationHost::ManualStateChangeKind::Reset
                 ? ResyncReason::HostReset
                 : ResyncReason::HostLoadedState;
+        {
+            std::ostringstream oss;
+            oss << "Host manual state change detected"
+                << " reason " << NetplayCoordinator::resyncReasonToast(reason)
+                << " eventFrame " << event.frame
+                << " emuFrame " << emu.frameCount()
+                << " roomEpoch " << room.timelineEpoch;
+            Logger::instance().log(oss.str(), Logger::Type::INFO);
+        }
         const std::string toast = NetplayCoordinator::resyncReasonToast(reason);
         if(!toast.empty()) {
             Logger::instance().log(toast, Logger::Type::USER);
@@ -584,6 +617,10 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
         }
 
         if(resyncBusy) {
+            Logger::instance().log(
+                "Deferring manual host recovery until the active resync/bootstrap finishes",
+                Logger::Type::INFO
+            );
             m_pendingManualStateResyncs.clear();
             m_pendingManualStateResyncs.push_back(PendingManualStateResync{
                 reason,
@@ -641,6 +678,11 @@ inline void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(GeraNESEm
         }
 
         if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false, pending.reason)) {
+            std::ostringstream oss;
+            oss << "Applying deferred manual host recovery"
+                << " reason " << NetplayCoordinator::resyncReasonToast(pending.reason)
+                << " authoritativeFrame " << authoritativeFrame;
+            Logger::instance().log(oss.str(), Logger::Type::INFO);
             m_pendingManualStateResyncs.pop_front();
         } else {
             return;
@@ -692,6 +734,9 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         m_lastSubmittedLocalCrcFrame = 0;
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
         m_postRecoveryRapidCrcThroughFrame = 0;
+        m_lastRollbackTargetFrame = 0;
+        m_lastLoadedAuthoritativeFrame = 0;
+        m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         return;
     }
@@ -873,11 +918,19 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
+        m_lastLoadedAuthoritativeFrame = pending->targetFrame;
         m_emuHost.setAuthoritativeFrameReadyState(
             pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame,
             pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
         );
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
+        std::ostringstream oss;
+        oss << "Netplay resync post-load validation accepted"
+            << " targetFrame " << pending->targetFrame
+            << " loadedCrc32 " << loadedCrc32
+            << " frameReadyFrame "
+            << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
+        Logger::instance().log(oss.str(), Logger::Type::INFO);
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
 
@@ -891,6 +944,7 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
                 << " after clean-boot state load";
             Logger::instance().log(oss.str(), Logger::Type::WARNING);
         }
+        Logger::instance().log("Netplay resync post-load validation rejected", Logger::Type::WARNING);
         Logger::instance().log("Netplay resync failed", Logger::Type::WARNING);
     }
 }
@@ -899,6 +953,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 {
     std::optional<FrameNumber> rollbackFrame = m_coordinator.consumePendingRollbackFrame();
     if(!rollbackFrame.has_value()) return;
+    m_lastRollbackTargetFrame = *rollbackFrame;
 
     const uint32_t currentFrame = emu.frameCount();
     if(currentFrame == 0) return;
@@ -956,6 +1011,19 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         emu.updateUntilFrame(frameDt);
     }
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
+    m_emuHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
+
+    const uint32_t recoveredConfirmedFrame = m_coordinator.session().roomState().lastConfirmedFrame;
+    if(recoveredConfirmedFrame != 0u && recoveredConfirmedFrame <= emu.frameCount()) {
+        const uint32_t recoveredConfirmedCrc32 = emu.canonicalNetplayStateCrc32();
+        std::ostringstream validate;
+        validate << "Rollback recovery reanchored"
+                 << " targetFrame " << *rollbackFrame
+                 << " confirmedFrame " << recoveredConfirmedFrame
+                 << " localSimulationFrame " << emu.frameCount()
+                 << " canonicalCrc32 " << recoveredConfirmedCrc32;
+        Logger::instance().log(validate.str(), Logger::Type::INFO);
+    }
 
     Logger::instance().log(
         "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
@@ -989,6 +1057,12 @@ inline void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection
         snapshot.latestRemoteInput = *latestRemote;
     }
     snapshot.predictionStats = m_coordinator.predictionStats();
+    snapshot.localSimulationFrame = m_coordinator.localSimulationFrame();
+    snapshot.publishedConfirmedFrame = m_coordinator.latestPublishedConfirmedFrame();
+    snapshot.lastSubmittedLocalCrcFrame = m_lastSubmittedLocalCrcFrame;
+    snapshot.lastRollbackTargetFrame = m_lastRollbackTargetFrame;
+    snapshot.lastLoadedAuthoritativeFrame = m_lastLoadedAuthoritativeFrame;
+    snapshot.lastRecoveryReanchorFrame = m_lastRecoveryReanchorFrame;
     snapshot.autoSettings = m_autoSettings.snapshot();
     snapshot.unresolvedPredictedRemoteFrameCount = m_coordinator.unresolvedPredictedRemoteFrameCount();
     snapshot.latestPredictedRemoteFrame = m_coordinator.latestPredictedRemoteFrame();
@@ -1432,6 +1506,9 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastSubmittedLocalCrcFrame = 0;
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
         m_postRecoveryRapidCrcThroughFrame = 0;
+        m_lastRollbackTargetFrame = 0;
+        m_lastLoadedAuthoritativeFrame = 0;
+        m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;

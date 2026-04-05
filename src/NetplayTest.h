@@ -377,7 +377,7 @@ private:
 
     static uint32_t confirmedThroughFrame(const PeerState& peer)
     {
-        return peer.coordinator.latestConfirmedFrame();
+        return peer.coordinator.latestPublishedConfirmedFrame();
     }
 
     static InputFrame buildEmuInputFrame(PeerState& peer, uint32_t frame)
@@ -872,14 +872,24 @@ private:
             {"name", peer.name},
             {"host", peer.host},
             {"frame", exactFrame},
+            {"localSimulationFrame", peer.coordinator.localSimulationFrame()},
+            {"roomCurrentFrame", peer.coordinator.session().roomState().currentFrame},
             {"lastFrameReadyFrame", peer.emu.lastFrameReadyFrame()},
             {"lastFrameReadyNetplayCrc32", peer.emu.lastFrameReadyNetplayCrc32()},
             {"sessionState", static_cast<int>(peer.coordinator.session().roomState().state)},
             {"timelineEpoch", peer.coordinator.session().roomState().timelineEpoch},
-            {"currentFrame", peer.coordinator.session().roomState().currentFrame},
-            {"confirmedThroughFrame", peer.coordinator.latestConfirmedFrame()},
+            {"currentFrame", peer.coordinator.localSimulationFrame()},
+            {"publishedConfirmedFrame", peer.coordinator.latestPublishedConfirmedFrame()},
+            {"roomLastConfirmedFrame", peer.coordinator.session().roomState().lastConfirmedFrame},
+            {"confirmedThroughFrame", peer.coordinator.latestPublishedConfirmedFrame()},
+            {"resyncTargetFrame", peer.coordinator.authoritativeResyncTargetFrame()},
             {"lastRemoteCrcFrame", peer.coordinator.session().roomState().lastRemoteCrcFrame},
             {"lastRemoteCrc32", peer.coordinator.session().roomState().lastRemoteCrc32},
+            {"localConfirmedCrcType", "canonical_netplay_state_crc32"},
+            {"lastRemoteCrcType", "canonical_netplay_state_crc32"},
+            {"frameReadyCrcType", "frame_ready_canonical_crc32"},
+            {"resyncPayloadCrcType", "payload_crc32"},
+            {"resyncStateCrcType", "canonical_netplay_state_crc32"},
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
             {"inputBufferSize", inputBufferSize},
@@ -1248,6 +1258,18 @@ private:
     static nlohmann::json buildRuntimePeerReport(PeerT& peer)
     {
         const auto snapshot = peer.runtime.uiSnapshot();
+        const auto activeResyncReasonLabel = [&]() -> const char* {
+            switch(snapshot.room.activeResyncReason) {
+                case Netplay::ResyncReason::Unspecified: return "Unspecified";
+                case Netplay::ResyncReason::InitialSessionSync: return "InitialSessionSync";
+                case Netplay::ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
+                case Netplay::ResyncReason::AssignmentChanged: return "AssignmentChanged";
+                case Netplay::ResyncReason::ManualForce: return "ManualForce";
+                case Netplay::ResyncReason::HostReset: return "HostReset";
+                case Netplay::ResyncReason::HostLoadedState: return "HostLoadedState";
+                default: return "Unknown";
+            }
+        };
 
         uint32_t inputBufferSize = 0;
         uint32_t futureBufferedFrames = 0;
@@ -1313,10 +1335,39 @@ private:
             {"localParticipantId", snapshot.localParticipantId},
             {"sessionState", static_cast<int>(snapshot.room.state)},
             {"timelineEpoch", snapshot.room.timelineEpoch},
-            {"currentFrame", snapshot.room.currentFrame},
+            {"localSimulationFrame", snapshot.localSimulationFrame},
+            {"roomCurrentFrame", snapshot.room.currentFrame},
+            {"currentFrame", snapshot.localSimulationFrame},
+            {"publishedConfirmedFrame", snapshot.publishedConfirmedFrame},
+            {"roomLastConfirmedFrame", snapshot.room.lastConfirmedFrame},
             {"confirmedThroughFrame", snapshot.room.lastConfirmedFrame},
             {"lastRemoteCrcFrame", snapshot.room.lastRemoteCrcFrame},
             {"lastRemoteCrc32", snapshot.room.lastRemoteCrc32},
+            {"localConfirmedCrcType", "canonical_netplay_state_crc32"},
+            {"lastRemoteCrcType", "canonical_netplay_state_crc32"},
+            {"frameReadyCrcType", "frame_ready_canonical_crc32"},
+            {"resyncPayloadCrcType", "payload_crc32"},
+            {"resyncStateCrcType", "canonical_netplay_state_crc32"},
+            {"lastSubmittedLocalCrcFrame", snapshot.lastSubmittedLocalCrcFrame},
+            {"lastRollbackTargetFrame", snapshot.lastRollbackTargetFrame},
+            {"lastLoadedAuthoritativeFrame", snapshot.lastLoadedAuthoritativeFrame},
+            {"lastRecoveryReanchorFrame", snapshot.lastRecoveryReanchorFrame},
+            {"lastAcceptedRemoteEpoch", snapshot.room.lastAcceptedRemoteEpoch},
+            {"lastIgnoredStaleInputEpoch", snapshot.room.lastIgnoredStaleInputEpoch},
+            {"lastIgnoredStaleFrameStatusEpoch", snapshot.room.lastIgnoredStaleFrameStatusEpoch},
+            {"lastIgnoredStaleCrcEpoch", snapshot.room.lastIgnoredStaleCrcEpoch},
+            {"staleInputPacketCount", snapshot.room.staleInputPacketCount},
+            {"staleFrameStatusPacketCount", snapshot.room.staleFrameStatusPacketCount},
+            {"staleCrcPacketCount", snapshot.room.staleCrcPacketCount},
+            {"activeResyncId", snapshot.room.activeResyncId},
+            {"activeResyncReason", static_cast<int>(snapshot.room.activeResyncReason)},
+            {"activeResyncReasonLabel", activeResyncReasonLabel()},
+            {"pendingResyncAckCount", snapshot.room.pendingResyncAckCount},
+            {"resyncTargetFrame", snapshot.room.resyncTargetFrame},
+            {"resyncConfirmedFrame", snapshot.room.resyncConfirmedFrame},
+            {"resyncFrameReadyFrame", snapshot.room.resyncFrameReadyFrame},
+            {"resyncPayloadCrc32", snapshot.room.resyncPayloadCrc32},
+            {"resyncFrameReadyCrc32", snapshot.room.resyncFrameReadyCrc32},
             {"localInputCount", snapshot.localInputCount},
             {"remoteInputCount", snapshot.remoteInputCount},
             {"predictionHitCount", snapshot.predictionStats.predictionHitCount},

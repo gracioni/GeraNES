@@ -186,7 +186,6 @@ private:
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = crc32;
 
-        std::vector<uint8_t> snapshotData;
         size_t snapshotCapacity = 0;
         {
             std::scoped_lock netplayLock(m_netplaySnapshotMutex);
@@ -197,7 +196,7 @@ private:
             return;
         }
 
-        snapshotData = emu.saveNetplayRollbackStateToMemory();
+        std::vector<uint8_t> snapshotData = emu.saveNetplayRollbackStateToMemory();
         if(snapshotData.empty()) {
             return;
         }

@@ -1008,6 +1008,144 @@ TEST_CASE("Netplay core rejects stale timeline epoch inputs after reanchor", "[n
     REQUIRE(emu.frameCount() == 2u);
 }
 
+TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets from previous epochs", "[netplay][epoch][stale-packets][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 3;
+    room.currentFrame = 180;
+    room.lastConfirmedFrame = 175;
+    room.lastRemoteCrcFrame = 90;
+    room.lastRemoteCrc32 = 0x12345678u;
+
+    Netplay::FrameStatusData staleStatus;
+    staleStatus.timelineEpoch = 2;
+    staleStatus.currentFrame = 999;
+    staleStatus.lastConfirmedFrame = 998;
+    staleStatus.inputDelayFrames = 9;
+    staleStatus.predictFrames = 9;
+
+    REQUIRE(coordinator.injectFrameStatusForTests(staleStatus));
+    REQUIRE(room.currentFrame == 180u);
+    REQUIRE(room.lastConfirmedFrame == 175u);
+    REQUIRE(room.staleFrameStatusPacketCount == 1u);
+    REQUIRE(room.lastIgnoredStaleFrameStatusEpoch == 2u);
+
+    Netplay::CrcReportData staleCrc;
+    staleCrc.timelineEpoch = 2;
+    staleCrc.frame = 999;
+    staleCrc.crc32 = 0xCAFEBABEu;
+
+    REQUIRE(coordinator.injectCrcReportForTests(staleCrc));
+    REQUIRE(room.lastRemoteCrcFrame == 90u);
+    REQUIRE(room.lastRemoteCrc32 == 0x12345678u);
+    REQUIRE(room.staleCrcPacketCount == 1u);
+    REQUIRE(room.lastIgnoredStaleCrcEpoch == 2u);
+}
+
+TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets after a resync epoch bump", "[netplay][epoch][stale-packets][resync][unit]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    Netplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 4;
+    room.currentFrame = 120;
+    room.lastConfirmedFrame = 118;
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
+    REQUIRE(coordinator.beginResync(118u, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
+    REQUIRE(room.timelineEpoch == 5u);
+
+    Netplay::FrameStatusData staleStatus;
+    staleStatus.timelineEpoch = 4u;
+    staleStatus.currentFrame = 999u;
+    staleStatus.lastConfirmedFrame = 999u;
+    staleStatus.inputDelayFrames = 6u;
+    staleStatus.predictFrames = 6u;
+    REQUIRE(coordinator.injectFrameStatusForTests(staleStatus));
+
+    Netplay::CrcReportData staleCrc;
+    staleCrc.timelineEpoch = 4u;
+    staleCrc.frame = 999u;
+    staleCrc.crc32 = 0xDEADBEEFu;
+    REQUIRE(coordinator.injectCrcReportForTests(staleCrc));
+
+    REQUIRE(room.staleFrameStatusPacketCount == 1u);
+    REQUIRE(room.lastIgnoredStaleFrameStatusEpoch == 4u);
+    REQUIRE(room.staleCrcPacketCount == 1u);
+    REQUIRE(room.lastIgnoredStaleCrcEpoch == 4u);
+    REQUIRE(room.lastConfirmedFrame == 118u);
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Netplay coordinator retries authoritative resync after rejected post-load validation", "[netplay][resync][retry][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Running;
+    room.selectedGameName = "RetryResync";
+    room.timelineEpoch = 4u;
+    room.currentFrame = 120u;
+    room.lastConfirmedFrame = 118u;
+
+    Netplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = Netplay::ParticipantRole::Player;
+    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
+    REQUIRE(coordinator.beginResync(118u, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
+    REQUIRE(room.activeResyncId != 0u);
+    REQUIRE(room.pendingResyncAckCount == 1u);
+
+    Netplay::ResyncAckData rejectedAck;
+    rejectedAck.resyncId = room.activeResyncId;
+    rejectedAck.participantId = remoteParticipant.id;
+    rejectedAck.loadedFrame = 118u;
+    rejectedAck.crc32 = 0x22222222u;
+    rejectedAck.success = 0u;
+    REQUIRE(coordinator.injectResyncAckForTests(rejectedAck));
+
+    REQUIRE(room.state == Netplay::SessionState::Paused);
+    REQUIRE(room.activeResyncId == 0u);
+    REQUIRE(room.pendingResyncAckCount == 0u);
+    const std::optional<Netplay::FrameNumber> pendingRetry = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pendingRetry.has_value());
+    REQUIRE(*pendingRetry == 118u);
+
+    bool sawRetryLog = false;
+    for(const std::string& line : coordinator.eventLog()) {
+        if(line.find("retrying") != std::string::npos) {
+            sawRetryLog = true;
+            break;
+        }
+    }
+    REQUIRE(sawRetryLog);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay runtime flow stays deterministic under sparse network pumping", "[netplay][runtime][sparse-pump]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -1897,7 +2035,7 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
-TEST_CASE("Netplay speculative playback keeps audio silent", "[netplay][audio][prediction]")
+TEST_CASE("Netplay speculative playback produces no audio render", "[netplay][audio][prediction]")
 {
     GeraNESTestSupport::requireRomFixture();
 
@@ -2314,6 +2452,144 @@ TEST_CASE("Netplay emulation host speculative playback defers audio until resimu
     REQUIRE(hostAudio.committedSamples().size() > committedBeforePrediction);
 }
 
+TEST_CASE("Netplay audio state-load policy does not change canonical netplay CRC", "[netplay][audio][crc][load-policy]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu source(DummyAudioOutput::instance());
+    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
+    for(uint32_t frame = 0u; frame < 4u; ++frame) {
+        InputFrame input = source.createInputFrame(frame);
+        input.p1A = (frame % 2u) == 0u;
+        source.queueInputFrame(input);
+        REQUIRE(source.updateUntilFrame(frameDt));
+    }
+
+    const std::vector<uint8_t> state = source.saveNetplayStateToMemory();
+    REQUIRE_FALSE(state.empty());
+
+    GeraNESEmu resetAudio(DummyAudioOutput::instance());
+    REQUIRE(resetAudio.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(resetAudio.valid());
+    resetAudio.loadStateFromMemoryWithAudioPolicy(state, GeraNESEmu::StateLoadAudioPolicy::ResetOutput);
+    REQUIRE(resetAudio.valid());
+
+    GeraNESEmu preservedAudio(DummyAudioOutput::instance());
+    REQUIRE(preservedAudio.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(preservedAudio.valid());
+    preservedAudio.loadStateFromMemoryWithAudioPolicy(state, GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    REQUIRE(preservedAudio.valid());
+
+    REQUIRE(resetAudio.frameCount() == preservedAudio.frameCount());
+    REQUIRE(resetAudio.canonicalNetplayStateCrc32() == preservedAudio.canonicalNetplayStateCrc32());
+}
+
+TEST_CASE("Netplay snapshot serialization ignores speculative input flags", "[netplay][state][snapshot][speculative]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu source(DummyAudioOutput::instance());
+    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
+    for(uint32_t frame = 0u; frame < 3u; ++frame) {
+        InputFrame input = source.createInputFrame(frame);
+        input.p1A = (frame % 2u) == 0u;
+        input.p1Right = frame >= 1u;
+        source.queueInputFrame(input);
+        REQUIRE(source.updateUntilFrame(frameDt));
+    }
+
+    const std::vector<uint8_t> baselineState = source.saveNetplayStateToMemory();
+    REQUIRE_FALSE(baselineState.empty());
+
+    GeraNESEmu speculativeEmu(DummyAudioOutput::instance());
+    REQUIRE(speculativeEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(speculativeEmu.loadStateFromMemoryOnCleanBoot(baselineState));
+    REQUIRE(speculativeEmu.valid());
+
+    GeraNESEmu confirmedEmu(DummyAudioOutput::instance());
+    REQUIRE(confirmedEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(confirmedEmu.loadStateFromMemoryOnCleanBoot(baselineState));
+    REQUIRE(confirmedEmu.valid());
+
+    InputFrame speculativeFrame = speculativeEmu.createInputFrame(speculativeEmu.frameCount());
+    speculativeFrame.p1A = true;
+    speculativeFrame.speculative = true;
+    speculativeEmu.queueInputFrame(speculativeFrame);
+
+    InputFrame confirmedFrame = confirmedEmu.createInputFrame(confirmedEmu.frameCount());
+    confirmedFrame.p1A = true;
+    confirmedFrame.speculative = false;
+    confirmedEmu.queueInputFrame(confirmedFrame);
+
+    const std::vector<uint8_t> speculativeState = speculativeEmu.saveNetplayStateToMemory();
+    const std::vector<uint8_t> confirmedState = confirmedEmu.saveNetplayStateToMemory();
+    REQUIRE_FALSE(speculativeState.empty());
+    REQUIRE(speculativeState == confirmedState);
+
+    const std::vector<uint8_t> speculativeRollback = speculativeEmu.saveNetplayRollbackStateToMemory();
+    const std::vector<uint8_t> confirmedRollback = confirmedEmu.saveNetplayRollbackStateToMemory();
+    REQUIRE_FALSE(speculativeRollback.empty());
+    REQUIRE(speculativeRollback == confirmedRollback);
+
+    REQUIRE(speculativeEmu.canonicalNetplayStateCrc32() == confirmedEmu.canonicalNetplayStateCrc32());
+}
+
+TEST_CASE("Netplay no-audio-render prediction policy does not change canonical future state", "[netplay][audio][prediction][crc]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu source(DummyAudioOutput::instance());
+    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
+    for(uint32_t frame = 0u; frame < 3u; ++frame) {
+        InputFrame input = source.createInputFrame(frame);
+        input.p1A = (frame % 2u) == 0u;
+        input.p1Right = frame >= 1u;
+        input.speculative = false;
+        source.queueInputFrame(input);
+        REQUIRE(source.updateUntilFrame(frameDt));
+    }
+
+    const std::vector<uint8_t> baselineState = source.saveNetplayStateToMemory();
+    REQUIRE_FALSE(baselineState.empty());
+
+    GeraNESEmu speculativeEmu(DummyAudioOutput::instance());
+    REQUIRE(speculativeEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(speculativeEmu.loadStateFromMemoryOnCleanBoot(baselineState));
+    REQUIRE(speculativeEmu.valid());
+
+    GeraNESEmu confirmedEmu(DummyAudioOutput::instance());
+    REQUIRE(confirmedEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(confirmedEmu.loadStateFromMemoryOnCleanBoot(baselineState));
+    REQUIRE(confirmedEmu.valid());
+
+    InputFrame speculativeFrame = speculativeEmu.createInputFrame(speculativeEmu.frameCount());
+    speculativeFrame.p1B = true;
+    speculativeFrame.p1Left = true;
+    speculativeFrame.speculative = true;
+    speculativeEmu.queueInputFrame(speculativeFrame);
+
+    InputFrame confirmedFrame = confirmedEmu.createInputFrame(confirmedEmu.frameCount());
+    confirmedFrame.p1B = speculativeFrame.p1B;
+    confirmedFrame.p1Left = speculativeFrame.p1Left;
+    confirmedFrame.speculative = false;
+    confirmedEmu.queueInputFrame(confirmedFrame);
+
+    REQUIRE(speculativeEmu.updateUntilFrame(frameDt));
+    REQUIRE(confirmedEmu.updateUntilFrame(frameDt));
+    REQUIRE(speculativeEmu.frameCount() == confirmedEmu.frameCount());
+    REQUIRE(speculativeEmu.canonicalNetplayStateCrc32() == confirmedEmu.canonicalNetplayStateCrc32());
+    REQUIRE(speculativeEmu.saveNetplayStateToMemory() == confirmedEmu.saveNetplayStateToMemory());
+}
+
 TEST_CASE("Netplay host loaded state canonicalizes local future inputs before resync", "[netplay][load-state][resync]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -2449,6 +2725,34 @@ TEST_CASE("Netplay runtime host load state during active resync preserves determ
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay runtime host manual load-state while running stays frame-ready aligned", "[netplay][runtime][load-state]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36};
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_host_single_load_state.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay web runtime stays deterministic after repeated host load states", "[netplay][runtime][web][load-state]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -2516,6 +2820,185 @@ TEST_CASE("Netplay desync monitor still hard-resyncs after repeated host load-st
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay directed speculative mismatch rolls back and reconverges", "[netplay][prediction][rollback]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.frames = 140;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 4;
+    options.predictionHoldStartFrame = 90;
+    options.predictionHoldFrameCount = 5;
+    options.predictionScriptStartFrame = 96;
+    options.predictionScriptFrameCount = 4;
+    options.predictionScriptMode = NetplayTest::PredictionScriptMode::MissAll;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_prediction_rollback_reconverges.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("predictionMissCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("predictionMissCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("rollbackScheduledCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("rollbackScheduledCount").get<uint32_t>() > 0u);
+}
+
+TEST_CASE("Netplay runtime prediction path reaches confirmed CRC agreement checkpoints", "[netplay][runtime][prediction][crc]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 4;
+    options.predictionHoldStartFrame = 90;
+    options.predictionHoldFrameCount = 5;
+    options.predictionScriptStartFrame = 96;
+    options.predictionScriptFrameCount = 4;
+    options.predictionScriptMode = NetplayTest::PredictionScriptMode::MissAll;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_rollback_confirmed_crc_agreement.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("lastRemoteCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastRemoteCrcFrame").get<uint32_t>() > 0u);
+    const uint32_t totalPredictionActivity =
+        report.at("host").at("predictionHitCount").get<uint32_t>() +
+        report.at("host").at("predictionMissCount").get<uint32_t>() +
+        report.at("client").at("predictionHitCount").get<uint32_t>() +
+        report.at("client").at("predictionMissCount").get<uint32_t>();
+    REQUIRE(totalPredictionActivity > 0u);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime short prediction windows stay CRC-aligned under harsher late-input pacing", "[netplay][runtime][late-input][short-prediction]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 2;
+    options.gameplayReceiveDelayMs = 25;
+    options.networkPumpStride = 4;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.predictionHoldStartFrame = 72;
+    options.predictionHoldFrameCount = 8;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_short_prediction_window_late_input.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("timelineEpoch").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("timelineEpoch").get<uint32_t>() > 0u);
+}
+
+TEST_CASE("Netplay runtime manual resync performs immediate post-resync CRC verification", "[netplay][runtime][resync][crc]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceManualResyncFrame = 44;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_manual_resync_crc_verification.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("postResyncCrcCheckStartFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnostics", "[netplay][runtime][diagnostics][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.captureHostTrace = true;
+    options.frames = 170;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36};
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_recovery_diagnostics.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("timelineEpoch").get<uint32_t>() > 1u);
+    REQUIRE(report.at("client").at("timelineEpoch").get<uint32_t>() > 1u);
+    REQUIRE(report.at("host").at("lastRemoteCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastRemoteCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("roomLastConfirmedFrame").get<uint32_t>() >=
+            report.at("host").at("publishedConfirmedFrame").get<uint32_t>());
+    REQUIRE(report.at("client").at("roomLastConfirmedFrame").get<uint32_t>() >=
+            report.at("client").at("publishedConfirmedFrame").get<uint32_t>());
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("lastRecoveryReanchorFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastRecoveryReanchorFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("localConfirmedCrcType") == "canonical_netplay_state_crc32");
+    REQUIRE(report.at("host").at("frameReadyCrcType") == "frame_ready_canonical_crc32");
+    REQUIRE(report.at("host").at("resyncPayloadCrcType") == "payload_crc32");
+    REQUIRE(report.at("host").at("resyncStateCrcType") == "canonical_netplay_state_crc32");
+
+    bool sawRecoveryLog = false;
+    for(const auto& entry : report.at("host").at("eventLogTail")) {
+        const std::string line = entry.get<std::string>();
+        if(line.find("Beginning authoritative resync") != std::string::npos ||
+           line.find("Host forced resync reason") != std::string::npos) {
+            sawRecoveryLog = true;
+            break;
+        }
+    }
+    REQUIRE(sawRecoveryLog);
+}
+
 TEST_CASE("Netplay runtime host reset performs authoritative bootstrap recovery", "[netplay][runtime][reset][bootstrap]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -2540,6 +3023,160 @@ TEST_CASE("Netplay runtime host reset performs authoritative bootstrap recovery"
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical future canonical state", "[netplay][state][clean-boot]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu source(DummyAudioOutput::instance());
+    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
+
+    for(uint32_t frame = 0u; frame < 6u; ++frame) {
+        InputFrame input = source.createInputFrame(frame);
+        input.p1A = (frame % 2u) == 0u;
+        input.p1Right = frame >= 3u;
+        source.queueInputFrame(input);
+        REQUIRE(source.updateUntilFrame(frameDt));
+    }
+
+    const std::vector<uint8_t> saveState = source.saveNetplayStateToMemory();
+    REQUIRE_FALSE(saveState.empty());
+
+    GeraNESEmu cleanBoot(DummyAudioOutput::instance());
+    REQUIRE(cleanBoot.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(cleanBoot.loadStateFromMemoryOnCleanBoot(saveState));
+    REQUIRE(cleanBoot.valid());
+
+    GeraNESEmu dirtyReplay(DummyAudioOutput::instance());
+    REQUIRE(dirtyReplay.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(dirtyReplay.valid());
+    dirtyReplay.loadStateFromMemory(saveState);
+    REQUIRE(dirtyReplay.valid());
+
+    for(uint32_t frame = source.frameCount(); frame < source.frameCount() + 6u; ++frame) {
+        InputFrame cleanInput = cleanBoot.createInputFrame(frame);
+        cleanInput.p1B = (frame % 3u) == 0u;
+        cleanInput.p1Left = frame >= 9u;
+        cleanBoot.queueInputFrame(cleanInput);
+
+        InputFrame dirtyInput = dirtyReplay.createInputFrame(frame);
+        dirtyInput.p1B = cleanInput.p1B;
+        dirtyInput.p1Left = cleanInput.p1Left;
+        dirtyReplay.queueInputFrame(dirtyInput);
+
+        REQUIRE(cleanBoot.updateUntilFrame(frameDt));
+        REQUIRE(dirtyReplay.updateUntilFrame(frameDt));
+    }
+
+    REQUIRE(cleanBoot.frameCount() == dirtyReplay.frameCount());
+    REQUIRE(cleanBoot.canonicalNetplayStateCrc32() == dirtyReplay.canonicalNetplayStateCrc32());
+}
+
+TEST_CASE("Netplay runtime confirmed divergence requires hard resync", "[netplay][runtime][desync][hard-resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceDesyncFrame = 64;
+    options.desyncAddress = 0x0000u;
+    options.desyncValueXor = 0x5Au;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_confirmed_desync_hard_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("desyncInjected") == true);
+    REQUIRE(report.at("hardResyncObserved") == true);
+    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime reconnect after host load-state resync stays aligned", "[netplay][runtime][reconnect][load-state][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 190;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36};
+    options.reconnectAfterFrames = 48;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reconnect_after_load_state.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("reconnectTriggered") == true);
+    REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime ignores stale previous-epoch inputs after authoritative recovery", "[netplay][runtime][epoch][stale-input]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.captureHostTrace = true;
+    options.frames = 190;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.hostSaveStateFrame = 20;
+    options.hostManualLoadStateFrames = {36, 37, 38};
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_stale_epoch_input_rejection.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("staleInputPacketCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("lastIgnoredStaleInputEpoch").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("lastAcceptedRemoteEpoch").get<uint32_t>() ==
+            report.at("host").at("timelineEpoch").get<uint32_t>());
+
+    bool sawHostStaleEpochLog = false;
+    for(const auto& entry : report.at("host").at("eventLogTail")) {
+        const std::string line = entry.get<std::string>();
+        if(line.find("Ignored stale input from previous timeline epoch") != std::string::npos) {
+            sawHostStaleEpochLog = true;
+            break;
+        }
+    }
+    REQUIRE(sawHostStaleEpochLog);
 }
 
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")

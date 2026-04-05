@@ -188,6 +188,18 @@ private:
     void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
     bool tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
+    // Frame terminology used by the coordinator:
+    // - local simulation frame: last frame this peer has actually simulated.
+    // - host input-confirmed frame: highest frame for which the host has
+    //   contiguous authoritative inputs from every assigned participant in the
+    //   active epoch.
+    // - published confirmed frame: highest confirmed frame bundle already
+    //   stored/broadcast by this coordinator.
+    // - room last confirmed frame: room-wide advertised confirmed checkpoint.
+    // - resync target frame: authoritative frame a hard resync is loading.
+    // Host-only: highest frame for which every assigned participant has a
+    // contiguous confirmed input contribution available in the current epoch.
+    FrameNumber computeHostInputConfirmedFrame() const;
     FrameNumber computeHostConfirmedFrame() const;
     void broadcastFrameStatusIfNeeded();
     void broadcastPeerHealthIfNeeded();
@@ -236,6 +248,9 @@ public:
     void setReconnectReservationDurationForTests(uint32_t seconds);
     void setLocalEmulatorVersionForTests(const std::string& version);
     void simulateTransportFailureForTests();
+    bool injectFrameStatusForTests(const FrameStatusData& status);
+    bool injectCrcReportForTests(const CrcReportData& report);
+    bool injectResyncAckForTests(const ResyncAckData& ack);
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;
@@ -253,8 +268,12 @@ public:
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
     const InputTimeline& remoteInputs() const;
+    FrameNumber localSimulationFrame() const;
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;
+    // Highest confirmed frame bundle already published/stored locally.
+    FrameNumber latestPublishedConfirmedFrame() const;
     FrameNumber latestConfirmedFrame() const;
+    FrameNumber authoritativeResyncTargetFrame() const;
     uint8_t predictFrames() const;
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution);
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);

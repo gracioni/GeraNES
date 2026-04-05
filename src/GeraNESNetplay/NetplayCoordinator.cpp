@@ -227,6 +227,20 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
     }
 }
 
+static const char* resyncReasonLabel(ResyncReason reason)
+{
+    switch(reason) {
+        case ResyncReason::Unspecified: return "Unspecified";
+        case ResyncReason::InitialSessionSync: return "InitialSessionSync";
+        case ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
+        case ResyncReason::AssignmentChanged: return "AssignmentChanged";
+        case ResyncReason::ManualForce: return "ManualForce";
+        case ResyncReason::HostReset: return "HostReset";
+        case ResyncReason::HostLoadedState: return "HostLoadedState";
+        default: return "Unknown";
+    }
+}
+
 void NetplayCoordinator::resetSessionState()
 {
     m_serverPeer = NetTransport::kInvalidPeerHandle;
@@ -764,6 +778,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     if(!deserializeInputFrame(payload.data(), payload.size(), inputFrame)) return false;
     if(input.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(input.timelineEpoch < m_session.roomState().timelineEpoch) {
+            m_session.roomState().lastIgnoredStaleInputEpoch = input.timelineEpoch;
+            ++m_session.roomState().staleInputPacketCount;
             std::ostringstream oss;
             oss << "Ignored stale input from previous timeline epoch"
                 << " frame " << input.frame
@@ -775,6 +791,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
         return false;
     }
+    m_session.roomState().lastAcceptedRemoteEpoch = input.timelineEpoch;
 
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     uint32_t previousReceivedSequence = 0;
@@ -916,6 +933,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         }
         return false;
     }
+    m_session.roomState().lastAcceptedRemoteEpoch = data.timelineEpoch;
 
     for(uint16_t i = 0; i < data.frameCount; ++i) {
         ConfirmedInputFrameEntry entry;
@@ -965,6 +983,7 @@ bool NetplayCoordinator::handleInputAck(PacketReader& reader)
         }
         return false;
     }
+    m_session.roomState().lastAcceptedRemoteEpoch = ack.timelineEpoch;
 
     if(m_hosting) {
         return true;
@@ -1111,7 +1130,8 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     std::ostringstream oss;
     oss << "Fresh peer health received from " << participant.displayName
         << " after implicit input stall; scheduling recovery resync from frame "
-        << resyncFrame;
+        << resyncFrame
+        << " classification=stall_based_recovery";
     pushLog(oss.str());
 }
 
@@ -1191,7 +1211,7 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
 
     recordParticipantDecision("Rollback scheduled");
     if(!predictionMatched) {
-        pushLog(predictionMessage());
+        pushLog(predictionMessage() + " classification=speculative_mismatch_corrected_by_rollback");
     }
 }
 
@@ -1201,10 +1221,13 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
     if(!reader.readPod(status)) return false;
     if(status.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(status.timelineEpoch < m_session.roomState().timelineEpoch) {
+            m_session.roomState().lastIgnoredStaleFrameStatusEpoch = status.timelineEpoch;
+            ++m_session.roomState().staleFrameStatusPacketCount;
             return true;
         }
         return true;
     }
+    m_session.roomState().lastAcceptedRemoteEpoch = status.timelineEpoch;
 
     if(m_hosting) {
         return true;
@@ -1225,11 +1248,14 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
     if(!kDesyncMonitorEnabled) return true;
     if(report.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(report.timelineEpoch < m_session.roomState().timelineEpoch) {
+            m_session.roomState().lastIgnoredStaleCrcEpoch = report.timelineEpoch;
+            ++m_session.roomState().staleCrcPacketCount;
             pushLog("Ignored stale CRC report from previous timeline epoch");
             return true;
         }
         return true;
     }
+    m_session.roomState().lastAcceptedRemoteEpoch = report.timelineEpoch;
 
     if(m_session.roomState().state != SessionState::Running) {
         return true;
@@ -1251,6 +1277,8 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
     if(source != nullptr && *source != '\0') {
         oss << " via " << source;
     }
+    oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
+        << " classification=confirmed_crc_mismatch";
     pushLog(oss.str());
 
     if(!m_hosting) return;
@@ -1363,6 +1391,8 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     m_desyncMonitor.reset();
     m_session.roomState().currentFrame = loadedFrame;
     m_session.roomState().lastConfirmedFrame = loadedFrame;
+    m_session.roomState().lastRemoteCrcFrame = 0;
+    m_session.roomState().lastRemoteCrc32 = 0;
     m_lastBroadcastConfirmedFrame = loadedFrame;
 
     const auto hasPendingSequenceReset = [&](ParticipantId participantId) -> bool {
@@ -1448,6 +1478,14 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
 
     m_localSimulationFrame = loadedFrame;
     m_pendingSequenceResetParticipants.clear();
+
+    std::ostringstream oss;
+    oss << "Authoritative state realigned"
+        << " loadedFrame " << loadedFrame
+        << " preserveConfirmedInputs " << (preserveConfirmedInputs ? "1" : "0")
+        << " resetInputSequences " << (resetInputSequences ? "1" : "0")
+        << " inputSequenceBase " << inputSequenceBase;
+    pushLog(oss.str());
 }
 
 void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
@@ -1765,6 +1803,16 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     m_session.roomState().activeResyncReason = data.reason;
     m_session.roomState().state = SessionState::Resyncing;
 
+    {
+        std::ostringstream oss;
+        oss << "Received authoritative resync begin"
+            << " reason " << resyncReasonLabel(data.reason)
+            << " targetFrame " << data.targetFrame
+            << " epoch " << data.timelineEpoch
+            << " resyncId " << data.resyncId;
+        pushLog(oss.str());
+    }
+
     const std::string toast = resyncReasonToast(data.reason);
     if(!toast.empty()) {
         notifySessionEvent(toast);
@@ -1836,6 +1884,15 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
     pending.reason = m_session.roomState().activeResyncReason;
     pending.payload = std::move(m_incomingResync->payload);
     m_pendingResyncApply = std::move(pending);
+    {
+        std::ostringstream oss;
+        oss << "Queued authoritative resync apply"
+            << " reason " << resyncReasonLabel(m_session.roomState().activeResyncReason)
+            << " targetFrame " << m_pendingResyncApply->targetFrame
+            << " confirmedFrame " << m_pendingResyncApply->confirmedFrame
+            << " frameReadyFrame " << m_pendingResyncApply->frameReadyFrame;
+        pushLog(oss.str());
+    }
     m_incomingResync.reset();
     return true;
 }
@@ -2044,7 +2101,7 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
     }
 }
 
-FrameNumber NetplayCoordinator::computeHostConfirmedFrame() const
+FrameNumber NetplayCoordinator::computeHostInputConfirmedFrame() const
 {
     FrameNumber confirmedFrame = 0;
     bool anyAssigned = false;
@@ -2076,6 +2133,11 @@ FrameNumber NetplayCoordinator::computeHostConfirmedFrame() const
     return anyAssigned ? confirmedFrame : m_localSimulationFrame;
 }
 
+FrameNumber NetplayCoordinator::computeHostConfirmedFrame() const
+{
+    return computeHostInputConfirmedFrame();
+}
+
 void NetplayCoordinator::broadcastFrameStatusIfNeeded()
 {
     if(!m_hosting) return;
@@ -2083,7 +2145,7 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     FrameStatusData status;
     status.timelineEpoch = m_session.roomState().timelineEpoch;
     status.currentFrame = m_localSimulationFrame;
-    const FrameNumber inputConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, computeHostConfirmedFrame());
+    const FrameNumber inputConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, computeHostInputConfirmedFrame());
     status.lastConfirmedFrame = inputConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
     status.predictFrames = m_session.roomState().predictFrames;
@@ -3064,6 +3126,30 @@ void NetplayCoordinator::simulateTransportFailureForTests()
     m_transport.flush();
 }
 
+bool NetplayCoordinator::injectFrameStatusForTests(const FrameStatusData& status)
+{
+    PacketWriter writer;
+    writer.writePod(status);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleFrameStatus(reader);
+}
+
+bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
+{
+    PacketWriter writer;
+    writer.writePod(report);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleCrcReport(reader);
+}
+
+bool NetplayCoordinator::injectResyncAckForTests(const ResyncAckData& ack)
+{
+    PacketWriter writer;
+    writer.writePod(ack);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleResyncAck(reader);
+}
+
 ParticipantId NetplayCoordinator::localParticipantId() const
 {
     return m_localParticipantId;
@@ -3150,6 +3236,11 @@ const InputTimeline& NetplayCoordinator::localInputs() const
     return m_localInputs;
 }
 
+FrameNumber NetplayCoordinator::localSimulationFrame() const
+{
+    return m_localSimulationFrame;
+}
+
 void NetplayCoordinator::discardTimelineAfter(FrameNumber frame)
 {
     m_localInputs.eraseFramesAfter(frame);
@@ -3194,9 +3285,19 @@ const NetplayCoordinator::ConfirmedFrameInputs* NetplayCoordinator::findConfirme
     return nullptr;
 }
 
-FrameNumber NetplayCoordinator::latestConfirmedFrame() const
+FrameNumber NetplayCoordinator::latestPublishedConfirmedFrame() const
 {
     return m_confirmedFrames.empty() ? 0u : m_confirmedFrames.back().frame;
+}
+
+FrameNumber NetplayCoordinator::latestConfirmedFrame() const
+{
+    return latestPublishedConfirmedFrame();
+}
+
+FrameNumber NetplayCoordinator::authoritativeResyncTargetFrame() const
+{
+    return m_session.roomState().resyncTargetFrame;
 }
 
 uint8_t NetplayCoordinator::predictFrames() const
@@ -3319,7 +3420,7 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
 
     std::vector<ConfirmedFrameInputs> pendingFrames;
     FrameNumber nextFrame = m_lastBroadcastConfirmedFrame + 1u;
-    const FrameNumber maxPublishableFrame = computeHostConfirmedFrame();
+    const FrameNumber maxPublishableFrame = computeHostInputConfirmedFrame();
     while(pendingFrames.size() < kMaxConfirmedFramesPerPacket) {
         if(nextFrame > maxPublishableFrame) {
             break;
@@ -3506,6 +3607,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
 
     const bool initialSessionSync = m_session.roomState().state == SessionState::Starting;
     const uint32_t resyncId = m_nextResyncId++;
+    const uint32_t previousEpoch = m_session.roomState().timelineEpoch;
     ++m_session.roomState().timelineEpoch;
     realignAuthoritativeState(
         targetFrame,
@@ -3532,6 +3634,18 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_activeResyncExpectedStateCrc32 = stateCrc32;
     m_implicitRecoveryMonitor.reset();
     m_pendingResyncAcks.clear();
+
+    {
+        std::ostringstream oss;
+        oss << "Beginning authoritative resync"
+            << " reason " << resyncReasonLabel(reason)
+            << " targetFrame " << targetFrame
+            << " epoch " << previousEpoch
+            << "->" << m_session.roomState().timelineEpoch
+            << " stateCrc " << stateCrc32
+            << " classification=hard_resync_request";
+        pushLog(oss.str());
+    }
 
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id != m_localParticipantId &&
@@ -3590,7 +3704,14 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     ResyncCompleteData completeData;
     completeData.resyncId = resyncId;
     m_transport.broadcastReliable(Channel::Control, buildResyncCompletePacket(completeData));
-    pushLog("Host forced resync");
+    {
+        std::ostringstream oss;
+        oss << "Host forced resync"
+            << " reason " << resyncReasonLabel(reason)
+            << " targetFrame " << targetFrame
+            << " resyncId " << resyncId;
+        pushLog(oss.str());
+    }
     return true;
 }
 
@@ -3613,6 +3734,15 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
     ack.success = success ? 1 : 0;
 
     if(success) {
+        {
+            std::ostringstream oss;
+            oss << "Acknowledging authoritative resync"
+                << " reason " << resyncReasonLabel(m_session.roomState().activeResyncReason)
+                << " loadedFrame " << loadedFrame
+                << " crc32 " << crc32
+                << " resyncId " << resyncId;
+            pushLog(oss.str());
+        }
         realignAuthoritativeState(
             loadedFrame,
             true,

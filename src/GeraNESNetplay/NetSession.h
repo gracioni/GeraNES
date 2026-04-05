@@ -69,10 +69,20 @@ struct RoomState
     uint32_t timelineEpoch = 0;
     uint8_t inputDelayFrames = 2;
     uint8_t predictFrames = 0;
+    // `currentFrame`: latest frame the host has reported as locally simulated.
     FrameNumber currentFrame = 0;
+    // `lastConfirmedFrame`: highest frame the authoritative input timeline has
+    // confirmed/published for the current epoch.
     FrameNumber lastConfirmedFrame = 0;
     FrameNumber lastRemoteCrcFrame = 0;
     uint32_t lastRemoteCrc32 = 0;
+    uint32_t lastAcceptedRemoteEpoch = 0;
+    uint32_t lastIgnoredStaleInputEpoch = 0;
+    uint32_t lastIgnoredStaleFrameStatusEpoch = 0;
+    uint32_t lastIgnoredStaleCrcEpoch = 0;
+    uint32_t staleInputPacketCount = 0;
+    uint32_t staleFrameStatusPacketCount = 0;
+    uint32_t staleCrcPacketCount = 0;
     uint32_t activeResyncId = 0;
     FrameNumber resyncTargetFrame = 0;
     FrameNumber resyncConfirmedFrame = 0;

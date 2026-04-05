@@ -932,7 +932,7 @@ private:
     {
         if(ms == 0) return false;
         if(skipRender) {
-            // Predicted/silent replay must not enqueue silence or touch the live
+            // Predicted replay must not render anything or touch the live
             // output device. Drop only the transient generated sample buffers.
             m_audioOutput.clearAudioBuffers();
             return false;
@@ -1735,6 +1735,13 @@ public:
         return s.getData();
     }
 
+    static void normalizeInputFrameForNetplaySnapshot(InputFrame& inputFrame)
+    {
+        // Speculative/predicted playback is a runtime recovery policy, not part
+        // of the canonical emulation state that rollback/resync/CRC compare.
+        inputFrame.speculative = false;
+    }
+
     std::vector<uint8_t> saveNetplayStateToMemory()
     {
         const InputBuffer savedInputBuffer = m_inputBuffer;
@@ -1751,6 +1758,7 @@ public:
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
+        normalizeInputFrameForNetplaySnapshot(serializedPlaybackInput);
         m_inputBuffer.clear();
         m_inputBuffer.push(serializedPlaybackInput);
         m_newFrame = false;
@@ -1780,6 +1788,8 @@ public:
         const bool savedFrameStarted = m_frameStarted;
         const bool savedRunningLoop = m_runningLoop;
         const HardwareActions savedHardwareActions = m_hardwareActions;
+        const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
+        const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
         InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
         if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
            currentPlaybackInput != nullptr) {
@@ -1787,12 +1797,15 @@ public:
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
+        normalizeInputFrameForNetplaySnapshot(serializedPlaybackInput);
         m_inputBuffer.clear();
         m_inputBuffer.push(serializedPlaybackInput);
         m_newFrame = false;
         m_frameStarted = false;
         m_runningLoop = false;
         m_hardwareActions.reset();
+        m_updateCyclesAcc = 0;
+        m_audioRenderCyclesAcc = 0;
 
         Serialize s;
         serialization(s);
@@ -1802,6 +1815,8 @@ public:
         m_frameStarted = savedFrameStarted;
         m_runningLoop = savedRunningLoop;
         m_hardwareActions = savedHardwareActions;
+        m_updateCyclesAcc = savedUpdateCyclesAcc;
+        m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
         return s.getData();
     }
 
