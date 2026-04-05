@@ -202,6 +202,7 @@ private:
                                         const std::vector<uint8_t>& payload)
     {
         if(payload.empty()) return false;
+        m_emuHost.beginPresentationHoldUntilNextFrameReady();
         if(!emu.loadStateFromMemoryOnCleanBoot(payload)) return false;
 
         const uint32_t loadedCrc32 = emu.canonicalNetplayStateCrc32();
