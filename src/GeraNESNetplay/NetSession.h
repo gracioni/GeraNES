@@ -11,6 +11,13 @@
 
 namespace Netplay {
 
+enum class RecoveryInputMode : uint8_t
+{
+    Normal = 0,
+    ResyncLocked = 1,
+    PostResyncStabilizing = 2
+};
+
 struct ParticipantInfo
 {
     ParticipantId id = kInvalidParticipantId;
@@ -83,6 +90,15 @@ struct RoomState
     uint32_t staleInputPacketCount = 0;
     uint32_t staleFrameStatusPacketCount = 0;
     uint32_t staleCrcPacketCount = 0;
+    RecoveryInputMode recoveryInputMode = RecoveryInputMode::Normal;
+    uint32_t recoveryModeTransitionCount = 0;
+    uint32_t inputsDroppedDuringRecovery = 0;
+    FrameNumber recoveryModeEnteredAtFrame = 0;
+    uint32_t stabilizationFramesRemaining = 0;
+    uint32_t stabilizationCrcPassCount = 0;
+    FrameNumber stabilizationAnchorFrame = 0;
+    bool stabilizationRetryIssued = false;
+    uint32_t stabilizationRetryCount = 0;
     uint32_t activeResyncId = 0;
     FrameNumber resyncTargetFrame = 0;
     FrameNumber resyncConfirmedFrame = 0;

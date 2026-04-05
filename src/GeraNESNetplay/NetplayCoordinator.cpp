@@ -24,6 +24,8 @@ constexpr uint16_t kReconnectReservationSeconds = 300;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
+constexpr uint32_t kRecoveryStabilizationFrames = 2;
+constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -792,6 +794,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         return false;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = input.timelineEpoch;
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
+        noteDroppedGameplayInputDuringRecovery("input_frame", input.frame, input.participantId, input.playerSlot);
+        return true;
+    }
 
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     uint32_t previousReceivedSequence = 0;
@@ -934,6 +940,15 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         return false;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = data.timelineEpoch;
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
+        noteDroppedGameplayInputDuringRecovery(
+            "confirmed_input_frames",
+            data.startFrame,
+            m_localParticipantId,
+            kObserverPlayerSlot
+        );
+        return true;
+    }
 
     for(uint16_t i = 0; i < data.frameCount; ++i) {
         ConfirmedInputFrameEntry entry;
@@ -984,6 +999,10 @@ bool NetplayCoordinator::handleInputAck(PacketReader& reader)
         return false;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = ack.timelineEpoch;
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
+        noteDroppedGameplayInputDuringRecovery("input_ack", ack.contiguousFrame, ack.participantId, ack.playerSlot);
+        return true;
+    }
 
     if(m_hosting) {
         return true;
@@ -1066,7 +1085,134 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_activeResyncExpectedStateCrc32 = 0;
     m_implicitRecoveryMonitor.reset();
     m_session.roomState().state = SessionState::Paused;
+    setRecoveryInputMode(RecoveryInputMode::Normal, "resync-retry-scheduled", targetFrame);
     pushLog(reason);
+}
+
+const char* NetplayCoordinator::recoveryInputModeLabel(RecoveryInputMode mode)
+{
+    switch(mode) {
+        case RecoveryInputMode::Normal: return "Normal";
+        case RecoveryInputMode::ResyncLocked: return "ResyncLocked";
+        case RecoveryInputMode::PostResyncStabilizing: return "PostResyncStabilizing";
+        default: return "Unknown";
+    }
+}
+
+void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
+                                              const char* reason,
+                                              FrameNumber frameContext,
+                                              uint32_t stabilizationFrames)
+{
+    RoomState& room = m_session.roomState();
+    const RecoveryInputMode previousMode = room.recoveryInputMode;
+    if(previousMode == mode &&
+       (mode != RecoveryInputMode::PostResyncStabilizing || room.stabilizationFramesRemaining == stabilizationFrames)) {
+        return;
+    }
+
+    room.recoveryInputMode = mode;
+    room.recoveryModeEnteredAtFrame = frameContext;
+    ++room.recoveryModeTransitionCount;
+    if(mode == RecoveryInputMode::PostResyncStabilizing) {
+        room.stabilizationFramesRemaining = stabilizationFrames;
+        room.stabilizationAnchorFrame = frameContext;
+        room.stabilizationCrcPassCount = 0;
+        room.stabilizationRetryIssued = false;
+    } else if(mode == RecoveryInputMode::Normal) {
+        room.stabilizationFramesRemaining = 0;
+        room.stabilizationAnchorFrame = frameContext;
+        room.stabilizationCrcPassCount = 0;
+        room.stabilizationRetryIssued = false;
+    }
+
+    std::ostringstream oss;
+    oss << "Recovery input mode "
+        << recoveryInputModeLabel(previousMode)
+        << " -> "
+        << recoveryInputModeLabel(mode)
+        << " frame "
+        << frameContext;
+    if(reason != nullptr && *reason != '\0') {
+        oss << " reason " << reason;
+    }
+    if(mode == RecoveryInputMode::PostResyncStabilizing) {
+        oss << " stabilizationFrames " << room.stabilizationFramesRemaining;
+    }
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::noteDroppedGameplayInputDuringRecovery(const char* source,
+                                                                FrameNumber frame,
+                                                                ParticipantId participantId,
+                                                                PlayerSlot slot)
+{
+    RoomState& room = m_session.roomState();
+    ++room.inputsDroppedDuringRecovery;
+    if((room.inputsDroppedDuringRecovery % 32u) != 1u) {
+        return;
+    }
+
+    std::ostringstream oss;
+    oss << "Dropped gameplay input during recovery"
+        << " source " << (source != nullptr ? source : "unknown")
+        << " frame " << frame
+        << " participant " << static_cast<unsigned>(participantId)
+        << " slot " << static_cast<unsigned>(slot)
+        << " mode " << recoveryInputModeLabel(room.recoveryInputMode)
+        << " droppedCount " << room.inputsDroppedDuringRecovery;
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
+{
+    RoomState& room = m_session.roomState();
+    if(room.recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) return;
+    if(room.state != SessionState::Running) return;
+
+    const bool confirmedCheckpointReached = room.lastConfirmedFrame >= room.recoveryModeEnteredAtFrame;
+    const bool firstPostRecoveryCrcPassed = room.stabilizationCrcPassCount > 0u;
+
+    if(room.stabilizationFramesRemaining > 0u && observedFrame > room.stabilizationAnchorFrame) {
+        const FrameNumber advancedFrames = observedFrame - room.stabilizationAnchorFrame;
+        const uint32_t consume = std::min<uint32_t>(room.stabilizationFramesRemaining, advancedFrames);
+        room.stabilizationFramesRemaining -= consume;
+        room.stabilizationAnchorFrame = observedFrame;
+    }
+
+    if(room.stabilizationFramesRemaining == 0u &&
+       confirmedCheckpointReached &&
+       firstPostRecoveryCrcPassed) {
+        setRecoveryInputMode(RecoveryInputMode::Normal, "stabilization-window-complete", observedFrame);
+        return;
+    }
+
+    const FrameNumber stabilizationElapsedFrames =
+        observedFrame > room.recoveryModeEnteredAtFrame
+            ? (observedFrame - room.recoveryModeEnteredAtFrame)
+            : 0u;
+    if(stabilizationElapsedFrames < kRecoveryStabilizationFailTimeoutFrames) {
+        return;
+    }
+    if(room.stabilizationRetryIssued) {
+        return;
+    }
+
+    room.stabilizationRetryIssued = true;
+    ++room.stabilizationRetryCount;
+    if(!m_hosting) {
+        pushLog("Stabilization timeout reached on client; waiting for authoritative recovery");
+        return;
+    }
+
+    const FrameNumber retryFrame =
+        std::min(m_localSimulationFrame, room.lastConfirmedFrame);
+    const std::string reason =
+        "Post-resync stabilization failed to validate (confirmed checkpoint and CRC pass); scheduling controlled retry";
+    scheduleResyncRetry(retryFrame, reason);
+    if(!m_pendingHostResyncFrame.has_value() || retryFrame < *m_pendingHostResyncFrame) {
+        m_pendingHostResyncFrame = retryFrame;
+    }
 }
 
 void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame)
@@ -1238,6 +1384,7 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
     m_session.roomState().inputDelayFrames = status.inputDelayFrames;
     m_session.roomState().predictFrames = status.predictFrames;
     applyTopologyData(m_session.roomState(), status.topology);
+    advanceRecoveryStabilization(status.currentFrame);
     return true;
 }
 
@@ -1283,6 +1430,10 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
+        pushLog("Deferred hard resync escalation during post-resync stabilization");
+        return;
+    }
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(!m_pendingHostResyncFrame.has_value() || update.frame < *m_pendingHostResyncFrame) {
         m_pendingHostResyncFrame = update.frame;
@@ -1802,6 +1953,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     m_session.roomState().resyncInputSequenceBase = data.inputSequenceBase;
     m_session.roomState().activeResyncReason = data.reason;
     m_session.roomState().state = SessionState::Resyncing;
+    setRecoveryInputMode(RecoveryInputMode::ResyncLocked, "resync-begin-received", data.targetFrame);
 
     {
         std::ostringstream oss;
@@ -1936,6 +2088,13 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
     );
 
     if(m_pendingResyncAcks.empty()) {
+        const FrameNumber recoveryFrame = m_session.roomState().resyncTargetFrame;
+        setRecoveryInputMode(
+            RecoveryInputMode::PostResyncStabilizing,
+            "all-resync-acks-received",
+            recoveryFrame,
+            kRecoveryStabilizationFrames
+        );
         m_session.roomState().state = SessionState::Running;
         m_session.roomState().pendingResyncAckCount = 0;
         m_session.roomState().activeResyncId = 0;
@@ -2031,14 +2190,29 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     }
     if(data.state == SessionState::Starting) {
         pushLog("Session starting: waiting for authoritative sync");
+        setRecoveryInputMode(RecoveryInputMode::ResyncLocked, "session-starting", m_session.roomState().currentFrame);
     } else if(data.state == SessionState::Ended) {
         clearReconnectAttemptState();
         m_disconnectExpectedAfterHostShutdown = true;
         m_lastError = "Host closed the room";
         pushLog("Host closed the room");
         notifySessionEvent("Host closed the room");
+        setRecoveryInputMode(RecoveryInputMode::Normal, "session-ended", m_session.roomState().currentFrame);
+    } else if(data.state == SessionState::Running &&
+              (previousState == SessionState::Resyncing || previousState == SessionState::Starting)) {
+        const FrameNumber stabilizationAnchor =
+            std::max(m_session.roomState().currentFrame, m_session.roomState().lastConfirmedFrame);
+        setRecoveryInputMode(
+            RecoveryInputMode::PostResyncStabilizing,
+            "session-running-after-recovery",
+            stabilizationAnchor,
+            kRecoveryStabilizationFrames
+        );
     } else {
         pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
+        if(data.state != SessionState::Resyncing && data.state != SessionState::Paused) {
+            setRecoveryInputMode(RecoveryInputMode::Normal, "session-state-update", m_session.roomState().currentFrame);
+        }
     }
     return true;
 }
@@ -3229,6 +3403,7 @@ void NetplayCoordinator::setLocalSimulationFrame(FrameNumber frame)
     if(m_hosting) {
         m_session.roomState().currentFrame = frame;
     }
+    advanceRecoveryStabilization(frame);
 }
 
 void NetplayCoordinator::rescheduleRollbackFrame(FrameNumber frame)
@@ -3487,6 +3662,10 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
 void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution)
 {
     if(slot == kObserverPlayerSlot || m_localParticipantId == kInvalidParticipantId) return;
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
+        noteDroppedGameplayInputDuringRecovery("local_input", frame, m_localParticipantId, slot);
+        return;
+    }
 
     const uint64_t buttonMaskLo = assignedContributionPrimaryMask(slot, contribution);
     const uint64_t buttonMaskHi = 0;
@@ -3600,6 +3779,9 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 {
     if(!kDesyncMonitorEnabled) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
+        ++m_session.roomState().stabilizationCrcPassCount;
+    }
 
     applyDesyncMonitorUpdate(m_desyncMonitor.submitLocalCrc(frame, crc32), "local CRC submission");
 
@@ -3662,6 +3844,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_activeResyncExpectedStateCrc32 = stateCrc32;
     m_implicitRecoveryMonitor.reset();
     m_pendingResyncAcks.clear();
+    setRecoveryInputMode(RecoveryInputMode::ResyncLocked, "resync-begin", targetFrame);
 
     {
         std::ostringstream oss;
@@ -3699,6 +3882,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
         m_activeResyncExpectedStateCrc32 = 0;
+        setRecoveryInputMode(RecoveryInputMode::Normal, "resync-skipped-no-peers", targetFrame);
         pushLog("Resync skipped: no remote peers");
         return true;
     }
@@ -3787,6 +3971,12 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
         m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().pendingResyncAckCount = 0;
         m_session.roomState().state = SessionState::Resyncing;
+        setRecoveryInputMode(
+            RecoveryInputMode::PostResyncStabilizing,
+            "resync-load-acknowledged",
+            loadedFrame,
+            kRecoveryStabilizationFrames
+        );
     }
 
     return m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncAckPacket(ack));

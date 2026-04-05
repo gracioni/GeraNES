@@ -299,6 +299,17 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Last Applied Rollback: %u -> %u",
                     snapshot.runtimeDiagnostics.rollbackStats.lastRollbackFromFrame,
                     snapshot.runtimeDiagnostics.rollbackStats.lastRollbackToFrame);
+        const char* recoveryModeLabel = "Unknown";
+        switch(room.recoveryInputMode) {
+            case RecoveryInputMode::Normal: recoveryModeLabel = "Normal"; break;
+            case RecoveryInputMode::ResyncLocked: recoveryModeLabel = "ResyncLocked"; break;
+            case RecoveryInputMode::PostResyncStabilizing: recoveryModeLabel = "PostResyncStabilizing"; break;
+            default: break;
+        }
+        ImGui::Text("Recovery Input Mode: %s", recoveryModeLabel);
+        ImGui::Text("Dropped Inputs In Recovery: %u", room.inputsDroppedDuringRecovery);
+        ImGui::Text("Stabilization Frames Remaining: %u", room.stabilizationFramesRemaining);
+        ImGui::Text("Stabilization CRC Passes: %u", room.stabilizationCrcPassCount);
         ImGui::Text("Last Remote CRC: %08X @ frame %u", room.lastRemoteCrc32, room.lastRemoteCrcFrame);
 
         if(snapshot.latestLocalInput.has_value()) {

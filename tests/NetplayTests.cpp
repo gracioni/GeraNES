@@ -1343,6 +1343,181 @@ TEST_CASE("Netplay coordinator logs confirmed CRC mismatch classification before
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery lock and stabilization",
+          "[netplay][coordinator][recovery][epoch]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        const uint16_t port = reserveLoopbackPort();
+        host.disconnect();
+        client.disconnect();
+        if(!host.host(port, 1, "Host")) continue;
+        if(!client.join("127.0.0.1", port, "Client")) continue;
+        hosted = true;
+    }
+    REQUIRE(hosted);
+
+    auto pump = [&]() {
+        for(int i = 0; i < 4; ++i) {
+            host.update(1);
+            client.update(1);
+        }
+    };
+
+    for(uint32_t step = 0; step < 2000u; ++step) {
+        pump();
+        const bool connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(connected) break;
+    }
+    REQUIRE(host.isConnected());
+    REQUIRE(client.isConnected());
+
+    host.setLocalSimulationFrame(120u);
+    const std::vector<uint8_t> payload = {1u, 2u, 3u, 4u};
+    REQUIRE(host.beginResync(120u, payload, 0u, 0x13579BDFu, Netplay::ResyncReason::ManualForce));
+    REQUIRE(host.session().roomState().recoveryInputMode == Netplay::RecoveryInputMode::ResyncLocked);
+
+    const uint32_t activeEpoch = host.session().roomState().timelineEpoch;
+    REQUIRE(activeEpoch > 0u);
+
+    Netplay::InputFrameData staleInput{};
+    staleInput.timelineEpoch = activeEpoch - 1u;
+    staleInput.frame = 121u;
+    staleInput.participantId = client.localParticipantId();
+    staleInput.playerSlot = Netplay::kPort2PlayerSlot;
+    staleInput.buttonMaskLo = 0x1u;
+    staleInput.buttonMaskHi = 0u;
+    staleInput.sequence = 1u;
+    staleInput.payloadSize = 0u;
+    InputFrame staleContribution{};
+    staleContribution.frame = staleInput.frame;
+    REQUIRE(host.injectInputFrameForTests(staleInput, staleContribution));
+    REQUIRE(host.session().roomState().staleInputPacketCount > 0u);
+
+    Netplay::FrameStatusData staleStatus{};
+    staleStatus.timelineEpoch = activeEpoch - 1u;
+    staleStatus.currentFrame = 121u;
+    staleStatus.lastConfirmedFrame = 121u;
+    staleStatus.inputDelayFrames = host.session().roomState().inputDelayFrames;
+    staleStatus.predictFrames = host.session().roomState().predictFrames;
+    staleStatus.topology = {};
+    REQUIRE(host.injectFrameStatusForTests(staleStatus));
+    REQUIRE(host.session().roomState().staleFrameStatusPacketCount > 0u);
+
+    Netplay::CrcReportData staleCrc{};
+    staleCrc.timelineEpoch = activeEpoch - 1u;
+    staleCrc.frame = 121u;
+    staleCrc.crc32 = 0x11112222u;
+    staleCrc.severity = Netplay::DesyncSeverity::NoIssue;
+    REQUIRE(host.injectCrcReportForTests(staleCrc));
+    REQUIRE(host.session().roomState().staleCrcPacketCount > 0u);
+
+    const uint32_t acceptedEpochBeforeStaleAck = host.session().roomState().lastAcceptedRemoteEpoch;
+    Netplay::InputAckData staleAck{};
+    staleAck.timelineEpoch = activeEpoch - 1u;
+    staleAck.participantId = host.localParticipantId();
+    staleAck.playerSlot = Netplay::kPort1PlayerSlot;
+    staleAck.contiguousFrame = 121u;
+    REQUIRE(host.injectInputAckForTests(staleAck));
+    REQUIRE(host.session().roomState().lastAcceptedRemoteEpoch == acceptedEpochBeforeStaleAck);
+
+    Netplay::ResyncAckData successAck{};
+    successAck.resyncId = host.session().roomState().activeResyncId;
+    successAck.participantId = client.localParticipantId();
+    successAck.loadedFrame = 120u;
+    successAck.crc32 = 0x13579BDFu;
+    successAck.success = 1u;
+    REQUIRE(host.injectResyncAckForTests(successAck));
+    REQUIRE(host.session().roomState().recoveryInputMode == Netplay::RecoveryInputMode::PostResyncStabilizing);
+
+    const uint32_t staleInputCountBefore = host.session().roomState().staleInputPacketCount;
+    staleInput.sequence = 2u;
+    REQUIRE(host.injectInputFrameForTests(staleInput, staleContribution));
+    REQUIRE(host.session().roomState().staleInputPacketCount > staleInputCountBefore);
+
+    host.disconnect();
+    client.disconnect();
+}
+
+TEST_CASE("Netplay coordinator schedules a single controlled resync retry when stabilization fails",
+          "[netplay][coordinator][recovery][stabilization]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        const uint16_t port = reserveLoopbackPort();
+        host.disconnect();
+        client.disconnect();
+        if(!host.host(port, 1, "Host")) continue;
+        if(!client.join("127.0.0.1", port, "Client")) continue;
+        hosted = true;
+    }
+    REQUIRE(hosted);
+
+    auto pump = [&]() {
+        for(int i = 0; i < 4; ++i) {
+            host.update(1);
+            client.update(1);
+        }
+    };
+
+    for(uint32_t step = 0; step < 2000u; ++step) {
+        pump();
+        const bool connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(connected) break;
+    }
+    REQUIRE(host.isConnected());
+    REQUIRE(client.isConnected());
+
+    host.setLocalSimulationFrame(200u);
+    const std::vector<uint8_t> payload = {7u, 8u, 9u, 10u};
+    REQUIRE(host.beginResync(200u, payload, 0u, 0xCAFEBABEu, Netplay::ResyncReason::ManualForce));
+
+    Netplay::ResyncAckData successAck{};
+    successAck.resyncId = host.session().roomState().activeResyncId;
+    successAck.participantId = client.localParticipantId();
+    successAck.loadedFrame = 200u;
+    successAck.crc32 = 0xCAFEBABEu;
+    successAck.success = 1u;
+    REQUIRE(host.injectResyncAckForTests(successAck));
+    REQUIRE(host.session().roomState().recoveryInputMode == Netplay::RecoveryInputMode::PostResyncStabilizing);
+
+    for(uint32_t frame = 201u; frame < 380u; ++frame) {
+        host.setLocalSimulationFrame(frame);
+    }
+
+    const std::optional<Netplay::FrameNumber> firstRetry = host.consumePendingHostResyncFrame();
+    REQUIRE(firstRetry.has_value());
+    REQUIRE(host.session().roomState().stabilizationRetryCount == 1u);
+    REQUIRE(host.session().roomState().state == Netplay::SessionState::Paused);
+
+    for(uint32_t frame = 380u; frame < 520u; ++frame) {
+        host.setLocalSimulationFrame(frame);
+    }
+    const std::optional<Netplay::FrameNumber> secondRetry = host.consumePendingHostResyncFrame();
+    REQUIRE_FALSE(secondRetry.has_value());
+
+    REQUIRE(anyLogLineContains(host.eventLog(), "scheduling controlled retry"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Netplay runtime flow stays deterministic under sparse network pumping", "[netplay][runtime][sparse-pump]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -3358,6 +3533,77 @@ TEST_CASE("Netplay runtime manual resync performs immediate post-resync CRC veri
             report.at("host").at("lastLoadedAuthoritativeFrame").get<uint32_t>());
     REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() >=
             report.at("client").at("lastLoadedAuthoritativeFrame").get<uint32_t>());
+}
+
+TEST_CASE("Netplay runtime drops host input spam during resync and avoids resync cascade",
+          "[netplay][runtime][resync][input-lock]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 190;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceManualResyncFrame = 44;
+    options.spamHostInputDuringResync = true;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_resync_host_spam_input_lock.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
+    REQUIRE(report.at("host").at("recoveryModeTransitionCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("recoveryInputModeLabel").get<std::string>() == "Normal");
+}
+
+TEST_CASE("Netplay runtime drops host/client input spam during resync and converges",
+          "[netplay][runtime][resync][input-lock][both]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 200;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceManualResyncFrame = 44;
+    options.spamHostInputDuringResync = true;
+    options.spamClientInputDuringResync = true;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_resync_both_spam_input_lock.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
+    REQUIRE(report.at("host").at("recoveryModeTransitionCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("recoveryModeTransitionCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("recoveryInputModeLabel").get<std::string>() == "Normal");
+    REQUIRE(report.at("client").at("recoveryInputModeLabel").get<std::string>() == "Normal");
 }
 
 TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnostics", "[netplay][runtime][diagnostics][resync]")

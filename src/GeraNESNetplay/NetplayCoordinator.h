@@ -211,6 +211,16 @@ private:
     void discardTimelineStateAfter(FrameNumber frame);
     void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void scheduleResyncRetry(FrameNumber targetFrame, const std::string& reason);
+    static const char* recoveryInputModeLabel(RecoveryInputMode mode);
+    void setRecoveryInputMode(RecoveryInputMode mode,
+                              const char* reason,
+                              FrameNumber frameContext,
+                              uint32_t stabilizationFrames = 0);
+    void noteDroppedGameplayInputDuringRecovery(const char* source,
+                                                FrameNumber frame,
+                                                ParticipantId participantId,
+                                                PlayerSlot slot);
+    void advanceRecoveryStabilization(FrameNumber observedFrame);
 
 public:
     NetplayCoordinator();

@@ -71,6 +71,8 @@ public:
         uint32_t reconnectReservationSecondsForTests = 0;
         uint32_t hostSaveStateFrame = 0;
         uint32_t hostDisconnectFrame = 0;
+        bool spamHostInputDuringResync = false;
+        bool spamClientInputDuringResync = false;
         bool reconnectDuringResync = false;
         bool expectReconnectReservationExpiry = false;
         bool robust = false;
@@ -1270,6 +1272,14 @@ private:
                 default: return "Unknown";
             }
         };
+        const auto recoveryInputModeLabel = [&]() -> const char* {
+            switch(snapshot.room.recoveryInputMode) {
+                case Netplay::RecoveryInputMode::Normal: return "Normal";
+                case Netplay::RecoveryInputMode::ResyncLocked: return "ResyncLocked";
+                case Netplay::RecoveryInputMode::PostResyncStabilizing: return "PostResyncStabilizing";
+                default: return "Unknown";
+            }
+        };
 
         uint32_t inputBufferSize = 0;
         uint32_t futureBufferedFrames = 0;
@@ -1362,6 +1372,12 @@ private:
             {"activeResyncId", snapshot.room.activeResyncId},
             {"activeResyncReason", static_cast<int>(snapshot.room.activeResyncReason)},
             {"activeResyncReasonLabel", activeResyncReasonLabel()},
+            {"recoveryInputMode", static_cast<int>(snapshot.room.recoveryInputMode)},
+            {"recoveryInputModeLabel", recoveryInputModeLabel()},
+            {"recoveryModeTransitionCount", snapshot.room.recoveryModeTransitionCount},
+            {"inputsDroppedDuringRecovery", snapshot.room.inputsDroppedDuringRecovery},
+            {"stabilizationFramesRemaining", snapshot.room.stabilizationFramesRemaining},
+            {"stabilizationCrcPassCount", snapshot.room.stabilizationCrcPassCount},
             {"pendingResyncAckCount", snapshot.room.pendingResyncAckCount},
             {"resyncTargetFrame", snapshot.room.resyncTargetFrame},
             {"resyncConfirmedFrame", snapshot.room.resyncConfirmedFrame},
@@ -1995,6 +2011,32 @@ private:
                 clientFrame,
                 std::max<uint32_t>(1u, clientPeer.emu.getRegionFPS())
             );
+            const bool hostInRecoveryWindow =
+                hostLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                hostLoopSnapshot.room.activeResyncId != 0u;
+            const bool clientInRecoveryWindow =
+                clientLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                clientLoopSnapshot.room.activeResyncId != 0u;
+            Buttons effectiveHostButtons = hostButtons;
+            Buttons effectiveClientButtons = clientButtons;
+            if(options.spamHostInputDuringResync && hostInRecoveryWindow) {
+                const bool pulse = ((hostFrame + step) & 1u) == 0u;
+                effectiveHostButtons = {};
+                effectiveHostButtons.a = pulse;
+                effectiveHostButtons.b = !pulse;
+                effectiveHostButtons.left = pulse;
+                effectiveHostButtons.right = !pulse;
+                effectiveHostButtons.start = ((hostFrame + step) % 3u) == 0u;
+            }
+            if(options.spamClientInputDuringResync && clientInRecoveryWindow) {
+                const bool pulse = ((clientFrame + step) & 1u) == 0u;
+                effectiveClientButtons = {};
+                effectiveClientButtons.a = !pulse;
+                effectiveClientButtons.b = pulse;
+                effectiveClientButtons.up = pulse;
+                effectiveClientButtons.down = !pulse;
+                effectiveClientButtons.select = ((clientFrame + step) % 3u) == 1u;
+            }
             if(options.hostControllerAndZapperObserverScenario) {
                 hostPeer.runtime.updateLatestInputState(
                     buildDuckHuntLikeRuntimeInputState(hostFrame, std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()))
@@ -2003,13 +2045,13 @@ private:
             } else {
                 hostPeer.runtime.updateLatestInputState(
                     hostLocalSlot.has_value()
-                        ? buildRuntimeInputStateForSlot(*hostLocalSlot, hostButtons)
+                        ? buildRuntimeInputStateForSlot(*hostLocalSlot, effectiveHostButtons)
                         : IEmulationHost::InputState{}
                 );
                 clientPeer.runtime.updateLatestInputState(
                     options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
                         ? IEmulationHost::InputState{}
-                        : buildRuntimeInputStateForSlot(*clientLocalSlot, clientButtons)
+                        : buildRuntimeInputStateForSlot(*clientLocalSlot, effectiveClientButtons)
                 );
             }
             if((step % hostStepStride) == 0u) {
