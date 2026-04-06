@@ -508,6 +508,7 @@ add_executable(GeraNESTests
     tests/StateReplayTests.cpp
     tests/ResimulationTests.cpp
     tests/NetplayTests.cpp
+    tests/SuspendTests.cpp
 )
 target_compile_features(GeraNESTests PUBLIC cxx_std_20)
 target_include_directories(GeraNESTests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")

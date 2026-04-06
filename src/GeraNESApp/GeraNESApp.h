@@ -1818,6 +1818,7 @@ public:
         
         #ifdef __EMSCRIPTEN__
             emcriptenRegisterAudioReset(reinterpret_cast<intptr_t>(this));
+            emcriptenRegisterNetplayVisibility(reinterpret_cast<intptr_t>(this));
         #endif
         
     }
@@ -1896,6 +1897,24 @@ public:
 
     void onSessionImportComplete() {
         syncSettings();
+    }
+
+    void onNetplayParticipantSuspended() {
+#ifdef __EMSCRIPTEN__
+        // Notificar o coordenador de netplay que este participante foi suspenso
+        if(m_netplayRuntime.isActive()) {
+            m_netplayRuntime.notifyParticipantSuspended();
+        }
+#endif
+    }
+
+    void onNetplayParticipantActive() {
+#ifdef __EMSCRIPTEN__
+        // Notificar o coordenador de netplay que este participante está ativo novamente
+        if(m_netplayRuntime.isActive()) {
+            m_netplayRuntime.notifyParticipantActive();
+        }
+#endif
     }
 
 #endif

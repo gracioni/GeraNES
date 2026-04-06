@@ -149,6 +149,8 @@ private:
     std::vector<uint8_t> buildResyncAckPacket(const ResyncAckData& data) const;
     std::vector<uint8_t> buildResyncAbortPacket(const ResyncAbortData& data) const;
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
+    std::vector<uint8_t> buildParticipantSuspendedPacket(const ParticipantSuspendedData& data, uint32_t sessionId) const;
+    std::vector<uint8_t> buildParticipantActivePacket(const ParticipantActiveData& data, uint32_t sessionId) const;
     bool handleControlPacket(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload);
     bool handleJoinRoom(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleJoinRejected(PacketReader& reader);
@@ -163,6 +165,8 @@ private:
     bool handleResyncAck(PacketReader& reader);
     bool handleResyncAbort(PacketReader& reader);
     bool handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleParticipantSuspended(PacketReader& reader);
+    bool handleParticipantActive(PacketReader& reader);
     bool handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
     bool handleInputAck(PacketReader& reader);
@@ -258,6 +262,13 @@ public:
     void setReconnectReservationDurationForTests(uint32_t seconds);
     void setLocalEmulatorVersionForTests(const std::string& version);
     void simulateTransportFailureForTests();
+
+    // Suspensão/ativação de participante (Emscripten visibility)
+    void notifyParticipantSuspended();
+    void notifyParticipantActive();
+    
+    // Host: iniciar resync para participante que retornou de suspensão
+    bool beginParticipantResync(ParticipantId participantId);
     bool injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution);
     bool injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data);
     bool injectInputAckForTests(const InputAckData& ack);

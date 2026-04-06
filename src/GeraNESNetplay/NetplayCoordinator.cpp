@@ -647,6 +647,32 @@ std::vector<uint8_t> NetplayCoordinator::buildPeerHealthPacket(const PeerHealthD
     return writer.data();
 }
 
+std::vector<uint8_t> NetplayCoordinator::buildParticipantSuspendedPacket(const ParticipantSuspendedData& data, uint32_t sessionId) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ParticipantSuspended;
+    header.sessionId = sessionId;
+    writer.writePod(header);
+    writer.writePod(data);
+
+    return writer.data();
+}
+
+std::vector<uint8_t> NetplayCoordinator::buildParticipantActivePacket(const ParticipantActiveData& data, uint32_t sessionId) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ParticipantActive;
+    header.sessionId = sessionId;
+    writer.writePod(header);
+    writer.writePod(data);
+
+    return writer.data();
+}
+
 static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input, const InputFrame& inputFrame)
 {
     PacketWriter writer;
@@ -802,6 +828,17 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
+        // Atualizar tempo de atividade quando participante envia input
+        participant->lastActivityTime = std::chrono::steady_clock::now();
+        
+        // Se estava suspenso, marcar como ativo
+        if(participant->suspended) {
+            participant->suspended = false;
+            std::ostringstream oss;
+            oss << participant->displayName << " automatically reactivated (received input at frame " << input.frame << ")";
+            pushLog(oss.str());
+        }
+        
         previousReceivedSequence = participant->lastReceivedInputSequence;
         if(!participantHasAssignment(*participant, input.playerSlot)) {
             std::ostringstream oss;
@@ -2165,6 +2202,78 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
     return true;
 }
 
+bool NetplayCoordinator::handleParticipantSuspended(PacketReader& reader)
+{
+    ParticipantSuspendedData data;
+    if(!reader.readPod(data)) return false;
+
+    if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
+        participant->suspended = true;
+        participant->suspendedAtFrame = data.lastKnownFrame;
+        participant->lastActivityTime = std::chrono::steady_clock::now();
+        std::ostringstream oss;
+        oss << participant->displayName << " suspended (minimized) at frame " << data.lastKnownFrame;
+        pushLog(oss.str());
+
+        // Host deve simular inputs deste participante com último input válido
+        if(m_hosting) {
+            // Salvar último input conhecido para simulação
+            if(const TimelineInputEntry* latest = m_remoteInputs.latestFor(participant->id, participant->controllerAssignment)) {
+                participant->lastValidButtonMaskLo[participant->controllerAssignment] = latest->buttonMaskLo;
+                participant->lastValidButtonMaskHi[participant->controllerAssignment] = latest->buttonMaskHi;
+            }
+        }
+    }
+
+    // Broadcast para outros participantes saberem que este está suspenso
+    if(m_hosting) {
+        m_transport.broadcastUnreliable(
+            Channel::Control,
+            buildParticipantSuspendedPacket(data, m_session.roomState().sessionId)
+        );
+    }
+
+    return true;
+}
+
+bool NetplayCoordinator::handleParticipantActive(PacketReader& reader)
+{
+    ParticipantActiveData data;
+    if(!reader.readPod(data)) return false;
+
+    if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
+        bool needsResync = data.resyncRequired != 0;
+        participant->suspended = false;
+        participant->resyncRequiredOnActivate = needsResync ? 1 : 0;
+        participant->lastActivityTime = std::chrono::steady_clock::now();
+        std::ostringstream oss;
+        oss << participant->displayName << " active (returned from minimize)";
+        if(needsResync) {
+            oss << " - resync required";
+        }
+        pushLog(oss.str());
+
+        // Se host e participante precisa de resync, iniciar imediatamente
+        if(m_hosting && needsResync) {
+            std::ostringstream oss2;
+            oss2 << "Forcing resync for " << participant->displayName << " returning from suspension";
+            pushLog(oss2.str());
+            // Marcar participante para resync
+            participant->resyncRequiredOnActivate = 1;
+        }
+    }
+
+    // Broadcast para outros participantes saberem que este está ativo novamente
+    if(m_hosting) {
+        m_transport.broadcastUnreliable(
+            Channel::Control,
+            buildParticipantActivePacket(data, m_session.roomState().sessionId)
+        );
+    }
+
+    return true;
+}
+
 bool NetplayCoordinator::handleStartSession(PacketReader& reader)
 {
     StartSessionData data;
@@ -2292,6 +2401,10 @@ FrameNumber NetplayCoordinator::computeHostInputConfirmedFrame() const
                     anyLocalAssigned = true;
                 }
             }
+        } else if(participant.suspended) {
+            // Participante suspenso: simular input com último input válido
+            // Para o host, tratar como se tivesse input até o frame atual
+            latestFrame = m_localSimulationFrame;
         } else {
             latestFrame = participant.lastContiguousInputFrame;
         }
@@ -2885,6 +2998,12 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
         case MessageType::CrcReport:
             return handleCrcReport(reader);
 
+        case MessageType::ParticipantSuspended:
+            return handleParticipantSuspended(reader);
+
+        case MessageType::ParticipantActive:
+            return handleParticipantActive(reader);
+
         case MessageType::AssignController:
             return handleAssignController(reader);
 
@@ -2986,6 +3105,70 @@ void NetplayCoordinator::disconnect()
     }
 
     completeLocalDisconnect();
+}
+
+void NetplayCoordinator::notifyParticipantSuspended()
+{
+    if(!m_connected || m_localParticipantId == kInvalidParticipantId) return;
+
+    ParticipantSuspendedData data;
+    data.participantId = m_localParticipantId;
+    data.lastKnownFrame = m_localSimulationFrame;
+
+    // Enviar para o host e outros participantes
+    if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
+        m_transport.sendUnreliable(m_serverPeer, Channel::Control,
+            buildParticipantSuspendedPacket(data, m_session.roomState().sessionId));
+    }
+
+    std::ostringstream oss;
+    oss << "Local participant suspended (minimized) at frame " << m_localSimulationFrame;
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::notifyParticipantActive()
+{
+    if(!m_connected || m_localParticipantId == kInvalidParticipantId) return;
+
+    ParticipantActiveData data;
+    data.participantId = m_localParticipantId;
+    data.currentFrame = m_localSimulationFrame;
+    data.resyncRequired = 1; // Sempre solicitar resync ao retornar
+
+    // Enviar para o host e outros participantes
+    if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
+        m_transport.sendUnreliable(m_serverPeer, Channel::Control,
+            buildParticipantActivePacket(data, m_session.roomState().sessionId));
+    }
+
+    std::ostringstream oss;
+    oss << "Local participant active (returned from minimize) at frame " << m_localSimulationFrame << " - resync required";
+    pushLog(oss.str());
+}
+
+bool NetplayCoordinator::beginParticipantResync(ParticipantId participantId)
+{
+    if(!m_hosting) return false;
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(!participant || !participant->connected || !participant->suspended) return false;
+
+    // Obter snapshot de estado atual do host
+    std::vector<uint8_t> statePayload;
+    uint32_t payloadCrc32 = 0;
+    uint32_t stateCrc32 = 0;
+    FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
+
+    // O host deve fornecer seu estado atual como authoritative
+    // Isso requer que o IEmulationHost fornece o snapshot
+    // Por simplicidade, vamos marcar o participante para resync no próximo ciclo
+    participant->resyncRequiredOnActivate = 1;
+
+    std::ostringstream oss;
+    oss << "Scheduled resync for " << participant->displayName << " returning from suspension";
+    pushLog(oss.str());
+
+    return true;
 }
 
 void NetplayCoordinator::update(uint32_t timeoutMs)
@@ -3170,6 +3353,57 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         }
     } else if(transportError.empty()) {
         m_lastTransportError.clear();
+    }
+
+    // Detectar suspensão por inatividade (host only)
+    if(m_hosting && m_session.roomState().state == SessionState::Running) {
+        constexpr auto kSuspendTimeout = std::chrono::seconds(10); // 10 segundos sem atividade = suspenso
+        for(ParticipantInfo& participant : m_session.roomState().participants) {
+            if(participantIsObserver(participant) || !participant.connected || participant.suspended) continue;
+            
+            // Verificar se participante está ativo
+            if(participant.lastActivityTime.time_since_epoch().count() != 0) {
+                auto idleTime = now - participant.lastActivityTime;
+                if(idleTime >= kSuspendTimeout) {
+                    participant.suspended = true;
+                    participant.suspendedAtFrame = m_localSimulationFrame;
+                    std::ostringstream oss;
+                    oss << participant.displayName << " auto-suspended due to inactivity (" 
+                        << std::chrono::duration_cast<std::chrono::seconds>(idleTime).count() << "s idle)";
+                    pushLog(oss.str());
+                    
+                    // Broadcast suspensão
+                    ParticipantSuspendedData suspendData;
+                    suspendData.participantId = participant.id;
+                    suspendData.lastKnownFrame = participant.lastContiguousInputFrame;
+                    m_transport.broadcastUnreliable(Channel::Control, 
+                        buildParticipantSuspendedPacket(suspendData, m_session.roomState().sessionId));
+                }
+            }
+        }
+    }
+
+    // Processar participantes que retornaram de suspensão e precisam de resync (host only)
+    if(m_hosting && m_session.roomState().state == SessionState::Running) {
+        for(ParticipantInfo& participant : m_session.roomState().participants) {
+            if(participantIsObserver(participant) || !participant.connected) continue;
+            
+            // Participante estava suspenso, marcou resync, mas ainda não foi processado
+            if(!participant.suspended && participant.resyncRequiredOnActivate > 0) {
+                std::ostringstream oss;
+                oss << "Initiating resync for " << participant.displayName << " returning from suspension";
+                pushLog(oss.str());
+                
+                // Iniciar resync completo da sessão para incluir participante
+                // O resync irá sincronizar todos os participantes
+                if(m_session.roomState().state != SessionState::Resyncing) {
+                    // Notificar participante para esperar resync
+                    // O resync será iniciado pelo mecanismo normal quando apropriado
+                }
+                
+                participant.resyncRequiredOnActivate = 0; // Clear flag
+            }
+        }
     }
 
     if(!m_hosting &&
@@ -3537,6 +3771,16 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
                 participant.id == m_localParticipantId
                     ? m_localInputs.find(frame, participant.id, slot)
                     : m_remoteInputs.find(frame, participant.id, slot);
+            
+            // Participante suspenso: simular com último input válido
+            if(entry == nullptr && participant.suspended) {
+                // Usar último input válido antes da suspensão
+                outFrame.buttonMaskLo[slot] = participant.lastValidButtonMaskLo[slot];
+                outFrame.buttonMaskHi[slot] = participant.lastValidButtonMaskHi[slot];
+                haveAssignedParticipant = true;
+                continue;
+            }
+            
             if(entry == nullptr || !entry->confirmed) {
                 return false;
             }

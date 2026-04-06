@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -48,6 +49,14 @@ struct ParticipantInfo
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
     std::string lastDecision;
+
+    // Estado de suspensão para quando participante minimiza a aba
+    bool suspended = false;
+    FrameNumber suspendedAtFrame = 0;
+    uint64_t lastValidButtonMaskLo[kMaxAssignedPlayerSlot + 1] = {};
+    uint64_t lastValidButtonMaskHi[kMaxAssignedPlayerSlot + 1] = {};
+    std::chrono::steady_clock::time_point lastActivityTime = {};
+    uint32_t resyncRequiredOnActivate = 0;
 
     void normalizeControllerAssignments()
     {

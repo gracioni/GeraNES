@@ -37,6 +37,8 @@ enum class MessageType : uint16_t
     PauseSession,
     ResumeSession,
     EndSession,
+    ParticipantSuspended,
+    ParticipantActive,
 
     InputFrame = 100,
     ConfirmedInputFrames,
@@ -194,6 +196,19 @@ struct StartSessionData
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
     InputTopologyData topology = {};
+};
+
+struct ParticipantSuspendedData
+{
+    ParticipantId participantId = kInvalidParticipantId;
+    FrameNumber lastKnownFrame = 0;
+};
+
+struct ParticipantActiveData
+{
+    ParticipantId participantId = kInvalidParticipantId;
+    FrameNumber currentFrame = 0;
+    uint32_t resyncRequired = 0; // 1 = participante precisa de resync
 };
 
 struct PeerHealthData

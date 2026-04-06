@@ -17,7 +17,15 @@ extern "C" {
 
     void EMSCRIPTEN_KEEPALIVE onSessionImportComplete(intptr_t handler) {
         reinterpret_cast<GeraNESApp*>(handler)->onSessionImportComplete();
-    }   
+    }
+
+    void EMSCRIPTEN_KEEPALIVE onNetplayParticipantSuspended(intptr_t handler) {
+        reinterpret_cast<GeraNESApp*>(handler)->onNetplayParticipantSuspended();
+    }
+
+    void EMSCRIPTEN_KEEPALIVE onNetplayParticipantActive(intptr_t handler) {
+        reinterpret_cast<GeraNESApp*>(handler)->onNetplayParticipantActive();
+    }
 
 }
 

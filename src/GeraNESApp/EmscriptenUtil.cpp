@@ -120,6 +120,71 @@ void emcriptenRegisterAudioReset(intptr_t handler)
     }, handler);
 }
 
+void emcriptenRegisterNetplayVisibility(intptr_t handler)
+{
+    EM_ASM({
+        var handler = Number($0);
+        function resolveCcall() {
+            if (typeof ccall === 'function') return ccall;
+            if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
+            return null;
+        }
+        function notifySuspended() {
+            var ccallFn = resolveCcall();
+            if (!ccallFn) return;
+            try {
+                ccallFn(
+                    'onNetplayParticipantSuspended',
+                    null,
+                    ['number'],
+                    [handler]
+                );
+                console.log("Netplay participant suspended");
+            } catch (e) {
+                console.error("Failed to call onNetplayParticipantSuspended:", e);
+            }
+        }
+        function notifyActive() {
+            var ccallFn = resolveCcall();
+            if (!ccallFn) return;
+            try {
+                ccallFn(
+                    'onNetplayParticipantActive',
+                    null,
+                    ['number'],
+                    [handler]
+                );
+                console.log("Netplay participant active");
+            } catch (e) {
+                console.error("Failed to call onNetplayParticipantActive:", e);
+            }
+        }
+
+        // Register only once
+        if (!window.__geranes_netplay_visibility_registered) {
+            window.__geranes_netplay_visibility_registered = true;
+
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'hidden') {
+                    // Aba minimizada ou oculta
+                    notifySuspended();
+                } else if (document.visibilityState === 'visible') {
+                    // Aba visível novamente
+                    notifyActive();
+                }
+            });
+
+            window.addEventListener('blur', function () { {
+                // Janela perdeu foco (pode indicar minimização)
+                // Não suspender imediatamente, esperar timeout do host
+            }});
+
+            console.log("Netplay visibility listeners installed for handler:", handler);
+        }
+
+    }, handler);
+}
+
 void emcriptenImportSession(intptr_t handler) {
 
     EM_ASM({

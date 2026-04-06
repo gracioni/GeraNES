@@ -430,6 +430,8 @@ public:
                                    const std::vector<PlayerSlot>& slots);
     void kickParticipant(ParticipantId participantId);
     void removeReconnectReservation(ParticipantId participantId);
+    void notifyParticipantSuspended();
+    void notifyParticipantActive();
     void requestForceResync();
     void shutdown();
     void runOnEmulationThread(GeraNESEmu& emu);
@@ -1464,6 +1466,20 @@ inline void NetplayAppRuntime::removeReconnectReservation(ParticipantId particip
 {
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu&) {
         self.m_coordinator.removeReconnectReservation(participantId);
+    });
+}
+
+inline void NetplayAppRuntime::notifyParticipantSuspended()
+{
+    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.notifyParticipantSuspended();
+    });
+}
+
+inline void NetplayAppRuntime::notifyParticipantActive()
+{
+    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.notifyParticipantActive();
     });
 }
 
