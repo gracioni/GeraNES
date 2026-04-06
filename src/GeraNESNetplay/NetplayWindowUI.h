@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
@@ -649,6 +650,15 @@ inline void drawNetplayWindow(bool& showWindow,
 
     const float participantRowHeight = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().FramePadding.y * 2.0f;
     const float participantsTableHeight = participantRowHeight * 4.0f;
+    std::vector<const ParticipantInfo*> sortedParticipants;
+    sortedParticipants.reserve(room.participants.size());
+    for(const auto& participant : room.participants) {
+        sortedParticipants.push_back(&participant);
+    }
+    std::sort(sortedParticipants.begin(), sortedParticipants.end(),
+              [](const ParticipantInfo* lhs, const ParticipantInfo* rhs) {
+                  return lhs->id < rhs->id;
+              });
     if(ImGui::BeginTable("NetplayParticipants",
                          7,
                          ImGuiTableFlags_Borders |
@@ -665,7 +675,8 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableHeadersRow();
 
-        for(const auto& participant : room.participants) {
+        for(const ParticipantInfo* participantPtr : sortedParticipants) {
+            const ParticipantInfo& participant = *participantPtr;
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::Text("%d", static_cast<int>(participant.id));
