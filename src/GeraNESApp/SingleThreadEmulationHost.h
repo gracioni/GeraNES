@@ -460,6 +460,16 @@ public:
     {
         resetFreeRunningPacing();
         const bool opened = m_emu.open(path);
+        if(opened) {
+            const uint32_t bootstrapFrame = m_emu.frameCount();
+            ReplayFrameInput bootstrapInput;
+            if(m_frameInputResolver && m_frameInputResolver(bootstrapFrame, bootstrapInput)) {
+                queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput);
+            } else {
+                InputFrame frame = buildInputFrameForEmu(m_emu, bootstrapFrame, m_pendingInput);
+                m_emu.queueInputFrame(frame);
+            }
+        }
         refreshPresentedFramebuffer();
         return opened;
     }

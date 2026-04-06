@@ -134,6 +134,8 @@ private:
     bool m_currentPlaybackFrameRenderedAudibly = false;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
+    bool m_currentFrameInputLocked = false;
+    InputFrame m_lockedPlaybackInputFrame;
 
     Rewind m_rewind;
     NsfPlayer m_nsfPlayer;
@@ -810,7 +812,13 @@ private:
         m_nsfPlayer.onFrameStart();
         updateCyclesPerSecond();        
         
-        if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch); inputFrame != nullptr) {
+        if(m_currentFrameInputLocked &&
+           m_lockedPlaybackInputFrame.frame == m_frameCounter &&
+           m_lockedPlaybackInputFrame.timelineEpoch == m_inputTimelineEpoch) {
+            applyInputFrame(m_lockedPlaybackInputFrame);
+            m_lastAppliedInputFrame = m_lockedPlaybackInputFrame;
+        } else if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
+                  inputFrame != nullptr) {
             applyInputFrame(*inputFrame);
             m_lastAppliedInputFrame = *inputFrame;
         }
@@ -820,6 +828,7 @@ private:
 
     void onFrameReady() {
         ++m_frameCounter;
+        m_currentFrameInputLocked = false;
     }
 
     void onPPUScanlineStart()
@@ -887,6 +896,8 @@ private:
         m_applyingPendingNsfActions = false;
         m_forceSilentAudio = false;
         m_currentPlaybackFrameRenderedAudibly = false;
+        m_currentFrameInputLocked = false;
+        m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
     }
 
     void processDeferredNetplaySnapshot()
@@ -953,10 +964,20 @@ private:
                                           bool silentAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
-        const InputFrame* inputFrame = m_inputBuffer.findByFrame(playbackFrame, m_inputTimelineEpoch);
-        if(inputFrame == nullptr) {
-            return false;
+        if(!m_currentFrameInputLocked ||
+           m_lockedPlaybackInputFrame.frame != playbackFrame ||
+           m_lockedPlaybackInputFrame.timelineEpoch != m_inputTimelineEpoch) {
+            const InputFrame* queuedInput = m_inputBuffer.findByFrame(playbackFrame, m_inputTimelineEpoch);
+            if(queuedInput == nullptr) {
+                return false;
+            }
+            m_lockedPlaybackInputFrame = *queuedInput;
+            if(!m_inputBuffer.markConsumed(playbackFrame, m_inputTimelineEpoch)) {
+                return false;
+            }
+            m_currentFrameInputLocked = true;
         }
+        const InputFrame* inputFrame = &m_lockedPlaybackInputFrame;
         const bool playbackFrameAlreadyRenderedAudibly =
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
@@ -1184,7 +1205,8 @@ public:
         m_frameCounter = 0;
         m_inputBuffer.clear();
         m_lastAppliedInputFrame = makeDefaultInputFrame(0);
-        m_inputBuffer.push(m_lastAppliedInputFrame);
+        m_currentFrameInputLocked = false;
+        m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
@@ -1195,6 +1217,8 @@ public:
         m_netplayLoadStateCleanBoot = false;
         m_netplayLoadStateData.clear();
         m_netplayLoadStateResult.reset();
+        m_currentFrameInputLocked = false;
+        m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
         m_runningLoop = false;
         m_speedBoost = false;
         m_paused = false;
@@ -1418,7 +1442,8 @@ public:
 
             m_inputBuffer.clear();
             m_lastAppliedInputFrame = makeDefaultInputFrame(0);
-            m_inputBuffer.push(m_lastAppliedInputFrame);
+            m_currentFrameInputLocked = false;
+            m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
 
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_cartridge.reset();
@@ -2012,9 +2037,47 @@ public:
         return makeDefaultInputFrame(frame);
     }
 
-    void queueInputFrame(const InputFrame& inputFrame)
+    InputBuffer::EnqueueResult queueInputFrame(const InputFrame& inputFrame)
     {
-        m_inputBuffer.push(inputFrame);
+        if(inputFrame.timelineEpoch != m_inputTimelineEpoch) {
+            Logger::instance().log(
+                "Rejected input enqueue due to timeline epoch mismatch: frame=" + std::to_string(inputFrame.frame),
+                Logger::Type::WARNING
+            );
+            return InputBuffer::EnqueueResult::RejectedEpoch;
+        }
+        if(inputFrame.frame < m_frameCounter) {
+            Logger::instance().log(
+                "Rejected input enqueue for consumed frame: frame=" + std::to_string(inputFrame.frame) +
+                " currentFrame=" + std::to_string(m_frameCounter),
+                Logger::Type::WARNING
+            );
+            return InputBuffer::EnqueueResult::RejectedConsumed;
+        }
+        if(inputFrame.frame == m_frameCounter && m_currentFrameInputLocked) {
+            Logger::instance().log(
+                "Rejected input enqueue for locked current frame: frame=" + std::to_string(inputFrame.frame),
+                Logger::Type::WARNING
+            );
+            return InputBuffer::EnqueueResult::RejectedConsumed;
+        }
+        const std::optional<uint32_t> latestQueued = m_inputBuffer.latestFrameForTimelineEpoch(m_inputTimelineEpoch);
+        if(!latestQueued.has_value() && inputFrame.frame != m_frameCounter) {
+            Logger::instance().log(
+                "Rejected out-of-sequence bootstrap input enqueue: frame=" + std::to_string(inputFrame.frame) +
+                " expected=" + std::to_string(m_frameCounter),
+                Logger::Type::WARNING
+            );
+            return InputBuffer::EnqueueResult::RejectedOutOfSequence;
+        }
+        const InputBuffer::EnqueueResult result = m_inputBuffer.push(inputFrame, m_inputTimelineEpoch);
+        if(result == InputBuffer::EnqueueResult::RejectedConsumed) {
+            Logger::instance().log(
+                "Rejected input enqueue for consumed frame in InputBuffer: frame=" + std::to_string(inputFrame.frame),
+                Logger::Type::WARNING
+            );
+        }
+        return result;
     }
 
     void setInputTimelineEpoch(uint32_t timelineEpoch)
@@ -2023,6 +2086,8 @@ public:
         m_inputTimelineEpoch = timelineEpoch;
         m_inputBuffer.eraseFramesNotMatchingTimelineEpoch(timelineEpoch);
         m_lastAppliedInputFrame.timelineEpoch = timelineEpoch;
+        m_currentFrameInputLocked = false;
+        m_lockedPlaybackInputFrame.timelineEpoch = timelineEpoch;
     }
 
     uint32_t inputTimelineEpoch() const
@@ -2043,6 +2108,11 @@ public:
     const InputBuffer& inputBuffer() const
     {
         return m_inputBuffer;
+    }
+
+    InputBuffer::EnqueueCounters inputEnqueueCounters() const
+    {
+        return m_inputBuffer.enqueueCounters();
     }
 
     void discardQueuedInputFramesAfter(uint32_t frame)

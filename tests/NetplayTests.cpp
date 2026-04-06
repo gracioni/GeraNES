@@ -1010,17 +1010,22 @@ TEST_CASE("Netplay core advances only when the exact next numbered input frame e
 
     SECTION("future frames do not skip a missing intermediate frame")
     {
-        REQUIRE(emu.updateUntilFrame(frameDt));
-        REQUIRE(emu.frameCount() == 1u);
+        REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 0u);
 
         InputFrame frame3 = emu.createInputFrame(3u);
-        emu.queueInputFrame(frame3);
+        REQUIRE(emu.queueInputFrame(frame3) == InputBuffer::EnqueueResult::RejectedOutOfSequence);
+
+        InputFrame frame0 = emu.createInputFrame(0u);
+        REQUIRE(emu.queueInputFrame(frame0) == InputBuffer::EnqueueResult::Inserted);
+        REQUIRE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 1u);
 
         REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
         REQUIRE(emu.frameCount() == 1u);
 
         InputFrame frame1 = emu.createInputFrame(1u);
-        emu.queueInputFrame(frame1);
+        REQUIRE(emu.queueInputFrame(frame1) == InputBuffer::EnqueueResult::Inserted);
 
         REQUIRE(emu.updateUntilFrame(frameDt));
         REQUIRE(emu.frameCount() == 2u);
@@ -1029,7 +1034,7 @@ TEST_CASE("Netplay core advances only when the exact next numbered input frame e
         REQUIRE(emu.frameCount() == 2u);
 
         InputFrame frame2 = emu.createInputFrame(2u);
-        emu.queueInputFrame(frame2);
+        REQUIRE(emu.queueInputFrame(frame2) == InputBuffer::EnqueueResult::Inserted);
 
         REQUIRE(emu.updateUntilFrame(frameDt));
         REQUIRE(emu.frameCount() == 3u);
@@ -1037,11 +1042,17 @@ TEST_CASE("Netplay core advances only when the exact next numbered input frame e
 
     SECTION("simulation stops as soon as the next required numbered frame is absent")
     {
+        REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+        REQUIRE(emu.frameCount() == 0u);
+
+        InputFrame frame0 = emu.createInputFrame(0u);
+        REQUIRE(emu.queueInputFrame(frame0) == InputBuffer::EnqueueResult::Inserted);
+
         REQUIRE(emu.updateUntilFrame(frameDt));
         REQUIRE(emu.frameCount() == 1u);
 
         InputFrame frame1 = emu.createInputFrame(1u);
-        emu.queueInputFrame(frame1);
+        REQUIRE(emu.queueInputFrame(frame1) == InputBuffer::EnqueueResult::Inserted);
 
         REQUIRE(emu.updateUntilFrame(frameDt));
         REQUIRE(emu.frameCount() == 2u);
@@ -1050,7 +1061,7 @@ TEST_CASE("Netplay core advances only when the exact next numbered input frame e
         REQUIRE(emu.frameCount() == 2u);
 
         InputFrame frame2 = emu.createInputFrame(2u);
-        emu.queueInputFrame(frame2);
+        REQUIRE(emu.queueInputFrame(frame2) == InputBuffer::EnqueueResult::Inserted);
 
         REQUIRE(emu.updateUntilFrame(frameDt));
         REQUIRE(emu.frameCount() == 3u);
@@ -1090,6 +1101,114 @@ TEST_CASE("Netplay core rejects stale timeline epoch inputs after reanchor", "[n
 
     REQUIRE(emu.updateUntilFrame(frameDt));
     REQUIRE(emu.frameCount() == 2u);
+}
+
+TEST_CASE("Emulator input contract updates pending frames and rejects consumed frames", "[netplay][core][input-contract]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu emu(DummyAudioOutput::instance());
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.p1A = false;
+    REQUIRE(emu.queueInputFrame(frame0) == InputBuffer::EnqueueResult::Inserted);
+
+    InputFrame frame0Updated = emu.createInputFrame(0u);
+    frame0Updated.p1A = true;
+    REQUIRE(emu.queueInputFrame(frame0Updated) == InputBuffer::EnqueueResult::UpdatedPending);
+
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    InputFrame frame0Late = emu.createInputFrame(0u);
+    REQUIRE(emu.queueInputFrame(frame0Late) == InputBuffer::EnqueueResult::RejectedConsumed);
+
+    InputFrame frame1 = emu.createInputFrame(1u);
+    frame1.p1Start = false;
+    REQUIRE(emu.queueInputFrame(frame1) == InputBuffer::EnqueueResult::Inserted);
+
+    InputFrame frame1Updated = emu.createInputFrame(1u);
+    frame1Updated.p1Start = true;
+    REQUIRE(emu.queueInputFrame(frame1Updated) == InputBuffer::EnqueueResult::UpdatedPending);
+
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+
+    InputFrame frame1Late = emu.createInputFrame(1u);
+    REQUIRE(emu.queueInputFrame(frame1Late) == InputBuffer::EnqueueResult::RejectedConsumed);
+}
+
+TEST_CASE("InputBuffer enforces sequential frame enqueue per timeline epoch", "[netplay][core][input-contract][sequential]")
+{
+    InputBuffer buffer(32);
+
+    InputFrame frame10;
+    frame10.frame = 10u;
+    frame10.timelineEpoch = 7u;
+    REQUIRE(buffer.push(frame10, 7u) == InputBuffer::EnqueueResult::Inserted);
+
+    InputFrame frame12OutOfSequence;
+    frame12OutOfSequence.frame = 12u;
+    frame12OutOfSequence.timelineEpoch = 7u;
+    REQUIRE(buffer.push(frame12OutOfSequence, 7u) == InputBuffer::EnqueueResult::RejectedOutOfSequence);
+
+    InputFrame frame11;
+    frame11.frame = 11u;
+    frame11.timelineEpoch = 7u;
+    REQUIRE(buffer.push(frame11, 7u) == InputBuffer::EnqueueResult::Inserted);
+
+    InputFrame frame11Update = frame11;
+    frame11Update.p1A = true;
+    REQUIRE(buffer.push(frame11Update, 7u) == InputBuffer::EnqueueResult::UpdatedPending);
+
+    REQUIRE(buffer.markConsumed(11u, 7u));
+    REQUIRE(buffer.isConsumed(11u, 7u));
+
+    InputFrame frame11Late = frame11;
+    frame11Late.p1B = true;
+    REQUIRE(buffer.push(frame11Late, 7u) == InputBuffer::EnqueueResult::RejectedConsumed);
+
+    InputFrame wrongEpochFrame;
+    wrongEpochFrame.frame = 12u;
+    wrongEpochFrame.timelineEpoch = 8u;
+    REQUIRE(buffer.push(wrongEpochFrame, 7u) == InputBuffer::EnqueueResult::RejectedEpoch);
+
+    InputFrame frame12;
+    frame12.frame = 12u;
+    frame12.timelineEpoch = 7u;
+    REQUIRE(buffer.push(frame12, 7u) == InputBuffer::EnqueueResult::Inserted);
+    REQUIRE(buffer.markConsumed(12u, 7u));
+    REQUIRE(buffer.isConsumed(12u, 7u));
+
+    buffer.eraseFramesAfter(11u);
+    REQUIRE_FALSE(buffer.isConsumed(12u, 7u));
+    REQUIRE(buffer.findByFrame(12u, 7u) == nullptr);
+
+    InputFrame epoch7Frame12;
+    epoch7Frame12.frame = 12u;
+    epoch7Frame12.timelineEpoch = 7u;
+    REQUIRE(buffer.push(epoch7Frame12, 7u) == InputBuffer::EnqueueResult::Inserted);
+
+    InputFrame epoch7Frame13;
+    epoch7Frame13.frame = 13u;
+    epoch7Frame13.timelineEpoch = 7u;
+    REQUIRE(buffer.push(epoch7Frame13, 7u) == InputBuffer::EnqueueResult::Inserted);
+    REQUIRE(buffer.markConsumed(13u, 7u));
+    REQUIRE(buffer.isConsumed(13u, 7u));
+
+    InputFrame epoch8Frame0;
+    epoch8Frame0.frame = 0u;
+    epoch8Frame0.timelineEpoch = 8u;
+    REQUIRE(buffer.push(epoch8Frame0, 8u) == InputBuffer::EnqueueResult::Inserted);
+
+    buffer.eraseFramesNotMatchingTimelineEpoch(8u);
+    REQUIRE(buffer.findByFrame(13u, 7u) == nullptr);
+    REQUIRE_FALSE(buffer.isConsumed(13u, 7u));
+    REQUIRE(buffer.findByFrame(0u, 8u) != nullptr);
 }
 
 TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets from previous epochs", "[netplay][epoch][stale-packets][unit]")

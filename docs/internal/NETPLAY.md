@@ -241,6 +241,10 @@ For the current codebase, the most important runtime rule is:
 
 - the emulator advances only when it has the exact `InputFrame` needed for the next frame
 - if resync/bootstrap changes the current frame, every producer/driver that feeds the `InputBuffer` must be reanchored to that loaded frame
+- `InputBuffer` is write-once-after-consume:
+  - pending frame input may be updated before consume
+  - consumed frame input is immutable and enqueue attempts must be rejected
+  - new frames must be queued sequentially for each timeline epoch
 
 ---
 

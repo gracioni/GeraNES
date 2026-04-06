@@ -1286,6 +1286,7 @@ private:
         uint32_t expectedPlaybackFrame = 0;
         bool hasExpectedFrameInput = false;
         bool hasNextFrameInput = false;
+        InputBuffer::EnqueueCounters enqueueCounters{};
         nlohmann::json currentFrameJson;
         nlohmann::json nextFrameJson;
         nlohmann::json inputWindow = nlohmann::json::array();
@@ -1313,6 +1314,7 @@ private:
                     inputWindow.push_back(entry->toJson());
                 }
             }
+            enqueueCounters = innerEmu.inputEnqueueCounters();
         });
 
         peer.maxObservedInputBufferSize = std::max(peer.maxObservedInputBufferSize, inputBufferSize);
@@ -1406,6 +1408,13 @@ private:
             {"currentFrameInput", currentFrameJson},
             {"nextFrameInput", nextFrameJson},
             {"inputWindow", inputWindow},
+            {"inputEnqueueCounters", {
+                {"inserted", enqueueCounters.inserted},
+                {"updatedPending", enqueueCounters.updatedPending},
+                {"rejectedConsumed", enqueueCounters.rejectedConsumed},
+                {"rejectedEpoch", enqueueCounters.rejectedEpoch},
+                {"rejectedOutOfSequence", enqueueCounters.rejectedOutOfSequence}
+            }},
             {"participants", participants},
             {"eventLogTail", snapshot.eventLog}
         };

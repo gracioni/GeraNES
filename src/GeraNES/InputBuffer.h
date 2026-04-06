@@ -315,14 +315,46 @@ struct InputFrame
 
 class InputBuffer
 {
+    // Contract:
+    // - One authoritative input value exists per (frame, timelineEpoch).
+    // - A pending frame can be inserted or updated.
+    // - Once a frame is consumed, further writes to that frame are rejected.
+    // - For each timeline epoch, new frames must be enqueued sequentially.
+private:
+    struct Entry
+    {
+        InputFrame frame;
+        bool consumed = false;
+    };
+
+public:
+    enum class EnqueueResult : uint8_t
+    {
+        Inserted,
+        UpdatedPending,
+        RejectedConsumed,
+        RejectedEpoch,
+        RejectedOutOfSequence
+    };
+
+    struct EnqueueCounters
+    {
+        uint64_t inserted = 0;
+        uint64_t updatedPending = 0;
+        uint64_t rejectedConsumed = 0;
+        uint64_t rejectedEpoch = 0;
+        uint64_t rejectedOutOfSequence = 0;
+    };
+
 private:
     size_t m_capacity = 1000;
-    CircularBuffer<InputFrame> m_frames;
+    CircularBuffer<Entry> m_frames;
+    EnqueueCounters m_enqueueCounters;
 
 public:
     explicit InputBuffer(size_t capacity = 1000)
         : m_capacity(std::max<size_t>(1, capacity))
-        , m_frames(m_capacity, CircularBuffer<InputFrame>::REPLACE)
+        , m_frames(m_capacity, CircularBuffer<Entry>::REPLACE)
     {
     }
 
@@ -341,15 +373,21 @@ public:
     void clear()
     {
         m_frames.clear();
+        m_enqueueCounters = {};
+    }
+
+    EnqueueCounters enqueueCounters() const
+    {
+        return m_enqueueCounters;
     }
 
     void eraseFramesAfter(uint32_t frame)
     {
-        CircularBuffer<InputFrame> rebuilt(m_capacity, CircularBuffer<InputFrame>::REPLACE);
+        CircularBuffer<Entry> rebuilt(m_capacity, CircularBuffer<Entry>::REPLACE);
         const size_t frameCount = m_frames.size();
         for(size_t i = 0; i < frameCount; ++i) {
-            const InputFrame& current = m_frames.peakAt(i);
-            if(current.frame <= frame) {
+            const Entry& current = m_frames.peakAt(i);
+            if(current.frame.frame <= frame) {
                 rebuilt.write(current);
             }
         }
@@ -358,11 +396,11 @@ public:
 
     void eraseFramesNotMatchingTimelineEpoch(uint32_t timelineEpoch)
     {
-        CircularBuffer<InputFrame> rebuilt(m_capacity, CircularBuffer<InputFrame>::REPLACE);
+        CircularBuffer<Entry> rebuilt(m_capacity, CircularBuffer<Entry>::REPLACE);
         const size_t frameCount = m_frames.size();
         for(size_t i = 0; i < frameCount; ++i) {
-            const InputFrame& current = m_frames.peakAt(i);
-            if(current.timelineEpoch == timelineEpoch) {
+            const Entry& current = m_frames.peakAt(i);
+            if(current.frame.timelineEpoch == timelineEpoch) {
                 rebuilt.write(current);
             }
         }
@@ -372,9 +410,9 @@ public:
     const InputFrame* findByFrame(uint32_t targetFrame) const
     {
         for(size_t i = m_frames.size(); i > 0; --i) {
-            const InputFrame& frame = m_frames.peakAt(i - 1);
-            if(frame.frame == targetFrame) return &frame;
-            if(frame.frame < targetFrame) break;
+            const Entry& frame = m_frames.peakAt(i - 1);
+            if(frame.frame.frame == targetFrame) return &frame.frame;
+            if(frame.frame.frame < targetFrame) break;
         }
         return nullptr;
     }
@@ -382,56 +420,124 @@ public:
     const InputFrame* findByFrame(uint32_t targetFrame, uint32_t targetTimelineEpoch) const
     {
         for(size_t i = m_frames.size(); i > 0; --i) {
-            const InputFrame& frame = m_frames.peakAt(i - 1);
-            if(frame.frame > targetFrame) {
+            const Entry& frame = m_frames.peakAt(i - 1);
+            if(frame.frame.frame > targetFrame) {
                 continue;
             }
-            if(frame.frame < targetFrame) {
+            if(frame.frame.frame < targetFrame) {
                 break;
             }
-            if(frame.timelineEpoch == targetTimelineEpoch) {
-                return &frame;
+            if(frame.frame.timelineEpoch == targetTimelineEpoch) {
+                return &frame.frame;
             }
         }
         return nullptr;
     }
 
-    void push(const InputFrame& frame)
+    std::optional<uint32_t> latestFrameForTimelineEpoch(uint32_t timelineEpoch) const
     {
+        std::optional<uint32_t> latest;
+        const size_t frameCount = m_frames.size();
+        for(size_t i = 0; i < frameCount; ++i) {
+            const Entry& existing = m_frames.peakAt(i);
+            if(existing.frame.timelineEpoch != timelineEpoch) continue;
+            if(!latest.has_value() || existing.frame.frame > *latest) {
+                latest = existing.frame.frame;
+            }
+        }
+        return latest;
+    }
+
+    bool markConsumed(uint32_t frame, uint32_t timelineEpoch)
+    {
+        const size_t frameCount = m_frames.size();
+        for(size_t i = 0; i < frameCount; ++i) {
+            Entry& existing = m_frames.peakAt(i);
+            if(existing.frame.frame == frame &&
+               existing.frame.timelineEpoch == timelineEpoch) {
+                existing.consumed = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool isConsumed(uint32_t frame, uint32_t timelineEpoch) const
+    {
+        const size_t frameCount = m_frames.size();
+        for(size_t i = 0; i < frameCount; ++i) {
+            const Entry& existing = m_frames.peakAt(i);
+            if(existing.frame.frame == frame &&
+               existing.frame.timelineEpoch == timelineEpoch) {
+                return existing.consumed;
+            }
+        }
+        return false;
+    }
+
+    EnqueueResult push(const InputFrame& frame, std::optional<uint32_t> expectedTimelineEpoch = std::nullopt)
+    {
+        if(expectedTimelineEpoch.has_value() && frame.timelineEpoch != *expectedTimelineEpoch) {
+            ++m_enqueueCounters.rejectedEpoch;
+            return EnqueueResult::RejectedEpoch;
+        }
+
         const size_t frameCount = m_frames.size();
 
         for(size_t i = 0; i < frameCount; ++i) {
-            InputFrame& existing = m_frames.peakAt(i);
-            if(existing.frame == frame.frame &&
-               existing.timelineEpoch == frame.timelineEpoch) {
-                existing = frame;
-                return;
+            Entry& existing = m_frames.peakAt(i);
+            if(existing.frame.frame == frame.frame &&
+               existing.frame.timelineEpoch == frame.timelineEpoch) {
+                if(existing.consumed) {
+                    ++m_enqueueCounters.rejectedConsumed;
+                    return EnqueueResult::RejectedConsumed;
+                }
+                existing.frame = frame;
+                ++m_enqueueCounters.updatedPending;
+                return EnqueueResult::UpdatedPending;
             }
         }
 
+        std::optional<uint32_t> latestFrameInEpoch;
+        for(size_t i = 0; i < frameCount; ++i) {
+            const Entry& existing = m_frames.peakAt(i);
+            if(existing.frame.timelineEpoch != frame.timelineEpoch) continue;
+            if(!latestFrameInEpoch.has_value() || existing.frame.frame > *latestFrameInEpoch) {
+                latestFrameInEpoch = existing.frame.frame;
+            }
+        }
+        if(latestFrameInEpoch.has_value() && frame.frame != (*latestFrameInEpoch + 1u)) {
+            ++m_enqueueCounters.rejectedOutOfSequence;
+            return EnqueueResult::RejectedOutOfSequence;
+        }
+
         if(frameCount == 0) {
-            m_frames.write(frame);
-            return;
+            m_frames.write(Entry{frame, false});
+            ++m_enqueueCounters.inserted;
+            return EnqueueResult::Inserted;
         }
 
-        const InputFrame& latest = m_frames.peakAt(frameCount - 1);
-        if(frame.frame > latest.frame) {
-            m_frames.write(frame);
-            return;
+        const Entry& latest = m_frames.peakAt(frameCount - 1);
+        if(frame.frame > latest.frame.frame) {
+            m_frames.write(Entry{frame, false});
+            ++m_enqueueCounters.inserted;
+            return EnqueueResult::Inserted;
         }
 
-        CircularBuffer<InputFrame> rebuilt(m_capacity, CircularBuffer<InputFrame>::REPLACE);
+        CircularBuffer<Entry> rebuilt(m_capacity, CircularBuffer<Entry>::REPLACE);
         bool inserted = false;
         for(size_t i = 0; i < frameCount; ++i) {
-            const InputFrame& current = m_frames.peakAt(i);
-            if(!inserted && frame.frame < current.frame) {
-                rebuilt.write(frame);
+            const Entry& current = m_frames.peakAt(i);
+            if(!inserted && frame.frame < current.frame.frame) {
+                rebuilt.write(Entry{frame, false});
                 inserted = true;
             }
             rebuilt.write(current);
         }
-        if(!inserted) rebuilt.write(frame);
+        if(!inserted) rebuilt.write(Entry{frame, false});
         m_frames = rebuilt;
+        ++m_enqueueCounters.inserted;
+        return EnqueueResult::Inserted;
     }
 
     void serialization(SerializationBase& s)
@@ -440,7 +546,7 @@ public:
         SERIALIZEDATA(s, capacity);
         if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
             m_capacity = std::max<size_t>(1, capacity);
-            m_frames = CircularBuffer<InputFrame>(m_capacity, CircularBuffer<InputFrame>::REPLACE);
+            m_frames = CircularBuffer<Entry>(m_capacity, CircularBuffer<Entry>::REPLACE);
         }
 
         uint32_t frameCount = static_cast<uint32_t>(m_frames.size());
@@ -453,9 +559,13 @@ public:
             if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
                 InputFrame frame;
                 frame.serialization(*deserialize);
-                m_frames.write(frame);
+                bool consumed = false;
+                deserialize->single(reinterpret_cast<uint8_t*>(&consumed), sizeof(consumed));
+                m_frames.write(Entry{frame, consumed});
             } else {
-                m_frames.peakAt(i).serialization(s);
+                Entry& entry = m_frames.peakAt(i);
+                entry.frame.serialization(s);
+                SERIALIZEDATA(s, entry.consumed);
             }
         }
     }

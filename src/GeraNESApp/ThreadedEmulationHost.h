@@ -640,6 +640,27 @@ public:
     {
         std::scoped_lock emuLock(m_emuMutex);
         const bool opened = m_emu.open(path);
+        if(opened) {
+            const uint32_t bootstrapFrame = m_emu.frameCount();
+            ReplayFrameInput bootstrapInput;
+            bool queuedBootstrap = false;
+            {
+                std::scoped_lock resolverLock(m_frameInputResolverMutex);
+                if(m_frameInputResolver && m_frameInputResolver(bootstrapFrame, bootstrapInput)) {
+                    queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput);
+                    queuedBootstrap = true;
+                }
+            }
+            if(!queuedBootstrap) {
+                InputState pendingInput;
+                {
+                    std::scoped_lock pendingInputLock(m_pendingInputMutex);
+                    pendingInput = m_pendingInput;
+                }
+                InputFrame frame = buildInputFrameForEmu(m_emu, bootstrapFrame, pendingInput);
+                m_emu.queueInputFrame(frame);
+            }
+        }
         refreshSnapshotLocked();
         return opened;
     }
