@@ -393,7 +393,6 @@ private:
     {
         using clock = std::chrono::steady_clock;
         constexpr uint32_t STEP_MS = 1;
-        constexpr uint32_t MAX_CATCHUP_STEPS = 16;
 
         move_to_current_thread();
         {
@@ -479,7 +478,9 @@ private:
             }
 
             uint32_t catchupSteps = 0;
-            while(now >= nextTick && catchupSteps < MAX_CATCHUP_STEPS && !stopToken.stop_requested()) {
+            const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+            const uint32_t maxCatchupSteps = ((1000u + fps - 1u) / fps) + 1u;
+            while(now >= nextTick && catchupSteps < maxCatchupSteps && !stopToken.stop_requested()) {
                 ++catchupSteps;
                 nextTick += std::chrono::milliseconds(STEP_MS);
 
@@ -496,7 +497,7 @@ private:
                 }
             }
 
-            if(catchupSteps == MAX_CATCHUP_STEPS) {
+            if(catchupSteps == maxCatchupSteps) {
                 nextTick = clock::now();
             }
         }

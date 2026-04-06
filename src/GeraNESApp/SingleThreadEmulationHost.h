@@ -264,7 +264,8 @@ private:
     {
         using clock = std::chrono::steady_clock;
         constexpr uint32_t STEP_MS = 1;
-        constexpr uint32_t MAX_CATCHUP_STEPS = 20;
+        const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+        const uint32_t maxCatchupSteps = ((1000u + fps - 1u) / fps) + 1u;
 
         auto now = clock::now();
         if(!m_freeRunningClockInitialized) {
@@ -277,7 +278,7 @@ private:
         if(now >= m_freeRunningNextTick) {
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_freeRunningNextTick).count();
             stepsToRun = static_cast<uint32_t>(elapsed) + 1u;
-            stepsToRun = std::min<uint32_t>(stepsToRun, MAX_CATCHUP_STEPS);
+            stepsToRun = std::min<uint32_t>(stepsToRun, maxCatchupSteps);
             m_freeRunningNextTick += std::chrono::milliseconds(stepsToRun * STEP_MS);
         }
 
