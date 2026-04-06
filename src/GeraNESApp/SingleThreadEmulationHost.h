@@ -8,7 +8,6 @@
 #include <deque>
 #include <functional>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -144,32 +143,14 @@ private:
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
     std::deque<std::function<void(GeraNESEmu&)>> m_pendingCommands;
-    std::function<void(const std::string&)> m_debugTraceSink;
-
-    void traceEvent(const std::string& event)
-    {
-        if(m_debugTraceSink) {
-            m_debugTraceSink(event);
-        }
-    }
-
-    void traceFrameEvent(const char* event, uint32_t beforeFrame, uint32_t afterFrame)
-    {
-        if(!m_debugTraceSink) return;
-        std::ostringstream oss;
-        oss << event << " before=" << beforeFrame << " after=" << afterFrame;
-        m_debugTraceSink(oss.str());
-    }
 
     void onResetExecutedLocked(uint32_t frame)
     {
-        traceEvent("signal.reset frame=" + std::to_string(frame));
         m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::Reset, frame});
     }
 
     void onLoadExecutedLocked(uint32_t frame)
     {
-        traceEvent("signal.load frame=" + std::to_string(frame));
         m_manualStateChanges.push_back(ManualStateChangeRecord{ManualStateChangeKind::LoadState, frame});
     }
 
@@ -177,7 +158,6 @@ private:
     {
         const uint32_t frame = emu.frameCount();
         const uint32_t crc32 = emu.canonicalNetplayStateCrc32();
-        traceEvent("signal.frameReady frame=" + std::to_string(frame) + " crc=" + std::to_string(crc32));
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = crc32;
 
@@ -250,16 +230,12 @@ private:
         if(m_frameInputResolver) {
             const uint32_t targetFrame = m_emu.frameCount() + 1u;
             if(!m_frameInputResolver(targetFrame, input)) {
-                traceEvent("applyPendingInput.miss frame=" + std::to_string(targetFrame));
                 return;
             }
-            traceEvent("applyPendingInput.resolver frame=" + std::to_string(targetFrame) +
-                       " speculative=" + std::to_string(input.speculative ? 1 : 0));
             queueReplayFrameInputToEmu(m_emu, targetFrame, input);
             return;
         }
 
-        traceEvent("applyPendingInput.pending frame=" + std::to_string(m_emu.frameCount() + 1u));
         applyInputStateToEmu(m_emu, m_pendingInput);
     }
 
@@ -267,9 +243,7 @@ private:
     {
         if(m_preAdvanceHook) {
             const uint32_t beforeFrame = m_emu.frameCount();
-            traceEvent("preAdvanceHook.begin frame=" + std::to_string(beforeFrame));
             m_preAdvanceHook(m_emu);
-            traceFrameEvent("preAdvanceHook.end", beforeFrame, m_emu.frameCount());
             return m_emu.frameCount() != beforeFrame;
         }
         return false;
@@ -281,7 +255,6 @@ private:
             std::function<void(GeraNESEmu&)> command = std::move(m_pendingCommands.front());
             m_pendingCommands.pop_front();
             if(command) {
-                traceEvent("dispatch.command frame=" + std::to_string(m_emu.frameCount()));
                 command(m_emu);
             }
         }
@@ -291,7 +264,7 @@ private:
     {
         using clock = std::chrono::steady_clock;
         constexpr uint32_t STEP_MS = 1;
-        constexpr uint32_t MAX_CATCHUP_STEPS = 8;
+        constexpr uint32_t MAX_CATCHUP_STEPS = 20;
 
         auto now = clock::now();
         if(!m_freeRunningClockInitialized) {
@@ -314,7 +287,6 @@ private:
             for(uint32_t step = 0; step < stepsToRun; ++step) {
                 dispatchQueuedCommands();
                 if(runPreAdvanceHook()) {
-                    traceFrameEvent("update.end", frameBefore, m_emu.frameCount());
                     return m_emu.frameCount() != frameBefore;
                 }
                 if(m_emu.valid()) {
@@ -323,7 +295,6 @@ private:
             }
         }
 
-        traceFrameEvent("update.end", frameBefore, m_emu.frameCount());
         return m_emu.frameCount() != frameBefore;
     }
 
@@ -426,7 +397,7 @@ public:
 
     void setDebugTraceSink(std::function<void(const std::string&)> sink)
     {
-        m_debugTraceSink = std::move(sink);
+        (void)sink;
     }
 
     void postCommand(std::function<void(GeraNESEmu&)> command)
@@ -592,7 +563,6 @@ public:
         m_holdPresentedFramebufferUntilFrameReady = true;
         postCommand([this](GeraNESEmu& emu) {
             if(!emu.valid()) return;
-            traceEvent("reset.command frame=" + std::to_string(emu.frameCount()));
             resetFreeRunningPacing();
             emu.reset();
         });
@@ -760,13 +730,11 @@ public:
 
     void beginPresentationHoldUntilNextFrameReady() override
     {
-        traceEvent("beginPresentationHoldUntilNextFrameReady");
         m_holdPresentedFramebufferUntilFrameReady = true;
     }
 
     void setPresenterLockActive(bool active)
     {
-        traceEvent(std::string("setPresenterLockActive active=") + (active ? "1" : "0"));
         if(active) {
             m_framePacingMode = FramePacingMode::PresenterLocked;
         } else {
@@ -778,8 +746,6 @@ public:
 
     void setSimulationSuspended(bool suspended)
     {
-        traceEvent(std::string("setSimulationSuspended value=") + (suspended ? "1" : "0") +
-                   " frame=" + std::to_string(m_emu.frameCount()));
         if(suspended) {
             m_framePacingMode = FramePacingMode::Suspended;
             m_pendingPresenterTicks = 0;
@@ -792,7 +758,6 @@ public:
 
     bool update(uint32_t dt)
     {
-        traceEvent("update.begin dt=" + std::to_string(dt) + " frame=" + std::to_string(m_emu.frameCount()));
         (void)dt;
         if(m_framePacingMode != FramePacingMode::Suspended) {
             m_framePacingMode = FramePacingMode::FreeRunning;
@@ -801,7 +766,6 @@ public:
         if(m_framePacingMode == FramePacingMode::Suspended) {
             dispatchQueuedCommands();
             refreshPresentedFramebuffer();
-            traceEvent("update.suspended frame=" + std::to_string(m_emu.frameCount()));
             return false;
         }
         const bool advanced = pumpFreeRunningWorkerSteps();
@@ -811,20 +775,17 @@ public:
 
     void updateUntilFrame(uint32_t dt)
     {
-        traceEvent("updateUntilFrame.begin dt=" + std::to_string(dt) + " frame=" + std::to_string(m_emu.frameCount()));
         m_presenterTickDtMs = std::max<uint32_t>(1u, dt);
         m_framePacingMode = FramePacingMode::PresenterLocked;
         ++m_pendingPresenterTicks;
         dispatchQueuedCommands();
         if(m_framePacingMode == FramePacingMode::Suspended) {
             refreshPresentedFramebuffer();
-            traceEvent("updateUntilFrame.suspended frame=" + std::to_string(m_emu.frameCount()));
             return;
         }
         const uint32_t frameBefore = m_emu.frameCount();
         if(runPreAdvanceHook()) {
             refreshPresentedFramebuffer();
-            traceFrameEvent("updateUntilFrame.end", frameBefore, m_emu.frameCount());
             return;
         }
         if(m_emu.valid() && m_pendingPresenterTicks > 0u) {
@@ -834,7 +795,7 @@ public:
             m_emu.update(m_presenterTickDtMs);
         }
         refreshPresentedFramebuffer();
-        traceFrameEvent("updateUntilFrame.end", frameBefore, m_emu.frameCount());
+        (void)frameBefore;
     }
 
     void configureNetplaySnapshots(size_t snapshotCapacity)
@@ -850,7 +811,6 @@ public:
 
     bool rollbackToFrame(uint32_t frame)
     {
-        traceEvent("rollback.begin target=" + std::to_string(frame) + " current=" + std::to_string(m_emu.frameCount()));
         std::vector<uint8_t> snapshotData;
         auto it = std::find_if(
             m_netplaySnapshots.rbegin(),
@@ -879,8 +839,6 @@ public:
                     std::max<uint32_t>(m_netplayDiagnostics.rollbackStats.maxRollbackDistance, rollbackFrom - frame);
             }
         }
-        traceEvent(std::string("rollback.end loaded=") + (loaded ? "1" : "0") +
-                   " frame=" + std::to_string(m_emu.frameCount()));
         return loaded;
     }
 
@@ -897,22 +855,18 @@ public:
     bool loadStateFromMemory(const std::vector<uint8_t>& data)
     {
         if(data.empty()) return false;
-        traceEvent("loadState.begin frame=" + std::to_string(m_emu.frameCount()));
         m_holdPresentedFramebufferUntilFrameReady = true;
         const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
         if(loaded) {
             resetFreeRunningPacing();
             refreshPresentedFramebuffer();
         }
-        traceEvent(std::string("loadState.end loaded=") + (loaded ? "1" : "0") +
-                   " frame=" + std::to_string(m_emu.frameCount()));
         return loaded;
     }
 
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data)
     {
         if(data.empty()) return false;
-        traceEvent("manualLoadState.begin frame=" + std::to_string(m_emu.frameCount()));
         m_holdPresentedFramebufferUntilFrameReady = true;
         const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
         if(loaded) {
@@ -920,8 +874,6 @@ public:
             onLoadExecutedLocked(m_emu.frameCount());
             refreshPresentedFramebuffer();
         }
-        traceEvent(std::string("manualLoadState.end loaded=") + (loaded ? "1" : "0") +
-                   " frame=" + std::to_string(m_emu.frameCount()));
         return loaded;
     }
 
@@ -970,8 +922,6 @@ public:
 
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32)
     {
-        traceEvent("setAuthoritativeFrameReadyState frame=" + std::to_string(frame) +
-                   " crc=" + std::to_string(canonicalCrc32));
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
     }
