@@ -357,6 +357,7 @@ private:
     void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processRollbackIfNeededOnWorker(GeraNESEmu& emu);
+    bool shouldRecoverStandaloneInputWhileNetplayActive() const;
     void ensureStandaloneInputBootstrapFrame(GeraNESEmu& emu);
     bool tryBuildPlaybackConfirmedFrame(uint32_t frame, NetplayCoordinator::ConfirmedFrameInputs& outFrame);
     bool tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame);
@@ -1134,6 +1135,38 @@ inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmul
     return true;
 }
 
+inline bool NetplayAppRuntime::shouldRecoverStandaloneInputWhileNetplayActive() const
+{
+    if(!m_coordinator.isActive()) {
+        return false;
+    }
+
+    if(!m_coordinator.isConnected()) {
+        return true;
+    }
+
+    const RoomState& room = m_coordinator.session().roomState();
+    if(room.state == SessionState::Ended) {
+        return true;
+    }
+
+    if(!m_coordinator.isHosting() || room.state != SessionState::Paused) {
+        return false;
+    }
+
+    const ParticipantId localParticipantId = m_coordinator.localParticipantId();
+    const bool hasConnectedRemotePlayer = std::any_of(
+        room.participants.begin(),
+        room.participants.end(),
+        [localParticipantId](const ParticipantInfo& participant) {
+            return participant.id != localParticipantId &&
+                   participant.connected &&
+                   !participantIsObserver(participant);
+        }
+    );
+    return !hasConnectedRemotePlayer;
+}
+
 inline void NetplayAppRuntime::ensureStandaloneInputBootstrapFrame(GeraNESEmu& emu)
 {
     syncEmuInputTimelineEpoch(emu);
@@ -1552,11 +1585,13 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     m_runtimeActive.store(true, std::memory_order_release);
     const SessionState currentRoomState = m_coordinator.session().roomState().state;
+    const bool standaloneInputRecovery = shouldRecoverStandaloneInputWhileNetplayActive();
     const bool netplayOwnsEmulationInput =
-        currentRoomState == SessionState::Starting ||
-        currentRoomState == SessionState::Running ||
-        currentRoomState == SessionState::Resyncing ||
-        currentRoomState == SessionState::Paused;
+        !standaloneInputRecovery &&
+        (currentRoomState == SessionState::Starting ||
+         currentRoomState == SessionState::Running ||
+         currentRoomState == SessionState::Resyncing ||
+         currentRoomState == SessionState::Paused);
     m_emuHost.setAutoQueuePendingInputOnFrameStart(!netplayOwnsEmulationInput);
     if(netplayOwnsEmulationInput) {
         m_emuHost.setFrameInputResolver([this](uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame) {
@@ -1564,6 +1599,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         });
     } else {
         m_emuHost.setFrameInputResolver({});
+        ensureStandaloneInputBootstrapFrame(emu);
     }
     m_emuHost.setAllowPresenterTimeoutAdvance(false);
 
