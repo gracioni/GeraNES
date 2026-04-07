@@ -26,7 +26,6 @@ constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
-constexpr auto kPostDuplicateDesyncGrace = std::chrono::milliseconds(1500);
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -862,7 +861,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
 
         if(input.sequence <= participant->lastReceivedInputSequence) {
-            m_lastStaleOrDuplicateInputAt = std::chrono::steady_clock::now();
             std::ostringstream oss;
             oss << "Ignored stale/duplicate input from " << participant->displayName
                 << " frame " << input.frame
@@ -1584,17 +1582,6 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
-    const auto now = std::chrono::steady_clock::now();
-    if(m_lastStaleOrDuplicateInputAt.time_since_epoch().count() != 0) {
-        const auto sinceStaleDuplicate = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - m_lastStaleOrDuplicateInputAt
-        );
-        if(sinceStaleDuplicate >= std::chrono::milliseconds(0) &&
-           sinceStaleDuplicate < kPostDuplicateDesyncGrace) {
-            pushLog("Deferred hard resync escalation during stale/duplicate input grace window");
-            return;
-        }
-    }
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
         if(!participant.connected || participantIsObserver(participant)) continue;
