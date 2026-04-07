@@ -114,6 +114,8 @@ private:
     std::chrono::steady_clock::time_point m_nextReconnectAttempt = {};
     std::chrono::steady_clock::time_point m_reconnectDeadline = {};
     uint32_t m_gameplayReceiveDelayMs = 0;
+    std::chrono::milliseconds m_remoteInputSuspendTimeout = std::chrono::milliseconds(2500);
+    std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastRemoteInputAt;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
     std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
@@ -187,6 +189,8 @@ private:
     void noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
+    void processRemoteInputSuspension(const std::chrono::steady_clock::time_point& now);
+    void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
     bool tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     // Frame terminology used by the coordinator:
     // - local simulation frame: last frame this peer has actually simulated.
@@ -256,6 +260,7 @@ public:
     void dropNextIncomingMessages(MessageType type, uint32_t count);
     void clearIncomingMessageDrops();
     void setReconnectReservationDurationForTests(uint32_t seconds);
+    void setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs);
     void setLocalEmulatorVersionForTests(const std::string& version);
     void simulateTransportFailureForTests();
     bool injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution);

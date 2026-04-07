@@ -998,6 +998,140 @@ TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer
     FAIL("Host never scheduled an implicit recovery resync after the client sent fresh peer health.");
 }
 
+TEST_CASE("Netplay host keeps confirmed input flow during suspended client input and resyncs on resume",
+          "[netplay][suspend][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    bool started = false;
+    for(int attempt = 0; attempt < 3 && !started; ++attempt) {
+        host.disconnect();
+        client.disconnect();
+        const uint16_t port = reserveLoopbackPort();
+        if(!host.host(port, 1, "Host")) continue;
+        if(!client.join("127.0.0.1", port, "Client")) continue;
+        started = true;
+    }
+    REQUIRE(started);
+    host.setRemoteInputSuspendTimeoutForTests(20);
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        const auto& hostRoom = host.session().roomState();
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            hostRoom.participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.selectedGameName = "SuspendResume";
+    clientRoom.selectedGameName = "SuspendResume";
+    hostRoom.currentFrame = 100;
+    clientRoom.currentFrame = 100;
+    hostRoom.lastConfirmedFrame = 100;
+    clientRoom.lastConfirmedFrame = 100;
+
+    Netplay::ParticipantInfo* hostLocal = nullptr;
+    Netplay::ParticipantInfo* hostRemote = nullptr;
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            participant.role = Netplay::ParticipantRole::Host;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            hostRemote = &participant;
+            participant.role = Netplay::ParticipantRole::Player;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.lastReceivedInputFrame = 100u;
+            participant.lastContiguousInputFrame = 100u;
+            participant.lastReceivedInputSequence = 0u;
+            participant.inputSuspended = false;
+            participant.inputResumeAwaitingResync = false;
+        }
+        participant.normalizeControllerAssignments();
+    }
+    REQUIRE(hostLocal != nullptr);
+    REQUIRE(hostRemote != nullptr);
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::Player;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::Host;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(100);
+    client.setLocalSimulationFrame(100);
+
+    Netplay::InputFrameData baselineRemoteInput{};
+    baselineRemoteInput.timelineEpoch = hostRoom.timelineEpoch;
+    baselineRemoteInput.frame = 101;
+    baselineRemoteInput.participantId = hostRemote->id;
+    baselineRemoteInput.playerSlot = Netplay::kPort2PlayerSlot;
+    baselineRemoteInput.sequence = 1;
+    baselineRemoteInput.buttonMaskLo = 0;
+    baselineRemoteInput.buttonMaskHi = 0;
+
+    InputFrame baselineContribution = Netplay::makeRoomTopologyBaseFrame(101, hostRoom);
+    baselineContribution.p2Right = true;
+    REQUIRE(host.injectInputFrameForTests(baselineRemoteInput, baselineContribution));
+
+    for(Netplay::FrameNumber frame = 101; frame <= 110; ++frame) {
+        host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0);
+    }
+    host.setLocalSimulationFrame(110);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    host.update(0);
+
+    REQUIRE(hostRemote->inputSuspended);
+
+    host.recordLocalInputFrame(111, Netplay::kPort1PlayerSlot, 0);
+    Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
+    REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
+    REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(host.session().roomState().lastConfirmedFrame >= 111u);
+
+    host.setLocalSimulationFrame(111);
+    Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
+    staleResumedInput.frame = 102;
+    staleResumedInput.sequence = 2;
+    REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+
+    REQUIRE_FALSE(hostRemote->inputSuspended);
+    REQUIRE(hostRemote->inputResumeAwaitingResync);
+    const std::optional<Netplay::FrameNumber> pendingResync = host.consumePendingHostResyncFrame();
+    REQUIRE(pendingResync.has_value());
+    REQUIRE(*pendingResync == 111u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_resume"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Netplay core advances only when the exact next numbered input frame exists", "[netplay][core][frames]")
 {
     GeraNESTestSupport::requireRomFixture();

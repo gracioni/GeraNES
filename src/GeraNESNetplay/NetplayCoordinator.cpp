@@ -277,6 +277,7 @@ void NetplayCoordinator::resetSessionState()
     m_implicitRecoveryMonitor.reset();
     m_pendingResyncAcks.clear();
     m_reconnectReservationDeadlines.clear();
+    m_lastRemoteInputAt.clear();
     m_lastTransportError.clear();
     clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
@@ -302,7 +303,10 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
     ParticipantInfo participant;
     participant.id = id;
     participant.displayName = displayName;
+    participant.inputSuspended = false;
+    participant.inputResumeAwaitingResync = false;
     m_session.roomState().participants.push_back(participant);
+    m_lastRemoteInputAt[id] = std::chrono::steady_clock::now();
     return m_session.roomState().participants.back();
 }
 
@@ -334,6 +338,7 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
         participants.end()
     );
     m_reconnectReservationDeadlines.erase(participantId);
+    m_lastRemoteInputAt.erase(participantId);
     m_pendingResyncAcks.erase(
         std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
         m_pendingResyncAcks.end()
@@ -816,6 +821,40 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return false;
         }
 
+        if(m_hosting && participant->id != m_localParticipantId) {
+            if(participant->inputResumeAwaitingResync) {
+                std::ostringstream oss;
+                oss << "Ignoring resumed participant input until authoritative resync completes: "
+                    << participant->displayName
+                    << " frame " << input.frame
+                    << " seq " << input.sequence;
+                pushLog(oss.str());
+                return true;
+            }
+
+            if(participant->inputSuspended) {
+                participant->inputSuspended = false;
+                participant->inputResumeAwaitingResync = true;
+                participant->sequenceRebasePending = true;
+                m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+
+                const FrameNumber resyncFrame =
+                    std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
+                if(!m_pendingHostResyncFrame.has_value() || resyncFrame < *m_pendingHostResyncFrame) {
+                    m_pendingHostResyncFrame = resyncFrame;
+                }
+
+                std::ostringstream oss;
+                oss << "Participant input resumed after suspension: " << participant->displayName
+                    << " frame " << input.frame
+                    << " seq " << input.sequence
+                    << "; scheduling authoritative resync from frame " << resyncFrame
+                    << " classification=suspended_input_resume";
+                pushLog(oss.str());
+                return true;
+            }
+        }
+
         if(input.sequence <= participant->lastReceivedInputSequence) {
             std::ostringstream oss;
             oss << "Ignored stale/duplicate input from " << participant->displayName
@@ -890,6 +929,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     destinationTimeline->push(entry);
 
     if(participant != nullptr) {
+        if(m_hosting && participant->id != m_localParticipantId) {
+            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+        }
+
         if(previousReceivedSequence > 0 && input.sequence > previousReceivedSequence + 1u) {
             std::ostringstream oss;
             oss << "Input sequence gap from " << participant->displayName
@@ -1281,6 +1324,108 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     pushLog(oss.str());
 }
 
+void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame)
+{
+    if(!m_hosting || m_session.roomState().state != SessionState::Running) return;
+
+    for(ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId ||
+           !participant.connected ||
+           participantIsObserver(participant) ||
+           !participant.inputSuspended) {
+            continue;
+        }
+
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            const TimelineInputEntry* latestConfirmed = m_remoteInputs.latestConfirmedFor(participant.id, slot);
+            if(latestConfirmed == nullptr) {
+                continue;
+            }
+
+            FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
+            while(nextFrame <= targetFrame) {
+                if(m_remoteInputs.find(nextFrame, participant.id, slot) != nullptr) {
+                    ++nextFrame;
+                    continue;
+                }
+
+                TimelineInputEntry synthetic = *latestConfirmed;
+                synthetic.frame = nextFrame;
+                synthetic.inputFrame = InputFrame::repeatedFrom(latestConfirmed->inputFrame, nextFrame);
+                synthetic.predicted = false;
+                synthetic.confirmed = true;
+                m_remoteInputs.push(synthetic);
+                latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
+                ++nextFrame;
+            }
+        }
+
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            advanceParticipantContiguousInputFrame(participant, slot);
+        }
+    }
+}
+
+void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_clock::time_point& now)
+{
+    if(!m_hosting || m_session.roomState().state != SessionState::Running) {
+        return;
+    }
+
+    const bool resyncBusy =
+        m_session.roomState().activeResyncId != 0u ||
+        m_session.roomState().pendingResyncAckCount != 0u;
+    if(resyncBusy) {
+        return;
+    }
+
+    for(ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId ||
+           !participant.connected ||
+           participantIsObserver(participant)) {
+            continue;
+        }
+
+        const auto it = m_lastRemoteInputAt.find(participant.id);
+        if(it == m_lastRemoteInputAt.end()) {
+            continue;
+        }
+
+        if(participant.inputSuspended) {
+            continue;
+        }
+
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second);
+        if(elapsed < m_remoteInputSuspendTimeout) {
+            continue;
+        }
+
+        bool hasBaselineInput = true;
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
+                hasBaselineInput = false;
+                break;
+            }
+        }
+        if(!hasBaselineInput) {
+            continue;
+        }
+
+        participant.inputSuspended = true;
+        participant.inputResumeAwaitingResync = false;
+
+        std::ostringstream oss;
+        oss << "Participant input suspended due to timeout: " << participant.displayName
+            << " timeoutMs=" << m_remoteInputSuspendTimeout.count()
+            << " lastFrame=" << participant.lastContiguousInputFrame
+            << " classification=suspended_input_timeout";
+        pushLog(oss.str());
+
+        // Keep the authoritative input stream contiguous for everyone else.
+        synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
+    }
+}
+
 void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
                                                       FrameNumber inputFrame,
                                                       PlayerSlot slot,
@@ -1625,6 +1770,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         participant.lastDecisionFrame = loadedFrame;
         participant.lastDecisionSlot = kObserverPlayerSlot;
         participant.lastDecision.clear();
+        participant.inputSuspended = false;
+        participant.inputResumeAwaitingResync = false;
+        m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 
     m_localSimulationFrame = loadedFrame;
@@ -1679,6 +1827,9 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
         participant.lastDecision.clear();
         participant.lastDecisionFrame = 0;
         participant.lastDecisionSlot = kObserverPlayerSlot;
+        participant.inputSuspended = false;
+        participant.inputResumeAwaitingResync = false;
+        m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 }
 
@@ -1717,6 +1868,9 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
 
         participant.sequenceRebasePending = false;
         participant.pendingMissingInputFrom.reset();
+        participant.inputSuspended = false;
+        participant.inputResumeAwaitingResync = false;
+        m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 }
 
@@ -2613,6 +2767,9 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     participant.connected = true;
     participant.reconnectReserved = false;
     participant.reservationSecondsRemaining = 0;
+    participant.inputSuspended = false;
+    participant.inputResumeAwaitingResync = false;
+    m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
     participant.romLoaded = joinData.romLoaded != 0;
@@ -2745,6 +2902,9 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.role = role;
     participant.controllerAssignments = std::move(controllerAssignments);
     participant.normalizeControllerAssignments();
+    participant.inputSuspended = false;
+    participant.inputResumeAwaitingResync = false;
+    m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
 
     if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
         m_localParticipantId = participantId;
@@ -3188,6 +3348,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
 
     updatePeerHealthFromTransport();
     updateReconnectReservations();
+    processRemoteInputSuspension(now);
+    if(m_hosting && m_session.roomState().state == SessionState::Running) {
+        synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
+        publishConfirmedFramesIfReady();
+    }
     broadcastFrameStatusIfNeeded();
     broadcastPeerHealthIfNeeded();
     if(m_gracefulDisconnectPending &&
@@ -3278,6 +3443,11 @@ void NetplayCoordinator::setReconnectReservationDurationForTests(uint32_t second
         m_reconnectSecondsRemaining =
             static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
     }
+}
+
+void NetplayCoordinator::setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs)
+{
+    m_remoteInputSuspendTimeout = std::chrono::milliseconds(std::max<uint32_t>(1u, timeoutMs));
 }
 
 void NetplayCoordinator::setLocalEmulatorVersionForTests(const std::string& version)
@@ -3620,6 +3790,7 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
 {
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
 
     std::vector<ConfirmedFrameInputs> pendingFrames;
     FrameNumber nextFrame = m_lastBroadcastConfirmedFrame + 1u;
@@ -3718,6 +3889,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     const std::vector<uint8_t> payload = buildInputFramePacket(packetData, contribution);
 
     if(m_hosting) {
+        synthesizeSuspendedRemoteInputsUpTo(frame);
         m_transport.broadcastReliable(Channel::Gameplay, payload);
         publishConfirmedFramesIfReady();
         return;

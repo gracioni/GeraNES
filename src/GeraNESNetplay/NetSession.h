@@ -48,6 +48,8 @@ struct ParticipantInfo
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
     std::string lastDecision;
+    bool inputSuspended = false;
+    bool inputResumeAwaitingResync = false;
 
     void normalizeControllerAssignments()
     {
