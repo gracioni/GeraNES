@@ -2473,7 +2473,7 @@ public:
         netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
         const bool allowVsyncLock =
             m_vsyncMode != OFF &&
-            displayFrameRate == m_emu.getRegionFPS() &&
+            displayFrameRate == static_cast<int>(m_emu.getRegionFPS()) &&
             !isWindowsTitleBarInteractionActive() &&
             !netplayPacingOverrideActive;
         if(!allowVsyncLock) {

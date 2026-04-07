@@ -28,7 +28,7 @@ public:
 
         if(m_shaderProgram == 0) return;
 
-        for(int i = 0; i < m_programs.size(); i++)
+        for(size_t i = 0; i < m_programs.size(); ++i)
             glDeleteShader(m_programs[i]);
 
         m_programs.clear();
@@ -107,12 +107,12 @@ public:
 
         create();
 
-        for(int i = 0; i < m_programs.size(); i++)
+        for(size_t i = 0; i < m_programs.size(); ++i)
             glAttachShader(m_shaderProgram, m_programs[i]);
 
         glLinkProgram(m_shaderProgram);
 
-        for(int i = 0; i < m_programs.size(); i++)
+        for(size_t i = 0; i < m_programs.size(); ++i)
             glDetachShader(m_shaderProgram, m_programs[i]);
 
         glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &success);
@@ -153,7 +153,7 @@ public:
         GLint currentProgram;
         glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
 
-        return m_shaderProgram == currentProgram;
+        return static_cast<GLint>(m_shaderProgram) == currentProgram;
     }
 
     void release() {

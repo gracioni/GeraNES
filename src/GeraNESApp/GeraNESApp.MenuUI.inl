@@ -38,7 +38,7 @@ inline void GeraNESApp::menuBar() {
             auto recentFiles = AppSettings::instance().data.getRecentFiles();
             if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0 && !netplayRomChangeRestricted))
             {
-                for(int i = 0; i < recentFiles.size(); i++) {
+                for(size_t i = 0; i < recentFiles.size(); ++i) {
                     if(ImGui::MenuItem(recentFiles[i].c_str())) {
                         openFile(recentFiles[i].c_str());
                     }
@@ -192,7 +192,7 @@ inline void GeraNESApp::menuBar() {
         {
             if (ImGui::BeginMenu("Device")) {
 
-                for(int i = 0; i < m_audioDevices.size(); i++) {
+                for(size_t i = 0; i < m_audioDevices.size(); ++i) {
 
                     bool checked = m_emu.currentAudioDeviceName() == m_audioDevices[i];
 
