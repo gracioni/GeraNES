@@ -1106,7 +1106,7 @@ OPLL *OPLL_new(uint32_t clk, uint32_t rate) {
     initializeTables();
   }
 
-  opll = (OPLL *)calloc(sizeof(OPLL), 1);
+  opll = (OPLL *)calloc(1, sizeof(OPLL));
   if (opll == NULL)
     return NULL;
 
@@ -1216,7 +1216,7 @@ void OPLL_setRate(OPLL *opll, uint32_t rate) {
   reset_rate_conversion_params(opll);
 }
 
-void OPLL_setQuality(OPLL *opll, uint8_t q) {}
+void OPLL_setQuality(OPLL* /*opll*/, uint8_t /*q*/) {}
 
 void OPLL_setChipType(OPLL *opll, uint8_t type) { opll->chip_type = type; }
 
@@ -1231,7 +1231,11 @@ void OPLL_writeReg(OPLL *opll, uint32_t reg, uint8_t data) {
     reg -= 9;
   }
 
-  opll->reg[reg] = (uint8_t)data;
+  const size_t regIndex = static_cast<size_t>(reg);
+  if (regIndex >= sizeof(opll->reg)) {
+    return;
+  }
+  opll->reg[regIndex] = (uint8_t)data;
 
   switch (reg) {
   case 0x00:

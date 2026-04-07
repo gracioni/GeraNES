@@ -2040,8 +2040,6 @@ yyy NNYY YYYX XXXX
     }
 
     void incVideoRamAddr() {
-        const uint16_t oldV = m_reg_v;
-
         if(!isActivelyRendering()) {
 
             m_reg_v+=m_VRAMAddressIncrement;
@@ -2112,7 +2110,7 @@ yyy NNYY YYYX XXXX
         return m_framebufferFriendly;
     }
 
-    GERANES_INLINE const uint32_t getZapperPixel(int x, int y)
+    GERANES_INLINE uint32_t getZapperPixel(int x, int y)
     {
         if(m_VBlankHasStarted) return 0;
 

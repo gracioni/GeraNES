@@ -10,7 +10,7 @@ public:
     {
     }
 
-    GERANES_HOT bool useCustomNameTable(uint8_t index) override
+    GERANES_HOT bool useCustomNameTable(uint8_t /*index*/) override
     {
         return false;
     }

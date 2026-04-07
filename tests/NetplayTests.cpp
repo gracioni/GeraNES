@@ -358,7 +358,7 @@ void requireSampleStreamsEqual(const std::vector<float>& lhs,
 void requireRuntimeFrameOwnershipInvariants(const nlohmann::json& peerReport)
 {
     const uint32_t localSimulationFrame = peerReport.at("localSimulationFrame").get<uint32_t>();
-    const uint32_t roomCurrentFrame = peerReport.at("roomCurrentFrame").get<uint32_t>();
+    (void)peerReport.at("roomCurrentFrame").get<uint32_t>();
     const uint32_t lastFrameReadyFrame = peerReport.at("lastFrameReadyFrame").get<uint32_t>();
     const uint32_t publishedConfirmedFrame = peerReport.at("publishedConfirmedFrame").get<uint32_t>();
     const uint32_t roomLastConfirmedFrame = peerReport.at("roomLastConfirmedFrame").get<uint32_t>();

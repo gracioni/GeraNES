@@ -36,7 +36,7 @@ private:
 
 public:
 
-    DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* item) : m_src(src), m_item(item), ICartridgeData(src->romFile()) {
+    DbOverwriteCartridgeData(ICartridgeData* src, GameDatabase::Item* item) : ICartridgeData(src->romFile()), m_src(src), m_item(item) {
         auto dbSizeKbToBytes = [](int dbValueKb, int srcBytes) {
             if(dbValueKb <= 0) return srcBytes;
             // Backward compatibility: older UI versions saved these fields in bytes.

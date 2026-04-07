@@ -577,6 +577,9 @@ bool writeTempRom(const void* data, size_t size, std::string& outPath)
     return out.good();
 }
 
+InputFrame libretroInputFrameForNextFrame();
+void commitLibretroInputFrame(const InputFrame& frame);
+
 void updateControllerState(unsigned port)
 {
     if(g_inputStateCb == nullptr) return;
@@ -1147,7 +1150,8 @@ RETRO_API bool retro_unserialize(const void* data, size_t size)
 {
     if(!g_gameLoaded || data == nullptr || size == 0) return false;
 
-    g_emu.loadStateFromMemory(static_cast<const uint8_t*>(data), size);
+    const auto* raw = static_cast<const uint8_t*>(data);
+    g_emu.loadStateFromMemory(std::vector<uint8_t>(raw, raw + size));
     return true;
 }
 

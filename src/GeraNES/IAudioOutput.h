@@ -12,7 +12,7 @@ class IAudioOutput
     enum class PulseChannel { Pulse_1, Pulse_2 };
 
     virtual bool init(){return true;}
-    virtual void render(uint32_t dt, bool silenceFlag){}
+    virtual void render(uint32_t /*dt*/, bool /*silenceFlag*/){}
 
     virtual void setChannelVolume(Channel, float) {}
     virtual void setChannelFrequency(Channel, float) {}

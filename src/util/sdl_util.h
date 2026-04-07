@@ -23,7 +23,7 @@ std::shared_ptr<GLTexture> loadImageFromMemory(const unsigned char* data, size_t
 std::shared_ptr<GLTexture> loadImageFromStream(std::istream& in, bool flipVertically = true);
 
 // Conveniência: abre o arquivo e chama loadImageFromStreamShared
-static std::shared_ptr<GLTexture> loadImageFromFile(const std::string& path, bool flipVertically = true)
+inline std::shared_ptr<GLTexture> loadImageFromFile(const std::string& path, bool flipVertically = true)
 {
     std::ifstream fin(path, std::ios::binary);
     if (!fin.is_open())

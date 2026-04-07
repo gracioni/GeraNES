@@ -24,6 +24,28 @@ add_compile_options(
     $<$<CONFIG:Release>:-O3>
 )
 
+option(GERANES_ENABLE_WARNINGS_ALL "Enable broad compiler warnings for all targets" ON)
+add_library(geranes_warnings INTERFACE)
+if(GERANES_ENABLE_WARNINGS_ALL)
+    if(MSVC)
+        target_compile_options(geranes_warnings INTERFACE
+            /W4
+            /permissive-
+        )
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" OR CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(geranes_warnings INTERFACE
+            $<$<COMPILE_LANGUAGE:C>:-Wall>
+            $<$<COMPILE_LANGUAGE:C>:-Wextra>
+            $<$<COMPILE_LANGUAGE:C>:-Wpedantic>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-unused-function>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wall>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wpedantic>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-function>
+        )
+    endif()
+endif()
+
 if (EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")    
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/template.html")
@@ -355,6 +377,22 @@ if(NOT EMSCRIPTEN)
     )
 
     FetchContent_MakeAvailable(libdatachannel)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        foreach(_datachannel_target datachannel datachannel-static)
+            if(TARGET ${_datachannel_target})
+                target_compile_options(${_datachannel_target} PRIVATE
+                    -Wno-cast-function-type
+                )
+            endif()
+        endforeach()
+        foreach(_libjuice_target juice juice-static)
+            if(TARGET ${_libjuice_target})
+                target_compile_options(${_libjuice_target} PRIVATE
+                    -Wno-cast-function-type
+                )
+            endif()
+        endforeach()
+    endif()
 endif()
 
 set(FLIPS_PATH ${flips_SOURCE_DIR})
@@ -457,6 +495,7 @@ if(MINGW)
     target_compile_options(GeraNESLib PRIVATE -Wa,-mbig-obj)
 endif()
 target_link_libraries(GeraNESLib PUBLIC ${LIBS})
+target_link_libraries(GeraNESLib PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
     target_link_libraries(GeraNESLib PRIVATE asio_headers websocketpp_headers)
 endif()
@@ -477,6 +516,7 @@ if(MINGW)
     target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wa,-mbig-obj)
 endif()
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE GeraNESLib)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
     target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE SDL2::SDL2main)
 endif()
@@ -518,6 +558,7 @@ if(NOT EMSCRIPTEN)
     target_compile_definitions(GeraNESTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
 endif()
 target_link_libraries(GeraNESTests PRIVATE GeraNESLib Catch2::Catch2WithMain)
+target_link_libraries(GeraNESTests PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
     target_link_libraries(GeraNESTests PRIVATE asio_headers websocketpp_headers)
 endif()
@@ -543,7 +584,7 @@ target_compile_definitions(${LIBRETRO_CORE_NAME} PRIVATE GERANES_LIBRETRO_USE_CM
 if(MINGW)
     target_compile_options(${LIBRETRO_CORE_NAME} PRIVATE -Wa,-mbig-obj)
 endif()
-target_link_libraries(${LIBRETRO_CORE_NAME} PRIVATE libretro_db_assets flips)
+target_link_libraries(${LIBRETRO_CORE_NAME} PRIVATE libretro_db_assets flips nlohmann_json::nlohmann_json geranes_warnings)
 if(MINGW)
     # Make the core self-contained for RetroArch on Windows.
     target_link_options(${LIBRETRO_CORE_NAME} PRIVATE -static-libgcc -static-libstdc++)

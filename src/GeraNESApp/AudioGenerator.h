@@ -102,7 +102,7 @@ class SinWave : public IChannel
 {
 public:
 
-    GERANES_INLINE_HOT float get()
+    GERANES_INLINE_HOT float get() override
     {
         m_value = sin(2 * M_PI * m_frequency *  m_currentPosition);
         m_value *= m_volume;
@@ -251,10 +251,7 @@ public:
     GERANES_INLINE_HOT float get() override
     {
         int counter = update();
-        int total = counter;
-
         float newSample = 0.0f;
-        float lastSample = m_sample;
         int reads = 0;
 
         if (counter > 0) {
@@ -582,10 +579,10 @@ class SignalProcess {
 public:
 
     virtual float apply(float value) {
-        return 0;
+        return value;
     }
 
-    ~SignalProcess(){}
+    virtual ~SignalProcess() = default;
 };
 
 class Filter : public SignalProcess {

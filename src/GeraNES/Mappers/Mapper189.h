@@ -40,7 +40,7 @@ public:
         }
     }
 
-    GERANES_HOT void writeSaveRam(int addr, uint8_t data) override
+    GERANES_HOT void writeSaveRam(int /*addr*/, uint8_t data) override
     {
         writeOuterPrgReg(data);
     }

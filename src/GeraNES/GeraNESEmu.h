@@ -1159,9 +1159,9 @@ public:
     m_portDevice1(),
     m_portDevice2(),
     m_expansionDevice(),
+    m_console(m_cpu, m_ppu, m_apu, m_cartridge),
     m_rewind(*this),
-    m_nsfPlayer(m_cartridge, m_apu, m_audioOutput, [this]() { this->reset(); }),
-    m_console(m_cpu, m_ppu, m_apu, m_cartridge)
+    m_nsfPlayer(m_cartridge, m_apu, m_audioOutput, [this]() { this->reset(); })
     {
         init();
 

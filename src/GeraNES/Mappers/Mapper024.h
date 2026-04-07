@@ -56,7 +56,7 @@ protected:
     uint8_t m_PRGReg[2] = {0};
 
     //address expected $x000, $x001, $x002, $x003
-    void writeVRC6x(int addr, uint8_t data, bool hasPRGMode)
+    void writeVRC6x(int addr, uint8_t data, bool /*hasPRGMode*/)
     {
         switch(addr)
         {

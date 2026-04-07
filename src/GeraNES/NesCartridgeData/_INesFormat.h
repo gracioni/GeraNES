@@ -10,6 +10,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <array>
 
 #include "logger/logger.h"
 
@@ -46,13 +47,13 @@ public:
             return;
         }
 
-        const char iNesBytes[] = "NES\x1A";
-        size_t size = strlen(iNesBytes);
+        static constexpr std::array<char, 4> iNesBytes = {'N', 'E', 'S', '\x1A'};
+        const size_t size = iNesBytes.size();
 
-        char aux[size];
-        for(int i = 0; i < size; ++i) aux[i] = m_romFile.data(i);
+        char aux[4];
+        for(size_t i = 0; i < size; ++i) aux[i] = static_cast<char>(m_romFile.data(static_cast<int>(i)));
 
-        if(strncmp(aux, iNesBytes, size) != 0) {
+        if(std::strncmp(aux, iNesBytes.data(), size) != 0) {
             m_error = "invalid iNES signature";
             return;
         }

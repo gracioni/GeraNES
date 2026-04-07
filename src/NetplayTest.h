@@ -3457,7 +3457,7 @@ private:
         }
     }
 
-    static RunArtifacts runAutoSettingsProbe(const Options& options)
+    static RunArtifacts runAutoSettingsProbe(const Options& /*options*/)
     {
         RunArtifacts result;
         Netplay::NetplayAutoSettings autoSettings;

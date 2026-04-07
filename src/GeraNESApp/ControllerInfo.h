@@ -85,7 +85,7 @@ public:
         
     }
 
-    const void setByButtonIndex(int index, const std::string& input) {
+    void setByButtonIndex(int index, const std::string& input) {
         
         switch(index){
             case 0: a = input; break;

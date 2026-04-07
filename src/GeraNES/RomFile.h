@@ -44,8 +44,6 @@ private:
             {
                 const char *name = zip_entry_name(zip);
                 int isdir = zip_entry_isdir(zip);
-                unsigned long long size = zip_entry_size(zip);
-                unsigned int crc32 = zip_entry_crc32(zip);
 
                 if(!isdir) ret.push_back(name);
             }

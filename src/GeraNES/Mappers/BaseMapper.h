@@ -80,7 +80,7 @@ private:
 
             size_t size = end-begin;
 
-            if(size == cd().saveRamSize())
+            if(size == static_cast<size_t>(cd().saveRamSize()))
                 f.read(reinterpret_cast<char*>(m_sRam), cd().saveRamSize());
 
             f.close();
@@ -171,9 +171,9 @@ public:
 
     virtual bool getInterruptFlag(){ return false; }
 
-    virtual bool useCustomNameTable(uint8_t index) { return false; }
+    virtual bool useCustomNameTable(uint8_t /*index*/) { return false; }
 
-    virtual uint8_t readCustomNameTable(uint8_t index, uint16_t addr) { return 0; }
+    virtual uint8_t readCustomNameTable(uint8_t /*index*/, uint16_t /*addr*/) { return 0; }
 
     virtual void writeCustomNameTable(uint8_t /*index*/, uint16_t /*addr*/, uint8_t /*data*/) {}
 

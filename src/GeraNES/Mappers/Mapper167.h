@@ -5,7 +5,7 @@
 class Mapper167 : public Mapper166
 {
 protected:
-    GERANES_INLINE bool altMode() const
+    GERANES_INLINE bool altMode() const override
     {
         return true;
     }
