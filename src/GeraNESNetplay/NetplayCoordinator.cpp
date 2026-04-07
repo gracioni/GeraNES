@@ -807,11 +807,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
-        if(m_hosting && participant->id != m_localParticipantId) {
-            // Any incoming packet from the remote participant (even stale) is
-            // activity and should prevent suspend-timeout resync loops.
-            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
-        }
         previousReceivedSequence = participant->lastReceivedInputSequence;
         if(!participantHasAssignment(*participant, input.playerSlot)) {
             std::ostringstream oss;
@@ -828,6 +823,9 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 
         if(m_hosting && participant->id != m_localParticipantId) {
             if(participant->inputResumeAwaitingResync) {
+                // While waiting for authoritative resync completion, treat
+                // incoming packets as liveness to avoid immediate timeout loops.
+                m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
                 std::ostringstream oss;
                 oss << "Ignoring resumed participant input until authoritative resync completes: "
                     << participant->displayName
@@ -899,6 +897,11 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
         participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
         participant->sequenceRebasePending = false;
+        if(m_hosting && participant->id != m_localParticipantId) {
+            // Count only forward sequence progress as remote activity once the
+            // participant is out of recovery-gated states.
+            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+        }
     }
 
     InputTimeline* destinationTimeline = &m_remoteInputs;
