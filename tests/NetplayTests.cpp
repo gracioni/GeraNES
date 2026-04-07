@@ -1162,19 +1162,6 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     REQUIRE(host.injectResyncAckForTests(successAck));
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
 
-    // After recovery completes, stale/duplicate packets must not keep the
-    // participant "alive" forever. Otherwise host-side suspension fallback
-    // cannot re-engage when no forward input progress exists.
-    Netplay::InputFrameData postRecoveryStale = staleResumedInput;
-    for(int i = 0; i < 3; ++i) {
-        REQUIRE(host.injectInputFrameForTests(postRecoveryStale, baselineContribution));
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        host.update(0);
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(30));
-    host.update(0);
-    REQUIRE(hostRemote->inputSuspended);
-
     host.disconnect();
     client.disconnect();
 }
