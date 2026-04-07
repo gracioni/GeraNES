@@ -357,6 +357,7 @@ private:
     void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processRollbackIfNeededOnWorker(GeraNESEmu& emu);
+    void ensureStandaloneInputBootstrapFrame(GeraNESEmu& emu);
     bool tryBuildPlaybackConfirmedFrame(uint32_t frame, NetplayCoordinator::ConfirmedFrameInputs& outFrame);
     bool tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame);
     void updateUiSnapshot(const std::optional<RomSelection>& localRom);
@@ -1133,6 +1134,19 @@ inline bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmul
     return true;
 }
 
+inline void NetplayAppRuntime::ensureStandaloneInputBootstrapFrame(GeraNESEmu& emu)
+{
+    syncEmuInputTimelineEpoch(emu);
+
+    const uint32_t currentFrame = emu.frameCount();
+    if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) != nullptr) {
+        return;
+    }
+
+    InputFrame bootstrapFrame = emu.createInputFrame(currentFrame);
+    (void)emu.queueInputFrame(bootstrapFrame);
+}
+
 inline bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame)
 {
     if(emu.inputBuffer().findByFrame(frame, emu.inputTimelineEpoch()) != nullptr) {
@@ -1341,6 +1355,7 @@ inline void NetplayAppRuntime::disconnect()
     enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_coordinator.disconnect();
         self.m_inputDriver.reset();
+        self.ensureStandaloneInputBootstrapFrame(emu);
         self.m_runtimeLastTickTime = {};
         self.m_lastSelectedRomKey.clear();
         self.m_lastSubmittedValidationKey.clear();
@@ -1513,6 +1528,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_emuHost.setAutoQueuePendingInputOnFrameStart(true);
         m_emuHost.setFrameInputResolver({});
         m_emuHost.setAllowPresenterTimeoutAdvance(true);
+        ensureStandaloneInputBootstrapFrame(emu);
         m_runtimeActive.store(false, std::memory_order_release);
         m_runtimeRunning.store(false, std::memory_order_release);
         m_inputDriver.reset();
