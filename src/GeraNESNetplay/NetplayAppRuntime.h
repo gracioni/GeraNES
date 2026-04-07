@@ -900,18 +900,7 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
     if(statePayload.empty()) return;
 
     const ResyncReason reason =
-        initialSessionSync
-            ? ResyncReason::InitialSessionSync
-            : std::any_of(
-                  m_coordinator.session().roomState().participants.begin(),
-                  m_coordinator.session().roomState().participants.end(),
-                  [this](const ParticipantInfo& participant) {
-                      return participant.id != m_coordinator.localParticipantId() &&
-                             participant.inputResumeAwaitingResync;
-                  }
-              )
-                ? ResyncReason::SuspendResumeRecovery
-                : ResyncReason::ConfirmedDesync;
+        initialSessionSync ? ResyncReason::InitialSessionSync : ResyncReason::ConfirmedDesync;
     if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, !initialSessionSync, reason)) {
         if(initialSessionSync) {
             Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);

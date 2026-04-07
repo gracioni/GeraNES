@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 6;
+constexpr uint8_t kProtocolVersion = 5;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -74,8 +74,7 @@ enum class ResyncReason : uint8_t
     AssignmentChanged,
     ManualForce,
     HostReset,
-    HostLoadedState,
-    SuspendResumeRecovery
+    HostLoadedState
 };
 
 struct PacketHeader
