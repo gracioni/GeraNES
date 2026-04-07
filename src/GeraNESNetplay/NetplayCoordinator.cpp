@@ -239,6 +239,7 @@ static const char* resyncReasonLabel(ResyncReason reason)
         case ResyncReason::ManualForce: return "ManualForce";
         case ResyncReason::HostReset: return "HostReset";
         case ResyncReason::HostLoadedState: return "HostLoadedState";
+        case ResyncReason::SuspendResumeRecovery: return "SuspendResumeRecovery";
         default: return "Unknown";
     }
 }
@@ -1611,6 +1612,7 @@ bool NetplayCoordinator::preserveConfirmedInputsAcrossRealignment(ResyncReason r
     switch(reason) {
         case ResyncReason::HostReset:
         case ResyncReason::HostLoadedState:
+        case ResyncReason::SuspendResumeRecovery:
             return false;
         default:
             return true;

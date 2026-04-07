@@ -1611,6 +1611,66 @@ TEST_CASE("Netplay coordinator retries authoritative resync after rejected post-
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay coordinator uses clean baseline for suspend-resume recovery resync reason",
+          "[netplay][resync][suspend-resume][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 2u;
+    room.currentFrame = 120u;
+    room.lastConfirmedFrame = 118u;
+
+    Netplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1u;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = Netplay::ParticipantRole::Player;
+    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+
+    Netplay::InputFrameData remoteInput{};
+    remoteInput.timelineEpoch = room.timelineEpoch;
+    remoteInput.frame = 118u;
+    remoteInput.participantId = remoteParticipant.id;
+    remoteInput.playerSlot = Netplay::kPort2PlayerSlot;
+    remoteInput.sequence = 1u;
+    remoteInput.buttonMaskLo = 1u << 7;
+    remoteInput.buttonMaskHi = 0u;
+    InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(remoteInput.frame, room);
+    contribution.p2Right = true;
+    REQUIRE(coordinator.injectInputFrameForTests(remoteInput, contribution));
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
+    REQUIRE(coordinator.beginResync(
+        118u,
+        payload,
+        0x11111111u,
+        0x22222222u,
+        Netplay::ResyncReason::SuspendResumeRecovery
+    ));
+
+    const Netplay::TimelineInputEntry* remoteAtTarget =
+        coordinator.remoteInputs().find(118u, remoteParticipant.id, Netplay::kPort2PlayerSlot);
+    REQUIRE(remoteAtTarget != nullptr);
+    REQUIRE(remoteAtTarget->confirmed);
+    REQUIRE_FALSE(remoteAtTarget->predicted);
+    REQUIRE(remoteAtTarget->buttonMaskLo == 0u);
+    REQUIRE(remoteAtTarget->buttonMaskHi == 0u);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay coordinator logs confirmed CRC mismatch classification before host resync scheduling", "[netplay][crc][classification][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
