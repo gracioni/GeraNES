@@ -116,6 +116,7 @@ private:
     uint32_t m_gameplayReceiveDelayMs = 0;
     std::chrono::milliseconds m_remoteInputSuspendTimeout = std::chrono::milliseconds(1000);
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastRemoteInputAt;
+    std::chrono::steady_clock::time_point m_lastStaleOrDuplicateInputAt = {};
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
     std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
