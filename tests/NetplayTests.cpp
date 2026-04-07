@@ -1136,6 +1136,16 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     REQUIRE(*pendingResync == 111u);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_resume"));
 
+    // Repeated stale packets must count as activity and must not trigger
+    // additional suspend-timeout resync scheduling loops.
+    for(int i = 0; i < 4; ++i) {
+        staleResumedInput.sequence += 1u;
+        REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        host.update(0);
+        REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    }
+
     const std::vector<uint8_t> payload{0x01, 0x23, 0x45};
     REQUIRE(host.beginResync(*pendingResync, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
     Netplay::ResyncAckData successAck{};

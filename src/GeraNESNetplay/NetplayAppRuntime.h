@@ -887,7 +887,9 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
         buildAuthoritativeStatePayload(emu, authoritativeFrame, !initialSessionSync);
     if(statePayload.empty()) return;
 
-    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, !initialSessionSync)) {
+    const ResyncReason reason =
+        initialSessionSync ? ResyncReason::InitialSessionSync : ResyncReason::ConfirmedDesync;
+    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, !initialSessionSync, reason)) {
         if(initialSessionSync) {
             Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
         } else {

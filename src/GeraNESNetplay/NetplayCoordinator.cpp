@@ -807,6 +807,11 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
+        if(m_hosting && participant->id != m_localParticipantId) {
+            // Any incoming packet from the remote participant (even stale) is
+            // activity and should prevent suspend-timeout resync loops.
+            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+        }
         previousReceivedSequence = participant->lastReceivedInputSequence;
         if(!participantHasAssignment(*participant, input.playerSlot)) {
             std::ostringstream oss;
@@ -929,10 +934,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     destinationTimeline->push(entry);
 
     if(participant != nullptr) {
-        if(m_hosting && participant->id != m_localParticipantId) {
-            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
-        }
-
         if(previousReceivedSequence > 0 && input.sequence > previousReceivedSequence + 1u) {
             std::ostringstream oss;
             oss << "Input sequence gap from " << participant->displayName

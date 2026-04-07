@@ -96,6 +96,8 @@ private:
     static bool isAssignedActiveParticipant(const ParticipantInfo& participant)
     {
         return participant.connected &&
+               !participant.inputSuspended &&
+               !participant.inputResumeAwaitingResync &&
                (!participant.controllerAssignments.empty() ||
                 participant.controllerAssignment != kObserverPlayerSlot);
     }
