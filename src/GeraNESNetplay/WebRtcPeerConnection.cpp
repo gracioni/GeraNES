@@ -410,40 +410,40 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
 
             const detail = err.errorDetail || (err.error && err.error.errorDetail);
             if(detail) {
-                parts.push(`detail=${detail}`);
+                parts.push('detail=' + detail);
             }
 
             const message = err.message || (err.error && err.error.message);
             if(message) {
-                parts.push(`message=${message}`);
+                parts.push('message=' + message);
             }
 
             const sctpCauseCode = err.sctpCauseCode || (err.error && err.error.sctpCauseCode);
             if(typeof sctpCauseCode === 'number') {
-                parts.push(`sctpCauseCode=${sctpCauseCode}`);
+                parts.push('sctpCauseCode=' + sctpCauseCode);
             }
 
             const receivedAlert = err.receivedAlert || (err.error && err.error.receivedAlert);
             if(typeof receivedAlert === 'number') {
-                parts.push(`receivedAlert=${receivedAlert}`);
+                parts.push('receivedAlert=' + receivedAlert);
             }
 
             const sentAlert = err.sentAlert || (err.error && err.error.sentAlert);
             if(typeof sentAlert === 'number') {
-                parts.push(`sentAlert=${sentAlert}`);
+                parts.push('sentAlert=' + sentAlert);
             }
 
             if(pc) {
-                parts.push(`pc.connectionState=${pc.connectionState}`);
-                parts.push(`pc.iceConnectionState=${pc.iceConnectionState}`);
-                parts.push(`pc.iceGatheringState=${pc.iceGatheringState}`);
-                parts.push(`pc.signalingState=${pc.signalingState}`);
+                parts.push('pc.connectionState=' + pc.connectionState);
+                parts.push('pc.iceConnectionState=' + pc.iceConnectionState);
+                parts.push('pc.iceGatheringState=' + pc.iceGatheringState);
+                parts.push('pc.signalingState=' + pc.signalingState);
             }
 
             if(dc) {
-                parts.push(`dc.readyState=${dc.readyState}`);
+                parts.push('dc.readyState=' + dc.readyState);
                 if(dc.label) {
-                    parts.push(`dc.label=${dc.label}`);
+                    parts.push('dc.label=' + dc.label);
                 }
             }
 
@@ -526,8 +526,8 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
                 ['number', 'string', 'string', 'number'],
                 [
                     self,
-                    event.candidate.candidate || '',
-                    event.candidate.sdpMid || '',
+                    event.candidate.candidate || "",
+                    event.candidate.sdpMid || "",
                     typeof event.candidate.sdpMLineIndex === 'number' ? event.candidate.sdpMLineIndex : -1
                 ]
             );
@@ -809,13 +809,17 @@ public:
     void onChannelOpen()
     {
         m_dataChannelOpen = true;
-        pushEvent(Event{Event::Type::DataChannelOpen});
+        Event event;
+        event.type = Event::Type::DataChannelOpen;
+        pushEvent(std::move(event));
     }
 
     void onChannelClose()
     {
         m_dataChannelOpen = false;
-        pushEvent(Event{Event::Type::DataChannelClosed});
+        Event event;
+        event.type = Event::Type::DataChannelClosed;
+        pushEvent(std::move(event));
     }
 
     void onDataMessage(const uint8_t* data, int size)

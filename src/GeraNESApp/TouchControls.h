@@ -31,8 +31,6 @@ private:
     int startFingerId = -1;
     int rewindFingerId = -1;
 
-    ControllerInfo& m_controller1;
-
     struct Buttons {
         bool up = false;
         bool right = false;
@@ -148,7 +146,7 @@ private:
 
 public:
 
-    TouchControls(ControllerInfo& controller1, int screenWidth, int screenHeight, glm::vec2 dpi) : m_controller1(controller1){
+    TouchControls(int screenWidth, int screenHeight, glm::vec2 dpi) {
         m_screenWidth = screenWidth;
         m_screenHeight = screenHeight;
         m_dpi = dpi;        

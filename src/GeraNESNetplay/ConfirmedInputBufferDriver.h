@@ -115,12 +115,14 @@ public:
                 inputFrame.p1A = a; inputFrame.p1B = b; inputFrame.p1Select = select; inputFrame.p1Start = start;
                 inputFrame.p1Up = up; inputFrame.p1Down = down; inputFrame.p1Left = left; inputFrame.p1Right = right;
                 inputFrame.p1X = x; inputFrame.p1Y = y; inputFrame.p1L = l; inputFrame.p1R = r;
+                inputFrame.vbP1Up1 = up2; inputFrame.vbP1Down1 = down2; inputFrame.vbP1Left1 = left2; inputFrame.vbP1Right1 = right2;
                 break;
             case kPort2PlayerSlot:
             case kMultitapP2PlayerSlot:
                 inputFrame.p2A = a; inputFrame.p2B = b; inputFrame.p2Select = select; inputFrame.p2Start = start;
                 inputFrame.p2Up = up; inputFrame.p2Down = down; inputFrame.p2Left = left; inputFrame.p2Right = right;
                 inputFrame.p2X = x; inputFrame.p2Y = y; inputFrame.p2L = l; inputFrame.p2R = r;
+                inputFrame.vbP2Up1 = up2; inputFrame.vbP2Down1 = down2; inputFrame.vbP2Left1 = left2; inputFrame.vbP2Right1 = right2;
                 break;
             case kExpansionPlayerSlot:
             case kMultitapP3PlayerSlot:
@@ -359,6 +361,7 @@ public:
         seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
         (void)dtMs;
         (void)regionFps;
+        (void)confirmedThroughFrame;
 
         const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames + m_predictFrames;
 

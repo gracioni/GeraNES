@@ -89,7 +89,6 @@ private:
     friend class DMA;
     const uint16_t NMI_VECTOR = 0xFFFA;
     const uint16_t IRQ_VECTOR = 0xFFFE;
-    const uint16_t BRK_VECTOR = 0xFFFE;
 
     Ibus& m_bus;
     Console& m_console;
@@ -100,18 +99,20 @@ private:
     uint8_t m_x;
     uint8_t m_y;
 
+    struct StatusFlags {
+        bool carry : 1;
+        bool zero : 1;
+        bool irq : 1;
+        bool decimal : 1;
+        bool brk : 1;
+        bool unused : 1;
+        bool overflow : 1;
+        bool negative : 1;
+    };
+
     union {
         uint8_t m_status;
-        struct {
-            bool carry : 1;
-            bool zero : 1;
-            bool irq : 1;
-            bool decimal : 1;
-            bool brk : 1;
-            bool unused : 1;
-            bool overflow : 1;
-            bool negative : 1;
-        } m_flags;
+        StatusFlags m_flags;
     };
 
     unsigned int m_cyclesCounter;

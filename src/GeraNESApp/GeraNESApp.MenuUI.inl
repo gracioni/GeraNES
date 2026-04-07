@@ -307,7 +307,7 @@ inline void GeraNESApp::menuBar() {
                 return port == Settings::Port::P_1 ? effectivePort1Device : effectivePort2Device;
             };
 
-            auto drawControllerPortMenuItem = [this, canChangeNetplayManagedInput, &effectivePortDeviceFor](const char* label, Settings::Port port, Settings::Device device)
+            auto drawControllerPortMenuItem = [this, &effectivePortDeviceFor](const char* label, Settings::Port port, Settings::Device device)
             {
                 const bool selected = effectivePortDeviceFor(port) == std::optional<Settings::Device>(device);
                 if(ImGui::MenuItem(label, nullptr, selected, canChangeNetplayManagedInput)) {

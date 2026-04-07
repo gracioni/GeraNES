@@ -21,7 +21,9 @@ namespace Netplay {
 
 namespace {
 
+#if !defined(__EMSCRIPTEN__)
 constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(1500);
+#endif
 
 #if !defined(__EMSCRIPTEN__)
 class DesktopWebRtcSignalingClient final : public IWebRtcSignalingClient
@@ -365,7 +367,7 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
     }
 
     function callString(cb, selfPtr, text) {
-        const value = text || '';
+        const value = text || "";
         const len = lengthBytesUTF8(value) + 1;
         const ptr = _malloc(len);
         stringToUTF8(value, ptr, len);
@@ -398,7 +400,7 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
         ws.onmessage = function(event) {
             const text = (typeof event.data === 'string')
                 ? event.data
-                : '';
+                : "";
             Module.ccall('geranes_ws_on_message', null, ['number', 'string'], [self, text]);
         };
 

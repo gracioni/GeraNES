@@ -17,6 +17,11 @@
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/PPU.h"
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winconsistent-missing-override"
+#endif
+
 
 class SingleThreadEmulationHost : public IEmulationHost
 {
@@ -350,29 +355,29 @@ public:
     }
 
     void shutdown()
-    {
+     override{
         return;
     }
 
     void setPendingInput(const InputState& input)
-    {
+     override{
         m_pendingInput = input;
     }
 
     void setFrameInputResolver(FrameInputResolver resolver)
-    {
+     override{
         m_frameInputResolver = std::move(resolver);
     }
 
     void queueInputForFrame(uint32_t frameNumber, const InputState& input)
-    {
+     override{
         postCommand([frameNumber, input](GeraNESEmu& emu) {
             emu.queueInputFrame(buildInputFrameForEmu(emu, frameNumber, input));
         });
     }
 
     void queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs)
-    {
+     override{
         if(inputs.empty()) return;
         postCommand([inputs](GeraNESEmu& emu) {
             for(const auto& [frameNumber, input] : inputs) {
@@ -382,17 +387,17 @@ public:
     }
 
     void setAutoQueuePendingInputOnFrameStart(bool enabled)
-    {
+     override{
         m_autoQueuePendingInputOnFrameStart = enabled;
     }
 
     void setAllowPresenterTimeoutAdvance(bool enabled)
-    {
+     override{
         m_allowPresenterTimeoutAdvance = enabled;
     }
 
     void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook)
-    {
+     override{
         m_preAdvanceHook = std::move(hook);
     }
 
@@ -402,7 +407,7 @@ public:
     }
 
     void postCommand(std::function<void(GeraNESEmu&)> command)
-    {
+     override{
         if(command) {
             m_pendingCommands.push_back(std::move(command));
         }
@@ -429,7 +434,7 @@ public:
     }
 
     bool open(const std::string& path)
-    {
+     override{
         resetFreeRunningPacing();
         const bool opened = m_emu.open(path);
         if(opened) {
@@ -446,51 +451,51 @@ public:
         return opened;
     }
 
-    std::vector<std::string> getAudioList() const
+    std::vector<std::string> getAudioList() const override
     {
         return m_audioOutput.getAudioList();
     }
 
-    std::string currentAudioDeviceName() const
+    std::string currentAudioDeviceName() const override
     {
         return m_audioOutput.currentDeviceName();
     }
 
-    float getAudioVolume() const
+    float getAudioVolume() const override
     {
         return m_audioOutput.getVolume();
     }
 
-    std::string getAudioChannelsJson() const
+    std::string getAudioChannelsJson() const override
     {
         return m_audioOutput.getAudioChannelsJson();
     }
 
     void configAudioDevice(const std::string& deviceName)
-    {
+     override{
         m_audioOutput.config(deviceName);
     }
 
     void restartAudio()
-    {
+     override{
         m_audioOutput.restart();
     }
 
     void discardQueuedAudio()
-    {
+     override{
         m_audioOutput.discardQueuedAudio();
         m_audioOutput.clearAudioBuffers();
     }
 
     void discardQueuedNetplayInputsAfter(uint32_t frame)
-    {
+     override{
         postCommand([frame](GeraNESEmu& emu) {
             emu.discardQueuedInputFramesAfter(frame);
         });
     }
 
     std::vector<ManualStateChangeRecord> consumeManualStateChanges()
-    {
+     override{
         std::vector<ManualStateChangeRecord> events;
         events.assign(m_manualStateChanges.begin(), m_manualStateChanges.end());
         m_manualStateChanges.clear();
@@ -498,69 +503,69 @@ public:
     }
 
     void setAudioVolume(float volume)
-    {
+     override{
         m_audioOutput.setVolume(volume);
     }
 
     bool setAudioChannelVolumeById(const std::string& id, float volume)
-    {
+     override{
         return m_audioOutput.setAudioChannelVolumeById(id, volume);
     }
 
-    bool valid() const
+    bool valid() const override
     {
         return m_emu.valid();
     }
 
     void setupRewindSystem(bool enabled, int maxSeconds)
-    {
+     override{
         m_emu.setupRewindSystem(enabled, maxSeconds);
     }
 
     void disableSpriteLimit(bool disabled)
-    {
+     override{
         m_emu.disableSpriteLimit(disabled);
     }
 
-    bool spriteLimitDisabled() const
+    bool spriteLimitDisabled() const override
     {
         return m_emu.spriteLimitDisabled();
     }
 
     void enableOverclock(bool enabled)
-    {
+     override{
         m_emu.enableOverclock(enabled);
     }
 
-    bool overclocked() const
+    bool overclocked() const override
     {
         return m_emu.overclocked();
     }
 
-    Settings::Region region() const
+    Settings::Region region() const override
     {
         return m_emu.region();
     }
 
     void setRegion(Settings::Region region)
-    {
+     override{
         if(!m_emu.valid()) return;
         m_emu.setRegion(region);
     }
 
-    bool paused() const
+    bool paused() const override
     {
         return m_emu.paused();
     }
 
     void togglePaused()
-    {
+     override{
         if(!m_emu.valid()) return;
         m_emu.togglePaused();
     }
 
     void reset()
-    {
+     override{
         m_holdPresentedFramebufferUntilFrameReady = true;
         postCommand([this](GeraNESEmu& emu) {
             if(!emu.valid()) return;
@@ -570,7 +575,7 @@ public:
     }
 
     void saveState()
-    {
+     override{
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.saveState();
@@ -578,7 +583,7 @@ public:
     }
 
     void loadState()
-    {
+     override{
         m_holdPresentedFramebufferUntilFrameReady = true;
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
@@ -586,34 +591,34 @@ public:
         });
     }
 
-    std::optional<Settings::Device> getPortDevice(Settings::Port port) const
+    std::optional<Settings::Device> getPortDevice(Settings::Port port) const override
     {
         return m_emu.getPortDevice(port);
     }
 
     void setPortDevice(Settings::Port port, Settings::Device device)
-    {
+     override{
         postCommand([=](GeraNESEmu& emu) {
             emu.setPortDevice(port, device);
         });
     }
 
-    Settings::ExpansionDevice getExpansionDevice() const
+    Settings::ExpansionDevice getExpansionDevice() const override
     {
         return m_emu.getExpansionDevice();
     }
 
-    Settings::NesMultitapDevice getNesMultitapDevice() const
+    Settings::NesMultitapDevice getNesMultitapDevice() const override
     {
         return m_emu.getNesMultitapDevice();
     }
 
-    Settings::FamicomMultitapDevice getFamicomMultitapDevice() const
+    Settings::FamicomMultitapDevice getFamicomMultitapDevice() const override
     {
         return m_emu.getFamicomMultitapDevice();
     }
 
-    InputTopologySnapshot getInputTopologySnapshot() const
+    InputTopologySnapshot getInputTopologySnapshot() const override
     {
         InputTopologySnapshot snapshot;
         snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
@@ -624,107 +629,107 @@ public:
         return snapshot;
     }
 
-    GameDatabase::System currentCartridgeSystem() const
+    GameDatabase::System currentCartridgeSystem() const override
     {
         return m_emu.getConsole().cartridge().system();
     }
 
     void setExpansionDevice(Settings::ExpansionDevice device)
-    {
+     override{
         postCommand([=](GeraNESEmu& emu) {
             emu.setExpansionDevice(device);
         });
     }
 
     void setNesMultitapDevice(Settings::NesMultitapDevice device)
-    {
+     override{
         postCommand([=](GeraNESEmu& emu) {
             emu.setNesMultitapDevice(device);
         });
     }
 
     void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
-    {
+     override{
         postCommand([=](GeraNESEmu& emu) {
             emu.setFamicomMultitapDevice(device);
         });
     }
 
-    void fdsSwitchDiskSide() { postCommand([](GeraNESEmu& emu) { emu.fdsSwitchDiskSide(); }); }
-    void fdsEjectDisk() { postCommand([](GeraNESEmu& emu) { emu.fdsEjectDisk(); }); }
-    void fdsInsertNextDisk() { postCommand([](GeraNESEmu& emu) { emu.fdsInsertNextDisk(); }); }
-    void vsInsertCoin(int slot) { postCommand([=](GeraNESEmu& emu) { emu.vsInsertCoin(slot); }); }
-    void vsServiceButton(int button) { postCommand([=](GeraNESEmu& emu) { emu.vsServiceButton(button); }); }
+    void fdsSwitchDiskSide()  override{ postCommand([](GeraNESEmu& emu) { emu.fdsSwitchDiskSide(); }); }
+    void fdsEjectDisk()  override{ postCommand([](GeraNESEmu& emu) { emu.fdsEjectDisk(); }); }
+    void fdsInsertNextDisk()  override{ postCommand([](GeraNESEmu& emu) { emu.fdsInsertNextDisk(); }); }
+    void vsInsertCoin(int slot)  override{ postCommand([=](GeraNESEmu& emu) { emu.vsInsertCoin(slot); }); }
+    void vsServiceButton(int button)  override{ postCommand([=](GeraNESEmu& emu) { emu.vsServiceButton(button); }); }
 
-    bool isNsfLoaded() const
+    bool isNsfLoaded() const override
     {
         return m_emu.isNsfLoaded();
     }
 
-    bool nsfIsPlaying() const
+    bool nsfIsPlaying() const override
     {
         return m_emu.nsfIsPlaying();
     }
 
-    bool nsfIsPaused() const
+    bool nsfIsPaused() const override
     {
         return m_emu.nsfIsPaused();
     }
 
-    bool nsfHasEnded() const
+    bool nsfHasEnded() const override
     {
         return m_emu.nsfHasEnded();
     }
 
-    int nsfTotalSongs() const
+    int nsfTotalSongs() const override
     {
         return m_emu.nsfTotalSongs();
     }
 
-    int nsfCurrentSong() const
+    int nsfCurrentSong() const override
     {
         return m_emu.nsfCurrentSong();
     }
 
-    void nsfPlay() { postCommand([](GeraNESEmu& emu) { emu.nsfPlay(); }); }
-    void nsfPause() { postCommand([](GeraNESEmu& emu) { emu.nsfPause(); }); }
-    void nsfStop() { postCommand([](GeraNESEmu& emu) { emu.nsfStop(); }); }
-    void nsfNextSong() { postCommand([](GeraNESEmu& emu) { emu.nsfNextSong(); }); }
-    void nsfPrevSong() { postCommand([](GeraNESEmu& emu) { emu.nsfPrevSong(); }); }
-    void nsfSetSong(int song1Based) { postCommand([=](GeraNESEmu& emu) { emu.nsfSetSong(song1Based); }); }
+    void nsfPlay()  override{ postCommand([](GeraNESEmu& emu) { emu.nsfPlay(); }); }
+    void nsfPause()  override{ postCommand([](GeraNESEmu& emu) { emu.nsfPause(); }); }
+    void nsfStop()  override{ postCommand([](GeraNESEmu& emu) { emu.nsfStop(); }); }
+    void nsfNextSong()  override{ postCommand([](GeraNESEmu& emu) { emu.nsfNextSong(); }); }
+    void nsfPrevSong()  override{ postCommand([](GeraNESEmu& emu) { emu.nsfPrevSong(); }); }
+    void nsfSetSong(int song1Based)  override{ postCommand([=](GeraNESEmu& emu) { emu.nsfSetSong(song1Based); }); }
 
-    bool isRewinding() const
+    bool isRewinding() const override
     {
         return m_emu.isRewinding();
     }
 
-    uint32_t frameCount() const
+    uint32_t frameCount() const override
     {
         return m_emu.frameCount();
     }
 
-    uint32_t manualResetGeneration() const
+    uint32_t manualResetGeneration() const override
     {
         return m_emu.manualResetGeneration();
     }
 
-    uint32_t manualLoadStateGeneration() const
+    uint32_t manualLoadStateGeneration() const override
     {
         return m_emu.manualLoadStateGeneration();
     }
 
-    uint32_t exactEmulationFrame() const
+    uint32_t exactEmulationFrame() const override
     {
         const_cast<SingleThreadEmulationHost*>(this)->serviceBackgroundWork();
         return m_emu.frameCount();
     }
 
-    uint32_t getRegionFPS() const
+    uint32_t getRegionFPS() const override
     {
         return m_emu.getRegionFPS();
     }
 
-    const uint32_t* getFramebuffer() const
+    const uint32_t* getFramebuffer() const override
     {
         return m_presentedFramebuffer.data();
     }
@@ -735,7 +740,7 @@ public:
     }
 
     void setPresenterLockActive(bool active)
-    {
+     override{
         if(active) {
             m_framePacingMode = FramePacingMode::PresenterLocked;
         } else {
@@ -746,7 +751,7 @@ public:
     }
 
     void setSimulationSuspended(bool suspended)
-    {
+     override{
         if(suspended) {
             m_framePacingMode = FramePacingMode::Suspended;
             m_pendingPresenterTicks = 0;
@@ -758,7 +763,7 @@ public:
     }
 
     bool update(uint32_t dt)
-    {
+     override{
         (void)dt;
         if(m_framePacingMode != FramePacingMode::Suspended) {
             m_framePacingMode = FramePacingMode::FreeRunning;
@@ -775,7 +780,7 @@ public:
     }
 
     void updateUntilFrame(uint32_t dt)
-    {
+     override{
         m_presenterTickDtMs = std::max<uint32_t>(1u, dt);
         m_framePacingMode = FramePacingMode::PresenterLocked;
         ++m_pendingPresenterTicks;
@@ -800,7 +805,7 @@ public:
     }
 
     void configureNetplaySnapshots(size_t snapshotCapacity)
-    {
+     override{
         m_netplaySnapshotCapacity = snapshotCapacity;
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity) {
             m_netplaySnapshots.pop_front();
@@ -811,7 +816,7 @@ public:
     }
 
     bool rollbackToFrame(uint32_t frame)
-    {
+     override{
         std::vector<uint8_t> snapshotData;
         auto it = std::find_if(
             m_netplaySnapshots.rbegin(),
@@ -844,17 +849,17 @@ public:
     }
 
     std::vector<uint8_t> saveStateToMemory()
-    {
+     override{
         return m_emu.saveStateToMemory();
     }
 
     std::vector<uint8_t> saveNetplayStateToMemory()
-    {
+     override{
         return m_emu.saveNetplayStateToMemory();
     }
 
     bool loadStateFromMemory(const std::vector<uint8_t>& data)
-    {
+     override{
         if(data.empty()) return false;
         m_holdPresentedFramebufferUntilFrameReady = true;
         const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
@@ -866,7 +871,7 @@ public:
     }
 
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data)
-    {
+     override{
         if(data.empty()) return false;
         m_holdPresentedFramebufferUntilFrameReady = true;
         const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
@@ -902,32 +907,32 @@ public:
     }
 
     uint32_t canonicalStateCrc32()
-    {
+     override{
         return m_emu.canonicalStateCrc32();
     }
 
     uint32_t canonicalNetplayStateCrc32()
-    {
+     override{
         return m_emu.canonicalNetplayStateCrc32();
     }
 
-    uint32_t lastFrameReadyFrame() const
+    uint32_t lastFrameReadyFrame() const override
     {
         return m_lastFrameReadyFrameValue;
     }
 
-    uint32_t lastFrameReadyNetplayCrc32() const
+    uint32_t lastFrameReadyNetplayCrc32() const override
     {
         return m_lastFrameReadyNetplayCrc32Value;
     }
 
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32)
-    {
+     override{
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
     }
 
-    std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const
+    std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const override
     {
         auto it = std::find_if(
             m_netplaySnapshots.rbegin(),
@@ -940,7 +945,7 @@ public:
         return it->data;
     }
 
-    std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const
+    std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const override
     {
         auto it = std::find_if(
             m_netplaySnapshots.rbegin(),
@@ -956,7 +961,7 @@ public:
     void seedNetplaySnapshot(uint32_t frame,
                              const std::vector<uint8_t>& data,
                              std::optional<uint32_t> canonicalCrc32 = std::nullopt)
-    {
+     override{
         if(data.empty()) return;
 
         if(!canonicalCrc32.has_value()) {
@@ -990,8 +995,12 @@ public:
         m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
     }
 
-    NetplayDiagnosticsSnapshot getNetplayDiagnostics() const
+    NetplayDiagnosticsSnapshot getNetplayDiagnostics() const override
     {
         return m_netplayDiagnostics;
     }
 };
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif

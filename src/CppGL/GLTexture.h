@@ -114,6 +114,7 @@ public:
         // Decide internalFormat handling depending on platform.
         // On Emscripten/WebGL1 internalFormat must equal format (GL_RGBA etc).
         #ifdef __EMSCRIPTEN__
+            (void)internalFormat;
             internalFormat_ = format; // WebGL1-safe
         #else
             internalFormat_ = internalFormat; // Desktop: allow GL_RGBA8 etc.

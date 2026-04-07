@@ -156,8 +156,10 @@ private:
     UserToastNotifier m_userToast;
 
     std::vector<uint8_t> m_embeddedUiFontData;
+#ifdef ENABLE_NSF_PLAYER
     ImFont* m_fontNsfTitle = nullptr;
     ImFont* m_fontNsfSubtitle = nullptr;
+#endif
     ImFont* m_fontToast = nullptr;
     ImFont* m_fontFps = nullptr;
 #ifdef ENABLE_NSF_PLAYER
@@ -1365,8 +1367,6 @@ private:
             const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
             const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
             const bool konamiP2Jump = im.isPressed(m_konamiHyperShot.p2Jump);
-            const bool p1UsesSnesController = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER);
-            const bool p2UsesSnesController = m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER);
             const bool p1UsesVirtualBoyController = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
             const bool p2UsesVirtualBoyController = m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
             const bool p1PrimaryA = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.a) : p1A;
@@ -2191,7 +2191,7 @@ public:
 
         updateMVP();
 
-        m_touch = std::make_unique<TouchControls>(m_controller1, this->width(), this->height(), GetWindowDPI());
+        m_touch = std::make_unique<TouchControls>(this->width(), this->height(), GetWindowDPI());
 
         return true;
     }

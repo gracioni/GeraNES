@@ -5,23 +5,26 @@
 #include <emscripten.h>
 
 void emcriptenFileDialog(intptr_t handler) {
+    constexpr const char* kAcceptedExtensions =
+#ifdef ENABLE_NSF_PLAYER
+        ".nes,.fds,.nsf,.zip,.7z";
+#else
+        ".nes,.fds,.zip,.7z";
+#endif
 
     EM_ASM({
 
         function openFileDialog() {
 
-            var handler = Number($0);
+            var handler = Number(arguments[0]);
+            var accepted = UTF8ToString(arguments[1]);
 
             var input = document.getElementById('__geranes_open_rom_input');
             if (!input) {
                 input = document.createElement('input');
                 input.id = '__geranes_open_rom_input';
                 input.type = 'file';
-#ifdef ENABLE_NSF_PLAYER
-                input.accept = '.nes,.fds,.nsf,.zip,.7z';
-#else
-                input.accept = '.nes,.fds,.zip,.7z';
-#endif
+                input.accept = accepted;
                 input.style.display = 'none';
                 document.body.appendChild(input);
             }
@@ -72,13 +75,13 @@ void emcriptenFileDialog(intptr_t handler) {
         }
         openFileDialog();
 
-    }, handler);
+    }, handler, kAcceptedExtensions);
 }
 
 void emcriptenRegisterAudioReset(intptr_t handler)
 {
     EM_ASM({
-        var handler = Number($0);
+        var handler = Number(arguments[0]);
         function resolveCcall() {
             if (typeof ccall === 'function') return ccall;
             if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
@@ -125,7 +128,7 @@ void emcriptenImportSession(intptr_t handler) {
     EM_ASM({
         (async () => {
 
-            const handler = Number($0);
+            const handler = Number(arguments[0]);
             const ccallFn = (typeof ccall === 'function') ? ccall :
                 ((typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') ? Module.ccall.bind(Module) : null);
 

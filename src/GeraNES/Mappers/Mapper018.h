@@ -13,12 +13,14 @@ private:
     uint8_t m_CHRReg[8] = {0};
     uint8_t m_PRGReg[3] = {0};
 
-    union {
+    struct IRQReloadBytes {
+        uint8_t lowByte;
+        uint8_t highByte;
+    };
+
+    union IRQReloadRegister {
         uint16_t value;
-        struct {
-            uint8_t lowByte;
-            uint8_t highByte;
-        };
+        IRQReloadBytes bytes;
     } m_IRQReload = { .value = 0 };
 
     uint16_t m_IRQCounter = 0;
@@ -96,10 +98,10 @@ public:
         case 0x5002: setLowNible(m_CHRReg[7],data,m_CHRREGMask); break;
         case 0x5003: setHighNible(m_CHRReg[7],data,m_CHRREGMask); break;
 
-        case 0x6000: setLowNible(m_IRQReload.lowByte,data); break;
-        case 0x6001: setHighNible(m_IRQReload.lowByte,data); break;
-        case 0x6002: setLowNible(m_IRQReload.highByte,data); break;
-        case 0x6003: setHighNible(m_IRQReload.highByte,data); break;
+        case 0x6000: setLowNible(m_IRQReload.bytes.lowByte,data); break;
+        case 0x6001: setHighNible(m_IRQReload.bytes.lowByte,data); break;
+        case 0x6002: setLowNible(m_IRQReload.bytes.highByte,data); break;
+        case 0x6003: setHighNible(m_IRQReload.bytes.highByte,data); break;
 
         case 0x7000: m_IRQCounter = m_IRQReload.value; m_interruptFlag = false; break;
 

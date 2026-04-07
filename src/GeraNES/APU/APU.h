@@ -266,12 +266,36 @@ public:
     void writeChannels(int addr, uint8_t data, bool cpuOddCycle = false) {
 
         switch(addr) {
-
-            case 0x00 ... 0x03: m_pulse1.write(addr,data); break;
-            case 0x04 ... 0x07: m_pulse2.write(addr&0x03,data); break;
-            case 0x08 ... 0x0B: m_triangle.write(addr&0x03,data); break;
-            case 0x0C ... 0x0F: m_noise.write(addr&0x03,data); break;
-            case 0x10 ... 0x13: m_sample.write(addr&0x03,data); break;
+            case 0x00:
+            case 0x01:
+            case 0x02:
+            case 0x03:
+                m_pulse1.write(addr, data);
+                break;
+            case 0x04:
+            case 0x05:
+            case 0x06:
+            case 0x07:
+                m_pulse2.write(addr & 0x03, data);
+                break;
+            case 0x08:
+            case 0x09:
+            case 0x0A:
+            case 0x0B:
+                m_triangle.write(addr & 0x03, data);
+                break;
+            case 0x0C:
+            case 0x0D:
+            case 0x0E:
+            case 0x0F:
+                m_noise.write(addr & 0x03, data);
+                break;
+            case 0x10:
+            case 0x11:
+            case 0x12:
+            case 0x13:
+                m_sample.write(addr & 0x03, data);
+                break;
             case 0x15:
                 m_pulse1.setEnabled(data&0x01);
                 m_pulse2.setEnabled(data&0x02);

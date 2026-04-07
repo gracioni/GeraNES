@@ -30,6 +30,7 @@ public:
     void draw(ImDrawList* drawList, float viewportWidth, float viewportHeight, ImFont* font = nullptr)
     {
         if(drawList == nullptr || m_message.empty()) return;
+        (void)viewportWidth;
 
         const Uint64 now = SDL_GetTicks64();
         if(now >= m_fadeUntil) {

@@ -359,6 +359,7 @@ public:
     }
 
     virtual bool onEvent(SDL_Event& e) {
+        (void)e;
         return false;
     }
 
@@ -451,7 +452,7 @@ public:
 
         #ifdef __EMSCRIPTEN__
             int requested = EM_ASM_INT({
-                var desired = !!$0;
+                var desired = !!arguments[0];
 
                 if (typeof window !== 'undefined' && typeof window.geranesSetFullscreen === 'function') {
                     try {

@@ -20,7 +20,6 @@ namespace {
 constexpr size_t kResyncChunkPayloadBytes = 1024;
 constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
 constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
-constexpr uint16_t kReconnectReservationSeconds = 300;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
