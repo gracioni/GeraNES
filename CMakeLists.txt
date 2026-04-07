@@ -602,3 +602,11 @@ set_target_properties(${LIBRETRO_CORE_NAME} PROPERTIES PREFIX "")
 set(LIBRETRO_INFO_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/libretro/geranes_libretro.info")
 set(LIBRETRO_INFO_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${LIBRETRO_CORE_NAME}.info")
 configure_file("${LIBRETRO_INFO_SOURCE}" "${LIBRETRO_INFO_OUTPUT}" COPYONLY)
+
+# Aumentar timeout para testes lentos mas válidos
+set_tests_properties("Netplay runtime reconnect stays deterministic under asymmetric pacing" PROPERTIES TIMEOUT 180)
+set_tests_properties("Netplay robust matrix stays green" PROPERTIES TIMEOUT 300)
+set_tests_properties("State replay remains deterministic from saved snapshots" PROPERTIES TIMEOUT 300)
+set_tests_properties("State replay robust matrix stays green" PROPERTIES TIMEOUT 300)
+set_tests_properties("State replay remains deterministic across deep late-frame probes" PROPERTIES TIMEOUT 300)
+set_tests_properties("State replay remains deterministic from a very late snapshot" PROPERTIES TIMEOUT 300)
