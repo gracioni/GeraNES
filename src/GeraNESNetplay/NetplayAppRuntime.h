@@ -206,10 +206,8 @@ private:
         if(!emu.loadStateFromMemoryOnCleanBoot(payload)) return false;
 
         const uint32_t loadedCrc32 = emu.canonicalNetplayStateCrc32();
-        emu.discardQueuedInputFramesAfter(targetFrame);
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(targetFrame);
-        m_emuHost.discardQueuedNetplayInputsAfter(targetFrame);
         m_emuHost.seedNetplaySnapshot(targetFrame, payload, loadedCrc32);
         m_emuHost.setAuthoritativeFrameReadyState(targetFrame, loadedCrc32);
         m_lastLoadedAuthoritativeFrame = targetFrame;
@@ -292,8 +290,6 @@ private:
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.invalidateLocalCrcHistoryAfter(authoritativeFrame);
         m_coordinator.setLocalSimulationFrame(authoritativeFrame);
-        emu.discardQueuedInputFramesAfter(authoritativeFrame);
-        m_emuHost.discardQueuedNetplayInputsAfter(authoritativeFrame);
         if(stateCrc32 != 0) {
             m_emuHost.seedNetplaySnapshot(authoritativeFrame, statePayload, stateCrc32);
             m_emuHost.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
@@ -965,10 +961,8 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
     const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0;
     if(loadedExpectedFrame) {
-        emu.discardQueuedInputFramesAfter(pending->targetFrame);
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
-        m_emuHost.discardQueuedNetplayInputsAfter(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
         m_lastLoadedAuthoritativeFrame = pending->targetFrame;
         m_emuHost.setAuthoritativeFrameReadyState(
