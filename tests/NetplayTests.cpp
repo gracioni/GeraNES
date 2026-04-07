@@ -1109,10 +1109,15 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
 
     REQUIRE(hostRemote->inputSuspended);
 
+    // Ensure suspended synthesis can replace unresolved predicted inputs.
+    host.predictRemoteInputsForFrame(111u);
+    REQUIRE(host.unresolvedPredictedRemoteFrameCount() > 0u);
+
     host.recordLocalInputFrame(111, Netplay::kPort1PlayerSlot, 0);
     Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
     REQUIRE(host.session().roomState().lastConfirmedFrame >= 111u);
 
     host.setLocalSimulationFrame(111);

@@ -1305,6 +1305,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
+    if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
     const auto update = m_implicitRecoveryMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
     if(!update.shouldScheduleResync) return;
 
@@ -1345,7 +1346,9 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
 
             FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
             while(nextFrame <= targetFrame) {
-                if(m_remoteInputs.find(nextFrame, participant.id, slot) != nullptr) {
+                const TimelineInputEntry* existing =
+                    m_remoteInputs.find(nextFrame, participant.id, slot);
+                if(existing != nullptr && existing->confirmed) {
                     ++nextFrame;
                     continue;
                 }
@@ -1355,6 +1358,9 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
                 synthetic.inputFrame = InputFrame::repeatedFrom(latestConfirmed->inputFrame, nextFrame);
                 synthetic.predicted = false;
                 synthetic.confirmed = true;
+                if(existing != nullptr) {
+                    synthetic.sequence = existing->sequence;
+                }
                 m_remoteInputs.push(synthetic);
                 latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
                 ++nextFrame;
@@ -1392,7 +1398,7 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             continue;
         }
 
-        if(participant.inputSuspended) {
+        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
             continue;
         }
 
@@ -1576,6 +1582,14 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId) continue;
+        if(!participant.connected || participantIsObserver(participant)) continue;
+        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+            pushLog("Deferred hard resync escalation while participant input recovery is in progress");
+            return;
+        }
+    }
     if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
         pushLog("Deferred hard resync escalation during post-resync stabilization");
         return;
@@ -2622,9 +2636,12 @@ uint32_t NetplayCoordinator::unresolvedPredictedRemoteFrameCount() const
 {
     uint32_t count = 0;
     for(const TimelineInputEntry& entry : m_remoteInputs.entries()) {
-        if(entry.predicted && !entry.confirmed) {
-            ++count;
-        }
+        if(!entry.predicted || entry.confirmed) continue;
+        const ParticipantInfo* participant = m_session.findParticipant(entry.participantId);
+        if(participant == nullptr) continue;
+        if(!participant->connected || participantIsObserver(*participant)) continue;
+        if(participant->inputSuspended || participant->inputResumeAwaitingResync) continue;
+        ++count;
     }
     return count;
 }
