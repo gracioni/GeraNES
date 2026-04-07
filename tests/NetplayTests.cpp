@@ -1123,10 +1123,29 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
 
     REQUIRE_FALSE(hostRemote->inputSuspended);
     REQUIRE(hostRemote->inputResumeAwaitingResync);
+
+    // The host must keep advancing using synthetic suspended input while the
+    // resumed participant is gated waiting for authoritative resync.
+    host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);
+    Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
+    REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
+    REQUIRE_FALSE(resumedWindowPlayback.predicted);
+
     const std::optional<Netplay::FrameNumber> pendingResync = host.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
     REQUIRE(*pendingResync == 111u);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_resume"));
+
+    const std::vector<uint8_t> payload{0x01, 0x23, 0x45};
+    REQUIRE(host.beginResync(*pendingResync, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
+    Netplay::ResyncAckData successAck{};
+    successAck.resyncId = host.session().roomState().activeResyncId;
+    successAck.participantId = hostRemote->id;
+    successAck.loadedFrame = *pendingResync;
+    successAck.crc32 = 0x22222222u;
+    successAck.success = 1u;
+    REQUIRE(host.injectResyncAckForTests(successAck));
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
 
     host.disconnect();
     client.disconnect();

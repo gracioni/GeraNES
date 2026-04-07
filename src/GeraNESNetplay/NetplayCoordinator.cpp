@@ -1332,7 +1332,7 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
         if(participant.id == m_localParticipantId ||
            !participant.connected ||
            participantIsObserver(participant) ||
-           !participant.inputSuspended) {
+           (!participant.inputSuspended && !participant.inputResumeAwaitingResync)) {
             continue;
         }
 
@@ -2261,6 +2261,11 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
         m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
         m_activeResyncExpectedStateCrc32 = 0;
+        for(ParticipantInfo& participant : m_session.roomState().participants) {
+            if(participant.id == m_localParticipantId) continue;
+            participant.inputSuspended = false;
+            participant.inputResumeAwaitingResync = false;
+        }
 
         PacketWriter writer;
         PacketHeader header;
@@ -4054,6 +4059,11 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
         m_activeResyncExpectedStateCrc32 = 0;
+        for(ParticipantInfo& participant : m_session.roomState().participants) {
+            if(participant.id == m_localParticipantId) continue;
+            participant.inputSuspended = false;
+            participant.inputResumeAwaitingResync = false;
+        }
         setRecoveryInputMode(RecoveryInputMode::Normal, "resync-skipped-no-peers", targetFrame);
         pushLog("Resync skipped: no remote peers");
         return true;
