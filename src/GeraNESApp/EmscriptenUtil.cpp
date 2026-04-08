@@ -77,7 +77,7 @@ void emcriptenFileDialog(intptr_t handler) {
     }, handler, kAcceptedExtensions);
 }
 
-void emcriptenRegisterAudioReset(intptr_t handler)
+void emcriptenRegisterVisibilityHandler(intptr_t handler)
 {
     EM_ASM({
         var handler = Number(arguments[0]);
@@ -102,8 +102,8 @@ void emcriptenRegisterAudioReset(intptr_t handler)
         }
 
         // Register only once
-        if (!window.__geranes_audio_reset_registered) {
-            window.__geranes_audio_reset_registered = true;
+        if (!window.__geranes_visibility_handler_registered) {
+            window.__geranes_visibility_handler_registered = true;
 
             document.addEventListener('visibilitychange', function () {
                 notifyVisibility(document.visibilityState === 'visible');
@@ -120,6 +120,49 @@ void emcriptenRegisterAudioReset(intptr_t handler)
             console.log("Web visibility listeners installed for handler:", handler);
         }
 
+    }, handler);
+}
+
+void emcriptenRegisterUnloadHandler(intptr_t handler)
+{
+    EM_ASM({
+        var handler = Number(arguments[0]);
+
+        function resolveCcall() {
+            if (typeof ccall === 'function') return ccall;
+            if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
+            return null;
+        }
+
+        function notifyUnload() {
+            var ccallFn = resolveCcall();
+            if (!ccallFn) return;
+            try {
+                ccallFn(
+                    'onWebAppUnload',
+                    null,
+                    ['number'],
+                    [handler]
+                );
+            } catch (e) {
+                console.error("Failed to call onWebAppUnload:", e);
+            }
+        }
+
+        if (!window.__geranes_unload_handler_registered) {
+            window.__geranes_unload_handler_registered = true;
+
+            window.addEventListener('pagehide', function (event) {
+                if (event && event.persisted) return;
+                notifyUnload();
+            });
+
+            window.addEventListener('beforeunload', function () {
+                notifyUnload();
+            });
+
+            console.log("Web unload listeners installed for handler:", handler);
+        }
     }, handler);
 }
 

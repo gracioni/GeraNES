@@ -19,6 +19,10 @@ extern "C" {
         reinterpret_cast<GeraNESApp*>(handler)->onWebVisibilityChanged(visible != 0);
     }
 
+    void EMSCRIPTEN_KEEPALIVE onWebAppUnload(intptr_t handler) {
+        reinterpret_cast<GeraNESApp*>(handler)->onWebAppUnload();
+    }
+
     void EMSCRIPTEN_KEEPALIVE onSessionImportComplete(intptr_t handler) {
         reinterpret_cast<GeraNESApp*>(handler)->onSessionImportComplete();
     }   

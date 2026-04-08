@@ -1818,7 +1818,8 @@ public:
         loadShaderList();
         
         #ifdef __EMSCRIPTEN__
-            emcriptenRegisterAudioReset(reinterpret_cast<intptr_t>(this));
+            emcriptenRegisterVisibilityHandler(reinterpret_cast<intptr_t>(this));
+            emcriptenRegisterUnloadHandler(reinterpret_cast<intptr_t>(this));
         #endif
         
     }
@@ -1916,6 +1917,10 @@ public:
         if(wasSuspended) {
             m_emu.restartAudio();
         }
+    }
+
+    void onWebAppUnload() {
+        m_netplayRuntime.shutdown();
     }
 
     void onSessionImportComplete() {
