@@ -83,14 +83,17 @@ private:
     FrameNumber m_lastAdjustmentFrame = 0;
     uint32_t m_lastPredictionMissCount = 0;
     uint32_t m_lastPlaybackStopCount = 0;
+    uint32_t m_lastPredictionLimitStopCount = 0;
+    uint32_t m_lastMissingInputStopCount = 0;
     uint32_t m_lastRollbackScheduledCount = 0;
     uint32_t m_lastPredictedFrameUseCount = 0;
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;
-    static constexpr uint8_t kMaxAutoPredictFrames = 4;
+    static constexpr uint8_t kMaxAutoPredictFrames = 8;
     static constexpr FrameNumber kEvaluationWindowFrames = 120;
     static constexpr FrameNumber kDelayDecreaseStableFrames = 600;
+    static constexpr FrameNumber kPredictDecreaseStableFrames = 900;
     static constexpr FrameNumber kAdjustmentCooldownFrames = 180;
 
     static bool isAssignedActiveParticipant(const ParticipantInfo& participant)
@@ -127,12 +130,42 @@ private:
         return worstJitterFrames;
     }
 
+    static uint8_t predictionBaselineForRoom(const RoomState& room, uint32_t fps)
+    {
+        const double fpsDouble = static_cast<double>(std::max<uint32_t>(1u, fps));
+        const double frameDurationMs = 1000.0 / fpsDouble;
+
+        uint8_t worstTransitFrames = 0;
+        for(const ParticipantInfo& participant : room.participants) {
+            if(!isAssignedActiveParticipant(participant)) continue;
+
+            const double oneWayMs = static_cast<double>(participant.pingMs) * 0.5;
+            const double jitterMs = static_cast<double>(participant.jitterMs);
+            const uint32_t frames = static_cast<uint32_t>(
+                std::ceil((oneWayMs + jitterMs) / frameDurationMs)
+            );
+            worstTransitFrames = std::max<uint8_t>(worstTransitFrames, clampPredict(frames));
+        }
+
+        const uint32_t baseline =
+            std::max<uint32_t>(
+                1u,
+                std::max<uint32_t>(
+                    static_cast<uint32_t>(room.inputDelayFrames) + 1u,
+                    static_cast<uint32_t>(worstTransitFrames) + 1u
+                )
+            );
+        return clampPredict(baseline);
+    }
+
     void resetRunningWindow(const RollbackStats& stats, FrameNumber frame)
     {
         m_runningWindowInitialized = true;
         m_lastEvaluationFrame = frame;
         m_lastPredictionMissCount = stats.predictionMissCount;
         m_lastPlaybackStopCount = stats.playbackStopCount;
+        m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
+        m_lastMissingInputStopCount = stats.stopDueToMissingInputCount;
         m_lastRollbackScheduledCount = stats.rollbackScheduledCount;
         m_lastPredictedFrameUseCount = stats.predictedFrameUseCount;
     }
@@ -149,6 +182,8 @@ private:
         m_lastAdjustmentFrame = 0;
         m_lastPredictionMissCount = 0;
         m_lastPlaybackStopCount = 0;
+        m_lastPredictionLimitStopCount = 0;
+        m_lastMissingInputStopCount = 0;
         m_lastRollbackScheduledCount = 0;
         m_lastPredictedFrameUseCount = 0;
         m_lastDecisionReason.clear();
@@ -187,7 +222,11 @@ public:
 
         const uint8_t worstJitterFrames = jitterFramesForRoom(room, fps);
         const uint8_t preSessionDelay = clampDelay(std::max<uint32_t>(room.inputDelayFrames, worstJitterFrames + 1u));
-        const uint8_t preSessionPredict = clampPredict(std::max<uint32_t>(1u, preSessionDelay + 1u));
+        const uint8_t preSessionPredict =
+            std::max<uint8_t>(
+                clampPredict(std::max<uint32_t>(1u, preSessionDelay + 1u)),
+                predictionBaselineForRoom(room, fps)
+            );
 
         if(room.state == SessionState::Lobby ||
            room.state == SessionState::ValidatingRom ||
@@ -238,11 +277,17 @@ public:
 
             const uint32_t deltaMisses = stats.predictionMissCount - m_lastPredictionMissCount;
             const uint32_t deltaStops = stats.playbackStopCount - m_lastPlaybackStopCount;
+            const uint32_t deltaPredictionLimitStops =
+                stats.stopDueToPredictionLimitCount - m_lastPredictionLimitStopCount;
+            const uint32_t deltaMissingInputStops =
+                stats.stopDueToMissingInputCount - m_lastMissingInputStopCount;
             const uint32_t deltaRollbacks = stats.rollbackScheduledCount - m_lastRollbackScheduledCount;
             const uint32_t deltaPredictedUses = stats.predictedFrameUseCount - m_lastPredictedFrameUseCount;
 
             m_lastPredictionMissCount = stats.predictionMissCount;
             m_lastPlaybackStopCount = stats.playbackStopCount;
+            m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
+            m_lastMissingInputStopCount = stats.stopDueToMissingInputCount;
             m_lastRollbackScheduledCount = stats.rollbackScheduledCount;
             m_lastPredictedFrameUseCount = stats.predictedFrameUseCount;
             m_lastEvaluationFrame = room.currentFrame;
@@ -256,6 +301,33 @@ public:
             const bool unresolvedPressure = unresolvedPredictedRemoteFrameCount >= room.predictFrames && room.predictFrames > 0;
             const bool canAdjustNow =
                 room.currentFrame >= m_lastAdjustmentFrame + kAdjustmentCooldownFrames;
+            const uint8_t desiredPredictBaseline = predictionBaselineForRoom(room, fps);
+            const bool predictPressure =
+                deltaPredictionLimitStops > 0u ||
+                (unresolvedPressure && !severeMiss && !severeRollback && !severeJitter);
+
+            if(canAdjustNow &&
+               predictPressure &&
+               room.predictFrames < kMaxAutoPredictFrames &&
+               deltaMissingInputStops == 0u) {
+                const uint8_t raisedPredict = clampPredict(std::max<uint32_t>(
+                    room.predictFrames + 1u,
+                    desiredPredictBaseline
+                ));
+                if(raisedPredict != room.predictFrames) {
+                    recommendations.predictFrames = raisedPredict;
+                    m_currentFixedPredict = raisedPredict;
+                    m_lastAdjustmentFrame = room.currentFrame;
+                    m_stableFrameCount = 0;
+                    if(deltaPredictionLimitStops > 0u) {
+                        m_lastDecisionReason = "Auto predict increased after prediction-limit stops";
+                    } else {
+                        m_lastDecisionReason = "Auto predict increased from prediction window pressure";
+                    }
+                    m_lastState = room.state;
+                    return recommendations;
+                }
+            }
 
             if(canAdjustNow && (severeStop || severeMiss || severeRollback || severeJitter || unresolvedPressure)) {
                 const uint8_t raisedDelay = clampDelay(std::max<uint32_t>(
@@ -268,7 +340,13 @@ public:
                     m_lastAdjustmentFrame = room.currentFrame;
                     m_stableFrameCount = 0;
                     if(severeStop) {
-                        m_lastDecisionReason = "Auto delay increased after playback stops";
+                        if(deltaMissingInputStops > 0u) {
+                            m_lastDecisionReason = "Auto delay increased after missing-input stops";
+                        } else if(deltaPredictionLimitStops > 0u) {
+                            m_lastDecisionReason = "Auto delay increased after persistent prediction pressure";
+                        } else {
+                            m_lastDecisionReason = "Auto delay increased after playback stops";
+                        }
                     } else if(severeMiss) {
                         m_lastDecisionReason = "Auto delay increased after prediction misses";
                     } else if(severeRollback) {
@@ -294,6 +372,22 @@ public:
                 m_stableFrameCount += framesSinceEval;
             } else {
                 m_stableFrameCount = 0;
+            }
+
+            if(canAdjustNow &&
+               room.predictFrames > desiredPredictBaseline &&
+               m_stableFrameCount >= kPredictDecreaseStableFrames) {
+                const uint8_t loweredPredict =
+                    std::max<uint8_t>(desiredPredictBaseline, static_cast<uint8_t>(room.predictFrames - 1u));
+                if(loweredPredict != room.predictFrames) {
+                    recommendations.predictFrames = loweredPredict;
+                    m_currentFixedPredict = loweredPredict;
+                    m_lastAdjustmentFrame = room.currentFrame;
+                    m_stableFrameCount = 0;
+                    m_lastDecisionReason = "Auto predict reduced after stable session period";
+                    m_lastState = room.state;
+                    return recommendations;
+                }
             }
 
             if(canAdjustNow &&

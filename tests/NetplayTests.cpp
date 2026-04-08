@@ -548,6 +548,64 @@ TEST_CASE("Netplay auto settings probe behaves as expected", "[netplay][autosett
     REQUIRE(report.at("probe") == "netplay_auto_settings");
 }
 
+TEST_CASE("Netplay auto settings prefer predict growth before delay under prediction pressure", "[netplay][autosettings][predict]")
+{
+    Netplay::NetplayAutoSettings autoSettings;
+    autoSettings.setEnabled(true);
+
+    auto makeParticipant = [](Netplay::ParticipantId id,
+                              Netplay::PlayerSlot slot,
+                              uint16_t pingMs,
+                              uint16_t jitterMs) {
+        Netplay::ParticipantInfo participant;
+        participant.id = id;
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        participant.controllerAssignment = slot;
+        participant.pingMs = pingMs;
+        participant.jitterMs = jitterMs;
+        return participant;
+    };
+
+    Netplay::RoomState room;
+    room.sessionId = 7;
+    room.timelineEpoch = 1;
+    room.inputDelayFrames = 2;
+    room.predictFrames = 0;
+    room.state = Netplay::SessionState::ReadyCheck;
+    room.participants = {
+        makeParticipant(0, Netplay::kPort1PlayerSlot, 0, 0),
+        makeParticipant(1, Netplay::kPort2PlayerSlot, 80, 8)
+    };
+
+    Netplay::RollbackStats stats;
+    constexpr uint32_t fps = 60;
+
+    const auto preSession = autoSettings.update(room, stats, 0, fps);
+    REQUIRE(preSession.predictFrames.has_value());
+    REQUIRE(*preSession.predictFrames == 4u);
+
+    room.inputDelayFrames = preSession.inputDelayFrames.value_or(room.inputDelayFrames);
+    room.predictFrames = *preSession.predictFrames;
+    room.state = Netplay::SessionState::Running;
+    room.currentFrame = 100u;
+
+    const auto warmup = autoSettings.update(room, stats, 0, fps);
+    REQUIRE_FALSE(warmup.inputDelayFrames.has_value());
+    REQUIRE_FALSE(warmup.predictFrames.has_value());
+
+    room.currentFrame = 220u;
+    stats.playbackStopCount = 1u;
+    stats.stopDueToPredictionLimitCount = 1u;
+
+    const auto underPressure = autoSettings.update(room, stats, room.predictFrames, fps);
+    REQUIRE_FALSE(underPressure.inputDelayFrames.has_value());
+    REQUIRE(underPressure.predictFrames.has_value());
+    REQUIRE(*underPressure.predictFrames > room.predictFrames);
+    REQUIRE(*underPressure.predictFrames == 5u);
+}
+
 TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
 {
     REQUIRE(Netplay::kDesyncMonitorEnabled == true);
