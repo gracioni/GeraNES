@@ -80,7 +80,7 @@ std::string describeHostTarget(Netplay::NetTransportBackend backend,
     } else {
         oss << "Hosting on port " << port;
     }
-    oss << " for up to " << maxPeers << " peers";
+    oss << " for up to " << maxPeers << " participants";
     return oss.str();
 }
 

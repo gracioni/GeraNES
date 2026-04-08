@@ -1045,15 +1045,37 @@ inline void drawNetplayWindow(bool& showWindow,
 
     ImGui::Separator();
     ImGui::TextUnformatted("Log");
-    if(ImGui::BeginChild("NetplayLog", ImVec2(0.0f, 180.0f), true)) {
-        for(const std::string& line : snapshot.eventLog) {
-            ImGui::TextUnformatted(line.c_str());
-        }
-        if(ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
-            ImGui::SetScrollHereY(1.0f);
+    std::string logText;
+    for(const std::string& line : snapshot.eventLog) {
+        logText += line;
+        logText += '\n';
+    }
+
+    std::vector<char> logBuffer(logText.begin(), logText.end());
+    logBuffer.push_back('\0');
+
+    constexpr const char* kNetplayLogTextId = "##NetplayLogMultilineInput";
+    ImGui::InputTextMultiline(kNetplayLogTextId,
+                              logBuffer.data(),
+                              logBuffer.size(),
+                              ImVec2(-1.0f, 180.0f),
+                              ImGuiInputTextFlags_ReadOnly);
+
+    if(!(ImGui::IsItemActive() || ImGui::IsItemEdited())) {
+        ImGuiContext& g = *GImGui;
+        const char* childWindowName = nullptr;
+        ImFormatStringToTempBuffer(&childWindowName,
+                                   nullptr,
+                                   "%s/%s_%08X",
+                                   g.CurrentWindow->Name,
+                                   kNetplayLogTextId,
+                                   ImGui::GetID(kNetplayLogTextId));
+        ImGuiWindow* childWindow = ImGui::FindWindowByName(childWindowName);
+
+        if(childWindow) {
+            ImGui::SetScrollY(childWindow, childWindow->ScrollMax.y);
         }
     }
-    ImGui::EndChild();
 
     ImGui::End();
 }
