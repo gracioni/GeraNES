@@ -164,7 +164,7 @@ NetplayCoordinator::NetplayCoordinator()
 
 std::string NetplayCoordinator::defaultDisplayName()
 {
-    return "Player";
+    return "Participant";
 }
 
 uint32_t NetplayCoordinator::generateSessionId()
@@ -222,8 +222,8 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
 std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
 {
     switch(reason) {
-        case ResyncReason::HostReset: return "Host reset the game";
-        case ResyncReason::HostLoadedState: return "Host loaded a save state";
+        case ResyncReason::HostReset: return "Owner reset the game";
+        case ResyncReason::HostLoadedState: return "Owner loaded a save state";
         default: return {};
     }
 }
@@ -437,12 +437,12 @@ void NetplayCoordinator::processPendingReconnect()
 
     if(!m_transport.connectToHost(hostName, port)) {
         m_reconnectAttemptInFlight = false;
-        m_lastError = "Failed to reconnect to host";
+        m_lastError = "Failed to reconnect";
         pushLog(m_lastError);
         return;
     }
 
-    pushLog("Attempting reconnect to " + describeConnectTarget(m_transport.backend(), m_transport.options(), hostName, port));
+    pushLog("Attempting reconnect");
 }
 
 std::vector<uint8_t> NetplayCoordinator::buildJoinRoomPacket() const
@@ -2046,11 +2046,11 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
 
     removeParticipant(data.participantId);
     if(hostLeft) {
-        pushLog("Host left the room");
+        pushLog("Owner left the room");
         m_serverPeer = NetTransport::kInvalidPeerHandle;
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
-        m_lastError = "Host closed the room";
+        m_lastError = "Owner closed the room";
         clearReconnectAttemptState();
     } else {
         pushLog("Participant left: " + participantName);
@@ -2367,9 +2367,9 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     } else if(data.state == SessionState::Ended) {
         clearReconnectAttemptState();
         m_disconnectExpectedAfterHostShutdown = true;
-        m_lastError = "Host closed the room";
-        pushLog("Host closed the room");
-        notifySessionEvent("Host closed the room");
+        m_lastError = "Owner closed the room";
+        pushLog("Owner closed the room");
+        notifySessionEvent("Owner closed the room");
         setRecoveryInputMode(RecoveryInputMode::Normal, "session-ended", m_session.roomState().currentFrame);
     } else if(data.state == SessionState::Running &&
               (previousState == SessionState::Resyncing || previousState == SessionState::Starting)) {
@@ -2975,7 +2975,7 @@ bool NetplayCoordinator::handleJoinRejected(PacketReader& reader)
         case JoinRejectReason::RomMismatch:
         default: {
             std::ostringstream oss;
-            oss << "Host requires ROM \"" << gameName << "\" (CRC "
+            oss << "Owner requires ROM \"" << gameName << "\" (CRC "
                 << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
                 << data.romValidation.romCrc32 << ")";
             m_lastError = oss.str();
@@ -3106,7 +3106,7 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
 
     ParticipantInfo& hostParticipant = ensureParticipant(m_localParticipantId, m_localDisplayName);
     hostParticipant.connected = true;
-    hostParticipant.role = ParticipantRole::Host;
+    hostParticipant.role = ParticipantRole::SessionOwner;
     hostParticipant.controllerAssignments.clear();
     hostParticipant.normalizeControllerAssignments();
 
@@ -3126,7 +3126,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     m_lastJoinPort = port;
 
     if(!m_transport.connectToHost(hostName, port)) {
-        m_lastError = std::string("Failed to connect to host using ") + transportBackendLabel(m_transport.backend());
+        m_lastError = std::string("Failed to connect to owner using ") + transportBackendLabel(m_transport.backend());
         if(!m_transport.lastError().empty()) {
             m_lastError += ": " + m_transport.lastError();
         }
@@ -3208,7 +3208,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         completeLocalDisconnect();
                         m_lastError = preservedError;
                     } else if(m_disconnectExpectedAfterHostShutdown) {
-                        const std::string preservedError = m_lastError.empty() ? std::string("Host closed the room") : m_lastError;
+                        const std::string preservedError = m_lastError.empty() ? std::string("Owner closed the room") : m_lastError;
                         m_disconnectExpectedAfterHostShutdown = false;
                         completeLocalDisconnect();
                         m_lastError = preservedError;
@@ -3217,7 +3217,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                               hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
                         scheduleReconnectAttempt();
                     } else if(m_session.roomState().currentFrame > 0) {
-                        m_lastError = "Host disconnected during session";
+                        m_lastError = "Owner disconnected during session";
                     }
                 } else if(m_hosting) {
                     const ParticipantId participantId = participantIdFromPeer(event.peer);
@@ -4117,7 +4117,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_transport.broadcastReliable(Channel::Control, buildResyncCompletePacket(completeData));
     {
         std::ostringstream oss;
-        oss << "Host forced resync"
+        oss << "Owner forced resync"
             << " reason " << resyncReasonLabel(reason)
             << " targetFrame " << targetFrame
             << " resyncId " << resyncId;
@@ -4431,7 +4431,7 @@ bool NetplayCoordinator::selectRom(const std::string& gameName, const RomValidat
     hostResult.romValidation = romValidation;
     m_transport.broadcastReliable(Channel::Control, buildRomValidationResultPacket(hostResult));
 
-    pushLog("Host selected ROM: " + gameName);
+    pushLog("Owner selected ROM: " + gameName);
     return true;
 }
 
@@ -4482,8 +4482,8 @@ bool NetplayCoordinator::startSession()
     data.topology = makeTopologyData(m_session.roomState());
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
     pushLog(requiresInitialSync
-        ? ("Host started session and is awaiting initial sync at frame " + std::to_string(m_localSimulationFrame))
-        : "Host started session");
+        ? ("Owner started session and is awaiting initial sync at frame " + std::to_string(m_localSimulationFrame))
+        : "Owner started session");
     return true;
 }
 
@@ -4504,7 +4504,7 @@ bool NetplayCoordinator::pauseSession()
     data.topology = makeTopologyData(m_session.roomState());
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
-    pushLog("Host paused session");
+    pushLog("Owner paused session");
     return true;
 }
 
@@ -4529,7 +4529,7 @@ bool NetplayCoordinator::resumeSession()
     data.topology = makeTopologyData(m_session.roomState());
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
-    pushLog("Host resumed session");
+    pushLog("Owner resumed session");
     return true;
 }
 
@@ -4550,7 +4550,7 @@ bool NetplayCoordinator::endSession()
     data.topology = makeTopologyData(m_session.roomState());
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
-    pushLog("Host ended session");
+    pushLog("Owner ended session");
     return true;
 }
 

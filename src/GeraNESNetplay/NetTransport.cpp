@@ -531,11 +531,12 @@ private:
             return false;
         }
 
-        WebRtcSignalingMessage joinRoom;
-        joinRoom.type = WebRtcSignalType::JoinRoom;
-        joinRoom.roomId = options.config.roomId;
-        joinRoom.peerId = m_localPeerId;
-        if(!m_signalingClient->send(joinRoom)) {
+        WebRtcSignalingMessage roomMessage;
+        roomMessage.type = host ? WebRtcSignalType::CreateRoom : WebRtcSignalType::JoinRoom;
+        roomMessage.roomId = options.config.roomId;
+        roomMessage.peerId = m_localPeerId;
+        roomMessage.password = options.config.password;
+        if(!m_signalingClient->send(roomMessage)) {
             m_lastError = m_signalingClient->lastError();
             m_signalingClient->disconnect();
             return false;
@@ -848,11 +849,12 @@ private:
                         continue;
                     }
 
-                    WebRtcSignalingMessage joinRoom;
-                    joinRoom.type = WebRtcSignalType::JoinRoom;
-                    joinRoom.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
-                    joinRoom.peerId = m_localPeerId;
-                    if(!sendSignalingMessage(joinRoom)) {
+                    WebRtcSignalingMessage roomMessage;
+                    roomMessage.type = m_bootstrapHost ? WebRtcSignalType::CreateRoom : WebRtcSignalType::JoinRoom;
+                    roomMessage.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
+                    roomMessage.peerId = m_localPeerId;
+                    roomMessage.password = m_activeSignalingConfig ? m_activeSignalingConfig->password : std::string{};
+                    if(!sendSignalingMessage(roomMessage)) {
                         m_bootstrapPending = false;
                         continue;
                     }

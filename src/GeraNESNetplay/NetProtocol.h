@@ -54,8 +54,8 @@ enum class MessageType : uint16_t
 
 enum class ParticipantRole : uint8_t
 {
-    Host,
-    Player,
+    SessionOwner,
+    SessionParticipant,
     Observer
 };
 

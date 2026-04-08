@@ -128,9 +128,9 @@ inline void syncParticipantRoleWithAssignments(ParticipantInfo& participant, boo
 {
     participant.normalizeControllerAssignments();
     if(keepHostRole) {
-        participant.role = ParticipantRole::Host;
+        participant.role = ParticipantRole::SessionOwner;
     } else {
-        participant.role = participantIsObserver(participant) ? ParticipantRole::Observer : ParticipantRole::Player;
+        participant.role = participantIsObserver(participant) ? ParticipantRole::Observer : ParticipantRole::SessionParticipant;
     }
 }
 

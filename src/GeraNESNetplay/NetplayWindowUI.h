@@ -1,12 +1,16 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/WebRtcSignaling.h"
+#include "GeraNESNetplay/WebRtcSignalingClient.h"
 #include "imgui.h"
 
 namespace Netplay {
@@ -26,11 +30,50 @@ inline const char* sessionStateLabel(SessionState state)
     }
 }
 
+struct WebRtcRoomBrowserUiState
+{
+    bool windowOpen = false;
+    bool requestOpenWindow = false;
+    bool requestPasswordPrompt = false;
+    bool fetching = false;
+    bool waitingForWelcome = false;
+    std::string statusText;
+    std::string pendingRoomId;
+    std::string pendingPassword;
+    std::vector<WebRtcSignalingRoomInfo> rooms;
+    int selectedRoomIndex = -1;
+    uint64_t nextPeerNonce = 1;
+    std::unique_ptr<IWebRtcSignalingClient> client;
+
+    void disconnect()
+    {
+        if(client) {
+            client->disconnect();
+            client.reset();
+        }
+        fetching = false;
+        waitingForWelcome = false;
+    }
+};
+
+inline WebRtcRoomBrowserUiState& webRtcRoomBrowserUiState()
+{
+    static WebRtcRoomBrowserUiState state;
+    return state;
+}
+
 inline void drawNetplayWindow(bool& showWindow,
                               NetplayAppRuntime& runtime,
                               const ImVec2& viewportCenter)
 {
-    if(!showWindow) return;
+    WebRtcRoomBrowserUiState& roomBrowser = webRtcRoomBrowserUiState();
+    if(!showWindow) {
+        roomBrowser.windowOpen = false;
+        roomBrowser.requestOpenWindow = false;
+        roomBrowser.requestPasswordPrompt = false;
+        roomBrowser.disconnect();
+        return;
+    }
 
     auto& cfg = AppSettings::instance().data.netplay;
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -85,9 +128,12 @@ inline void drawNetplayWindow(bool& showWindow,
     const auto drawWebRtcConfig = [&](bool hostMode) {
         ImGui::SetNextItemWidth(220.0f);
         ImGui::InputText("Room Id##NetplaySignalingRoomId", &cfg.signalingRoomId);
+        ImGui::SetNextItemWidth(220.0f);
+        ImGui::InputText(hostMode ? "Room Password##NetplayHostRoomPassword" : "Room Password##NetplayJoinRoomPassword",
+                         &cfg.signalingPassword);
         ImGui::SetNextItemWidth(320.0f);
         ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
-        const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
+        const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId, cfg.signalingPassword};
 #ifdef __EMSCRIPTEN__
         cfg.useEmbeddedSignalingServer = false;
         ImGui::TextWrapped("Web builds require an external WebRTC signaling server URL.");
@@ -98,9 +144,10 @@ inline void drawNetplayWindow(bool& showWindow,
 #endif
         if(cfg.useEmbeddedSignalingServer) {
             if(hostMode) {
-                ImGui::TextWrapped("Host mode will start the embedded signaling server on the port from the signaling URL above. Share that same URL and room id with clients.");
+                ImGui::TextWrapped("The owner will start the embedded signaling server on the port specified in the signaling URL above. Share your address, room ID, and password with participants.");
+                ImGui::TextWrapped("Leave the password empty to create a public room.");
             } else {
-                ImGui::TextWrapped("Join using the same signaling URL and room id shared by the host.");
+                ImGui::TextWrapped("Join using the same signaling URL and room id shared by the owner.");
             }
         }
         if(!signalingConfig.valid()) {
@@ -110,9 +157,112 @@ inline void drawNetplayWindow(bool& showWindow,
         }
     };
 
+    const auto applyWebRtcTransportOptions = [&](const std::string& password) {
+        NetTransportOptions transportOptions;
+        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.useEmbeddedSignalingServer;
+        transportOptions.webRtcSignaling = WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId, password};
+        runtime.setTransportOptions(transportOptions);
+    };
+
+    const auto startJoinFromCurrentConfig = [&]() {
+        const bool joinUsingWebRtc =
+            static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
+        if(joinUsingWebRtc) {
+            applyWebRtcTransportOptions(cfg.signalingPassword);
+        }
+        runtime.join(joinUsingWebRtc ? std::string{} : cfg.hostName,
+                     joinUsingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
+                     cfg.displayName);
+    };
+
+    const auto refreshRoomList = [&]() {
+        roomBrowser.disconnect();
+        roomBrowser.rooms.clear();
+        roomBrowser.selectedRoomIndex = -1;
+        roomBrowser.pendingRoomId.clear();
+        roomBrowser.pendingPassword.clear();
+        roomBrowser.statusText.clear();
+
+        WebRtcSignalingClientOptions options;
+        options.config = WebRtcSignalingConfig{cfg.signalingUrl, "__room_browser__", {}};
+        options.localPeerId = "room-browser-" + std::to_string(roomBrowser.nextPeerNonce++);
+        roomBrowser.client = createWebRtcSignalingClient();
+        if(roomBrowser.client == nullptr) {
+            roomBrowser.statusText = "WebRTC room browser is unavailable.";
+            return;
+        }
+        if(!roomBrowser.client->connect(options)) {
+            roomBrowser.statusText = roomBrowser.client->lastError();
+            roomBrowser.client.reset();
+            return;
+        }
+
+        WebRtcSignalingMessage hello;
+        hello.type = WebRtcSignalType::Hello;
+        hello.peerId = options.localPeerId;
+        hello.roomId = options.config.roomId;
+        if(!roomBrowser.client->send(hello)) {
+            roomBrowser.statusText = roomBrowser.client->lastError();
+            roomBrowser.disconnect();
+            return;
+        }
+
+        roomBrowser.fetching = true;
+        roomBrowser.waitingForWelcome = true;
+        roomBrowser.statusText = "Fetching rooms...";
+    };
+
     ImGui::SetNextItemWidth(220.0f);
     ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
     const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
+    if(roomBrowser.fetching && roomBrowser.client) {
+        for(const auto& event : roomBrowser.client->poll()) {
+            switch(event.type) {
+                case IWebRtcSignalingClient::Event::Type::Message:
+                    if(roomBrowser.waitingForWelcome && event.message.type == WebRtcSignalType::Welcome) {
+                        roomBrowser.waitingForWelcome = false;
+                        WebRtcSignalingMessage request;
+                        request.type = WebRtcSignalType::RoomList;
+                        if(!roomBrowser.client->send(request)) {
+                            roomBrowser.statusText = roomBrowser.client->lastError();
+                            roomBrowser.disconnect();
+                        }
+                    } else if(event.message.type == WebRtcSignalType::RoomList) {
+                        roomBrowser.rooms = event.message.rooms;
+                        std::sort(roomBrowser.rooms.begin(), roomBrowser.rooms.end(),
+                                  [](const WebRtcSignalingRoomInfo& lhs, const WebRtcSignalingRoomInfo& rhs) {
+                                      return lhs.roomId < rhs.roomId;
+                                  });
+                        if(roomBrowser.rooms.empty()) {
+                            roomBrowser.statusText = "No active rooms.";
+                        } else {
+                            roomBrowser.statusText.clear();
+                            if(roomBrowser.selectedRoomIndex < 0 ||
+                               roomBrowser.selectedRoomIndex >= static_cast<int>(roomBrowser.rooms.size())) {
+                                roomBrowser.selectedRoomIndex = 0;
+                            }
+                        }
+                        roomBrowser.disconnect();
+                    } else if(event.message.type == WebRtcSignalType::Error) {
+                        roomBrowser.statusText = event.message.error.empty() ? "Failed to fetch rooms." : event.message.error;
+                        roomBrowser.disconnect();
+                    }
+                    break;
+                case IWebRtcSignalingClient::Event::Type::Error:
+                    roomBrowser.statusText = event.text.empty() ? "Failed to fetch rooms." : event.text;
+                    roomBrowser.disconnect();
+                    break;
+                case IWebRtcSignalingClient::Event::Type::Disconnected:
+                    if(roomBrowser.fetching) {
+                        roomBrowser.statusText = "Disconnected while fetching rooms.";
+                        roomBrowser.disconnect();
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 #ifndef NDEBUG
     ImGui::Checkbox("Auto Gameplay Tuning##NetplayAutoGameplayTuning", &cfg.autoGameplayTuning);
     if(!cfg.autoGameplayTuning) {
@@ -166,7 +316,7 @@ inline void drawNetplayWindow(bool& showWindow,
         }
     } else if(!active || !showConnectedControls) {
         if(ImGui::BeginTabBar("NetplayEntryTabs")) {
-            if(ImGui::BeginTabItem("Host")) {
+            if(ImGui::BeginTabItem("Owner")) {
                 ImGui::TextDisabled("Create a room and wait for players.");
                 drawBackendSelector();
                 if(usingWebRtc) {
@@ -182,10 +332,7 @@ inline void drawNetplayWindow(bool& showWindow,
                 ImGui::BeginDisabled(!canHost);
                 if(ImGui::Button("Create Room##NetplayHostButton")) {
                     if(usingWebRtc) {
-                        NetTransportOptions transportOptions;
-                        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.useEmbeddedSignalingServer;
-                        transportOptions.webRtcSignaling = WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
-                        runtime.setTransportOptions(transportOptions);
+                        applyWebRtcTransportOptions(cfg.signalingPassword);
                     }
                     runtime.host(usingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
                                  static_cast<size_t>(cfg.maxPeers),
@@ -193,32 +340,32 @@ inline void drawNetplayWindow(bool& showWindow,
                 }
                 ImGui::EndDisabled();
                 if(!canHost) {
-                    ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Load a ROM before hosting.");
+                    ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Load a ROM before creating a room.");
                 }
                 ImGui::EndTabItem();
             }
-            if(ImGui::BeginTabItem("Client")) {
+            if(ImGui::BeginTabItem("Participant")) {
                 ImGui::TextDisabled("Connect to an existing room.");
                 drawBackendSelector();
                 if(usingWebRtc) {
                     drawWebRtcConfig(false);
                 } else {
                     ImGui::SetNextItemWidth(220.0f);
-                    ImGui::InputText("Host##NetplayHostName", &cfg.hostName);
+                    ImGui::InputText("Owner##NetplayHostName", &cfg.hostName);
                     ImGui::SetNextItemWidth(120.0f);
                     ImGui::InputInt("Port##NetplayJoinPort", &cfg.port);
                     cfg.port = std::clamp(cfg.port, 1, 65535);
                 }
                 if(ImGui::Button("Join Room##NetplayJoinButton")) {
-                    if(usingWebRtc) {
-                        NetTransportOptions transportOptions;
-                        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.useEmbeddedSignalingServer;
-                        transportOptions.webRtcSignaling = WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId};
-                        runtime.setTransportOptions(transportOptions);
+                    startJoinFromCurrentConfig();
+                }
+                if(usingWebRtc) {
+                    ImGui::SameLine();
+                    if(ImGui::Button("Room List##NetplayRoomListButton")) {
+                        roomBrowser.windowOpen = true;
+                        roomBrowser.requestOpenWindow = true;
+                        refreshRoomList();
                     }
-                    runtime.join(usingWebRtc ? std::string{} : cfg.hostName,
-                                 usingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
-                                 cfg.displayName);
                 }
                 ImGui::EndTabItem();
             }
@@ -228,6 +375,126 @@ inline void drawNetplayWindow(bool& showWindow,
         if(ImGui::Button("Disconnect##NetplayDisconnectButton")) {
             runtime.disconnect();
         }
+    }
+
+    if(roomBrowser.requestOpenWindow) {
+        ImGui::OpenPopup("WebRTC Room List");
+        roomBrowser.requestOpenWindow = false;
+    }
+    if(roomBrowser.requestPasswordPrompt) {
+        ImGui::OpenPopup("Join Protected Room");
+        roomBrowser.requestPasswordPrompt = false;
+    }
+
+    bool roomListWindowOpen = roomBrowser.windowOpen;
+    if(ImGui::BeginPopupModal("WebRTC Room List", &roomListWindowOpen, ImGuiWindowFlags_AlwaysAutoResize)) {
+        roomBrowser.windowOpen = roomListWindowOpen;
+        ImGui::TextWrapped("Rooms from %s", cfg.signalingUrl.c_str());
+        ImGui::Spacing();
+
+        if(ImGui::Button("Refresh##NetplayRoomListRefresh")) {
+            refreshRoomList();
+        }
+        ImGui::SameLine();
+        const bool hasSelection =
+            roomBrowser.selectedRoomIndex >= 0 &&
+            roomBrowser.selectedRoomIndex < static_cast<int>(roomBrowser.rooms.size());
+        ImGui::BeginDisabled(!hasSelection);
+        if(ImGui::Button("Join Selected##NetplayRoomListJoin")) {
+            const auto& selectedRoom = roomBrowser.rooms[static_cast<size_t>(roomBrowser.selectedRoomIndex)];
+            cfg.signalingRoomId = selectedRoom.roomId;
+            if(selectedRoom.passwordProtected) {
+                roomBrowser.pendingRoomId = selectedRoom.roomId;
+                roomBrowser.pendingPassword.clear();
+                roomBrowser.requestPasswordPrompt = true;
+            } else {
+                cfg.signalingPassword.clear();
+                startJoinFromCurrentConfig();
+                roomBrowser.windowOpen = false;
+                roomListWindowOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if(ImGui::Button("Close##NetplayRoomListClose")) {
+            roomBrowser.windowOpen = false;
+            roomListWindowOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        if(!roomBrowser.statusText.empty()) {
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", roomBrowser.statusText.c_str());
+        }
+
+        const float roomTableHeight = ImGui::GetTextLineHeightWithSpacing() * 10.0f;
+        if(ImGui::BeginTable("NetplayRoomListTable",
+                             2,
+                             ImGuiTableFlags_Borders |
+                                 ImGuiTableFlags_RowBg |
+                                 ImGuiTableFlags_ScrollY |
+                                 ImGuiTableFlags_SizingStretchProp,
+                             ImVec2(520.0f, roomTableHeight))) {
+            ImGui::TableSetupColumn("Room");
+            ImGui::TableSetupColumn("Has Password", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+            ImGui::TableHeadersRow();
+
+            for(size_t roomIndex = 0; roomIndex < roomBrowser.rooms.size(); ++roomIndex) {
+                const auto& listedRoom = roomBrowser.rooms[roomIndex];
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                const bool selected = roomBrowser.selectedRoomIndex == static_cast<int>(roomIndex);
+                if(ImGui::Selectable((listedRoom.roomId + "##NetplayRoom" + std::to_string(roomIndex)).c_str(),
+                                     selected,
+                                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
+                    roomBrowser.selectedRoomIndex = static_cast<int>(roomIndex);
+                    if(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        cfg.signalingRoomId = listedRoom.roomId;
+                        if(listedRoom.passwordProtected) {
+                            roomBrowser.pendingRoomId = listedRoom.roomId;
+                            roomBrowser.pendingPassword.clear();
+                            roomBrowser.requestPasswordPrompt = true;
+                        } else {
+                            cfg.signalingPassword.clear();
+                            startJoinFromCurrentConfig();
+                            roomBrowser.windowOpen = false;
+                            roomListWindowOpen = false;
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                }
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(listedRoom.passwordProtected ? "Yes" : "No");
+            }
+
+            ImGui::EndTable();
+        }
+
+        ImGui::EndPopup();
+    } else if(roomBrowser.windowOpen) {
+        roomBrowser.windowOpen = false;
+        roomBrowser.disconnect();
+    }
+
+    if(ImGui::BeginPopupModal("Join Protected Room", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("Enter the password for room %s.", roomBrowser.pendingRoomId.c_str());
+        ImGui::SetNextItemWidth(240.0f);
+        ImGui::InputText("Password##NetplayRoomJoinPassword", &roomBrowser.pendingPassword, ImGuiInputTextFlags_Password);
+        if(ImGui::Button("Join##NetplayPasswordJoin")) {
+            cfg.signalingRoomId = roomBrowser.pendingRoomId;
+            cfg.signalingPassword = roomBrowser.pendingPassword;
+            roomBrowser.windowOpen = false;
+            roomBrowser.pendingPassword.clear();
+            ImGui::CloseCurrentPopup();
+            startJoinFromCurrentConfig();
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Cancel##NetplayPasswordCancel")) {
+            roomBrowser.pendingPassword.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::Separator();
@@ -690,8 +957,8 @@ inline void drawNetplayWindow(bool& showWindow,
             }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(
-                participant.role == ParticipantRole::Host ? "Host" :
-                participant.role == ParticipantRole::Player ? "Player" : "Observer"
+                participant.role == ParticipantRole::SessionOwner ? "Owner" :
+                participant.role == ParticipantRole::SessionParticipant ? "Participant" : "Observer"
             );
             ImGui::TableNextColumn();
             if(snapshot.hosting) {

@@ -1660,7 +1660,11 @@ private:
         cfg.netplay.useEmbeddedSignalingServer = false;
 #endif
         transportOptions.useEmbeddedWebRtcSignalingServer = cfg.netplay.useEmbeddedSignalingServer;
-        transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{cfg.netplay.signalingUrl, cfg.netplay.signalingRoomId};
+        transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+            cfg.netplay.signalingUrl,
+            cfg.netplay.signalingRoomId,
+            cfg.netplay.signalingPassword
+        };
         m_netplayRuntime.setTransportOptions(transportOptions);
         m_netplayRuntime.setTransportBackend(configuredBackend);
 

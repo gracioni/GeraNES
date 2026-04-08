@@ -425,7 +425,7 @@ Do not overcomplicate the transport layer. Higher-level correctness belongs in t
 Each participant is one of:
 
 - `Host`
-- `Player`
+- `Participant`
 - `Observer`
 
 Notes:

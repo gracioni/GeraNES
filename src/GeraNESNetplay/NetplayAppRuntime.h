@@ -603,7 +603,7 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
                 : ResyncReason::HostLoadedState;
         {
             std::ostringstream oss;
-            oss << "Host manual state change detected"
+            oss << "Owner manual state change detected"
                 << " reason " << NetplayCoordinator::resyncReasonToast(reason)
                 << " eventFrame " << event.frame
                 << " emuFrame " << emu.frameCount()
@@ -1388,7 +1388,7 @@ inline void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::s
     enqueueCommand([=](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_stickyStatusMessage.clear();
         if(!emu.valid()) {
-            self.m_stickyStatusMessage = "Load a ROM before hosting.";
+            self.m_stickyStatusMessage = "Load a ROM before creating a room.";
             return;
         }
         self.m_coordinator.host(port, maxPeers, displayName);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <vector>
 #include <string>
@@ -343,11 +344,12 @@ public:
 #endif
         std::string signalingUrl = "ws://127.0.0.1:27990";
         std::string signalingRoomId = "default";
+        std::string signalingPassword;
         bool autoGameplayTuning = true;
         int inputDelayFrames = 2;
         int predictFrames = 0;
         int gameplayReceiveDelayMs = 0;
-        std::string displayName = "Player";
+        std::string displayName = "Participant";
         uint64_t reconnectToken = 0;
         std::string hostName = "127.0.0.1";
         int port = 27888;
@@ -357,9 +359,11 @@ public:
         {
             j = nlohmann::json{
                 {"rollbackWindowFrames", value.rollbackWindowFrames},
+                {"transportBackend", value.transportBackend},
                 {"useEmbeddedSignalingServer", value.useEmbeddedSignalingServer},
                 {"signalingUrl", value.signalingUrl},
                 {"signalingRoomId", value.signalingRoomId},
+                {"signalingPassword", value.signalingPassword},
                 {"autoGameplayTuning", value.autoGameplayTuning},
                 {"inputDelayFrames", value.inputDelayFrames},
                 {"predictFrames", value.predictFrames},
@@ -376,10 +380,11 @@ public:
         {
             const Netplay defaults;
             value.rollbackWindowFrames = j.value("rollbackWindowFrames", defaults.rollbackWindowFrames);
-            value.transportBackend = defaults.transportBackend;
+            value.transportBackend = j.value("transportBackend", defaults.transportBackend);
             value.useEmbeddedSignalingServer = j.value("useEmbeddedSignalingServer", defaults.useEmbeddedSignalingServer);
             value.signalingUrl = j.value("signalingUrl", defaults.signalingUrl);
             value.signalingRoomId = j.value("signalingRoomId", defaults.signalingRoomId);
+            value.signalingPassword = j.value("signalingPassword", defaults.signalingPassword);
             value.autoGameplayTuning = j.value("autoGameplayTuning", defaults.autoGameplayTuning);
             value.inputDelayFrames = j.value("inputDelayFrames", defaults.inputDelayFrames);
             value.predictFrames = j.value("predictFrames", defaults.predictFrames);
@@ -470,7 +475,7 @@ public:
         data.netplay.transportBackend = 1;
         data.netplay.useEmbeddedSignalingServer = false;
 #else
-        data.netplay.transportBackend = 0;
+        data.netplay.transportBackend = std::clamp(data.netplay.transportBackend, 0, 1);
 #endif
         data.input.sanitizeDefaults();        
         data.sanitizeDefaults();  

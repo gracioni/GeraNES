@@ -2207,7 +2207,7 @@ private:
                     std::count(
                         hostLoopSnapshot.eventLog.begin(),
                         hostLoopSnapshot.eventLog.end(),
-                        std::string("Host forced resync")
+                        std::string("Owner forced resync")
                     )
                 );
                 hostPeer.runtime.requestForceResync();
@@ -2339,7 +2339,7 @@ private:
             if(hostDisconnectTriggered) {
                 if(clientSnap.room.state == Netplay::SessionState::Ended &&
                    !clientSnap.reconnecting &&
-                   clientSnap.lastError == "Host closed the room") {
+                   clientSnap.lastError == "Owner closed the room") {
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
@@ -2365,7 +2365,7 @@ private:
                 std::count(
                     hostSnap.eventLog.begin(),
                     hostSnap.eventLog.end(),
-                    std::string("Host forced resync")
+                    std::string("Owner forced resync")
                 )
             );
             manualResyncObserved =

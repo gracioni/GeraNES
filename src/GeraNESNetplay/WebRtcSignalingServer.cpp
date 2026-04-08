@@ -34,12 +34,23 @@ private:
         std::string roomId;
     };
 
+    struct RoomState
+    {
+        std::string password;
+        std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> members;
+
+        bool passwordProtected() const
+        {
+            return !password.empty();
+        }
+    };
+
     std::unique_ptr<Server> m_server;
     std::thread m_thread;
     mutable std::mutex m_mutex;
     std::condition_variable m_startCondition;
     std::map<websocketpp::connection_hdl, ClientState, std::owner_less<websocketpp::connection_hdl>> m_clients;
-    std::unordered_map<std::string, std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>>> m_rooms;
+    std::unordered_map<std::string, RoomState> m_rooms;
     bool m_startResolved = false;
     bool m_startSucceeded = false;
     bool m_running = false;
@@ -85,7 +96,7 @@ private:
         const auto roomIt = m_rooms.find(roomId);
         if(roomIt == m_rooms.end()) return std::nullopt;
 
-        for(const auto& hdl : roomIt->second) {
+        for(const auto& hdl : roomIt->second.members) {
             const auto clientIt = m_clients.find(hdl);
             if(clientIt != m_clients.end() && clientIt->second.peerId == peerId) {
                 return hdl;
@@ -105,7 +116,7 @@ private:
             const auto roomIt = m_rooms.find(roomId);
             if(roomIt == m_rooms.end()) return;
 
-            for(const auto& hdl : roomIt->second) {
+            for(const auto& hdl : roomIt->second.members) {
                 if(except != nullptr && sameConnection(hdl, *except)) {
                     continue;
                 }
@@ -130,8 +141,8 @@ private:
         if(!roomId.empty()) {
             auto roomIt = m_rooms.find(roomId);
             if(roomIt != m_rooms.end()) {
-                roomIt->second.erase(hdl);
-                if(roomIt->second.empty()) {
+                roomIt->second.members.erase(hdl);
+                if(roomIt->second.members.empty()) {
                     m_rooms.erase(roomIt);
                 }
             }
@@ -179,15 +190,65 @@ private:
                     break;
                 }
 
+                case WebRtcSignalType::RoomList: {
+                    directMessage = WebRtcSignalingMessage{};
+                    directMessage->type = WebRtcSignalType::RoomList;
+                    directTarget = hdl;
+                    for(const auto& [roomId, room] : m_rooms) {
+                        if(room.members.empty()) continue;
+                        WebRtcSignalingRoomInfo info;
+                        info.roomId = roomId;
+                        info.passwordProtected = room.passwordProtected();
+                        directMessage->rooms.push_back(std::move(info));
+                    }
+                    break;
+                }
+
+                case WebRtcSignalType::CreateRoom: {
+                    if(message.roomId.empty() || message.peerId.empty()) {
+                        sendError(hdl, "Missing room id or peer id");
+                        return;
+                    }
+
+                    const auto existingRoom = m_rooms.find(message.roomId);
+                    if(existingRoom != m_rooms.end() && !existingRoom->second.members.empty()) {
+                        sendError(hdl, "Room already exists");
+                        return;
+                    }
+
+                    client.peerId = message.peerId;
+                    client.roomId = message.roomId;
+                    RoomState& room = m_rooms[message.roomId];
+                    room.password = message.password;
+                    room.members.insert(hdl);
+
+                    directMessage = WebRtcSignalingMessage{};
+                    directMessage->type = WebRtcSignalType::RoomJoined;
+                    directMessage->roomId = message.roomId;
+                    directMessage->peerId = message.peerId;
+                    directTarget = hdl;
+                    break;
+                }
+
                 case WebRtcSignalType::JoinRoom: {
                     if(message.roomId.empty() || message.peerId.empty()) {
                         sendError(hdl, "Missing room id or peer id");
                         return;
                     }
 
+                    auto roomIt = m_rooms.find(message.roomId);
+                    if(roomIt == m_rooms.end() || roomIt->second.members.empty()) {
+                        sendError(hdl, "Room does not exist");
+                        return;
+                    }
+                    if(roomIt->second.password != message.password) {
+                        sendError(hdl, "Invalid room password");
+                        return;
+                    }
+
                     client.peerId = message.peerId;
                     client.roomId = message.roomId;
-                    m_rooms[message.roomId].insert(hdl);
+                    roomIt->second.members.insert(hdl);
 
                     directMessage = WebRtcSignalingMessage{};
                     directMessage->type = WebRtcSignalType::RoomJoined;

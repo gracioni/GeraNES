@@ -14,6 +14,7 @@ struct WebRtcSignalingConfig
 {
     std::string url;
     std::string roomId;
+    std::string password;
 
     bool valid() const
     {
@@ -76,6 +77,8 @@ enum class WebRtcSignalType
 {
     Hello,
     Welcome,
+    RoomList,
+    CreateRoom,
     JoinRoom,
     RoomJoined,
     PeerJoined,
@@ -91,6 +94,8 @@ inline const char* webRtcSignalTypeLabel(WebRtcSignalType type)
     switch(type) {
         case WebRtcSignalType::Hello: return "hello";
         case WebRtcSignalType::Welcome: return "welcome";
+        case WebRtcSignalType::RoomList: return "room_list";
+        case WebRtcSignalType::CreateRoom: return "create_room";
         case WebRtcSignalType::JoinRoom: return "join_room";
         case WebRtcSignalType::RoomJoined: return "room_joined";
         case WebRtcSignalType::PeerJoined: return "peer_joined";
@@ -107,6 +112,8 @@ inline std::optional<WebRtcSignalType> parseWebRtcSignalType(const std::string& 
 {
     if(label == "hello") return WebRtcSignalType::Hello;
     if(label == "welcome") return WebRtcSignalType::Welcome;
+    if(label == "room_list") return WebRtcSignalType::RoomList;
+    if(label == "create_room") return WebRtcSignalType::CreateRoom;
     if(label == "join_room") return WebRtcSignalType::JoinRoom;
     if(label == "room_joined") return WebRtcSignalType::RoomJoined;
     if(label == "peer_joined") return WebRtcSignalType::PeerJoined;
@@ -117,6 +124,31 @@ inline std::optional<WebRtcSignalType> parseWebRtcSignalType(const std::string& 
     if(label == "error") return WebRtcSignalType::Error;
     return std::nullopt;
 }
+
+struct WebRtcSignalingRoomInfo
+{
+    std::string roomId;
+    bool passwordProtected = false;
+
+    nlohmann::json toJson() const
+    {
+        return {
+            {"roomId", roomId},
+            {"passwordProtected", passwordProtected}
+        };
+    }
+
+    static std::optional<WebRtcSignalingRoomInfo> fromJson(const nlohmann::json& json)
+    {
+        if(!json.is_object()) return std::nullopt;
+        if(!json.contains("roomId") || !json["roomId"].is_string()) return std::nullopt;
+
+        WebRtcSignalingRoomInfo info;
+        info.roomId = json["roomId"].get<std::string>();
+        info.passwordProtected = json.value("passwordProtected", false);
+        return info;
+    }
+};
 
 struct WebRtcSignalingMessage
 {
@@ -131,8 +163,10 @@ struct WebRtcSignalingMessage
     std::string candidate;
     std::string mid;
     int mlineIndex = -1;
+    std::string password;
     std::string error;
     std::vector<std::string> iceServers;
+    std::vector<WebRtcSignalingRoomInfo> rooms;
 
     nlohmann::json toJson() const
     {
@@ -148,8 +182,15 @@ struct WebRtcSignalingMessage
         if(!candidate.empty()) json["candidate"] = candidate;
         if(!mid.empty()) json["mid"] = mid;
         if(mlineIndex >= 0) json["mlineIndex"] = mlineIndex;
+        if(!password.empty()) json["password"] = password;
         if(!error.empty()) json["error"] = error;
         if(!iceServers.empty()) json["iceServers"] = iceServers;
+        if(!rooms.empty()) {
+            json["rooms"] = nlohmann::json::array();
+            for(const auto& room : rooms) {
+                json["rooms"].push_back(room.toJson());
+            }
+        }
         return json;
     }
 
@@ -176,11 +217,20 @@ struct WebRtcSignalingMessage
         message.candidate = json.value("candidate", std::string{});
         message.mid = json.value("mid", std::string{});
         message.mlineIndex = json.value("mlineIndex", -1);
+        message.password = json.value("password", std::string{});
         message.error = json.value("error", std::string{});
         if(json.contains("iceServers") && json["iceServers"].is_array()) {
             for(const auto& entry : json["iceServers"]) {
                 if(entry.is_string()) {
                     message.iceServers.push_back(entry.get<std::string>());
+                }
+            }
+        }
+        if(json.contains("rooms") && json["rooms"].is_array()) {
+            for(const auto& entry : json["rooms"]) {
+                const auto parsedRoom = WebRtcSignalingRoomInfo::fromJson(entry);
+                if(parsedRoom.has_value()) {
+                    message.rooms.push_back(*parsedRoom);
                 }
             }
         }

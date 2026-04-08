@@ -65,6 +65,10 @@ private:
         std::string peerId;
         std::string roomId;
     };
+    struct RoomInfo
+    {
+        std::string password;
+    };
 
     uint16_t m_port = 0;
     Server m_server;
@@ -72,6 +76,7 @@ private:
     std::mutex m_mutex;
     std::deque<std::string> m_receivedTexts;
     std::vector<PeerInfo> m_peers;
+    std::map<std::string, RoomInfo> m_rooms;
 
     void sendMessage(const websocketpp::connection_hdl& hdl, const Netplay::WebRtcSignalingMessage& message)
     {
@@ -98,26 +103,94 @@ public:
         m_server.set_message_handler([this](websocketpp::connection_hdl hdl, Server::message_ptr message) {
             const auto parsed = Netplay::WebRtcSignalingMessage::fromText(message->get_payload());
             std::vector<PeerInfo> existingPeers;
+            bool roomExists = false;
+            bool roomMissing = false;
+            bool wrongPassword = false;
+            std::vector<Netplay::WebRtcSignalingRoomInfo> listedRooms;
             {
                 std::scoped_lock lock(m_mutex);
                 m_receivedTexts.push_back(message->get_payload());
-                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
-                    for(const auto& peer : m_peers) {
-                        if(peer.roomId == parsed->roomId && peer.peerId != parsed->peerId) {
-                            existingPeers.push_back(peer);
-                        }
+                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::RoomList) {
+                    for(const auto& [roomId, room] : m_rooms) {
+                        Netplay::WebRtcSignalingRoomInfo listed;
+                        listed.roomId = roomId;
+                        listed.passwordProtected = !room.password.empty();
+                        listedRooms.push_back(listed);
                     }
+                } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom) {
+                    roomExists = m_rooms.find(parsed->roomId) != m_rooms.end();
+                    if(!roomExists) {
+                        m_rooms[parsed->roomId] = RoomInfo{parsed->password};
+                        m_peers.erase(
+                            std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
+                                return peer.peerId == parsed->peerId;
+                            }),
+                            m_peers.end());
+                        m_peers.push_back(PeerInfo{hdl, parsed->peerId, parsed->roomId});
+                    }
+                } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
+                    const auto roomIt = m_rooms.find(parsed->roomId);
+                    if(roomIt == m_rooms.end()) {
+                        roomMissing = true;
+                    } else if(roomIt->second.password != parsed->password) {
+                        wrongPassword = true;
+                    } else {
+                        for(const auto& peer : m_peers) {
+                            if(peer.roomId == parsed->roomId && peer.peerId != parsed->peerId) {
+                                existingPeers.push_back(peer);
+                            }
+                        }
 
-                    m_peers.erase(
-                        std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
-                            return peer.peerId == parsed->peerId;
-                        }),
-                        m_peers.end());
-                    m_peers.push_back(PeerInfo{hdl, parsed->peerId, parsed->roomId});
+                        m_peers.erase(
+                            std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
+                                return peer.peerId == parsed->peerId;
+                            }),
+                            m_peers.end());
+                        m_peers.push_back(PeerInfo{hdl, parsed->peerId, parsed->roomId});
+                    }
                 }
             }
 
-            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
+            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::RoomList) {
+                Netplay::WebRtcSignalingMessage reply;
+                reply.type = Netplay::WebRtcSignalType::RoomList;
+                reply.rooms = std::move(listedRooms);
+                sendMessage(hdl, reply);
+                return;
+            }
+
+            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom && roomExists) {
+                Netplay::WebRtcSignalingMessage error;
+                error.type = Netplay::WebRtcSignalType::Error;
+                error.error = "Room already exists";
+                sendMessage(hdl, error);
+                return;
+            }
+
+            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom && roomMissing) {
+                Netplay::WebRtcSignalingMessage error;
+                error.type = Netplay::WebRtcSignalType::Error;
+                error.error = "Room does not exist";
+                sendMessage(hdl, error);
+                return;
+            }
+
+            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom && wrongPassword) {
+                Netplay::WebRtcSignalingMessage error;
+                error.type = Netplay::WebRtcSignalType::Error;
+                error.error = "Invalid room password";
+                sendMessage(hdl, error);
+                return;
+            }
+
+            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom) {
+                Netplay::WebRtcSignalingMessage joined;
+                joined.type = Netplay::WebRtcSignalType::RoomJoined;
+                joined.roomId = parsed->roomId;
+                joined.peerId = "signal-server";
+                joined.targetPeerId = parsed->peerId;
+                sendMessage(hdl, joined);
+            } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
                 Netplay::WebRtcSignalingMessage joined;
                 joined.type = Netplay::WebRtcSignalType::RoomJoined;
                 joined.roomId = parsed->roomId;
@@ -171,6 +244,18 @@ public:
                     }
                 }
                 m_peers = remainingPeers;
+                if(closedPeer.has_value()) {
+                    bool roomStillUsed = false;
+                    for(const auto& peer : remainingPeers) {
+                        if(peer.roomId == closedPeer->roomId) {
+                            roomStillUsed = true;
+                            break;
+                        }
+                    }
+                    if(!roomStillUsed) {
+                        m_rooms.erase(closedPeer->roomId);
+                    }
+                }
             }
 
             if(closedPeer.has_value()) {
@@ -520,7 +605,8 @@ TEST_CASE("Netplay transport backend can be selected before session startup", "[
     Netplay::NetTransportOptions transportOptions;
     transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "room"
+        "room",
+        ""
     };
     coordinator.setTransportOptions(transportOptions);
     REQUIRE(coordinator.host(27991, 1, "Host"));
@@ -633,15 +719,15 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
     }
     REQUIRE(sawHelloOnServer);
 
-    Netplay::WebRtcSignalingMessage joinRoom;
-    joinRoom.type = Netplay::WebRtcSignalType::JoinRoom;
-    joinRoom.roomId = "room";
-    joinRoom.peerId = "host";
-    REQUIRE(signalingClient->send(joinRoom));
+    Netplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    createRoom.roomId = "room";
+    createRoom.peerId = "host";
+    REQUIRE(signalingClient->send(createRoom));
 
     bool sawRoomJoined = false;
     for(int attempt = 0; attempt < 50 && !sawRoomJoined; ++attempt) {
-        if(server.hasReceivedMessageType(Netplay::WebRtcSignalType::JoinRoom)) {
+        if(server.hasReceivedMessageType(Netplay::WebRtcSignalType::CreateRoom)) {
             for(const auto& event : signalingClient->poll()) {
                 if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
                    event.message.type == Netplay::WebRtcSignalType::RoomJoined) {
@@ -654,8 +740,282 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
         }
     }
 
-    REQUIRE(server.hasReceivedMessageType(Netplay::WebRtcSignalType::JoinRoom));
+    REQUIRE(server.hasReceivedMessageType(Netplay::WebRtcSignalType::CreateRoom));
     REQUIRE(sawRoomJoined);
+}
+
+TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][webrtc][signaling][rooms]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    auto hostA = Netplay::createWebRtcSignalingClient();
+    auto hostB = Netplay::createWebRtcSignalingClient();
+    REQUIRE(hostA != nullptr);
+    REQUIRE(hostB != nullptr);
+
+    Netplay::WebRtcSignalingClientOptions options;
+    options.config.url = "ws://127.0.0.1:" + std::to_string(port);
+    options.config.roomId = "browser";
+    options.config.roomId = "used-room";
+
+    REQUIRE(hostA->connect(options));
+    REQUIRE(hostB->connect(options));
+
+    Netplay::WebRtcSignalingMessage helloA;
+    helloA.type = Netplay::WebRtcSignalType::Hello;
+    helloA.roomId = options.config.roomId;
+    helloA.peerId = "host-a";
+    REQUIRE(hostA->send(helloA));
+
+    Netplay::WebRtcSignalingMessage createA;
+    createA.type = Netplay::WebRtcSignalType::CreateRoom;
+    createA.roomId = options.config.roomId;
+    createA.peerId = "host-a";
+    REQUIRE(hostA->send(createA));
+
+    bool hostACreated = false;
+    for(int attempt = 0; attempt < 50 && !hostACreated; ++attempt) {
+        for(const auto& event : hostA->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+               event.message.roomId == options.config.roomId) {
+                hostACreated = true;
+            }
+        }
+        if(!hostACreated) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(hostACreated);
+
+    Netplay::WebRtcSignalingMessage helloB;
+    helloB.type = Netplay::WebRtcSignalType::Hello;
+    helloB.roomId = options.config.roomId;
+    helloB.peerId = "host-b";
+    REQUIRE(hostB->send(helloB));
+
+    Netplay::WebRtcSignalingMessage createB;
+    createB.type = Netplay::WebRtcSignalType::CreateRoom;
+    createB.roomId = options.config.roomId;
+    createB.peerId = "host-b";
+    REQUIRE(hostB->send(createB));
+
+    bool sawDuplicateError = false;
+    for(int attempt = 0; attempt < 50 && !sawDuplicateError; ++attempt) {
+        for(const auto& event : hostB->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::Error &&
+               event.message.error == "Room already exists") {
+                sawDuplicateError = true;
+            }
+        }
+        if(!sawDuplicateError) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(sawDuplicateError);
+}
+
+TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][webrtc][signaling][password]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    auto host = Netplay::createWebRtcSignalingClient();
+    auto client = Netplay::createWebRtcSignalingClient();
+    REQUIRE(host != nullptr);
+    REQUIRE(client != nullptr);
+
+    Netplay::WebRtcSignalingClientOptions options;
+    options.config.url = "ws://127.0.0.1:" + std::to_string(port);
+    options.config.roomId = "locked-room";
+
+    REQUIRE(host->connect(options));
+    REQUIRE(client->connect(options));
+
+    Netplay::WebRtcSignalingMessage hostHello;
+    hostHello.type = Netplay::WebRtcSignalType::Hello;
+    hostHello.roomId = options.config.roomId;
+    hostHello.peerId = "host";
+    REQUIRE(host->send(hostHello));
+
+    Netplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    createRoom.roomId = options.config.roomId;
+    createRoom.peerId = "host";
+    createRoom.password = "secret";
+    REQUIRE(host->send(createRoom));
+
+    bool roomCreated = false;
+    for(int attempt = 0; attempt < 50 && !roomCreated; ++attempt) {
+        for(const auto& event : host->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined) {
+                roomCreated = true;
+            }
+        }
+        if(!roomCreated) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(roomCreated);
+
+    Netplay::WebRtcSignalingMessage clientHello;
+    clientHello.type = Netplay::WebRtcSignalType::Hello;
+    clientHello.roomId = options.config.roomId;
+    clientHello.peerId = "client";
+    REQUIRE(client->send(clientHello));
+
+    Netplay::WebRtcSignalingMessage badJoin;
+    badJoin.type = Netplay::WebRtcSignalType::JoinRoom;
+    badJoin.roomId = options.config.roomId;
+    badJoin.peerId = "client";
+    badJoin.password = "wrong";
+    REQUIRE(client->send(badJoin));
+
+    bool sawWrongPassword = false;
+    for(int attempt = 0; attempt < 50 && !sawWrongPassword; ++attempt) {
+        for(const auto& event : client->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::Error &&
+               event.message.error == "Invalid room password") {
+                sawWrongPassword = true;
+            }
+        }
+        if(!sawWrongPassword) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(sawWrongPassword);
+
+    Netplay::WebRtcSignalingMessage goodJoin;
+    goodJoin.type = Netplay::WebRtcSignalType::JoinRoom;
+    goodJoin.roomId = options.config.roomId;
+    goodJoin.peerId = "client";
+    goodJoin.password = "secret";
+    REQUIRE(client->send(goodJoin));
+
+    bool sawJoined = false;
+    for(int attempt = 0; attempt < 50 && !sawJoined; ++attempt) {
+        for(const auto& event : client->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+               event.message.roomId == options.config.roomId) {
+                sawJoined = true;
+            }
+        }
+        if(!sawJoined) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(sawJoined);
+}
+
+TEST_CASE("WebRTC signaling server lists rooms with password protection metadata", "[netplay][webrtc][signaling][room-list]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    auto hostPublic = Netplay::createWebRtcSignalingClient();
+    auto hostPrivate = Netplay::createWebRtcSignalingClient();
+    auto browser = Netplay::createWebRtcSignalingClient();
+    REQUIRE(hostPublic != nullptr);
+    REQUIRE(hostPrivate != nullptr);
+    REQUIRE(browser != nullptr);
+
+    Netplay::WebRtcSignalingClientOptions options;
+    options.config.url = "ws://127.0.0.1:" + std::to_string(port);
+    options.config.roomId = "browser";
+
+    REQUIRE(hostPublic->connect(options));
+    REQUIRE(hostPrivate->connect(options));
+    REQUIRE(browser->connect(options));
+
+    Netplay::WebRtcSignalingMessage helloPublic;
+    helloPublic.type = Netplay::WebRtcSignalType::Hello;
+    helloPublic.peerId = "host-public";
+    REQUIRE(hostPublic->send(helloPublic));
+
+    Netplay::WebRtcSignalingMessage createPublic;
+    createPublic.type = Netplay::WebRtcSignalType::CreateRoom;
+    createPublic.roomId = "public-room";
+    createPublic.peerId = "host-public";
+    REQUIRE(hostPublic->send(createPublic));
+    bool publicRoomCreated = false;
+    for(int attempt = 0; attempt < 50 && !publicRoomCreated; ++attempt) {
+        for(const auto& event : hostPublic->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+               event.message.roomId == "public-room") {
+                publicRoomCreated = true;
+            }
+        }
+        if(!publicRoomCreated) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(publicRoomCreated);
+
+    Netplay::WebRtcSignalingMessage helloPrivate;
+    helloPrivate.type = Netplay::WebRtcSignalType::Hello;
+    helloPrivate.peerId = "host-private";
+    REQUIRE(hostPrivate->send(helloPrivate));
+
+    Netplay::WebRtcSignalingMessage createPrivate;
+    createPrivate.type = Netplay::WebRtcSignalType::CreateRoom;
+    createPrivate.roomId = "private-room";
+    createPrivate.peerId = "host-private";
+    createPrivate.password = "secret";
+    REQUIRE(hostPrivate->send(createPrivate));
+    bool privateRoomCreated = false;
+    for(int attempt = 0; attempt < 50 && !privateRoomCreated; ++attempt) {
+        for(const auto& event : hostPrivate->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+               event.message.roomId == "private-room") {
+                privateRoomCreated = true;
+            }
+        }
+        if(!privateRoomCreated) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    REQUIRE(privateRoomCreated);
+
+    Netplay::WebRtcSignalingMessage roomList;
+    roomList.type = Netplay::WebRtcSignalType::RoomList;
+    REQUIRE(browser->send(roomList));
+
+    std::optional<Netplay::WebRtcSignalingMessage> listedRooms;
+    for(int attempt = 0; attempt < 50 && !listedRooms.has_value(); ++attempt) {
+        for(const auto& event : browser->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomList) {
+                listedRooms = event.message;
+            }
+        }
+        if(!listedRooms.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(listedRooms.has_value());
+
+    bool sawPublic = false;
+    bool sawPrivate = false;
+    for(const auto& room : listedRooms->rooms) {
+        if(room.roomId == "public-room") {
+            sawPublic = true;
+            REQUIRE(room.passwordProtected == false);
+        } else if(room.roomId == "private-room") {
+            sawPrivate = true;
+            REQUIRE(room.passwordProtected == true);
+        }
+    }
+    REQUIRE(sawPublic);
+    REQUIRE(sawPrivate);
 }
 
 TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and client",
@@ -670,7 +1030,8 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
     Netplay::NetTransportOptions options;
     options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
-        "room"
+        "room",
+        ""
     };
     hostTransport.setOptions(options);
     clientTransport.setOptions(options);
@@ -730,6 +1091,61 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
     hostTransport.disconnectAll();
     clientTransport.disconnectAll();
 }
+
+TEST_CASE("WebRTC transport exchanges loopback packets in a password-protected room",
+          "[netplay][webrtc][transport][password]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
+    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(port),
+        "locked-room",
+        "secret"
+    };
+    hostTransport.setOptions(options);
+    clientTransport.setOptions(options);
+
+    REQUIRE(hostTransport.hostSession(0, 1));
+    REQUIRE(clientTransport.connectToHost("", 0));
+
+    bool hostConnected = false;
+    bool clientConnected = false;
+    Netplay::NetTransport::PeerHandle hostPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    Netplay::NetTransport::PeerHandle clientPeer = Netplay::NetTransport::kInvalidPeerHandle;
+
+    for(int attempt = 0; attempt < 500 && (!hostConnected || !clientConnected); ++attempt) {
+        for(const auto& event : hostTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                hostConnected = true;
+                hostPeer = event.peer;
+            }
+        }
+        for(const auto& event : clientTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                clientConnected = true;
+                clientPeer = event.peer;
+            }
+        }
+
+        if(!hostConnected || !clientConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(server.connectedPeerCount() == 2u);
+    REQUIRE(hostConnected);
+    REQUIRE(clientConnected);
+    REQUIRE(hostPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientPeer != Netplay::NetTransport::kInvalidPeerHandle);
+
+    hostTransport.disconnectAll();
+    clientTransport.disconnectAll();
+}
 #endif
 
 TEST_CASE("WebRTC signaling messages round-trip through JSON", "[netplay][webrtc][signaling]")
@@ -764,6 +1180,38 @@ TEST_CASE("WebRTC signaling messages round-trip through JSON", "[netplay][webrtc
     REQUIRE(parsedIce->candidate == ice.candidate);
     REQUIRE(parsedIce->mid == "0");
     REQUIRE(parsedIce->mlineIndex == 0);
+
+    Netplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    createRoom.roomId = "private-room";
+    createRoom.peerId = "host";
+    createRoom.password = "secret";
+
+    Netplay::WebRtcSignalingRoomInfo listedPublic;
+    listedPublic.roomId = "public-room";
+    listedPublic.passwordProtected = false;
+
+    Netplay::WebRtcSignalingRoomInfo listedPrivate;
+    listedPrivate.roomId = "private-room";
+    listedPrivate.passwordProtected = true;
+
+    Netplay::WebRtcSignalingMessage roomList;
+    roomList.type = Netplay::WebRtcSignalType::RoomList;
+    roomList.rooms = {listedPublic, listedPrivate};
+
+    const auto parsedCreateRoom = Netplay::WebRtcSignalingMessage::fromText(createRoom.toText());
+    REQUIRE(parsedCreateRoom.has_value());
+    REQUIRE(parsedCreateRoom->type == Netplay::WebRtcSignalType::CreateRoom);
+    REQUIRE(parsedCreateRoom->password == "secret");
+
+    const auto parsedRoomList = Netplay::WebRtcSignalingMessage::fromJson(roomList.toJson());
+    REQUIRE(parsedRoomList.has_value());
+    REQUIRE(parsedRoomList->type == Netplay::WebRtcSignalType::RoomList);
+    REQUIRE(parsedRoomList->rooms.size() == 2u);
+    REQUIRE(parsedRoomList->rooms[0].roomId == "public-room");
+    REQUIRE(parsedRoomList->rooms[0].passwordProtected == false);
+    REQUIRE(parsedRoomList->rooms[1].roomId == "private-room");
+    REQUIRE(parsedRoomList->rooms[1].passwordProtected == true);
 }
 
 TEST_CASE("Netplay runtime flow advances under prediction", "[netplay][runtime]")
@@ -892,7 +1340,7 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     localParticipant->connected = true;
     localParticipant->romLoaded = true;
     localParticipant->romCompatible = true;
-    localParticipant->role = Netplay::ParticipantRole::Player;
+    localParticipant->role = Netplay::ParticipantRole::SessionParticipant;
     localParticipant->controllerAssignments = {Netplay::kPort1PlayerSlot};
     localParticipant->normalizeControllerAssignments();
 
@@ -902,7 +1350,7 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     remoteParticipant.connected = true;
     remoteParticipant.romLoaded = true;
     remoteParticipant.romCompatible = true;
-    remoteParticipant.role = Netplay::ParticipantRole::Player;
+    remoteParticipant.role = Netplay::ParticipantRole::SessionParticipant;
     remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
     remoteParticipant.normalizeControllerAssignments();
     room.participants.push_back(remoteParticipant);
@@ -969,11 +1417,11 @@ TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
             hostLocal = &participant;
-            participant.role = Netplay::ParticipantRole::Host;
+            participant.role = Netplay::ParticipantRole::SessionOwner;
             participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
         } else {
             hostRemote = &participant;
-            participant.role = Netplay::ParticipantRole::Player;
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
             participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
         }
         participant.normalizeControllerAssignments();
@@ -986,10 +1434,10 @@ TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::Player;
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
             participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::Host;
+            participant.role = Netplay::ParticipantRole::SessionOwner;
             participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
@@ -1076,11 +1524,11 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
             hostLocal = &participant;
-            participant.role = Netplay::ParticipantRole::Host;
+            participant.role = Netplay::ParticipantRole::SessionOwner;
             participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
         } else {
             hostRemote = &participant;
-            participant.role = Netplay::ParticipantRole::Player;
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
             participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
             participant.lastReceivedInputFrame = 100u;
             participant.lastContiguousInputFrame = 100u;
@@ -1098,10 +1546,10 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::Player;
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
             participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::Host;
+            participant.role = Netplay::ParticipantRole::SessionOwner;
             participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
@@ -1591,7 +2039,7 @@ TEST_CASE("Netplay coordinator retries authoritative resync after rejected post-
     remoteParticipant.connected = true;
     remoteParticipant.romLoaded = true;
     remoteParticipant.romCompatible = true;
-    remoteParticipant.role = Netplay::ParticipantRole::Player;
+    remoteParticipant.role = Netplay::ParticipantRole::SessionParticipant;
     remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
     remoteParticipant.normalizeControllerAssignments();
     room.participants.push_back(remoteParticipant);
@@ -2229,12 +2677,12 @@ TEST_CASE("Netplay host intentional disconnect closes the room without client re
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("hostDisconnectTriggered") == true);
     REQUIRE(report.at("client").at("reconnecting") == false);
-    REQUIRE(report.at("client").at("lastError") == "Host closed the room");
+    REQUIRE(report.at("client").at("lastError") == "Owner closed the room");
     REQUIRE(report.at("client").at("sessionState") == static_cast<int>(Netplay::SessionState::Ended));
 
     bool sawExplicitCloseLog = false;
     for(const auto& entry : report.at("client").at("eventLogTail")) {
-        if(entry.get<std::string>() == "Host closed the room") {
+        if(entry.get<std::string>() == "Owner closed the room") {
             sawExplicitCloseLog = true;
             break;
         }
@@ -3990,7 +4438,7 @@ TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnosti
     for(const auto& entry : report.at("host").at("eventLogTail")) {
         const std::string line = entry.get<std::string>();
         if(line.find("Beginning authoritative resync") != std::string::npos ||
-           line.find("Host forced resync reason") != std::string::npos) {
+           line.find("Owner forced resync reason") != std::string::npos) {
             sawRecoveryLog = true;
             break;
         }
