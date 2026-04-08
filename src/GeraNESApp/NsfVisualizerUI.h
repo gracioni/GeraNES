@@ -19,8 +19,10 @@ private:
     static constexpr float SPECTRUM_NORM_REF = 10.0f;
     static constexpr float MIN_FREQ = 20.0f;
     static constexpr float MAX_FREQ = 20000.0f;
+    static constexpr float VISUAL_STEP_MS = 1000.0f / 60.0f;
 
     std::array<float, BAR_COUNT> m_barLevels = {};
+    float m_visualStepAccumulatorMs = 0.0f;
     PFFFT_Setup* m_fftSetup = nullptr;
     float* m_fftInput = nullptr;
     float* m_fftOutput = nullptr;
@@ -32,7 +34,7 @@ private:
         return std::clamp(value, 0.0f, 1.0f);
     }
 
-    static float smoothTowards(float current, float target)
+    static float smoothTowardsFixedStep(float current, float target)
     {
         const float attack = 0.35f;
         const float release = 0.09f;
@@ -89,6 +91,7 @@ public:
 
     void draw(const std::vector<float>& samples, int sampleRate, int topMargin, int viewportWidth, int viewportHeight,
               int currentSong, int totalSongs, bool isPlaying, bool isPaused, bool hasEnded,
+              uint32_t dtMs,
               ImFont* titleFont = nullptr, ImFont* subtitleFont = nullptr)
     {
         const ImVec2 canvasPos(0.0f, static_cast<float>(topMargin));
@@ -164,7 +167,17 @@ public:
 
             const float normalized = clamp01(std::log1p(energy * SPECTRUM_GAIN) / std::log1p(SPECTRUM_NORM_REF));
             targets[bar] = normalized;
-            m_barLevels[bar] = smoothTowards(m_barLevels[bar], targets[bar]);
+        }
+
+        m_visualStepAccumulatorMs = std::min(
+            m_visualStepAccumulatorMs + static_cast<float>(std::max<uint32_t>(1u, dtMs)),
+            VISUAL_STEP_MS * 8.0f
+        );
+        while(m_visualStepAccumulatorMs >= VISUAL_STEP_MS) {
+            m_visualStepAccumulatorMs -= VISUAL_STEP_MS;
+            for(int bar = 0; bar < BAR_COUNT; ++bar) {
+                m_barLevels[bar] = smoothTowardsFixedStep(m_barLevels[bar], targets[bar]);
+            }
         }
 
         const float sidePadding = std::max(24.0f, size.x * 0.04f);

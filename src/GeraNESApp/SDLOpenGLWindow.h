@@ -506,6 +506,12 @@ public:
         SDL_MaximizeWindow(m_window);
     }
 
+    bool isMinimized() const
+    {
+        if(m_window == NULL) return false;
+        return (SDL_GetWindowFlags(m_window) & SDL_WINDOW_MINIMIZED) != 0;
+    }
+
     int getVSync() const
     {
         return m_context != nullptr ? SDL_GL_GetSwapInterval() : 0;

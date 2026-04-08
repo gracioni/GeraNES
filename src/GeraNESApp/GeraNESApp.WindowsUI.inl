@@ -576,6 +576,7 @@ inline void GeraNESApp::drawNsfPlayerVisualizer()
         m_emu.nsfIsPlaying(),
         m_emu.nsfIsPaused(),
         m_emu.nsfHasEnded(),
+        m_lastMainLoopDtMs,
         m_fontNsfTitle,
         m_fontNsfSubtitle
     );

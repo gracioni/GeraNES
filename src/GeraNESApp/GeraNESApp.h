@@ -2459,6 +2459,14 @@ public:
                         m_touch->onResize(this->width(), this->height());
                         m_updateObjectsFlag = true;
                         break;
+
+                    case SDL_WINDOWEVENT_MINIMIZED:
+                        break;
+
+                    case SDL_WINDOWEVENT_RESTORED:
+                    case SDL_WINDOWEVENT_MAXIMIZED:
+                    case SDL_WINDOWEVENT_SHOWN:
+                        break;
                 }
                 break;  
                 
@@ -2504,9 +2512,11 @@ public:
 
         bool netplayPacingOverrideActive = false;
         netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
+        const bool minimized = isMinimized();
         const bool allowVsyncLock =
             m_vsyncMode != OFF &&
             displayFrameRate == static_cast<int>(m_emu.getRegionFPS()) &&
+            !minimized &&
             !isWindowsTitleBarInteractionActive() &&
             !netplayPacingOverrideActive;
         if(!allowVsyncLock) {
