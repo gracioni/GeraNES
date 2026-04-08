@@ -409,6 +409,7 @@ public:
     void simulateTransportFailureForTests();
     void setTransportBackend(NetTransportBackend backend);
     void setTransportOptions(const NetTransportOptions& options);
+    void configureRollbackWindow(size_t snapshotCapacity);
     NetTransportOptions transportOptions() const;
     NetTransportBackend transportBackend() const;
 
@@ -1368,6 +1369,14 @@ inline void NetplayAppRuntime::setTransportOptions(const NetTransportOptions& op
 {
     enqueueCommand([options](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_coordinator.setTransportOptions(options);
+        self.updateUiSnapshot(captureCurrentRomSelection(emu));
+    });
+}
+
+inline void NetplayAppRuntime::configureRollbackWindow(size_t snapshotCapacity)
+{
+    enqueueCommand([snapshotCapacity](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        self.m_emuHost.configureNetplaySnapshots(snapshotCapacity);
         self.updateUiSnapshot(captureCurrentRomSelection(emu));
     });
 }

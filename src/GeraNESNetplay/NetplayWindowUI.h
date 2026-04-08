@@ -544,6 +544,22 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Participants: %zu", room.participants.size());
     }
     if(ImGui::CollapsingHeader("Diagnostics##NetplayDiagnostics")) {
+        int rollbackWindowFrames = AppSettings::instance().data.netplay.rollbackWindowFrames;
+        ImGui::SetNextItemWidth(120.0f);
+        if(ImGui::InputInt("Rollback Window (frames)##NetplayRollbackWindow", &rollbackWindowFrames)) {
+            rollbackWindowFrames = std::max(0, rollbackWindowFrames);
+            AppSettings::instance().data.netplay.rollbackWindowFrames = rollbackWindowFrames;
+            runtime.configureRollbackWindow(static_cast<size_t>(rollbackWindowFrames));
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Diagnostics Enabled: %s", snapshot.runtimeDiagnostics.enabled ? "Yes" : "No");
+        ImGui::Text("Current Frame: %u", snapshot.runtimeDiagnostics.currentFrame);
+        ImGui::Text("Snapshot Capacity: %zu", snapshot.runtimeDiagnostics.snapshotCapacity);
+        ImGui::Text("Stored Snapshots: %zu", snapshot.runtimeDiagnostics.storedSnapshots);
+        ImGui::Text("Latest Snapshot CRC32: %08X", snapshot.runtimeDiagnostics.latestSnapshotCrc32);
+
+        ImGui::Separator();
         ImGui::Text("Local Input Frames: %zu", snapshot.localInputCount);
         ImGui::Text("Remote Input Frames: %zu", snapshot.remoteInputCount);
         ImGui::Text("Predicted Frames Used: %u", snapshot.predictionStats.predictedFrameUseCount);
@@ -564,6 +580,7 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Confirmed Conflicts: %u", snapshot.predictionStats.confirmedFrameConflictCount);
         ImGui::Text("Hard Resyncs: %u", snapshot.predictionStats.hardResyncCount);
         ImGui::Text("Applied Rollbacks: %u", snapshot.runtimeDiagnostics.rollbackStats.rollbackCount);
+        ImGui::Text("Max Rollback Distance: %u", snapshot.runtimeDiagnostics.rollbackStats.maxRollbackDistance);
         ImGui::Text("Last Applied Rollback: %u -> %u",
                     snapshot.runtimeDiagnostics.rollbackStats.lastRollbackFromFrame,
                     snapshot.runtimeDiagnostics.rollbackStats.lastRollbackToFrame);

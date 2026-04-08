@@ -135,7 +135,6 @@ private:
     bool m_showAboutWindow = false;
     bool m_showRomDatabaseWindow = false;
     bool m_showNetplayWindow = false;
-    bool m_showNetplayDiagnosticsWindow = false;
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
     bool m_showSnesMouseConfigWindow = false;

@@ -137,40 +137,6 @@ inline void GeraNESApp::showGui()
         Netplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, viewportCenter);
     }
 
-    if(m_showNetplayDiagnosticsWindow) {
-        ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-        if(ImGui::Begin("Netplay Diagnostics", &m_showNetplayDiagnosticsWindow, ImGuiWindowFlags_NoResize)) {
-            auto diag = m_emu.getNetplayDiagnostics();
-
-            int rollbackWindowFrames = AppSettings::instance().data.netplay.rollbackWindowFrames;
-            ImGui::SetNextItemWidth(120.0f);
-            if(ImGui::InputInt("Rollback Window (frames)", &rollbackWindowFrames)) {
-                rollbackWindowFrames = std::max(0, rollbackWindowFrames);
-                AppSettings::instance().data.netplay.rollbackWindowFrames = rollbackWindowFrames;
-                m_emu.configureNetplaySnapshots(static_cast<size_t>(rollbackWindowFrames));
-            }
-
-            ImGui::Separator();
-            ImGui::Text("Enabled: %s", diag.enabled ? "Yes" : "No");
-            ImGui::Text("Current Frame: %u", diag.currentFrame);
-            ImGui::Text("Snapshot Capacity: %zu", diag.snapshotCapacity);
-            ImGui::Text("Stored Snapshots: %zu", diag.storedSnapshots);
-            ImGui::Text("Latest Snapshot CRC32: %08X", diag.latestSnapshotCrc32);
-
-            ImGui::Separator();
-            ImGui::Text("Rollback Count: %u", diag.rollbackStats.rollbackCount);
-            ImGui::Text("Max Rollback Distance: %u", diag.rollbackStats.maxRollbackDistance);
-            ImGui::Text("Prediction Hits: %u", diag.rollbackStats.predictionHitCount);
-            ImGui::Text("Prediction Misses: %u", diag.rollbackStats.predictionMissCount);
-            ImGui::Text("Hard Resync Count: %u", diag.rollbackStats.hardResyncCount);
-            ImGui::Text("Last Rollback: %u -> %u", diag.rollbackStats.lastRollbackFromFrame, diag.rollbackStats.lastRollbackToFrame);
-        }
-
-        ImGui::End();
-    }
-
     if(m_showRomDatabaseWindow) {
         ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));

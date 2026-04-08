@@ -124,154 +124,113 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Video"))
+        if (ImGui::BeginMenu("Options"))
         {
-            if (ImGui::BeginMenu("VSync")) {
+            if (ImGui::BeginMenu("Video"))
+            {
+                if (ImGui::BeginMenu("VSync")) {
 
-                for(int i = OFF; i <= ADAPTATIVE ; i++) {
-                    if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsyncMode == i)) {
-                        m_vsyncMode = (VSyncMode)i;
-                        AppSettings::instance().data.video.vsyncMode = i;
-                        updateVSyncConfig();
+                    for(int i = OFF; i <= ADAPTATIVE ; i++) {
+                        if(ImGui::MenuItem(VSYNC_TYPE_LABELS[i], nullptr, m_vsyncMode == i)) {
+                            m_vsyncMode = (VSyncMode)i;
+                            AppSettings::instance().data.video.vsyncMode = i;
+                            updateVSyncConfig();
+                        }
                     }
+                    ImGui::EndMenu();
                 }
-                ImGui::EndMenu();
-            }
 
-            if (ImGui::BeginMenu("Filter")) {
+                if (ImGui::BeginMenu("Filter")) {
 
-                for(int i = NEAREST; i <= BILINEAR ; i++) {
-                    if(ImGui::MenuItem(FILTER_TYPE_LABELS[i], nullptr, m_filterMode == i)) {
-                        m_filterMode = (FilterMode)i;
-                        AppSettings::instance().data.video.filterMode = i;
-                        updateFilterConfig();
+                    for(int i = NEAREST; i <= BILINEAR ; i++) {
+                        if(ImGui::MenuItem(FILTER_TYPE_LABELS[i], nullptr, m_filterMode == i)) {
+                            m_filterMode = (FilterMode)i;
+                            AppSettings::instance().data.video.filterMode = i;
+                            updateFilterConfig();
+                        }
                     }
-                }
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Shader")) {
-
-                if(ImGui::MenuItem("default", nullptr, AppSettings::instance().data.video.shaderName == "")) {
-                    AppSettings::instance().data.video.shaderName = "";
-                    updateShaderConfig();
+                    ImGui::EndMenu();
                 }
 
-                if(shaderList.size() > 0) ImGui::Separator();
+                if (ImGui::BeginMenu("Shader")) {
 
-                for(const ShaderItem& item: shaderList) {
-                    if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == AppSettings::instance().data.video.shaderName)) {
-                        AppSettings::instance().data.video.shaderName = item.label;
+                    if(ImGui::MenuItem("default", nullptr, AppSettings::instance().data.video.shaderName == "")) {
+                        AppSettings::instance().data.video.shaderName = "";
                         updateShaderConfig();
                     }
+
+                    if(shaderList.size() > 0) ImGui::Separator();
+
+                    for(const ShaderItem& item: shaderList) {
+                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == AppSettings::instance().data.video.shaderName)) {
+                            AppSettings::instance().data.video.shaderName = item.label;
+                            updateShaderConfig();
+                        }
+                    }
+                    ImGui::EndMenu();
                 }
-                ImGui::EndMenu();
-            }
 
-            auto sc = m_shortcuts.get("horizontalStretch");
-            if( sc != nullptr) {
+                auto sc = m_shortcuts.get("horizontalStretch");
+                if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_horizontalStretch))
-                {
-                    sc->action();
-                }
-            }
-
-            sc = m_shortcuts.get("fullscreen");
-            if( sc != nullptr) {
-
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), isFullScreen()))
-                {
-                    sc->action();
-                }
-            }
-
-            ImGui::Separator();
-            if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
-            {
-            }
-
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("Audio"))
-        {
-            if (ImGui::BeginMenu("Device")) {
-
-                for(size_t i = 0; i < m_audioDevices.size(); ++i) {
-
-                    bool checked = m_emu.currentAudioDeviceName() == m_audioDevices[i];
-
-                    if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
-                        m_emu.configAudioDevice(m_audioDevices[i]);
-                        AppSettings::instance().data.audio.audioDevice = m_audioDevices[i];
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_horizontalStretch))
+                    {
+                        sc->action();
                     }
                 }
+
+                sc = m_shortcuts.get("fullscreen");
+                if( sc != nullptr) {
+
+                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), isFullScreen()))
+                    {
+                        sc->action();
+                    }
+                }
+
+                ImGui::Separator();
+                if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
+                {
+                }
+
                 ImGui::EndMenu();
             }
 
-            ImGui::Separator();
-            if (ImGui::BeginMenu("Channels"))
+            if (ImGui::BeginMenu("Audio"))
             {
-                drawAudioChannelDebugControls();
+                if (ImGui::BeginMenu("Device")) {
+
+                    for(size_t i = 0; i < m_audioDevices.size(); ++i) {
+
+                        bool checked = m_emu.currentAudioDeviceName() == m_audioDevices[i];
+
+                        if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
+                            m_emu.configAudioDevice(m_audioDevices[i]);
+                            AppSettings::instance().data.audio.audioDevice = m_audioDevices[i];
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Channels"))
+                {
+                    drawAudioChannelDebugControls();
+                    ImGui::EndMenu();
+                }
+
+                float volumePercent = m_emu.getAudioVolume() * 100.0f;
+                if(ImGui::SliderFloat("Volume", &volumePercent, 0.0f, 100.0f, "%.0f%%")) {
+                    float volume = volumePercent / 100.0f;
+                    m_emu.setAudioVolume(volume);
+                    AppSettings::instance().data.audio.volume = volume;
+                }
+
                 ImGui::EndMenu();
             }
 
-            float volumePercent = m_emu.getAudioVolume() * 100.0f;
-            if(ImGui::SliderFloat("Volume", &volumePercent, 0.0f, 100.0f, "%.0f%%")) {
-                float volume = volumePercent / 100.0f;
-                m_emu.setAudioVolume(volume);
-                AppSettings::instance().data.audio.volume = volume;
-            }
-
-            ImGui::EndMenu();
-        }
-
-#ifdef ENABLE_NSF_PLAYER
-        if (ImGui::BeginMenu("NSF", m_emu.isNsfLoaded()))
-        {
-            const bool isPlaying = m_emu.nsfIsPlaying();
-            const bool isPaused = m_emu.nsfIsPaused();
-            const bool hasEnded = m_emu.nsfHasEnded();
-            const int totalSongs = m_emu.nsfTotalSongs();
-            const int currentSong = m_emu.nsfCurrentSong();
-            const bool canPlay = !isPlaying || isPaused || hasEnded;
-            const bool canPause = isPlaying && !isPaused && !hasEnded;
-            const bool canStop = (isPlaying || isPaused) && !hasEnded;
-
-            if(ImGui::MenuItem("Play", nullptr, false, canPlay)) {
-                m_emu.nsfPlay();
-            }
-            if(ImGui::MenuItem("Pause", nullptr, false, canPause)) {
-                m_emu.nsfPause();
-            }
-            if(ImGui::MenuItem("Stop", nullptr, false, canStop)) {
-                m_emu.nsfStop();
-            }
-
-            ImGui::Separator();
-            ImGui::Text("Song %d / %d", currentSong, totalSongs);
-            int selectedSong = currentSong;
-            if(ImGui::InputInt("Song", &selectedSong, 1, 1)) {
-                if(selectedSong == currentSong + 1 || (currentSong == totalSongs && selectedSong > totalSongs)) {
-                    m_emu.nsfNextSong();
-                }
-                else if(selectedSong == currentSong - 1 || (currentSong == 1 && selectedSong < 1)) {
-                    m_emu.nsfPrevSong();
-                }
-                else {
-                    if(selectedSong < 1) selectedSong = totalSongs;
-                    if(selectedSong > totalSongs) selectedSong = 1;
-                    m_emu.nsfSetSong(selectedSong);
-                }
-            }
-
-            ImGui::EndMenu();
-        }
-#endif
-
-        if (ImGui::BeginMenu("Input"))
-        {
+            if (ImGui::BeginMenu("Input"))
+            {
 #ifndef __EMSCRIPTEN__
             const auto netplaySnapshot = m_netplayRuntime.menuSnapshot();
             const auto localInputTopology = m_emu.getInputTopologySnapshot();
@@ -581,12 +540,9 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-            if (ImGui::BeginMenu("System")) {
-                if(ImGui::MenuItem("Config...")) {
-                    m_inputBindingConfigWindow.show("System", m_systemInput);
-                }
-                ImGui::EndMenu();
-            }
+        if(ImGui::MenuItem("System")) {
+            m_inputBindingConfigWindow.show("System", m_systemInput);
+        }  
 
         const GameDatabase::System cartridgeSystem = m_emu.currentCartridgeSystem();
         const bool isFdsRom = cartridgeSystem == GameDatabase::System::FDS;
@@ -664,8 +620,54 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
+
+#ifdef ENABLE_NSF_PLAYER
+        if (ImGui::BeginMenu("NSF", m_emu.isNsfLoaded()))
+        {
+            const bool isPlaying = m_emu.nsfIsPlaying();
+            const bool isPaused = m_emu.nsfIsPaused();
+            const bool hasEnded = m_emu.nsfHasEnded();
+            const int totalSongs = m_emu.nsfTotalSongs();
+            const int currentSong = m_emu.nsfCurrentSong();
+            const bool canPlay = !isPlaying || isPaused || hasEnded;
+            const bool canPause = isPlaying && !isPaused && !hasEnded;
+            const bool canStop = (isPlaying || isPaused) && !hasEnded;
+
+            if(ImGui::MenuItem("Play", nullptr, false, canPlay)) {
+                m_emu.nsfPlay();
+            }
+            if(ImGui::MenuItem("Pause", nullptr, false, canPause)) {
+                m_emu.nsfPause();
+            }
+            if(ImGui::MenuItem("Stop", nullptr, false, canStop)) {
+                m_emu.nsfStop();
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Song %d / %d", currentSong, totalSongs);
+            int selectedSong = currentSong;
+            if(ImGui::InputInt("Song", &selectedSong, 1, 1)) {
+                if(selectedSong == currentSong + 1 || (currentSong == totalSongs && selectedSong > totalSongs)) {
+                    m_emu.nsfNextSong();
+                }
+                else if(selectedSong == currentSong - 1 || (currentSong == 1 && selectedSong < 1)) {
+                    m_emu.nsfPrevSong();
+                }
+                else {
+                    if(selectedSong < 1) selectedSong = totalSongs;
+                    if(selectedSong > totalSongs) selectedSong = 1;
+                    m_emu.nsfSetSong(selectedSong);
+                }
+            }
+
+            ImGui::EndMenu();
+        }
+#endif
 
         if (ImGui::BeginMenu("Tools"))
         {
@@ -679,12 +681,6 @@ inline void GeraNESApp::menuBar() {
                 m_showNetplayWindow = true;
             }
 
-            if (ImGui::MenuItem("Netplay Diagnostics"))
-            {
-                m_showNetplayDiagnosticsWindow = true;
-            }
-
-            ImGui::Separator();
             if (ImGui::BeginMenu("Advanced"))
             {
                 if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
