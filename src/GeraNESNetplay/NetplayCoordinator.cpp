@@ -223,7 +223,7 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
 {
     switch(reason) {
         case ResyncReason::HostReset: return "Owner reset the game";
-        case ResyncReason::HostLoadedState: return "Owner loaded a save state";
+        case ResyncReason::HostLoadedState: return "Owner loaded state";
         default: return {};
     }
 }

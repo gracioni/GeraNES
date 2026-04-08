@@ -29,7 +29,12 @@ private:
 
     enum class Patch {NONE, IPS, UPS, BPS};
 
-    std::string m_fullpath;
+    // Real filesystem path used to reopen the ROM source. For direct ROMs this
+    // is the ROM file itself; for archives this is the .zip path.
+    std::string m_sourcePath;
+    // Selected entry inside an archive source. Empty for direct ROM files.
+    std::string m_archiveEntryPath;
+    // Effective ROM filename presented to the rest of the emulator/UI.
     std::string m_fileName;
     uint32_t m_crc32;
     std::string m_error;
@@ -131,6 +136,11 @@ public:
         std::string realRomPath = path;
         std::string selectedZipEntry;
         bool isPatch = isPatchFile(path);
+        m_error.clear();
+        m_sourcePath.clear();
+        m_archiveEntryPath.clear();
+        m_fileName.clear();
+        m_data.clear();
 
         auto zipEntries = getZpFileEntries(path);
 
@@ -142,7 +152,8 @@ public:
             }
             m_data = readZipFile(path, selectedZipEntry);
             m_fileName = basename(selectedZipEntry);
-            realRomPath = path + "|" + selectedZipEntry;
+            m_sourcePath = path;
+            m_archiveEntryPath = selectedZipEntry;
         }
         else {
 
@@ -161,9 +172,8 @@ public:
             }
 
             m_fileName = basename(realRomPath);
+            m_sourcePath = realRomPath;
         }
-
-        m_fullpath = realRomPath;
 
         if(isPatch) {
             if(!applyPatch(path)) return false;
@@ -178,9 +188,16 @@ public:
 
     GERANES_INLINE uint32_t fileCrc32() const { return m_crc32; }
     GERANES_INLINE std::string fileName() const { return m_fileName; }
-    GERANES_INLINE std::string fullPath() const { return m_fullpath; }
+    GERANES_INLINE std::string fullPath() const { return m_sourcePath; }
+    GERANES_INLINE std::string sourcePath() const { return m_sourcePath; }
+    GERANES_INLINE std::string archiveEntryPath() const { return m_archiveEntryPath; }
     GERANES_INLINE std::string error() const { return m_error; }
-    GERANES_INLINE std::string displayPath() const { return m_fileName.empty() ? m_fullpath : m_fileName; }
+    GERANES_INLINE std::string displayPath() const {
+        if(!m_archiveEntryPath.empty()) {
+            return m_sourcePath + " > " + m_archiveEntryPath;
+        }
+        return m_fileName.empty() ? m_sourcePath : m_fileName;
+    }
     GERANES_INLINE uint8_t  data(size_t addr) const { return m_data[addr]; }
     GERANES_INLINE size_t size() const { return m_data.size(); }
 
@@ -257,7 +274,11 @@ public:
         std::stringstream aux;
 
         aux << "(ROM) File name: "<< fileName() << std::endl;
-        aux << "(ROM) Full path: "<< fullPath() << std::endl;        
+        if(!m_archiveEntryPath.empty()) {
+            aux << "(ROM) Source archive: " << sourcePath() << std::endl;
+        } else {
+            aux << "(ROM) Source path: "<< sourcePath() << std::endl;
+        }
         aux << "(ROM) File Size: " << size() << " bytes" << std::endl; 
         aux << "(ROM) File CRC32: "<< Crc32::toString(fileCrc32());
 
