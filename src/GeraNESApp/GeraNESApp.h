@@ -205,6 +205,7 @@ private:
     bool m_snesMouseGrabActive = false;
     bool m_snesMouseSuppressClickUntilRelease = false;
     bool m_forceImGuiMouseResync = false;
+    bool m_webVisibilitySuspended = false;
     bool m_hasLastMousePosition = false;
     int m_lastMouseX = 0;
     int m_lastMouseY = 0;
@@ -1892,6 +1893,29 @@ public:
 
     void restartAudioModule() {
         m_emu.restartAudio();
+    }
+
+    void onWebVisibilityChanged(bool visible) {
+        m_mainLoopLastTime = SDL_GetTicks64();
+        m_lastMainLoopDtMs = 0;
+        m_hasLastMousePosition = false;
+        m_forceImGuiMouseResync = true;
+        m_netplayRuntime.notifyWebVisibilityChanged(visible);
+
+        if(!visible) {
+            m_webVisibilitySuspended = true;
+            m_emu.setSimulationSuspended(true);
+            m_emu.discardQueuedAudio();
+            return;
+        }
+
+        const bool wasSuspended = m_webVisibilitySuspended;
+        m_webVisibilitySuspended = false;
+        m_emu.setSimulationSuspended(false);
+        m_emu.discardQueuedAudio();
+        if(wasSuspended) {
+            m_emu.restartAudio();
+        }
     }
 
     void onSessionImportComplete() {

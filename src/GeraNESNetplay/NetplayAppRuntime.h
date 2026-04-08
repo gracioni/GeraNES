@@ -206,8 +206,10 @@ private:
         if(!emu.loadStateFromMemoryOnCleanBoot(payload)) return false;
 
         const uint32_t loadedCrc32 = emu.canonicalNetplayStateCrc32();
+        emu.discardQueuedInputFramesAfter(targetFrame);
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(targetFrame);
+        m_emuHost.discardQueuedNetplayInputsAfter(targetFrame);
         m_emuHost.seedNetplaySnapshot(targetFrame, payload, loadedCrc32);
         m_emuHost.setAuthoritativeFrameReadyState(targetFrame, loadedCrc32);
         m_lastLoadedAuthoritativeFrame = targetFrame;
@@ -396,6 +398,7 @@ public:
     void refreshLocalRomSelectionImmediate();
     void updateLatestInputState(const IEmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
+    void notifyWebVisibilityChanged(bool visible);
     UiSnapshot uiSnapshot() const;
     MenuSnapshot menuSnapshot() const;
     bool runtimeActive() const;
@@ -950,8 +953,10 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
     const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0;
     if(loadedExpectedFrame) {
+        emu.discardQueuedInputFramesAfter(pending->targetFrame);
         syncEmuInputTimelineEpoch(emu);
         m_coordinator.setLocalSimulationFrame(pending->targetFrame);
+        m_emuHost.discardQueuedNetplayInputsAfter(pending->targetFrame);
         m_emuHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
         m_lastLoadedAuthoritativeFrame = pending->targetFrame;
         m_emuHost.setAuthoritativeFrameReadyState(
@@ -1250,6 +1255,23 @@ inline void NetplayAppRuntime::updateLatestInputState(const IEmulationHost::Inpu
 {
     std::scoped_lock stateLock(m_stateMutex);
     m_latestInputState = inputState;
+}
+
+inline void NetplayAppRuntime::notifyWebVisibilityChanged(bool visible)
+{
+    enqueueCommand([visible](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        self.m_runtimeLastTickTime = {};
+        if(!visible) {
+            return;
+        }
+
+        self.m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+        if(self.m_coordinator.session().roomState().state == SessionState::Running) {
+            self.reanchorInputDriver(emu.frameCount(), self.localAssignedSlots());
+        } else {
+            self.m_inputDriver.reset();
+        }
+    });
 }
 
 inline NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const

@@ -86,19 +86,18 @@ void emcriptenRegisterAudioReset(intptr_t handler)
             if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
             return null;
         }
-        function restartAudioIfNeeded() {
+        function notifyVisibility(visible) {
             var ccallFn = resolveCcall();
             if (!ccallFn) return;
             try {
                 ccallFn(
-                    'restartAudioModule',
+                    'onWebVisibilityChanged',
                     null,
-                    ['number'],
-                    [handler]
+                    ['number', 'number'],
+                    [handler, visible ? 1 : 0]
                 );
-                console.log("Audio restarted");
             } catch (e) {
-                console.error("Failed to call restartAudioModule:", e);
+                console.error("Failed to call onWebVisibilityChanged:", e);
             }
         }
 
@@ -107,16 +106,18 @@ void emcriptenRegisterAudioReset(intptr_t handler)
             window.__geranes_audio_reset_registered = true;
 
             document.addEventListener('visibilitychange', function () {
-                if (document.visibilityState === 'visible') {
-                    restartAudioIfNeeded();
-                }
+                notifyVisibility(document.visibilityState === 'visible');
             });
 
             window.addEventListener('focus', function () {
-                restartAudioIfNeeded();
+                notifyVisibility(true);
             });
 
-            console.log("Audio auto-reset listeners installed for handler:", handler);
+            window.addEventListener('blur', function () {
+                notifyVisibility(false);
+            });
+
+            console.log("Web visibility listeners installed for handler:", handler);
         }
 
     }, handler);
