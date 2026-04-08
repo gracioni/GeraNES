@@ -13,11 +13,10 @@ void emcriptenFileDialog(intptr_t handler) {
 #endif
 
     EM_ASM({
+        var handler = Number(arguments[0]);
+        var accepted = UTF8ToString(arguments[1]);
 
         function openFileDialog() {
-
-            var handler = Number(arguments[0]);
-            var accepted = UTF8ToString(arguments[1]);
 
             var input = document.getElementById('__geranes_open_rom_input');
             if (!input) {
@@ -126,9 +125,9 @@ void emcriptenRegisterAudioReset(intptr_t handler)
 void emcriptenImportSession(intptr_t handler) {
 
     EM_ASM({
+        const handler = Number(arguments[0]);
         (async () => {
 
-            const handler = Number(arguments[0]);
             const ccallFn = (typeof ccall === 'function') ? ccall :
                 ((typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') ? Module.ccall.bind(Module) : null);
 
