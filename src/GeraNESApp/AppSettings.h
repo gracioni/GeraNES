@@ -407,6 +407,7 @@ public:
         std::string lastFolder;
         
     public:
+        int saveStateSlot = 0;
                 
         Input input; 
         Improvements improvements;
@@ -444,9 +445,10 @@ public:
 
         void sanitizeDefaults() {
             if(lastFolder == "") lastFolder = AppSettings::storageDirectory().string();
+            saveStateSlot = std::clamp(saveStateSlot, 0, 9);
         }
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, improvements, netplay, video, audio, debug)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, saveStateSlot, improvements, netplay, video, audio, debug)
     } data;
 
     AppSettings(const AppSettings&) = delete;

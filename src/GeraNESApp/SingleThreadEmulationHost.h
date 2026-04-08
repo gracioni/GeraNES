@@ -574,20 +574,20 @@ public:
         });
     }
 
-    void saveState()
+    void saveState(uint8_t slot = 0)
      override{
-        postCommand([](GeraNESEmu& emu) {
+        postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
-            emu.saveState();
+            emu.saveState(slot);
         });
     }
 
-    void loadState()
+    void loadState(uint8_t slot = 0)
      override{
         m_holdPresentedFramebufferUntilFrameReady = true;
-        postCommand([](GeraNESEmu& emu) {
+        postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
-            emu.loadState();
+            emu.loadState(slot);
         });
     }
 

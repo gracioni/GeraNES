@@ -68,6 +68,7 @@ inline void GeraNESApp::menuBar() {
         if (ImGui::BeginMenu("Emulator", !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
+            int& saveStateSlot = AppSettings::instance().data.saveStateSlot;
             auto sc = m_shortcuts.get("saveState");
             if( sc != nullptr) {
 
@@ -84,6 +85,20 @@ inline void GeraNESApp::menuBar() {
                 {
                     sc->action();
                 }
+            }
+
+            if(ImGui::BeginMenu("Slot")) {
+                for(int slot = 0; slot <= 9; ++slot) {
+                    const std::string label = std::to_string(slot);
+                    if(ImGui::MenuItem(label.c_str(), nullptr, saveStateSlot == slot)) {
+                        saveStateSlot = slot;
+                        Logger::instance().log(
+                            "Save slot set to " + std::to_string(slot),
+                            Logger::Type::USER
+                        );
+                    }
+                }
+                ImGui::EndMenu();
             }
 
             ImGui::Separator();

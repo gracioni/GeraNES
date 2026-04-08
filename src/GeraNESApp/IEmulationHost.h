@@ -190,8 +190,8 @@ public:
     virtual bool paused() const = 0;
     virtual void togglePaused() = 0;
     virtual void reset() = 0;
-    virtual void saveState() = 0;
-    virtual void loadState() = 0;
+    virtual void saveState(uint8_t slot = 0) = 0;
+    virtual void loadState(uint8_t slot = 0) = 0;
     virtual std::optional<Settings::Device> getPortDevice(Settings::Port port) const = 0;
     virtual void setPortDevice(Settings::Port port, Settings::Device device) = 0;
     virtual Settings::ExpansionDevice getExpansionDevice() const = 0;

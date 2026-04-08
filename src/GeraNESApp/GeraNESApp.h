@@ -1401,8 +1401,12 @@ private:
 
             if(!keyboardExpansionActive) {
                 if(!isNetplayClientRestricted()) {
-                    if(im.isJustPressed(m_systemInput.saveState)) m_emu.saveState();
-                    if(im.isJustPressed(m_systemInput.loadState)) m_emu.loadState();
+                    if(im.isJustPressed(m_systemInput.saveState)) {
+                        m_emu.saveState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
+                    }
+                    if(im.isJustPressed(m_systemInput.loadState)) {
+                        m_emu.loadState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
+                    }
                 }
             }
             std::array<bool, 12> p1PowerPadButtons = {};
@@ -1711,7 +1715,7 @@ private:
                 notifyNetplayClientRestrictedAction("Save state");
                 return;
             }
-            m_emu.saveState();
+            m_emu.saveState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
@@ -1720,7 +1724,7 @@ private:
                 notifyNetplayClientRestrictedAction("Load state");
                 return;
             }
-            m_emu.loadState();
+            m_emu.loadState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {

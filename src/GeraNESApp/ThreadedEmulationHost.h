@@ -790,20 +790,20 @@ public:
         });
     }
 
-    void saveState()
+    void saveState(uint8_t slot = 0)
     {
-        postCommand([](GeraNESEmu& emu) {
+        postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
-            emu.saveState();
+            emu.saveState(slot);
         });
     }
 
-    void loadState()
+    void loadState(uint8_t slot = 0)
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
-        postCommand([](GeraNESEmu& emu) {
+        postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
-            emu.loadState();
+            emu.loadState(slot);
         });
     }
 

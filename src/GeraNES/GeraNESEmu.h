@@ -38,6 +38,8 @@
 #include "logger/logger.h"
 
 #include "Rewind.h"
+
+#include <filesystem>
 #include <memory>
 
 enum class AccessType
@@ -118,6 +120,8 @@ private:
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
     bool m_loadStateFlag;
+    uint8_t m_pendingSaveStateSlot = 0;
+    uint8_t m_pendingLoadStateSlot = 0;
     bool m_resetRequested;
 
     bool m_netplaySnapshotFlag = false;
@@ -1090,8 +1094,17 @@ private:
             m_cyclesPerSecond = m_settings.CPUClockHz();      
         }
 
-    const std::string saveStateFileName() {
-        return std::string(STATES_FOLDER) + basename(m_cartridge.romFile().fileName()) + ".s";
+    static uint8_t clampSaveStateSlot(uint8_t slot)
+    {
+        return static_cast<uint8_t>(std::min<uint8_t>(slot, 9u));
+    }
+
+    const std::string saveStateFileName(uint8_t slot) {
+        const std::string romStem = std::filesystem::path(m_cartridge.romFile().fileName()).stem().string();
+        return std::string(STATES_FOLDER) +
+               romStem +
+               ".state-" +
+               std::to_string(static_cast<unsigned>(clampSaveStateSlot(slot)));
     }
 
     void preloadNsfMemory()
@@ -1522,14 +1535,14 @@ public:
         m_runningLoop = false;
 
         if(m_saveStateFlag) {
-            _saveState();
+            _saveState(m_pendingSaveStateSlot);
             m_saveStateFlag = false;
         }
 
         if(m_loadStateFlag) {
-            _loadState();
+            _loadState(m_pendingLoadStateSlot);
             m_loadStateFlag = false;
-        }        
+        }
 
         processDeferredNetplaySnapshot();
         processDeferredNetplayLoad();        
@@ -1620,38 +1633,53 @@ public:
         return m_ppu.getFramebuffer();
     }
 
-    void _saveState()
+    void _saveState(uint8_t slot = 0)
     {
         if(!m_cartridge.isValid()) return;
 
         Serialize s;
         serialization(s);
-        if(s.saveToFile(saveStateFileName())) {
-            Logger::instance().log("State saved", Logger::Type::USER);
+        const uint8_t clampedSlot = clampSaveStateSlot(slot);
+        if(s.saveToFile(saveStateFileName(clampedSlot))) {
+            Logger::instance().log("State saved to slot " + std::to_string(static_cast<unsigned>(clampedSlot)), Logger::Type::USER);
         }
         else {
             Logger::instance().log("Failed to save state", Logger::Type::ERROR);
         }
     }    
 
-    void saveState() {
-        if(!m_runningLoop) _saveState();
-        else m_saveStateFlag = true;
+    void saveState(uint8_t slot = 0) {
+        const uint8_t clampedSlot = clampSaveStateSlot(slot);
+        if(!m_runningLoop) _saveState(clampedSlot);
+        else {
+            m_pendingSaveStateSlot = clampedSlot;
+            m_saveStateFlag = true;
+        }
     }
 
-    void _loadState()
+    void _loadState(uint8_t slot = 0)
     {
         if(!m_cartridge.isValid()) return;
 
         Deserialize d;
+        const uint8_t clampedSlot = clampSaveStateSlot(slot);
+        const std::string fileName = saveStateFileName(clampedSlot);
 
-        if(d.loadFromFile(saveStateFileName())) {
+        if(!fs::exists(fileName)) {
+            Logger::instance().log(
+                "State slot " + std::to_string(static_cast<unsigned>(clampedSlot)) + " not found",
+                Logger::Type::USER
+            );
+            return;
+        }
+
+        if(d.loadFromFile(fileName)) {
             serialization(d);
             resyncAudioAfterStateLoad();
             resetVolatileStateAfterStateLoad();
             ++m_manualLoadStateGeneration;
             signalLoadExecuted(m_frameCounter);
-            Logger::instance().log("State loaded", Logger::Type::USER);
+            Logger::instance().log("State loaded from slot " + std::to_string(static_cast<unsigned>(clampedSlot)), Logger::Type::USER);
         }
         else {
             Logger::instance().log("Failed to load state", Logger::Type::ERROR);
@@ -1660,9 +1688,13 @@ public:
         resetRewindSystem();
     }
 
-    void loadState() {
-        if(!m_runningLoop) _loadState();
-        else m_loadStateFlag = true;
+    void loadState(uint8_t slot = 0) {
+        const uint8_t clampedSlot = clampSaveStateSlot(slot);
+        if(!m_runningLoop) _loadState(clampedSlot);
+        else {
+            m_pendingLoadStateSlot = clampedSlot;
+            m_loadStateFlag = true;
+        }
     }    
 
     void loadStateFromMemoryWithAudioPolicy(
