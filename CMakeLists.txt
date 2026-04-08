@@ -487,7 +487,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(GeraNESLib STATIC ${GERANES_LIBRARY_SOURCES})
 target_compile_features(GeraNESLib PUBLIC cxx_std_20)
-target_compile_definitions(GeraNESLib PRIVATE ENABLE_NSF_PLAYER=1)
+target_compile_definitions(GeraNESLib PUBLIC ENABLE_NSF_PLAYER=1)
 if(NOT EMSCRIPTEN)
     target_compile_definitions(GeraNESLib PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
 endif()

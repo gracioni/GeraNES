@@ -4,6 +4,8 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 #include "util/Crc32.h"
 
@@ -32,6 +34,29 @@ private:
     uint32_t m_crc32;
     std::string m_error;
     std::vector<uint8_t> m_data;
+
+    static std::string toLower(std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return value;
+    }
+
+    static bool isSupportedArchiveRomEntry(const std::string& entryName) {
+        const std::string ext = toLower(fs::path(entryName).extension().string());
+        return ext == ".nes" || ext == ".fds" || ext == ".nsf";
+    }
+
+    static std::string selectZipEntry(const std::vector<std::string>& entries) {
+        if(entries.empty()) return {};
+
+        for(const auto& entry : entries) {
+            if(isSupportedArchiveRomEntry(entry)) {
+                return entry;
+            }
+        }
+
+        return entries.front();
+    }
 
     static const std::vector<std::string> getZpFileEntries(const std::string& filename) {
 
@@ -66,7 +91,12 @@ private:
             }
             zip_entry_close(zip);
         }
-        zip_stream_close(zip);
+        zip_close(zip);
+
+        if(buf == NULL || bufsize == 0) {
+            free(buf);
+            return {};
+        }
 
         auto ret = std::vector<uint8_t>(&buf[0], &buf[bufsize]);
 
@@ -99,13 +129,20 @@ public:
     bool open(const std::string& path) {
 
         std::string realRomPath = path;
+        std::string selectedZipEntry;
         bool isPatch = isPatchFile(path);
 
         auto zipEntries = getZpFileEntries(path);
 
         if(zipEntries.size() > 0) {
-            m_data = readZipFile(path, zipEntries[0]);
-            m_fileName = basename(zipEntries[0]);
+            selectedZipEntry = selectZipEntry(zipEntries);
+            if(selectedZipEntry.empty()) {
+                m_error = std::string("zip archive '") + path + "' is empty";
+                return false;
+            }
+            m_data = readZipFile(path, selectedZipEntry);
+            m_fileName = basename(selectedZipEntry);
+            realRomPath = path + "|" + selectedZipEntry;
         }
         else {
 
@@ -143,6 +180,7 @@ public:
     GERANES_INLINE std::string fileName() const { return m_fileName; }
     GERANES_INLINE std::string fullPath() const { return m_fullpath; }
     GERANES_INLINE std::string error() const { return m_error; }
+    GERANES_INLINE std::string displayPath() const { return m_fileName.empty() ? m_fullpath : m_fileName; }
     GERANES_INLINE uint8_t  data(size_t addr) const { return m_data[addr]; }
     GERANES_INLINE size_t size() const { return m_data.size(); }
 
