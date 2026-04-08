@@ -39,7 +39,9 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0 && !netplayRomChangeRestricted))
             {
                 for(size_t i = 0; i < recentFiles.size(); ++i) {
-                    if(ImGui::MenuItem(recentFiles[i].c_str())) {
+                    const std::string displayName = fs::path(recentFiles[i]).filename().string();
+                    const std::string menuLabel = (displayName.empty() ? recentFiles[i] : displayName) + "##" + recentFiles[i];
+                    if(ImGui::MenuItem(menuLabel.c_str())) {
                         openFile(recentFiles[i].c_str());
                     }
                 }
