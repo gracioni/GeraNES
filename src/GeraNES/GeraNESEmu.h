@@ -1103,8 +1103,9 @@ private:
         const std::string romStem = std::filesystem::path(m_cartridge.romFile().fileName()).stem().string();
         return std::string(STATES_FOLDER) +
                romStem +
-               ".state-" +
-               std::to_string(static_cast<unsigned>(clampSaveStateSlot(slot)));
+               "." +
+               std::to_string(static_cast<unsigned>(clampSaveStateSlot(slot))) +
+               ".state";
     }
 
     void preloadNsfMemory()
