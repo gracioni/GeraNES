@@ -170,17 +170,16 @@ private:
 
     static bool advanceExactlyOneFrame(GeraNESEmu& emu, uint64_t inputMask)
     {
-        if(!emu.valid()) return false;        
-
-        auto prev = emu.frameCount();
-        while(prev == emu.frameCount()) {
-            emu.update(1);
-        }
-
         queuePadMaskForCurrentFrame(emu, inputMask);
+        if(!emu.valid()) return false;
 
-        //return emu.updateUntilFrame(17);
-        return true;
+        const uint32_t targetFrame = emu.frameCount() + 1u;
+        uint32_t elapsedMs = 0u;
+        while(emu.valid() && emu.frameCount() < targetFrame && elapsedMs < 20000u) {
+            emu.update(1u);
+            ++elapsedMs;
+        }
+        return emu.valid() && emu.frameCount() == targetFrame;
     }
 
     static std::optional<std::vector<FrameRecord>> buildBaseline(const std::string& romPath,

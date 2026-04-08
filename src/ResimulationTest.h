@@ -245,7 +245,7 @@ private:
             return std::nullopt;
         }
 
-        queueInputRange(emu, generator, 1u, options.rollbackFrame, false);
+        queueInputRange(emu, generator, 0u, options.rollbackFrame - 1u, false);
         if(!advanceUntilFrame(emu, options.rollbackFrame)) {
             failureReason = "Failed to advance to rollback frame.";
             return std::nullopt;
@@ -270,7 +270,7 @@ private:
             return std::nullopt;
         }
 
-        const uint32_t firstFutureFrame = emu.frameCount() + 1u;
+        const uint32_t firstFutureFrame = emu.frameCount();
         const uint32_t lastFutureFrame = firstFutureFrame + options.futureInputFrames - 1u;
         queueInputRange(emu, generator, firstFutureFrame, lastFutureFrame, false);
 
@@ -380,7 +380,7 @@ public:
             });
         }
 
-        const uint32_t speculativeFirstFrame = speculativeEmu.frameCount() + 1u;
+        const uint32_t speculativeFirstFrame = speculativeEmu.frameCount();
         const uint32_t speculativeLastFrame = speculativeFirstFrame + options.futureInputFrames - 1u;
         queueInputRange(speculativeEmu, generator, speculativeFirstFrame, speculativeLastFrame, true);
 
@@ -398,7 +398,7 @@ public:
 
         speculativeAudioOutput.resetStats();
         speculativeEmu.loadStateFromMemory(*rollbackSnapshot);
-        const uint32_t correctedFirstFrame = speculativeEmu.frameCount() + 1u;
+        const uint32_t correctedFirstFrame = speculativeEmu.frameCount();
         const uint32_t correctedLastFrame = correctedFirstFrame + options.futureInputFrames - 1u;
         queueInputRange(speculativeEmu, generator, correctedFirstFrame, correctedLastFrame, false);
 
