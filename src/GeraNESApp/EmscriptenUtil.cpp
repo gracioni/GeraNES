@@ -109,14 +109,6 @@ void emcriptenRegisterVisibilityHandler(intptr_t handler)
                 notifyVisibility(document.visibilityState === 'visible');
             });
 
-            window.addEventListener('focus', function () {
-                notifyVisibility(true);
-            });
-
-            window.addEventListener('blur', function () {
-                notifyVisibility(false);
-            });
-
             console.log("Web visibility listeners installed for handler:", handler);
         }
 
