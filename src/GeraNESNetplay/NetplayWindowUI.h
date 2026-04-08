@@ -317,7 +317,7 @@ inline void drawNetplayWindow(bool& showWindow,
     } else if(!active || !showConnectedControls) {
         if(ImGui::BeginTabBar("NetplayEntryTabs")) {
             if(ImGui::BeginTabItem("Owner")) {
-                ImGui::TextDisabled("Create a room and wait for players.");
+                ImGui::TextDisabled("Create a room and wait for participants.");
                 drawBackendSelector();
                 if(usingWebRtc) {
                     drawWebRtcConfig(true);
