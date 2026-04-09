@@ -2,6 +2,7 @@
 
 #include "imgui_include.h"
 #include <algorithm>
+#include <unordered_map>
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,6 +84,13 @@ extern "C" {
         if (ImGui::BeginChild(wrapper_id, size, ImGuiChildFlags_None, wrapper_flags))
         {
             ImGuiWindow* const wrapper_window = ImGui::GetCurrentWindow();
+            static std::unordered_map<ImGuiID, float> last_wrapper_scroll_max_y;
+            const ImGuiID scroll_state_id = ImGui::GetID(wrapper_id);
+            const float previous_wrapper_scroll_max_y = [&]() {
+                auto it = last_wrapper_scroll_max_y.find(scroll_state_id);
+                return it != last_wrapper_scroll_max_y.end() ? it->second : wrapper_window->ScrollMax.y;
+            }();
+            const bool was_at_bottom = wrapper_window->Scroll.y >= (previous_wrapper_scroll_max_y - 1.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.0f);
             ImGui::InputTextMultiline(input_id,
                                       buf,
@@ -106,9 +114,13 @@ extern "C" {
                 child_window->Scroll.x = wrapper_window->Scroll.x;
                 if (auto_scroll && !(ImGui::IsItemActive() || ImGui::IsItemEdited()))
                 {
-                    ImGui::SetScrollY(child_window, child_window->ScrollMax.y);
+                    if (was_at_bottom) {
+                        ImGui::SetScrollY(wrapper_window, wrapper_window->ScrollMax.y);
+                        ImGui::SetScrollY(child_window, child_window->ScrollMax.y);
+                    }
                 }
             }
+            last_wrapper_scroll_max_y[scroll_state_id] = wrapper_window->ScrollMax.y;
         }
         ImGui::EndChild();
         ImGui::PopStyleVar();
