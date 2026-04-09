@@ -83,11 +83,13 @@ extern "C" {
         if (ImGui::BeginChild(wrapper_id, size, ImGuiChildFlags_None, wrapper_flags))
         {
             ImGuiWindow* const wrapper_window = ImGui::GetCurrentWindow();
+            ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.0f);
             ImGui::InputTextMultiline(input_id,
                                       buf,
                                       buf_size,
                                       ImVec2(input_width, input_height <= 0.0f ? 0.0f : input_height),
                                       ImGuiInputTextFlags_ReadOnly);
+            ImGui::PopStyleVar();
 
             ImGuiContext& g = *GImGui;
             const char* child_window_name = nullptr;
