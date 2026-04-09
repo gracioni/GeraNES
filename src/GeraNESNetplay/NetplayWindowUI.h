@@ -11,6 +11,7 @@
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/WebRtcSignaling.h"
 #include "GeraNESNetplay/WebRtcSignalingClient.h"
+#include "GeraNESApp/imgui_util.h"
 #include "imgui.h"
 
 namespace Netplay {
@@ -1053,29 +1054,11 @@ inline void drawNetplayWindow(bool& showWindow,
 
     std::vector<char> logBuffer(logText.begin(), logText.end());
     logBuffer.push_back('\0');
-
-    constexpr const char* kNetplayLogTextId = "##NetplayLogMultilineInput";
-    ImGui::InputTextMultiline(kNetplayLogTextId,
-                              logBuffer.data(),
-                              logBuffer.size(),
-                              ImVec2(-1.0f, 180.0f),
-                              ImGuiInputTextFlags_ReadOnly);
-
-    if(!(ImGui::IsItemActive() || ImGui::IsItemEdited())) {
-        ImGuiContext& g = *GImGui;
-        const char* childWindowName = nullptr;
-        ImFormatStringToTempBuffer(&childWindowName,
-                                   nullptr,
-                                   "%s/%s_%08X",
-                                   g.CurrentWindow->Name,
-                                   kNetplayLogTextId,
-                                   ImGui::GetID(kNetplayLogTextId));
-        ImGuiWindow* childWindow = ImGui::FindWindowByName(childWindowName);
-
-        if(childWindow) {
-            ImGui::SetScrollY(childWindow, childWindow->ScrollMax.y);
-        }
-    }
+    InputTextMultilineLog("##NetplayLogOuterChild",
+                          "##NetplayLogMultilineInput",
+                          logBuffer.data(),
+                          logBuffer.size(),
+                          ImVec2(-1.0f, 180.0f));
 
     ImGui::End();
 }
