@@ -1320,6 +1320,46 @@ TEST_CASE("Late-joining observer receives already-assigned host inputs", "[netpl
     REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
 }
 
+TEST_CASE("Host-input observer sessions stay advancing on runtime and web-style paths", "[netplay][runtime][late-join][observer][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    for(const bool singleThreadRuntime : {false, true}) {
+        INFO("singleThreadRuntime=" << singleThreadRuntime);
+
+        NetplayTest::Options options;
+        options.romPath = GeraNESTestSupport::romPath().string();
+        options.appFlow = true;
+        options.runtimeFlow = true;
+        options.singleThreadRuntimeFlow = singleThreadRuntime;
+        options.hostAssignedBeforeJoinOnly = true;
+        options.frames = 180;
+        options.inputDelayFrames = 1;
+        options.predictFrames = 3;
+        options.networkPumpStride = 2;
+        options.hostLoopDtMs = 8;
+        options.clientLoopDtMs = 33;
+        options.hostStepStride = 1;
+        options.clientStepStride = 2;
+        options.reportPath = GeraNESTestSupport::reportPath(
+            singleThreadRuntime
+                ? "netplay_host_input_observer_single_thread_regression.json"
+                : "netplay_host_input_observer_runtime_regression.json"
+        ).string();
+
+        REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+        const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+        REQUIRE(report.at("status") == "ok");
+        REQUIRE(report.at("host").at("runtimeRunning") == true);
+        REQUIRE(report.at("client").at("runtimeRunning") == true);
+        REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 120u);
+        REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+        REQUIRE(report.at("host").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetHostFrame").get<uint32_t>());
+        REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetClientFrame").get<uint32_t>());
+    }
+}
+
 TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay][runtime][multitap][late-join]")
 {
     GeraNESTestSupport::requireRomFixture();

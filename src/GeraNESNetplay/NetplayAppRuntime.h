@@ -1723,6 +1723,15 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     );
 
     if(running) {
+        m_inputDriver.preparePlaybackFramesForEmulationThread(
+            m_coordinator,
+            m_coordinator.isActive(),
+            false,
+            m_coordinator.session().roomState().state,
+            emu.frameCount()
+        );
+        m_inputDriver.queuePendingFramesToEmu(emu);
+
         const uint32_t currentFrame = emu.frameCount();
         if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
             tryQueuePlaybackFrameToEmu(emu, currentFrame);
