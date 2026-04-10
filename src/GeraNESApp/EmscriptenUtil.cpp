@@ -26,6 +26,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             bridge.lastPointerX = 0;
             bridge.lastPointerY = 0;
             bridge.compositionText = "";
+            bridge.syncedValue = "";
 
             const input = document.createElement('input');
             input.id = '__geranes_imgui_text_input';
@@ -65,6 +66,13 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             function clearInputValue() {
                 input.value = "";
             }
+
+            function resetEditorBuffer() {
+                bridge.compositionText = "";
+                bridge.syncedValue = "";
+                clearInputValue();
+            }
+            bridge.resetEditorBuffer = resetEditorBuffer;
 
             function getVirtualKeyboard() {
                 return (typeof navigator !== 'undefined' && navigator.virtualKeyboard) ? navigator.virtualKeyboard : null;
@@ -149,9 +157,38 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     }
                     updateInputPosition(bridge.lastPointerX, bridge.lastPointerY);
                 }
+                resetEditorBuffer();
                 if (bridge.wantTextInput) {
                     focusInput();
                 }
+            }
+
+            function countCodepoints(text) {
+                return Array.from(text || "").length;
+            }
+
+            function syncEditorDelta(nextValue) {
+                const previousValue = bridge.syncedValue || "";
+                const currentValue = nextValue || "";
+
+                let commonPrefix = 0;
+                const commonLimit = Math.min(previousValue.length, currentValue.length);
+                while (commonPrefix < commonLimit &&
+                       previousValue.charCodeAt(commonPrefix) === currentValue.charCodeAt(commonPrefix)) {
+                    commonPrefix++;
+                }
+
+                const removedSuffix = previousValue.slice(commonPrefix);
+                for (let i = 0; i < countCodepoints(removedSuffix); i++) {
+                    sendBackspace();
+                }
+
+                const addedSuffix = currentValue.slice(commonPrefix);
+                if (addedSuffix) {
+                    sendPendingText(addedSuffix);
+                }
+
+                bridge.syncedValue = currentValue;
             }
 
             function isManagedKey(key) {
@@ -205,11 +242,8 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
 
             input.addEventListener('input', function(event) {
                 const inputType = event && typeof event.inputType === 'string' ? event.inputType : "";
-                const eventData = event && typeof event.data === 'string' ? event.data : "";
 
-                if (inputType === 'deleteContentBackward') {
-                    sendBackspace();
-                } else if (inputType === 'deleteContentForward') {
+                if (inputType === 'deleteContentForward') {
                     callNative(
                         'injectWebKeyEvent',
                         ['string', 'number', 'number', 'number', 'number', 'number'],
@@ -221,25 +255,16 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                         ['Delete', 0, 0, 0, 0, 0]
                     );
                 } else {
-                    let textToSend = eventData;
-                    if (!textToSend && bridge.compositionText) {
-                        textToSend = bridge.compositionText;
-                    }
-                    if (!textToSend && input.value.length > 0) {
-                        textToSend = input.value;
-                    }
-                    if (textToSend) {
-                        sendPendingText(textToSend);
-                    }
+                    const nextValue = input.value.length > 0 ? input.value : bridge.compositionText;
+                    syncEditorDelta(nextValue);
                 }
 
                 bridge.compositionText = "";
-                clearInputValue();
             });
 
             input.addEventListener('compositionend', function() {
                 bridge.compositionText = "";
-                clearInputValue();
+                syncEditorDelta(input.value);
             });
 
             input.addEventListener('blur', function() {
@@ -293,8 +318,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             activeBridge.input.blur();
         }
 
-        activeBridge.input.value = "";
-        activeBridge.compositionText = "";
+        activeBridge.resetEditorBuffer();
         activeBridge.input.setAttribute('inputmode', 'none');
         activeBridge.hideVirtualKeyboard();
 
