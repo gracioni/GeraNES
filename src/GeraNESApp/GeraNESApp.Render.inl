@@ -19,6 +19,10 @@ inline void GeraNESApp::paintGL()
     showOverlay();
     showGui();
 
+#ifdef __EMSCRIPTEN__
+    emcriptenSyncImGuiTextInput(ImGui::GetIO().WantTextInput);
+#endif
+
     ImGui::Render();
 
     mainLoop();
