@@ -132,6 +132,7 @@ private:
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastRemoteInputAt;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
     std::vector<PendingKickDisconnect> m_pendingKickDisconnects;
+    std::chrono::steady_clock::time_point m_activeResyncAckDeadline = {};
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
     std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
     ParticipantId m_activeResyncTargetParticipantId = kInvalidParticipantId;

@@ -1934,6 +1934,107 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
     host.disconnect();
 }
 
+TEST_CASE("Targeted observer resync times out without stalling host forever",
+          "[netplay][resync-request][observer][timeout][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.currentFrame = 200;
+    clientRoom.currentFrame = 200;
+    hostRoom.lastConfirmedFrame = 200;
+    clientRoom.lastConfirmedFrame = 200;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::Observer;
+            participant.controllerAssignments.clear();
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::Observer;
+            participant.controllerAssignments.clear();
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(204);
+    client.setLocalSimulationFrame(201);
+    REQUIRE(client.requestHostResync(Netplay::ResyncReason::ObserverVisibilityRestore));
+
+    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending;
+    for(int step = 0; step < 120 && !pending.has_value(); ++step) {
+        client.update(0);
+        host.update(0);
+        pending = host.consumePendingHostResyncFrame();
+        if(!pending.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->participantId == client.localParticipantId());
+
+    const std::vector<uint8_t> payload = {0x10, 0x20, 0x30, 0x40};
+    REQUIRE(host.beginResync(
+        pending->frame,
+        payload,
+        0x11111111u,
+        0x22222222u,
+        pending->reason,
+        pending->participantId
+    ));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(5200));
+    host.update(0);
+
+    REQUIRE(host.session().roomState().state == Netplay::SessionState::Running);
+    REQUIRE(host.session().roomState().participants.size() == 2u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Targeted resync ACK timed out"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Netplay host keeps confirmed input flow during suspended client input and resyncs on resume",
           "[netplay][suspend][unit]")
 {
@@ -2531,6 +2632,55 @@ TEST_CASE("Netplay coordinator retries authoritative resync after rejected post-
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "retrying"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=hard_resync_request"));
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Netplay coordinator retries authoritative resync after ACK timeout", "[netplay][resync][retry][timeout][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Running;
+    room.selectedGameName = "RetryResyncTimeout";
+    room.timelineEpoch = 4u;
+    room.currentFrame = 120u;
+    room.lastConfirmedFrame = 118u;
+
+    Netplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = Netplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
+    REQUIRE(coordinator.beginResync(118u, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
+    REQUIRE(room.activeResyncId != 0u);
+    REQUIRE(room.pendingResyncAckCount == 1u);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(5200));
+    coordinator.update(0);
+
+    REQUIRE(room.state == Netplay::SessionState::Paused);
+    REQUIRE(room.activeResyncId == 0u);
+    REQUIRE(room.pendingResyncAckCount == 0u);
+    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingRetry = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pendingRetry.has_value());
+    REQUIRE(pendingRetry->frame == 118u);
+    REQUIRE(pendingRetry->reason == Netplay::ResyncReason::ManualForce);
+
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "Resync ACK timed out"));
 
     coordinator.disconnect();
 }

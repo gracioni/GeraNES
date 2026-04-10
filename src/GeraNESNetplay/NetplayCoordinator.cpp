@@ -23,6 +23,7 @@ constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
+constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
@@ -291,6 +292,7 @@ void NetplayCoordinator::resetSessionState()
     clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
     m_pendingKickDisconnects.clear();
+    m_activeResyncAckDeadline = {};
 }
 
 void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId)
@@ -386,6 +388,9 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
         m_pendingResyncAcks.end()
     );
     m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
+    if(!m_pendingResyncAcks.empty()) {
+        m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
+    }
     if(m_implicitRecoveryMonitor.pending().has_value() &&
        m_implicitRecoveryMonitor.pending()->participantId == participantId) {
         m_implicitRecoveryMonitor.reset();
@@ -526,6 +531,7 @@ void NetplayCoordinator::clearActiveResyncTracking(SessionState resumeState)
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncAckDeadline = {};
 }
 
 void NetplayCoordinator::clearTargetedResyncTracking()
@@ -536,6 +542,7 @@ void NetplayCoordinator::clearTargetedResyncTracking()
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncAckDeadline = {};
 }
 
 void NetplayCoordinator::finalizeActiveResyncIfReady()
@@ -1415,6 +1422,7 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncAckDeadline = {};
     m_session.roomState().pendingResyncAckCount = 0;
     m_session.roomState().activeResyncId = 0;
     m_session.roomState().resyncTargetFrame = 0;
@@ -2598,6 +2606,7 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
     if(m_pendingResyncAcks.empty()) {
         finalizeActiveResyncIfReady();
     } else {
+        m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
         m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
     }
 
@@ -3612,6 +3621,9 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 m_pendingResyncAcks.end()
                             );
                             m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
+                            if(!m_pendingResyncAcks.empty()) {
+                                m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
+                            }
                             if(m_activeResyncTargetParticipantId == participantId) {
                                 cancelTargetedResync(
                                     "Targeted resync participant disconnected before completion: " +
@@ -3736,6 +3748,26 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         abort.reason = 3;
         m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncAbortPacket(abort));
         m_incomingResync.reset();
+    }
+
+    if(m_hosting &&
+       !m_pendingResyncAcks.empty() &&
+       m_activeResyncAckDeadline != std::chrono::steady_clock::time_point{} &&
+       now >= m_activeResyncAckDeadline) {
+        if(activeResyncIsTargeted()) {
+            cancelTargetedResync(
+                "Targeted resync ACK timed out waiting for participant " +
+                std::to_string(static_cast<int>(m_activeResyncTargetParticipantId)) +
+                "; cancelling targeted observer resync"
+            );
+        } else if(m_session.roomState().activeResyncId != 0u) {
+            scheduleResyncRetry(
+                m_session.roomState().resyncTargetFrame,
+                "Resync ACK timed out waiting for " +
+                    std::to_string(static_cast<unsigned>(m_pendingResyncAcks.size())) +
+                    " participant(s); retrying"
+            );
+        }
     }
 
     updatePeerHealthFromTransport();
@@ -4439,6 +4471,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     if(!targetedResync) {
         setRecoveryInputMode(RecoveryInputMode::ResyncLocked, "resync-begin", targetFrame);
     }
+    m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
 
     {
         std::ostringstream oss;
