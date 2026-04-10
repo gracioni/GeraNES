@@ -770,6 +770,7 @@ public:
         m_pendingPresenterTicks = 0;
         if(m_framePacingMode == FramePacingMode::Suspended) {
             dispatchQueuedCommands();
+            (void)runPreAdvanceHook();
             refreshPresentedFramebuffer();
             return false;
         }
@@ -785,6 +786,7 @@ public:
         ++m_pendingPresenterTicks;
         dispatchQueuedCommands();
         if(m_framePacingMode == FramePacingMode::Suspended) {
+            (void)runPreAdvanceHook();
             refreshPresentedFramebuffer();
             return;
         }

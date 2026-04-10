@@ -709,8 +709,8 @@ private:
     {
         if(!m_netplayCoordinator.isHosting()) return;
 
-        std::optional<Netplay::FrameNumber> pendingFrame = m_netplayCoordinator.consumePendingHostResyncFrame();
-        if(!pendingFrame.has_value()) return;
+        std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending = m_netplayCoordinator.consumePendingHostResyncFrame();
+        if(!pending.has_value()) return;
         if(!m_emu.valid()) return;
 
         const bool initialSessionSync =
@@ -719,7 +719,7 @@ private:
         const Netplay::FrameNumber requestedFrame =
             initialSessionSync
                 ? m_emu.frameCount()
-                : m_netplayCoordinator.session().roomState().lastConfirmedFrame;
+                : pending->frame;
         const Netplay::FrameNumber authoritativeFrame =
             std::min<Netplay::FrameNumber>(requestedFrame, m_emu.frameCount());
 
@@ -754,7 +754,7 @@ private:
             (!initialSessionSync && confirmedSnapshot.has_value())
                 ? m_emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : m_emu.canonicalNetplayStateCrc32();
-        if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32)) {
+        if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, pending->reason)) {
             if(stateCrc32 != 0u) {
                 m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
             }
@@ -762,7 +762,8 @@ private:
                 Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
             } else {
                 Logger::instance().log(
-                    "Netplay hard resync started after confirmed desync at frame " + std::to_string(*pendingFrame) +
+                    "Netplay hard resync started after reason " + std::to_string(static_cast<int>(pending->reason)) +
+                    " at frame " + std::to_string(pending->frame) +
                     ", using authoritative frame " + std::to_string(authoritativeFrame),
                     Logger::Type::WARNING
                 );
@@ -1919,7 +1920,14 @@ public:
 
         const bool wasSuspended = m_webVisibilitySuspended;
         m_webVisibilitySuspended = false;
-        m_emu.setSimulationSuspended(false);
+        const auto netplayMenu = m_netplayRuntime.menuSnapshot();
+        const bool deferObserverResume =
+            netplayMenu.inputManaged &&
+            !netplayMenu.hosting &&
+            netplayMenu.localAssignments.empty();
+        if(!deferObserverResume) {
+            m_emu.setSimulationSuspended(false);
+        }
         m_emu.discardQueuedAudio();
         if(wasSuspended) {
             m_emu.restartAudio();

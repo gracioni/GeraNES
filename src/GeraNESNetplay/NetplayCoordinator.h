@@ -59,6 +59,12 @@ public:
         std::vector<uint8_t> payload;
     };
 
+    struct PendingHostResyncRequest
+    {
+        FrameNumber frame = 0;
+        ResyncReason reason = ResyncReason::Unspecified;
+    };
+
 private:
     struct DelayedPacketEvent
     {
@@ -91,7 +97,7 @@ private:
     uint32_t m_localInputSequence = 0;
     RollbackStats m_predictionStats;
     std::optional<FrameNumber> m_pendingRollbackFrame;
-    std::optional<FrameNumber> m_pendingHostResyncFrame;
+    std::optional<PendingHostResyncRequest> m_pendingHostResyncFrame;
     FrameNumber m_lastBroadcastConfirmedFrame = 0;
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     DesyncMonitor m_desyncMonitor;
@@ -126,6 +132,7 @@ private:
     static std::string messageTypeLabel(MessageType type);
 
     void resetSessionState();
+    void queuePendingHostResync(FrameNumber frame, ResyncReason reason);
     void pushLog(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
     ParticipantId participantIdFromPeer(NetTransport::PeerHandle peer) const;
@@ -150,6 +157,7 @@ private:
     std::vector<uint8_t> buildResyncCompletePacket(const ResyncCompleteData& data) const;
     std::vector<uint8_t> buildResyncAckPacket(const ResyncAckData& data) const;
     std::vector<uint8_t> buildResyncAbortPacket(const ResyncAbortData& data) const;
+    std::vector<uint8_t> buildResyncRequestPacket(const ResyncRequestData& data) const;
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
     bool handleControlPacket(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload);
     bool handleJoinRoom(NetTransport::PeerHandle peer, PacketReader& reader);
@@ -164,6 +172,7 @@ private:
     bool handleResyncComplete(PacketReader& reader);
     bool handleResyncAck(PacketReader& reader);
     bool handleResyncAbort(PacketReader& reader);
+    bool handleResyncRequest(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
@@ -282,7 +291,7 @@ public:
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();
     void discardTimelineAfter(FrameNumber frame);
-    std::optional<FrameNumber> consumePendingHostResyncFrame();
+    std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
     const InputTimeline& remoteInputs() const;
@@ -306,6 +315,7 @@ public:
                      ResyncReason reason = ResyncReason::Unspecified);
     std::optional<PendingResyncApply> consumePendingResyncApply();
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
+    bool requestHostResync(ResyncReason reason = ResyncReason::ObserverVisibilityRestore);
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);
     bool submitLocalRomValidation(bool romLoaded, bool romCompatible, const RomValidationData& romValidation);
     bool assignController(ParticipantId participantId, PlayerSlot slot);

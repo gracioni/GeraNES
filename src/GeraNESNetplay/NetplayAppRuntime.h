@@ -121,6 +121,7 @@ private:
     FrameNumber m_lastLoadedAuthoritativeFrame = 0;
     FrameNumber m_lastRecoveryReanchorFrame = 0;
     bool m_forceNextConfirmedCrcSubmission = false;
+    bool m_observerVisibilityResyncPending = false;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
 
@@ -885,8 +886,8 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
 {
     if(!m_coordinator.isHosting()) return;
 
-    std::optional<FrameNumber> pendingFrame = m_coordinator.consumePendingHostResyncFrame();
-    if(!pendingFrame.has_value()) return;
+    std::optional<NetplayCoordinator::PendingHostResyncRequest> pending = m_coordinator.consumePendingHostResyncFrame();
+    if(!pending.has_value()) return;
     if(!emu.valid()) return;
 
     const bool initialSessionSync =
@@ -895,7 +896,7 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
     const FrameNumber requestedFrame =
         initialSessionSync
             ? emu.frameCount()
-            : *pendingFrame;
+            : pending->frame;
     const FrameNumber authoritativeFrame =
         std::min<FrameNumber>(requestedFrame, emu.frameCount());
 
@@ -904,13 +905,14 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
     if(statePayload.empty()) return;
 
     const ResyncReason reason =
-        initialSessionSync ? ResyncReason::InitialSessionSync : ResyncReason::ConfirmedDesync;
+        initialSessionSync ? ResyncReason::InitialSessionSync : pending->reason;
     if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, !initialSessionSync, reason)) {
         if(initialSessionSync) {
             Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
         } else {
             Logger::instance().log(
-                "Netplay hard resync started after confirmed desync at frame " + std::to_string(*pendingFrame) +
+                "Netplay hard resync started after reason " + std::to_string(static_cast<int>(reason)) +
+                " at frame " + std::to_string(pending->frame) +
                 ", using authoritative frame " + std::to_string(authoritativeFrame),
                 Logger::Type::WARNING
             );
@@ -972,6 +974,10 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             << " frameReadyFrame "
             << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
         Logger::instance().log(oss.str(), Logger::Type::INFO);
+        if(m_observerVisibilityResyncPending) {
+            m_observerVisibilityResyncPending = false;
+            m_emuHost.setSimulationSuspended(false);
+        }
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
 
@@ -1260,18 +1266,38 @@ inline void NetplayAppRuntime::updateLatestInputState(const IEmulationHost::Inpu
 
 inline void NetplayAppRuntime::notifyWebVisibilityChanged(bool visible)
 {
-    enqueueCommand([visible](NetplayAppRuntime& self, GeraNESEmu& emu) {
-        self.m_runtimeLastTickTime = {};
+    m_emuHost.postCommand([this, visible](GeraNESEmu& emu) {
+        m_runtimeLastTickTime = {};
         if(!visible) {
+            const bool observerNeedsVisibilityResync =
+                m_coordinator.isActive() &&
+                m_coordinator.isConnected() &&
+                !m_coordinator.isHosting() &&
+                m_coordinator.session().roomState().state == SessionState::Running &&
+                localAssignedSlots().empty();
+            m_observerVisibilityResyncPending = observerNeedsVisibilityResync;
             return;
         }
 
-        self.m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
-        if(self.m_coordinator.session().roomState().state == SessionState::Running) {
-            self.reanchorInputDriver(emu.frameCount(), self.localAssignedSlots());
-        } else {
-            self.m_inputDriver.reset();
+        if(m_observerVisibilityResyncPending) {
+            m_inputDriver.reset();
+            emu.discardQueuedInputFramesAfter(emu.frameCount());
+            m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+            m_emuHost.setSimulationSuspended(true);
+            if(!m_coordinator.requestHostResync(ResyncReason::ObserverVisibilityRestore)) {
+                m_observerVisibilityResyncPending = false;
+                m_emuHost.setSimulationSuspended(false);
+            }
+            return;
         }
+
+        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+        if(m_coordinator.session().roomState().state == SessionState::Running) {
+            reanchorInputDriver(emu.frameCount(), localAssignedSlots());
+        } else {
+            m_inputDriver.reset();
+        }
+        m_emuHost.setSimulationSuspended(false);
     });
 }
 
@@ -1624,6 +1650,8 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
+        m_observerVisibilityResyncPending = false;
+        m_emuHost.setSimulationSuspended(false);
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;
     }

@@ -71,6 +71,8 @@ public:
         uint32_t reconnectReservationSecondsForTests = 0;
         uint32_t hostSaveStateFrame = 0;
         uint32_t hostDisconnectFrame = 0;
+        uint32_t webObserverVisibilitySuspendAfterFrames = 0;
+        uint32_t webObserverVisibilitySuspendDurationFrames = 0;
         bool spamHostInputDuringResync = false;
         bool spamClientInputDuringResync = false;
         bool reconnectDuringResync = false;
@@ -1269,6 +1271,7 @@ private:
                 case Netplay::ResyncReason::ManualForce: return "ManualForce";
                 case Netplay::ResyncReason::HostReset: return "HostReset";
                 case Netplay::ResyncReason::HostLoadedState: return "HostLoadedState";
+                case Netplay::ResyncReason::ObserverVisibilityRestore: return "ObserverVisibilityRestore";
                 default: return "Unknown";
             }
         };
@@ -1909,12 +1912,15 @@ private:
         bool manualResyncCompleted = false;
         bool hostSaveStateCaptured = false;
         bool hostManualLoadDuringResyncObserved = false;
+        bool observerVisibilitySuspendTriggered = false;
+        bool observerVisibilityRestoreTriggered = false;
         uint32_t manualResyncBaselineHardResyncCount = 0;
         uint32_t manualResyncBaselineHostForceResyncEvents = 0;
         uint32_t postResyncCrcCheckStartFrame = 0;
         uint32_t postResyncCrcMismatchFrame = 0;
         size_t hostManualLoadTriggerIndex = 0;
         std::vector<uint8_t> hostSavedManualLoadState;
+        uint32_t observerVisibilitySuspendHostFrame = 0;
         const auto performRuntimeReconnect = [&](const char* triggerDescription) -> bool {
             const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
             const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
@@ -2063,6 +2069,7 @@ private:
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, effectiveClientButtons)
                 );
             }
+
             if((step % hostStepStride) == 0u) {
                 hostPeer.emu.update(hostLoopDtMs);
             }
@@ -2169,6 +2176,25 @@ private:
                     cleanup();
                     return result;
                 }
+            }
+
+            if(options.webObserverVisibilitySuspendAfterFrames > 0 &&
+               options.hostAssignedBeforeJoinOnly &&
+               !observerVisibilitySuspendTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.webObserverVisibilitySuspendAfterFrames) {
+                clientPeer.runtime.notifyWebVisibilityChanged(false);
+                clientPeer.emu.setSimulationSuspended(true);
+                observerVisibilitySuspendTriggered = true;
+                observerVisibilitySuspendHostFrame = hostPeer.emu.exactEmulationFrame();
+            }
+
+            if(observerVisibilitySuspendTriggered &&
+               !observerVisibilityRestoreTriggered &&
+               options.webObserverVisibilitySuspendDurationFrames > 0 &&
+               hostPeer.emu.exactEmulationFrame() >=
+                   observerVisibilitySuspendHostFrame + options.webObserverVisibilitySuspendDurationFrames) {
+                clientPeer.runtime.notifyWebVisibilityChanged(true);
+                observerVisibilityRestoreTriggered = true;
             }
 
             if(options.forceDesyncFrame > 0 &&
@@ -2886,8 +2912,8 @@ private:
     {
         if(!peer.coordinator.isHosting()) return;
 
-        std::optional<Netplay::FrameNumber> pendingFrame = peer.coordinator.consumePendingHostResyncFrame();
-        if(!pendingFrame.has_value() || !peer.emu.valid()) return;
+        std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending = peer.coordinator.consumePendingHostResyncFrame();
+        if(!pending.has_value() || !peer.emu.valid()) return;
 
         const bool initialSessionSync =
             peer.coordinator.session().roomState().state == Netplay::SessionState::Starting;
@@ -2895,7 +2921,7 @@ private:
         const Netplay::FrameNumber requestedFrame =
             initialSessionSync
                 ? emuFrame
-                : peer.coordinator.session().roomState().lastConfirmedFrame;
+                : pending->frame;
         const Netplay::FrameNumber authoritativeFrame =
             std::min<Netplay::FrameNumber>(requestedFrame, emuFrame);
 
@@ -2923,7 +2949,7 @@ private:
             (!initialSessionSync && confirmedSnapshot.has_value())
                 ? peer.emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : peer.emu.canonicalNetplayStateCrc32();
-        if(peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32) &&
+        if(peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, pending->reason) &&
            stateCrc32 != 0u) {
             peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
         }

@@ -49,7 +49,8 @@ enum class MessageType : uint16_t
     ResyncChunk,
     ResyncComplete,
     ResyncAck,
-    ResyncAbort
+    ResyncAbort,
+    ResyncRequest
 };
 
 enum class ParticipantRole : uint8_t
@@ -74,7 +75,8 @@ enum class ResyncReason : uint8_t
     AssignmentChanged,
     ManualForce,
     HostReset,
-    HostLoadedState
+    HostLoadedState,
+    ObserverVisibilityRestore
 };
 
 struct PacketHeader
@@ -254,6 +256,12 @@ struct ResyncAbortData
     uint32_t resyncId = 0;
     ParticipantId participantId = kInvalidParticipantId;
     uint8_t reason = 0;
+};
+
+struct ResyncRequestData
+{
+    ParticipantId participantId = kInvalidParticipantId;
+    ResyncReason reason = ResyncReason::Unspecified;
 };
 
 } // namespace Netplay
