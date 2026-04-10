@@ -253,6 +253,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingJoinRomValidation = {};
     m_disconnectExpectedAfterJoinReject = false;
     m_disconnectExpectedAfterHostShutdown = false;
+    m_disconnectExpectedAfterKick = false;
     m_gracefulDisconnectPending = false;
     m_gracefulDisconnectDeadline = {};
     m_session.reset();
@@ -2064,6 +2065,10 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         data.participantId != kInvalidParticipantId &&
         data.participantId != m_localParticipantId &&
         data.participantId == 0;
+    const bool localParticipantKicked =
+        !m_hosting &&
+        data.participantId != kInvalidParticipantId &&
+        data.participantId == m_localParticipantId;
 
     removeParticipant(data.participantId);
     if(hostLeft) {
@@ -2073,6 +2078,15 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_session.roomState().state = SessionState::Ended;
         m_lastError = "Owner closed the room";
         clearReconnectAttemptState();
+    } else if(localParticipantKicked) {
+        pushLog("Removed from room by host");
+        m_connected = false;
+        m_session.roomState().state = SessionState::Ended;
+        m_lastError = "Removed from room by host";
+        clearReconnectAttemptState();
+        m_disconnectExpectedAfterKick = false;
+        completeLocalDisconnect();
+        m_lastError = "Removed from room by host";
     } else {
         pushLog("Participant left: " + participantName);
         notifySessionEvent(participantName + " left");
@@ -3272,6 +3286,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         m_disconnectExpectedAfterHostShutdown = false;
                         completeLocalDisconnect();
                         m_lastError = preservedError;
+                    } else if(m_disconnectExpectedAfterKick) {
+                        const std::string preservedError = m_lastError.empty() ? std::string("Removed from room by host") : m_lastError;
+                        m_disconnectExpectedAfterKick = false;
+                        completeLocalDisconnect();
+                        m_lastError = preservedError;
                     } else if(m_localParticipantId != kInvalidParticipantId &&
                               m_localReconnectToken != 0 &&
                               hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
@@ -4460,15 +4479,20 @@ bool NetplayCoordinator::kickParticipant(ParticipantId participantId)
         return false;
     }
 
+    NetTransport::PeerHandle kickedPeer = NetTransport::kInvalidPeerHandle;
     for(NetTransport::PeerHandle peer : m_transport.connectedPeers()) {
         if(participantIdFromPeer(peer) == participantId) {
-            m_transport.disconnectPeer(peer);
+            kickedPeer = peer;
             break;
         }
     }
 
     removeParticipant(participantId);
-    m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId));
+    if(kickedPeer != NetTransport::kInvalidPeerHandle) {
+        m_transport.sendReliable(kickedPeer, Channel::Control, buildParticipantLeftPacket(participantId));
+        m_transport.flush();
+    }
+    m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), kickedPeer);
     refreshHostRoomState();
     pushLog("Participant kicked: " + std::to_string(static_cast<int>(participantId)));
     return true;

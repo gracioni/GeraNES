@@ -87,6 +87,7 @@ private:
     std::string m_localEmulatorVersion;
     bool m_disconnectExpectedAfterJoinReject = false;
     bool m_disconnectExpectedAfterHostShutdown = false;
+    bool m_disconnectExpectedAfterKick = false;
     bool m_gracefulDisconnectPending = false;
     std::chrono::steady_clock::time_point m_gracefulDisconnectDeadline = {};
     std::string m_lastError;
