@@ -1570,6 +1570,66 @@ TEST_CASE("Kicked unresponsive participant is force disconnected without auto re
     client.disconnect();
 }
 
+TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",
+          "[netplay][reconnect][replace-peer][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    Netplay::NetplayCoordinator replacementClient;
+    uint16_t port = 0;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        port = reserveLoopbackPort();
+        hosted = host.host(port, 2, "Host");
+    }
+    REQUIRE(hosted);
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() == 2u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    const Netplay::ParticipantId originalClientParticipantId = client.localParticipantId();
+    const uint64_t reconnectToken = client.localReconnectToken();
+    REQUIRE(reconnectToken != 0u);
+    client.setLocalReconnectToken(0u);
+    replacementClient.setLocalReconnectToken(reconnectToken);
+    REQUIRE(replacementClient.join("127.0.0.1", port, "Client"));
+
+    bool replaced = false;
+    for(int step = 0; step < 400 && !replaced; ++step) {
+        host.update(0);
+        client.update(0);
+        replacementClient.update(0);
+        replaced =
+            replacementClient.isConnected() &&
+            replacementClient.localParticipantId() == originalClientParticipantId &&
+            host.session().roomState().participants.size() == 2u;
+        if(!replaced) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(replaced);
+    REQUIRE(host.session().roomState().participants.size() == 2u);
+
+    host.disconnect();
+    client.disconnect();
+    replacementClient.disconnect();
+}
+
 TEST_CASE("Netplay coordinator records implicit playback stops without pausing the session", "[netplay][playback-stop][unit]")
 {
     Netplay::NetplayCoordinator coordinator;

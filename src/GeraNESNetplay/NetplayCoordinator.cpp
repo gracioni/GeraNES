@@ -3138,13 +3138,27 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     }
 
     ParticipantInfo* reconnectParticipant = findParticipantByReconnectToken(joinData.reconnectToken);
+    const bool reusesExistingIdentity = reconnectParticipant != nullptr;
     const bool reusedReconnectReservation =
         reconnectParticipant != nullptr &&
         reconnectParticipant->reconnectReserved &&
         !reconnectParticipant->connected;
+    const bool replacingActivePeer =
+        reconnectParticipant != nullptr &&
+        reconnectParticipant->connected &&
+        !reconnectParticipant->reconnectReserved;
+    NetTransport::PeerHandle replacedPeer = NetTransport::kInvalidPeerHandle;
+    if(replacingActivePeer) {
+        replacedPeer = peerFromParticipantId(reconnectParticipant->id);
+        if(replacedPeer != NetTransport::kInvalidPeerHandle && replacedPeer != peer) {
+            m_transport.setPeerTag(replacedPeer, 0);
+            clearPendingKickDisconnect(replacedPeer);
+            m_transport.disconnectPeer(replacedPeer);
+        }
+    }
 
     ParticipantInfo& participant =
-        reusedReconnectReservation
+        reusesExistingIdentity
             ? *reconnectParticipant
             : ensureParticipant(m_nextAssignedParticipantId++, displayName);
     participant.displayName = displayName;
@@ -3158,7 +3172,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
     participant.romLoaded = joinData.romLoaded != 0;
     participant.romCompatible = joinRomCompatible;
-    if(!reusedReconnectReservation) {
+    if(!reusesExistingIdentity) {
         participant.role = ParticipantRole::Observer;
         participant.controllerAssignments.clear();
         participant.normalizeControllerAssignments();
@@ -3177,6 +3191,8 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         m_pendingHostLateJoinResyncParticipant = participant.id;
         if(reusedReconnectReservation) {
             pushLog("Reconnect reservation claimed; waiting for ROM validation before automatic resync");
+        } else if(replacingActivePeer) {
+            pushLog("Reconnect token matched active participant; replacing peer before automatic resync");
         }
     }
 
@@ -3237,11 +3253,15 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     }
 
     std::ostringstream oss;
-    oss << (reusedReconnectReservation ? "Participant reconnected: " : "Participant joined as observer: ")
+    oss << ((reusedReconnectReservation || replacingActivePeer) ? "Participant reconnected: " : "Participant joined as observer: ")
         << participant.displayName
         << " (id " << static_cast<int>(participant.id) << ")";
     pushLog(oss.str());
-    notifySessionEvent(participantLabel(participant) + (reusedReconnectReservation ? " reconnected" : " joined"));
+    if(reusedReconnectReservation) {
+        notifySessionEvent(participantLabel(participant) + " reconnected");
+    } else if(!replacingActivePeer) {
+        notifySessionEvent(participantLabel(participant) + " joined");
+    }
     return true;
 }
 
