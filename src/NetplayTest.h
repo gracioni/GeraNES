@@ -2949,7 +2949,14 @@ private:
             (!initialSessionSync && confirmedSnapshot.has_value())
                 ? peer.emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : peer.emu.canonicalNetplayStateCrc32();
-        if(peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, pending->reason) &&
+        if(peer.coordinator.beginResync(
+               authoritativeFrame,
+               statePayload,
+               payloadCrc32,
+               stateCrc32,
+               pending->reason,
+               pending->participantId
+           ) &&
            stateCrc32 != 0u) {
             peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
         }

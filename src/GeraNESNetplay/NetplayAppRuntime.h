@@ -258,7 +258,8 @@ private:
                                   FrameNumber authoritativeFrame,
                                   const std::vector<uint8_t>& statePayload,
                                   bool preferConfirmedSnapshot,
-                                  ResyncReason reason = ResyncReason::Unspecified)
+                                  ResyncReason reason = ResyncReason::Unspecified,
+                                  ParticipantId targetParticipantId = kInvalidParticipantId)
     {
         if(statePayload.empty()) return false;
 
@@ -266,11 +267,20 @@ private:
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
         const uint32_t stateCrc32 =
             computeAuthoritativeStateCrc32(emu, authoritativeFrame, preferConfirmedSnapshot);
-        if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, reason)) {
+        if(!m_coordinator.beginResync(
+               authoritativeFrame,
+               statePayload,
+               payloadCrc32,
+               stateCrc32,
+               reason,
+               targetParticipantId
+           )) {
             return false;
         }
 
-        applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
+        if(targetParticipantId == kInvalidParticipantId) {
+            applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
+        }
         return true;
     }
 
@@ -906,7 +916,14 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
 
     const ResyncReason reason =
         initialSessionSync ? ResyncReason::InitialSessionSync : pending->reason;
-    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, !initialSessionSync, reason)) {
+    if(beginAuthoritativeResync(
+           emu,
+           authoritativeFrame,
+           statePayload,
+           !initialSessionSync,
+           reason,
+           pending->participantId
+       )) {
         if(initialSessionSync) {
             Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
         } else {

@@ -63,6 +63,7 @@ public:
     {
         FrameNumber frame = 0;
         ResyncReason reason = ResyncReason::Unspecified;
+        ParticipantId participantId = kInvalidParticipantId;
     };
 
 private:
@@ -133,6 +134,11 @@ private:
     std::vector<PendingKickDisconnect> m_pendingKickDisconnects;
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
     std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
+    ParticipantId m_activeResyncTargetParticipantId = kInvalidParticipantId;
+    SessionState m_activeResyncResumeState = SessionState::Lobby;
+    uint32_t m_activeTargetedResyncId = 0;
+    FrameNumber m_activeTargetedResyncFrame = 0;
+    uint32_t m_activeTargetedResyncExpectedStateCrc32 = 0;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -140,12 +146,20 @@ private:
     static std::string messageTypeLabel(MessageType type);
 
     void resetSessionState();
-    void queuePendingHostResync(FrameNumber frame, ResyncReason reason);
+    void queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId = kInvalidParticipantId);
     void pushLog(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
     ParticipantId participantIdFromPeer(NetTransport::PeerHandle peer) const;
+    NetTransport::PeerHandle peerFromParticipantId(ParticipantId participantId) const;
     ParticipantInfo* findParticipantByReconnectToken(uint64_t reconnectToken);
     void removeParticipant(ParticipantId participantId);
+    bool activeResyncIsTargeted() const;
+    bool sendCurrentSessionStateToPeer(NetTransport::PeerHandle peer);
+    bool sendConfirmedFramesToPeer(NetTransport::PeerHandle peer, FrameNumber startFrame);
+    void clearActiveResyncTracking(SessionState resumeState);
+    void clearTargetedResyncTracking();
+    void finalizeActiveResyncIfReady();
+    void cancelTargetedResync(const std::string& reason);
     void clearReconnectAttemptState();
     void completeLocalDisconnect();
     void processPendingKickDisconnects();
@@ -322,7 +336,8 @@ public:
                      const std::vector<uint8_t>& payload,
                      uint32_t payloadCrc32,
                      uint32_t stateCrc32,
-                     ResyncReason reason = ResyncReason::Unspecified);
+                     ResyncReason reason = ResyncReason::Unspecified,
+                     ParticipantId targetParticipantId = kInvalidParticipantId);
     std::optional<PendingResyncApply> consumePendingResyncApply();
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
     bool requestHostResync(ResyncReason reason = ResyncReason::ObserverVisibilityRestore);

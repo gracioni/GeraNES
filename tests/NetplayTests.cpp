@@ -1379,6 +1379,7 @@ TEST_CASE("Netplay web observer visibility restore requests host resync without 
     options.clientLoopDtMs = 33;
     options.hostStepStride = 1;
     options.clientStepStride = 2;
+    options.frameStepLimit = 4000;
     options.webObserverVisibilitySuspendAfterFrames = 48;
     options.webObserverVisibilitySuspendDurationFrames = 72;
     options.reportPath = GeraNESTestSupport::reportPath(
@@ -1804,6 +1805,7 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
         if(pending.has_value()) {
             REQUIRE(pending->frame == 160u);
             REQUIRE(pending->reason == Netplay::ResyncReason::ObserverVisibilityRestore);
+            REQUIRE(pending->participantId == client.localParticipantId());
             REQUIRE(host.session().roomState().participants.size() == 2u);
             REQUIRE(anyLogLineContains(host.eventLog(), "Participant requested authoritative resync"));
             REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Participant left"));
@@ -1817,6 +1819,119 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
 
     host.disconnect();
     client.disconnect();
+}
+
+TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
+          "[netplay][resync-request][observer][disconnect][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.currentFrame = 200;
+    clientRoom.currentFrame = 200;
+    hostRoom.lastConfirmedFrame = 200;
+    clientRoom.lastConfirmedFrame = 200;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::Observer;
+            participant.controllerAssignments.clear();
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::Observer;
+            participant.controllerAssignments.clear();
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(204);
+    client.setLocalSimulationFrame(201);
+    REQUIRE(client.requestHostResync(Netplay::ResyncReason::ObserverVisibilityRestore));
+
+    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending;
+    for(int step = 0; step < 120 && !pending.has_value(); ++step) {
+        client.update(0);
+        host.update(0);
+        pending = host.consumePendingHostResyncFrame();
+        if(!pending.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->participantId == client.localParticipantId());
+
+    const std::vector<uint8_t> payload = {0x10, 0x20, 0x30, 0x40};
+    REQUIRE(host.beginResync(
+        pending->frame,
+        payload,
+        0x11111111u,
+        0x22222222u,
+        pending->reason,
+        pending->participantId
+    ));
+    REQUIRE(host.session().roomState().state == Netplay::SessionState::Running);
+    REQUIRE(host.session().roomState().activeResyncId == 0u);
+    REQUIRE(host.session().roomState().pendingResyncAckCount == 0u);
+
+    client.disconnect();
+
+    bool hostRecovered = false;
+    for(int step = 0; step < 200 && !hostRecovered; ++step) {
+        host.update(0);
+        const auto& room = host.session().roomState();
+        hostRecovered =
+            room.state == Netplay::SessionState::Running &&
+            room.activeResyncId == 0u &&
+            room.pendingResyncAckCount == 0u;
+        if(!hostRecovered) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(hostRecovered);
+
+    host.disconnect();
 }
 
 TEST_CASE("Netplay host keeps confirmed input flow during suspended client input and resyncs on resume",
