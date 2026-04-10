@@ -23,6 +23,8 @@ constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
+constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
+constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
 
@@ -253,7 +255,6 @@ void NetplayCoordinator::resetSessionState()
     m_pendingJoinRomValidation = {};
     m_disconnectExpectedAfterJoinReject = false;
     m_disconnectExpectedAfterHostShutdown = false;
-    m_disconnectExpectedAfterKick = false;
     m_gracefulDisconnectPending = false;
     m_gracefulDisconnectDeadline = {};
     m_session.reset();
@@ -283,6 +284,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastTransportError.clear();
     clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
+    m_pendingKickDisconnects.clear();
 }
 
 void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason reason)
@@ -382,6 +384,40 @@ void NetplayCoordinator::completeLocalDisconnect()
         m_transport.shutdown();
     }
     resetSessionState();
+}
+
+void NetplayCoordinator::clearPendingKickDisconnect(NetTransport::PeerHandle peer)
+{
+    if(peer == NetTransport::kInvalidPeerHandle) return;
+    m_pendingKickDisconnects.erase(
+        std::remove_if(
+            m_pendingKickDisconnects.begin(),
+            m_pendingKickDisconnects.end(),
+            [peer](const PendingKickDisconnect& pending) {
+                return pending.peer == peer;
+            }
+        ),
+        m_pendingKickDisconnects.end()
+    );
+}
+
+void NetplayCoordinator::processPendingKickDisconnects()
+{
+    if(!m_hosting || m_pendingKickDisconnects.empty()) return;
+
+    const auto now = std::chrono::steady_clock::now();
+    std::vector<PendingKickDisconnect> remaining;
+    remaining.reserve(m_pendingKickDisconnects.size());
+    for(const PendingKickDisconnect& pending : m_pendingKickDisconnects) {
+        if(pending.disconnectAt != std::chrono::steady_clock::time_point{} &&
+           now >= pending.disconnectAt) {
+            m_transport.disconnectPeer(pending.peer, kDisconnectReasonKicked);
+            pushLog("Forced disconnect for kicked participant " + std::to_string(static_cast<int>(pending.participantId)));
+            continue;
+        }
+        remaining.push_back(pending);
+    }
+    m_pendingKickDisconnects.swap(remaining);
 }
 
 void NetplayCoordinator::scheduleReconnectAttempt()
@@ -2084,7 +2120,6 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_session.roomState().state = SessionState::Ended;
         m_lastError = "Removed from room by host";
         clearReconnectAttemptState();
-        m_disconnectExpectedAfterKick = false;
         completeLocalDisconnect();
         m_lastError = "Removed from room by host";
     } else {
@@ -3246,6 +3281,7 @@ void NetplayCoordinator::disconnect()
 
 void NetplayCoordinator::update(uint32_t timeoutMs)
 {
+    processPendingKickDisconnects();
     if(!m_transport.isActive()) {
         processPendingReconnect();
         return;
@@ -3268,6 +3304,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 break;
 
             case NetTransport::Event::Type::Disconnected:
+                clearPendingKickDisconnect(event.peer);
                 if(event.peer == m_serverPeer) {
                     pushLog("Disconnected from host");
                     m_serverPeer = NetTransport::kInvalidPeerHandle;
@@ -3286,9 +3323,8 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         m_disconnectExpectedAfterHostShutdown = false;
                         completeLocalDisconnect();
                         m_lastError = preservedError;
-                    } else if(m_disconnectExpectedAfterKick) {
+                    } else if(event.data == kDisconnectReasonKicked) {
                         const std::string preservedError = m_lastError.empty() ? std::string("Removed from room by host") : m_lastError;
-                        m_disconnectExpectedAfterKick = false;
                         completeLocalDisconnect();
                         m_lastError = preservedError;
                     } else if(m_localParticipantId != kInvalidParticipantId &&
@@ -4491,6 +4527,11 @@ bool NetplayCoordinator::kickParticipant(ParticipantId participantId)
     if(kickedPeer != NetTransport::kInvalidPeerHandle) {
         m_transport.sendReliable(kickedPeer, Channel::Control, buildParticipantLeftPacket(participantId));
         m_transport.flush();
+        PendingKickDisconnect pending;
+        pending.peer = kickedPeer;
+        pending.participantId = participantId;
+        pending.disconnectAt = std::chrono::steady_clock::now() + kKickDisconnectGrace;
+        m_pendingKickDisconnects.push_back(pending);
     }
     m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), kickedPeer);
     refreshHostRoomState();

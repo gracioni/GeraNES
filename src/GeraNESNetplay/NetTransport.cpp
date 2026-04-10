@@ -183,6 +183,7 @@ public:
 
                 case ENET_EVENT_TYPE_DISCONNECT:
                     out.type = Event::Type::Disconnected;
+                    out.data = event.data;
                     events.push_back(std::move(out));
                     break;
 

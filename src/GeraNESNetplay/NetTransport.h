@@ -50,6 +50,7 @@ public:
         Type type = Type::None;
         PeerHandle peer = kInvalidPeerHandle;
         Channel channel = Channel::Control;
+        uint32_t data = 0;
         std::vector<uint8_t> payload;
     };
 

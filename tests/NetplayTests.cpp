@@ -1510,6 +1510,65 @@ TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick]
     client.disconnect();
 }
 
+TEST_CASE("Kicked unresponsive participant is force disconnected without auto reconnect",
+          "[netplay][kick][reconnect][timeout][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        const auto& hostRoom = host.session().roomState();
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            hostRoom.participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    const Netplay::ParticipantId clientId = client.localParticipantId();
+    REQUIRE(host.kickParticipant(clientId));
+
+    for(int step = 0; step < 80; ++step) {
+        host.update(0);
+        REQUIRE_FALSE(client.reconnectPending());
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    bool clientRemoved = false;
+    for(int step = 0; step < 120 && !clientRemoved; ++step) {
+        host.update(0);
+        client.update(0);
+        clientRemoved =
+            !client.isActive() &&
+            !client.isConnected() &&
+            !client.reconnectPending();
+        if(!clientRemoved) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(clientRemoved);
+    REQUIRE(client.lastError() == "Removed from room by host");
+    REQUIRE_FALSE(client.reconnectPending());
+    REQUIRE_FALSE(host.session().findParticipant(clientId) != nullptr);
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Netplay coordinator records implicit playback stops without pausing the session", "[netplay][playback-stop][unit]")
 {
     Netplay::NetplayCoordinator coordinator;

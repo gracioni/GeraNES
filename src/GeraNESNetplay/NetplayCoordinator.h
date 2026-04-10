@@ -72,6 +72,13 @@ private:
         NetTransport::Event event;
     };
 
+    struct PendingKickDisconnect
+    {
+        NetTransport::PeerHandle peer = NetTransport::kInvalidPeerHandle;
+        ParticipantId participantId = kInvalidParticipantId;
+        std::chrono::steady_clock::time_point disconnectAt = {};
+    };
+
     NetTransport m_transport;
     NetSession m_session;
     InputTimeline m_localInputs;
@@ -87,7 +94,6 @@ private:
     std::string m_localEmulatorVersion;
     bool m_disconnectExpectedAfterJoinReject = false;
     bool m_disconnectExpectedAfterHostShutdown = false;
-    bool m_disconnectExpectedAfterKick = false;
     bool m_gracefulDisconnectPending = false;
     std::chrono::steady_clock::time_point m_gracefulDisconnectDeadline = {};
     std::string m_lastError;
@@ -124,6 +130,7 @@ private:
     std::chrono::milliseconds m_remoteInputSuspendTimeout = std::chrono::milliseconds(1000);
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastRemoteInputAt;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
+    std::vector<PendingKickDisconnect> m_pendingKickDisconnects;
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
     std::chrono::seconds m_reconnectReservationDuration = std::chrono::seconds(300);
 
@@ -141,6 +148,8 @@ private:
     void removeParticipant(ParticipantId participantId);
     void clearReconnectAttemptState();
     void completeLocalDisconnect();
+    void processPendingKickDisconnects();
+    void clearPendingKickDisconnect(NetTransport::PeerHandle peer);
     void scheduleReconnectAttempt();
     void processPendingReconnect();
     std::vector<uint8_t> buildJoinRoomPacket() const;
