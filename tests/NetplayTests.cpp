@@ -2699,6 +2699,39 @@ TEST_CASE("Netplay web runtime force resync stays deterministic on single-thread
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
+TEST_CASE("Netplay web observer client survives owner force resync", "[netplay][runtime][web][observer][resync]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.hostAssignedBeforeJoinOnly = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.forceManualResyncFrame = 44;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_web_observer_force_resync.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("singleThreadRuntimeFlow") == true);
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 120u);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay runtime expires reconnect reservation when client does not return", "[netplay][runtime][reconnect][expiry]")
 {
     GeraNESTestSupport::requireRomFixture();

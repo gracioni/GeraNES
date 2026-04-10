@@ -489,9 +489,8 @@ public:
 
     void discardQueuedNetplayInputsAfter(uint32_t frame)
      override{
-        postCommand([frame](GeraNESEmu& emu) {
-            emu.discardQueuedInputFramesAfter(frame);
-        });
+        dispatchQueuedCommands();
+        m_emu.discardQueuedInputFramesAfter(frame);
     }
 
     std::vector<ManualStateChangeRecord> consumeManualStateChanges()
