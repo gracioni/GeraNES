@@ -354,7 +354,17 @@ public:
         }
 
         if(localSlots.empty()) {
-            reset();
+            // Observer clients don't contribute local gameplay input, but they
+            // still need the playback queue horizon to advance so confirmed /
+            // predicted remote frames can be prepared and queued.
+            const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames + m_predictFrames;
+            if(m_producedThroughFrame < targetBufferedThroughFrame) {
+                m_producedThroughFrame = targetBufferedThroughFrame;
+            }
+            if(m_queuedThroughFrame > m_producedThroughFrame) {
+                m_queuedThroughFrame = m_producedThroughFrame;
+            }
+            m_inputProductionAccumulatorMs = 0.0;
             return;
         }
 
