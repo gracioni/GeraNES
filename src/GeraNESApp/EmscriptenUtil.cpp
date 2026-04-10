@@ -25,6 +25,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             bridge.input = null;
             bridge.lastPointerX = 0;
             bridge.lastPointerY = 0;
+            bridge.compositionText = "";
 
             const input = document.createElement('input');
             input.id = '__geranes_imgui_text_input';
@@ -120,6 +121,19 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 callNative('injectWebTextUtf8', ['string'], [text]);
             }
 
+            function sendBackspace() {
+                callNative(
+                    'injectWebKeyEvent',
+                    ['string', 'number', 'number', 'number', 'number', 'number'],
+                    ['Backspace', 1, 0, 0, 0, 0]
+                );
+                callNative(
+                    'injectWebKeyEvent',
+                    ['string', 'number', 'number', 'number', 'number', 'number'],
+                    ['Backspace', 0, 0, 0, 0, 0]
+                );
+            }
+
             function rememberUserActivation(event) {
                 bridge.lastUserActivation = Date.now();
                 if (event) {
@@ -181,15 +195,50 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 }
             });
 
-            input.addEventListener('input', function() {
-                if (input.value.length > 0) {
-                    sendPendingText(input.value);
-                    clearInputValue();
-                }
+            input.addEventListener('compositionstart', function() {
+                bridge.compositionText = "";
             });
 
-            input.addEventListener('compositionend', function(event) {
-                sendPendingText((event && event.data) ? event.data : input.value);
+            input.addEventListener('compositionupdate', function(event) {
+                bridge.compositionText = (event && typeof event.data === 'string') ? event.data : "";
+            });
+
+            input.addEventListener('input', function(event) {
+                const inputType = event && typeof event.inputType === 'string' ? event.inputType : "";
+                const eventData = event && typeof event.data === 'string' ? event.data : "";
+
+                if (inputType === 'deleteContentBackward') {
+                    sendBackspace();
+                } else if (inputType === 'deleteContentForward') {
+                    callNative(
+                        'injectWebKeyEvent',
+                        ['string', 'number', 'number', 'number', 'number', 'number'],
+                        ['Delete', 1, 0, 0, 0, 0]
+                    );
+                    callNative(
+                        'injectWebKeyEvent',
+                        ['string', 'number', 'number', 'number', 'number', 'number'],
+                        ['Delete', 0, 0, 0, 0, 0]
+                    );
+                } else {
+                    let textToSend = eventData;
+                    if (!textToSend && bridge.compositionText) {
+                        textToSend = bridge.compositionText;
+                    }
+                    if (!textToSend && input.value.length > 0) {
+                        textToSend = input.value;
+                    }
+                    if (textToSend) {
+                        sendPendingText(textToSend);
+                    }
+                }
+
+                bridge.compositionText = "";
+                clearInputValue();
+            });
+
+            input.addEventListener('compositionend', function() {
+                bridge.compositionText = "";
                 clearInputValue();
             });
 
@@ -245,6 +294,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
         }
 
         activeBridge.input.value = "";
+        activeBridge.compositionText = "";
         activeBridge.input.setAttribute('inputmode', 'none');
         activeBridge.hideVirtualKeyboard();
 

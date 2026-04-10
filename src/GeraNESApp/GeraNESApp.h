@@ -205,9 +205,6 @@ private:
     bool m_snesMouseSuppressClickUntilRelease = false;
     bool m_forceImGuiMouseResync = false;
     bool m_webVisibilitySuspended = false;
-#ifdef __ANDROID__
-    std::string m_androidLastTextInput;
-#endif
     bool m_hasLastMousePosition = false;
     int m_lastMouseX = 0;
     int m_lastMouseY = 0;
@@ -2399,35 +2396,7 @@ public:
             event.type == SDL_MOUSEBUTTONUP ||
             event.type == SDL_MOUSEWHEEL;
 
-        bool handledAndroidTextInput = false;
-#ifdef __ANDROID__
-        if(event.type == SDL_TEXTINPUT) {
-            ImGuiIO& io = ImGui::GetIO();
-            const char* text = event.text.text;
-            if(text != nullptr && text[0] != '\0') {
-                std::string committedText = text;
-                std::string deltaText = committedText;
-                if(!m_androidLastTextInput.empty() &&
-                   committedText.size() >= m_androidLastTextInput.size() &&
-                   committedText.compare(0, m_androidLastTextInput.size(), m_androidLastTextInput) == 0) {
-                    deltaText = committedText.substr(m_androidLastTextInput.size());
-                }
-
-                if(!deltaText.empty()) {
-                    io.AddInputCharactersUTF8(deltaText.c_str());
-                }
-                m_androidLastTextInput = std::move(committedText);
-                handledAndroidTextInput = true;
-            }
-        } else if(event.type == SDL_TEXTEDITING ||
-                  event.type == SDL_MOUSEBUTTONDOWN ||
-                  event.type == SDL_FINGERDOWN ||
-                  event.type == SDL_WINDOWEVENT) {
-            m_androidLastTextInput.clear();
-        }
-#endif
-
-        if(!handledAndroidTextInput && !(pointerGrabActive && isMouseEvent)) {
+        if(!(pointerGrabActive && isMouseEvent)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
         }
 
@@ -2435,12 +2404,6 @@ public:
 
         m_imGuiWantsMouse = pointerGrabActive ? false : io.WantCaptureMouse;
         bool imGuiWantsKeyboard = io.WantCaptureKeyboard;
-#ifdef __ANDROID__
-        if(!io.WantTextInput) {
-            m_androidLastTextInput.clear();
-        }
-#endif
-
         if(m_forceImGuiMouseResync && !pointerGrabActive) {
             int mx = 0, my = 0;
             const Uint32 buttons = SDL_GetMouseState(&mx, &my);
