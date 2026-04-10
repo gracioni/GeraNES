@@ -2420,7 +2420,6 @@ public:
                 handledAndroidTextInput = true;
             }
         } else if(event.type == SDL_TEXTEDITING ||
-                  event.type == SDL_KEYDOWN ||
                   event.type == SDL_MOUSEBUTTONDOWN ||
                   event.type == SDL_FINGERDOWN ||
                   event.type == SDL_WINDOWEVENT) {
