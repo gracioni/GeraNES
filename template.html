@@ -11,13 +11,13 @@
 
     <style>
 
-      /* garante que 100% do documento está definido */
+      /* ensure the document always has a defined full height */
       html, body { height: 100%; margin: 0; padding: 0; }
 
-      /* emscripten border usa --vh para evitar incluir barras móveis do navegador */
+      /* use --vh to avoid including mobile browser UI bars in the layout height */
       .emscripten_border {
         width: 100vw;
-        /* usa a variável --vh atualizada por JS (compat fallback: 1vh) */
+        /* use the JS-updated --vh variable, fallback to 1vh */
         height: calc(var(--vh, 1vh) * 100);
         overflow: hidden;
       }
@@ -93,34 +93,66 @@
 
     <script type="text/javascript">
 
-      // --- viewport height fix for mobile (keeps the same behavior you had antes)
+      // Mobile viewport height fix
       function updateVh() {
-        // calcula 1% da altura visível real e guarda em --vh
+        // Store 1% of the visible height in --vh
         let vh = window.innerHeight * 0.01;
         document.documentElement.style.setProperty('--vh', `${vh}px`);
       }
-      // roda inicialmente e em eventos que alteram a barra/endereço móvel
+      // Run on startup and when mobile browser chrome changes the visible area
       updateVh();
       window.addEventListener('resize', updateVh);
       window.addEventListener('orientationchange', updateVh);
-      // opcional: em alguns browsers a rolagem muda a chrome UI, atualizar ao scroll também ajuda
+      // Some mobile browsers change UI chrome while scrolling
       window.addEventListener('scroll', updateVh);
 
-      // Wake Lock (mantido)
+      // Wake Lock
       let wakeLock = null;
+
       async function requestWakeLock() {
+        if (!('wakeLock' in navigator)) return;
+        if (document.visibilityState !== 'visible') return;
+        if (wakeLock) return;
+
         try {
-          if ('wakeLock' in navigator) {
-            wakeLock = await navigator.wakeLock.request('screen');
-          }
+          wakeLock = await navigator.wakeLock.request('screen');
+          wakeLock.addEventListener('release', () => {
+            wakeLock = null;
+          });
+          console.log('Wake lock acquired');
         } catch (e) {
-          // falha silenciosa — apenas log
-          console.error(e);
+          console.warn('Wake lock request failed:', e);
+          wakeLock = null;
         }
       }
-      requestWakeLock();
+
+      async function releaseWakeLock() {
+        if (!wakeLock) return;
+        try {
+          await wakeLock.release();
+        } catch (e) {
+          console.warn('Wake lock release failed:', e);
+        }
+        wakeLock = null;
+      }
+
+      function activateWakeLockOnce() {
+        requestWakeLock();
+        window.removeEventListener('pointerdown', activateWakeLockOnce);
+        window.removeEventListener('touchstart', activateWakeLockOnce);
+        window.removeEventListener('keydown', activateWakeLockOnce);
+      }
+
+      window.addEventListener('pointerdown', activateWakeLockOnce, { passive: true });
+      window.addEventListener('touchstart', activateWakeLockOnce, { passive: true });
+      window.addEventListener('keydown', activateWakeLockOnce);
+
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === "visible") requestWakeLock();
+        if (document.visibilityState === "visible") {
+          requestWakeLock();
+        } else {
+          releaseWakeLock();
+        }
       });
 
       // Overlay elements
@@ -217,7 +249,7 @@
 
     </script>
 
-    <!-- IMPORT/EXPORT FS (mantive seu código original, sem alterações funcionais) -->
+    <!-- Import/export FS -->
     <script>
 
     // Import zip into root '/' (will overwrite existing files)
