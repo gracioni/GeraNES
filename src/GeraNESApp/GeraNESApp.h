@@ -1933,7 +1933,7 @@ public:
     }
 
     void onWebAppUnload() {
-        m_netplayRuntime.shutdown();
+        m_netplayRuntime.shutdownForUnload();
     }
 
     void onSessionImportComplete() {

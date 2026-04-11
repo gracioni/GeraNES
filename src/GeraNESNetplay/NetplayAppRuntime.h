@@ -449,6 +449,7 @@ public:
     void removeReconnectReservation(ParticipantId participantId);
     void requestForceResync();
     void shutdown();
+    void shutdownForUnload();
     void runOnEmulationThread(GeraNESEmu& emu);
 };
 
@@ -1628,6 +1629,16 @@ inline void NetplayAppRuntime::shutdown()
     m_runtimeRunning.store(false, std::memory_order_release);
     m_uiSnapshot = UiSnapshot{};
     m_coordinator.disconnect();
+}
+
+inline void NetplayAppRuntime::shutdownForUnload()
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    m_pendingCommands.clear();
+    m_runtimeActive.store(false, std::memory_order_release);
+    m_runtimeRunning.store(false, std::memory_order_release);
+    m_uiSnapshot = UiSnapshot{};
+    m_coordinator.disconnectImmediately();
 }
 
 inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)

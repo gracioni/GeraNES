@@ -3562,6 +3562,28 @@ void NetplayCoordinator::disconnect()
     completeLocalDisconnect();
 }
 
+void NetplayCoordinator::disconnectImmediately()
+{
+    clearReconnectAttemptState();
+    if(m_transport.isActive()) {
+        if(!m_hosting &&
+           m_serverPeer != NetTransport::kInvalidPeerHandle &&
+           m_localParticipantId != kInvalidParticipantId) {
+            m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
+            m_transport.flush();
+        } else if(m_hosting) {
+            endSession();
+            m_transport.flush();
+            m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(m_localParticipantId));
+            m_transport.flush();
+        }
+
+        m_transport.disconnectAll();
+    }
+
+    completeLocalDisconnect();
+}
+
 void NetplayCoordinator::update(uint32_t timeoutMs)
 {
     processPendingKickDisconnects();

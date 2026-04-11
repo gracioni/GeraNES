@@ -277,6 +277,7 @@ public:
     bool host(uint16_t port, size_t maxPeers, const std::string& displayName);
     bool join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();
+    void disconnectImmediately();
     void update(uint32_t timeoutMs = 0);
     bool setTransportBackend(NetTransportBackend backend);
     void setTransportOptions(const NetTransportOptions& options);
