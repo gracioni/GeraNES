@@ -451,6 +451,7 @@ public:
     void kickParticipant(ParticipantId participantId);
     void removeReconnectReservation(ParticipantId participantId);
     void requestForceResync();
+    void toggleHostedSessionPause();
     void shutdown();
     void shutdownForUnload();
     void runOnEmulationThread(GeraNESEmu& emu);
@@ -1652,6 +1653,24 @@ inline void NetplayAppRuntime::requestForceResync()
         const std::vector<uint8_t> statePayload =
             self.buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
         self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, true);
+    });
+}
+
+inline void NetplayAppRuntime::toggleHostedSessionPause()
+{
+    enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
+        if(!self.m_coordinator.isActive() || !self.m_coordinator.isHosting()) return;
+
+        const SessionState state = self.m_coordinator.session().roomState().state;
+        if(state == SessionState::Running) {
+            (void)self.m_coordinator.pauseSession();
+        } else if(state == SessionState::Paused) {
+            const auto localRom = captureCurrentRomSelection(emu);
+            if(!self.computeSessionBlockedReason(localRom).empty()) return;
+            if(self.m_coordinator.resumeSession()) {
+                self.m_webVisibilityPausePendingResume = false;
+            }
+        }
     });
 }
 

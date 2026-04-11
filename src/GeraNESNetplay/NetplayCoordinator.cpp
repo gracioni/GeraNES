@@ -2746,6 +2746,11 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
             kRecoveryStabilizationFrames
         );
     } else {
+        if(data.state == SessionState::Paused && previousState != SessionState::Paused) {
+            notifySessionEvent("Owner paused");
+        } else if(data.state == SessionState::Running && previousState == SessionState::Paused) {
+            notifySessionEvent("Owner resumed");
+        }
         pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
         if(data.state != SessionState::Resyncing && data.state != SessionState::Paused) {
             setRecoveryInputMode(RecoveryInputMode::Normal, "session-state-update", m_session.roomState().currentFrame);

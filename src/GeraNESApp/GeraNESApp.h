@@ -280,23 +280,49 @@ private:
         Logger::instance().log(message, Logger::Type::INFO);
     }
 
+    bool canUseNetplaySessionPause() const
+    {
+        const auto snapshot = m_netplayRuntime.uiSnapshot();
+        return snapshot.active &&
+               snapshot.hosting &&
+               (snapshot.room.state == Netplay::SessionState::Running ||
+                snapshot.room.state == Netplay::SessionState::Paused);
+    }
+
     bool isNetplayPauseRestricted() const
     {
-#ifndef __EMSCRIPTEN__
         const auto snapshot = m_netplayRuntime.uiSnapshot();
-        return snapshot.active || snapshot.connected || snapshot.reconnecting || snapshot.hosting;
-#else
-        return false;
-#endif
+        if(!(snapshot.active || snapshot.connected || snapshot.reconnecting || snapshot.hosting)) {
+            return false;
+        }
+        return !canUseNetplaySessionPause();
     }
 
     void notifyNetplayPauseRestrictedAction()
     {
         if(!isNetplayPauseRestricted()) return;
 
-        const std::string message = "Pause is disabled while netplay is active";
+        const auto snapshot = m_netplayRuntime.uiSnapshot();
+        const std::string message =
+            snapshot.active && !snapshot.hosting
+                ? "Only the owner can pause the netplay session"
+                : "Pause is unavailable in the current netplay state";
         m_userToast.show(message);
         Logger::instance().log(message, Logger::Type::INFO);
+    }
+
+    void togglePauseAction()
+    {
+        if(!m_emu.valid()) return;
+        if(canUseNetplaySessionPause()) {
+            m_netplayRuntime.toggleHostedSessionPause();
+            return;
+        }
+        if(isNetplayPauseRestricted()) {
+            notifyNetplayPauseRestrictedAction();
+            return;
+        }
+        m_emu.togglePaused();
     }
 
     static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device)
@@ -1842,12 +1868,7 @@ private:
         }});
 
         m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
-            if(!m_emu.valid()) return;
-            if(isNetplayPauseRestricted()) {
-                notifyNetplayPauseRestrictedAction();
-                return;
-            }
-            m_emu.togglePaused();
+            togglePauseAction();
         }});
     }
 

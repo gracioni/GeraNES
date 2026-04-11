@@ -126,8 +126,12 @@ inline void GeraNESApp::menuBar() {
 
             auto pauseShortcut = m_shortcuts.get("pause");
             const char* pauseKey = (pauseShortcut != nullptr) ? pauseShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem("Pause", pauseKey, m_emu.paused(), hasRomLoaded && !isNetplayPauseRestricted())) {
-                m_emu.togglePaused();
+            const bool netplayPauseActive = canUseNetplaySessionPause();
+            const bool pauseSelected = netplayPauseActive
+                ? (m_netplayRuntime.uiSnapshot().room.state == Netplay::SessionState::Paused)
+                : m_emu.paused();
+            if(ImGui::MenuItem("Pause", pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted())) {
+                togglePauseAction();
             }
 
             ImGui::Separator();
