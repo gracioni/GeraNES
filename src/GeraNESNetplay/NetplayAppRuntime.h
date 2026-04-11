@@ -811,6 +811,10 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         reanchorInputDriver(anchorFrame, localAssignedSlots());
         m_postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
+        if(m_observerVisibilityResyncPending) {
+            m_observerVisibilityResyncPending = false;
+            m_emuHost.setSimulationSuspended(false);
+        }
     }
 
     if(currentState == SessionState::Running &&
@@ -991,10 +995,6 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             << " frameReadyFrame "
             << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
         Logger::instance().log(oss.str(), Logger::Type::INFO);
-        if(m_observerVisibilityResyncPending) {
-            m_observerVisibilityResyncPending = false;
-            m_emuHost.setSimulationSuspended(false);
-        }
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
 
