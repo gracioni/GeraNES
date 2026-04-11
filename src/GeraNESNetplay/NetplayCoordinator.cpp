@@ -3518,6 +3518,14 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
     hostParticipant.controllerAssignments.clear();
     hostParticipant.normalizeControllerAssignments();
 
+    const auto& iceServers = m_transport.advertisedIceServers();
+    if(!iceServers.empty()) {
+        pushLog("WebRTC signaling advertised " + std::to_string(iceServers.size()) + " ICE server(s)");
+        for(const std::string& iceServer : iceServers) {
+            pushLog("ICE server: " + iceServer);
+        }
+    }
+
     pushLog(describeHostTarget(m_transport.backend(), m_transport.options(), port, maxPeers));
     return true;
 }
@@ -3547,6 +3555,13 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     m_pendingJoinRomLoaded = pendingJoinRomLoaded;
     m_pendingJoinRomValidation = pendingJoinRomValidation;
     m_session.roomState().state = SessionState::Lobby;
+    const auto& iceServers = m_transport.advertisedIceServers();
+    if(!iceServers.empty()) {
+        pushLog("WebRTC signaling advertised " + std::to_string(iceServers.size()) + " ICE server(s)");
+        for(const std::string& iceServer : iceServers) {
+            pushLog("ICE server: " + iceServer);
+        }
+    }
     pushLog("Connecting to " + describeConnectTarget(m_transport.backend(), m_transport.options(), hostName, port));
     return true;
 }

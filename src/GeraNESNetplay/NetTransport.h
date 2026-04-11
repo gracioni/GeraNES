@@ -61,6 +61,7 @@ public:
     virtual void setOptions(const NetTransportOptions& options) = 0;
     virtual const NetTransportOptions& options() const = 0;
     virtual const std::string& lastError() const = 0;
+    virtual const std::vector<std::string>& advertisedIceServers() const = 0;
 
     virtual bool hostSession(uint16_t port, size_t maxPeers) = 0;
     virtual bool connectToHost(const std::string& hostName, uint16_t port, size_t channelCount = 3) = 0;
@@ -106,6 +107,7 @@ public:
     void setOptions(const NetTransportOptions& options);
     const NetTransportOptions& options() const;
     const std::string& lastError() const;
+    const std::vector<std::string>& advertisedIceServers() const;
 
     bool initialize();
     void shutdown();

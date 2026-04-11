@@ -2,7 +2,6 @@
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
 #include "GeraNESNetplay/WebRtcSignalingClient.h"
 #include "GeraNESNetplay/WebRtcSignalingServer.h"
-#include "logger/logger.h"
 
 #include <algorithm>
 #include <atomic>
@@ -21,21 +20,6 @@ namespace Netplay {
 namespace {
 
 constexpr auto kWebRtcSignalingBootstrapTimeout = std::chrono::seconds(5);
-
-void logAdvertisedIceServers(const std::vector<std::string>& iceServers)
-{
-    if(iceServers.empty()) {
-        Logger::instance().log("WebRTC signaling advertised no ICE servers", Logger::Type::INFO);
-        return;
-    }
-
-    Logger::instance().log(
-        "WebRTC signaling advertised " + std::to_string(iceServers.size()) + " ICE server(s)",
-        Logger::Type::INFO);
-    for(const std::string& iceServer : iceServers) {
-        Logger::instance().log("ICE server: " + iceServer, Logger::Type::INFO);
-    }
-}
 
 #if !defined(__EMSCRIPTEN__)
 class ENetTransport final : public INetTransport
@@ -100,6 +84,12 @@ public:
     const std::string& lastError() const override
     {
         return m_lastError;
+    }
+
+    const std::vector<std::string>& advertisedIceServers() const override
+    {
+        static const std::vector<std::string> empty;
+        return empty;
     }
 
     bool hostSession(uint16_t port, size_t maxPeers) override
@@ -624,14 +614,12 @@ private:
                     sawWelcome = true;
                     if(!event.message.iceServers.empty()) {
                         m_signaledIceServers = event.message.iceServers;
-                        logAdvertisedIceServers(m_signaledIceServers);
                     }
                 } else if(event.message.type == WebRtcSignalType::RoomJoined &&
                           event.message.roomId == options.config.roomId) {
                     sawRoomJoined = true;
                     if(!event.message.iceServers.empty()) {
                         m_signaledIceServers = event.message.iceServers;
-                        logAdvertisedIceServers(m_signaledIceServers);
                     }
                 } else if(event.message.type == WebRtcSignalType::Error) {
                     m_lastError = !event.message.error.empty() ? event.message.error : "WebRTC signaling reported an error";
@@ -967,7 +955,6 @@ private:
                     m_bootstrapSawWelcome = true;
                     if(!message.iceServers.empty()) {
                         m_signaledIceServers = message.iceServers;
-                        logAdvertisedIceServers(m_signaledIceServers);
                     }
                 } else if(message.type == WebRtcSignalType::RoomJoined &&
                           m_activeSignalingConfig.has_value() &&
@@ -975,7 +962,6 @@ private:
                     m_bootstrapSawRoomJoined = true;
                     if(!message.iceServers.empty()) {
                         m_signaledIceServers = message.iceServers;
-                        logAdvertisedIceServers(m_signaledIceServers);
                     }
                 } else if(message.type == WebRtcSignalType::Error) {
                     m_lastError = !message.error.empty() ? message.error : "WebRTC signaling reported an error";
@@ -1081,6 +1067,7 @@ public:
     void setOptions(const NetTransportOptions& options) override { m_options = options; }
     const NetTransportOptions& options() const override { return m_options; }
     const std::string& lastError() const override { return m_lastError; }
+    const std::vector<std::string>& advertisedIceServers() const override { return m_signaledIceServers; }
     bool hostSession(uint16_t port, size_t maxPeers) override
     {
         m_requestedMaxPeers = std::max<size_t>(1, maxPeers);
@@ -1346,6 +1333,12 @@ const std::string& NetTransport::lastError() const
 {
     static const std::string emptyError;
     return m_impl ? m_impl->lastError() : emptyError;
+}
+
+const std::vector<std::string>& NetTransport::advertisedIceServers() const
+{
+    static const std::vector<std::string> empty;
+    return m_impl ? m_impl->advertisedIceServers() : empty;
 }
 
 bool NetTransport::initialize()
