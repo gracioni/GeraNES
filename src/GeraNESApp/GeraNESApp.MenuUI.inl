@@ -607,6 +607,62 @@ inline void GeraNESApp::menuBar() {
                     AppSettings::instance().data.input.touchControls.enabled = !enabled;
                 }
 
+                if (ImGui::BeginMenu("Target")) {
+                    auto& touchTarget = AppSettings::instance().data.input.touchControls.target;
+
+                    if(ImGui::MenuItem(
+                            touchTargetMenuLabel(AppSettings::TouchControlsTarget::Port1Controller).c_str(),
+                            nullptr,
+                            touchTarget == AppSettings::TouchControlsTarget::Port1Controller)) {
+                        touchTarget = AppSettings::TouchControlsTarget::Port1Controller;
+                    }
+
+                    if(ImGui::MenuItem(
+                            touchTargetMenuLabel(AppSettings::TouchControlsTarget::Port2Controller).c_str(),
+                            nullptr,
+                            touchTarget == AppSettings::TouchControlsTarget::Port2Controller)) {
+                        touchTarget = AppSettings::TouchControlsTarget::Port2Controller;
+                    }
+
+                    if(ImGui::MenuItem(
+                            touchTargetMenuLabel(AppSettings::TouchControlsTarget::Expansion).c_str(),
+                            nullptr,
+                            touchTarget == AppSettings::TouchControlsTarget::Expansion)) {
+                        touchTarget = AppSettings::TouchControlsTarget::Expansion;
+                    }
+
+                    if(ImGui::BeginMenu("Multitap")) {
+                        if(ImGui::MenuItem(
+                                touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP1).c_str(),
+                                nullptr,
+                                touchTarget == AppSettings::TouchControlsTarget::MultitapP1)) {
+                            touchTarget = AppSettings::TouchControlsTarget::MultitapP1;
+                        }
+                        if(ImGui::MenuItem(
+                                touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP2).c_str(),
+                                nullptr,
+                                touchTarget == AppSettings::TouchControlsTarget::MultitapP2)) {
+                            touchTarget = AppSettings::TouchControlsTarget::MultitapP2;
+                        }
+                        if(ImGui::MenuItem(
+                                touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP3).c_str(),
+                                nullptr,
+                                touchTarget == AppSettings::TouchControlsTarget::MultitapP3)) {
+                            touchTarget = AppSettings::TouchControlsTarget::MultitapP3;
+                        }
+                        if(ImGui::MenuItem(
+                                touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP4).c_str(),
+                                nullptr,
+                                touchTarget == AppSettings::TouchControlsTarget::MultitapP4)) {
+                            touchTarget = AppSettings::TouchControlsTarget::MultitapP4;
+                        }
+
+                        ImGui::EndMenu();
+                    }
+
+                    ImGui::EndMenu();
+                }
+
                 float transparencyPercent = AppSettings::instance().data.input.touchControls.transparency * 100.0f;
                 if(ImGui::SliderFloat("Transparency", &transparencyPercent, 0.0f, 100.0f, "%.0f%%")) {
                     AppSettings::instance().data.input.touchControls.transparency = transparencyPercent / 100.0f;

@@ -25,6 +25,8 @@ class AppSettings {
 
 public:
 
+    enum class TouchControlsTarget { Port1Controller, Port2Controller, Expansion, MultitapP1, MultitapP2, MultitapP3, MultitapP4 };
+
     static fs::path& storageDirectory()
     {
         static fs::path path = fs::current_path();
@@ -66,12 +68,14 @@ public:
     struct TouchControls {
 
         bool enabled = false;
+        TouchControlsTarget target = TouchControlsTarget::Port1Controller;
         float transparency = 0.5f;        
 
         friend void to_json(nlohmann::json& j, const TouchControls& value)
         {
             j = nlohmann::json{
                 {"enabled", value.enabled},
+                {"target", static_cast<int>(value.target)},
                 {"transparency", value.transparency}
             };
         }
@@ -80,6 +84,7 @@ public:
         {
             const TouchControls defaults;
             value.enabled = j.value("enabled", defaults.enabled);
+            value.target = static_cast<TouchControlsTarget>(j.value("target", static_cast<int>(defaults.target)));
             value.transparency = j.value("transparency", defaults.transparency);
         }
     };
@@ -481,6 +486,10 @@ public:
 #else
         data.netplay.transportBackend = std::clamp(data.netplay.transportBackend, 0, 1);
 #endif
+        if(static_cast<int>(data.input.touchControls.target) < static_cast<int>(TouchControlsTarget::Port1Controller) ||
+           static_cast<int>(data.input.touchControls.target) > static_cast<int>(TouchControlsTarget::MultitapP4)) {
+            data.input.touchControls.target = TouchControlsTarget::Port1Controller;
+        }
         data.input.sanitizeDefaults();        
         data.sanitizeDefaults();  
     }

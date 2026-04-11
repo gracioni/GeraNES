@@ -299,6 +299,82 @@ private:
         Logger::instance().log(message, Logger::Type::INFO);
     }
 
+    static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device)
+    {
+        return device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) ||
+               device == std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER) ||
+               device == std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER);
+    }
+
+    static const char* touchDeviceLabel(Settings::Device device)
+    {
+        switch(device) {
+            case Settings::Device::CONTROLLER: return "Standard Controller";
+            case Settings::Device::FAMICOM_CONTROLLER: return "Famicom Controller";
+            case Settings::Device::SNES_CONTROLLER: return "SNES Controller";
+            default: return "Unsupported";
+        }
+    }
+
+    static bool isTouchCompatibleExpansionDevice(Settings::ExpansionDevice device)
+    {
+        return device == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+    }
+
+    static std::string touchTargetMenuLabel(AppSettings::TouchControlsTarget target)
+    {
+        switch(target) {
+            case AppSettings::TouchControlsTarget::Port1Controller:
+                return "Port 1";
+
+            case AppSettings::TouchControlsTarget::Port2Controller:
+                return "Port 2";
+
+            case AppSettings::TouchControlsTarget::Expansion:
+                return "Expansion";
+
+            case AppSettings::TouchControlsTarget::MultitapP1:
+                return "P1";
+
+            case AppSettings::TouchControlsTarget::MultitapP2:
+                return "P2";
+
+            case AppSettings::TouchControlsTarget::MultitapP3:
+                return "P3";
+
+            case AppSettings::TouchControlsTarget::MultitapP4:
+                return "P4";
+        }
+
+        return "Unavailable";
+    }
+
+    static AppSettings::TouchControlsTarget preferredTouchTargetForTopology(const IEmulationHost::InputTopologySnapshot& topology)
+    {
+        const bool multitapActive =
+            topology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+            topology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+        if(multitapActive) {
+            return AppSettings::TouchControlsTarget::MultitapP1;
+        }
+        if(isTouchCompatibleExpansionDevice(topology.expansionDevice)) {
+            return AppSettings::TouchControlsTarget::Expansion;
+        }
+        if(isTouchCompatibleControllerDevice(topology.port1Device)) {
+            return AppSettings::TouchControlsTarget::Port1Controller;
+        }
+        if(isTouchCompatibleControllerDevice(topology.port2Device)) {
+            return AppSettings::TouchControlsTarget::Port2Controller;
+        }
+        return AppSettings::TouchControlsTarget::Port1Controller;
+    }
+
+    void normalizeTouchControlsTargetForCurrentTopology()
+    {
+        AppSettings::instance().data.input.touchControls.target =
+            preferredTouchTargetForTopology(m_emu.getInputTopologySnapshot());
+    }
+
     static void setIfNegative(std::string& dst, int value)
     {
         dst = value >= 0 ? std::to_string(value) : "";
@@ -1321,47 +1397,85 @@ private:
 
             im.updateInputs();
 
-            const bool p1A = im.isPressed(m_controller1.a) || (!m_imGuiWantsMouse && m_touch->buttons().a);
-            const bool p1B = im.isPressed(m_controller1.b) || (!m_imGuiWantsMouse &&m_touch->buttons().b);
-            const bool p1Select = im.isPressed(m_controller1.select) || (!m_imGuiWantsMouse &&m_touch->buttons().select);
-            const bool p1Start = im.isPressed(m_controller1.start) || (!m_imGuiWantsMouse &&m_touch->buttons().start);
-            const bool p1Up = im.isPressed(m_controller1.up) || (!m_imGuiWantsMouse &&m_touch->buttons().up);
-            const bool p1Down = im.isPressed(m_controller1.down) || (!m_imGuiWantsMouse &&m_touch->buttons().down);
-            const bool p1Left = im.isPressed(m_controller1.left) || (!m_imGuiWantsMouse &&m_touch->buttons().left);
-            const bool p1Right = im.isPressed(m_controller1.right) || (!m_imGuiWantsMouse &&m_touch->buttons().right);
+            const auto inputTopology = m_emu.getInputTopologySnapshot();
+            const bool touchInputActive = !m_imGuiWantsMouse;
+            const auto touchTarget = AppSettings::instance().data.input.touchControls.target;
+            const bool multitapActive =
+                inputTopology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+                inputTopology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+            const bool touchTargetsPort1 =
+                touchInputActive &&
+                touchTarget == AppSettings::TouchControlsTarget::Port1Controller &&
+                !multitapActive &&
+                isTouchCompatibleControllerDevice(inputTopology.port1Device);
+            const bool touchTargetsPort2 =
+                touchInputActive &&
+                touchTarget == AppSettings::TouchControlsTarget::Port2Controller &&
+                !multitapActive &&
+                isTouchCompatibleControllerDevice(inputTopology.port2Device);
+            const bool touchTargetsExpansion =
+                touchInputActive &&
+                touchTarget == AppSettings::TouchControlsTarget::Expansion &&
+                !multitapActive &&
+                isTouchCompatibleExpansionDevice(inputTopology.expansionDevice);
+            const bool touchTargetsMultitapP1 =
+                touchInputActive &&
+                multitapActive &&
+                touchTarget == AppSettings::TouchControlsTarget::MultitapP1;
+            const bool touchTargetsMultitapP2 =
+                touchInputActive &&
+                multitapActive &&
+                touchTarget == AppSettings::TouchControlsTarget::MultitapP2;
+            const bool touchTargetsMultitapP3 =
+                touchInputActive &&
+                multitapActive &&
+                touchTarget == AppSettings::TouchControlsTarget::MultitapP3;
+            const bool touchTargetsMultitapP4 =
+                touchInputActive &&
+                multitapActive &&
+                touchTarget == AppSettings::TouchControlsTarget::MultitapP4;
+
+            const bool p1A = im.isPressed(m_controller1.a) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().a);
+            const bool p1B = im.isPressed(m_controller1.b) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().b);
+            const bool p1Select = im.isPressed(m_controller1.select) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().select);
+            const bool p1Start = im.isPressed(m_controller1.start) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().start);
+            const bool p1Up = im.isPressed(m_controller1.up) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().up);
+            const bool p1Down = im.isPressed(m_controller1.down) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().down);
+            const bool p1Left = im.isPressed(m_controller1.left) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().left);
+            const bool p1Right = im.isPressed(m_controller1.right) || ((touchTargetsPort1 || touchTargetsMultitapP1) && m_touch->buttons().right);
             const bool p1X = im.isPressed(m_snesController1.x);
             const bool p1Y = im.isPressed(m_snesController1.y);
             const bool p1L = im.isPressed(m_snesController1.l);
             const bool p1R = im.isPressed(m_snesController1.r);
 
-            const bool p2A = im.isPressed(m_controller2.a);
-            const bool p2B = im.isPressed(m_controller2.b);
-            const bool p2Select = im.isPressed(m_controller2.select);
-            const bool p2Start = im.isPressed(m_controller2.start);
-            const bool p2Up = im.isPressed(m_controller2.up);
-            const bool p2Down = im.isPressed(m_controller2.down);
-            const bool p2Left = im.isPressed(m_controller2.left);
-            const bool p2Right = im.isPressed(m_controller2.right);
+            const bool p2A = im.isPressed(m_controller2.a) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().a);
+            const bool p2B = im.isPressed(m_controller2.b) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().b);
+            const bool p2Select = im.isPressed(m_controller2.select) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().select);
+            const bool p2Start = im.isPressed(m_controller2.start) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().start);
+            const bool p2Up = im.isPressed(m_controller2.up) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().up);
+            const bool p2Down = im.isPressed(m_controller2.down) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().down);
+            const bool p2Left = im.isPressed(m_controller2.left) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().left);
+            const bool p2Right = im.isPressed(m_controller2.right) || ((touchTargetsPort2 || touchTargetsMultitapP2) && m_touch->buttons().right);
             const bool p2X = im.isPressed(m_snesController2.x);
             const bool p2Y = im.isPressed(m_snesController2.y);
             const bool p2L = im.isPressed(m_snesController2.l);
             const bool p2R = im.isPressed(m_snesController2.r);
-            const bool p3A = im.isPressed(m_controller3.a);
-            const bool p3B = im.isPressed(m_controller3.b);
-            const bool p3Select = im.isPressed(m_controller3.select);
-            const bool p3Start = im.isPressed(m_controller3.start);
-            const bool p3Up = im.isPressed(m_controller3.up);
-            const bool p3Down = im.isPressed(m_controller3.down);
-            const bool p3Left = im.isPressed(m_controller3.left);
-            const bool p3Right = im.isPressed(m_controller3.right);
-            const bool p4A = im.isPressed(m_controller4.a);
-            const bool p4B = im.isPressed(m_controller4.b);
-            const bool p4Select = im.isPressed(m_controller4.select);
-            const bool p4Start = im.isPressed(m_controller4.start);
-            const bool p4Up = im.isPressed(m_controller4.up);
-            const bool p4Down = im.isPressed(m_controller4.down);
-            const bool p4Left = im.isPressed(m_controller4.left);
-            const bool p4Right = im.isPressed(m_controller4.right);
+            const bool p3A = im.isPressed(m_controller3.a) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().a);
+            const bool p3B = im.isPressed(m_controller3.b) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().b);
+            const bool p3Select = im.isPressed(m_controller3.select) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().select);
+            const bool p3Start = im.isPressed(m_controller3.start) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().start);
+            const bool p3Up = im.isPressed(m_controller3.up) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().up);
+            const bool p3Down = im.isPressed(m_controller3.down) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().down);
+            const bool p3Left = im.isPressed(m_controller3.left) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().left);
+            const bool p3Right = im.isPressed(m_controller3.right) || ((touchTargetsExpansion || touchTargetsMultitapP3) && m_touch->buttons().right);
+            const bool p4A = im.isPressed(m_controller4.a) || (touchTargetsMultitapP4 && m_touch->buttons().a);
+            const bool p4B = im.isPressed(m_controller4.b) || (touchTargetsMultitapP4 && m_touch->buttons().b);
+            const bool p4Select = im.isPressed(m_controller4.select) || (touchTargetsMultitapP4 && m_touch->buttons().select);
+            const bool p4Start = im.isPressed(m_controller4.start) || (touchTargetsMultitapP4 && m_touch->buttons().start);
+            const bool p4Up = im.isPressed(m_controller4.up) || (touchTargetsMultitapP4 && m_touch->buttons().up);
+            const bool p4Down = im.isPressed(m_controller4.down) || (touchTargetsMultitapP4 && m_touch->buttons().down);
+            const bool p4Left = im.isPressed(m_controller4.left) || (touchTargetsMultitapP4 && m_touch->buttons().left);
+            const bool p4Right = im.isPressed(m_controller4.right) || (touchTargetsMultitapP4 && m_touch->buttons().right);
             const bool konamiP1Run = im.isPressed(m_konamiHyperShot.p1Run);
             const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
             const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
@@ -1613,6 +1727,7 @@ private:
         AppSettings::instance().data.addRecentFile(path);
         AppSettings::instance().data.setLastFolder(path);
         if(m_emu.open(path)) {
+            normalizeTouchControlsTargetForCurrentTopology();
             const std::string filename = fs::path(path).filename().string();
             this->setTitle((std::string("GeraNES (") + filename + ")").c_str());
             Logger::instance().log("Rom loaded", Logger::Type::USER);
