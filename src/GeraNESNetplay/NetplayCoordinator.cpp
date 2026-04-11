@@ -3296,6 +3296,11 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     const bool isNewParticipant = existingParticipant == nullptr;
     const bool wasConnected = existingParticipant != nullptr ? existingParticipant->connected : false;
     const bool wasReserved = existingParticipant != nullptr ? existingParticipant->reconnectReserved : false;
+    const bool suppressPresenceToast =
+        !m_hosting &&
+        (m_reconnectPending ||
+         m_reconnectAttemptInFlight ||
+         m_session.roomState().activeResyncReason == ResyncReason::ObserverVisibilityRestore);
     ParticipantInfo& participant = ensureParticipant(participantId, displayName);
     if(reconnectToken != 0) {
         participant.reconnectToken = reconnectToken;
@@ -3321,7 +3326,9 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     }
 
     if(isNewParticipant && participantId != m_localParticipantId) {
-        notifySessionEvent(participantLabel(participant) + " joined");
+        if(!suppressPresenceToast) {
+            notifySessionEvent(participantLabel(participant) + " joined");
+        }
         pushLog("Participant active: " + participant.displayName + " (id " + std::to_string(static_cast<int>(participant.id)) + ")");
     } else if((participant.connected != wasConnected || participant.reconnectReserved != wasReserved) &&
               participantId != m_localParticipantId) {
