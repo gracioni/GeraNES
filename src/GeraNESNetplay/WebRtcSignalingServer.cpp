@@ -37,6 +37,7 @@ private:
     struct RoomState
     {
         std::string password;
+        size_t maxParticipants = 2;
         std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> members;
 
         bool passwordProtected() const
@@ -220,6 +221,9 @@ private:
                     client.roomId = message.roomId;
                     RoomState& room = m_rooms[message.roomId];
                     room.password = message.password;
+                    room.maxParticipants = message.maxParticipants > 0
+                        ? static_cast<size_t>(message.maxParticipants)
+                        : static_cast<size_t>(2);
                     room.members.insert(hdl);
 
                     directMessage = WebRtcSignalingMessage{};
@@ -239,6 +243,11 @@ private:
                     auto roomIt = m_rooms.find(message.roomId);
                     if(roomIt == m_rooms.end() || roomIt->second.members.empty()) {
                         sendError(hdl, "Room does not exist");
+                        return;
+                    }
+                    if(roomIt->second.maxParticipants > 0 &&
+                       roomIt->second.members.size() >= roomIt->second.maxParticipants) {
+                        sendError(hdl, "Room is full");
                         return;
                     }
                     if(roomIt->second.password != message.password) {

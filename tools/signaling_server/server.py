@@ -47,6 +47,7 @@ class ClientState:
 @dataclass
 class RoomState:
     password: str = ""
+    max_participants: int = 2
     members: set[ServerConnection] = field(default_factory=set)
 
 
@@ -166,6 +167,7 @@ class SignalingServer:
         room_id = _as_non_empty_string(message.get("roomId"))
         peer_id = _as_non_empty_string(message.get("peerId"))
         password = _as_string(message.get("password"))
+        max_participants = max(2, _as_int(message.get("maxParticipants"), 2))
         if not room_id or not peer_id:
             await self._send_error(websocket, "Missing room id or peer id")
             return
@@ -190,6 +192,7 @@ class SignalingServer:
 
                 room = self._rooms.setdefault(room_id, RoomState())
                 room.password = password
+                room.max_participants = max_participants
                 room.members.add(websocket)
 
         if room_taken:
@@ -223,7 +226,8 @@ class SignalingServer:
             else:
                 room_missing = False
                 invalid_password = room.password != password
-                if invalid_password:
+                room_full = len(room.members) >= room.max_participants
+                if invalid_password or room_full:
                     recipients = []
                 else:
                     recipients = [member for member in room.members if member is not websocket]
@@ -247,6 +251,9 @@ class SignalingServer:
             return
         if invalid_password:
             await self._send_error(websocket, "Invalid room password")
+            return
+        if room_full:
+            await self._send_error(websocket, "Room is full")
             return
 
         await self._send_message(

@@ -537,6 +537,9 @@ private:
         roomMessage.roomId = options.config.roomId;
         roomMessage.peerId = m_localPeerId;
         roomMessage.password = options.config.password;
+        if(host) {
+            roomMessage.maxParticipants = 2;
+        }
         if(!m_signalingClient->send(roomMessage)) {
             m_lastError = m_signalingClient->lastError();
             m_signalingClient->disconnect();
@@ -855,6 +858,9 @@ private:
                     roomMessage.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
                     roomMessage.peerId = m_localPeerId;
                     roomMessage.password = m_activeSignalingConfig ? m_activeSignalingConfig->password : std::string{};
+                    if(m_bootstrapHost) {
+                        roomMessage.maxParticipants = 2;
+                    }
                     if(!sendSignalingMessage(roomMessage)) {
                         m_bootstrapPending = false;
                         continue;

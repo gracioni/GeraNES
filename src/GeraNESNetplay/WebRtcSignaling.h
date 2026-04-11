@@ -167,6 +167,7 @@ struct WebRtcSignalingMessage
     std::string error;
     std::vector<std::string> iceServers;
     std::vector<WebRtcSignalingRoomInfo> rooms;
+    int maxParticipants = 0;
 
     nlohmann::json toJson() const
     {
@@ -185,6 +186,7 @@ struct WebRtcSignalingMessage
         if(!password.empty()) json["password"] = password;
         if(!error.empty()) json["error"] = error;
         if(!iceServers.empty()) json["iceServers"] = iceServers;
+        if(maxParticipants > 0) json["maxParticipants"] = maxParticipants;
         if(!rooms.empty()) {
             json["rooms"] = nlohmann::json::array();
             for(const auto& room : rooms) {
@@ -219,6 +221,7 @@ struct WebRtcSignalingMessage
         message.mlineIndex = json.value("mlineIndex", -1);
         message.password = json.value("password", std::string{});
         message.error = json.value("error", std::string{});
+        message.maxParticipants = json.value("maxParticipants", 0);
         if(json.contains("iceServers") && json["iceServers"].is_array()) {
             for(const auto& entry : json["iceServers"]) {
                 if(entry.is_string()) {

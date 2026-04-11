@@ -372,6 +372,12 @@ inline void drawNetplayWindow(bool& showWindow,
                 ImGui::SetNextItemWidth(120.0f);
                 ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
                 cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
+                if(usingWebRtc && cfg.maxPeers > 1) {
+                    cfg.maxPeers = 1;
+                }
+                if(usingWebRtc) {
+                    ImGui::TextWrapped("WebRTC currently supports 2 total players only: host + 1 participant.");
+                }
                 ImGui::BeginDisabled(!canHost);
                 if(ImGui::Button("Create Room##NetplayHostButton")) {
                     if(usingWebRtc) {
