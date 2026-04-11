@@ -23,6 +23,47 @@ namespace Netplay {
 namespace {
 
 #if !defined(__EMSCRIPTEN__)
+std::string describeWebRtcStartError(const websocketpp::lib::error_code& ec)
+{
+    using websocketpp::lib::asio::error::access_denied;
+    using websocketpp::lib::asio::error::address_family_not_supported;
+    using websocketpp::lib::asio::error::address_in_use;
+    using websocketpp::lib::asio::error::address_not_available;
+    using websocketpp::lib::asio::error::connection_refused;
+    using websocketpp::lib::asio::error::host_unreachable;
+    using websocketpp::lib::asio::error::network_down;
+    using websocketpp::lib::asio::error::network_unreachable;
+
+    if(ec == address_in_use) {
+        return "Embedded WebRTC signaling server failed to start: address already in use";
+    }
+    if(ec == access_denied) {
+        return "Embedded WebRTC signaling server failed to start: access denied";
+    }
+    if(ec == address_not_available) {
+        return "Embedded WebRTC signaling server failed to start: address not available";
+    }
+    if(ec == address_family_not_supported) {
+        return "Embedded WebRTC signaling server failed to start: address family not supported";
+    }
+    if(ec == network_unreachable) {
+        return "Embedded WebRTC signaling server failed to start: network unreachable";
+    }
+    if(ec == network_down) {
+        return "Embedded WebRTC signaling server failed to start: network down";
+    }
+    if(ec == host_unreachable) {
+        return "Embedded WebRTC signaling server failed to start: host unreachable";
+    }
+    if(ec == connection_refused) {
+        return "Embedded WebRTC signaling server failed to start: connection refused";
+    }
+    if(ec) {
+        return "Embedded WebRTC signaling server failed to start: socket error " + std::to_string(ec.value());
+    }
+    return "Embedded WebRTC signaling server failed to start";
+}
+
 class DesktopWebRtcSignalingServer final : public IWebRtcSignalingServer
 {
 private:
@@ -411,8 +452,10 @@ public:
 
             m_running = true;
             return true;
-        } catch(const std::exception& ex) {
-            m_lastError = std::string("Embedded WebRTC signaling server failed to start: ") + ex.what();
+        } catch(const websocketpp::lib::system_error& ex) {
+            m_lastError = describeWebRtcStartError(ex.code());
+        } catch(const std::exception&) {
+            m_lastError = "Embedded WebRTC signaling server failed to start";
         } catch(...) {
             m_lastError = "Embedded WebRTC signaling server failed to start";
         }
