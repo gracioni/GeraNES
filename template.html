@@ -108,16 +108,24 @@
 
       // Wake Lock
       let wakeLock = null;
+      let wakeLockRequestedByUser = false;
+      let wakeLockRetryTimer = null;
 
       async function requestWakeLock() {
         if (!('wakeLock' in navigator)) return;
         if (document.visibilityState !== 'visible') return;
+        if (!wakeLockRequestedByUser) return;
         if (wakeLock) return;
 
         try {
           wakeLock = await navigator.wakeLock.request('screen');
           wakeLock.addEventListener('release', () => {
             wakeLock = null;
+            if (wakeLockRequestedByUser && document.visibilityState === 'visible') {
+              window.setTimeout(() => {
+                requestWakeLock();
+              }, 250);
+            }
           });
           console.log('Wake lock acquired');
         } catch (e) {
@@ -137,6 +145,7 @@
       }
 
       function activateWakeLockOnce() {
+        wakeLockRequestedByUser = true;
         requestWakeLock();
         window.removeEventListener('pointerdown', activateWakeLockOnce);
         window.removeEventListener('touchstart', activateWakeLockOnce);
@@ -154,6 +163,29 @@
           releaseWakeLock();
         }
       });
+
+      window.addEventListener('focus', () => {
+        requestWakeLock();
+      });
+      window.addEventListener('pageshow', () => {
+        requestWakeLock();
+      });
+      document.addEventListener('fullscreenchange', () => {
+        requestWakeLock();
+      });
+      document.addEventListener('webkitfullscreenchange', () => {
+        requestWakeLock();
+      });
+
+      function ensureWakeLockRetryTimer() {
+        if (wakeLockRetryTimer) return;
+        wakeLockRetryTimer = window.setInterval(() => {
+          if (document.visibilityState === 'visible') {
+            requestWakeLock();
+          }
+        }, 15000);
+      }
+      ensureWakeLockRetryTimer();
 
       // Overlay elements
       var overlay = document.getElementById("overlay");
