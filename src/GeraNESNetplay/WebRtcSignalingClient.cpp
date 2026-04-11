@@ -457,6 +457,7 @@ private:
     bool m_connected = false;
     std::string m_lastError;
     std::deque<Event> m_events;
+    std::deque<std::string> m_pendingMessages;
     mutable std::mutex m_mutex;
 
     void pushEvent(Event&& event)
@@ -480,8 +481,22 @@ private:
 public:
     void onOpen()
     {
-        setConnected(true);
+        std::deque<std::string> pendingMessages;
+        {
+            std::scoped_lock lock(m_mutex);
+            m_connected = true;
+            pendingMessages = m_pendingMessages;
+            m_pendingMessages.clear();
+        }
         pushEvent(Event{Event::Type::Connected, {}, {}});
+
+        for(const std::string& pending : pendingMessages) {
+            if(!geranes_ws_send_bridge(m_socketHandle, pending.c_str())) {
+                setLastError("WebRTC signaling send failed");
+                pushEvent(Event{Event::Type::Error, {}, "WebRTC signaling send failed"});
+                break;
+            }
+        }
     }
 
     void onClose()
@@ -528,6 +543,7 @@ public:
             std::scoped_lock lock(m_mutex);
             m_events.clear();
             m_lastError.clear();
+            m_pendingMessages.clear();
         }
 
         m_socketHandle = geranes_ws_connect_bridge(
@@ -552,15 +568,27 @@ public:
         std::scoped_lock lock(m_mutex);
         m_connected = false;
         m_events.clear();
+        m_pendingMessages.clear();
     }
 
     bool send(const WebRtcSignalingMessage& message) override
     {
-        if(m_socketHandle == 0 || !isConnected()) {
+        if(m_socketHandle == 0) {
             m_lastError = "WebRTC signaling socket is not connected";
             return false;
         }
-        if(!geranes_ws_send_bridge(m_socketHandle, message.toText().c_str())) {
+
+        const std::string payload = message.toText();
+
+        {
+            std::scoped_lock lock(m_mutex);
+            if(!m_connected) {
+                m_pendingMessages.push_back(payload);
+                return true;
+            }
+        }
+
+        if(!geranes_ws_send_bridge(m_socketHandle, payload.c_str())) {
             m_lastError = "WebRTC signaling send failed";
             return false;
         }
