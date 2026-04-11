@@ -368,6 +368,11 @@ public:
             m_server->clear_access_channels(websocketpp::log::alevel::all);
             m_server->clear_error_channels(websocketpp::log::elevel::all);
             m_server->init_asio();
+            m_server->set_tcp_pre_bind_handler([](Server::transport_type::acceptor_ptr acceptor) {
+                websocketpp::lib::error_code ec;
+                acceptor->set_option(websocketpp::lib::asio::ip::v6_only(false), ec);
+                return ec;
+            });
 
             {
                 std::scoped_lock lock(m_mutex);
@@ -414,7 +419,7 @@ public:
             });
 
             m_server->listen(websocketpp::lib::asio::ip::tcp::endpoint(
-                websocketpp::lib::asio::ip::tcp::v4(),
+                websocketpp::lib::asio::ip::tcp::v6(),
                 port));
             m_server->start_accept();
 

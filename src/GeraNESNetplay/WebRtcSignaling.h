@@ -24,7 +24,13 @@ struct WebRtcSignalingConfig
 
 inline std::string buildWebRtcSignalingUrl(const std::string& hostName, uint16_t port)
 {
-    return "ws://" + hostName + ":" + std::to_string(static_cast<unsigned>(port));
+    const bool looksLikeIpv6Literal =
+        hostName.find(':') != std::string::npos &&
+        (hostName.empty() || hostName.front() != '[');
+    const std::string authority = looksLikeIpv6Literal
+        ? "[" + hostName + "]"
+        : hostName;
+    return "ws://" + authority + ":" + std::to_string(static_cast<unsigned>(port));
 }
 
 inline std::optional<uint16_t> parseWebRtcSignalingUrlPort(const std::string& url)
