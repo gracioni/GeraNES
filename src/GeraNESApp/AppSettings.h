@@ -9,6 +9,10 @@
 
 #include <nlohmann/json.hpp>
 
+#ifdef __EMSCRIPTEN__
+    #include <emscripten.h>
+#endif
+
 #include <filesystem>
 namespace fs = std::filesystem;
 
@@ -24,6 +28,63 @@ namespace fs = std::filesystem;
 class AppSettings {
 
 public:
+
+#ifdef __EMSCRIPTEN__
+    static int loadUrlSettingsOverrideJson(char* buffer, int bufferSize)
+    {
+        if(buffer == nullptr || bufferSize <= 0) return 0;
+        return EM_ASM_INT({
+            const outBuffer = $0;
+            const outCapacity = $1;
+
+            function writeResult(text) {
+                if(typeof text !== 'string' || outCapacity <= 0) {
+                    if(outCapacity > 0) HEAPU8[outBuffer] = 0;
+                    return 0;
+                }
+                const bytesNeeded = lengthBytesUTF8(text) + 1;
+                if(bytesNeeded > outCapacity) {
+                    if(outCapacity > 0) HEAPU8[outBuffer] = 0;
+                    return -bytesNeeded;
+                }
+                stringToUTF8(text, outBuffer, outCapacity);
+                return bytesNeeded - 1;
+            }
+
+            function decodeSettingsParam(rawValue) {
+                if(!rawValue) return '';
+
+                const normalized = rawValue.replace(/-/g, '+').replace(/_/g, '/');
+                const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+                try {
+                    const binary = atob(padded);
+                    const bytes = new Uint8Array(binary.length);
+                    for(let i = 0; i < binary.length; ++i) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+                    return new TextDecoder().decode(bytes);
+                } catch(_) {
+                }
+
+                try {
+                    return decodeURIComponent(rawValue);
+                } catch(_) {
+                }
+
+                return rawValue;
+            }
+
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                const rawSettings = params.get('settings');
+                return writeResult(decodeSettingsParam(rawSettings));
+            } catch(_) {
+                if(outCapacity > 0) HEAPU8[outBuffer] = 0;
+                return 0;
+            }
+        }, buffer, bufferSize);
+    }
+#endif
 
     enum class TouchControlsTarget { Port1Controller, Port2Controller, Expansion, MultitapP1, MultitapP2, MultitapP3, MultitapP4 };
 
@@ -475,6 +536,31 @@ public:
             nlohmann::json auxData = nlohmann::json::parse(file);
             auxData.get_to(data);
         }
+
+#ifdef __EMSCRIPTEN__
+        std::array<char, 8192> urlOverrideBuffer{};
+        const int urlOverrideLength = loadUrlSettingsOverrideJson(
+            urlOverrideBuffer.data(),
+            static_cast<int>(urlOverrideBuffer.size())
+        );
+        if(urlOverrideLength > 0) {
+            try {
+                const nlohmann::json overrideJson =
+                    nlohmann::json::parse(std::string(urlOverrideBuffer.data(), static_cast<size_t>(urlOverrideLength)));
+                nlohmann::json merged = nlohmann::json(data);
+                merged.merge_patch(overrideJson);
+                merged.get_to(data);
+                Logger::instance().log("Applied URL settings override", Logger::Type::INFO);
+            } catch(const std::exception& ex) {
+                Logger::instance().log(
+                    std::string("Failed to parse URL settings override: ") + ex.what(),
+                    Logger::Type::WARNING
+                );
+            }
+        } else if(urlOverrideLength < 0) {
+            Logger::instance().log("URL settings override is too large", Logger::Type::WARNING);
+        }
+#endif
 
         sanitizeDefaults();
     }
