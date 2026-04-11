@@ -38,7 +38,7 @@ struct WebRtcRoomBrowserUiState
     bool requestPasswordPrompt = false;
     bool fetching = false;
     bool waitingForConnected = false;
-    bool waitingForWelcome = false;
+    bool requestSent = false;
     std::string statusText;
     std::string browserPeerId;
     std::string browserRoomId;
@@ -57,7 +57,7 @@ struct WebRtcRoomBrowserUiState
         }
         fetching = false;
         waitingForConnected = false;
-        waitingForWelcome = false;
+        requestSent = false;
         browserPeerId.clear();
         browserRoomId.clear();
     }
@@ -208,8 +208,35 @@ inline void drawNetplayWindow(bool& showWindow,
 
         roomBrowser.fetching = true;
         roomBrowser.waitingForConnected = true;
-        roomBrowser.waitingForWelcome = true;
+        roomBrowser.requestSent = false;
         roomBrowser.statusText = "Fetching rooms...";
+    };
+
+    const auto sendRoomBrowserHandshake = [&]() {
+        if(roomBrowser.client == nullptr || roomBrowser.requestSent) {
+            return true;
+        }
+
+        WebRtcSignalingMessage hello;
+        hello.type = WebRtcSignalType::Hello;
+        hello.peerId = roomBrowser.browserPeerId;
+        hello.roomId = roomBrowser.browserRoomId;
+        if(!roomBrowser.client->send(hello)) {
+            roomBrowser.statusText = roomBrowser.client->lastError();
+            roomBrowser.disconnect();
+            return false;
+        }
+
+        WebRtcSignalingMessage request;
+        request.type = WebRtcSignalType::RoomList;
+        if(!roomBrowser.client->send(request)) {
+            roomBrowser.statusText = roomBrowser.client->lastError();
+            roomBrowser.disconnect();
+            return false;
+        }
+
+        roomBrowser.requestSent = true;
+        return true;
     };
 
     ImGui::SetNextItemWidth(220.0f);
@@ -221,26 +248,11 @@ inline void drawNetplayWindow(bool& showWindow,
                 case IWebRtcSignalingClient::Event::Type::Connected:
                     if(roomBrowser.waitingForConnected) {
                         roomBrowser.waitingForConnected = false;
-                        WebRtcSignalingMessage hello;
-                        hello.type = WebRtcSignalType::Hello;
-                        hello.peerId = roomBrowser.browserPeerId;
-                        hello.roomId = roomBrowser.browserRoomId;
-                        if(!roomBrowser.client->send(hello)) {
-                            roomBrowser.statusText = roomBrowser.client->lastError();
-                            roomBrowser.disconnect();
-                        }
+                        sendRoomBrowserHandshake();
                     }
                     break;
                 case IWebRtcSignalingClient::Event::Type::Message:
-                    if(roomBrowser.waitingForWelcome && event.message.type == WebRtcSignalType::Welcome) {
-                        roomBrowser.waitingForWelcome = false;
-                        WebRtcSignalingMessage request;
-                        request.type = WebRtcSignalType::RoomList;
-                        if(!roomBrowser.client->send(request)) {
-                            roomBrowser.statusText = roomBrowser.client->lastError();
-                            roomBrowser.disconnect();
-                        }
-                    } else if(event.message.type == WebRtcSignalType::RoomList) {
+                    if(event.message.type == WebRtcSignalType::RoomList) {
                         roomBrowser.rooms = event.message.rooms;
                         std::sort(roomBrowser.rooms.begin(), roomBrowser.rooms.end(),
                                   [](const WebRtcSignalingRoomInfo& lhs, const WebRtcSignalingRoomInfo& rhs) {
