@@ -23,8 +23,6 @@ private:
 
     int thumbIndex = -1;
     glm::vec2 thumbCenter;
-    glm::vec2 fakeThumCenter;
-
     int aFingerId = -1;
     int bFingerId = -1;
     int selectFingerId = -1;
@@ -126,19 +124,13 @@ private:
 
                 m_buttons.left = glm::dot(glm::vec2{-1,0}, norm) > threshold;
 
-                if(AppSettings::instance().data.input.touchControls.digitalPadMode == DigitaPadMode::Relative) {
-                    thumbCenter = point; //update center
-                }               
             }
             else {
-
-                if(AppSettings::instance().data.input.touchControls.digitalPadMode != DigitaPadMode::Relative) {
-                    m_buttons.up = false;
-                    m_buttons.right = false;
-                    m_buttons.down = false;
-                    m_buttons.left = false;
-                }
-            }        
+                m_buttons.up = false;
+                m_buttons.right = false;
+                m_buttons.down = false;
+                m_buttons.left = false;
+            }
         
         }
 
@@ -282,42 +274,28 @@ public:
                 rewindFingerId = index;
             });
 
-            bool digitalPadAbsoluteMode = AppSettings::instance().data.input.touchControls.digitalPadMode == DigitaPadMode::Absolute;
-
-            testDownButton(std::string("main/bottom/digital-pad") + (digitalPadAbsoluteMode ? "/draw" : ""), point, [&]() {
+            testDownButton("main/bottom/digital-pad/draw", point, [&]() {
                 thumbIndex = index;
-
-                auto digitalPadMode = AppSettings::instance().data.input.touchControls.digitalPadMode;
-
-                if(digitalPadMode == DigitaPadMode::CentralizeOnTouch || digitalPadMode == DigitaPadMode::Relative) {
-                    thumbCenter = point;
-                    fakeThumCenter = point;
-                }
-                else {
-                    thumbCenter = m_root->getById("main/bottom/digital-pad/draw")->getAbsoluteCenter();
-                }
-
-                if(digitalPadAbsoluteMode) updateDigitalPad(index, point);
+                thumbCenter = m_root->getById("main/bottom/digital-pad/draw")->getAbsoluteCenter();
+                updateDigitalPad(index, point);
             });
 
-            bool buttonsAbsoluteMode = AppSettings::instance().data.input.touchControls.buttonsMode == ButtonsMode::Absolute;
-
-            testDownButton(std::string("main/bottom/mid/select") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
+            testDownButton("main/bottom/mid/select/draw", point, [&]() {
                 m_buttons.select = true;
                 selectFingerId = index;
             });
 
-            testDownButton(std::string("main/bottom/mid/start") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
+            testDownButton("main/bottom/mid/start/draw", point, [&]() {
                 m_buttons.start = true;
                 startFingerId = index;
             });
 
-            testDownButton(std::string("main/bottom/right/b") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
+            testDownButton("main/bottom/right/b/draw", point, [&]() {
                 m_buttons.b = true;
                 bFingerId = index;
             });
 
-            testDownButton(std::string("main/bottom/right/a") + (buttonsAbsoluteMode ? "/draw" : ""), point, [&]() {
+            testDownButton("main/bottom/right/a/draw", point, [&]() {
                 m_buttons.a = true;
                 aFingerId = index;
             });       
@@ -388,21 +366,6 @@ public:
             digitalPadNode->getAbsoluteRect(min, max);        
             //drawList->AddRect(ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, IM_COL32(0, 255, 0, 255));
 
-            if(thumbIndex >= 0) {
-                glm::vec2 center = digitalPadNode->getAbsoluteCenter();
-                min -= center;
-                max -= center;
-
-                if(AppSettings::instance().data.input.touchControls.digitalPadMode == DigitaPadMode::Relative) {
-                    min += fakeThumCenter;
-                    max += fakeThumCenter;
-                }
-                else {
-                    min += thumbCenter;
-                    max += thumbCenter;
-                }
-            }
-
             drawList->AddImage(m_digitalPagTexture->id(),
                 ImVec2{min.x,min.y}, ImVec2{max.x,max.y}, ImVec2(0,0), ImVec2(1,1),
                 IM_COL32(255, 255, 255, opacity));
@@ -450,7 +413,7 @@ public:
     }
 
     void update(Uint64 dt) {
-        fakeThumCenter = moveTowards(fakeThumCenter, thumbCenter, dt * 0.1f);
-    }    
+        (void)dt;
+    }
 
 };

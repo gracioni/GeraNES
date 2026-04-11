@@ -607,26 +607,6 @@ inline void GeraNESApp::menuBar() {
                     AppSettings::instance().data.input.touchControls.enabled = !enabled;
                 }
 
-                if (ImGui::BeginMenu("Digital pad mode")) {
-                    int digitalPadMode = (int)AppSettings::instance().data.input.touchControls.digitalPadMode;
-                    for(int i = (int)DigitaPadMode::Absolute; i <= (int)DigitaPadMode::Relative ; i++) {
-                        if(ImGui::MenuItem(DigitaPadModeLabels[i], nullptr, digitalPadMode == i)) {
-                            AppSettings::instance().data.input.touchControls.digitalPadMode = (DigitaPadMode)i;
-                        }
-                    }
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("Buttons mode")) {
-                    int buttonsMode = (int)AppSettings::instance().data.input.touchControls.buttonsMode;
-                    for(int i = (int)ButtonsMode::Absolute; i <= (int)ButtonsMode::Column ; i++) {
-                        if(ImGui::MenuItem(ButtonsModeLabels[i], nullptr, buttonsMode == i)) {
-                            AppSettings::instance().data.input.touchControls.buttonsMode = (ButtonsMode)i;
-                        }
-                    }
-                    ImGui::EndMenu();
-                }
-
                 float transparencyPercent = AppSettings::instance().data.input.touchControls.transparency * 100.0f;
                 if(ImGui::SliderFloat("Transparency", &transparencyPercent, 0.0f, 100.0f, "%.0f%%")) {
                     AppSettings::instance().data.input.touchControls.transparency = transparencyPercent / 100.0f;

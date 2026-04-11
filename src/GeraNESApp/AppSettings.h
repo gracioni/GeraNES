@@ -21,12 +21,6 @@ namespace fs = std::filesystem;
 
 #include "logger/logger.h"
 
-enum class ButtonsMode {Absolute, Column};
-enum class DigitaPadMode {Absolute, CentralizeOnTouch, Relative};
-
-static constexpr std::array<const char*, 2> ButtonsModeLabels {"Absolute", "Column"};
-static constexpr std::array<const char*, 3> DigitaPadModeLabels {"Absolute", "CentralizeOnTouch", "Relative"};
-
 class AppSettings {
 
 public:
@@ -72,11 +66,22 @@ public:
     struct TouchControls {
 
         bool enabled = false;
-        ButtonsMode buttonsMode = ButtonsMode::Absolute;
-        DigitaPadMode digitalPadMode = DigitaPadMode::Absolute;
         float transparency = 0.5f;        
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(TouchControls, enabled, buttonsMode, digitalPadMode, transparency)
+        friend void to_json(nlohmann::json& j, const TouchControls& value)
+        {
+            j = nlohmann::json{
+                {"enabled", value.enabled},
+                {"transparency", value.transparency}
+            };
+        }
+
+        friend void from_json(const nlohmann::json& j, TouchControls& value)
+        {
+            const TouchControls defaults;
+            value.enabled = j.value("enabled", defaults.enabled);
+            value.transparency = j.value("transparency", defaults.transparency);
+        }
     };
 
     struct Input {
