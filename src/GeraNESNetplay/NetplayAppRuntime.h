@@ -122,7 +122,7 @@ private:
     FrameNumber m_lastRecoveryReanchorFrame = 0;
     bool m_forceNextConfirmedCrcSubmission = false;
     bool m_observerVisibilityResyncPending = false;
-    bool m_webVisibilityPausePendingResume = false;
+    bool m_webVisibilityManagedPause = false;
     bool m_webPageVisible = true;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
@@ -593,10 +593,11 @@ inline void NetplayAppRuntime::processAutoResumeIfNeeded(const std::optional<Rom
     if(room.activeResyncId != 0 || room.pendingResyncAckCount != 0) return;
     if(!computeSessionBlockedReason(localRom).empty()) return;
 
-    if(m_webVisibilityPausePendingResume && !m_webPageVisible) return;
+    if(!m_webVisibilityManagedPause) return;
+    if(!m_webPageVisible) return;
 
     if(m_coordinator.resumeSession()) {
-        m_webVisibilityPausePendingResume = false;
+        m_webVisibilityManagedPause = false;
     }
 }
 
@@ -1307,7 +1308,7 @@ inline void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& e
            m_coordinator.isHosting() &&
            m_coordinator.session().roomState().state == SessionState::Running &&
            m_coordinator.pauseSession()) {
-            m_webVisibilityPausePendingResume = true;
+            m_webVisibilityManagedPause = true;
         }
 
         const bool observerNeedsVisibilityResync =
@@ -1320,14 +1321,14 @@ inline void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& e
         return;
     }
 
-    if(m_webVisibilityPausePendingResume) {
+    if(m_webVisibilityManagedPause) {
         const SessionState state = m_coordinator.session().roomState().state;
         if(state == SessionState::Paused) {
             if(m_coordinator.resumeSession()) {
-                m_webVisibilityPausePendingResume = false;
+                m_webVisibilityManagedPause = false;
             }
         } else {
-            m_webVisibilityPausePendingResume = false;
+            m_webVisibilityManagedPause = false;
         }
     }
 
@@ -1512,7 +1513,7 @@ inline void NetplayAppRuntime::disconnect()
         self.m_inputDriver.reset();
         self.ensureStandaloneInputBootstrapFrame(emu);
         self.m_runtimeLastTickTime = {};
-        self.m_webVisibilityPausePendingResume = false;
+        self.m_webVisibilityManagedPause = false;
         self.m_webPageVisible = true;
         self.m_lastSelectedRomKey.clear();
         self.m_lastSubmittedValidationKey.clear();
@@ -1668,7 +1669,7 @@ inline void NetplayAppRuntime::toggleHostedSessionPause()
             const auto localRom = captureCurrentRomSelection(emu);
             if(!self.computeSessionBlockedReason(localRom).empty()) return;
             if(self.m_coordinator.resumeSession()) {
-                self.m_webVisibilityPausePendingResume = false;
+                self.m_webVisibilityManagedPause = false;
             }
         }
     });
@@ -1681,7 +1682,7 @@ inline void NetplayAppRuntime::shutdown()
     m_runtimeActive.store(false, std::memory_order_release);
     m_runtimeRunning.store(false, std::memory_order_release);
     m_uiSnapshot = UiSnapshot{};
-    m_webVisibilityPausePendingResume = false;
+    m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
     m_coordinator.disconnect();
 }
@@ -1693,7 +1694,7 @@ inline void NetplayAppRuntime::shutdownForUnload()
     m_runtimeActive.store(false, std::memory_order_release);
     m_runtimeRunning.store(false, std::memory_order_release);
     m_uiSnapshot = UiSnapshot{};
-    m_webVisibilityPausePendingResume = false;
+    m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
     m_coordinator.disconnectImmediately();
 }
@@ -1736,7 +1737,7 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         m_observerVisibilityResyncPending = false;
-        m_webVisibilityPausePendingResume = false;
+        m_webVisibilityManagedPause = false;
         m_webPageVisible = true;
         m_emuHost.setSimulationSuspended(false);
         updateUiSnapshot(captureCurrentRomSelection(emu));
