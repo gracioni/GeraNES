@@ -812,7 +812,15 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
     if(previousState.has_value() &&
        *previousState != SessionState::Paused &&
        currentState == SessionState::Paused) {
+        m_emuHost.setSimulationSuspended(true);
         m_emuHost.discardQueuedAudio();
+    }
+
+    if(previousState.has_value() &&
+       *previousState == SessionState::Paused &&
+       currentState != SessionState::Paused &&
+       !m_observerVisibilityResyncPending) {
+        m_emuHost.setSimulationSuspended(false);
     }
 
     if(currentState == SessionState::Running &&
