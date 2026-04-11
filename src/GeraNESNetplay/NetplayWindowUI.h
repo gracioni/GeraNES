@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -39,6 +40,7 @@ struct WebRtcRoomBrowserUiState
     bool fetching = false;
     bool waitingForConnected = false;
     bool requestSent = false;
+    std::optional<std::chrono::steady_clock::time_point> deadline;
     std::string statusText;
     std::string browserPeerId;
     std::string browserRoomId;
@@ -58,6 +60,7 @@ struct WebRtcRoomBrowserUiState
         fetching = false;
         waitingForConnected = false;
         requestSent = false;
+        deadline.reset();
         browserPeerId.clear();
         browserRoomId.clear();
     }
@@ -209,6 +212,7 @@ inline void drawNetplayWindow(bool& showWindow,
         roomBrowser.fetching = true;
         roomBrowser.waitingForConnected = true;
         roomBrowser.requestSent = false;
+        roomBrowser.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         roomBrowser.statusText = "Fetching rooms...";
     };
 
@@ -243,6 +247,11 @@ inline void drawNetplayWindow(bool& showWindow,
     ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
     const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
     if(roomBrowser.fetching && roomBrowser.client) {
+        if(roomBrowser.waitingForConnected && roomBrowser.client->isConnected()) {
+            roomBrowser.waitingForConnected = false;
+            sendRoomBrowserHandshake();
+        }
+
         for(const auto& event : roomBrowser.client->poll()) {
             switch(event.type) {
                 case IWebRtcSignalingClient::Event::Type::Connected:
@@ -286,6 +295,15 @@ inline void drawNetplayWindow(bool& showWindow,
                 default:
                     break;
             }
+        }
+
+        if(roomBrowser.fetching &&
+           roomBrowser.deadline.has_value() &&
+           std::chrono::steady_clock::now() >= *roomBrowser.deadline) {
+            roomBrowser.statusText = roomBrowser.requestSent
+                ? "Timed out while waiting for room list."
+                : "Timed out while connecting to signaling server.";
+            roomBrowser.disconnect();
         }
     }
 #ifndef NDEBUG
