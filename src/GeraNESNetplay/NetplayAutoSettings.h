@@ -253,9 +253,19 @@ public:
             return recommendations;
         }
 
-        if(room.state == SessionState::Running ||
-           room.state == SessionState::Paused ||
+        if(room.state == SessionState::Paused ||
            room.state == SessionState::Resyncing) {
+            m_currentRecommendedDelay = room.inputDelayFrames;
+            if(!m_predictLocked) {
+                m_currentFixedPredict = room.predictFrames > 0 ? room.predictFrames : preSessionPredict;
+                m_predictLocked = true;
+            }
+            m_runningWindowInitialized = false;
+            m_lastState = room.state;
+            return recommendations;
+        }
+
+        if(room.state == SessionState::Running) {
             if(!m_predictLocked) {
                 m_currentFixedPredict = room.predictFrames > 0 ? room.predictFrames : preSessionPredict;
                 m_predictLocked = true;

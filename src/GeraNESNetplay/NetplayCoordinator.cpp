@@ -2235,6 +2235,17 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
             data.controllerAssignments.begin(),
             data.controllerAssignments.begin() + std::min<size_t>(data.assignmentCount, data.controllerAssignments.size())
         );
+        participant->controllerAssignments.erase(
+            std::remove_if(
+                participant->controllerAssignments.begin(),
+                participant->controllerAssignments.end(),
+                [](PlayerSlot slot) {
+                    return slot != kObserverPlayerSlot && slot > kMultitapP4PlayerSlot;
+                }
+            ),
+            participant->controllerAssignments.end()
+        );
+        participant->normalizeControllerAssignments();
         const bool keepHostRole = participant->id == m_localParticipantId && m_hosting;
         syncParticipantRoleWithAssignments(*participant, keepHostRole);
         const bool assignmentChanged = previousAssignments != participant->controllerAssignments;
