@@ -1672,12 +1672,15 @@ inline void NetplayAppRuntime::toggleHostedSessionPause()
 
         const SessionState state = self.m_coordinator.session().roomState().state;
         if(state == SessionState::Running) {
-            (void)self.m_coordinator.pauseSession();
+            if(self.m_coordinator.pauseSession()) {
+                Logger::instance().log("Paused", Logger::Type::USER);
+            }
         } else if(state == SessionState::Paused) {
             const auto localRom = captureCurrentRomSelection(emu);
             if(!self.computeSessionBlockedReason(localRom).empty()) return;
             if(self.m_coordinator.resumeSession()) {
                 self.m_webVisibilityManagedPause = false;
+                Logger::instance().log("Unpaused", Logger::Type::USER);
             }
         }
     });
