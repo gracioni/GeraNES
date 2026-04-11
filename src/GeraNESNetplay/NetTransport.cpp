@@ -16,7 +16,7 @@ namespace Netplay {
 
 namespace {
 
-constexpr auto kWebRtcSignalingBootstrapTimeout = std::chrono::milliseconds(1500);
+constexpr auto kWebRtcSignalingBootstrapTimeout = std::chrono::seconds(5);
 
 #if !defined(__EMSCRIPTEN__)
 class ENetTransport final : public INetTransport
@@ -296,7 +296,7 @@ public:
 class WebRTCTransport final : public INetTransport
 {
 private:
-    static constexpr auto kWebRtcPeerHandshakeTimeout = std::chrono::seconds(5);
+    static constexpr auto kWebRtcPeerHandshakeTimeout = std::chrono::seconds(12);
     static constexpr auto kWebRtcGracefulDisconnectDelay = std::chrono::milliseconds(350);
 
     enum class PeerHandshakeState : uint8_t
