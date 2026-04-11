@@ -400,10 +400,8 @@ private:
 
     void syncNetplayReconnectToken()
     {
-        auto& cfg = AppSettings::instance().data.netplay;
-        if(cfg.reconnectToken != m_netplayCoordinator.localReconnectToken()) {
-            cfg.reconnectToken = m_netplayCoordinator.localReconnectToken();
-        }
+        // Reconnect tokens are process-local identity and should not be shared
+        // across multiple desktop instances through persisted settings.
     }
 
     void syncNetplayInputDelay()
@@ -1652,7 +1650,7 @@ private:
         m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
         m_emu.enableOverclock(cfg.improvements.overclock);
         m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.rollbackWindowFrames));
-        m_netplayRuntime.setLocalReconnectToken(cfg.netplay.reconnectToken);
+        m_netplayRuntime.setLocalReconnectToken(0);
         const auto availableBackends = Netplay::availableNetTransportBackends();
         Netplay::NetTransportBackend configuredBackend = static_cast<Netplay::NetTransportBackend>(std::clamp(cfg.netplay.transportBackend, 0, 1));
         if(std::find(availableBackends.begin(), availableBackends.end(), configuredBackend) == availableBackends.end()) {

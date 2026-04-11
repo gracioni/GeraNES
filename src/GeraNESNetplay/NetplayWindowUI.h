@@ -369,21 +369,16 @@ inline void drawNetplayWindow(bool& showWindow,
                     ImGui::InputInt("Port##NetplayHostPort", &cfg.port);
                     cfg.port = std::clamp(cfg.port, 1, 65535);
                 }
-                if(usingWebRtc) {
-                    ImGui::Text("Max Peers: 1");
-                    ImGui::TextWrapped("WebRTC currently supports 2 total players only: host + 1 participant.");
-                } else {
-                    ImGui::SetNextItemWidth(120.0f);
-                    ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
-                    cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
-                }
+                ImGui::SetNextItemWidth(120.0f);
+                ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
+                cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
                 ImGui::BeginDisabled(!canHost);
                 if(ImGui::Button("Create Room##NetplayHostButton")) {
                     if(usingWebRtc) {
                         applyWebRtcTransportOptions(cfg.signalingPassword);
                     }
                     runtime.host(usingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
-                                 static_cast<size_t>(usingWebRtc ? 1 : cfg.maxPeers),
+                                 static_cast<size_t>(cfg.maxPeers),
                                  cfg.displayName);
                 }
                 ImGui::EndDisabled();

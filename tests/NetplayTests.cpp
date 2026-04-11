@@ -1204,6 +1204,128 @@ TEST_CASE("WebRTC transport exchanges loopback packets in a password-protected r
     hostTransport.disconnectAll();
     clientTransport.disconnectAll();
 }
+
+TEST_CASE("WebRTC transport supports multiple loopback participants",
+          "[netplay][webrtc][transport][multi-peer]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
+    Netplay::NetTransport clientATransport(Netplay::NetTransportBackend::WebRTC);
+    Netplay::NetTransport clientBTransport(Netplay::NetTransportBackend::WebRTC);
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(port),
+        "room",
+        ""
+    };
+    hostTransport.setOptions(options);
+    clientATransport.setOptions(options);
+    clientBTransport.setOptions(options);
+
+    REQUIRE(hostTransport.hostSession(0, 2));
+    REQUIRE(clientATransport.connectToHost("", 0));
+    REQUIRE(clientBTransport.connectToHost("", 0));
+
+    std::vector<Netplay::NetTransport::PeerHandle> hostPeers;
+    Netplay::NetTransport::PeerHandle clientAPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    Netplay::NetTransport::PeerHandle clientBPeer = Netplay::NetTransport::kInvalidPeerHandle;
+
+    for(int attempt = 0; attempt < 800 &&
+                       (hostPeers.size() < 2 ||
+                        clientAPeer == Netplay::NetTransport::kInvalidPeerHandle ||
+                        clientBPeer == Netplay::NetTransport::kInvalidPeerHandle); ++attempt) {
+        for(const auto& event : hostTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected &&
+               std::find(hostPeers.begin(), hostPeers.end(), event.peer) == hostPeers.end()) {
+                hostPeers.push_back(event.peer);
+            }
+        }
+        for(const auto& event : clientATransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                clientAPeer = event.peer;
+            }
+        }
+        for(const auto& event : clientBTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                clientBPeer = event.peer;
+            }
+        }
+
+        if(hostPeers.size() < 2 ||
+           clientAPeer == Netplay::NetTransport::kInvalidPeerHandle ||
+           clientBPeer == Netplay::NetTransport::kInvalidPeerHandle) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(server.connectedPeerCount() == 3u);
+    REQUIRE(hostPeers.size() == 2u);
+    REQUIRE(clientAPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientBPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(hostTransport.connectedPeers().size() == 2u);
+
+    const std::vector<uint8_t> broadcastPayload = {9, 8, 7, 6};
+    REQUIRE(hostTransport.broadcastReliable(Netplay::Channel::Control, broadcastPayload));
+
+    bool clientAReceived = false;
+    bool clientBReceived = false;
+    for(int attempt = 0; attempt < 500 && (!clientAReceived || !clientBReceived); ++attempt) {
+        for(const auto& event : clientATransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == Netplay::Channel::Control);
+                REQUIRE(event.payload == broadcastPayload);
+                clientAReceived = true;
+            }
+        }
+        for(const auto& event : clientBTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == Netplay::Channel::Control);
+                REQUIRE(event.payload == broadcastPayload);
+                clientBReceived = true;
+            }
+        }
+        if(!clientAReceived || !clientBReceived) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(clientAReceived);
+    REQUIRE(clientBReceived);
+
+    const std::vector<uint8_t> clientAPayload = {1, 1, 1};
+    const std::vector<uint8_t> clientBPayload = {2, 2, 2};
+    REQUIRE(clientATransport.sendReliable(clientAPeer, Netplay::Channel::Gameplay, clientAPayload));
+    REQUIRE(clientBTransport.sendReliable(clientBPeer, Netplay::Channel::Gameplay, clientBPayload));
+
+    bool hostSawA = false;
+    bool hostSawB = false;
+    for(int attempt = 0; attempt < 500 && (!hostSawA || !hostSawB); ++attempt) {
+        for(const auto& event : hostTransport.poll(0)) {
+            if(event.type != Netplay::NetTransport::Event::Type::PacketReceived) {
+                continue;
+            }
+            REQUIRE(event.channel == Netplay::Channel::Gameplay);
+            if(event.payload == clientAPayload) {
+                hostSawA = true;
+            } else if(event.payload == clientBPayload) {
+                hostSawB = true;
+            }
+        }
+        if(!hostSawA || !hostSawB) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(hostSawA);
+    REQUIRE(hostSawB);
+
+    hostTransport.disconnectAll();
+    clientATransport.disconnectAll();
+    clientBTransport.disconnectAll();
+}
 #endif
 
 TEST_CASE("WebRTC signaling messages round-trip through JSON", "[netplay][webrtc][signaling]")
@@ -1628,6 +1750,98 @@ TEST_CASE("Reconnect token match replaces active peer instead of creating duplic
     host.disconnect();
     client.disconnect();
     replacementClient.disconnect();
+}
+
+TEST_CASE("ENet coordinator supports host plus two participants", "[netplay][enet][coordinator][multi-peer]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator clientA;
+    Netplay::NetplayCoordinator clientB;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(clientA.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(clientB.setTransportBackend(Netplay::NetTransportBackend::ENet));
+
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(clientA.join("127.0.0.1", port, "ClientA"));
+    REQUIRE(clientB.join("127.0.0.1", port, "ClientB"));
+
+    bool connected = false;
+    for(int step = 0; step < 800 && !connected; ++step) {
+        host.update(0);
+        clientA.update(0);
+        clientB.update(0);
+
+        connected =
+            host.isConnected() &&
+            clientA.isConnected() &&
+            clientB.isConnected() &&
+            host.session().roomState().participants.size() == 3u &&
+            clientA.session().roomState().participants.size() == 3u &&
+            clientB.session().roomState().participants.size() == 3u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(connected);
+
+    host.disconnect();
+    clientA.disconnect();
+    clientB.disconnect();
+}
+
+TEST_CASE("WebRTC coordinator supports host plus two participants", "[netplay][webrtc][coordinator][multi-peer]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator clientA;
+    Netplay::NetplayCoordinator clientB;
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(port),
+        "room",
+        ""
+    };
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(clientA.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(clientB.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    host.setTransportOptions(options);
+    clientA.setTransportOptions(options);
+    clientB.setTransportOptions(options);
+
+    REQUIRE(host.host(0, 2, "Host"));
+    REQUIRE(clientA.join("", 0, "ClientA"));
+    REQUIRE(clientB.join("", 0, "ClientB"));
+
+    bool connected = false;
+    for(int step = 0; step < 1200 && !connected; ++step) {
+        host.update(0);
+        clientA.update(0);
+        clientB.update(0);
+
+        connected =
+            host.isConnected() &&
+            clientA.isConnected() &&
+            clientB.isConnected() &&
+            host.session().roomState().participants.size() == 3u &&
+            clientA.session().roomState().participants.size() == 3u &&
+            clientB.session().roomState().participants.size() == 3u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(connected);
+
+    host.disconnect();
+    clientA.disconnect();
+    clientB.disconnect();
 }
 
 TEST_CASE("Netplay coordinator records implicit playback stops without pausing the session", "[netplay][playback-stop][unit]")

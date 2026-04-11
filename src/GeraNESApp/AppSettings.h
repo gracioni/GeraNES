@@ -350,7 +350,6 @@ public:
         int predictFrames = 0;
         int gameplayReceiveDelayMs = 0;
         std::string displayName = "Participant";
-        uint64_t reconnectToken = 0;
         std::string hostName = "127.0.0.1";
         int port = 27888;
         int maxPeers = 4;
@@ -369,7 +368,6 @@ public:
                 {"predictFrames", value.predictFrames},
                 {"gameplayReceiveDelayMs", value.gameplayReceiveDelayMs},
                 {"displayName", value.displayName},
-                {"reconnectToken", value.reconnectToken},
                 {"hostName", value.hostName},
                 {"port", value.port},
                 {"maxPeers", value.maxPeers}
@@ -390,7 +388,6 @@ public:
             value.predictFrames = j.value("predictFrames", defaults.predictFrames);
             value.gameplayReceiveDelayMs = j.value("gameplayReceiveDelayMs", defaults.gameplayReceiveDelayMs);
             value.displayName = j.value("displayName", defaults.displayName);
-            value.reconnectToken = j.value("reconnectToken", defaults.reconnectToken);
             value.hostName = j.value("hostName", defaults.hostName);
             value.port = j.value("port", defaults.port);
             value.maxPeers = j.value("maxPeers", defaults.maxPeers);
