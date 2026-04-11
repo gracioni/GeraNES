@@ -28,7 +28,6 @@ std::string describeWebRtcStartError(const websocketpp::lib::error_code& ec)
     using websocketpp::lib::asio::error::access_denied;
     using websocketpp::lib::asio::error::address_family_not_supported;
     using websocketpp::lib::asio::error::address_in_use;
-    using websocketpp::lib::asio::error::address_not_available;
     using websocketpp::lib::asio::error::connection_refused;
     using websocketpp::lib::asio::error::host_unreachable;
     using websocketpp::lib::asio::error::network_down;
@@ -40,7 +39,7 @@ std::string describeWebRtcStartError(const websocketpp::lib::error_code& ec)
     if(ec == access_denied) {
         return "Embedded WebRTC signaling server failed to start: access denied";
     }
-    if(ec == address_not_available) {
+    if(ec == std::make_error_code(std::errc::address_not_available)) {
         return "Embedded WebRTC signaling server failed to start: address not available";
     }
     if(ec == address_family_not_supported) {
