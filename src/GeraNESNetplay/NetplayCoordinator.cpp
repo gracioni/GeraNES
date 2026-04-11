@@ -263,6 +263,7 @@ void NetplayCoordinator::resetSessionState()
     m_localInputs.clear();
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
+    m_loggedAdvertisedIceServers.clear();
     m_lastError.clear();
     m_hosting = false;
     m_connected = false;
@@ -3520,6 +3521,7 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
 
     const auto& iceServers = m_transport.advertisedIceServers();
     if(!iceServers.empty()) {
+        m_loggedAdvertisedIceServers = iceServers;
         pushLog("WebRTC signaling advertised " + std::to_string(iceServers.size()) + " ICE server(s)");
         for(const std::string& iceServer : iceServers) {
             pushLog("ICE server: " + iceServer);
@@ -3557,6 +3559,7 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     m_session.roomState().state = SessionState::Lobby;
     const auto& iceServers = m_transport.advertisedIceServers();
     if(!iceServers.empty()) {
+        m_loggedAdvertisedIceServers = iceServers;
         pushLog("WebRTC signaling advertised " + std::to_string(iceServers.size()) + " ICE server(s)");
         for(const std::string& iceServer : iceServers) {
             pushLog("ICE server: " + iceServer);
@@ -3792,7 +3795,18 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         handleEvent(event);
     };
 
-    for(NetTransport::Event event : m_transport.poll(timeoutMs)) {
+    std::vector<NetTransport::Event> events = m_transport.poll(timeoutMs);
+    const auto& advertisedIceServers = m_transport.advertisedIceServers();
+    if(!advertisedIceServers.empty() &&
+       advertisedIceServers != m_loggedAdvertisedIceServers) {
+        m_loggedAdvertisedIceServers = advertisedIceServers;
+        pushLog("WebRTC signaling advertised " + std::to_string(advertisedIceServers.size()) + " ICE server(s)");
+        for(const std::string& iceServer : advertisedIceServers) {
+            pushLog("ICE server: " + iceServer);
+        }
+    }
+
+    for(NetTransport::Event event : events) {
         queueOrHandleEvent(std::move(event));
     }
 

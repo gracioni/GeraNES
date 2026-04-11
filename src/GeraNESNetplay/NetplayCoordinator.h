@@ -86,6 +86,7 @@ private:
     InputTimeline m_remoteInputs;
     std::deque<ConfirmedFrameInputs> m_confirmedFrames;
     std::vector<std::string> m_eventLog;
+    std::vector<std::string> m_loggedAdvertisedIceServers;
     NetTransport::PeerHandle m_serverPeer = NetTransport::kInvalidPeerHandle;
     ParticipantId m_localParticipantId = kInvalidParticipantId;
     std::string m_localDisplayName;
