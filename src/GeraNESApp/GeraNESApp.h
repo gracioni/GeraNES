@@ -2022,7 +2022,9 @@ public:
         m_lastMainLoopDtMs = 0;
         m_hasLastMousePosition = false;
         m_forceImGuiMouseResync = true;
-        m_netplayRuntime.notifyWebVisibilityChanged(visible);
+        m_emu.withExclusiveAccess([this, visible](auto& emu) {
+            m_netplayRuntime.notifyWebVisibilityChangedImmediate(emu, visible);
+        });
 
         if(!visible) {
             m_webVisibilitySuspended = true;

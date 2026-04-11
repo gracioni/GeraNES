@@ -412,6 +412,7 @@ public:
     void updateLatestInputState(const IEmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
     void notifyWebVisibilityChanged(bool visible);
+    void notifyWebVisibilityChangedImmediate(GeraNESEmu& emu, bool visible);
     UiSnapshot uiSnapshot() const;
     MenuSnapshot menuSnapshot() const;
     bool runtimeActive() const;
@@ -1291,58 +1292,63 @@ inline void NetplayAppRuntime::updateLatestInputState(const IEmulationHost::Inpu
 inline void NetplayAppRuntime::notifyWebVisibilityChanged(bool visible)
 {
     m_emuHost.postCommand([this, visible](GeraNESEmu& emu) {
-        m_runtimeLastTickTime = {};
-        m_webPageVisible = visible;
-        if(!visible) {
-            if(m_coordinator.isActive() &&
-               m_coordinator.isConnected() &&
-               m_coordinator.isHosting() &&
-               m_coordinator.session().roomState().state == SessionState::Running &&
-               m_coordinator.pauseSession()) {
-                m_webVisibilityPausePendingResume = true;
-            }
+        notifyWebVisibilityChangedImmediate(emu, visible);
+    });
+}
 
-            const bool observerNeedsVisibilityResync =
-                m_coordinator.isActive() &&
-                m_coordinator.isConnected() &&
-                !m_coordinator.isHosting() &&
-                m_coordinator.session().roomState().state == SessionState::Running &&
-                localAssignedSlots().empty();
-            m_observerVisibilityResyncPending = observerNeedsVisibilityResync;
-            return;
+inline void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& emu, bool visible)
+{
+    m_runtimeLastTickTime = {};
+    m_webPageVisible = visible;
+    if(!visible) {
+        if(m_coordinator.isActive() &&
+           m_coordinator.isConnected() &&
+           m_coordinator.isHosting() &&
+           m_coordinator.session().roomState().state == SessionState::Running &&
+           m_coordinator.pauseSession()) {
+            m_webVisibilityPausePendingResume = true;
         }
 
-        if(m_webVisibilityPausePendingResume) {
-            const SessionState state = m_coordinator.session().roomState().state;
-            if(state == SessionState::Paused) {
-                if(m_coordinator.resumeSession()) {
-                    m_webVisibilityPausePendingResume = false;
-                }
-            } else {
+        const bool observerNeedsVisibilityResync =
+            m_coordinator.isActive() &&
+            m_coordinator.isConnected() &&
+            !m_coordinator.isHosting() &&
+            m_coordinator.session().roomState().state == SessionState::Running &&
+            localAssignedSlots().empty();
+        m_observerVisibilityResyncPending = observerNeedsVisibilityResync;
+        return;
+    }
+
+    if(m_webVisibilityPausePendingResume) {
+        const SessionState state = m_coordinator.session().roomState().state;
+        if(state == SessionState::Paused) {
+            if(m_coordinator.resumeSession()) {
                 m_webVisibilityPausePendingResume = false;
             }
-        }
-
-        if(m_observerVisibilityResyncPending) {
-            m_inputDriver.reset();
-            emu.discardQueuedInputFramesAfter(emu.frameCount());
-            m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
-            m_emuHost.setSimulationSuspended(true);
-            if(!m_coordinator.requestHostResync(ResyncReason::ObserverVisibilityRestore)) {
-                m_observerVisibilityResyncPending = false;
-                m_emuHost.setSimulationSuspended(false);
-            }
-            return;
-        }
-
-        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
-        if(m_coordinator.session().roomState().state == SessionState::Running) {
-            reanchorInputDriver(emu.frameCount(), localAssignedSlots());
         } else {
-            m_inputDriver.reset();
+            m_webVisibilityPausePendingResume = false;
         }
-        m_emuHost.setSimulationSuspended(false);
-    });
+    }
+
+    if(m_observerVisibilityResyncPending) {
+        m_inputDriver.reset();
+        emu.discardQueuedInputFramesAfter(emu.frameCount());
+        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+        m_emuHost.setSimulationSuspended(true);
+        if(!m_coordinator.requestHostResync(ResyncReason::ObserverVisibilityRestore)) {
+            m_observerVisibilityResyncPending = false;
+            m_emuHost.setSimulationSuspended(false);
+        }
+        return;
+    }
+
+    m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+    if(m_coordinator.session().roomState().state == SessionState::Running) {
+        reanchorInputDriver(emu.frameCount(), localAssignedSlots());
+    } else {
+        m_inputDriver.reset();
+    }
+    m_emuHost.setSimulationSuspended(false);
 }
 
 inline NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
