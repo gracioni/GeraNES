@@ -1735,7 +1735,7 @@ inline void NetplayAppRuntime::shutdownForUnload()
     m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
-    m_coordinator.disconnectImmediately();
+    m_coordinator.shutdownForUnload();
 }
 
 inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)

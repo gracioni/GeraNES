@@ -2100,8 +2100,8 @@ public:
     }
 
     virtual ~GeraNESApp() {
-        m_netplayRuntime.shutdown();
         m_emu.shutdown();
+        m_netplayRuntime.shutdownForUnload();
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();

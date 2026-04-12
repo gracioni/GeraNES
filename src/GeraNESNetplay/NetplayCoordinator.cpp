@@ -3618,6 +3618,15 @@ void NetplayCoordinator::disconnectImmediately()
     completeLocalDisconnect();
 }
 
+void NetplayCoordinator::shutdownForUnload()
+{
+    clearReconnectAttemptState();
+    if(m_transport.isActive()) {
+        m_transport.shutdownForUnload();
+    }
+    resetSessionState();
+}
+
 void NetplayCoordinator::update(uint32_t timeoutMs)
 {
     processPendingKickDisconnects();
@@ -3674,9 +3683,15 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         m_lastError = "Owner disconnected during session";
                     }
                 } else if(m_hosting) {
-                    const ParticipantId participantId = participantIdFromPeer(event.peer);
+                    ParticipantId participantId = participantIdFromPeer(event.peer);
+                    if(participantId == kInvalidParticipantId && event.data != 0) {
+                        participantId = static_cast<ParticipantId>(event.data - 1u);
+                    }
                     if(participantId != kInvalidParticipantId && m_session.findParticipant(participantId) != nullptr) {
                         ParticipantInfo* participant = m_session.findParticipant(participantId);
+                        if(participant != nullptr && (!participant->connected || participant->reconnectReserved)) {
+                            break;
+                        }
                         const bool hadActiveAssignment =
                             participant != nullptr &&
                             !participantIsObserver(*participant) &&

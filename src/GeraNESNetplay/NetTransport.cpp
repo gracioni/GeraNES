@@ -92,6 +92,11 @@ public:
         }
     }
 
+    void shutdownForUnload() override
+    {
+        shutdown();
+    }
+
     void setOptions(const NetTransportOptions& options) override
     {
         m_options = options;
@@ -339,6 +344,15 @@ private:
         Connected
     };
 
+    enum class TransportLifecycle : uint8_t
+    {
+        Idle,
+        Bootstrapping,
+        Active,
+        DegradedSignaling,
+        Closing
+    };
+
     struct WebRtcPeerState
     {
         PeerHandle handle = kInvalidPeerHandle;
@@ -348,9 +362,18 @@ private:
         uint32_t pingMs = 0;
         uint32_t jitterMs = 0;
         bool connected = false;
+        bool disconnectEmitted = false;
+        bool closeRequested = false;
         PeerHandshakeState handshakeState = PeerHandshakeState::Idle;
         std::optional<std::chrono::steady_clock::time_point> handshakeDeadline;
         std::optional<std::chrono::steady_clock::time_point> closeDeadline;
+    };
+
+    struct DetachedRuntimeResources
+    {
+        std::vector<std::unique_ptr<IWebRtcPeerConnection>> peerConnections;
+        std::unique_ptr<IWebRtcSignalingClient> signalingClient;
+        std::unique_ptr<IWebRtcSignalingServer> signalingServer;
     };
 
     NetTransportOptions m_options;
@@ -362,8 +385,10 @@ private:
     std::optional<WebRtcSignalingConfig> m_activeSignalingConfig;
     std::vector<std::string> m_signaledIceServers;
     std::vector<WebRtcPeerState> m_peers;
+    std::vector<PeerHandle> m_requestedPeerCloses;
     PeerHandle m_nextPeerHandle = 1;
     size_t m_requestedMaxPeers = 1;
+    TransportLifecycle m_lifecycle = TransportLifecycle::Idle;
     bool m_signalingReady = false;
     bool m_hosting = false;
     bool m_active = false;
@@ -377,6 +402,7 @@ private:
     bool m_bootstrapSawWelcome = false;
     bool m_bootstrapSawRoomJoined = false;
     bool m_fatalShutdownRequested = false;
+    bool m_closeAllPeersRequested = false;
     void logTrace(const std::string& message) const
     {
         Logger::instance().log("[WebRTC transport] " + message, Logger::Type::INFO);
@@ -423,10 +449,12 @@ private:
             }
         }
         m_peers.clear();
+        m_lifecycle = TransportLifecycle::Idle;
         m_signalingReady = false;
         m_localPeerId.clear();
         m_signaledIceServers.clear();
         m_pendingSignalingEvents.clear();
+        m_requestedPeerCloses.clear();
         m_nextPeerHandle = 1;
         m_hosting = false;
         m_active = false;
@@ -440,10 +468,28 @@ private:
         m_bootstrapSawWelcome = false;
         m_bootstrapSawRoomJoined = false;
         m_fatalShutdownRequested = false;
+        m_closeAllPeersRequested = false;
+    }
+
+    DetachedRuntimeResources detachRuntimeResources()
+    {
+        DetachedRuntimeResources resources;
+        resources.peerConnections.reserve(m_peers.size());
+        for(WebRtcPeerState& peer : m_peers) {
+            if(peer.connection) {
+                resources.peerConnections.push_back(std::move(peer.connection));
+            }
+        }
+        resources.signalingClient = std::move(m_signalingClient);
+        resources.signalingServer = std::move(m_signalingServer);
+        return resources;
     }
 
     void requestFatalShutdown(const std::string& error)
     {
+        if(m_lifecycle == TransportLifecycle::Closing) {
+            return;
+        }
         m_lastError = error;
         m_fatalShutdownRequested = true;
     }
@@ -501,8 +547,19 @@ private:
 
     void markPeerConnected(WebRtcPeerState& peer)
     {
+        peer.disconnectEmitted = false;
         peer.handshakeState = PeerHandshakeState::Connected;
         peer.handshakeDeadline.reset();
+    }
+
+    bool hasConnectedPeer() const
+    {
+        for(const WebRtcPeerState& peer : m_peers) {
+            if(peer.connected) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void updateHandshakeTimeout()
@@ -629,6 +686,7 @@ private:
     {
         clearRuntimeState();
         logTrace(std::string("bootstrap begin as ") + (host ? "host" : "client"));
+        m_lifecycle = TransportLifecycle::Bootstrapping;
 
         if(m_signalingClient) {
             m_signalingClient->disconnect();
@@ -737,7 +795,9 @@ private:
             Event disconnected;
             disconnected.type = Event::Type::Disconnected;
             disconnected.peer = it->handle;
+            disconnected.data = static_cast<uint32_t>(it->tag);
             events->push_back(std::move(disconnected));
+            it->disconnectEmitted = true;
         }
         if(it->connection) {
             it->connection->close();
@@ -747,6 +807,28 @@ private:
             stopInitialOfferWait();
         }
         m_lastError.clear();
+    }
+
+    void requestPeerClose(PeerHandle handle)
+    {
+        if(handle == kInvalidPeerHandle) {
+            return;
+        }
+        if(WebRtcPeerState* peer = findPeerByHandle(handle)) {
+            peer->closeRequested = true;
+            peer->handshakeDeadline.reset();
+            if(!peer->closeDeadline.has_value()) {
+                peer->closeDeadline = std::chrono::steady_clock::now();
+            }
+        }
+        if(std::find(m_requestedPeerCloses.begin(), m_requestedPeerCloses.end(), handle) == m_requestedPeerCloses.end()) {
+            m_requestedPeerCloses.push_back(handle);
+        }
+    }
+
+    void requestCloseAllPeers()
+    {
+        m_closeAllPeersRequested = true;
     }
 
     void closeAllPeers(std::vector<Event>* events = nullptr)
@@ -763,6 +845,8 @@ private:
 
     void schedulePeerClose(WebRtcPeerState& peer)
     {
+        peer.closeRequested = true;
+        peer.handshakeDeadline.reset();
         peer.closeDeadline = std::chrono::steady_clock::now() + kWebRtcGracefulDisconnectDelay;
     }
 
@@ -776,7 +860,7 @@ private:
 
         if(m_hosting) {
             (void)events;
-            peer.closeDeadline = std::chrono::steady_clock::now();
+            requestPeerClose(peer.handle);
             return;
         }
 
@@ -785,6 +869,13 @@ private:
 
     void processPendingPeerClose(std::vector<Event>& events)
     {
+        if(m_closeAllPeersRequested) {
+            m_closeAllPeersRequested = false;
+            closeAllPeers(&events);
+            m_requestedPeerCloses.clear();
+            return;
+        }
+
         const auto now = std::chrono::steady_clock::now();
         std::vector<PeerHandle> handles;
         for(const WebRtcPeerState& peer : m_peers) {
@@ -792,6 +883,12 @@ private:
                 handles.push_back(peer.handle);
             }
         }
+        for(PeerHandle handle : m_requestedPeerCloses) {
+            if(std::find(handles.begin(), handles.end(), handle) == handles.end()) {
+                handles.push_back(handle);
+            }
+        }
+        m_requestedPeerCloses.clear();
         for(PeerHandle handle : handles) {
             closePeer(handle, &events);
         }
@@ -865,8 +962,12 @@ private:
 
     void drainPeerEvents(PeerHandle handle, std::vector<Event>& events)
     {
+        if(m_lifecycle == TransportLifecycle::Closing) {
+            return;
+        }
+
         WebRtcPeerState* peer = findPeerByHandle(handle);
-        if(peer == nullptr || !peer->connection) return;
+        if(peer == nullptr || !peer->connection || peer->closeRequested) return;
 
         for(const auto& event : peer->connection->poll()) {
             switch(event.type) {
@@ -926,13 +1027,16 @@ private:
 
                 case IWebRtcPeerConnection::Event::Type::DataChannelClosed: {
                     logTrace("data channel closed for " + peer->remotePeerId);
-                    if(peer->connected) {
+                    if(peer->connected && !peer->disconnectEmitted) {
                         peer->connected = false;
+                        peer->disconnectEmitted = true;
                         Event disconnected;
                         disconnected.type = Event::Type::Disconnected;
                         disconnected.peer = peer->handle;
+                        disconnected.data = static_cast<uint32_t>(peer->tag);
                         events.push_back(std::move(disconnected));
                     }
+                    schedulePeerClose(*peer);
                     break;
                 }
 
@@ -968,7 +1072,7 @@ private:
 
     void processSignalingEvents(std::vector<Event>& events)
     {
-        if(!m_signalingClient) return;
+        if(!m_signalingClient || m_lifecycle == TransportLifecycle::Closing) return;
 
         std::deque<IWebRtcSignalingClient::Event> signalingEvents = std::move(m_pendingSignalingEvents);
         for(const auto& event : m_signalingClient->poll()) {
@@ -978,7 +1082,10 @@ private:
         for(const auto& event : signalingEvents) {
             if(event.type == IWebRtcSignalingClient::Event::Type::Disconnected) {
                 logTrace("signaling disconnected");
-                closeAllPeers(&events);
+                const bool keepSessionAlive = !m_bootstrapPending && hasConnectedPeer();
+                if(!keepSessionAlive) {
+                    requestCloseAllPeers();
+                }
                 if(m_bootstrapPending && m_lastError.empty()) {
                     requestFatalShutdown("WebRTC signaling disconnected during connection setup");
                 }
@@ -990,7 +1097,12 @@ private:
                 m_bootstrapDeadline.reset();
                 stopInitialOfferWait();
                 m_signalingReady = false;
-                m_active = false;
+                if(!keepSessionAlive) {
+                    m_active = false;
+                } else {
+                    m_lifecycle = TransportLifecycle::DegradedSignaling;
+                    logTrace("keeping active WebRTC session alive despite signaling disconnect");
+                }
                 continue;
             }
 
@@ -998,10 +1110,17 @@ private:
                 const std::string errorText = !event.text.empty() ? event.text : m_signalingClient->lastError();
                 logTrace("signaling event error: " + errorText);
                 if(!m_signalingClient->isConnected()) {
-                    requestFatalShutdown(errorText);
-                    if(m_bootstrapPending) {
-                        m_bootstrapPending = false;
-                        m_bootstrapDeadline.reset();
+                    const bool keepSessionAlive = !m_bootstrapPending && hasConnectedPeer();
+                    if(keepSessionAlive) {
+                        logTrace("ignoring signaling error after peer connection is established");
+                        m_lifecycle = TransportLifecycle::DegradedSignaling;
+                        m_signalingReady = false;
+                    } else {
+                        requestFatalShutdown(errorText);
+                        if(m_bootstrapPending) {
+                            m_bootstrapPending = false;
+                            m_bootstrapDeadline.reset();
+                        }
                     }
                 }
                 continue;
@@ -1074,6 +1193,7 @@ private:
 
                 if(m_bootstrapSawWelcome && m_bootstrapSawRoomJoined) {
                     m_signalingReady = true;
+                    m_lifecycle = TransportLifecycle::Active;
                     m_bootstrapPending = false;
                     m_bootstrapDeadline.reset();
                     if(!m_bootstrapHost) {
@@ -1118,7 +1238,7 @@ private:
 
                 case WebRtcSignalType::PeerLeft:
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
-                        closePeer(peer->handle, &events);
+                        requestPeerClose(peer->handle);
                     }
                     break;
 
@@ -1182,21 +1302,41 @@ public:
     bool initialize() override { return true; }
     void shutdown() override
     {
+        m_lifecycle = TransportLifecycle::Closing;
         if(!m_lastError.empty()) {
             logTrace("shutdown due to error: " + m_lastError);
         } else {
             logTrace("shutdown");
         }
         sendLeaveRoomBestEffort();
-        if(m_signalingClient) {
-            m_signalingClient->disconnect();
-        }
-        if(m_signalingServer) {
-            m_signalingServer->stop();
-        }
-        m_signalingClient.reset();
-        m_signalingServer.reset();
+        DetachedRuntimeResources resources = detachRuntimeResources();
         clearRuntimeState();
+        for(auto& connection : resources.peerConnections) {
+            if(connection) {
+                connection->close();
+            }
+        }
+        if(resources.signalingClient) {
+            resources.signalingClient->disconnect();
+        }
+        if(resources.signalingServer) {
+            resources.signalingServer->stop();
+        }
+    }
+
+    void shutdownForUnload() override
+    {
+        m_lifecycle = TransportLifecycle::Closing;
+        logTrace("shutdown for unload");
+
+        DetachedRuntimeResources resources = detachRuntimeResources();
+        clearRuntimeState();
+
+        for(auto& connection : resources.peerConnections) {
+            (void)connection.release();
+        }
+        (void)resources.signalingClient.release();
+        (void)resources.signalingServer.release();
     }
     void setOptions(const NetTransportOptions& options) override { m_options = options; }
     const NetTransportOptions& options() const override { return m_options; }
@@ -1274,7 +1414,7 @@ public:
             if(state->connected) {
                 schedulePeerClose(*state);
             } else {
-                closePeer(peer);
+                requestPeerClose(peer);
             }
         }
     }
@@ -1311,7 +1451,9 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } while(std::chrono::steady_clock::now() < deadline);
 
-        updateHandshakeTimeout();
+        if(m_lifecycle != TransportLifecycle::Closing) {
+            updateHandshakeTimeout();
+        }
         if(m_fatalShutdownRequested) {
             shutdown();
         }
@@ -1489,6 +1631,13 @@ void NetTransport::shutdown()
 {
     if(m_impl) {
         m_impl->shutdown();
+    }
+}
+
+void NetTransport::shutdownForUnload()
+{
+    if(m_impl) {
+        m_impl->shutdownForUnload();
     }
 }
 

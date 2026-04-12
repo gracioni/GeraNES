@@ -58,6 +58,7 @@ public:
 
     virtual bool initialize() = 0;
     virtual void shutdown() = 0;
+    virtual void shutdownForUnload() = 0;
     virtual void setOptions(const NetTransportOptions& options) = 0;
     virtual const NetTransportOptions& options() const = 0;
     virtual const std::string& lastError() const = 0;
@@ -111,6 +112,7 @@ public:
 
     bool initialize();
     void shutdown();
+    void shutdownForUnload();
 
     bool hostSession(uint16_t port, size_t maxPeers);
     bool connectToHost(const std::string& hostName, uint16_t port, size_t channelCount = 3);

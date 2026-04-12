@@ -192,6 +192,21 @@ private:
         m_events.push_back(std::move(event));
     }
 
+    void queueDataChannelClosedOnce()
+    {
+        bool shouldEmit = false;
+        {
+            std::scoped_lock lock(m_stateMutex);
+            if(m_dataChannelOpen) {
+                m_dataChannelOpen = false;
+                shouldEmit = true;
+            }
+        }
+        if(shouldEmit) {
+            pushEvent(Event{Event::Type::DataChannelClosed});
+        }
+    }
+
     void setLastError(const std::string& error)
     {
         std::scoped_lock lock(m_stateMutex);
@@ -234,7 +249,7 @@ private:
             self->setLastError("WebRTC peer connection failed");
             self->pushEvent(Event{Event::Type::Error, {}, false, {}, {}, -1, {}, "WebRTC peer connection failed"});
         } else if(state == RTC_DISCONNECTED || state == RTC_CLOSED) {
-            self->pushEvent(Event{Event::Type::DataChannelClosed});
+            self->queueDataChannelClosedOnce();
         }
     }
 
@@ -263,11 +278,7 @@ private:
         (void)dc;
         auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
-        {
-            std::scoped_lock lock(self->m_stateMutex);
-            self->m_dataChannelOpen = false;
-        }
-        self->pushEvent(Event{Event::Type::DataChannelClosed});
+        self->queueDataChannelClosedOnce();
     }
 
     static void onChannelErrorCallback(int dc, const char* error, void* userPtr)
