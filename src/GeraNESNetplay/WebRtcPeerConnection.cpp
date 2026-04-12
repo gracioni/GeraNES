@@ -2,10 +2,13 @@
 #include "logger/logger.h"
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #if !defined(__EMSCRIPTEN__)
 #include <rtc/rtc.h>
@@ -20,6 +23,50 @@ namespace {
 
 #if !defined(__EMSCRIPTEN__)
 constexpr const char* kNetplayDataChannelLabel = "geranes";
+
+class RtcCleanupQueue
+{
+public:
+    static RtcCleanupQueue& instance()
+    {
+        static auto* queue = new RtcCleanupQueue();
+        return *queue;
+    }
+
+    void enqueue(std::function<void()> task)
+    {
+        {
+            std::scoped_lock lock(m_mutex);
+            m_tasks.push_back(std::move(task));
+        }
+        m_condition.notify_one();
+    }
+
+private:
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
+    std::deque<std::function<void()>> m_tasks;
+    std::thread m_worker;
+
+    RtcCleanupQueue()
+        : m_worker([this]() { run(); })
+    {
+    }
+
+    void run()
+    {
+        for(;;) {
+            std::function<void()> task;
+            {
+                std::unique_lock lock(m_mutex);
+                m_condition.wait(lock, [this]() { return !m_tasks.empty(); });
+                task = std::move(m_tasks.front());
+                m_tasks.pop_front();
+            }
+            task();
+        }
+    }
+};
 
 void onRtcLog(rtcLogLevel level, const char* message)
 {
@@ -85,6 +132,12 @@ int createPeerConnectionWithIceServers(const std::vector<std::string>& iceServer
     }
 
     return rtcCreatePeerConnection(&config);
+}
+
+template<typename Fn>
+void enqueueRtcCleanup(Fn&& task)
+{
+    RtcCleanupQueue::instance().enqueue(std::forward<Fn>(task));
 }
 
 class DesktopWebRtcPeerConnection final : public IWebRtcPeerConnection
@@ -233,10 +286,12 @@ private:
         if(dataChannel <= 0) return;
 
         int previousDataChannel = 0;
+        CallbackContext* previousDataChannelContext = nullptr;
         {
             std::scoped_lock lock(m_stateMutex);
             if(m_dataChannel > 0 && m_dataChannel != dataChannel) {
                 previousDataChannel = m_dataChannel;
+                previousDataChannelContext = m_dataChannelCallbackContext;
             }
 
             m_dataChannel = dataChannel;
@@ -244,8 +299,25 @@ private:
             m_dataChannelCallbackContext->owner = this;
         }
 
-        if(previousDataChannel > 0) {
-            rtcDeleteDataChannel(previousDataChannel);
+        if(previousDataChannelContext != nullptr) {
+            previousDataChannelContext->alive.store(false, std::memory_order_release);
+            previousDataChannelContext->owner = nullptr;
+        }
+        if(previousDataChannel > 0 || previousDataChannelContext != nullptr) {
+            enqueueRtcCleanup([previousDataChannel, previousDataChannelContext]() {
+                try {
+                    if(previousDataChannel > 0) {
+                        rtcSetUserPointer(previousDataChannel, nullptr);
+                        rtcSetOpenCallback(previousDataChannel, nullptr);
+                        rtcSetClosedCallback(previousDataChannel, nullptr);
+                        rtcSetErrorCallback(previousDataChannel, nullptr);
+                        rtcSetMessageCallback(previousDataChannel, nullptr);
+                        rtcDeleteDataChannel(previousDataChannel);
+                    }
+                } catch(...) {
+                }
+                delete previousDataChannelContext;
+            });
         }
 
         rtcSetUserPointer(m_dataChannel, m_dataChannelCallbackContext);
@@ -343,22 +415,38 @@ public:
             peerContext->owner = nullptr;
         }
 
-        if(dataChannel > 0) {
-            rtcSetUserPointer(dataChannel, nullptr);
-            rtcSetOpenCallback(dataChannel, nullptr);
-            rtcSetClosedCallback(dataChannel, nullptr);
-            rtcSetErrorCallback(dataChannel, nullptr);
-            rtcSetMessageCallback(dataChannel, nullptr);
-            rtcDeleteDataChannel(dataChannel);
+        if(dataChannel > 0 || dataChannelContext != nullptr) {
+            enqueueRtcCleanup([dataChannel, dataChannelContext]() {
+                try {
+                    if(dataChannel > 0) {
+                        rtcSetUserPointer(dataChannel, nullptr);
+                        rtcSetOpenCallback(dataChannel, nullptr);
+                        rtcSetClosedCallback(dataChannel, nullptr);
+                        rtcSetErrorCallback(dataChannel, nullptr);
+                        rtcSetMessageCallback(dataChannel, nullptr);
+                        rtcDeleteDataChannel(dataChannel);
+                    }
+                } catch(...) {
+                }
+                delete dataChannelContext;
+            });
         }
 
-        if(peerConnection > 0) {
-            rtcSetUserPointer(peerConnection, nullptr);
-            rtcSetLocalDescriptionCallback(peerConnection, nullptr);
-            rtcSetLocalCandidateCallback(peerConnection, nullptr);
-            rtcSetStateChangeCallback(peerConnection, nullptr);
-            rtcSetDataChannelCallback(peerConnection, nullptr);
-            rtcDeletePeerConnection(peerConnection);
+        if(peerConnection > 0 || peerContext != nullptr) {
+            enqueueRtcCleanup([peerConnection, peerContext]() {
+                try {
+                    if(peerConnection > 0) {
+                        rtcSetUserPointer(peerConnection, nullptr);
+                        rtcSetLocalDescriptionCallback(peerConnection, nullptr);
+                        rtcSetLocalCandidateCallback(peerConnection, nullptr);
+                        rtcSetStateChangeCallback(peerConnection, nullptr);
+                        rtcSetDataChannelCallback(peerConnection, nullptr);
+                        rtcDeletePeerConnection(peerConnection);
+                    }
+                } catch(...) {
+                }
+                delete peerContext;
+            });
         }
 
         std::scoped_lock lock(m_eventMutex);

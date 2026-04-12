@@ -287,10 +287,11 @@ class SignalingServer:
             return
 
         logging.info(
-            "room joined roomId=%s peerId=%s notifyRecipients=%d",
+            "room joined roomId=%s peerId=%s notifyRecipients=%d recipients=%s",
             room_id,
             peer_id,
             len(recipients),
+            self._describe_peer_ids(recipients),
         )
 
         await self._send_message(
@@ -461,6 +462,19 @@ class SignalingServer:
             _normalize_message(message, ice_servers=self._config.ice_servers),
             separators=(",", ":"),
         )
+        async with self._lock:
+            recipient_peer_ids = [
+                self._clients.get(recipient).peer_id
+                for recipient in recipients
+                if self._clients.get(recipient) is not None
+            ]
+        logging.info(
+            "broadcast type=%s roomId=%s peerId=%s recipients=%s",
+            message.get("type", ""),
+            _as_string(message.get("roomId")),
+            _as_string(message.get("peerId")),
+            recipient_peer_ids,
+        )
         results = await asyncio.gather(
             *(recipient.send(payload) for recipient in recipients),
             return_exceptions=True,
@@ -506,6 +520,13 @@ class SignalingServer:
             if client is not None and client.peer_id == peer_id:
                 return websocket
         return None
+
+    def _describe_peer_ids(self, recipients: list[ServerConnection]) -> list[str]:
+        return [
+            self._clients.get(recipient).peer_id
+            for recipient in recipients
+            if self._clients.get(recipient) is not None
+        ]
 
     @staticmethod
     def _parse_message(payload: str) -> dict[str, Any] | None:

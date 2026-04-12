@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -23,6 +24,57 @@ namespace {
 
 #if !defined(__EMSCRIPTEN__)
 constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(10000);
+
+class SignalingCleanupQueue
+{
+public:
+    static SignalingCleanupQueue& instance()
+    {
+        static auto* queue = new SignalingCleanupQueue();
+        return *queue;
+    }
+
+    void enqueue(std::function<void()> task)
+    {
+        {
+            std::scoped_lock lock(m_mutex);
+            m_tasks.push_back(std::move(task));
+        }
+        m_condition.notify_one();
+    }
+
+private:
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
+    std::deque<std::function<void()>> m_tasks;
+    std::thread m_worker;
+
+    SignalingCleanupQueue()
+        : m_worker([this]() { run(); })
+    {
+    }
+
+    void run()
+    {
+        for(;;) {
+            std::function<void()> task;
+            {
+                std::unique_lock lock(m_mutex);
+                m_condition.wait(lock, [this]() { return !m_tasks.empty(); });
+                task = std::move(m_tasks.front());
+                m_tasks.pop_front();
+            }
+            task();
+        }
+    }
+};
+
+template<typename Fn>
+void enqueueSignalingCleanup(Fn&& task)
+{
+    SignalingCleanupQueue::instance().enqueue(std::forward<Fn>(task));
+}
+
 class DesktopWebRtcSignalingClient final : public IWebRtcSignalingClient
 {
 private:
@@ -181,6 +233,21 @@ public:
             event.text = *text;
             if(const auto parsed = WebRtcSignalingMessage::fromText(event.text); parsed.has_value()) {
                 event.message = *parsed;
+                std::string messageLog =
+                    std::string("socket message type=") +
+                    webRtcSignalTypeLabel(event.message.type);
+                if(!event.message.peerId.empty()) {
+                    messageLog += " peerId=" + event.message.peerId;
+                }
+                if(!event.message.targetPeerId.empty()) {
+                    messageLog += " targetPeerId=" + event.message.targetPeerId;
+                }
+                if(!event.message.roomId.empty()) {
+                    messageLog += " roomId=" + event.message.roomId;
+                }
+                self->logTrace(messageLog);
+            } else {
+                self->logTrace("socket message received with unparsed payload");
             }
             self->pushEvent(std::move(event));
         });
@@ -193,6 +260,25 @@ public:
             return false;
         } catch(...) {
             m_lastError = "WebRTC signaling connect failed";
+            disconnect();
+            return false;
+        }
+
+        std::unique_lock lock(m_mutex);
+        m_connectCondition.wait_for(
+            lock,
+            kDesktopSignalingConnectTimeout,
+            [this]() { return m_connectResolved; }
+        );
+        if(!m_connectResolved) {
+            m_lastError = "WebRTC signaling connect timed out";
+            lock.unlock();
+            disconnect();
+            return false;
+        }
+        if(!m_connectSucceeded) {
+            m_lastError = !m_connectError.empty() ? m_connectError : "WebRTC signaling connect failed";
+            lock.unlock();
             disconnect();
             return false;
         }
@@ -222,14 +308,14 @@ public:
 
         if(socket) {
             logTrace("disconnecting socket");
-            std::thread([socket = std::move(socket)]() mutable {
+            enqueueSignalingCleanup([socket = std::move(socket)]() mutable {
                 try {
                     socket->resetCallbacks();
-                    socket->close();
+                    socket->forceClose();
                 } catch(...) {
                 }
                 socket.reset();
-            }).detach();
+            });
         }
     }
 

@@ -35,8 +35,19 @@
 namespace
 {
 #if !defined(__EMSCRIPTEN__)
+void ensureWinsockInitialized()
+{
+    static const bool initialized = []() {
+        WSADATA wsaData{};
+        return WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
+    }();
+    REQUIRE(initialized);
+}
+
 uint16_t reserveLoopbackPort()
 {
+    ensureWinsockInitialized();
+
     SOCKET socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     REQUIRE(socketHandle != INVALID_SOCKET);
 
@@ -73,6 +84,7 @@ private:
     std::unique_ptr<rtc::WebSocketServer> m_server;
     std::mutex m_mutex;
     std::deque<std::string> m_receivedTexts;
+    std::vector<std::shared_ptr<rtc::WebSocket>> m_connections;
     std::vector<PeerInfo> m_peers;
     std::map<std::string, RoomInfo> m_rooms;
 
@@ -89,6 +101,11 @@ public:
         config.port = m_port;
         m_server = std::make_unique<rtc::WebSocketServer>(config);
         m_server->onClient([this](std::shared_ptr<rtc::WebSocket> connection) {
+            {
+                std::scoped_lock lock(m_mutex);
+                m_connections.push_back(connection);
+            }
+
             Netplay::WebRtcSignalingMessage welcome;
             welcome.type = Netplay::WebRtcSignalType::Welcome;
             welcome.peerId = "signal-server";
@@ -239,6 +256,9 @@ public:
                 std::vector<PeerInfo> remainingPeers;
                 {
                     std::scoped_lock lock(m_mutex);
+                    m_connections.erase(
+                        std::remove(m_connections.begin(), m_connections.end(), connection),
+                        m_connections.end());
                     for(const auto& peer : m_peers) {
                         if(peer.connection == connection) {
                             closedPeer = peer;
@@ -282,6 +302,7 @@ public:
         std::vector<std::shared_ptr<rtc::WebSocket>> connections;
         {
             std::scoped_lock lock(m_mutex);
+            connections = m_connections;
             for(const auto& peer : m_peers) {
                 connections.push_back(peer.connection);
             }
@@ -1340,6 +1361,77 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
 
     hostTransport.disconnectAll();
     clientTransport.disconnectAll();
+}
+
+TEST_CASE("WebRTC transport shutdown releases loopback signaling slots promptly",
+          "[netplay][webrtc][transport][disconnect]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
+    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(port),
+        "room",
+        ""
+    };
+    hostTransport.setOptions(options);
+    clientTransport.setOptions(options);
+
+    REQUIRE(hostTransport.hostSession(0, 1));
+    REQUIRE(clientTransport.connectToHost("", 0));
+
+    bool hostConnected = false;
+    bool clientConnected = false;
+    for(int attempt = 0; attempt < 500 && (!hostConnected || !clientConnected); ++attempt) {
+        for(const auto& event : hostTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                hostConnected = true;
+            }
+        }
+        for(const auto& event : clientTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                clientConnected = true;
+            }
+        }
+        if(!hostConnected || !clientConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    REQUIRE(hostConnected);
+    REQUIRE(clientConnected);
+    REQUIRE(server.connectedPeerCount() == 2u);
+
+    clientTransport.shutdown();
+
+    bool clientReleased = false;
+    for(int attempt = 0; attempt < 200 && !clientReleased; ++attempt) {
+        hostTransport.poll(0);
+        if(server.connectedPeerCount() == 1u) {
+            clientReleased = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    REQUIRE(clientReleased);
+
+    hostTransport.shutdown();
+
+    bool hostReleased = false;
+    for(int attempt = 0; attempt < 200 && !hostReleased; ++attempt) {
+        if(server.connectedPeerCount() == 0u) {
+            hostReleased = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    REQUIRE(hostReleased);
 }
 
 TEST_CASE("WebRTC transport can connect host and client through remote wss signaling",
