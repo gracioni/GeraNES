@@ -775,7 +775,8 @@ private:
         logTrace("peer failure for " + peer.remotePeerId + ": " + resolvedError);
 
         if(m_hosting) {
-            closePeer(peer.handle, events);
+            (void)events;
+            peer.closeDeadline = std::chrono::steady_clock::now();
             return;
         }
 
