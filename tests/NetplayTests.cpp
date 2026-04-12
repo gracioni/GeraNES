@@ -676,6 +676,72 @@ TEST_CASE("Netplay transport backend can be selected before session startup", "[
     REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
 }
 
+TEST_CASE("Netplay coordinator can host and join through remote wss signaling",
+          "[manual][netplay][coordinator][webrtc][wss]")
+{
+    const char* runProbe = std::getenv("GERANES_RUN_WSS_SIGNALING_TEST");
+    if(runProbe == nullptr || std::string(runProbe) != "1") {
+        INFO("Set GERANES_RUN_WSS_SIGNALING_TEST=1 to run the remote WSS coordinator probe.");
+        SKIP("Remote WSS coordinator probe disabled.");
+    }
+
+    const std::string roomId =
+        "codex-coordinator-" +
+        std::to_string(static_cast<long long>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()));
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "wss://signal.racionisoft.com/ws/",
+        roomId,
+        ""
+    };
+    host.setTransportOptions(options);
+    client.setTransportOptions(options);
+
+    INFO("Remote WSS room: " << roomId);
+    REQUIRE(host.host(0, 1, "Host"));
+    REQUIRE(client.join("", 0, "Client"));
+
+    bool hostConnected = false;
+    bool clientConnected = false;
+    for(int attempt = 0; attempt < 1500 && (!hostConnected || !clientConnected); ++attempt) {
+        host.update(0);
+        client.update(0);
+
+        hostConnected = host.isConnected();
+        clientConnected = client.isConnected();
+        if(!hostConnected || !clientConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    INFO("Host last error: " << host.lastError());
+    INFO("Client last error: " << client.lastError());
+    REQUIRE(hostConnected);
+    REQUIRE(clientConnected);
+    REQUIRE(host.session().findParticipant(0) != nullptr);
+    REQUIRE(client.localParticipantId() != Netplay::kInvalidParticipantId);
+
+    bool hostSawClientParticipant = false;
+    for(const auto& participant : host.session().roomState().participants) {
+        if(participant.id != 0) {
+            hostSawClientParticipant = true;
+        }
+    }
+    REQUIRE(hostSawClientParticipant);
+
+    host.disconnectImmediately();
+    client.disconnectImmediately();
+}
+
 TEST_CASE("WebRTC signaling client validates desktop connection prerequisites",
           "[netplay][webrtc][signaling][transport]")
 {
@@ -800,6 +866,132 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
 
     REQUIRE(server.hasReceivedMessageType(Netplay::WebRtcSignalType::CreateRoom));
     REQUIRE(sawRoomJoined);
+}
+
+TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay][webrtc][signaling][wss][manual]")
+{
+    const char* runProbe = std::getenv("GERANES_RUN_WSS_SIGNALING_TEST");
+    if(runProbe == nullptr || std::string(runProbe) != "1") {
+        INFO("Set GERANES_RUN_WSS_SIGNALING_TEST=1 to run the remote WSS signaling probe.");
+        SKIP("Remote WSS signaling probe disabled.");
+    }
+
+    const std::string url = "wss://signal.racionisoft.com/ws/";
+    const std::string roomId = "codex-probe-room";
+    INFO("Remote WSS URL: " << url);
+    INFO("Probe room: " << roomId);
+
+    auto host = Netplay::createWebRtcSignalingClient();
+    auto client = Netplay::createWebRtcSignalingClient();
+    REQUIRE(host != nullptr);
+    REQUIRE(client != nullptr);
+
+    Netplay::WebRtcSignalingClientOptions hostOptions;
+    hostOptions.config.url = url;
+    hostOptions.config.roomId = roomId;
+    hostOptions.localPeerId = "codex-host";
+    hostOptions.host = true;
+
+    Netplay::WebRtcSignalingClientOptions clientOptions;
+    clientOptions.config.url = url;
+    clientOptions.config.roomId = roomId;
+    clientOptions.localPeerId = "codex-client";
+    clientOptions.host = false;
+
+    REQUIRE(host->connect(hostOptions));
+    REQUIRE(client->connect(clientOptions));
+
+    bool hostConnected = false;
+    bool clientConnected = false;
+    for(int attempt = 0; attempt < 100 && (!hostConnected || !clientConnected); ++attempt) {
+        for(const auto& event : host->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Connected) {
+                hostConnected = true;
+            }
+        }
+        for(const auto& event : client->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Connected) {
+                clientConnected = true;
+            }
+        }
+        if(!hostConnected || !clientConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+    REQUIRE(hostConnected);
+    REQUIRE(clientConnected);
+
+    Netplay::WebRtcSignalingMessage hostHello;
+    hostHello.type = Netplay::WebRtcSignalType::Hello;
+    hostHello.roomId = roomId;
+    hostHello.peerId = hostOptions.localPeerId;
+    REQUIRE(host->send(hostHello));
+
+    Netplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    createRoom.roomId = roomId;
+    createRoom.peerId = hostOptions.localPeerId;
+    createRoom.maxParticipants = 2;
+    REQUIRE(host->send(createRoom));
+
+    bool hostSawRoomJoined = false;
+    for(int attempt = 0; attempt < 100 && !hostSawRoomJoined; ++attempt) {
+        for(const auto& event : host->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+               event.message.roomId == roomId) {
+                hostSawRoomJoined = true;
+            }
+        }
+        if(!hostSawRoomJoined) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+    INFO("Host last error: " << host->lastError());
+    REQUIRE(hostSawRoomJoined);
+
+    Netplay::WebRtcSignalingMessage clientHello;
+    clientHello.type = Netplay::WebRtcSignalType::Hello;
+    clientHello.roomId = roomId;
+    clientHello.peerId = clientOptions.localPeerId;
+    REQUIRE(client->send(clientHello));
+
+    Netplay::WebRtcSignalingMessage joinRoom;
+    joinRoom.type = Netplay::WebRtcSignalType::JoinRoom;
+    joinRoom.roomId = roomId;
+    joinRoom.peerId = clientOptions.localPeerId;
+    REQUIRE(client->send(joinRoom));
+
+    bool clientSawRoomJoined = false;
+    bool hostSawPeerJoined = false;
+    for(int attempt = 0; attempt < 150 && (!clientSawRoomJoined || !hostSawPeerJoined); ++attempt) {
+        for(const auto& event : client->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+               event.message.roomId == roomId) {
+                clientSawRoomJoined = true;
+            }
+        }
+        for(const auto& event : host->poll()) {
+            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == Netplay::WebRtcSignalType::PeerJoined &&
+               event.message.roomId == roomId &&
+               event.message.peerId == clientOptions.localPeerId) {
+                hostSawPeerJoined = true;
+            }
+        }
+        if(!clientSawRoomJoined || !hostSawPeerJoined) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+
+    INFO("Client last error: " << client->lastError());
+    INFO("Host last error after join: " << host->lastError());
+    REQUIRE(clientSawRoomJoined);
+    REQUIRE(hostSawPeerJoined);
+
+    host->disconnect();
+    client->disconnect();
 }
 
 TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][webrtc][signaling][rooms]")
@@ -1148,6 +1340,93 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
 
     hostTransport.disconnectAll();
     clientTransport.disconnectAll();
+}
+
+TEST_CASE("WebRTC transport can connect host and client through remote wss signaling",
+          "[manual][netplay][webrtc][transport][wss]")
+{
+    const char* runProbe = std::getenv("GERANES_RUN_WSS_SIGNALING_TEST");
+    if(runProbe == nullptr || std::string(runProbe) != "1") {
+        INFO("Set GERANES_RUN_WSS_SIGNALING_TEST=1 to run the remote WSS transport probe.");
+        SKIP("Remote WSS transport probe disabled.");
+    }
+
+    const std::string roomId =
+        "codex-transport-" +
+        std::to_string(static_cast<long long>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()));
+
+    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
+    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "wss://signal.racionisoft.com/ws/",
+        roomId,
+        ""
+    };
+    hostTransport.setOptions(options);
+    clientTransport.setOptions(options);
+
+    INFO("Remote WSS room: " << roomId);
+    REQUIRE(hostTransport.hostSession(0, 1));
+    REQUIRE(clientTransport.connectToHost("", 0));
+
+    bool hostConnected = false;
+    bool clientConnected = false;
+    Netplay::NetTransport::PeerHandle hostPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    Netplay::NetTransport::PeerHandle clientPeer = Netplay::NetTransport::kInvalidPeerHandle;
+
+    for(int attempt = 0; attempt < 1200 && (!hostConnected || !clientConnected); ++attempt) {
+        for(const auto& event : hostTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                hostConnected = true;
+                hostPeer = event.peer;
+            }
+        }
+        for(const auto& event : clientTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+                clientConnected = true;
+                clientPeer = event.peer;
+            }
+        }
+
+        if(!hostConnected || !clientConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    INFO("Host transport error: " << hostTransport.lastError());
+    INFO("Client transport error: " << clientTransport.lastError());
+    REQUIRE(hostConnected);
+    REQUIRE(clientConnected);
+    REQUIRE(hostPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientPeer != Netplay::NetTransport::kInvalidPeerHandle);
+
+    const std::vector<uint8_t> payload = {9, 8, 7, 6};
+    REQUIRE(hostTransport.sendReliable(hostPeer, Netplay::Channel::Control, payload));
+
+    bool payloadDelivered = false;
+    for(int attempt = 0; attempt < 1200 && !payloadDelivered; ++attempt) {
+        for(const auto& event : clientTransport.poll(0)) {
+            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == Netplay::Channel::Control);
+                REQUIRE(event.payload == payload);
+                payloadDelivered = true;
+            }
+        }
+        if(!payloadDelivered) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    INFO("Host transport error after payload: " << hostTransport.lastError());
+    INFO("Client transport error after payload: " << clientTransport.lastError());
+    REQUIRE(payloadDelivered);
+
+    hostTransport.shutdown();
+    clientTransport.shutdown();
 }
 
 TEST_CASE("WebRTC transport exchanges loopback packets in a password-protected room",
@@ -3214,6 +3493,56 @@ TEST_CASE("Netplay runtime flow stays deterministic with asymmetric peer pacing"
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay runtime flow can reach running state through remote wss signaling",
+          "[manual][netplay][runtime][webrtc][wss]")
+{
+    const char* runProbe = std::getenv("GERANES_RUN_WSS_SIGNALING_TEST");
+    if(runProbe == nullptr || std::string(runProbe) != "1") {
+        INFO("Set GERANES_RUN_WSS_SIGNALING_TEST=1 to run the remote WSS runtime probe.");
+        SKIP("Remote WSS runtime probe disabled.");
+    }
+
+    GeraNESTestSupport::requireRomFixture();
+
+    const std::string roomId =
+        "codex-runtime-" +
+        std::to_string(static_cast<long long>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()));
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_remote_wss_probe.json").string();
+    options.frames = 90;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 16;
+    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "wss://signal.racionisoft.com/ws/",
+        roomId,
+        ""
+    };
+
+    INFO("Remote WSS room: " << roomId);
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("sessionState").get<uint32_t>() == static_cast<uint32_t>(Netplay::SessionState::Running));
+    REQUIRE(report.at("client").at("sessionState").get<uint32_t>() == static_cast<uint32_t>(Netplay::SessionState::Running));
+    REQUIRE(report.at("host").at("participants").size() >= 2u);
+    REQUIRE(report.at("client").at("participants").size() >= 2u);
 }
 
 TEST_CASE("Netplay runtime host reset stays deterministic with asymmetric peer pacing", "[netplay][runtime][reset][asymmetric-pacing]")

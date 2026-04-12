@@ -22,7 +22,7 @@ namespace Netplay {
 namespace {
 
 #if !defined(__EMSCRIPTEN__)
-constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(4000);
+constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(10000);
 class DesktopWebRtcSignalingClient final : public IWebRtcSignalingClient
 {
 private:

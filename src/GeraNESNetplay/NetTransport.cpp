@@ -20,7 +20,7 @@ namespace Netplay {
 
 namespace {
 
-constexpr auto kWebRtcSignalingBootstrapTimeout = std::chrono::seconds(5);
+constexpr auto kWebRtcSignalingBootstrapTimeout = std::chrono::seconds(15);
 
 const char* signalTypeLabel(WebRtcSignalType type)
 {
@@ -372,6 +372,7 @@ private:
     bool m_bootstrapPending = false;
     bool m_bootstrapHost = false;
     bool m_bootstrapHelloSent = false;
+    bool m_bootstrapRoomRequestSent = false;
     bool m_bootstrapSawWelcome = false;
     bool m_bootstrapSawRoomJoined = false;
     void logTrace(const std::string& message) const
@@ -421,8 +422,34 @@ private:
         m_bootstrapPending = false;
         m_bootstrapHost = false;
         m_bootstrapHelloSent = false;
+        m_bootstrapRoomRequestSent = false;
         m_bootstrapSawWelcome = false;
         m_bootstrapSawRoomJoined = false;
+    }
+
+    bool sendBootstrapRoomRequest()
+    {
+        if(!m_bootstrapPending || m_bootstrapRoomRequestSent) {
+            return true;
+        }
+
+        WebRtcSignalingMessage roomMessage;
+        roomMessage.type = m_bootstrapHost ? WebRtcSignalType::CreateRoom : WebRtcSignalType::JoinRoom;
+        roomMessage.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
+        roomMessage.peerId = m_localPeerId;
+        roomMessage.password = m_activeSignalingConfig ? m_activeSignalingConfig->password : std::string{};
+        if(m_bootstrapHost) {
+            roomMessage.maxParticipants = maxParticipantsForSignal();
+        }
+        if(!sendSignalingMessage(roomMessage)) {
+            return false;
+        }
+
+        m_bootstrapRoomRequestSent = true;
+        logTrace(std::string("sent signaling message: ") +
+                 (m_bootstrapHost ? "CreateRoom" : "JoinRoom") +
+                 " roomId=" + roomMessage.roomId);
+        return true;
     }
 
     void startInitialOfferWait()
@@ -597,6 +624,7 @@ private:
         m_bootstrapPending = true;
         m_bootstrapHost = host;
         m_bootstrapHelloSent = false;
+        m_bootstrapRoomRequestSent = false;
         m_bootstrapSawWelcome = false;
         m_bootstrapSawRoomJoined = false;
         m_bootstrapDeadline = std::chrono::steady_clock::now() + kWebRtcSignalingBootstrapTimeout;
@@ -862,6 +890,7 @@ private:
                 }
                 m_bootstrapPending = false;
                 m_bootstrapHelloSent = false;
+                m_bootstrapRoomRequestSent = false;
                 m_bootstrapSawWelcome = false;
                 m_bootstrapSawRoomJoined = false;
                 m_bootstrapDeadline.reset();
@@ -872,12 +901,15 @@ private:
             }
 
             if(event.type == IWebRtcSignalingClient::Event::Type::Error) {
-                m_lastError = !event.text.empty() ? event.text : m_signalingClient->lastError();
-                if(m_bootstrapPending) {
-                    m_bootstrapPending = false;
-                    m_bootstrapDeadline.reset();
+                const std::string errorText = !event.text.empty() ? event.text : m_signalingClient->lastError();
+                logTrace("signaling event error: " + errorText);
+                if(!m_signalingClient->isConnected()) {
+                    m_lastError = errorText;
+                    if(m_bootstrapPending) {
+                        m_bootstrapPending = false;
+                        m_bootstrapDeadline.reset();
+                    }
                 }
-                logTrace("signaling event error: " + m_lastError);
                 continue;
             }
 
@@ -891,21 +923,8 @@ private:
                         m_bootstrapPending = false;
                         continue;
                     }
-
-                    WebRtcSignalingMessage roomMessage;
-                    roomMessage.type = m_bootstrapHost ? WebRtcSignalType::CreateRoom : WebRtcSignalType::JoinRoom;
-                    roomMessage.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
-                    roomMessage.peerId = m_localPeerId;
-                    roomMessage.password = m_activeSignalingConfig ? m_activeSignalingConfig->password : std::string{};
-                    if(m_bootstrapHost) {
-                        roomMessage.maxParticipants = maxParticipantsForSignal();
-                    }
-                    if(!sendSignalingMessage(roomMessage)) {
-                        m_bootstrapPending = false;
-                        continue;
-                    }
-
                     m_bootstrapHelloSent = true;
+                    logTrace("sent signaling message: Hello roomId=" + hello.roomId);
                 }
                 continue;
             }
@@ -922,12 +941,22 @@ private:
                     if(!message.iceServers.empty()) {
                         m_signaledIceServers = message.iceServers;
                     }
+                    if(!sendBootstrapRoomRequest()) {
+                        m_bootstrapPending = false;
+                        m_bootstrapDeadline.reset();
+                        continue;
+                    }
                 } else if(message.type == WebRtcSignalType::RoomJoined &&
                           m_activeSignalingConfig.has_value() &&
                           message.roomId == m_activeSignalingConfig->roomId) {
                     m_bootstrapSawRoomJoined = true;
                     if(!message.iceServers.empty()) {
                         m_signaledIceServers = message.iceServers;
+                    }
+                    if(m_bootstrapHost) {
+                        logTrace("host room registered on signaling server: " + message.roomId);
+                    } else {
+                        logTrace("joined signaling room: " + message.roomId);
                     }
                 } else if(message.type == WebRtcSignalType::Error) {
                     m_lastError = !message.error.empty() ? message.error : "WebRTC signaling reported an error";

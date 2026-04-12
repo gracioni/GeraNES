@@ -48,6 +48,8 @@ class ClientState:
 class RoomState:
     password: str = ""
     max_participants: int = 2
+    owner: ServerConnection | None = None
+    owner_peer_id: str = ""
     members: set[ServerConnection] = field(default_factory=set)
 
 
@@ -57,6 +59,8 @@ class ServerConfig:
     port: int = 8765
     ice_servers: list[str] = field(default_factory=list)
     log_level: str = "INFO"
+    ping_interval_seconds: int | None = None
+    ping_timeout_seconds: int | None = None
 
 
 class SignalingServer:
@@ -73,14 +77,16 @@ class SignalingServer:
             self._config.host,
             self._config.port,
             max_size=1024 * 1024,
-            ping_interval=20,
-            ping_timeout=20,
+            ping_interval=self._config.ping_interval_seconds,
+            ping_timeout=self._config.ping_timeout_seconds,
         ):
             logging.info(
-                "Signaling server listening on ws://%s:%s with %d ICE server(s)",
+                "Signaling server listening on ws://%s:%s with %d ICE server(s), ping_interval=%s, ping_timeout=%s",
                 self._config.host,
                 self._config.port,
                 len(self._config.ice_servers),
+                self._config.ping_interval_seconds,
+                self._config.ping_timeout_seconds,
             )
             await self._stop_event.wait()
 
@@ -195,6 +201,8 @@ class SignalingServer:
                 room = self._rooms.setdefault(room_id, RoomState())
                 room.password = password
                 room.max_participants = max_participants
+                room.owner = websocket
+                room.owner_peer_id = peer_id
                 room.members.add(websocket)
                 logging.info(
                     "room created roomId=%s ownerPeerId=%s maxParticipants=%d members=%d",
@@ -236,26 +244,34 @@ class SignalingServer:
                 recipients: list[ServerConnection] = []
             else:
                 room_missing = False
-                invalid_password = room.password != password
-                room_full = len(room.members) >= room.max_participants
-                if invalid_password or room_full:
+                if room.owner is None or room.owner not in room.members:
+                    room_missing = True
+                    invalid_password = False
+                    room_full = False
                     recipients = []
                 else:
-                    recipients = [member for member in room.members if member is not websocket]
+                    invalid_password = room.password != password
+                    room_full = len(room.members) >= room.max_participants
+                    if invalid_password or room_full:
+                        recipients = []
+                    else:
+                        recipients = [member for member in room.members if member is not websocket]
 
-                    client = self._clients.setdefault(websocket, ClientState())
-                    old_room_id = client.room_id
-                    client.peer_id = peer_id
-                    client.room_id = room_id
+                        client = self._clients.setdefault(websocket, ClientState())
+                        old_room_id = client.room_id
+                        client.peer_id = peer_id
+                        client.room_id = room_id
 
-                    if old_room_id and old_room_id != room_id:
-                        old_room = self._rooms.get(old_room_id)
-                        if old_room is not None:
-                            old_room.members.discard(websocket)
-                            if not old_room.members:
-                                self._rooms.pop(old_room_id, None)
+                        if old_room_id and old_room_id != room_id:
+                            old_room = self._rooms.get(old_room_id)
+                            if old_room is not None:
+                                old_room.members.discard(websocket)
+                                if old_room.owner is websocket:
+                                    self._rooms.pop(old_room_id, None)
+                                elif not old_room.members:
+                                    self._rooms.pop(old_room_id, None)
 
-                    room.members.add(websocket)
+                        room.members.add(websocket)
 
         if room_missing:
             logging.warning("join_room rejected roomId=%s peerId=%s reason=room_missing", room_id, peer_id)
@@ -350,6 +366,9 @@ class SignalingServer:
     async def _remove_client(self, websocket: ServerConnection) -> None:
         peer_left_message: dict[str, Any] | None = None
         room_id = ""
+        owner_disconnected = False
+        owner_peer_id = ""
+        orphan_recipients: list[ServerConnection] = []
 
         async with self._lock:
             client = self._clients.pop(websocket, None)
@@ -361,7 +380,12 @@ class SignalingServer:
                 room = self._rooms.get(client.room_id)
                 if room is not None:
                     room.members.discard(websocket)
-                    if not room.members:
+                    if room.owner is websocket:
+                        owner_disconnected = True
+                        owner_peer_id = room.owner_peer_id or client.peer_id
+                        orphan_recipients = list(room.members)
+                        self._rooms.pop(client.room_id, None)
+                    elif not room.members:
                         self._rooms.pop(client.room_id, None)
 
                 if client.peer_id:
@@ -376,6 +400,19 @@ class SignalingServer:
                         "roomId": client.room_id,
                         "peerId": client.peer_id,
                     }
+
+        if owner_disconnected and room_id:
+            logging.warning(
+                "room owner disconnected roomId=%s ownerPeerId=%s; closing %d remaining member(s)",
+                room_id,
+                owner_peer_id,
+                len(orphan_recipients),
+            )
+            await self._close_specific_peers(
+                orphan_recipients,
+                code=1012,
+                reason="Room owner disconnected",
+            )
 
         if peer_left_message is not None and room_id:
             await self._broadcast_to_room(room_id, peer_left_message, except_ws=websocket)
@@ -438,6 +475,24 @@ class SignalingServer:
                     result,
                 )
 
+    async def _close_specific_peers(
+        self,
+        recipients: list[ServerConnection],
+        *,
+        code: int,
+        reason: str,
+    ) -> None:
+        if not recipients:
+            return
+
+        results = await asyncio.gather(
+            *(recipient.close(code=code, reason=reason) for recipient in recipients),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, Exception):
+                logging.warning("peer close failed code=%s reason=%s error=%s", code, reason, result)
+
     def _find_peer_in_room_locked(
         self,
         room_id: str,
@@ -480,6 +535,10 @@ def _as_non_empty_string(value: Any) -> str:
 
 def _as_int(value: Any, default: int) -> int:
     return value if isinstance(value, int) else default
+
+
+def _as_optional_int(value: Any) -> int | None:
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def _normalize_message(message: dict[str, Any], ice_servers: list[str]) -> dict[str, Any]:
@@ -556,6 +615,12 @@ def _build_config(args: argparse.Namespace) -> ServerConfig:
     host = str(args.host if args.host is not None else loaded.get("host", "0.0.0.0"))
     port = int(args.port if args.port is not None else loaded.get("port", 8765))
     log_level = str(args.log_level if args.log_level is not None else loaded.get("logLevel", "INFO"))
+    ping_interval_seconds = _as_optional_int(
+        args.ping_interval if args.ping_interval is not None else loaded.get("pingIntervalSeconds")
+    )
+    ping_timeout_seconds = _as_optional_int(
+        args.ping_timeout if args.ping_timeout is not None else loaded.get("pingTimeoutSeconds")
+    )
 
     ice_servers: list[str] = []
     if isinstance(loaded.get("iceServers"), list):
@@ -576,6 +641,8 @@ def _build_config(args: argparse.Namespace) -> ServerConfig:
         port=port,
         ice_servers=deduped_ice_servers,
         log_level=log_level.upper(),
+        ping_interval_seconds=ping_interval_seconds,
+        ping_timeout_seconds=ping_timeout_seconds,
     )
 
 
@@ -608,6 +675,16 @@ def _parse_args() -> argparse.Namespace:
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity.",
+    )
+    parser.add_argument(
+        "--ping-interval",
+        type=int,
+        help="WebSocket ping interval in seconds. Omit or set <= 0 in config to disable server heartbeats.",
+    )
+    parser.add_argument(
+        "--ping-timeout",
+        type=int,
+        help="WebSocket ping timeout in seconds. Omit or set <= 0 in config to disable server heartbeats.",
     )
     return parser.parse_args()
 

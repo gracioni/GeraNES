@@ -2,6 +2,8 @@
   "host": "0.0.0.0",
   "port": 8765,
   "logLevel": "INFO",
+  "pingIntervalSeconds": 0,
+  "pingTimeoutSeconds": 0,
   "iceServers": [
     "stun:stun.l.google.com:19302",
     "turn:username:password@turn.example.com:3478?transport=udp"
