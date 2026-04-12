@@ -2666,7 +2666,11 @@ public:
             !isWindowsTitleBarInteractionActive() &&
             !netplayPacingOverrideActive;
         if(!allowVsyncLock) {
-            m_emu.setSimulationSuspended(false);
+            // When netplay owns pacing, suspension state is controlled by the
+            // netplay runtime. Forcing it false here breaks host pause.
+            if(!netplayPacingOverrideActive) {
+                m_emu.setSimulationSuspended(false);
+            }
             if( m_emu.update(dt) ) render();
         }
         else {

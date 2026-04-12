@@ -809,11 +809,11 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         m_runtimeLastTickTime = {};
     }
 
-    if(previousState.has_value() &&
-       *previousState != SessionState::Paused &&
-       currentState == SessionState::Paused) {
+    if(currentState == SessionState::Paused) {
         m_emuHost.setSimulationSuspended(true);
-        m_emuHost.discardQueuedAudio();
+        if(!previousState.has_value() || *previousState != SessionState::Paused) {
+            m_emuHost.discardQueuedAudio();
+        }
     }
 
     if(previousState.has_value() &&
@@ -1353,12 +1353,13 @@ inline void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& e
     }
 
     m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
-    if(m_coordinator.session().roomState().state == SessionState::Running) {
+    const SessionState state = m_coordinator.session().roomState().state;
+    if(state == SessionState::Running) {
         reanchorInputDriver(emu.frameCount(), localAssignedSlots());
     } else {
         m_inputDriver.reset();
     }
-    m_emuHost.setSimulationSuspended(false);
+    m_emuHost.setSimulationSuspended(state == SessionState::Paused);
 }
 
 inline NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
@@ -1508,6 +1509,10 @@ inline void NetplayAppRuntime::join(const std::string& hostName, uint16_t port, 
 
 inline void NetplayAppRuntime::disconnect()
 {
+    // Netplay pause suspends the emulation worker. Wake it before queuing the
+    // disconnect command so teardown is not delayed behind a paused worker.
+    m_emuHost.setSimulationSuspended(false);
+
     {
         std::scoped_lock stateLock(m_stateMutex);
         m_uiSnapshot.active = false;
@@ -1667,20 +1672,41 @@ inline void NetplayAppRuntime::requestForceResync()
 
 inline void NetplayAppRuntime::toggleHostedSessionPause()
 {
+    const UiSnapshot snapshot = uiSnapshot();
+    const bool attemptingResume =
+        snapshot.active &&
+        snapshot.hosting &&
+        snapshot.room.state == SessionState::Paused;
+    if(attemptingResume) {
+        // Resume is processed on the emulation worker. If the worker is still
+        // suspended by netplay pause, wake it so the resume command can run.
+        m_emuHost.setSimulationSuspended(false);
+    }
+
     enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
         if(!self.m_coordinator.isActive() || !self.m_coordinator.isHosting()) return;
 
         const SessionState state = self.m_coordinator.session().roomState().state;
         if(state == SessionState::Running) {
             if(self.m_coordinator.pauseSession()) {
+                self.m_emuHost.setSimulationSuspended(true);
+                self.m_emuHost.discardQueuedAudio();
+                self.m_runtimeLastTickTime = {};
                 Logger::instance().log("Paused", Logger::Type::USER);
             }
         } else if(state == SessionState::Paused) {
             const auto localRom = captureCurrentRomSelection(emu);
-            if(!self.computeSessionBlockedReason(localRom).empty()) return;
+            if(!self.computeSessionBlockedReason(localRom).empty()) {
+                self.m_emuHost.setSimulationSuspended(true);
+                return;
+            }
             if(self.m_coordinator.resumeSession()) {
                 self.m_webVisibilityManagedPause = false;
+                self.m_emuHost.setSimulationSuspended(false);
+                self.m_runtimeLastTickTime = {};
                 Logger::instance().log("Unpaused", Logger::Type::USER);
+            } else {
+                self.m_emuHost.setSimulationSuspended(true);
             }
         }
     });
@@ -1695,6 +1721,7 @@ inline void NetplayAppRuntime::shutdown()
     m_uiSnapshot = UiSnapshot{};
     m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
+    m_emuHost.setSimulationSuspended(false);
     m_coordinator.disconnect();
 }
 
@@ -1707,6 +1734,7 @@ inline void NetplayAppRuntime::shutdownForUnload()
     m_uiSnapshot = UiSnapshot{};
     m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
+    m_emuHost.setSimulationSuspended(false);
     m_coordinator.disconnectImmediately();
 }
 
@@ -1804,6 +1832,12 @@ inline void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     processResyncIfNeededOnWorker(emu);
     processAutoResumeIfNeeded(localRom);
     processRollbackIfNeededOnWorker(emu);
+
+    // Keep pause authoritative even if another runtime path touched the host
+    // suspension flag earlier in the frame.
+    if(m_coordinator.session().roomState().state == SessionState::Paused) {
+        m_emuHost.setSimulationSuspended(true);
+    }
 
     const bool running = m_coordinator.session().roomState().state == SessionState::Running;
     m_runtimeRunning.store(running, std::memory_order_release);
