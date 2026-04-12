@@ -28,6 +28,7 @@ VALID_MESSAGE_TYPES = {
     "room_list",
     "create_room",
     "join_room",
+    "leave_room",
     "room_joined",
     "peer_joined",
     "peer_left",
@@ -123,6 +124,9 @@ class SignalingServer:
             return
         if message_type == "join_room":
             await self._handle_join_room(websocket, message)
+            return
+        if message_type == "leave_room":
+            await self._handle_leave_room(websocket, message)
             return
         if message_type in {"offer", "answer", "ice_candidate"}:
             await self._handle_direct_signal(websocket, message)
@@ -382,7 +386,55 @@ class SignalingServer:
         }
         await self._send_message(target_ws, outbound)
 
+    async def _handle_leave_room(self, websocket: ServerConnection, message: dict[str, Any]) -> None:
+        del message
+        room_id, peer_left_message, owner_disconnected, owner_peer_id, orphan_recipients = (
+            await self._detach_client_from_room(websocket)
+        )
+
+        if owner_disconnected and room_id:
+            logging.warning(
+                "room owner left roomId=%s ownerPeerId=%s; closing %d remaining member(s)",
+                room_id,
+                owner_peer_id,
+                len(orphan_recipients),
+            )
+            await self._close_specific_peers(
+                orphan_recipients,
+                code=1012,
+                reason="Room owner left",
+            )
+
+        if peer_left_message is not None and room_id:
+            await self._broadcast_to_room(room_id, peer_left_message, except_ws=websocket)
+
     async def _remove_client(self, websocket: ServerConnection) -> None:
+        room_id, peer_left_message, owner_disconnected, owner_peer_id, orphan_recipients = (
+            await self._detach_client_from_room(websocket, remove_client=True)
+        )
+
+        if owner_disconnected and room_id:
+            logging.warning(
+                "room owner disconnected roomId=%s ownerPeerId=%s; closing %d remaining member(s)",
+                room_id,
+                owner_peer_id,
+                len(orphan_recipients),
+            )
+            await self._close_specific_peers(
+                orphan_recipients,
+                code=1012,
+                reason="Room owner disconnected",
+            )
+
+        if peer_left_message is not None and room_id:
+            await self._broadcast_to_room(room_id, peer_left_message, except_ws=websocket)
+
+    async def _detach_client_from_room(
+        self,
+        websocket: ServerConnection,
+        *,
+        remove_client: bool = False,
+    ) -> tuple[str, dict[str, Any] | None, bool, str, list[ServerConnection]]:
         peer_left_message: dict[str, Any] | None = None
         room_id = ""
         owner_disconnected = False
@@ -390,9 +442,11 @@ class SignalingServer:
         orphan_recipients: list[ServerConnection] = []
 
         async with self._lock:
-            client = self._clients.pop(websocket, None)
+            client = self._clients.get(websocket)
             if client is None:
-                return
+                return "", None, False, "", []
+            if remove_client:
+                self._clients.pop(websocket, None)
 
             if client.room_id:
                 room_id = client.room_id
@@ -419,22 +473,9 @@ class SignalingServer:
                         "roomId": client.room_id,
                         "peerId": client.peer_id,
                     }
+                client.room_id = ""
 
-        if owner_disconnected and room_id:
-            logging.warning(
-                "room owner disconnected roomId=%s ownerPeerId=%s; closing %d remaining member(s)",
-                room_id,
-                owner_peer_id,
-                len(orphan_recipients),
-            )
-            await self._close_specific_peers(
-                orphan_recipients,
-                code=1012,
-                reason="Room owner disconnected",
-            )
-
-        if peer_left_message is not None and room_id:
-            await self._broadcast_to_room(room_id, peer_left_message, except_ws=websocket)
+        return room_id, peer_left_message, owner_disconnected, owner_peer_id, orphan_recipients
 
     async def _send_error(self, websocket: ServerConnection, error: str) -> None:
         await self._send_message(websocket, {"type": "error", "error": error})

@@ -56,6 +56,8 @@ private:
     {
         std::string password;
         size_t maxParticipants = 2;
+        Connection owner;
+        std::string ownerPeerId;
         std::set<Connection, std::owner_less<Connection>> members;
 
         bool passwordProtected() const
@@ -242,6 +244,8 @@ private:
                     room.maxParticipants = message.maxParticipants > 0
                         ? static_cast<size_t>(message.maxParticipants)
                         : static_cast<size_t>(2);
+                    room.owner = connection;
+                    room.ownerPeerId = message.peerId;
                     room.members.insert(connection);
 
                     directMessage = WebRtcSignalingMessage{};
@@ -288,6 +292,47 @@ private:
                     broadcastMessage->roomId = message.roomId;
                     broadcastMessage->peerId = message.peerId;
                     broadcastRoomId = message.roomId;
+                    break;
+                }
+
+                case WebRtcSignalType::LeaveRoom: {
+                    if(client.roomId.empty()) {
+                        break;
+                    }
+
+                    const std::string roomId = client.roomId;
+                    const std::string peerId = client.peerId;
+                    auto roomIt = m_rooms.find(roomId);
+                    if(roomIt != m_rooms.end()) {
+                        roomIt->second.members.erase(connection);
+                        if(roomIt->second.owner == connection) {
+                            std::vector<Connection> orphanConnections;
+                            orphanConnections.reserve(roomIt->second.members.size());
+                            for(const auto& member : roomIt->second.members) {
+                                orphanConnections.push_back(member);
+                            }
+                            m_rooms.erase(roomIt);
+                            client.roomId.clear();
+                            for(const auto& orphan : orphanConnections) {
+                                try {
+                                    orphan->resetCallbacks();
+                                    orphan->forceClose();
+                                } catch(...) {
+                                }
+                            }
+                            break;
+                        }
+                        if(roomIt->second.members.empty()) {
+                            m_rooms.erase(roomIt);
+                        }
+                    }
+
+                    client.roomId.clear();
+                    broadcastMessage = WebRtcSignalingMessage{};
+                    broadcastMessage->type = WebRtcSignalType::PeerLeft;
+                    broadcastMessage->roomId = roomId;
+                    broadcastMessage->peerId = peerId;
+                    broadcastRoomId = roomId;
                     break;
                 }
 

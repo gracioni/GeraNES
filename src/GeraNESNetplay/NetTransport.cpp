@@ -37,6 +37,7 @@ const char* signalTypeLabel(WebRtcSignalType type)
         case WebRtcSignalType::IceCandidate: return "IceCandidate";
         case WebRtcSignalType::Error: return "Error";
         case WebRtcSignalType::RoomList: return "RoomList";
+        case WebRtcSignalType::LeaveRoom: return "LeaveRoom";
         default: return "Unknown";
     }
 }
@@ -623,6 +624,11 @@ private:
         clearRuntimeState();
         logTrace(std::string("bootstrap begin as ") + (host ? "host" : "client"));
 
+        if(m_signalingClient) {
+            m_signalingClient->disconnect();
+            m_signalingClient.reset();
+        }
+
         if(!ensureSignalingClient()) {
             m_lastError = "WebRTC signaling client could not be created";
             logTrace(m_lastError);
@@ -812,6 +818,26 @@ private:
         logTrace(std::string(context) + " failed for " + peer.remotePeerId + ": " + m_lastError);
         requestFatalShutdown(m_lastError.empty() ? std::string("WebRTC signaling send failed") : m_lastError);
         return false;
+    }
+
+    void sendLeaveRoomBestEffort()
+    {
+        if(!m_signalingClient || !m_signalingClient->isConnected()) {
+            return;
+        }
+        if(!m_activeSignalingConfig.has_value() || m_localPeerId.empty()) {
+            return;
+        }
+        if(!m_signalingReady && !m_bootstrapSawRoomJoined) {
+            return;
+        }
+
+        WebRtcSignalingMessage leaveMessage;
+        leaveMessage.type = WebRtcSignalType::LeaveRoom;
+        leaveMessage.roomId = m_activeSignalingConfig->roomId;
+        leaveMessage.peerId = m_localPeerId;
+        logTrace("sent signaling message: LeaveRoom roomId=" + leaveMessage.roomId);
+        (void)m_signalingClient->send(leaveMessage);
     }
 
     void drainPeerEvents(PeerHandle handle, std::vector<Event>& events)
@@ -1138,12 +1164,15 @@ public:
         } else {
             logTrace("shutdown");
         }
+        sendLeaveRoomBestEffort();
         if(m_signalingClient) {
             m_signalingClient->disconnect();
         }
         if(m_signalingServer) {
             m_signalingServer->stop();
         }
+        m_signalingClient.reset();
+        m_signalingServer.reset();
         clearRuntimeState();
     }
     void setOptions(const NetTransportOptions& options) override { m_options = options; }

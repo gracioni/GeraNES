@@ -86,6 +86,7 @@ enum class WebRtcSignalType
     RoomList,
     CreateRoom,
     JoinRoom,
+    LeaveRoom,
     RoomJoined,
     PeerJoined,
     PeerLeft,
@@ -103,6 +104,7 @@ inline const char* webRtcSignalTypeLabel(WebRtcSignalType type)
         case WebRtcSignalType::RoomList: return "room_list";
         case WebRtcSignalType::CreateRoom: return "create_room";
         case WebRtcSignalType::JoinRoom: return "join_room";
+        case WebRtcSignalType::LeaveRoom: return "leave_room";
         case WebRtcSignalType::RoomJoined: return "room_joined";
         case WebRtcSignalType::PeerJoined: return "peer_joined";
         case WebRtcSignalType::PeerLeft: return "peer_left";
@@ -121,6 +123,7 @@ inline std::optional<WebRtcSignalType> parseWebRtcSignalType(const std::string& 
     if(label == "room_list") return WebRtcSignalType::RoomList;
     if(label == "create_room") return WebRtcSignalType::CreateRoom;
     if(label == "join_room") return WebRtcSignalType::JoinRoom;
+    if(label == "leave_room") return WebRtcSignalType::LeaveRoom;
     if(label == "room_joined") return WebRtcSignalType::RoomJoined;
     if(label == "peer_joined") return WebRtcSignalType::PeerJoined;
     if(label == "peer_left") return WebRtcSignalType::PeerLeft;
