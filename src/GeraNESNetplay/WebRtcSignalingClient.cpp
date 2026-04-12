@@ -24,6 +24,7 @@ namespace {
 
 #if !defined(__EMSCRIPTEN__)
 constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(10000);
+constexpr auto kDesktopSignalingGracefulCloseTimeout = std::chrono::milliseconds(500);
 
 class SignalingCleanupQueue
 {
@@ -309,6 +310,11 @@ public:
         if(socket) {
             logTrace("disconnecting socket");
             enqueueSignalingCleanup([socket = std::move(socket)]() mutable {
+                try {
+                    socket->close();
+                    std::this_thread::sleep_for(kDesktopSignalingGracefulCloseTimeout);
+                } catch(...) {
+                }
                 try {
                     socket->resetCallbacks();
                     socket->forceClose();

@@ -9,6 +9,7 @@ It implements the same JSON message protocol as the embedded signaling server in
 - `room_list`
 - `create_room`
 - `join_room`
+- `leave_room`
 - `room_joined`
 - `peer_joined`
 - `peer_left`
@@ -18,6 +19,8 @@ It implements the same JSON message protocol as the embedded signaling server in
 - `error`
 
 The server forwards SDP and ICE messages by `targetPeerId` inside a room, and broadcasts `peer_joined` / `peer_left` to the other peers in that room.
+
+For robust cleanup, the protocol also supports `leave_room` for intentional disconnects. The server should still detect dead sockets independently via WebSocket heartbeats.
 
 Room behavior:
 
@@ -77,6 +80,8 @@ Example:
   "host": "0.0.0.0",
   "port": 8765,
   "logLevel": "INFO",
+  "pingIntervalSeconds": 15,
+  "pingTimeoutSeconds": 15,
   "iceServers": [
     "stun:stun.l.google.com:19302",
     "turn:username:password@turn.example.com:3478?transport=udp"
@@ -88,6 +93,7 @@ Notes:
 
 - `iceServers` is a list of strings because that is what the current GeraNES signaling protocol carries.
 - If you use TURN credentials, encode them directly in the TURN URL string.
+- `pingIntervalSeconds` / `pingTimeoutSeconds` default to `15`. Set them to `0` or a negative value to disable heartbeats, but that is not recommended for production use because stale sockets and rooms may linger much longer.
 
 ## Protocol Notes
 
