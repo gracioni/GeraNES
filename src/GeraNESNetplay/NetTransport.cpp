@@ -541,10 +541,16 @@ private:
                 continue;
             }
 
-            requestFatalShutdown(
+            WebRtcPeerState* failedPeer = findPeerByHandle(peer.handle);
+            if(failedPeer == nullptr) {
+                continue;
+            }
+
+            handlePeerFailure(
+                *failedPeer,
                 "WebRTC peer handshake timed out (" +
-                std::string(handshakeStageLabel(peer.handshakeState)) +
-                " for " + peer.remotePeerId + ")"
+                    std::string(handshakeStageLabel(failedPeer->handshakeState)) +
+                    " for " + failedPeer->remotePeerId + ")"
             );
             return;
         }
@@ -760,6 +766,22 @@ private:
         peer.closeDeadline = std::chrono::steady_clock::now() + kWebRtcGracefulDisconnectDelay;
     }
 
+    void handlePeerFailure(WebRtcPeerState& peer,
+                           const std::string& error,
+                           std::vector<Event>* events = nullptr)
+    {
+        const std::string resolvedError =
+            error.empty() ? std::string("WebRTC peer negotiation failed") : error;
+        logTrace("peer failure for " + peer.remotePeerId + ": " + resolvedError);
+
+        if(m_hosting) {
+            closePeer(peer.handle, events);
+            return;
+        }
+
+        requestFatalShutdown(resolvedError);
+    }
+
     void processPendingPeerClose(std::vector<Event>& events)
     {
         const auto now = std::chrono::steady_clock::now();
@@ -931,7 +953,8 @@ private:
                     const std::string error = event.text.empty() ? peer->connection->lastError() : event.text;
                     logTrace("peer error for " + peer->remotePeerId + ": " + error);
                     if(!shouldIgnoreExpectedPeerError(*peer, error)) {
-                        m_lastError = error;
+                        handlePeerFailure(*peer, error, &events);
+                        return;
                     }
                     break;
                 }
@@ -1077,8 +1100,8 @@ private:
                                 startPeerHandshake(*peer, PeerHandshakeState::CreatingOffer);
                                 logTrace("starting createOffer for " + message.peerId);
                                 if(!peer->connection->createOffer()) {
-                                    m_lastError = peer->connection->lastError();
-                                    logTrace("createOffer failed for " + message.peerId + ": " + m_lastError);
+                                    handlePeerFailure(*peer, peer->connection->lastError(), &events);
+                                    return;
                                 } else {
                                     logTrace("createOffer submitted for " + message.peerId);
                                 }
@@ -1110,13 +1133,12 @@ private:
                         stopInitialOfferWait();
                         startPeerHandshake(*peer, PeerHandshakeState::Negotiating);
                         if(!peer->connection->setRemoteDescription(message.sdp, true)) {
-                            m_lastError = peer->connection->lastError();
-                            logTrace("setRemoteDescription(offer) failed for " + message.peerId + ": " + m_lastError);
-                            break;
+                            handlePeerFailure(*peer, peer->connection->lastError(), &events);
+                            return;
                         }
                         if(!peer->connection->createAnswer()) {
-                            m_lastError = peer->connection->lastError();
-                            logTrace("createAnswer failed for " + message.peerId + ": " + m_lastError);
+                            handlePeerFailure(*peer, peer->connection->lastError(), &events);
+                            return;
                         }
                     }
                     break;
@@ -1129,8 +1151,8 @@ private:
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
                         noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
                         if(!peer->connection->setRemoteDescription(message.sdp, false)) {
-                            m_lastError = peer->connection->lastError();
-                            logTrace("setRemoteDescription(answer) failed for " + message.peerId + ": " + m_lastError);
+                            handlePeerFailure(*peer, peer->connection->lastError(), &events);
+                            return;
                         }
                     }
                     break;
@@ -1143,8 +1165,8 @@ private:
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
                         noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
                         if(!peer->connection->addRemoteIceCandidate(message.candidate, message.mid, message.mlineIndex)) {
-                            m_lastError = peer->connection->lastError();
-                            logTrace("addRemoteIceCandidate failed for " + message.peerId + ": " + m_lastError);
+                            handlePeerFailure(*peer, peer->connection->lastError(), &events);
+                            return;
                         }
                     }
                     break;

@@ -689,13 +689,58 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
     try {
         const iceServersRaw = UTF8ToString(iceServersJsonPtr || 0);
         let iceServers = [];
+        function parseIceServer(value) {
+            if(typeof value !== 'string' || value.length === 0) {
+                return null;
+            }
+
+            const trimmed = value.trim();
+            if(trimmed.length === 0) {
+                return null;
+            }
+
+            if(!trimmed.startsWith('turn:') && !trimmed.startsWith('turns:')) {
+                return { urls: trimmed };
+            }
+
+            const schemeEnd = trimmed.indexOf(':');
+            if(schemeEnd <= 0) {
+                return { urls: trimmed };
+            }
+
+            const scheme = trimmed.substring(0, schemeEnd);
+            const remainder = trimmed.substring(schemeEnd + 1);
+            const atIndex = remainder.indexOf('@');
+            if(atIndex <= 0) {
+                return { urls: trimmed };
+            }
+
+            const credentials = remainder.substring(0, atIndex);
+            const hostPart = remainder.substring(atIndex + 1);
+            const credentialSep = credentials.indexOf(':');
+            if(credentialSep <= 0) {
+                return { urls: trimmed };
+            }
+
+            const username = credentials.substring(0, credentialSep);
+            const credential = credentials.substring(credentialSep + 1);
+            if(username.length === 0 || credential.length === 0 || hostPart.length === 0) {
+                return { urls: trimmed };
+            }
+
+            return {
+                urls: scheme + ':' + hostPart,
+                username: username,
+                credential: credential
+            };
+        }
         if(iceServersRaw) {
             try {
                 const parsed = JSON.parse(iceServersRaw);
                 if(Array.isArray(parsed)) {
                     iceServers = parsed
-                        .filter(v => typeof v === 'string' && v.length > 0)
-                        .map(v => ({ urls: v }));
+                        .map(parseIceServer)
+                        .filter(v => !!v);
                 }
             } catch(_) {
             }
