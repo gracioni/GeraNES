@@ -68,6 +68,20 @@ private:
     }
 };
 
+void retireRtcCallbackContext(void* context) noexcept
+{
+    // libdatachannel callbacks can still race briefly with teardown even after
+    // callbacks/user pointers are cleared. Keep retired callback contexts alive
+    // for process lifetime and rely on the alive flag to make them inert.
+    static std::mutex retiredMutex;
+    static std::vector<void*> retiredContexts;
+    if(context == nullptr) {
+        return;
+    }
+    std::scoped_lock lock(retiredMutex);
+    retiredContexts.push_back(context);
+}
+
 void onRtcLog(rtcLogLevel level, const char* message)
 {
     Logger::Type type = Logger::Type::INFO;
@@ -316,7 +330,7 @@ private:
                     }
                 } catch(...) {
                 }
-                delete previousDataChannelContext;
+                retireRtcCallbackContext(previousDataChannelContext);
             });
         }
 
@@ -428,7 +442,7 @@ public:
                     }
                 } catch(...) {
                 }
-                delete dataChannelContext;
+                retireRtcCallbackContext(dataChannelContext);
             });
         }
 
@@ -445,7 +459,7 @@ public:
                     }
                 } catch(...) {
                 }
-                delete peerContext;
+                retireRtcCallbackContext(peerContext);
             });
         }
 
