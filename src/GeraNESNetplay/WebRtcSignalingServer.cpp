@@ -40,6 +40,11 @@ class DesktopWebRtcSignalingServer final : public IWebRtcSignalingServer
 {
 private:
     using Connection = std::shared_ptr<rtc::WebSocket>;
+    struct CallbackContext
+    {
+        std::atomic<bool> alive{true};
+        DesktopWebRtcSignalingServer* owner = nullptr;
+    };
 
     struct ClientState
     {
@@ -66,7 +71,15 @@ private:
     bool m_running = false;
     uint16_t m_port = 0;
     std::string m_lastError;
-    std::shared_ptr<std::atomic<bool>> m_callbackAlive;
+    std::shared_ptr<CallbackContext> m_callbackContext;
+
+    static DesktopWebRtcSignalingServer* ownerFromContext(const std::shared_ptr<CallbackContext>& context)
+    {
+        if(!context || !context->alive.load(std::memory_order_acquire)) {
+            return nullptr;
+        }
+        return context->owner;
+    }
 
     void sendMessage(const Connection& connection, const WebRtcSignalingMessage& message)
     {
@@ -325,9 +338,10 @@ private:
         }
 
         std::weak_ptr<rtc::WebSocket> weakConnection = connection;
-        const std::shared_ptr<std::atomic<bool>> callbackAlive = m_callbackAlive;
-        connection->onMessage([this, weakConnection, callbackAlive](rtc::message_variant data) {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+        const std::shared_ptr<CallbackContext> callbackContext = m_callbackContext;
+        connection->onMessage([weakConnection, callbackContext](rtc::message_variant data) {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
                 return;
             }
             const auto connection = weakConnection.lock();
@@ -335,28 +349,30 @@ private:
             const auto* text = std::get_if<std::string>(&data);
             if(text == nullptr) return;
             try {
-                handleMessage(connection, *text);
+                self->handleMessage(connection, *text);
             } catch(...) {
             }
         });
-        connection->onClosed([this, weakConnection, callbackAlive]() {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+        connection->onClosed([weakConnection, callbackContext]() {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
                 return;
             }
             if(const auto connection = weakConnection.lock(); connection) {
                 try {
-                    handleDisconnect(connection);
+                    self->handleDisconnect(connection);
                 } catch(...) {
                 }
             }
         });
-        connection->onError([this, weakConnection, callbackAlive](std::string) {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+        connection->onError([weakConnection, callbackContext](std::string) {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
                 return;
             }
             if(const auto connection = weakConnection.lock(); connection) {
                 try {
-                    handleDisconnect(connection);
+                    self->handleDisconnect(connection);
                 } catch(...) {
                 }
             }
@@ -378,13 +394,15 @@ public:
             config.port = port;
 
             auto server = std::make_unique<rtc::WebSocketServer>(config);
-            m_callbackAlive = std::make_shared<std::atomic<bool>>(true);
-            const std::shared_ptr<std::atomic<bool>> callbackAlive = m_callbackAlive;
-            server->onClient([this, callbackAlive](Connection connection) {
-                if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+            m_callbackContext = std::make_shared<CallbackContext>();
+            m_callbackContext->owner = this;
+            const std::shared_ptr<CallbackContext> callbackContext = m_callbackContext;
+            server->onClient([callbackContext](Connection connection) {
+                auto* self = ownerFromContext(callbackContext);
+                if(self == nullptr) {
                     return;
                 }
-                attachClientCallbacks(std::move(connection));
+                self->attachClientCallbacks(std::move(connection));
             });
 
             {
@@ -411,7 +429,7 @@ public:
     {
         std::unique_ptr<rtc::WebSocketServer> server;
         std::vector<Connection> connections;
-        std::shared_ptr<std::atomic<bool>> callbackAlive;
+        std::shared_ptr<CallbackContext> callbackContext;
         {
             std::scoped_lock lock(m_mutex);
             for(const auto& [connection, state] : m_clients) {
@@ -419,15 +437,16 @@ public:
                 connections.push_back(connection);
             }
             server = std::move(m_server);
-            callbackAlive = std::move(m_callbackAlive);
+            callbackContext = std::move(m_callbackContext);
             m_clients.clear();
             m_rooms.clear();
             m_running = false;
             m_port = 0;
         }
 
-        if(callbackAlive) {
-            callbackAlive->store(false, std::memory_order_release);
+        if(callbackContext) {
+            callbackContext->alive.store(false, std::memory_order_release);
+            callbackContext->owner = nullptr;
         }
 
         for(const auto& connection : connections) {
@@ -455,8 +474,9 @@ public:
         return m_port;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
+        std::scoped_lock lock(m_mutex);
         return m_lastError;
     }
 };
@@ -486,7 +506,7 @@ public:
         return 0;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
         return m_lastError;
     }

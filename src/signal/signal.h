@@ -38,6 +38,7 @@ class SigSlotBase
         size_t dispatch_queued_calls(size_t maxCalls = static_cast<size_t>(-1));
     private:
         std::list<std::shared_ptr<Binding>> _bindings;
+        mutable std::mutex _bindingsMutex;
         std::thread::id _ownerThreadId;
         mutable std::mutex _queuedCallsMutex;
         std::queue<std::function<void()>> _queuedCalls;
@@ -87,8 +88,11 @@ class Signal: public SigSlotBase
         {
             std::shared_ptr<Binding> binding = Binding::create(this, inst);
 
-            _slots.push_back(_Binding_Fun(
-                       binding, [=](_ArgTypes... args){(inst->*slot)(args...);}));
+            {
+                std::scoped_lock lock(_slotsMutex);
+                _slots.push_back(_Binding_Fun(
+                           binding, [=](_ArgTypes... args){(inst->*slot)(args...);}));
+            }
 
             inst->add_binding(binding);
             add_binding(binding);
@@ -100,15 +104,18 @@ class Signal: public SigSlotBase
             std::shared_ptr<Binding> binding = Binding::create(this, inst);
             std::weak_ptr<Binding> weakBinding = binding;
 
-            _slots.push_back(_Binding_Fun(
-                binding,
-                [=](_ArgTypes... args) {
-                    inst->enqueue_call([=]() {
-                        auto locked = weakBinding.lock();
-                        if(!locked || !locked->is_active()) return;
-                        (inst->*slot)(args...);
-                    });
-                }));
+            {
+                std::scoped_lock lock(_slotsMutex);
+                _slots.push_back(_Binding_Fun(
+                    binding,
+                    [=](_ArgTypes... args) {
+                        inst->enqueue_call([=]() {
+                            auto locked = weakBinding.lock();
+                            if(!locked || !locked->is_active()) return;
+                            (inst->*slot)(args...);
+                        });
+                    }));
+            }
 
             inst->add_binding(binding);
             add_binding(binding);
@@ -120,22 +127,25 @@ class Signal: public SigSlotBase
             std::shared_ptr<Binding> binding = Binding::create(this, inst);
             std::weak_ptr<Binding> weakBinding = binding;
 
-            _slots.push_back(_Binding_Fun(
-                binding,
-                [=](_ArgTypes... args) {
-                    if(inst->in_owner_thread()) {
-                        auto locked = weakBinding.lock();
-                        if(!locked || !locked->is_active()) return;
-                        (inst->*slot)(args...);
-                        return;
-                    }
+            {
+                std::scoped_lock lock(_slotsMutex);
+                _slots.push_back(_Binding_Fun(
+                    binding,
+                    [=](_ArgTypes... args) {
+                        if(inst->in_owner_thread()) {
+                            auto locked = weakBinding.lock();
+                            if(!locked || !locked->is_active()) return;
+                            (inst->*slot)(args...);
+                            return;
+                        }
 
-                    inst->enqueue_call([=]() {
-                        auto locked = weakBinding.lock();
-                        if(!locked || !locked->is_active()) return;
-                        (inst->*slot)(args...);
-                    });
-                }));
+                        inst->enqueue_call([=]() {
+                            auto locked = weakBinding.lock();
+                            if(!locked || !locked->is_active()) return;
+                            (inst->*slot)(args...);
+                        });
+                    }));
+            }
 
             inst->add_binding(binding);
             add_binding(binding);
@@ -155,8 +165,17 @@ class Signal: public SigSlotBase
          */
         void _emit(_ArgTypes... args)
         {
-            for(auto& slot: _slots) {
-                std::get<1>(slot)(args...);
+            std::vector<_Fun> slots;
+            {
+                std::scoped_lock lock(_slotsMutex);
+                slots.reserve(_slots.size());
+                for(const auto& slot : _slots) {
+                    slots.push_back(std::get<1>(slot));
+                }
+            }
+
+            for(auto& slot: slots) {
+                slot(args...);
             }
         }
 
@@ -181,7 +200,8 @@ class Signal: public SigSlotBase
         {
             SigSlotBase::erase_binding(b);
 
-            auto it = std::find_if(_slots.begin(), _slots.end(), [&b](_Binding_Fun r) -> bool {
+            std::scoped_lock lock(_slotsMutex);
+            auto it = std::find_if(_slots.begin(), _slots.end(), [&b](const _Binding_Fun& r) -> bool {
                     return std::get<0>(r) == b;});
 
             if( it != _slots.end()) _slots.erase(it);
@@ -189,6 +209,7 @@ class Signal: public SigSlotBase
 
     private:
         std::list<_Binding_Fun> _slots;
+        mutable std::mutex _slotsMutex;
 };
 
 } // namespace

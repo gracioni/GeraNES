@@ -56,7 +56,7 @@ public:
     virtual std::vector<Event> poll() = 0;
     virtual bool isOpen() const = 0;
     virtual bool isDataChannelOpen() const = 0;
-    virtual const std::string& lastError() const = 0;
+    virtual std::string lastError() const = 0;
 };
 
 std::unique_ptr<IWebRtcPeerConnection> createWebRtcPeerConnection();

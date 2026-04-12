@@ -14,19 +14,33 @@ SigSlotBase::SigSlotBase()
 
 SigSlotBase::~SigSlotBase()
 {
-    while(!_bindings.empty()) {
-        _bindings.front()->unbind();
-    }
+    while(true) {
+        std::shared_ptr<Binding> binding;
+        {
+            std::scoped_lock lock(_bindingsMutex);
+            if(_bindings.empty()) {
+                break;
+            }
+            binding = _bindings.front();
+        }
 
+        if(!binding) {
+            break;
+        }
+
+        binding->unbind();
+    }
 }
 
 void SigSlotBase::add_binding(const std::shared_ptr<Binding>& b)
 {
+    std::scoped_lock lock(_bindingsMutex);
     _bindings.push_back(b);
 }
 
 void SigSlotBase::erase_binding(const std::shared_ptr<Binding>& b)
 {
+    std::scoped_lock lock(_bindingsMutex);
     auto pos = std::find(_bindings.begin(), _bindings.end(), b);
     if(pos == _bindings.end()) {
         return;

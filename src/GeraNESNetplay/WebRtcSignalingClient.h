@@ -42,7 +42,7 @@ public:
     virtual bool send(const WebRtcSignalingMessage& message) = 0;
     virtual std::vector<Event> poll() = 0;
     virtual bool isConnected() const = 0;
-    virtual const std::string& lastError() const = 0;
+    virtual std::string lastError() const = 0;
 };
 
 std::unique_ptr<IWebRtcSignalingClient> createWebRtcSignalingClient();

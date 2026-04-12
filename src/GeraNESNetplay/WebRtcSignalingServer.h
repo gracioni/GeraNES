@@ -15,7 +15,7 @@ public:
     virtual void stop() = 0;
     virtual bool isRunning() const = 0;
     virtual uint16_t port() const = 0;
-    virtual const std::string& lastError() const = 0;
+    virtual std::string lastError() const = 0;
 };
 
 std::unique_ptr<IWebRtcSignalingServer> createWebRtcSignalingServer();

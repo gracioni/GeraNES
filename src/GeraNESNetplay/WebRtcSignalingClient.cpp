@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #if !defined(__EMSCRIPTEN__)
 #include <rtc/websocket.hpp>
@@ -21,10 +22,16 @@ namespace Netplay {
 namespace {
 
 #if !defined(__EMSCRIPTEN__)
-constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(1500);
+constexpr auto kDesktopSignalingConnectTimeout = std::chrono::milliseconds(4000);
 class DesktopWebRtcSignalingClient final : public IWebRtcSignalingClient
 {
 private:
+    struct CallbackContext
+    {
+        std::atomic<bool> alive{true};
+        DesktopWebRtcSignalingClient* owner = nullptr;
+    };
+
     std::shared_ptr<rtc::WebSocket> m_socket;
     bool m_connected = false;
     bool m_connectResolved = false;
@@ -32,13 +39,26 @@ private:
     std::string m_connectError;
     std::string m_lastError;
     std::deque<Event> m_events;
-    std::shared_ptr<std::atomic<bool>> m_callbackAlive;
+    std::shared_ptr<CallbackContext> m_callbackContext;
     mutable std::mutex m_mutex;
     std::condition_variable m_connectCondition;
+
+    static DesktopWebRtcSignalingClient* ownerFromContext(const std::shared_ptr<CallbackContext>& context)
+    {
+        if(!context || !context->alive.load(std::memory_order_acquire)) {
+            return nullptr;
+        }
+        return context->owner;
+    }
 
     static bool startsWith(const std::string& value, const char* prefix)
     {
         return value.rfind(prefix, 0) == 0;
+    }
+
+    void logTrace(const std::string& message) const
+    {
+        Logger::instance().log("[WebRTC signaling] " + message, Logger::Type::INFO);
     }
 
     void pushEvent(Event&& event)
@@ -82,6 +102,7 @@ public:
         rtc::WebSocket::Configuration config;
         config.connectionTimeout = kDesktopSignalingConnectTimeout;
         auto socket = std::make_shared<rtc::WebSocket>(config);
+        logTrace("connecting to " + options.config.url);
 
         {
             std::scoped_lock lock(m_mutex);
@@ -92,49 +113,62 @@ public:
             m_connectError.clear();
             m_lastError.clear();
             m_events.clear();
-            m_callbackAlive = std::make_shared<std::atomic<bool>>(true);
+            m_callbackContext = std::make_shared<CallbackContext>();
+            m_callbackContext->owner = this;
         }
 
-        const std::shared_ptr<std::atomic<bool>> callbackAlive = m_callbackAlive;
+        const std::shared_ptr<CallbackContext> callbackContext = m_callbackContext;
 
-        socket->onOpen([this, callbackAlive]() {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+        socket->onOpen([callbackContext]() {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
+                return;
+            }
+            bool firstOpen = false;
+            {
+                std::scoped_lock lock(self->m_mutex);
+                firstOpen = !self->m_connected;
+                self->m_connected = true;
+            }
+            if(firstOpen) {
+                self->logTrace("socket opened");
+                self->pushEvent(Event{Event::Type::Connected, {}, {}});
+            }
+            self->markConnectResolved(true);
+        });
+
+        socket->onClosed([callbackContext]() {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
                 return;
             }
             {
-                std::scoped_lock lock(m_mutex);
-                m_connected = true;
+                std::scoped_lock lock(self->m_mutex);
+                self->m_connected = false;
             }
-            pushEvent(Event{Event::Type::Connected, {}, {}});
-            markConnectResolved(true);
+            self->logTrace("socket closed");
+            self->pushEvent(Event{Event::Type::Disconnected, {}, {}});
         });
 
-        socket->onClosed([this, callbackAlive]() {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+        socket->onError([callbackContext](std::string error) {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
                 return;
             }
+            std::string copiedError = std::move(error);
             {
-                std::scoped_lock lock(m_mutex);
-                m_connected = false;
+                std::scoped_lock lock(self->m_mutex);
+                self->m_connected = false;
+                self->m_lastError = copiedError;
             }
-            pushEvent(Event{Event::Type::Disconnected, {}, {}});
+            self->logTrace("socket error: " + copiedError);
+            self->pushEvent(Event{Event::Type::Error, {}, copiedError});
+            self->markConnectResolved(false, copiedError);
         });
 
-        socket->onError([this, callbackAlive](std::string error) {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
-                return;
-            }
-            {
-                std::scoped_lock lock(m_mutex);
-                m_connected = false;
-                m_lastError = std::move(error);
-            }
-            pushEvent(Event{Event::Type::Error, {}, m_lastError});
-            markConnectResolved(false, m_lastError);
-        });
-
-        socket->onMessage([this, callbackAlive](rtc::message_variant data) {
-            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+        socket->onMessage([callbackContext](rtc::message_variant data) {
+            auto* self = ownerFromContext(callbackContext);
+            if(self == nullptr) {
                 return;
             }
             const std::string* text = std::get_if<std::string>(&data);
@@ -148,7 +182,7 @@ public:
             if(const auto parsed = WebRtcSignalingMessage::fromText(event.text); parsed.has_value()) {
                 event.message = *parsed;
             }
-            pushEvent(std::move(event));
+            self->pushEvent(std::move(event));
         });
 
         try {
@@ -163,39 +197,17 @@ public:
             return false;
         }
 
-        std::unique_lock lock(m_mutex);
-        const bool resolved = m_connectCondition.wait_for(
-            lock,
-            kDesktopSignalingConnectTimeout,
-            [this]() { return m_connectResolved; });
-        if(!resolved) {
-            lock.unlock();
-            m_lastError = "WebRTC signaling connection timed out";
-            disconnect();
-            return false;
-        }
-
-        const bool connectSucceeded = m_connectSucceeded;
-        const std::string connectError = m_connectError;
-        lock.unlock();
-
-        if(!connectSucceeded) {
-            m_lastError = connectError.empty() ? "WebRTC signaling connection failed" : connectError;
-            disconnect();
-            return false;
-        }
-
         return true;
     }
 
     void disconnect() override
     {
         std::shared_ptr<rtc::WebSocket> socket;
-        std::shared_ptr<std::atomic<bool>> callbackAlive;
+        std::shared_ptr<CallbackContext> callbackContext;
         {
             std::scoped_lock lock(m_mutex);
             socket = std::move(m_socket);
-            callbackAlive = std::move(m_callbackAlive);
+            callbackContext = std::move(m_callbackContext);
             m_connected = false;
             m_connectResolved = false;
             m_connectSucceeded = false;
@@ -203,13 +215,21 @@ public:
             m_events.clear();
         }
 
-        if(callbackAlive) {
-            callbackAlive->store(false, std::memory_order_release);
+        if(callbackContext) {
+            callbackContext->alive.store(false, std::memory_order_release);
+            callbackContext->owner = nullptr;
         }
 
         if(socket) {
-            socket->resetCallbacks();
-            socket->forceClose();
+            logTrace("disconnecting socket");
+            std::thread([socket = std::move(socket)]() mutable {
+                try {
+                    socket->resetCallbacks();
+                    socket->close();
+                } catch(...) {
+                }
+                socket.reset();
+            }).detach();
         }
     }
 
@@ -252,8 +272,9 @@ public:
         return m_connected;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
+        std::scoped_lock lock(m_mutex);
         return m_lastError;
     }
 };
@@ -530,8 +551,9 @@ public:
         return m_connected;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
+        std::scoped_lock lock(m_mutex);
         return m_lastError;
     }
 };
@@ -607,7 +629,7 @@ public:
         return m_connected;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
         return m_lastError;
     }

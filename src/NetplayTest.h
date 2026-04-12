@@ -89,6 +89,8 @@ public:
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
         bool requireHostManualLoadDuringResync = false;
+        Netplay::NetTransportBackend transportBackend = Netplay::NetTransportBackend::ENet;
+        Netplay::NetTransportOptions transportOptions = {};
         std::vector<uint32_t> hostManualLoadStateFrames;
     };
 
@@ -1563,6 +1565,10 @@ private:
 
         hostPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
         clientPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
+        hostPeer.runtime.setTransportBackend(options.transportBackend);
+        clientPeer.runtime.setTransportBackend(options.transportBackend);
+        hostPeer.runtime.setTransportOptions(options.transportOptions);
+        clientPeer.runtime.setTransportOptions(options.transportOptions);
         hostPeer.runtime.refreshLocalRomSelectionImmediate();
         clientPeer.runtime.refreshLocalRomSelectionImmediate();
 

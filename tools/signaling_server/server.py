@@ -134,6 +134,8 @@ class SignalingServer:
             client = self._clients.setdefault(websocket, ClientState())
             client.peer_id = peer_id
 
+        logging.info("peer hello peerId=%s requestedRoom=%s", peer_id, _as_string(message.get("roomId")))
+
         await self._send_message(
             websocket,
             {
@@ -194,8 +196,16 @@ class SignalingServer:
                 room.password = password
                 room.max_participants = max_participants
                 room.members.add(websocket)
+                logging.info(
+                    "room created roomId=%s ownerPeerId=%s maxParticipants=%d members=%d",
+                    room_id,
+                    peer_id,
+                    room.max_participants,
+                    len(room.members),
+                )
 
         if room_taken:
+            logging.warning("create_room rejected roomId=%s peerId=%s reason=room_exists", room_id, peer_id)
             await self._send_error(websocket, "Room already exists")
             return
 
@@ -222,6 +232,7 @@ class SignalingServer:
             if room is None or not room.members:
                 room_missing = True
                 invalid_password = False
+                room_full = False
                 recipients: list[ServerConnection] = []
             else:
                 room_missing = False
@@ -247,14 +258,24 @@ class SignalingServer:
                     room.members.add(websocket)
 
         if room_missing:
+            logging.warning("join_room rejected roomId=%s peerId=%s reason=room_missing", room_id, peer_id)
             await self._send_error(websocket, "Room does not exist")
             return
         if invalid_password:
+            logging.warning("join_room rejected roomId=%s peerId=%s reason=invalid_password", room_id, peer_id)
             await self._send_error(websocket, "Invalid room password")
             return
         if room_full:
+            logging.warning("join_room rejected roomId=%s peerId=%s reason=room_full", room_id, peer_id)
             await self._send_error(websocket, "Room is full")
             return
+
+        logging.info(
+            "room joined roomId=%s peerId=%s notifyRecipients=%d",
+            room_id,
+            peer_id,
+            len(recipients),
+        )
 
         await self._send_message(
             websocket,
@@ -296,8 +317,23 @@ class SignalingServer:
             await self._send_error(websocket, "Join a room before sending signaling data")
             return
         if target_ws is None:
+            logging.warning(
+                "direct_signal dropped type=%s roomId=%s senderPeerId=%s targetPeerId=%s reason=target_not_connected",
+                _as_string(message.get("type")),
+                room_id,
+                sender_peer_id,
+                target_peer_id,
+            )
             await self._send_error(websocket, "Target peer is not connected")
             return
+
+        logging.info(
+            "direct_signal type=%s roomId=%s senderPeerId=%s targetPeerId=%s",
+            _as_string(message.get("type")),
+            room_id,
+            sender_peer_id,
+            target_peer_id,
+        )
 
         outbound = {
             "type": message["type"],
@@ -329,6 +365,12 @@ class SignalingServer:
                         self._rooms.pop(client.room_id, None)
 
                 if client.peer_id:
+                    logging.info(
+                        "peer disconnected roomId=%s peerId=%s remainingMembers=%d",
+                        client.room_id,
+                        client.peer_id,
+                        len(room.members) if room is not None else 0,
+                    )
                     peer_left_message = {
                         "type": "peer_left",
                         "roomId": client.room_id,
@@ -343,7 +385,17 @@ class SignalingServer:
 
     async def _send_message(self, websocket: ServerConnection, message: dict[str, Any]) -> None:
         payload = _normalize_message(message, ice_servers=self._config.ice_servers)
-        await websocket.send(json.dumps(payload, separators=(",", ":")))
+        try:
+            await websocket.send(json.dumps(payload, separators=(",", ":")))
+        except Exception as exc:
+            logging.warning(
+                "send failed type=%s peerId=%s roomId=%s error=%s",
+                payload.get("type", ""),
+                payload.get("peerId", ""),
+                payload.get("roomId", ""),
+                exc,
+            )
+            raise
 
     async def _broadcast_to_room(
         self,
@@ -372,10 +424,19 @@ class SignalingServer:
             _normalize_message(message, ice_servers=self._config.ice_servers),
             separators=(",", ":"),
         )
-        await asyncio.gather(
+        results = await asyncio.gather(
             *(recipient.send(payload) for recipient in recipients),
             return_exceptions=True,
         )
+        for result in results:
+            if isinstance(result, Exception):
+                logging.warning(
+                    "broadcast send failed type=%s roomId=%s peerId=%s error=%s",
+                    message.get("type", ""),
+                    _as_string(message.get("roomId")),
+                    _as_string(message.get("peerId")),
+                    result,
+                )
 
     def _find_peer_in_room_locked(
         self,

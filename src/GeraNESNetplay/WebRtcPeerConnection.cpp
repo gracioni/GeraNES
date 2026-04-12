@@ -1,4 +1,5 @@
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
+#include "logger/logger.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -19,6 +20,39 @@ namespace {
 
 #if !defined(__EMSCRIPTEN__)
 constexpr const char* kNetplayDataChannelLabel = "geranes";
+
+void onRtcLog(rtcLogLevel level, const char* message)
+{
+    Logger::Type type = Logger::Type::INFO;
+    switch(level) {
+        case RTC_LOG_FATAL:
+        case RTC_LOG_ERROR:
+            type = Logger::Type::ERROR;
+            break;
+        case RTC_LOG_WARNING:
+            type = Logger::Type::WARNING;
+            break;
+        case RTC_LOG_DEBUG:
+        case RTC_LOG_VERBOSE:
+            type = Logger::Type::DEBUG;
+            break;
+        case RTC_LOG_NONE:
+        case RTC_LOG_INFO:
+        default:
+            type = Logger::Type::INFO;
+            break;
+    }
+
+    Logger::instance().log(std::string("[libdatachannel] ") + (message != nullptr ? message : ""), type);
+}
+
+void ensureRtcLoggerInitialized()
+{
+    static std::once_flag once;
+    std::call_once(once, []() {
+        rtcInitLogger(RTC_LOG_INFO, &onRtcLog);
+    });
+}
 
 std::string trimAsciiWhitespace(const std::string& value)
 {
@@ -56,30 +90,51 @@ int createPeerConnectionWithIceServers(const std::vector<std::string>& iceServer
 class DesktopWebRtcPeerConnection final : public IWebRtcPeerConnection
 {
 private:
+    struct CallbackContext
+    {
+        std::atomic<bool> alive{true};
+        DesktopWebRtcPeerConnection* owner = nullptr;
+    };
+
     int m_peerConnection = 0;
     int m_dataChannel = 0;
     bool m_open = false;
     bool m_dataChannelOpen = false;
     std::string m_lastError;
     std::deque<Event> m_events;
-    mutable std::mutex m_mutex;
+    mutable std::mutex m_stateMutex;
+    mutable std::mutex m_eventMutex;
+    CallbackContext* m_peerCallbackContext = nullptr;
+    CallbackContext* m_dataChannelCallbackContext = nullptr;
+
+    static DesktopWebRtcPeerConnection* ownerFromContext(void* userPtr)
+    {
+        auto* context = static_cast<CallbackContext*>(userPtr);
+        if(context == nullptr) {
+            return nullptr;
+        }
+        if(!context->alive.load(std::memory_order_acquire)) {
+            return nullptr;
+        }
+        return context->owner;
+    }
 
     void pushEvent(Event&& event)
     {
-        std::scoped_lock lock(m_mutex);
+        std::scoped_lock lock(m_eventMutex);
         m_events.push_back(std::move(event));
     }
 
     void setLastError(const std::string& error)
     {
-        std::scoped_lock lock(m_mutex);
+        std::scoped_lock lock(m_stateMutex);
         m_lastError = error;
     }
 
     static void onLocalDescriptionCallback(int pc, const char* sdp, const char* type, void* userPtr)
     {
         (void)pc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
 
         Event event;
@@ -92,7 +147,7 @@ private:
     static void onLocalCandidateCallback(int pc, const char* candidate, const char* mid, void* userPtr)
     {
         (void)pc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
 
         Event event;
@@ -105,7 +160,7 @@ private:
     static void onStateChangeCallback(int pc, rtcState state, void* userPtr)
     {
         (void)pc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
 
         if(state == RTC_FAILED) {
@@ -119,7 +174,7 @@ private:
     static void onDataChannelCallback(int pc, int dc, void* userPtr)
     {
         (void)pc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
         self->attachDataChannel(dc);
     }
@@ -127,25 +182,31 @@ private:
     static void onChannelOpenCallback(int dc, void* userPtr)
     {
         (void)dc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
-        self->m_dataChannelOpen = true;
+        {
+            std::scoped_lock lock(self->m_stateMutex);
+            self->m_dataChannelOpen = true;
+        }
         self->pushEvent(Event{Event::Type::DataChannelOpen});
     }
 
     static void onChannelClosedCallback(int dc, void* userPtr)
     {
         (void)dc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
-        self->m_dataChannelOpen = false;
+        {
+            std::scoped_lock lock(self->m_stateMutex);
+            self->m_dataChannelOpen = false;
+        }
         self->pushEvent(Event{Event::Type::DataChannelClosed});
     }
 
     static void onChannelErrorCallback(int dc, const char* error, void* userPtr)
     {
         (void)dc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
         const std::string text = error != nullptr ? error : "WebRTC data channel error";
         self->setLastError(text);
@@ -155,7 +216,7 @@ private:
     static void onChannelMessageCallback(int dc, const char* message, int size, void* userPtr)
     {
         (void)dc;
-        auto* self = static_cast<DesktopWebRtcPeerConnection*>(userPtr);
+        auto* self = ownerFromContext(userPtr);
         if(self == nullptr) return;
 
         Event event;
@@ -171,12 +232,23 @@ private:
     {
         if(dataChannel <= 0) return;
 
-        if(m_dataChannel > 0 && m_dataChannel != dataChannel) {
-            rtcDeleteDataChannel(m_dataChannel);
+        int previousDataChannel = 0;
+        {
+            std::scoped_lock lock(m_stateMutex);
+            if(m_dataChannel > 0 && m_dataChannel != dataChannel) {
+                previousDataChannel = m_dataChannel;
+            }
+
+            m_dataChannel = dataChannel;
+            m_dataChannelCallbackContext = new CallbackContext();
+            m_dataChannelCallbackContext->owner = this;
         }
 
-        m_dataChannel = dataChannel;
-        rtcSetUserPointer(m_dataChannel, this);
+        if(previousDataChannel > 0) {
+            rtcDeleteDataChannel(previousDataChannel);
+        }
+
+        rtcSetUserPointer(m_dataChannel, m_dataChannelCallbackContext);
         rtcSetOpenCallback(m_dataChannel, &DesktopWebRtcPeerConnection::onChannelOpenCallback);
         rtcSetClosedCallback(m_dataChannel, &DesktopWebRtcPeerConnection::onChannelClosedCallback);
         rtcSetErrorCallback(m_dataChannel, &DesktopWebRtcPeerConnection::onChannelErrorCallback);
@@ -192,6 +264,7 @@ public:
     bool open(const WebRtcPeerConnectionOptions& options) override
     {
         close();
+        ensureRtcLoggerInitialized();
 
         std::vector<std::string> sanitizedIceServers;
         if(!options.iceServers.empty()) {
@@ -214,7 +287,9 @@ public:
             return false;
         }
 
-        rtcSetUserPointer(m_peerConnection, this);
+        m_peerCallbackContext = new CallbackContext();
+        m_peerCallbackContext->owner = this;
+        rtcSetUserPointer(m_peerConnection, m_peerCallbackContext);
         rtcSetLocalDescriptionCallback(m_peerConnection, &DesktopWebRtcPeerConnection::onLocalDescriptionCallback);
         rtcSetLocalCandidateCallback(m_peerConnection, &DesktopWebRtcPeerConnection::onLocalCandidateCallback);
         rtcSetStateChangeCallback(m_peerConnection, &DesktopWebRtcPeerConnection::onStateChangeCallback);
@@ -240,35 +315,63 @@ public:
 
     void close() override
     {
-        if(m_dataChannel > 0) {
-            rtcSetUserPointer(m_dataChannel, nullptr);
-            rtcSetOpenCallback(m_dataChannel, nullptr);
-            rtcSetClosedCallback(m_dataChannel, nullptr);
-            rtcSetErrorCallback(m_dataChannel, nullptr);
-            rtcSetMessageCallback(m_dataChannel, nullptr);
-            rtcDeleteDataChannel(m_dataChannel);
+        int dataChannel = 0;
+        int peerConnection = 0;
+        CallbackContext* peerContext = nullptr;
+        CallbackContext* dataChannelContext = nullptr;
+        {
+            std::scoped_lock lock(m_stateMutex);
+            dataChannel = m_dataChannel;
+            peerConnection = m_peerConnection;
+            peerContext = m_peerCallbackContext;
+            dataChannelContext = m_dataChannelCallbackContext;
+            m_peerCallbackContext = nullptr;
+            m_dataChannelCallbackContext = nullptr;
             m_dataChannel = 0;
-        }
-
-        if(m_peerConnection > 0) {
-            rtcSetUserPointer(m_peerConnection, nullptr);
-            rtcSetLocalDescriptionCallback(m_peerConnection, nullptr);
-            rtcSetLocalCandidateCallback(m_peerConnection, nullptr);
-            rtcSetStateChangeCallback(m_peerConnection, nullptr);
-            rtcSetDataChannelCallback(m_peerConnection, nullptr);
-            rtcDeletePeerConnection(m_peerConnection);
             m_peerConnection = 0;
+            m_open = false;
+            m_dataChannelOpen = false;
+            m_lastError.clear();
         }
 
-        m_open = false;
-        m_dataChannelOpen = false;
+        if(dataChannelContext != nullptr) {
+            dataChannelContext->alive.store(false, std::memory_order_release);
+            dataChannelContext->owner = nullptr;
+        }
+        if(peerContext != nullptr) {
+            peerContext->alive.store(false, std::memory_order_release);
+            peerContext->owner = nullptr;
+        }
 
-        std::scoped_lock lock(m_mutex);
+        if(dataChannel > 0) {
+            rtcSetUserPointer(dataChannel, nullptr);
+            rtcSetOpenCallback(dataChannel, nullptr);
+            rtcSetClosedCallback(dataChannel, nullptr);
+            rtcSetErrorCallback(dataChannel, nullptr);
+            rtcSetMessageCallback(dataChannel, nullptr);
+            rtcDeleteDataChannel(dataChannel);
+        }
+
+        if(peerConnection > 0) {
+            rtcSetUserPointer(peerConnection, nullptr);
+            rtcSetLocalDescriptionCallback(peerConnection, nullptr);
+            rtcSetLocalCandidateCallback(peerConnection, nullptr);
+            rtcSetStateChangeCallback(peerConnection, nullptr);
+            rtcSetDataChannelCallback(peerConnection, nullptr);
+            rtcDeletePeerConnection(peerConnection);
+        }
+
+        std::scoped_lock lock(m_eventMutex);
         m_events.clear();
     }
 
     bool createOffer() override
     {
+        if(!m_open || m_peerConnection <= 0) {
+            m_lastError = "WebRTC peer connection is not open";
+            return false;
+        }
+        std::scoped_lock lock(m_stateMutex);
         if(!m_open || m_peerConnection <= 0) {
             m_lastError = "WebRTC peer connection is not open";
             return false;
@@ -282,6 +385,7 @@ public:
 
     bool createAnswer() override
     {
+        std::scoped_lock lock(m_stateMutex);
         if(!m_open || m_peerConnection <= 0) {
             m_lastError = "WebRTC peer connection is not open";
             return false;
@@ -295,6 +399,7 @@ public:
 
     bool setRemoteDescription(const std::string& sdp, bool offer) override
     {
+        std::scoped_lock lock(m_stateMutex);
         if(!m_open || m_peerConnection <= 0) {
             m_lastError = "WebRTC peer connection is not open";
             return false;
@@ -311,6 +416,7 @@ public:
                                int mlineIndex) override
     {
         (void)mlineIndex;
+        std::scoped_lock lock(m_stateMutex);
         if(!m_open || m_peerConnection <= 0) {
             m_lastError = "WebRTC peer connection is not open";
             return false;
@@ -324,6 +430,7 @@ public:
 
     bool sendDataReliable(const std::vector<uint8_t>& payload) override
     {
+        std::scoped_lock lock(m_stateMutex);
         if(!m_dataChannelOpen || m_dataChannel <= 0) {
             m_lastError = "WebRTC data channel is not open";
             return false;
@@ -345,7 +452,7 @@ public:
     std::vector<Event> poll() override
     {
         std::vector<Event> events;
-        std::scoped_lock lock(m_mutex);
+        std::scoped_lock lock(m_eventMutex);
         while(!m_events.empty()) {
             events.push_back(std::move(m_events.front()));
             m_events.pop_front();
@@ -355,16 +462,19 @@ public:
 
     bool isOpen() const override
     {
+        std::scoped_lock lock(m_stateMutex);
         return m_open;
     }
 
     bool isDataChannelOpen() const override
     {
+        std::scoped_lock lock(m_stateMutex);
         return m_dataChannelOpen;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
+        std::scoped_lock lock(m_stateMutex);
         return m_lastError;
     }
 };
@@ -999,8 +1109,9 @@ public:
         return m_dataChannelOpen;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
+        std::scoped_lock lock(m_mutex);
         return m_lastError;
     }
 };
@@ -1128,7 +1239,7 @@ public:
         return false;
     }
 
-    const std::string& lastError() const override
+    std::string lastError() const override
     {
         return m_lastError;
     }
