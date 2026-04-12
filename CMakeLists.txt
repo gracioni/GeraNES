@@ -317,20 +317,6 @@ if(NOT EMSCRIPTEN)
     )
 
     FetchContent_Declare(
-        websocketpp
-        GIT_REPOSITORY https://github.com/zaphoyd/websocketpp.git
-        GIT_TAG 0.8.2
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE
-    )
-
-    FetchContent_MakeAvailable(websocketpp)
-    add_library(websocketpp_headers INTERFACE)
-    target_include_directories(websocketpp_headers SYSTEM INTERFACE
-        ${websocketpp_SOURCE_DIR}
-    )
-
-    FetchContent_Declare(
         mbedtls
         GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
         GIT_TAG v3.6.2
@@ -497,7 +483,7 @@ endif()
 target_link_libraries(GeraNESLib PUBLIC ${LIBS})
 target_link_libraries(GeraNESLib PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
-    target_link_libraries(GeraNESLib PRIVATE asio_headers websocketpp_headers)
+    target_link_libraries(GeraNESLib PRIVATE asio_headers)
 endif()
 if(MINGW)
     target_link_options(GeraNESLib PRIVATE -static-libgcc -static-libstdc++)
@@ -560,7 +546,7 @@ endif()
 target_link_libraries(GeraNESTests PRIVATE GeraNESLib Catch2::Catch2WithMain)
 target_link_libraries(GeraNESTests PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
-    target_link_libraries(GeraNESTests PRIVATE asio_headers websocketpp_headers)
+    target_link_libraries(GeraNESTests PRIVATE asio_headers)
 endif()
 if(WIN32)
     target_link_libraries(GeraNESTests PRIVATE mswsock)

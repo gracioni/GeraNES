@@ -1,21 +1,19 @@
 #include "GeraNESNetplay/WebRtcSignalingServer.h"
 
-#include <chrono>
-#include <condition_variable>
-#include <exception>
 #include <map>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <set>
-#include <thread>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "GeraNESNetplay/WebRtcSignaling.h"
 
 #if !defined(__EMSCRIPTEN__)
-#include <websocketpp/config/asio_no_tls.hpp>
-#include <websocketpp/server.hpp>
+#include <rtc/websocket.hpp>
+#include <rtc/websocketserver.hpp>
 #endif
 
 namespace Netplay {
@@ -23,42 +21,17 @@ namespace Netplay {
 namespace {
 
 #if !defined(__EMSCRIPTEN__)
-std::string describeWebRtcStartError(const websocketpp::lib::error_code& ec)
+std::string describeWebRtcStartError(const std::exception& ex)
 {
-    using websocketpp::lib::asio::error::access_denied;
-    using websocketpp::lib::asio::error::address_family_not_supported;
-    using websocketpp::lib::asio::error::address_in_use;
-    using websocketpp::lib::asio::error::connection_refused;
-    using websocketpp::lib::asio::error::host_unreachable;
-    using websocketpp::lib::asio::error::network_down;
-    using websocketpp::lib::asio::error::network_unreachable;
-
-    if(ec == address_in_use) {
+    const std::string message = ex.what();
+    if(message.find("binding failed") != std::string::npos) {
         return "Embedded WebRTC signaling server failed to start: address already in use";
     }
-    if(ec == access_denied) {
-        return "Embedded WebRTC signaling server failed to start: access denied";
-    }
-    if(ec == std::make_error_code(std::errc::address_not_available)) {
+    if(message.find("Resolution failed") != std::string::npos) {
         return "Embedded WebRTC signaling server failed to start: address not available";
     }
-    if(ec == address_family_not_supported) {
+    if(message.find("No suitable address family") != std::string::npos) {
         return "Embedded WebRTC signaling server failed to start: address family not supported";
-    }
-    if(ec == network_unreachable) {
-        return "Embedded WebRTC signaling server failed to start: network unreachable";
-    }
-    if(ec == network_down) {
-        return "Embedded WebRTC signaling server failed to start: network down";
-    }
-    if(ec == host_unreachable) {
-        return "Embedded WebRTC signaling server failed to start: host unreachable";
-    }
-    if(ec == connection_refused) {
-        return "Embedded WebRTC signaling server failed to start: connection refused";
-    }
-    if(ec) {
-        return "Embedded WebRTC signaling server failed to start: socket error " + std::to_string(ec.value());
     }
     return "Embedded WebRTC signaling server failed to start";
 }
@@ -66,7 +39,7 @@ std::string describeWebRtcStartError(const websocketpp::lib::error_code& ec)
 class DesktopWebRtcSignalingServer final : public IWebRtcSignalingServer
 {
 private:
-    using Server = websocketpp::server<websocketpp::config::asio>;
+    using Connection = std::shared_ptr<rtc::WebSocket>;
 
     struct ClientState
     {
@@ -78,7 +51,7 @@ private:
     {
         std::string password;
         size_t maxParticipants = 2;
-        std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> members;
+        std::set<Connection, std::owner_less<Connection>> members;
 
         bool passwordProtected() const
         {
@@ -86,61 +59,39 @@ private:
         }
     };
 
-    std::unique_ptr<Server> m_server;
-    std::thread m_thread;
+    std::unique_ptr<rtc::WebSocketServer> m_server;
     mutable std::mutex m_mutex;
-    std::condition_variable m_startCondition;
-    std::map<websocketpp::connection_hdl, ClientState, std::owner_less<websocketpp::connection_hdl>> m_clients;
+    std::map<Connection, ClientState, std::owner_less<Connection>> m_clients;
     std::unordered_map<std::string, RoomState> m_rooms;
-    bool m_startResolved = false;
-    bool m_startSucceeded = false;
     bool m_running = false;
     uint16_t m_port = 0;
     std::string m_lastError;
+    std::shared_ptr<std::atomic<bool>> m_callbackAlive;
 
-    static bool sameConnection(const websocketpp::connection_hdl& lhs, const websocketpp::connection_hdl& rhs)
+    void sendMessage(const Connection& connection, const WebRtcSignalingMessage& message)
     {
-        return !lhs.owner_before(rhs) && !rhs.owner_before(lhs);
+        if(!connection) return;
+        connection->send(message.toText());
     }
 
-    void resolveStart(bool success, const std::string& error = {})
-    {
-        {
-            std::scoped_lock lock(m_mutex);
-            m_startResolved = true;
-            m_startSucceeded = success;
-            if(!error.empty()) {
-                m_lastError = error;
-            }
-        }
-        m_startCondition.notify_all();
-    }
-
-    void sendMessage(const websocketpp::connection_hdl& hdl, const WebRtcSignalingMessage& message)
-    {
-        if(!m_server) return;
-        websocketpp::lib::error_code ec;
-        m_server->send(hdl, message.toText(), websocketpp::frame::opcode::text, ec);
-    }
-
-    void sendError(const websocketpp::connection_hdl& hdl, const std::string& error)
+    void sendError(const Connection& connection, const std::string& error)
     {
         WebRtcSignalingMessage message;
         message.type = WebRtcSignalType::Error;
         message.error = error;
-        sendMessage(hdl, message);
+        sendMessage(connection, message);
     }
 
-    std::optional<websocketpp::connection_hdl> findPeerInRoom(const std::string& roomId,
-                                                              const std::string& peerId) const
+    std::optional<Connection> findPeerInRoom(const std::string& roomId,
+                                             const std::string& peerId) const
     {
         const auto roomIt = m_rooms.find(roomId);
         if(roomIt == m_rooms.end()) return std::nullopt;
 
-        for(const auto& hdl : roomIt->second.members) {
-            const auto clientIt = m_clients.find(hdl);
+        for(const auto& connection : roomIt->second.members) {
+            const auto clientIt = m_clients.find(connection);
             if(clientIt != m_clients.end() && clientIt->second.peerId == peerId) {
-                return hdl;
+                return connection;
             }
         }
 
@@ -149,30 +100,31 @@ private:
 
     void broadcastToRoom(const std::string& roomId,
                          const WebRtcSignalingMessage& message,
-                         const websocketpp::connection_hdl* except = nullptr)
+                         const Connection& except = {})
     {
-        std::vector<websocketpp::connection_hdl> recipients;
+        std::vector<Connection> recipients;
         {
             std::scoped_lock lock(m_mutex);
             const auto roomIt = m_rooms.find(roomId);
             if(roomIt == m_rooms.end()) return;
 
-            for(const auto& hdl : roomIt->second.members) {
-                if(except != nullptr && sameConnection(hdl, *except)) {
+            for(const auto& connection : roomIt->second.members) {
+                if(except && connection == except) {
                     continue;
                 }
-                recipients.push_back(hdl);
+                recipients.push_back(connection);
             }
         }
 
-        for(const auto& hdl : recipients) {
-            sendMessage(hdl, message);
+        for(const auto& connection : recipients) {
+            sendMessage(connection, message);
         }
     }
 
-    void removeClientLocked(const websocketpp::connection_hdl& hdl, std::optional<WebRtcSignalingMessage>& peerLeft)
+    void removeClientLocked(const Connection& connection,
+                            std::optional<WebRtcSignalingMessage>& peerLeft)
     {
-        const auto clientIt = m_clients.find(hdl);
+        const auto clientIt = m_clients.find(connection);
         if(clientIt == m_clients.end()) return;
 
         const std::string roomId = clientIt->second.roomId;
@@ -182,7 +134,7 @@ private:
         if(!roomId.empty()) {
             auto roomIt = m_rooms.find(roomId);
             if(roomIt != m_rooms.end()) {
-                roomIt->second.members.erase(hdl);
+                roomIt->second.members.erase(connection);
                 if(roomIt->second.members.empty()) {
                     m_rooms.erase(roomIt);
                 }
@@ -197,28 +149,41 @@ private:
         }
     }
 
-    void handleMessage(const websocketpp::connection_hdl& hdl, const std::string& payload)
+    void handleDisconnect(const Connection& connection)
+    {
+        std::optional<WebRtcSignalingMessage> peerLeft;
+        {
+            std::scoped_lock lock(m_mutex);
+            removeClientLocked(connection, peerLeft);
+        }
+
+        if(peerLeft.has_value()) {
+            broadcastToRoom(peerLeft->roomId, *peerLeft, connection);
+        }
+    }
+
+    void handleMessage(const Connection& connection, const std::string& payload)
     {
         const auto parsed = WebRtcSignalingMessage::fromText(payload);
         if(!parsed.has_value()) {
-            sendError(hdl, "Invalid signaling payload");
+            sendError(connection, "Invalid signaling payload");
             return;
         }
 
         std::optional<WebRtcSignalingMessage> directMessage;
         std::optional<WebRtcSignalingMessage> broadcastMessage;
-        std::optional<websocketpp::connection_hdl> directTarget;
+        std::optional<Connection> directTarget;
         std::string broadcastRoomId;
 
         {
             std::scoped_lock lock(m_mutex);
-            ClientState& client = m_clients[hdl];
+            ClientState& client = m_clients[connection];
             const WebRtcSignalingMessage& message = *parsed;
 
             switch(message.type) {
                 case WebRtcSignalType::Hello: {
                     if(message.peerId.empty()) {
-                        sendError(hdl, "Missing peer id");
+                        sendError(connection, "Missing peer id");
                         return;
                     }
                     client.peerId = message.peerId;
@@ -227,14 +192,14 @@ private:
                     directMessage->type = WebRtcSignalType::Welcome;
                     directMessage->roomId = message.roomId;
                     directMessage->peerId = message.peerId;
-                    directTarget = hdl;
+                    directTarget = connection;
                     break;
                 }
 
                 case WebRtcSignalType::RoomList: {
                     directMessage = WebRtcSignalingMessage{};
                     directMessage->type = WebRtcSignalType::RoomList;
-                    directTarget = hdl;
+                    directTarget = connection;
                     for(const auto& [roomId, room] : m_rooms) {
                         if(room.members.empty()) continue;
                         WebRtcSignalingRoomInfo info;
@@ -247,13 +212,13 @@ private:
 
                 case WebRtcSignalType::CreateRoom: {
                     if(message.roomId.empty() || message.peerId.empty()) {
-                        sendError(hdl, "Missing room id or peer id");
+                        sendError(connection, "Missing room id or peer id");
                         return;
                     }
 
                     const auto existingRoom = m_rooms.find(message.roomId);
                     if(existingRoom != m_rooms.end() && !existingRoom->second.members.empty()) {
-                        sendError(hdl, "Room already exists");
+                        sendError(connection, "Room already exists");
                         return;
                     }
 
@@ -264,46 +229,46 @@ private:
                     room.maxParticipants = message.maxParticipants > 0
                         ? static_cast<size_t>(message.maxParticipants)
                         : static_cast<size_t>(2);
-                    room.members.insert(hdl);
+                    room.members.insert(connection);
 
                     directMessage = WebRtcSignalingMessage{};
                     directMessage->type = WebRtcSignalType::RoomJoined;
                     directMessage->roomId = message.roomId;
                     directMessage->peerId = message.peerId;
-                    directTarget = hdl;
+                    directTarget = connection;
                     break;
                 }
 
                 case WebRtcSignalType::JoinRoom: {
                     if(message.roomId.empty() || message.peerId.empty()) {
-                        sendError(hdl, "Missing room id or peer id");
+                        sendError(connection, "Missing room id or peer id");
                         return;
                     }
 
                     auto roomIt = m_rooms.find(message.roomId);
                     if(roomIt == m_rooms.end() || roomIt->second.members.empty()) {
-                        sendError(hdl, "Room does not exist");
+                        sendError(connection, "Room does not exist");
                         return;
                     }
                     if(roomIt->second.maxParticipants > 0 &&
                        roomIt->second.members.size() >= roomIt->second.maxParticipants) {
-                        sendError(hdl, "Room is full");
+                        sendError(connection, "Room is full");
                         return;
                     }
                     if(roomIt->second.password != message.password) {
-                        sendError(hdl, "Invalid room password");
+                        sendError(connection, "Invalid room password");
                         return;
                     }
 
                     client.peerId = message.peerId;
                     client.roomId = message.roomId;
-                    roomIt->second.members.insert(hdl);
+                    roomIt->second.members.insert(connection);
 
                     directMessage = WebRtcSignalingMessage{};
                     directMessage->type = WebRtcSignalType::RoomJoined;
                     directMessage->roomId = message.roomId;
                     directMessage->peerId = message.peerId;
-                    directTarget = hdl;
+                    directTarget = connection;
 
                     broadcastMessage = WebRtcSignalingMessage{};
                     broadcastMessage->type = WebRtcSignalType::PeerJoined;
@@ -317,17 +282,17 @@ private:
                 case WebRtcSignalType::Answer:
                 case WebRtcSignalType::IceCandidate: {
                     if(client.roomId.empty()) {
-                        sendError(hdl, "Join a room before sending signaling data");
+                        sendError(connection, "Join a room before sending signaling data");
                         return;
                     }
                     if(message.targetPeerId.empty()) {
-                        sendError(hdl, "Missing target peer id");
+                        sendError(connection, "Missing target peer id");
                         return;
                     }
 
                     directTarget = findPeerInRoom(client.roomId, message.targetPeerId);
                     if(!directTarget.has_value()) {
-                        sendError(hdl, "Target peer is not connected");
+                        sendError(connection, "Target peer is not connected");
                         return;
                     }
 
@@ -338,7 +303,7 @@ private:
                 }
 
                 default:
-                    sendError(hdl, "Unsupported signaling message");
+                    sendError(connection, "Unsupported signaling message");
                     return;
             }
         }
@@ -348,8 +313,54 @@ private:
         }
 
         if(broadcastMessage.has_value() && !broadcastRoomId.empty()) {
-            broadcastToRoom(broadcastRoomId, *broadcastMessage, &hdl);
+            broadcastToRoom(broadcastRoomId, *broadcastMessage, connection);
         }
+    }
+
+    void attachClientCallbacks(const Connection& connection)
+    {
+        {
+            std::scoped_lock lock(m_mutex);
+            m_clients.try_emplace(connection);
+        }
+
+        std::weak_ptr<rtc::WebSocket> weakConnection = connection;
+        const std::shared_ptr<std::atomic<bool>> callbackAlive = m_callbackAlive;
+        connection->onMessage([this, weakConnection, callbackAlive](rtc::message_variant data) {
+            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+                return;
+            }
+            const auto connection = weakConnection.lock();
+            if(!connection) return;
+            const auto* text = std::get_if<std::string>(&data);
+            if(text == nullptr) return;
+            try {
+                handleMessage(connection, *text);
+            } catch(...) {
+            }
+        });
+        connection->onClosed([this, weakConnection, callbackAlive]() {
+            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+                return;
+            }
+            if(const auto connection = weakConnection.lock(); connection) {
+                try {
+                    handleDisconnect(connection);
+                } catch(...) {
+                }
+            }
+        });
+        connection->onError([this, weakConnection, callbackAlive](std::string) {
+            if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+                return;
+            }
+            if(const auto connection = weakConnection.lock(); connection) {
+                try {
+                    handleDisconnect(connection);
+                } catch(...) {
+                }
+            }
+        });
     }
 
 public:
@@ -363,103 +374,31 @@ public:
         stop();
 
         try {
-            m_server = std::make_unique<Server>();
-            m_server->clear_access_channels(websocketpp::log::alevel::all);
-            m_server->clear_error_channels(websocketpp::log::elevel::all);
-            m_server->init_asio();
-            m_server->set_tcp_pre_bind_handler([](Server::transport_type::acceptor_ptr acceptor) {
-                websocketpp::lib::error_code ec;
-                acceptor->set_option(websocketpp::lib::asio::ip::v6_only(false), ec);
-                return ec;
+            rtc::WebSocketServer::Configuration config;
+            config.port = port;
+
+            auto server = std::make_unique<rtc::WebSocketServer>(config);
+            m_callbackAlive = std::make_shared<std::atomic<bool>>(true);
+            const std::shared_ptr<std::atomic<bool>> callbackAlive = m_callbackAlive;
+            server->onClient([this, callbackAlive](Connection connection) {
+                if(!callbackAlive || !callbackAlive->load(std::memory_order_acquire)) {
+                    return;
+                }
+                attachClientCallbacks(std::move(connection));
             });
 
             {
                 std::scoped_lock lock(m_mutex);
-                m_startResolved = false;
-                m_startSucceeded = false;
-                m_running = false;
                 m_lastError.clear();
-                m_port = port;
                 m_clients.clear();
                 m_rooms.clear();
+                m_server = std::move(server);
+                m_port = m_server->port();
+                m_running = true;
             }
-
-            m_server->set_open_handler([this](websocketpp::connection_hdl hdl) {
-                std::scoped_lock lock(m_mutex);
-                m_clients.try_emplace(hdl);
-            });
-
-            m_server->set_close_handler([this](websocketpp::connection_hdl hdl) {
-                std::optional<WebRtcSignalingMessage> peerLeft;
-                {
-                    std::scoped_lock lock(m_mutex);
-                    removeClientLocked(hdl, peerLeft);
-                }
-
-                if(peerLeft.has_value()) {
-                    broadcastToRoom(peerLeft->roomId, *peerLeft, &hdl);
-                }
-            });
-
-            m_server->set_fail_handler([this](websocketpp::connection_hdl hdl) {
-                std::optional<WebRtcSignalingMessage> peerLeft;
-                {
-                    std::scoped_lock lock(m_mutex);
-                    removeClientLocked(hdl, peerLeft);
-                }
-
-                if(peerLeft.has_value()) {
-                    broadcastToRoom(peerLeft->roomId, *peerLeft, &hdl);
-                }
-            });
-
-            m_server->set_message_handler([this](websocketpp::connection_hdl hdl, Server::message_ptr message) {
-                handleMessage(hdl, message->get_payload());
-            });
-
-            m_server->listen(websocketpp::lib::asio::ip::tcp::endpoint(
-                websocketpp::lib::asio::ip::tcp::v6(),
-                port));
-            m_server->start_accept();
-
-            m_thread = std::thread([this]() {
-                resolveStart(true);
-                try {
-                    if(m_server) {
-                        m_server->run();
-                    }
-                } catch(const std::exception& ex) {
-                    std::scoped_lock lock(m_mutex);
-                    m_lastError = std::string("Embedded WebRTC signaling server failed: ") + ex.what();
-                } catch(...) {
-                    std::scoped_lock lock(m_mutex);
-                    m_lastError = "Embedded WebRTC signaling server failed";
-                }
-
-                std::scoped_lock lock(m_mutex);
-                m_running = false;
-            });
-
-            std::unique_lock lock(m_mutex);
-            const bool resolved = m_startCondition.wait_for(
-                lock,
-                std::chrono::milliseconds(1500),
-                [this]() { return m_startResolved; });
-            if(!resolved || !m_startSucceeded) {
-                lock.unlock();
-                stop();
-                if(m_lastError.empty()) {
-                    m_lastError = "Embedded WebRTC signaling server failed to start";
-                }
-                return false;
-            }
-
-            m_running = true;
             return true;
-        } catch(const websocketpp::lib::system_error& ex) {
-            m_lastError = describeWebRtcStartError(ex.code());
-        } catch(const std::exception&) {
-            m_lastError = "Embedded WebRTC signaling server failed to start";
+        } catch(const std::exception& ex) {
+            m_lastError = describeWebRtcStartError(ex);
         } catch(...) {
             m_lastError = "Embedded WebRTC signaling server failed to start";
         }
@@ -470,50 +409,38 @@ public:
 
     void stop() override
     {
-        if(m_server) {
-            try {
-                m_server->stop_listening();
-            } catch(...) {
-            }
-
-            try {
-                std::vector<websocketpp::connection_hdl> clients;
-                {
-                    std::scoped_lock lock(m_mutex);
-                    for(const auto& [hdl, state] : m_clients) {
-                        (void)state;
-                        clients.push_back(hdl);
-                    }
-                }
-
-                for(const auto& hdl : clients) {
-                    websocketpp::lib::error_code ec;
-                    m_server->close(hdl, websocketpp::close::status::going_away, "", ec);
-                }
-            } catch(...) {
-            }
-
-            try {
-                m_server->stop();
-            } catch(...) {
-            }
-        }
-
-        if(m_thread.joinable()) {
-            m_thread.join();
-        }
-
+        std::unique_ptr<rtc::WebSocketServer> server;
+        std::vector<Connection> connections;
+        std::shared_ptr<std::atomic<bool>> callbackAlive;
         {
             std::scoped_lock lock(m_mutex);
+            for(const auto& [connection, state] : m_clients) {
+                (void)state;
+                connections.push_back(connection);
+            }
+            server = std::move(m_server);
+            callbackAlive = std::move(m_callbackAlive);
             m_clients.clear();
             m_rooms.clear();
             m_running = false;
             m_port = 0;
-            m_startResolved = false;
-            m_startSucceeded = false;
         }
 
-        m_server.reset();
+        if(callbackAlive) {
+            callbackAlive->store(false, std::memory_order_release);
+        }
+
+        for(const auto& connection : connections) {
+            if(connection) {
+                connection->resetCallbacks();
+                connection->forceClose();
+            }
+        }
+
+        if(server) {
+            server->onClient(nullptr);
+            server->stop();
+        }
     }
 
     bool isRunning() const override

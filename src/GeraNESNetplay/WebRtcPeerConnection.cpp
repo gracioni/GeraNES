@@ -241,11 +241,21 @@ public:
     void close() override
     {
         if(m_dataChannel > 0) {
+            rtcSetUserPointer(m_dataChannel, nullptr);
+            rtcSetOpenCallback(m_dataChannel, nullptr);
+            rtcSetClosedCallback(m_dataChannel, nullptr);
+            rtcSetErrorCallback(m_dataChannel, nullptr);
+            rtcSetMessageCallback(m_dataChannel, nullptr);
             rtcDeleteDataChannel(m_dataChannel);
             m_dataChannel = 0;
         }
 
         if(m_peerConnection > 0) {
+            rtcSetUserPointer(m_peerConnection, nullptr);
+            rtcSetLocalDescriptionCallback(m_peerConnection, nullptr);
+            rtcSetLocalCandidateCallback(m_peerConnection, nullptr);
+            rtcSetStateChangeCallback(m_peerConnection, nullptr);
+            rtcSetDataChannelCallback(m_peerConnection, nullptr);
             rtcDeletePeerConnection(m_peerConnection);
             m_peerConnection = 0;
         }

@@ -16,8 +16,8 @@
 #endif
 
 #if !defined(__EMSCRIPTEN__)
-#include <websocketpp/config/asio_no_tls.hpp>
-#include <websocketpp/server.hpp>
+#include <rtc/websocket.hpp>
+#include <rtc/websocketserver.hpp>
 #endif
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
@@ -58,10 +58,9 @@ uint16_t reserveLoopbackPort()
 class LocalWebSocketSignalingServer
 {
 private:
-    using Server = websocketpp::server<websocketpp::config::asio>;
     struct PeerInfo
     {
-        websocketpp::connection_hdl connection;
+        std::shared_ptr<rtc::WebSocket> connection;
         std::string peerId;
         std::string roomId;
     };
@@ -71,213 +70,216 @@ private:
     };
 
     uint16_t m_port = 0;
-    Server m_server;
-    std::thread m_thread;
+    std::unique_ptr<rtc::WebSocketServer> m_server;
     std::mutex m_mutex;
     std::deque<std::string> m_receivedTexts;
     std::vector<PeerInfo> m_peers;
     std::map<std::string, RoomInfo> m_rooms;
 
-    void sendMessage(const websocketpp::connection_hdl& hdl, const Netplay::WebRtcSignalingMessage& message)
+    void sendMessage(const std::shared_ptr<rtc::WebSocket>& connection, const Netplay::WebRtcSignalingMessage& message)
     {
-        websocketpp::lib::error_code ec;
-        m_server.send(hdl, message.toText(), websocketpp::frame::opcode::text, ec);
+        connection->send(message.toText());
     }
 
 public:
     explicit LocalWebSocketSignalingServer(uint16_t port)
         : m_port(port)
     {
-        m_server.clear_access_channels(websocketpp::log::alevel::all);
-        m_server.clear_error_channels(websocketpp::log::elevel::all);
-        m_server.init_asio();
-        m_server.set_reuse_addr(true);
-
-        m_server.set_open_handler([this](websocketpp::connection_hdl hdl) {
+        rtc::WebSocketServer::Configuration config;
+        config.port = m_port;
+        m_server = std::make_unique<rtc::WebSocketServer>(config);
+        m_server->onClient([this](std::shared_ptr<rtc::WebSocket> connection) {
             Netplay::WebRtcSignalingMessage welcome;
             welcome.type = Netplay::WebRtcSignalType::Welcome;
             welcome.peerId = "signal-server";
-            sendMessage(hdl, welcome);
-        });
+            sendMessage(connection, welcome);
 
-        m_server.set_message_handler([this](websocketpp::connection_hdl hdl, Server::message_ptr message) {
-            const auto parsed = Netplay::WebRtcSignalingMessage::fromText(message->get_payload());
-            std::vector<PeerInfo> existingPeers;
-            bool roomExists = false;
-            bool roomMissing = false;
-            bool wrongPassword = false;
-            std::vector<Netplay::WebRtcSignalingRoomInfo> listedRooms;
-            {
-                std::scoped_lock lock(m_mutex);
-                m_receivedTexts.push_back(message->get_payload());
+            std::weak_ptr<rtc::WebSocket> weakConnection = connection;
+            connection->onMessage([this, weakConnection](rtc::message_variant data) {
+                const auto connection = weakConnection.lock();
+                if(!connection) return;
+                const auto* text = std::get_if<std::string>(&data);
+                if(text == nullptr) return;
+
+                const auto parsed = Netplay::WebRtcSignalingMessage::fromText(*text);
+                std::vector<PeerInfo> existingPeers;
+                bool roomExists = false;
+                bool roomMissing = false;
+                bool wrongPassword = false;
+                std::vector<Netplay::WebRtcSignalingRoomInfo> listedRooms;
+                {
+                    std::scoped_lock lock(m_mutex);
+                    m_receivedTexts.push_back(*text);
+                    if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::RoomList) {
+                        for(const auto& [roomId, room] : m_rooms) {
+                            Netplay::WebRtcSignalingRoomInfo listed;
+                            listed.roomId = roomId;
+                            listed.passwordProtected = !room.password.empty();
+                            listedRooms.push_back(listed);
+                        }
+                    } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom) {
+                        roomExists = m_rooms.find(parsed->roomId) != m_rooms.end();
+                        if(!roomExists) {
+                            m_rooms[parsed->roomId] = RoomInfo{parsed->password};
+                            m_peers.erase(
+                                std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
+                                    return peer.peerId == parsed->peerId;
+                                }),
+                                m_peers.end());
+                            m_peers.push_back(PeerInfo{connection, parsed->peerId, parsed->roomId});
+                        }
+                    } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
+                        const auto roomIt = m_rooms.find(parsed->roomId);
+                        if(roomIt == m_rooms.end()) {
+                            roomMissing = true;
+                        } else if(roomIt->second.password != parsed->password) {
+                            wrongPassword = true;
+                        } else {
+                            for(const auto& peer : m_peers) {
+                                if(peer.roomId == parsed->roomId && peer.peerId != parsed->peerId) {
+                                    existingPeers.push_back(peer);
+                                }
+                            }
+
+                            m_peers.erase(
+                                std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
+                                    return peer.peerId == parsed->peerId;
+                                }),
+                                m_peers.end());
+                            m_peers.push_back(PeerInfo{connection, parsed->peerId, parsed->roomId});
+                        }
+                    }
+                }
+
                 if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::RoomList) {
-                    for(const auto& [roomId, room] : m_rooms) {
-                        Netplay::WebRtcSignalingRoomInfo listed;
-                        listed.roomId = roomId;
-                        listed.passwordProtected = !room.password.empty();
-                        listedRooms.push_back(listed);
-                    }
-                } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom) {
-                    roomExists = m_rooms.find(parsed->roomId) != m_rooms.end();
-                    if(!roomExists) {
-                        m_rooms[parsed->roomId] = RoomInfo{parsed->password};
-                        m_peers.erase(
-                            std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
-                                return peer.peerId == parsed->peerId;
-                            }),
-                            m_peers.end());
-                        m_peers.push_back(PeerInfo{hdl, parsed->peerId, parsed->roomId});
-                    }
+                    Netplay::WebRtcSignalingMessage reply;
+                    reply.type = Netplay::WebRtcSignalType::RoomList;
+                    reply.rooms = std::move(listedRooms);
+                    sendMessage(connection, reply);
+                    return;
+                }
+
+                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom && roomExists) {
+                    Netplay::WebRtcSignalingMessage error;
+                    error.type = Netplay::WebRtcSignalType::Error;
+                    error.error = "Room already exists";
+                    sendMessage(connection, error);
+                    return;
+                }
+
+                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom && roomMissing) {
+                    Netplay::WebRtcSignalingMessage error;
+                    error.type = Netplay::WebRtcSignalType::Error;
+                    error.error = "Room does not exist";
+                    sendMessage(connection, error);
+                    return;
+                }
+
+                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom && wrongPassword) {
+                    Netplay::WebRtcSignalingMessage error;
+                    error.type = Netplay::WebRtcSignalType::Error;
+                    error.error = "Invalid room password";
+                    sendMessage(connection, error);
+                    return;
+                }
+
+                if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom) {
+                    Netplay::WebRtcSignalingMessage joined;
+                    joined.type = Netplay::WebRtcSignalType::RoomJoined;
+                    joined.roomId = parsed->roomId;
+                    joined.peerId = "signal-server";
+                    joined.targetPeerId = parsed->peerId;
+                    sendMessage(connection, joined);
                 } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
-                    const auto roomIt = m_rooms.find(parsed->roomId);
-                    if(roomIt == m_rooms.end()) {
-                        roomMissing = true;
-                    } else if(roomIt->second.password != parsed->password) {
-                        wrongPassword = true;
-                    } else {
+                    Netplay::WebRtcSignalingMessage joined;
+                    joined.type = Netplay::WebRtcSignalType::RoomJoined;
+                    joined.roomId = parsed->roomId;
+                    joined.peerId = "signal-server";
+                    joined.targetPeerId = parsed->peerId;
+                    sendMessage(connection, joined);
+
+                    for(const auto& peer : existingPeers) {
+                        Netplay::WebRtcSignalingMessage toExisting;
+                        toExisting.type = Netplay::WebRtcSignalType::PeerJoined;
+                        toExisting.roomId = parsed->roomId;
+                        toExisting.peerId = parsed->peerId;
+                        sendMessage(peer.connection, toExisting);
+
+                        Netplay::WebRtcSignalingMessage toJoining;
+                        toJoining.type = Netplay::WebRtcSignalType::PeerJoined;
+                        toJoining.roomId = parsed->roomId;
+                        toJoining.peerId = peer.peerId;
+                        sendMessage(connection, toJoining);
+                    }
+                } else if(parsed.has_value() &&
+                          (parsed->type == Netplay::WebRtcSignalType::Offer ||
+                           parsed->type == Netplay::WebRtcSignalType::Answer ||
+                           parsed->type == Netplay::WebRtcSignalType::IceCandidate)) {
+                    std::optional<PeerInfo> targetPeer;
+                    {
+                        std::scoped_lock lock(m_mutex);
                         for(const auto& peer : m_peers) {
-                            if(peer.roomId == parsed->roomId && peer.peerId != parsed->peerId) {
-                                existingPeers.push_back(peer);
+                            if(peer.peerId == parsed->targetPeerId) {
+                                targetPeer = peer;
+                                break;
                             }
                         }
-
-                        m_peers.erase(
-                            std::remove_if(m_peers.begin(), m_peers.end(), [&](const PeerInfo& peer) {
-                                return peer.peerId == parsed->peerId;
-                            }),
-                            m_peers.end());
-                        m_peers.push_back(PeerInfo{hdl, parsed->peerId, parsed->roomId});
+                    }
+                    if(targetPeer.has_value()) {
+                        sendMessage(targetPeer->connection, *parsed);
                     }
                 }
-            }
+            });
 
-            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::RoomList) {
-                Netplay::WebRtcSignalingMessage reply;
-                reply.type = Netplay::WebRtcSignalType::RoomList;
-                reply.rooms = std::move(listedRooms);
-                sendMessage(hdl, reply);
-                return;
-            }
+            auto onClosed = [this, weakConnection]() {
+                const auto connection = weakConnection.lock();
+                if(!connection) return;
 
-            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom && roomExists) {
-                Netplay::WebRtcSignalingMessage error;
-                error.type = Netplay::WebRtcSignalType::Error;
-                error.error = "Room already exists";
-                sendMessage(hdl, error);
-                return;
-            }
-
-            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom && roomMissing) {
-                Netplay::WebRtcSignalingMessage error;
-                error.type = Netplay::WebRtcSignalType::Error;
-                error.error = "Room does not exist";
-                sendMessage(hdl, error);
-                return;
-            }
-
-            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom && wrongPassword) {
-                Netplay::WebRtcSignalingMessage error;
-                error.type = Netplay::WebRtcSignalType::Error;
-                error.error = "Invalid room password";
-                sendMessage(hdl, error);
-                return;
-            }
-
-            if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::CreateRoom) {
-                Netplay::WebRtcSignalingMessage joined;
-                joined.type = Netplay::WebRtcSignalType::RoomJoined;
-                joined.roomId = parsed->roomId;
-                joined.peerId = "signal-server";
-                joined.targetPeerId = parsed->peerId;
-                sendMessage(hdl, joined);
-            } else if(parsed.has_value() && parsed->type == Netplay::WebRtcSignalType::JoinRoom) {
-                Netplay::WebRtcSignalingMessage joined;
-                joined.type = Netplay::WebRtcSignalType::RoomJoined;
-                joined.roomId = parsed->roomId;
-                joined.peerId = "signal-server";
-                joined.targetPeerId = parsed->peerId;
-                sendMessage(hdl, joined);
-
-                for(const auto& peer : existingPeers) {
-                    Netplay::WebRtcSignalingMessage toExisting;
-                    toExisting.type = Netplay::WebRtcSignalType::PeerJoined;
-                    toExisting.roomId = parsed->roomId;
-                    toExisting.peerId = parsed->peerId;
-                    sendMessage(peer.connection, toExisting);
-
-                    Netplay::WebRtcSignalingMessage toJoining;
-                    toJoining.type = Netplay::WebRtcSignalType::PeerJoined;
-                    toJoining.roomId = parsed->roomId;
-                    toJoining.peerId = peer.peerId;
-                    sendMessage(hdl, toJoining);
-                }
-            } else if(parsed.has_value() &&
-                      (parsed->type == Netplay::WebRtcSignalType::Offer ||
-                       parsed->type == Netplay::WebRtcSignalType::Answer ||
-                       parsed->type == Netplay::WebRtcSignalType::IceCandidate)) {
-                std::optional<PeerInfo> targetPeer;
+                std::optional<PeerInfo> closedPeer;
+                std::vector<PeerInfo> remainingPeers;
                 {
                     std::scoped_lock lock(m_mutex);
                     for(const auto& peer : m_peers) {
-                        if(peer.peerId == parsed->targetPeerId) {
-                            targetPeer = peer;
-                            break;
+                        if(peer.connection == connection) {
+                            closedPeer = peer;
+                        } else {
+                            remainingPeers.push_back(peer);
+                        }
+                    }
+                    m_peers = remainingPeers;
+                    if(closedPeer.has_value()) {
+                        bool roomStillUsed = false;
+                        for(const auto& peer : remainingPeers) {
+                            if(peer.roomId == closedPeer->roomId) {
+                                roomStillUsed = true;
+                                break;
+                            }
+                        }
+                        if(!roomStillUsed) {
+                            m_rooms.erase(closedPeer->roomId);
                         }
                     }
                 }
-                if(targetPeer.has_value()) {
-                    sendMessage(targetPeer->connection, *parsed);
-                }
-            }
-        });
 
-        m_server.set_close_handler([this](websocketpp::connection_hdl hdl) {
-            std::optional<PeerInfo> closedPeer;
-            std::vector<PeerInfo> remainingPeers;
-            {
-                std::scoped_lock lock(m_mutex);
-                for(const auto& peer : m_peers) {
-                    if(peer.connection.lock().get() == hdl.lock().get()) {
-                        closedPeer = peer;
-                    } else {
-                        remainingPeers.push_back(peer);
-                    }
-                }
-                m_peers = remainingPeers;
                 if(closedPeer.has_value()) {
-                    bool roomStillUsed = false;
                     for(const auto& peer : remainingPeers) {
-                        if(peer.roomId == closedPeer->roomId) {
-                            roomStillUsed = true;
-                            break;
-                        }
-                    }
-                    if(!roomStillUsed) {
-                        m_rooms.erase(closedPeer->roomId);
+                        if(peer.roomId != closedPeer->roomId) continue;
+                        Netplay::WebRtcSignalingMessage left;
+                        left.type = Netplay::WebRtcSignalType::PeerLeft;
+                        left.roomId = closedPeer->roomId;
+                        left.peerId = closedPeer->peerId;
+                        sendMessage(peer.connection, left);
                     }
                 }
-            }
-
-            if(closedPeer.has_value()) {
-                for(const auto& peer : remainingPeers) {
-                    if(peer.roomId != closedPeer->roomId) continue;
-                    Netplay::WebRtcSignalingMessage left;
-                    left.type = Netplay::WebRtcSignalType::PeerLeft;
-                    left.roomId = closedPeer->roomId;
-                    left.peerId = closedPeer->peerId;
-                    sendMessage(peer.connection, left);
-                }
-            }
+            };
+            connection->onClosed(onClosed);
+            connection->onError([onClosed](std::string) { onClosed(); });
         });
-
-        m_server.listen(m_port);
-        m_server.start_accept();
-        m_thread = std::thread([this]() { m_server.run(); });
     }
 
     ~LocalWebSocketSignalingServer()
     {
-        std::vector<websocketpp::connection_hdl> connections;
+        std::vector<std::shared_ptr<rtc::WebSocket>> connections;
         {
             std::scoped_lock lock(m_mutex);
             for(const auto& peer : m_peers) {
@@ -285,14 +287,12 @@ public:
             }
         }
         for(const auto& connection : connections) {
-            websocketpp::lib::error_code ec;
-            m_server.close(connection, websocketpp::close::status::normal, "", ec);
+            connection->resetCallbacks();
+            connection->forceClose();
         }
-
-        m_server.stop_listening();
-        m_server.stop();
-        if(m_thread.joinable()) {
-            m_thread.join();
+        if(m_server) {
+            m_server->onClient(nullptr);
+            m_server->stop();
         }
     }
 

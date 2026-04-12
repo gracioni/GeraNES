@@ -1070,6 +1070,7 @@ public:
     const std::vector<std::string>& advertisedIceServers() const override { return m_signaledIceServers; }
     bool hostSession(uint16_t port, size_t maxPeers) override
     {
+        shutdown();
         m_requestedMaxPeers = std::max<size_t>(1, maxPeers);
         m_activeSignalingConfig = resolveSignalingConfig(true, {}, port);
         if(!m_activeSignalingConfig.has_value()) {
@@ -1102,9 +1103,7 @@ public:
         }
 
         if(!bootstrapSignaling(true)) {
-            if(m_signalingServer) {
-                m_signalingServer->stop();
-            }
+            shutdown();
             return false;
         }
 
@@ -1115,6 +1114,7 @@ public:
     }
     bool connectToHost(const std::string& hostName, uint16_t port, size_t = 3) override
     {
+        shutdown();
         m_requestedMaxPeers = 1;
         m_activeSignalingConfig = resolveSignalingConfig(false, hostName, port);
         if(!m_activeSignalingConfig.has_value()) {
@@ -1123,6 +1123,7 @@ public:
         }
 
         if(!bootstrapSignaling(false)) {
+            shutdown();
             return false;
         }
 

@@ -3825,6 +3825,10 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         } else {
             m_lastError = transportError;
             pushLog("Transport error: " + transportError);
+            const std::string preservedError = m_lastError;
+            completeLocalDisconnect();
+            m_lastError = preservedError;
+            return;
         }
     } else if(transportError.empty()) {
         m_lastTransportError.clear();
