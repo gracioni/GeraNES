@@ -399,6 +399,18 @@ private:
         }
     }
 
+    bool shouldCreateOfferForPeer(const std::string& remotePeerId) const
+    {
+        if(remotePeerId.empty() || remotePeerId == m_localPeerId) {
+            return false;
+        }
+
+        // Use a deterministic offerer so both peers can react to PeerJoined
+        // without creating glare. Current peer ids are prefixed host-/peer-,
+        // which makes the joining peer the offerer in host/client sessions.
+        return m_localPeerId > remotePeerId;
+    }
+
     void clearRuntimeState()
     {
         if(!m_peers.empty() || m_signalingReady || m_active) {
@@ -1023,11 +1035,19 @@ private:
             }
             switch(message.type) {
                 case WebRtcSignalType::PeerJoined:
-                    if(m_hosting && message.peerId != m_localPeerId) {
-                        logTrace("peer joined room: " + message.peerId);
-                        if(initializePeerConnection(message.peerId, true)) {
+                    if(message.peerId != m_localPeerId) {
+                        const bool createOffer = shouldCreateOfferForPeer(message.peerId);
+                        logTrace(
+                            std::string("peer joined room: ") + message.peerId +
+                            " createOffer=" + (createOffer ? "true" : "false")
+                        );
+                        if(createOffer && initializePeerConnection(message.peerId, true)) {
                             WebRtcPeerState* peer = findPeerByRemoteId(message.peerId);
-                            if(peer && peer->connection) {
+                            if(peer &&
+                               peer->connection &&
+                               !peer->connected &&
+                               peer->handshakeState == PeerHandshakeState::Idle) {
+                                stopInitialOfferWait();
                                 startPeerHandshake(*peer, PeerHandshakeState::CreatingOffer);
                                 logTrace("starting createOffer for " + message.peerId);
                                 if(!peer->connection->createOffer()) {
@@ -1041,7 +1061,6 @@ private:
                     } else {
                         logTrace(
                             std::string("ignoring PeerJoined for ") + message.peerId +
-                            " hosting=" + (m_hosting ? "true" : "false") +
                             " localPeerId=" + m_localPeerId
                         );
                     }

@@ -242,6 +242,7 @@ class SignalingServer:
                 invalid_password = False
                 room_full = False
                 recipients: list[ServerConnection] = []
+                existing_peer_ids: list[str] = []
             else:
                 room_missing = False
                 if room.owner is None or room.owner not in room.members:
@@ -249,13 +250,20 @@ class SignalingServer:
                     invalid_password = False
                     room_full = False
                     recipients = []
+                    existing_peer_ids = []
                 else:
                     invalid_password = room.password != password
                     room_full = len(room.members) >= room.max_participants
                     if invalid_password or room_full:
                         recipients = []
+                        existing_peer_ids = []
                     else:
                         recipients = [member for member in room.members if member is not websocket]
+                        existing_peer_ids = [
+                            self._clients[member].peer_id
+                            for member in recipients
+                            if member in self._clients and self._clients[member].peer_id
+                        ]
 
                         client = self._clients.setdefault(websocket, ClientState())
                         old_room_id = client.room_id
@@ -303,6 +311,16 @@ class SignalingServer:
                 "iceServers": self._config.ice_servers,
             },
         )
+
+        for existing_peer_id in existing_peer_ids:
+            await self._send_message(
+                websocket,
+                {
+                    "type": "peer_joined",
+                    "roomId": room_id,
+                    "peerId": existing_peer_id,
+                },
+            )
 
         await self._broadcast_to_specific_peers(
             recipients,
