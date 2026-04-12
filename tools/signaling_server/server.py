@@ -458,10 +458,6 @@ class SignalingServer:
         if not recipients:
             return
 
-        payload = json.dumps(
-            _normalize_message(message, ice_servers=self._config.ice_servers),
-            separators=(",", ":"),
-        )
         async with self._lock:
             recipient_peer_ids = [
                 self._clients.get(recipient).peer_id
@@ -475,12 +471,10 @@ class SignalingServer:
             _as_string(message.get("peerId")),
             recipient_peer_ids,
         )
-        results = await asyncio.gather(
-            *(recipient.send(payload) for recipient in recipients),
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, Exception):
+        for recipient in recipients:
+            try:
+                await self._send_message(recipient, message)
+            except Exception as result:
                 logging.warning(
                     "broadcast send failed type=%s roomId=%s peerId=%s error=%s",
                     message.get("type", ""),
