@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <deque>
 #include <limits>
@@ -40,6 +41,73 @@ const char* signalTypeLabel(WebRtcSignalType type)
         case WebRtcSignalType::LeaveRoom: return "LeaveRoom";
         default: return "Unknown";
     }
+}
+
+std::string trimAsciiWhitespace(const std::string& value)
+{
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    });
+    if(first == value.end()) {
+        return {};
+    }
+
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    }).base();
+    return std::string(first, last);
+}
+
+std::string toLowerAscii(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool isUnsupportedTurnTransport(const std::string& iceServer)
+{
+    const std::string normalized = toLowerAscii(iceServer);
+    if(normalized.rfind("turns:", 0) == 0) {
+        return true;
+    }
+    if(normalized.rfind("turn:", 0) != 0) {
+        return false;
+    }
+    return normalized.find("transport=tcp") != std::string::npos ||
+           normalized.find("transport=tls") != std::string::npos;
+}
+
+std::vector<std::string> sanitizeAdvertisedIceServers(const std::vector<std::string>& iceServers)
+{
+    std::vector<std::string> sanitized;
+    sanitized.reserve(iceServers.size());
+
+    for(const std::string& entry : iceServers) {
+        const std::string trimmed = trimAsciiWhitespace(entry);
+        if(trimmed.empty()) {
+            continue;
+        }
+        if(isUnsupportedTurnTransport(trimmed)) {
+            continue;
+        }
+        if(std::find(sanitized.begin(), sanitized.end(), trimmed) == sanitized.end()) {
+            sanitized.push_back(trimmed);
+        }
+    }
+
+    if(sanitized.empty()) {
+        for(const std::string& entry : iceServers) {
+            const std::string trimmed = trimAsciiWhitespace(entry);
+            if(!trimmed.empty() &&
+               std::find(sanitized.begin(), sanitized.end(), trimmed) == sanitized.end()) {
+                sanitized.push_back(trimmed);
+            }
+        }
+    }
+
+    return sanitized;
 }
 
 #if !defined(__EMSCRIPTEN__)
@@ -1162,7 +1230,7 @@ private:
                 if(message.type == WebRtcSignalType::Welcome) {
                     m_bootstrapSawWelcome = true;
                     if(!message.iceServers.empty()) {
-                        m_signaledIceServers = message.iceServers;
+                        m_signaledIceServers = sanitizeAdvertisedIceServers(message.iceServers);
                     }
                     if(!sendBootstrapRoomRequest()) {
                         m_bootstrapPending = false;
@@ -1174,7 +1242,7 @@ private:
                           message.roomId == m_activeSignalingConfig->roomId) {
                     m_bootstrapSawRoomJoined = true;
                     if(!message.iceServers.empty()) {
-                        m_signaledIceServers = message.iceServers;
+                        m_signaledIceServers = sanitizeAdvertisedIceServers(message.iceServers);
                     }
                     if(m_bootstrapHost) {
                         logTrace("host room registered on signaling server: " + message.roomId);
