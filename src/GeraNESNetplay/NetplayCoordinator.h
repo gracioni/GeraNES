@@ -157,6 +157,7 @@ private:
     void resetSessionState();
     void queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId = kInvalidParticipantId);
     void pushLog(const std::string& message);
+    void pushToast(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
     ParticipantId participantIdFromPeer(NetTransport::PeerHandle peer) const;
     NetTransport::PeerHandle peerFromParticipantId(ParticipantId participantId) const;

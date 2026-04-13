@@ -13,6 +13,7 @@
 #include "GeraNES/defines.h"
 #include "GeraNES/util/Crc32.h"
 #include "GeraNES/Serialization.h"
+#include "logger/logger.h"
 
 namespace {
 
@@ -317,6 +318,15 @@ void NetplayCoordinator::pushLog(const std::string& message)
     if(m_eventLog.size() > MAX_LOG_LINES) {
         m_eventLog.erase(m_eventLog.begin(), m_eventLog.begin() + (m_eventLog.size() - MAX_LOG_LINES));
     }
+}
+
+void NetplayCoordinator::pushToast(const std::string& message)
+{
+    if(message.empty()) {
+        return;
+    }
+    pushLog(message);
+    Logger::instance().log(message, Logger::Type::USER);
 }
 
 ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const std::string& displayName)
@@ -2420,7 +2430,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_lastError = "Removed from room by host";
     } else {
         pushLog("Participant left: " + participantName);
-        pushLog(participantName + " left");
+        pushToast(participantName + " left");
     }
     return true;
 }
@@ -2453,7 +2463,7 @@ bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketRe
     m_transport.flush();
     refreshHostRoomState();
     pushLog("Participant left gracefully: " + name);
-    pushLog(name + " left");
+    pushToast(name + " left");
     return true;
 }
 
@@ -2502,8 +2512,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
 
     const std::string toast = resyncReasonToast(data.reason);
     if(!toast.empty()) {
-        pushLog(toast);
-        pushLog(toast);
+        pushToast(toast);
     }
 
     return true;
@@ -2783,7 +2792,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
         m_disconnectExpectedAfterHostShutdown = true;
         m_lastError = "Owner closed the room";
         pushLog("Owner closed the room");
-        pushLog("Owner closed the room");
+        pushToast("Owner closed the room");
         setRecoveryInputMode(RecoveryInputMode::Normal, "session-ended", m_session.roomState().currentFrame);
     } else if(data.state == SessionState::Running &&
               (previousState == SessionState::Resyncing || previousState == SessionState::Starting)) {
@@ -3014,7 +3023,7 @@ void NetplayCoordinator::updateReconnectReservations()
         m_reconnectReservationDeadlines.erase(participantId);
         removeParticipant(participantId);
         m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId));
-        pushLog(name + " did not reconnect");
+        pushToast(name + " did not reconnect");
     }
 
     if(!expiredParticipants.empty()) {
@@ -3312,10 +3321,8 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         << participant.displayName
         << " (id " << static_cast<int>(participant.id) << ")";
     pushLog(oss.str());
-    if(reusedReconnectReservation) {
-        pushLog(participantLabel(participant) + " reconnected");
-    } else if(!replacingActivePeer) {
-        pushLog(participantLabel(participant) + " joined");
+    if(reusedReconnectReservation || !replacingActivePeer) {
+        pushToast(participantLabel(participant) + " joined");
     }
     return true;
 }
@@ -3391,15 +3398,19 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
 
     if(isNewParticipant && participantId != m_localParticipantId) {
         if(!suppressPresenceToast) {
-            pushLog(participantLabel(participant) + " joined");
+            pushToast(participantLabel(participant) + " joined");
         }
         pushLog("Participant active: " + participant.displayName + " (id " + std::to_string(static_cast<int>(participant.id)) + ")");
     } else if((participant.connected != wasConnected || participant.reconnectReserved != wasReserved) &&
               participantId != m_localParticipantId) {
-        std::ostringstream oss;
-        oss << (participant.connected ? "Participant active: " : "Participant inactive: ")
-            << participant.displayName << " (id " << static_cast<int>(participant.id) << ")";
-        pushLog(oss.str());
+        if(!participant.connected && participant.reconnectReserved) {
+            pushToast(participantLabel(participant) + " left (reserved)");
+        } else {
+            std::ostringstream oss;
+            oss << (participant.connected ? "Participant active: " : "Participant inactive: ")
+                << participant.displayName << " (id " << static_cast<int>(participant.id) << ")";
+            pushToast(oss.str());
+        }
     }
     return true;
 }
@@ -3739,10 +3750,13 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         if(participant != nullptr && (!participant->connected || participant->reconnectReserved)) {
                             break;
                         }
+                        const bool hasAssignedInput =
+                            participant != nullptr &&
+                            !participantIsObserver(*participant);
                         const bool reserveReconnect =
                             participant != nullptr &&
                             participant->reconnectToken != 0 &&
-                            (participant->romCompatible || !participantIsObserver(*participant));
+                            hasAssignedInput;
                         pushLog("Peer disconnected: participant " + std::to_string(static_cast<int>(participantId)));
                         if(m_pendingHostLateJoinResyncParticipant.has_value() &&
                            *m_pendingHostLateJoinResyncParticipant == participantId) {
@@ -3751,7 +3765,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         if(participant != nullptr && reserveReconnect) {
                             participant->connected = false;
                             participant->reconnectReserved = true;
-                            const bool hadAssignedInput = !participantIsObserver(*participant);
+                            const bool hadAssignedInput = hasAssignedInput;
                             participant->inputSuspended = hadAssignedInput;
                             participant->inputResumeAwaitingResync = false;
                             participant->reservationSecondsRemaining =
