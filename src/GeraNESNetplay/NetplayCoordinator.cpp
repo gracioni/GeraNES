@@ -3740,12 +3740,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         if(participant != nullptr && (!participant->connected || participant->reconnectReserved)) {
                             break;
                         }
-                        const bool hadActiveAssignment =
-                            participant != nullptr &&
-                            !participantIsObserver(*participant) &&
-                            (m_session.roomState().state == SessionState::Running ||
-                             m_session.roomState().state == SessionState::Resyncing ||
-                             m_session.roomState().state == SessionState::Paused);
                         const bool reserveReconnect =
                             participant != nullptr &&
                             participant->reconnectToken != 0 &&
@@ -3783,24 +3777,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         } else {
                             removeParticipant(participantId);
                             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), event.peer);
-                        }
-                        if(hadActiveAssignment &&
-                           (m_session.roomState().state == SessionState::Running ||
-                            m_session.roomState().state == SessionState::Resyncing)) {
-                            m_session.roomState().state = SessionState::Paused;
-                            PacketWriter writer;
-                            PacketHeader header;
-                            header.type = MessageType::PauseSession;
-                            header.sessionId = m_session.roomState().sessionId;
-                            writer.writePod(header);
-                            StartSessionData data;
-                            data.state = SessionState::Paused;
-                            data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-                            data.predictFrames = m_session.roomState().predictFrames;
-                            data.topology = makeTopologyData(m_session.roomState());
-                            writer.writePod(data);
-                            m_transport.broadcastReliable(Channel::Control, writer.data(), event.peer);
-                            pushLog("Session paused because an assigned participant disconnected");
                         }
                         refreshHostRoomState();
                     } else {
