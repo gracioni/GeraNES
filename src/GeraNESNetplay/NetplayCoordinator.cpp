@@ -4858,6 +4858,10 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
+    if(!participant->connected) {
+        pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
+        return false;
+    }
     if(participantHasAssignment(*participant, slot)) return true;
 
     std::vector<ParticipantId> changedParticipants;
@@ -4926,6 +4930,10 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
+    if(!participant->connected) {
+        pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
+        return false;
+    }
     if(!participantHasAssignment(*participant, slot)) return true;
 
     const FrameNumber assignmentBaselineFrame =
@@ -4974,6 +4982,10 @@ bool NetplayCoordinator::clearControllerAssignments(ParticipantId participantId)
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
+    if(!participant->connected) {
+        pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
+        return false;
+    }
     if(participantIsObserver(*participant)) return true;
 
     std::vector<PlayerSlot> assignments = participant->controllerAssignments;
