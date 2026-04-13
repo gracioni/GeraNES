@@ -170,6 +170,7 @@ private:
     void clearTargetedResyncTracking();
     void finalizeActiveResyncIfReady();
     void cancelTargetedResync(const std::string& reason);
+    bool assignmentMutationBlocked(std::string* reason = nullptr) const;
     void clearReconnectAttemptState();
     void finalizeLocalTeardown(LocalTeardownMode mode);
     void completeLocalDisconnect(bool shutdownTransport = true);

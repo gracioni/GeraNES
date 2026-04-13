@@ -618,6 +618,30 @@ void NetplayCoordinator::clearReconnectAttemptState()
     m_reconnectDeadline = {};
 }
 
+bool NetplayCoordinator::assignmentMutationBlocked(std::string* reason) const
+{
+    const RoomState& room = m_session.roomState();
+    if(room.state == SessionState::Resyncing) {
+        if(reason != nullptr) {
+            *reason = "assignment update blocked during active resync";
+        }
+        return true;
+    }
+    if(room.activeResyncId != 0 || room.pendingResyncAckCount != 0) {
+        if(reason != nullptr) {
+            *reason = "assignment update blocked while resync acknowledgement is pending";
+        }
+        return true;
+    }
+    if(room.recoveryInputMode != RecoveryInputMode::Normal) {
+        if(reason != nullptr) {
+            *reason = "assignment update blocked during recovery stabilization";
+        }
+        return true;
+    }
+    return false;
+}
+
 void NetplayCoordinator::finalizeLocalTeardown(LocalTeardownMode mode)
 {
     clearReconnectAttemptState();
@@ -4844,6 +4868,12 @@ bool NetplayCoordinator::requestHostResync(ResyncReason reason)
 
 bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlot slot)
 {
+    std::string blockedReason;
+    if(assignmentMutationBlocked(&blockedReason)) {
+        pushLog(blockedReason);
+        return false;
+    }
+
     if(slot == kObserverPlayerSlot) {
         return clearControllerAssignments(participantId);
     }
@@ -4854,6 +4884,11 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
 bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, PlayerSlot slot)
 {
     if(!m_hosting) return false;
+    std::string blockedReason;
+    if(assignmentMutationBlocked(&blockedReason)) {
+        pushLog(blockedReason);
+        return false;
+    }
     if(!isAssignmentAvailable(slot, m_session.roomState())) return false;
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
@@ -4862,6 +4897,7 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
         pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
         return false;
     }
+    pushLog("Applying assignment update for " + participantLabel(*participant));
     if(participantHasAssignment(*participant, slot)) return true;
 
     std::vector<ParticipantId> changedParticipants;
@@ -4927,6 +4963,11 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
 bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId, PlayerSlot slot)
 {
     if(!m_hosting) return false;
+    std::string blockedReason;
+    if(assignmentMutationBlocked(&blockedReason)) {
+        pushLog(blockedReason);
+        return false;
+    }
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
@@ -4934,6 +4975,7 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
         return false;
     }
+    pushLog("Applying assignment update for " + participantLabel(*participant));
     if(!participantHasAssignment(*participant, slot)) return true;
 
     const FrameNumber assignmentBaselineFrame =
@@ -4979,6 +5021,11 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
 bool NetplayCoordinator::clearControllerAssignments(ParticipantId participantId)
 {
     if(!m_hosting) return false;
+    std::string blockedReason;
+    if(assignmentMutationBlocked(&blockedReason)) {
+        pushLog(blockedReason);
+        return false;
+    }
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr) return false;
