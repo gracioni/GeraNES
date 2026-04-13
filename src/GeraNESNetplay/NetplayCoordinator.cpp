@@ -1,4 +1,3 @@
-#include "logger/logger.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 
 #include <algorithm>
@@ -85,11 +84,6 @@ std::string describeHostTarget(Netplay::NetTransportBackend backend,
     }
     oss << " for up to " << maxPeers << " participants";
     return oss.str();
-}
-
-void notifySessionEvent(std::string_view message)
-{
-    Logger::instance().log(message, Logger::Type::USER);
 }
 
 Netplay::InputTopologyData makeTopologyData(const Netplay::RoomState& room)
@@ -1471,7 +1465,10 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
     m_activeResyncExpectedStateCrc32 = 0;
     m_implicitRecoveryMonitor.reset();
-    m_session.roomState().state = SessionState::Paused;
+    if(m_session.roomState().state == SessionState::Running ||
+       m_session.roomState().state == SessionState::Resyncing) {
+        m_session.roomState().state = SessionState::Running;
+    }
     setRecoveryInputMode(RecoveryInputMode::Normal, "resync-retry-scheduled", targetFrame);
     pushLog(reason);
 }
@@ -1670,8 +1667,10 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
     if(!m_hosting || m_session.roomState().state != SessionState::Running) return;
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
+        const bool participatesViaReservation =
+            !participant.connected && participant.reconnectReserved;
         if(participant.id == m_localParticipantId ||
-           !participant.connected ||
+           (!participant.connected && !participatesViaReservation) ||
            participantIsObserver(participant) ||
            (!participant.inputSuspended && !participant.inputResumeAwaitingResync)) {
             continue;
@@ -2305,10 +2304,10 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
             seedNeutralInputBaseline(data.participantId, slot, assignmentBaselineFrame);
         }
         if(participant->controllerAssignments.empty()) {
-            notifySessionEvent(controllerAssignmentToast(kObserverPlayerSlot, m_session.roomState(), participantLabel(*participant)));
+            pushLog(controllerAssignmentToast(kObserverPlayerSlot, m_session.roomState(), participantLabel(*participant)));
         } else {
             for(PlayerSlot slot : participant->controllerAssignments) {
-                notifySessionEvent(controllerAssignmentToast(slot, m_session.roomState(), participantLabel(*participant)));
+                pushLog(controllerAssignmentToast(slot, m_session.roomState(), participantLabel(*participant)));
             }
         }
         return true;
@@ -2421,7 +2420,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_lastError = "Removed from room by host";
     } else {
         pushLog("Participant left: " + participantName);
-        notifySessionEvent(participantName + " left");
+        pushLog(participantName + " left");
     }
     return true;
 }
@@ -2454,7 +2453,7 @@ bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketRe
     m_transport.flush();
     refreshHostRoomState();
     pushLog("Participant left gracefully: " + name);
-    notifySessionEvent(name + " left");
+    pushLog(name + " left");
     return true;
 }
 
@@ -2503,7 +2502,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
 
     const std::string toast = resyncReasonToast(data.reason);
     if(!toast.empty()) {
-        notifySessionEvent(toast);
+        pushLog(toast);
         pushLog(toast);
     }
 
@@ -2784,7 +2783,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
         m_disconnectExpectedAfterHostShutdown = true;
         m_lastError = "Owner closed the room";
         pushLog("Owner closed the room");
-        notifySessionEvent("Owner closed the room");
+        pushLog("Owner closed the room");
         setRecoveryInputMode(RecoveryInputMode::Normal, "session-ended", m_session.roomState().currentFrame);
     } else if(data.state == SessionState::Running &&
               (previousState == SessionState::Resyncing || previousState == SessionState::Starting)) {
@@ -2798,9 +2797,9 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
         );
     } else {
         if(data.state == SessionState::Paused && previousState != SessionState::Paused) {
-            notifySessionEvent("Owner paused");
+            pushLog("Owner paused");
         } else if(data.state == SessionState::Running && previousState == SessionState::Paused) {
-            notifySessionEvent("Owner resumed");
+            pushLog("Owner resumed");
         }
         pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
         if(data.state != SessionState::Resyncing && data.state != SessionState::Paused) {
@@ -3015,7 +3014,7 @@ void NetplayCoordinator::updateReconnectReservations()
         m_reconnectReservationDeadlines.erase(participantId);
         removeParticipant(participantId);
         m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId));
-        notifySessionEvent(name + " did not reconnect");
+        pushLog(name + " did not reconnect");
     }
 
     if(!expiredParticipants.empty()) {
@@ -3123,7 +3122,7 @@ void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> po
         syncParticipantRoleWithAssignments(participant, participant.id == m_localParticipantId);
         changedAssignments.push_back(participant.id);
         if(participantIsObserver(participant)) {
-            notifySessionEvent(controllerAssignmentToast(kObserverPlayerSlot, room, participantLabel(participant)));
+            pushLog(controllerAssignmentToast(kObserverPlayerSlot, room, participantLabel(participant)));
         }
     }
 
@@ -3314,9 +3313,9 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         << " (id " << static_cast<int>(participant.id) << ")";
     pushLog(oss.str());
     if(reusedReconnectReservation) {
-        notifySessionEvent(participantLabel(participant) + " reconnected");
+        pushLog(participantLabel(participant) + " reconnected");
     } else if(!replacingActivePeer) {
-        notifySessionEvent(participantLabel(participant) + " joined");
+        pushLog(participantLabel(participant) + " joined");
     }
     return true;
 }
@@ -3392,7 +3391,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
 
     if(isNewParticipant && participantId != m_localParticipantId) {
         if(!suppressPresenceToast) {
-            notifySessionEvent(participantLabel(participant) + " joined");
+            pushLog(participantLabel(participant) + " joined");
         }
         pushLog("Participant active: " + participant.displayName + " (id " + std::to_string(static_cast<int>(participant.id)) + ")");
     } else if((participant.connected != wasConnected || participant.reconnectReserved != wasReserved) &&
@@ -3752,6 +3751,9 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         if(participant != nullptr && reserveReconnect) {
                             participant->connected = false;
                             participant->reconnectReserved = true;
+                            const bool hadAssignedInput = !participantIsObserver(*participant);
+                            participant->inputSuspended = hadAssignedInput;
+                            participant->inputResumeAwaitingResync = false;
                             participant->reservationSecondsRemaining =
                                 static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
                             m_reconnectReservationDeadlines[participantId] =
@@ -3773,7 +3775,13 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 finalizeActiveResyncIfReady();
                             }
                             m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), event.peer);
-                            notifySessionEvent(participantLabel(*participant) + " disconnected; reconnect reserved");
+                            pushLog(participantLabel(*participant) + " disconnected; reconnect reserved");
+                            if(hadAssignedInput) {
+                                // Keep the host authoritative timeline moving while this
+                                // participant is temporarily disconnected by replaying
+                                // neutral/repeated input from the latest confirmed frame.
+                                synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
+                            }
                         } else {
                             removeParticipant(participantId);
                             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), event.peer);
@@ -4141,6 +4149,11 @@ const NetSession& NetplayCoordinator::session() const
 const std::vector<std::string>& NetplayCoordinator::eventLog() const
 {
     return m_eventLog;
+}
+
+void NetplayCoordinator::appendNetplayLog(const std::string& message)
+{
+    pushLog(message);
 }
 
 const RollbackStats& NetplayCoordinator::predictionStats() const
@@ -4887,7 +4900,7 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     }
 
     for(const auto& [assignedSlot, participantName] : assignmentToasts) {
-        notifySessionEvent(controllerAssignmentToast(assignedSlot, m_session.roomState(), participantName));
+        pushLog(controllerAssignmentToast(assignedSlot, m_session.roomState(), participantName));
     }
 
     return true;
@@ -4933,7 +4946,7 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         pushLog("Controller assignment changed; scheduling automatic resync");
     }
 
-    notifySessionEvent(controllerAssignmentToast(
+    pushLog(controllerAssignmentToast(
         participantIsObserver(*participant) ? kObserverPlayerSlot : participant->controllerAssignment,
         m_session.roomState(),
         participantLabel(*participant)

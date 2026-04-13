@@ -268,7 +268,7 @@ private:
 
         const std::string message = std::string(action) + " is disabled while connected as a netplay client";
         m_userToast.show(message);
-        Logger::instance().log(message, Logger::Type::INFO);
+        m_netplayRuntime.appendNetplayLog(message);
     }
 
     void notifyNetplayRomChangeRestrictedAction(const char* action)
@@ -277,7 +277,7 @@ private:
 
         const std::string message = std::string(action) + " is disabled while netplay is active";
         m_userToast.show(message);
-        Logger::instance().log(message, Logger::Type::INFO);
+        m_netplayRuntime.appendNetplayLog(message);
     }
 
     bool canUseNetplaySessionPause() const
@@ -308,7 +308,7 @@ private:
                 ? "Only the owner can pause the netplay session"
                 : "Pause is unavailable in the current netplay state";
         m_userToast.show(message);
-        Logger::instance().log(message, Logger::Type::INFO);
+        m_netplayRuntime.appendNetplayLog(message);
     }
 
     void togglePauseAction()
@@ -580,7 +580,7 @@ private:
         if(!netplaySessionBlockedReason().empty()) return;
 
         if(m_netplayCoordinator.resumeSession()) {
-            Logger::instance().log("Netplay auto-resumed", Logger::Type::USER);
+            m_netplayCoordinator.appendNetplayLog("Netplay auto-resumed");
         }
     }
 
@@ -744,7 +744,7 @@ private:
 
         const uint32_t rollbackFromFrame = currentFrame;
         if(!m_emu.rollbackToFrame(*rollbackFrame)) {
-            Logger::instance().log("Netplay rollback failed", Logger::Type::WARNING);
+            m_netplayCoordinator.appendNetplayLog("Netplay rollback failed");
             return;
         }
         m_netplayCoordinator.setLocalSimulationFrame(*rollbackFrame);
@@ -764,15 +764,14 @@ private:
             replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {
-            Logger::instance().log("Netplay resimulation failed", Logger::Type::WARNING);
+            m_netplayCoordinator.appendNetplayLog("Netplay resimulation failed");
             return;
         }
         m_netplayCoordinator.setLocalSimulationFrame(m_emu.frameCount());
 
-        Logger::instance().log(
+        m_netplayCoordinator.appendNetplayLog(
             "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
-            " -> " + std::to_string(*rollbackFrame) + ")",
-            Logger::Type::INFO
+            " -> " + std::to_string(*rollbackFrame) + ")"
         );
         queueConfirmedNetplayFramesToEmu();
     }
@@ -799,9 +798,9 @@ private:
 
         if(loaded) {
             reanchorNetplayLocalTimelineTracking();
-            Logger::instance().log("Netplay resync applied", Logger::Type::INFO);
+            m_netplayCoordinator.appendNetplayLog("Netplay resync applied");
         } else {
-            Logger::instance().log("Netplay resync failed", Logger::Type::WARNING);
+            m_netplayCoordinator.appendNetplayLog("Netplay resync failed");
         }
     }
 
@@ -833,17 +832,15 @@ private:
 
         if(!initialSessionSync && confirmedSnapshot.has_value()) {
             if(!m_emu.rollbackToFrame(authoritativeFrame)) {
-                Logger::instance().log(
-                    "Netplay host failed to roll back locally before hard resync",
-                    Logger::Type::WARNING
+                m_netplayCoordinator.appendNetplayLog(
+                    "Netplay host failed to roll back locally before hard resync"
                 );
                 return;
             }
         } else if(!initialSessionSync && authoritativeFrame < m_emu.frameCount()) {
             if(!m_emu.rollbackToFrame(authoritativeFrame)) {
-                Logger::instance().log(
-                    "Netplay host failed to roll back locally before hard resync",
-                    Logger::Type::WARNING
+                m_netplayCoordinator.appendNetplayLog(
+                    "Netplay host failed to roll back locally before hard resync"
                 );
                 return;
             }
@@ -866,13 +863,12 @@ private:
                 m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
             }
             if(initialSessionSync) {
-                Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
+                m_netplayCoordinator.appendNetplayLog("Netplay initial session sync started");
             } else {
-                Logger::instance().log(
+                m_netplayCoordinator.appendNetplayLog(
                     "Netplay hard resync started after reason " + std::to_string(static_cast<int>(pending->reason)) +
                     " at frame " + std::to_string(pending->frame) +
-                    ", using authoritative frame " + std::to_string(authoritativeFrame),
-                    Logger::Type::WARNING
+                    ", using authoritative frame " + std::to_string(authoritativeFrame)
                 );
             }
         }
@@ -896,7 +892,7 @@ private:
         }
         m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
 
-        Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
+        m_netplayCoordinator.appendNetplayLog("Netplay initial session sync started");
         return true;
     }
 
@@ -932,9 +928,8 @@ private:
             if(stateCrc32 != 0u) {
                 m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
             }
-            Logger::instance().log(
-                "Netplay late-join resync started for participant " + std::to_string(static_cast<int>(*participantId)),
-                Logger::Type::INFO
+            m_netplayCoordinator.appendNetplayLog(
+                "Netplay late-join resync started for participant " + std::to_string(static_cast<int>(*participantId))
             );
         }
     }

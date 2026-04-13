@@ -321,6 +321,7 @@ public:
     const std::string& lastError() const;
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;
+    void appendNetplayLog(const std::string& message);
     const RollbackStats& predictionStats() const;
     void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached);
     void setLocalSimulationFrame(FrameNumber frame);

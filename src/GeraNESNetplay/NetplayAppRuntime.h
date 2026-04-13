@@ -22,7 +22,6 @@
 #include "GeraNESNetplay/NetplayAutoSettings.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
-#include "logger/logger.h"
 
 namespace Netplay {
 
@@ -343,16 +342,14 @@ private:
 
         bool anyMissingRom = false;
         bool anyIncompatibleRom = false;
-        bool anyDisconnected = false;
 
         for(const auto& participant : room.participants) {
             if(participantIsObserver(participant)) continue;
-            if(!participant.connected) anyDisconnected = true;
+            if(!participant.connected) continue;
             if(!participant.romLoaded) anyMissingRom = true;
             else if(!participant.romCompatible) anyIncompatibleRom = true;
         }
 
-        if(anyDisconnected) return "Session is paused because an assigned participant disconnected. Reassign when they return.";
         if(anyMissingRom) return "Waiting for assigned participants to load the selected ROM.";
         if(anyIncompatibleRom) return "One or more assigned participants have an incompatible ROM.";
         return "";
@@ -452,6 +449,7 @@ public:
     void removeReconnectReservation(ParticipantId participantId);
     void requestForceResync();
     void toggleHostedSessionPause();
+    void appendNetplayLog(const std::string& message);
     void shutdown();
     void shutdownForUnload();
     void runOnEmulationThread(GeraNESEmu& emu);
@@ -630,11 +628,11 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
                 << " eventFrame " << event.frame
                 << " emuFrame " << emu.frameCount()
                 << " roomEpoch " << room.timelineEpoch;
-            Logger::instance().log(oss.str(), Logger::Type::INFO);
+            m_coordinator.appendNetplayLog(oss.str());
         }
         const std::string toast = NetplayCoordinator::resyncReasonToast(reason);
         if(!toast.empty()) {
-            Logger::instance().log(toast, Logger::Type::USER);
+            m_coordinator.appendNetplayLog(toast);
         }
 
         const FrameNumber eventFrame = std::min<FrameNumber>(event.frame, emu.frameCount());
@@ -658,9 +656,8 @@ inline void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(GeraNE
         }
 
         if(resyncBusy) {
-            Logger::instance().log(
-                "Deferring manual host recovery until the active resync/bootstrap finishes",
-                Logger::Type::INFO
+            m_coordinator.appendNetplayLog(
+                "Deferring manual host recovery until the active resync/bootstrap finishes"
             );
             m_pendingManualStateResyncs.clear();
             m_pendingManualStateResyncs.push_back(PendingManualStateResync{
@@ -723,7 +720,7 @@ inline void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(GeraNESEm
             oss << "Applying deferred manual host recovery"
                 << " reason " << NetplayCoordinator::resyncReasonToast(pending.reason)
                 << " authoritativeFrame " << authoritativeFrame;
-            Logger::instance().log(oss.str(), Logger::Type::INFO);
+            m_coordinator.appendNetplayLog(oss.str());
             m_pendingManualStateResyncs.pop_front();
         } else {
             return;
@@ -910,7 +907,7 @@ inline bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(GeraNESEmu& emu)
         return false;
     }
 
-    Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
+    m_coordinator.appendNetplayLog("Netplay initial session sync started");
     return true;
 }
 
@@ -947,13 +944,12 @@ inline void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu
            pending->participantId
        )) {
         if(initialSessionSync) {
-            Logger::instance().log("Netplay initial session sync started", Logger::Type::INFO);
+            m_coordinator.appendNetplayLog("Netplay initial session sync started");
         } else {
-            Logger::instance().log(
+            m_coordinator.appendNetplayLog(
                 "Netplay hard resync started after reason " + std::to_string(static_cast<int>(reason)) +
                 " at frame " + std::to_string(pending->frame) +
-                ", using authoritative frame " + std::to_string(authoritativeFrame),
-                Logger::Type::WARNING
+                ", using authoritative frame " + std::to_string(authoritativeFrame)
             );
         }
     }
@@ -981,10 +977,9 @@ inline void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNES
            ResyncReason::InitialSessionSync,
            *participantId
        )) {
-        Logger::instance().log(
+        m_coordinator.appendNetplayLog(
             "Netplay late-join resync started for participant " +
-            std::to_string(static_cast<int>(*participantId)),
-            Logger::Type::INFO
+            std::to_string(static_cast<int>(*participantId))
         );
     }
 }
@@ -1019,7 +1014,7 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             << " loadedCrc32 " << loadedCrc32
             << " frameReadyFrame "
             << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
-        Logger::instance().log(oss.str(), Logger::Type::INFO);
+        m_coordinator.appendNetplayLog(oss.str());
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
 
@@ -1031,10 +1026,10 @@ inline void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
                 << ", got "
                 << loadedFrame
                 << " after clean-boot state load";
-            Logger::instance().log(oss.str(), Logger::Type::WARNING);
+            m_coordinator.appendNetplayLog(oss.str());
         }
-        Logger::instance().log("Netplay resync post-load validation rejected", Logger::Type::WARNING);
-        Logger::instance().log("Netplay resync failed", Logger::Type::WARNING);
+        m_coordinator.appendNetplayLog("Netplay resync post-load validation rejected");
+        m_coordinator.appendNetplayLog("Netplay resync failed");
     }
 }
 
@@ -1063,7 +1058,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 
     const std::optional<std::vector<uint8_t>> snapshotData = m_emuHost.netplaySnapshotForFrame(*rollbackFrame);
     if(!snapshotData.has_value() || snapshotData->empty()) {
-        Logger::instance().log("Netplay rollback failed: snapshot unavailable", Logger::Type::WARNING);
+        m_coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
         return;
     }
 
@@ -1073,7 +1068,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         *snapshotData,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     if(!emu.valid()) {
-        Logger::instance().log("Netplay rollback failed", Logger::Type::WARNING);
+        m_coordinator.appendNetplayLog("Netplay rollback failed");
         return;
     }
 
@@ -1091,7 +1086,7 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = nextFrame > m_inputDriver.confirmedThroughFrame(m_coordinator);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
-            Logger::instance().log("Netplay resimulation failed", Logger::Type::WARNING);
+            m_coordinator.appendNetplayLog("Netplay resimulation failed");
             return;
         }
 
@@ -1112,13 +1107,12 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
                  << " confirmedFrame " << recoveredConfirmedFrame
                  << " localSimulationFrame " << emu.frameCount()
                  << " canonicalCrc32 " << recoveredConfirmedCrc32;
-        Logger::instance().log(validate.str(), Logger::Type::INFO);
+        m_coordinator.appendNetplayLog(validate.str());
     }
 
-    Logger::instance().log(
+    m_coordinator.appendNetplayLog(
         "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
-        " -> " + std::to_string(*rollbackFrame) + ")",
-        Logger::Type::INFO
+        " -> " + std::to_string(*rollbackFrame) + ")"
     );
 }
 
@@ -1697,7 +1691,7 @@ inline void NetplayAppRuntime::toggleHostedSessionPause()
                 self.m_emuHost.setSimulationSuspended(true);
                 self.m_emuHost.discardQueuedAudio();
                 self.m_runtimeLastTickTime = {};
-                Logger::instance().log("Paused", Logger::Type::USER);
+                self.m_coordinator.appendNetplayLog("Paused");
             }
         } else if(state == SessionState::Paused) {
             const auto localRom = captureCurrentRomSelection(emu);
@@ -1709,11 +1703,18 @@ inline void NetplayAppRuntime::toggleHostedSessionPause()
                 self.m_webVisibilityManagedPause = false;
                 self.m_emuHost.setSimulationSuspended(false);
                 self.m_runtimeLastTickTime = {};
-                Logger::instance().log("Unpaused", Logger::Type::USER);
+                self.m_coordinator.appendNetplayLog("Unpaused");
             } else {
                 self.m_emuHost.setSimulationSuspended(true);
             }
         }
+    });
+}
+
+inline void NetplayAppRuntime::appendNetplayLog(const std::string& message)
+{
+    enqueueCommand([message](NetplayAppRuntime& self, GeraNESEmu&) {
+        self.m_coordinator.appendNetplayLog(message);
     });
 }
 
