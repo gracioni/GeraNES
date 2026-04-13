@@ -55,6 +55,7 @@ public:
         uint32_t expectedPayloadCrc32 = 0;
         uint32_t frameReadyCrc32 = 0;
         uint32_t inputSequenceBase = 0;
+        uint64_t resumeAtHostTimeUs = 0;
         ResyncReason reason = ResyncReason::Unspecified;
         std::vector<uint8_t> payload;
     };
@@ -78,6 +79,15 @@ private:
         NetTransport::PeerHandle peer = NetTransport::kInvalidPeerHandle;
         ParticipantId participantId = kInvalidParticipantId;
         std::chrono::steady_clock::time_point disconnectAt = {};
+    };
+
+    struct PendingRealtimeResume
+    {
+        SessionState nextState = SessionState::Running;
+        FrameNumber resumeFrame = 0;
+        uint64_t resumeAtHostTimeUs = 0;
+        std::chrono::steady_clock::time_point localFallbackDeadline = {};
+        bool active = false;
     };
 
     enum class LocalTeardownMode : uint8_t
@@ -148,10 +158,15 @@ private:
     uint32_t m_activeTargetedResyncId = 0;
     FrameNumber m_activeTargetedResyncFrame = 0;
     uint32_t m_activeTargetedResyncExpectedStateCrc32 = 0;
+    uint64_t m_activeResyncResumeAtHostTimeUs = 0;
+    int64_t m_estimatedHostClockOffsetUs = 0;
+    bool m_hasEstimatedHostClockOffset = false;
+    PendingRealtimeResume m_pendingRealtimeResume;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
     static uint64_t generateReconnectToken();
+    static uint64_t localMonotonicTimeUs();
     static std::string messageTypeLabel(MessageType type);
 
     void resetSessionState();
@@ -260,6 +275,14 @@ private:
     void discardTimelineStateAfter(FrameNumber frame);
     void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void scheduleResyncRetry(FrameNumber targetFrame, const std::string& reason);
+    uint64_t computeResyncResumeAtHostTimeUs() const;
+    void scheduleRealtimeResyncResume(SessionState nextState,
+                                      FrameNumber resumeFrame,
+                                      uint64_t resumeAtHostTimeUs,
+                                      const char* reason);
+    void processRealtimeResyncResume(const std::chrono::steady_clock::time_point& now);
+    void updateHostClockOffsetEstimate(uint64_t hostMonotonicTimeUs, NetTransport::PeerHandle sourcePeer);
+    uint64_t projectedHostTimeUsNow() const;
     static const char* recoveryInputModeLabel(RecoveryInputMode mode);
     void setRecoveryInputMode(RecoveryInputMode mode,
                               const char* reason,

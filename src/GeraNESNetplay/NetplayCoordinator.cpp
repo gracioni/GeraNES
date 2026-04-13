@@ -25,6 +25,9 @@ constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
+constexpr auto kResyncRealtimeResumeLeadMin = std::chrono::milliseconds(250);
+constexpr auto kResyncRealtimeResumeLeadMax = std::chrono::milliseconds(1500);
+constexpr auto kResyncRealtimeResumeFallbackDelay = std::chrono::seconds(2);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
@@ -181,6 +184,12 @@ uint64_t NetplayCoordinator::generateReconnectToken()
     return mixed != 0 ? mixed : 1ull;
 }
 
+uint64_t NetplayCoordinator::localMonotonicTimeUs()
+{
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+}
+
 static const char* transportBackendLabel(NetTransportBackend backend)
 {
     return netTransportBackendLabel(backend);
@@ -282,6 +291,10 @@ void NetplayCoordinator::resetSessionState()
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncResumeAtHostTimeUs = 0;
+    m_estimatedHostClockOffsetUs = 0;
+    m_hasEstimatedHostClockOffset = false;
+    m_pendingRealtimeResume = {};
     m_reconnectReservationDeadlines.clear();
     m_lastRemoteInputAt.clear();
     m_lastTransportError.clear();
@@ -528,6 +541,7 @@ void NetplayCoordinator::clearActiveResyncTracking(SessionState resumeState)
     m_session.roomState().resyncPayloadCrc32 = 0;
     m_session.roomState().resyncFrameReadyCrc32 = 0;
     m_session.roomState().resyncInputSequenceBase = 0;
+    m_session.roomState().resyncResumeAtHostTimeUs = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
     m_activeResyncExpectedStateCrc32 = 0;
     m_pendingResyncAcks.clear();
@@ -536,7 +550,9 @@ void NetplayCoordinator::clearActiveResyncTracking(SessionState resumeState)
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncResumeAtHostTimeUs = 0;
     m_activeResyncAckDeadline = {};
+    m_pendingRealtimeResume = {};
 }
 
 void NetplayCoordinator::clearTargetedResyncTracking()
@@ -547,7 +563,9 @@ void NetplayCoordinator::clearTargetedResyncTracking()
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncResumeAtHostTimeUs = 0;
     m_activeResyncAckDeadline = {};
+    m_pendingRealtimeResume = {};
 }
 
 void NetplayCoordinator::finalizeActiveResyncIfReady()
@@ -560,18 +578,11 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     const SessionState resumeState = targeted ? m_activeResyncResumeState : SessionState::Running;
     const FrameNumber recoveryFrame =
         targeted ? m_activeTargetedResyncFrame : m_session.roomState().resyncTargetFrame;
-    if(!targeted) {
-        setRecoveryInputMode(
-            RecoveryInputMode::PostResyncStabilizing,
-            "all-resync-acks-received",
-            recoveryFrame,
-            kRecoveryStabilizationFrames
-        );
-    }
+    const uint64_t resumeAtHostTimeUs = m_activeResyncResumeAtHostTimeUs;
     if(targeted) {
         clearTargetedResyncTracking();
     } else {
-        clearActiveResyncTracking(resumeState);
+        clearActiveResyncTracking(SessionState::Resyncing);
     }
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
@@ -584,19 +595,8 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
         (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
         return;
     }
-
-    PacketWriter writer;
-    PacketHeader header;
-    header.type = MessageType::ResumeSession;
-    header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    StartSessionData startData;
-    startData.state = SessionState::Running;
-    startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    startData.predictFrames = m_session.roomState().predictFrames;
-    startData.topology = makeTopologyData(m_session.roomState());
-    writer.writePod(startData);
-    m_transport.broadcastReliable(Channel::Control, writer.data());
+    m_activeResyncResumeState = resumeState;
+    scheduleRealtimeResyncResume(SessionState::Running, recoveryFrame, resumeAtHostTimeUs, "all-resync-acks-received");
 }
 
 void NetplayCoordinator::cancelTargetedResync(const std::string& reason)
@@ -1236,7 +1236,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
 
-        if(input.frame != expectedFrame && !allowClientResyncRebase) {
+        if(input.frame != expectedFrame && !allowSequenceRebase && !allowClientResyncRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
                 << " frame " << input.frame
@@ -1486,6 +1486,8 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncResumeAtHostTimeUs = 0;
+    m_pendingRealtimeResume = {};
     m_activeResyncAckDeadline = {};
     m_session.roomState().pendingResyncAckCount = 0;
     m_session.roomState().activeResyncId = 0;
@@ -1496,6 +1498,7 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_session.roomState().resyncPayloadCrc32 = 0;
     m_session.roomState().resyncFrameReadyCrc32 = 0;
     m_session.roomState().resyncInputSequenceBase = 0;
+    m_session.roomState().resyncResumeAtHostTimeUs = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
     m_activeResyncExpectedStateCrc32 = 0;
     m_implicitRecoveryMonitor.reset();
@@ -1505,6 +1508,146 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     }
     setRecoveryInputMode(RecoveryInputMode::Normal, "resync-retry-scheduled", targetFrame);
     pushLog(reason);
+}
+
+uint64_t NetplayCoordinator::computeResyncResumeAtHostTimeUs() const
+{
+    uint32_t maxPingMs = 0;
+    uint32_t maxJitterMs = 0;
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId ||
+           !participant.connected ||
+           participant.reconnectReserved) {
+            continue;
+        }
+        maxPingMs = std::max<uint32_t>(maxPingMs, participant.pingMs);
+        maxJitterMs = std::max<uint32_t>(maxJitterMs, participant.jitterMs);
+    }
+
+    const uint64_t adaptiveLeadUs =
+        static_cast<uint64_t>(maxPingMs) * 1000ull +
+        static_cast<uint64_t>(maxJitterMs) * 2ull * 1000ull;
+    const uint64_t minLeadUs =
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(kResyncRealtimeResumeLeadMin).count());
+    const uint64_t maxLeadUs =
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(kResyncRealtimeResumeLeadMax).count());
+    const uint64_t leadUs = std::clamp<uint64_t>(minLeadUs + adaptiveLeadUs, minLeadUs, maxLeadUs);
+    return localMonotonicTimeUs() + leadUs;
+}
+
+void NetplayCoordinator::scheduleRealtimeResyncResume(SessionState nextState,
+                                                      FrameNumber resumeFrame,
+                                                      uint64_t resumeAtHostTimeUs,
+                                                      const char* reason)
+{
+    uint64_t scheduledHostTimeUs = resumeAtHostTimeUs;
+    if(scheduledHostTimeUs == 0) {
+        scheduledHostTimeUs = m_hosting ? computeResyncResumeAtHostTimeUs() : projectedHostTimeUsNow();
+    }
+
+    if(m_hosting) {
+        const uint64_t minimumHostTimeUs = localMonotonicTimeUs() +
+            static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(kResyncRealtimeResumeLeadMin).count());
+        scheduledHostTimeUs = std::max(scheduledHostTimeUs, minimumHostTimeUs);
+    }
+
+    m_pendingRealtimeResume.nextState = nextState;
+    m_pendingRealtimeResume.resumeFrame = resumeFrame;
+    m_pendingRealtimeResume.resumeAtHostTimeUs = scheduledHostTimeUs;
+    m_pendingRealtimeResume.localFallbackDeadline =
+        std::chrono::steady_clock::now() + kResyncRealtimeResumeFallbackDelay;
+    m_pendingRealtimeResume.active = true;
+
+    if(m_hosting) {
+        PacketWriter writer;
+        PacketHeader header;
+        header.type = MessageType::ResumeSession;
+        header.sessionId = m_session.roomState().sessionId;
+        writer.writePod(header);
+        StartSessionData startData;
+        startData.state = nextState;
+        startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
+        startData.predictFrames = m_session.roomState().predictFrames;
+        startData.topology = makeTopologyData(m_session.roomState());
+        startData.resumeAtHostTimeUs = scheduledHostTimeUs;
+        startData.resumeFrame = resumeFrame;
+        writer.writePod(startData);
+        m_transport.broadcastReliable(Channel::Control, writer.data());
+    }
+
+    std::ostringstream oss;
+    oss << "Scheduled realtime resume"
+        << " reason " << (reason != nullptr ? reason : "unspecified")
+        << " frame " << resumeFrame
+        << " hostTimeUs " << scheduledHostTimeUs
+        << " mode " << (m_hosting ? "host" : "client");
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::processRealtimeResyncResume(const std::chrono::steady_clock::time_point& now)
+{
+    if(!m_pendingRealtimeResume.active) return;
+
+    const uint64_t projectedHostNowUs = projectedHostTimeUsNow();
+    const bool reachedScheduledHostTime =
+        projectedHostNowUs >= m_pendingRealtimeResume.resumeAtHostTimeUs;
+    const bool fallbackDeadlineReached =
+        !m_hosting &&
+        m_pendingRealtimeResume.localFallbackDeadline != std::chrono::steady_clock::time_point{} &&
+        now >= m_pendingRealtimeResume.localFallbackDeadline;
+    if(!reachedScheduledHostTime && !fallbackDeadlineReached) return;
+
+    const SessionState nextState = m_pendingRealtimeResume.nextState;
+    const FrameNumber resumeFrame = m_pendingRealtimeResume.resumeFrame;
+    const bool fallbackUsed = fallbackDeadlineReached && !reachedScheduledHostTime;
+    m_pendingRealtimeResume = {};
+
+    m_session.roomState().state = nextState;
+    if(nextState == SessionState::Running) {
+        setRecoveryInputMode(
+            RecoveryInputMode::PostResyncStabilizing,
+            fallbackUsed ? "realtime-resume-fallback" : "realtime-resume-reached",
+            resumeFrame,
+            kRecoveryStabilizationFrames
+        );
+    }
+}
+
+void NetplayCoordinator::updateHostClockOffsetEstimate(uint64_t hostMonotonicTimeUs, NetTransport::PeerHandle sourcePeer)
+{
+    if(hostMonotonicTimeUs == 0) return;
+    if(m_hosting || sourcePeer == NetTransport::kInvalidPeerHandle || sourcePeer != m_serverPeer) return;
+
+    const uint64_t localNowUs = localMonotonicTimeUs();
+    const uint32_t rttMs = std::min<uint32_t>(m_transport.peerRoundTripTime(sourcePeer), 4000u);
+    const int64_t oneWayUs = static_cast<int64_t>(rttMs) * 500;
+    const int64_t sampleOffsetUs =
+        static_cast<int64_t>(hostMonotonicTimeUs) + oneWayUs - static_cast<int64_t>(localNowUs);
+
+    if(!m_hasEstimatedHostClockOffset) {
+        m_estimatedHostClockOffsetUs = sampleOffsetUs;
+        m_hasEstimatedHostClockOffset = true;
+        return;
+    }
+
+    constexpr int64_t kOffsetClampDeltaUs = 500000;
+    const int64_t clampedSample = std::clamp(
+        sampleOffsetUs,
+        m_estimatedHostClockOffsetUs - kOffsetClampDeltaUs,
+        m_estimatedHostClockOffsetUs + kOffsetClampDeltaUs
+    );
+    m_estimatedHostClockOffsetUs =
+        (m_estimatedHostClockOffsetUs * 7 + clampedSample) / 8;
+}
+
+uint64_t NetplayCoordinator::projectedHostTimeUsNow() const
+{
+    const int64_t localNowUs = static_cast<int64_t>(localMonotonicTimeUs());
+    if(m_hosting || !m_hasEstimatedHostClockOffset) {
+        return static_cast<uint64_t>(std::max<int64_t>(0, localNowUs));
+    }
+    const int64_t projectedHostUs = localNowUs + m_estimatedHostClockOffsetUs;
+    return static_cast<uint64_t>(std::max<int64_t>(0, projectedHostUs));
 }
 
 const char* NetplayCoordinator::recoveryInputModeLabel(RecoveryInputMode mode)
@@ -2188,6 +2331,8 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeResyncResumeAtHostTimeUs = 0;
+    m_pendingRealtimeResume = {};
     m_desyncMonitor.reset();
     m_lastBroadcastConfirmedFrame = 0;
     m_localInputSequence = 0;
@@ -2205,6 +2350,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_session.roomState().resyncPayloadCrc32 = 0;
     m_session.roomState().resyncFrameReadyCrc32 = 0;
     m_session.roomState().resyncInputSequenceBase = 0;
+    m_session.roomState().resyncResumeAtHostTimeUs = 0;
     m_session.roomState().pendingResyncAckCount = 0;
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
@@ -2520,6 +2666,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     m_session.roomState().resyncPayloadCrc32 = data.payloadCrc32;
     m_session.roomState().resyncFrameReadyCrc32 = data.frameReadyCrc32;
     m_session.roomState().resyncInputSequenceBase = data.inputSequenceBase;
+    m_session.roomState().resyncResumeAtHostTimeUs = data.resumeAtHostTimeUs;
     m_session.roomState().activeResyncReason = data.reason;
     m_session.roomState().state = SessionState::Resyncing;
     setRecoveryInputMode(RecoveryInputMode::ResyncLocked, "resync-begin-received", data.targetFrame);
@@ -2530,7 +2677,8 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
             << " reason " << resyncReasonLabel(data.reason)
             << " targetFrame " << data.targetFrame
             << " epoch " << data.timelineEpoch
-            << " resyncId " << data.resyncId;
+            << " resyncId " << data.resyncId
+            << " resumeAtHostTimeUs " << data.resumeAtHostTimeUs;
         pushLog(oss.str());
     }
 
@@ -2601,6 +2749,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
     pending.expectedPayloadCrc32 = m_incomingResync->expectedPayloadCrc32;
     pending.frameReadyCrc32 = m_session.roomState().resyncFrameReadyCrc32;
     pending.inputSequenceBase = m_session.roomState().resyncInputSequenceBase;
+    pending.resumeAtHostTimeUs = m_session.roomState().resyncResumeAtHostTimeUs;
     pending.reason = m_session.roomState().activeResyncReason;
     pending.payload = std::move(m_incomingResync->payload);
     m_pendingResyncApply = std::move(pending);
@@ -2764,6 +2913,7 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
 {
     PeerHealthData data;
     if(!reader.readPod(data)) return false;
+    updateHostClockOffsetEstimate(data.hostMonotonicTimeUs, peer);
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         participant->pingMs = data.pingMs;
@@ -2798,6 +2948,9 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     m_session.roomState().predictFrames = data.predictFrames;
     applyTopologyData(m_session.roomState(), data.topology);
     m_session.roomState().state = data.state;
+    if(data.state != SessionState::Running) {
+        m_pendingRealtimeResume = {};
+    }
     const bool shouldResetConfirmedState =
         data.state == SessionState::Starting ||
         (data.state == SessionState::Running &&
@@ -2820,14 +2973,34 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
         setRecoveryInputMode(RecoveryInputMode::Normal, "session-ended", m_session.roomState().currentFrame);
     } else if(data.state == SessionState::Running &&
               (previousState == SessionState::Resyncing || previousState == SessionState::Starting)) {
-        const FrameNumber stabilizationAnchor =
-            std::max(m_session.roomState().currentFrame, m_session.roomState().lastConfirmedFrame);
-        setRecoveryInputMode(
-            RecoveryInputMode::PostResyncStabilizing,
-            "session-running-after-recovery",
-            stabilizationAnchor,
-            kRecoveryStabilizationFrames
-        );
+        if(data.resumeAtHostTimeUs != 0) {
+            const FrameNumber resumeFrame =
+                data.resumeFrame != 0
+                    ? data.resumeFrame
+                    : std::max(m_session.roomState().currentFrame, m_session.roomState().lastConfirmedFrame);
+            m_session.roomState().state = SessionState::Resyncing;
+            setRecoveryInputMode(
+                RecoveryInputMode::ResyncLocked,
+                "session-running-waiting-realtime-resume",
+                resumeFrame,
+                0
+            );
+            scheduleRealtimeResyncResume(
+                SessionState::Running,
+                resumeFrame,
+                data.resumeAtHostTimeUs,
+                "session-running-after-recovery"
+            );
+        } else {
+            const FrameNumber stabilizationAnchor =
+                std::max(m_session.roomState().currentFrame, m_session.roomState().lastConfirmedFrame);
+            setRecoveryInputMode(
+                RecoveryInputMode::PostResyncStabilizing,
+                "session-running-after-recovery",
+                stabilizationAnchor,
+                kRecoveryStabilizationFrames
+            );
+        }
     } else {
         if(data.state == SessionState::Paused && previousState != SessionState::Paused) {
             pushLog("Owner paused");
@@ -2877,6 +3050,10 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
     data.participantId = m_localParticipantId;
     data.currentFrame = m_session.roomState().currentFrame;
     data.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
+    if(m_hosting) {
+        data.hostMonotonicTimeUs = localMonotonicTimeUs();
+        data.hostSimFrame = m_localSimulationFrame;
+    }
 
     if(m_hosting) {
         m_transport.broadcastUnreliable(
@@ -3980,6 +4157,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
 
     updatePeerHealthFromTransport();
     updateReconnectReservations();
+    processRealtimeResyncResume(now);
     processRemoteInputSuspension(now);
     if(m_hosting && m_session.roomState().state == SessionState::Running) {
         synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
@@ -4628,6 +4806,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     const bool initialSessionSync = m_session.roomState().state == SessionState::Starting;
     const bool targetedResync = targetParticipantId != kInvalidParticipantId;
     const SessionState resumeState = m_session.roomState().state;
+    const uint64_t resumeAtHostTimeUs = computeResyncResumeAtHostTimeUs();
     NetTransport::PeerHandle targetPeer = NetTransport::kInvalidPeerHandle;
     if(targetedResync) {
         const ParticipantInfo* targetParticipant = m_session.findParticipant(targetParticipantId);
@@ -4658,6 +4837,8 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     }
     m_activeResyncTargetParticipantId = targetedResync ? targetParticipantId : kInvalidParticipantId;
     m_activeResyncResumeState = resumeState;
+    m_activeResyncResumeAtHostTimeUs = resumeAtHostTimeUs;
+    m_pendingRealtimeResume = {};
     if(!targetedResync) {
         m_session.roomState().state = SessionState::Resyncing;
     } else {
@@ -4674,6 +4855,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_session.roomState().resyncPayloadCrc32 = payloadCrc32;
         m_session.roomState().resyncFrameReadyCrc32 = stateCrc32;
         m_session.roomState().resyncInputSequenceBase = 0;
+        m_session.roomState().resyncResumeAtHostTimeUs = resumeAtHostTimeUs;
         m_session.roomState().activeResyncReason = reason;
     }
     m_activeResyncExpectedStateCrc32 = targetedResync ? 0 : stateCrc32;
@@ -4743,6 +4925,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     beginData.frameReadyCrc32 = m_session.roomState().resyncFrameReadyCrc32;
     beginData.inputSequenceBase = m_session.roomState().resyncInputSequenceBase;
     beginData.reason = reason;
+    beginData.resumeAtHostTimeUs = resumeAtHostTimeUs;
     const std::vector<uint8_t> beginPacket = buildResyncBeginPacket(beginData);
     if(targetedResync) {
         m_transport.sendReliable(targetPeer, Channel::Control, beginPacket);
@@ -4778,7 +4961,8 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         oss << "Owner forced resync"
             << " reason " << resyncReasonLabel(reason)
             << " targetFrame " << targetFrame
-            << " resyncId " << resyncId;
+            << " resyncId " << resyncId
+            << " resumeAtHostTimeUs " << resumeAtHostTimeUs;
         if(targetedResync) {
             oss << " targetParticipantId " << static_cast<int>(targetParticipantId);
         }
@@ -4806,13 +4990,15 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
     ack.success = success ? 1 : 0;
 
     if(success) {
+        const uint64_t resumeAtHostTimeUs = m_session.roomState().resyncResumeAtHostTimeUs;
         {
             std::ostringstream oss;
             oss << "Acknowledging authoritative resync"
                 << " reason " << resyncReasonLabel(m_session.roomState().activeResyncReason)
                 << " loadedFrame " << loadedFrame
                 << " crc32 " << crc32
-                << " resyncId " << resyncId;
+                << " resyncId " << resyncId
+                << " resumeAtHostTimeUs " << resumeAtHostTimeUs;
             pushLog(oss.str());
         }
         realignAuthoritativeState(
@@ -4829,13 +5015,20 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
         m_session.roomState().resyncPayloadCrc32 = 0;
         m_session.roomState().resyncFrameReadyCrc32 = 0;
         m_session.roomState().resyncInputSequenceBase = 0;
+        m_session.roomState().resyncResumeAtHostTimeUs = 0;
         m_session.roomState().pendingResyncAckCount = 0;
         m_session.roomState().state = SessionState::Resyncing;
         setRecoveryInputMode(
-            RecoveryInputMode::PostResyncStabilizing,
-            "resync-load-acknowledged",
+            RecoveryInputMode::ResyncLocked,
+            "resync-load-ready-waiting-realtime-resume",
             loadedFrame,
-            kRecoveryStabilizationFrames
+            0
+        );
+        scheduleRealtimeResyncResume(
+            SessionState::Running,
+            loadedFrame,
+            resumeAtHostTimeUs,
+            "resync-load-acknowledged"
         );
     }
 

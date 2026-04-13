@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 5;
+constexpr uint8_t kProtocolVersion = 6;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -196,6 +196,8 @@ struct StartSessionData
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
     InputTopologyData topology = {};
+    uint64_t resumeAtHostTimeUs = 0;
+    FrameNumber resumeFrame = 0;
 };
 
 struct PeerHealthData
@@ -205,6 +207,8 @@ struct PeerHealthData
     FrameNumber lastConfirmedFrame = 0;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
+    uint64_t hostMonotonicTimeUs = 0;
+    FrameNumber hostSimFrame = 0;
 };
 
 struct CrcReportData
@@ -228,6 +232,7 @@ struct ResyncBeginData
     uint32_t frameReadyCrc32 = 0;
     uint32_t inputSequenceBase = 0;
     ResyncReason reason = ResyncReason::Unspecified;
+    uint64_t resumeAtHostTimeUs = 0;
 };
 
 struct ResyncChunkData

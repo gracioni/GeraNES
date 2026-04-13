@@ -109,6 +109,7 @@ struct RoomState
     uint32_t resyncPayloadCrc32 = 0;
     uint32_t resyncFrameReadyCrc32 = 0;
     uint32_t resyncInputSequenceBase = 0;
+    uint64_t resyncResumeAtHostTimeUs = 0;
     ResyncReason activeResyncReason = ResyncReason::Unspecified;
     uint32_t pendingResyncAckCount = 0;
     std::string selectedGameName;
