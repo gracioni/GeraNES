@@ -2271,6 +2271,10 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
             participant->lastReceivedInputFrame = assignmentBaselineFrame;
             participant->lastContiguousInputFrame = assignmentBaselineFrame;
             participant->lastReceivedInputSequence = 0;
+            // Assignment changes realign the input baseline. The sender may
+            // continue with a monotonic sequence counter, so allow a one-time
+            // sequence rebase on the first post-assignment frame.
+            participant->sequenceRebasePending = true;
             participant->pendingMissingInputFrom.reset();
             if(data.participantId == m_localParticipantId) {
                 m_localInputSequence = 0;
@@ -3649,11 +3653,17 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         switch(event.type) {
             case NetTransport::Event::Type::Connected:
                 if(!m_hosting) {
-                    m_serverPeer = event.peer;
-                    pushLog("Connected to host");
-                    if(!m_transport.sendReliable(m_serverPeer, Channel::Control, buildJoinRoomPacket())) {
-                        m_lastError = "Failed to send JoinRoom";
-                        pushLog(m_lastError);
+                    // In WebRTC mesh mode clients can receive additional peer connections
+                    // after bootstrap. Only the first connection is the host/session peer.
+                    if(m_serverPeer == NetTransport::kInvalidPeerHandle) {
+                        m_serverPeer = event.peer;
+                        pushLog("Connected to host");
+                        if(!m_transport.sendReliable(m_serverPeer, Channel::Control, buildJoinRoomPacket())) {
+                            m_lastError = "Failed to send JoinRoom";
+                            pushLog(m_lastError);
+                        }
+                    } else {
+                        pushLog("Peer connected");
                     }
                 }
                 else {

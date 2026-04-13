@@ -53,6 +53,7 @@ public:
                                        int mlineIndex) = 0;
     virtual bool sendDataReliable(const std::vector<uint8_t>& payload) = 0;
     virtual bool sendDataUnreliable(const std::vector<uint8_t>& payload) = 0;
+    virtual size_t bufferedAmount() const = 0;
     virtual std::vector<Event> poll() = 0;
     virtual bool isOpen() const = 0;
     virtual bool isDataChannelOpen() const = 0;

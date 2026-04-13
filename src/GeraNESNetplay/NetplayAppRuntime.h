@@ -973,7 +973,14 @@ inline void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNES
         buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
     if(statePayload.empty()) return;
 
-    if(beginAuthoritativeResync(emu, authoritativeFrame, statePayload, true)) {
+    if(beginAuthoritativeResync(
+           emu,
+           authoritativeFrame,
+           statePayload,
+           true,
+           ResyncReason::InitialSessionSync,
+           *participantId
+       )) {
         Logger::instance().log(
             "Netplay late-join resync started for participant " +
             std::to_string(static_cast<int>(*participantId)),

@@ -401,6 +401,9 @@ class WebRTCTransport final : public INetTransport
 private:
     static constexpr auto kWebRtcPeerHandshakeTimeout = std::chrono::seconds(12);
     static constexpr auto kWebRtcGracefulDisconnectDelay = std::chrono::milliseconds(350);
+    static constexpr size_t kWebRtcBufferedAmountHighWaterBytes = 256 * 1024;
+    static constexpr size_t kWebRtcBufferedAmountResumeBytes = 64 * 1024;
+    static constexpr size_t kWebRtcMaxQueuedSendsPerPeerPerPoll = 32;
 
     enum class ShutdownMode : uint8_t
     {
@@ -429,6 +432,13 @@ private:
 
     struct WebRtcPeerState
     {
+        struct QueuedOutboundPacket
+        {
+            std::vector<uint8_t> payload;
+            bool reliable = true;
+            Channel channel = Channel::Control;
+        };
+
         PeerHandle handle = kInvalidPeerHandle;
         std::string remotePeerId;
         std::unique_ptr<IWebRtcPeerConnection> connection;
@@ -441,6 +451,7 @@ private:
         PeerHandshakeState handshakeState = PeerHandshakeState::Idle;
         std::optional<std::chrono::steady_clock::time_point> handshakeDeadline;
         std::optional<std::chrono::steady_clock::time_point> closeDeadline;
+        std::deque<QueuedOutboundPacket> pendingOutboundPackets;
     };
 
     struct SessionEvent
@@ -836,6 +847,129 @@ private:
         m_session.requestFatalShutdown(error);
     }
 
+    bool enqueueOrSendPeerPayload(WebRtcPeerState& peer,
+                                  Channel channel,
+                                  std::vector<uint8_t> wrappedPayload,
+                                  bool reliable)
+    {
+        if(!peer.connection || peer.closeRequested) {
+            return false;
+        }
+
+        const auto queuePacket = [&](std::vector<uint8_t> queuedPayload) {
+            WebRtcPeerState::QueuedOutboundPacket packet;
+            packet.payload = std::move(queuedPayload);
+            packet.reliable = reliable;
+            packet.channel = channel;
+
+            auto priorityForChannel = [](Channel queuedChannel) {
+                switch(queuedChannel) {
+                    case Channel::Control:
+                        return 0;
+                    case Channel::Diagnostics:
+                        return 1;
+                    case Channel::Gameplay:
+                    default:
+                        return 2;
+                }
+            };
+
+            const int packetPriority = priorityForChannel(channel);
+            auto insertIt = peer.pendingOutboundPackets.end();
+            for(auto it = peer.pendingOutboundPackets.begin(); it != peer.pendingOutboundPackets.end(); ++it) {
+                if(priorityForChannel(it->channel) > packetPriority) {
+                    insertIt = it;
+                    break;
+                }
+            }
+            peer.pendingOutboundPackets.insert(insertIt, std::move(packet));
+        };
+
+        bool hasQueuedHigherPriorityTraffic = false;
+        for(const WebRtcPeerState::QueuedOutboundPacket& pending : peer.pendingOutboundPackets) {
+            if(pending.channel == Channel::Control && channel != Channel::Control) {
+                hasQueuedHigherPriorityTraffic = true;
+                break;
+            }
+            if(pending.channel == Channel::Diagnostics && channel == Channel::Gameplay) {
+                hasQueuedHigherPriorityTraffic = true;
+                break;
+            }
+        }
+
+        const bool shouldQueue =
+            !peer.connection->isDataChannelOpen() ||
+            hasQueuedHigherPriorityTraffic ||
+            !peer.pendingOutboundPackets.empty() ||
+            peer.connection->bufferedAmount() > kWebRtcBufferedAmountHighWaterBytes;
+        if(shouldQueue) {
+            queuePacket(std::move(wrappedPayload));
+            return true;
+        }
+
+        const bool sent = reliable
+            ? peer.connection->sendDataReliable(wrappedPayload)
+            : peer.connection->sendDataUnreliable(wrappedPayload);
+        if(sent) {
+            return true;
+        }
+
+        const std::string sendError = peer.connection->lastError();
+        if(sendError.find("not open") != std::string::npos) {
+            queuePacket(std::move(wrappedPayload));
+            return true;
+        }
+
+        handlePeerFailure(
+            peer,
+            sendError.empty()
+                ? std::string("WebRTC peer send failed")
+                : std::string("WebRTC peer send failed: ") + sendError
+        );
+        return false;
+    }
+
+    void flushQueuedPeerPackets()
+    {
+        for(WebRtcPeerState& peer : m_peers) {
+            if(!peer.connection || peer.closeRequested || peer.pendingOutboundPackets.empty()) {
+                continue;
+            }
+            if(!peer.connection->isDataChannelOpen()) {
+                continue;
+            }
+
+            size_t sendsThisPoll = 0;
+            while(!peer.pendingOutboundPackets.empty() &&
+                  sendsThisPoll < kWebRtcMaxQueuedSendsPerPeerPerPoll) {
+                if(peer.connection->bufferedAmount() > kWebRtcBufferedAmountResumeBytes) {
+                    break;
+                }
+
+                const WebRtcPeerState::QueuedOutboundPacket& packet = peer.pendingOutboundPackets.front();
+                const bool sent = packet.reliable
+                    ? peer.connection->sendDataReliable(packet.payload)
+                    : peer.connection->sendDataUnreliable(packet.payload);
+                if(!sent) {
+                    const std::string sendError = peer.connection->lastError();
+                    if(sendError.find("not open") != std::string::npos) {
+                        break;
+                    }
+                    handlePeerFailure(
+                        peer,
+                        sendError.empty()
+                            ? std::string("WebRTC queued peer send failed")
+                            : std::string("WebRTC queued peer send failed: ") + sendError
+                    );
+                    break;
+                }
+
+                peer.pendingOutboundPackets.pop_front();
+                ++sendsThisPoll;
+            }
+        }
+    }
+
     bool sendBootstrapRoomRequest()
     {
         if(!m_bootstrapPending || m_bootstrapRoomRequestSent) {
@@ -906,6 +1040,8 @@ private:
 
     void updateHandshakeTimeout()
     {
+        flushQueuedPeerPackets();
+
         if(m_bootstrapPending &&
            m_bootstrapDeadline.has_value() &&
            m_lastError.empty() &&
@@ -1782,31 +1918,29 @@ public:
     {
         WebRtcPeerState* state = findPeerByHandle(peer);
         if(state == nullptr || !state->connection) return false;
-        return state->connection->sendDataReliable(wrapPayload(channel, payload));
+        return enqueueOrSendPeerPayload(*state, channel, wrapPayload(channel, payload), true);
     }
     bool sendUnreliable(PeerHandle peer, Channel channel, const std::vector<uint8_t>& payload) override
     {
         WebRtcPeerState* state = findPeerByHandle(peer);
         if(state == nullptr || !state->connection) return false;
-        return state->connection->sendDataUnreliable(wrapPayload(channel, payload));
+        return enqueueOrSendPeerPayload(*state, channel, wrapPayload(channel, payload), false);
     }
     bool broadcastReliable(Channel channel, const std::vector<uint8_t>& payload, PeerHandle exceptPeer = kInvalidPeerHandle) override
     {
         bool sent = false;
-        const auto wrapped = wrapPayload(channel, payload);
-        for(const WebRtcPeerState& peer : m_peers) {
+        for(WebRtcPeerState& peer : m_peers) {
             if(peer.handle == exceptPeer || !peer.connection || !peer.connected) continue;
-            sent = peer.connection->sendDataReliable(wrapped) || sent;
+            sent = enqueueOrSendPeerPayload(peer, channel, wrapPayload(channel, payload), true) || sent;
         }
         return sent;
     }
     bool broadcastUnreliable(Channel channel, const std::vector<uint8_t>& payload, PeerHandle exceptPeer = kInvalidPeerHandle) override
     {
         bool sent = false;
-        const auto wrapped = wrapPayload(channel, payload);
-        for(const WebRtcPeerState& peer : m_peers) {
+        for(WebRtcPeerState& peer : m_peers) {
             if(peer.handle == exceptPeer || !peer.connection || !peer.connected) continue;
-            sent = peer.connection->sendDataUnreliable(wrapped) || sent;
+            sent = enqueueOrSendPeerPayload(peer, channel, wrapPayload(channel, payload), false) || sent;
         }
         return sent;
     }

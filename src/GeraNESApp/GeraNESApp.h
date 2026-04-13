@@ -854,7 +854,14 @@ private:
             (!initialSessionSync && confirmedSnapshot.has_value())
                 ? m_emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : m_emu.canonicalNetplayStateCrc32();
-        if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, pending->reason)) {
+        if(m_netplayCoordinator.beginResync(
+               authoritativeFrame,
+               statePayload,
+               payloadCrc32,
+               stateCrc32,
+               pending->reason,
+               pending->participantId
+           )) {
             if(stateCrc32 != 0u) {
                 m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
             }
@@ -914,7 +921,14 @@ private:
             confirmedSnapshot.has_value()
                 ? m_emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : m_emu.canonicalNetplayStateCrc32();
-        if(m_netplayCoordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32)) {
+        if(m_netplayCoordinator.beginResync(
+               authoritativeFrame,
+               statePayload,
+               payloadCrc32,
+               stateCrc32,
+               Netplay::ResyncReason::InitialSessionSync,
+               *participantId
+           )) {
             if(stateCrc32 != 0u) {
                 m_emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
             }

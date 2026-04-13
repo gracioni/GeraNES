@@ -562,6 +562,16 @@ public:
         return sendDataReliable(payload);
     }
 
+    size_t bufferedAmount() const override
+    {
+        std::scoped_lock lock(m_stateMutex);
+        if(m_dataChannel <= 0) {
+            return 0;
+        }
+        const int amount = rtcGetBufferedAmount(m_dataChannel);
+        return amount > 0 ? static_cast<size_t>(amount) : 0u;
+    }
+
     std::vector<Event> poll() override
     {
         std::vector<Event> events;
@@ -1042,6 +1052,18 @@ EM_JS(int, geranes_rtc_send_bridge, (int handle, const uint8_t* payloadPtr, int 
     }
 });
 
+EM_JS(int, geranes_rtc_buffered_amount_bridge, (int handle), {
+    const scope = Module.__geranes_rtc_bridge;
+    if(!scope || !scope.peers[handle]) {
+        return 0;
+    }
+    const state = scope.peers[handle];
+    if(!state.dc || state.dc.readyState !== 'open') {
+        return 0;
+    }
+    return state.dc.bufferedAmount >>> 0;
+});
+
 class WebEmscriptenWebRtcPeerConnection final : public IWebRtcPeerConnection
 {
 private:
@@ -1246,6 +1268,14 @@ public:
         return sendDataReliable(payload);
     }
 
+    size_t bufferedAmount() const override
+    {
+        if(m_handle == 0 || !m_dataChannelOpen) {
+            return 0u;
+        }
+        return static_cast<size_t>(geranes_rtc_buffered_amount_bridge(m_handle));
+    }
+
     std::vector<Event> poll() override
     {
         std::vector<Event> events;
@@ -1380,6 +1410,11 @@ public:
         (void)payload;
         m_lastError = "WebRTC data channel is not open";
         return false;
+    }
+
+    size_t bufferedAmount() const override
+    {
+        return 0u;
     }
 
     std::vector<Event> poll() override
