@@ -3991,6 +3991,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             }
                             m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), event.peer);
                             pushLog(participantLabel(*participant) + " disconnected; reconnect reserved");
+                            pushToast(participantLabel(*participant) + " left (reserved)");
                             if(hadAssignedInput) {
                                 // Keep the host authoritative timeline moving while this
                                 // participant is temporarily disconnected by replaying
@@ -3998,8 +3999,13 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
                             }
                         } else {
+                            const std::string participantName =
+                                participant != nullptr
+                                    ? participantLabel(*participant)
+                                    : std::to_string(static_cast<int>(participantId));
                             removeParticipant(participantId);
                             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), event.peer);
+                            pushToast(participantName + " left");
                         }
                         refreshHostRoomState();
                     } else {
@@ -5283,11 +5289,17 @@ bool NetplayCoordinator::kickParticipant(ParticipantId participantId)
     if(!m_hosting || participantId == m_localParticipantId) return false;
 
     auto& participants = m_session.roomState().participants;
-    if(std::none_of(participants.begin(), participants.end(), [participantId](const ParticipantInfo& participant) {
-        return participant.id == participantId;
-    })) {
+    auto participantIt = std::find_if(
+        participants.begin(),
+        participants.end(),
+        [participantId](const ParticipantInfo& participant) {
+            return participant.id == participantId;
+        }
+    );
+    if(participantIt == participants.end()) {
         return false;
     }
+    const std::string participantName = participantLabel(*participantIt);
 
     NetTransport::PeerHandle kickedPeer = NetTransport::kInvalidPeerHandle;
     for(NetTransport::PeerHandle peer : m_transport.connectedPeers()) {
@@ -5309,7 +5321,8 @@ bool NetplayCoordinator::kickParticipant(ParticipantId participantId)
     }
     m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), kickedPeer);
     refreshHostRoomState();
-    pushLog("Participant kicked: " + std::to_string(static_cast<int>(participantId)));
+    pushLog("Participant kicked: " + participantName + " (" + std::to_string(static_cast<int>(participantId)) + ")");
+    pushToast(participantName + " left");
     return true;
 }
 
@@ -5319,12 +5332,14 @@ bool NetplayCoordinator::removeReconnectReservation(ParticipantId participantId)
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr || !participant->reconnectReserved) return false;
+    const std::string participantName = participantLabel(*participant);
 
     pushLog("Reconnect reservation removed for " + participant->displayName);
     m_reconnectReservationDeadlines.erase(participantId);
     removeParticipant(participantId);
     m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId));
     refreshHostRoomState();
+    pushToast(participantName + " left");
     return true;
 }
 
