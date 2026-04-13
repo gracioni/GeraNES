@@ -1191,7 +1191,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         const FrameNumber expectedFrame = participant->lastContiguousInputFrame + 1u;
         const bool allowSequenceRebase =
             participant->sequenceRebasePending &&
-            input.frame == expectedFrame &&
+            input.frame >= expectedFrame &&
             input.sequence > participant->lastReceivedInputSequence;
         const bool allowClientResyncRebase =
             !m_hosting &&
@@ -1217,9 +1217,13 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             pushLog(oss.str());
             return true;
         }
-        if(allowClientResyncRebase && input.frame > expectedFrame) {
+        if((allowSequenceRebase || allowClientResyncRebase) && input.frame > expectedFrame) {
+            // Re-anchor contiguous frame tracking when a participant resumes
+            // after a reset/recovery window and starts from a later frame.
+            participant->lastContiguousInputFrame = input.frame - 1u;
+            participant->pendingMissingInputFrom.reset();
             std::ostringstream oss;
-            oss << "Accepted client-side input rebase from " << participant->displayName
+            oss << "Accepted input rebase from " << participant->displayName
                 << " frame " << input.frame
                 << " expectedFrame " << expectedFrame
                 << " seq " << input.sequence
