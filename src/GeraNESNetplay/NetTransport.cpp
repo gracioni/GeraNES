@@ -501,6 +501,7 @@ private:
         std::string localPeerId;
         std::optional<WebRtcSignalingConfig> activeSignalingConfig;
         std::vector<std::string> signaledIceServers;
+        std::string hostRemotePeerId;
         std::vector<WebRtcPeerState> peers;
         std::vector<PeerHandle> requestedPeerCloses;
         PeerHandle nextPeerHandle = 1;
@@ -747,6 +748,7 @@ private:
             signalingReady = false;
             localPeerId.clear();
             signaledIceServers.clear();
+            hostRemotePeerId.clear();
             pendingSignalingEvents.clear();
             sessionEvents.clear();
             requestedPeerCloses.clear();
@@ -775,6 +777,7 @@ private:
     std::string& m_localPeerId = m_session.localPeerId;
     std::optional<WebRtcSignalingConfig>& m_activeSignalingConfig = m_session.activeSignalingConfig;
     std::vector<std::string>& m_signaledIceServers = m_session.signaledIceServers;
+    std::string& m_hostRemotePeerId = m_session.hostRemotePeerId;
     std::vector<WebRtcPeerState>& m_peers = m_session.peers;
     PeerHandle& m_nextPeerHandle = m_session.nextPeerHandle;
     size_t& m_requestedMaxPeers = m_session.requestedMaxPeers;
@@ -818,6 +821,17 @@ private:
     {
         if(remotePeerId.empty() || remotePeerId == m_localPeerId) {
             return false;
+        }
+
+        const auto isHostPeerId = [](const std::string& peerId) {
+            return peerId.rfind("host-", 0) == 0;
+        };
+
+        if(!m_hosting) {
+            if(!m_hostRemotePeerId.empty()) {
+                return remotePeerId == m_hostRemotePeerId;
+            }
+            return isHostPeerId(remotePeerId);
         }
 
         // Use a deterministic offerer so both peers can react to PeerJoined
@@ -1230,6 +1244,15 @@ private:
             return false;
         }
 
+        if(!m_hosting) {
+            if(!m_hostRemotePeerId.empty() && remotePeerId != m_hostRemotePeerId) {
+                return false;
+            }
+            if(m_hostRemotePeerId.empty() && remotePeerId.rfind("host-", 0) != 0) {
+                return false;
+            }
+        }
+
         if(findPeerByRemoteId(remotePeerId) != nullptr) {
             return true;
         }
@@ -1258,6 +1281,10 @@ private:
 
         logTrace("peer connection opened for " + remotePeerId);
         m_peers.push_back(std::move(state));
+        if(!m_hosting && m_hostRemotePeerId.empty()) {
+            m_hostRemotePeerId = remotePeerId;
+            logTrace("client host peer selected: " + m_hostRemotePeerId);
+        }
         return true;
     }
 
@@ -1644,6 +1671,18 @@ private:
             switch(message.type) {
                 case WebRtcSignalType::PeerJoined:
                     if(message.peerId != m_localPeerId) {
+                        if(!m_hosting &&
+                           !m_hostRemotePeerId.empty() &&
+                           message.peerId != m_hostRemotePeerId) {
+                            logTrace("ignoring non-host PeerJoined from " + message.peerId);
+                            break;
+                        }
+                        if(!m_hosting &&
+                           m_hostRemotePeerId.empty() &&
+                           message.peerId.rfind("host-", 0) != 0) {
+                            logTrace("ignoring non-host PeerJoined before host selection: " + message.peerId);
+                            break;
+                        }
                         const bool createOffer = shouldCreateOfferForPeer(message.peerId);
                         logTrace(
                             std::string("peer joined room: ") + message.peerId +
@@ -1684,6 +1723,16 @@ private:
                     if(message.peerId == m_localPeerId) {
                         break;
                     }
+                    if(!m_hosting) {
+                        if(!m_hostRemotePeerId.empty() && message.peerId != m_hostRemotePeerId) {
+                            logTrace("ignoring offer from non-host peer " + message.peerId);
+                            break;
+                        }
+                        if(m_hostRemotePeerId.empty() && message.peerId.rfind("host-", 0) != 0) {
+                            logTrace("ignoring offer from non-host peer before host selection " + message.peerId);
+                            break;
+                        }
+                    }
                     logTrace("processing offer from " + message.peerId);
                     if(!initializePeerConnection(message.peerId, false)) {
                         break;
@@ -1706,6 +1755,16 @@ private:
                     if(message.peerId == m_localPeerId) {
                         break;
                     }
+                    if(!m_hosting) {
+                        if(!m_hostRemotePeerId.empty() && message.peerId != m_hostRemotePeerId) {
+                            logTrace("ignoring answer from non-host peer " + message.peerId);
+                            break;
+                        }
+                        if(m_hostRemotePeerId.empty() && message.peerId.rfind("host-", 0) != 0) {
+                            logTrace("ignoring answer from non-host peer before host selection " + message.peerId);
+                            break;
+                        }
+                    }
                     logTrace("processing answer from " + message.peerId);
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
                         noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
@@ -1719,6 +1778,14 @@ private:
                 case WebRtcSignalType::IceCandidate:
                     if(message.peerId == m_localPeerId) {
                         break;
+                    }
+                    if(!m_hosting) {
+                        if(!m_hostRemotePeerId.empty() && message.peerId != m_hostRemotePeerId) {
+                            break;
+                        }
+                        if(m_hostRemotePeerId.empty() && message.peerId.rfind("host-", 0) != 0) {
+                            break;
+                        }
                     }
                     logTrace("processing ICE candidate from " + message.peerId);
                     if(WebRtcPeerState* peer = findPeerByRemoteId(message.peerId)) {
