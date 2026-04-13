@@ -1515,11 +1515,9 @@ inline void NetplayAppRuntime::disconnect()
 
     {
         std::scoped_lock stateLock(m_stateMutex);
-        m_uiSnapshot.active = false;
-        m_uiSnapshot.hosting = false;
-        m_uiSnapshot.connected = false;
-        m_uiSnapshot.reconnecting = false;
-        m_uiSnapshot.reconnectSecondsRemaining = 0;
+        const NetTransportBackend backend = m_uiSnapshot.transportBackend;
+        m_uiSnapshot = UiSnapshot{};
+        m_uiSnapshot.transportBackend = backend;
     }
     enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_coordinator.disconnect();

@@ -80,6 +80,13 @@ private:
         std::chrono::steady_clock::time_point disconnectAt = {};
     };
 
+    enum class LocalTeardownMode : uint8_t
+    {
+        Graceful,
+        Immediate,
+        Unload
+    };
+
     NetTransport m_transport;
     NetSession m_session;
     InputTimeline m_localInputs;
@@ -163,7 +170,8 @@ private:
     void finalizeActiveResyncIfReady();
     void cancelTargetedResync(const std::string& reason);
     void clearReconnectAttemptState();
-    void completeLocalDisconnect();
+    void finalizeLocalTeardown(LocalTeardownMode mode);
+    void completeLocalDisconnect(bool shutdownTransport = true);
     void processPendingKickDisconnects();
     void clearPendingKickDisconnect(NetTransport::PeerHandle peer);
     void scheduleReconnectAttempt();

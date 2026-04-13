@@ -614,12 +614,33 @@ void NetplayCoordinator::clearReconnectAttemptState()
     m_reconnectDeadline = {};
 }
 
-void NetplayCoordinator::completeLocalDisconnect()
+void NetplayCoordinator::finalizeLocalTeardown(LocalTeardownMode mode)
 {
+    clearReconnectAttemptState();
+
     if(m_transport.isActive()) {
-        m_transport.shutdown();
+        switch(mode) {
+            case LocalTeardownMode::Graceful:
+                m_transport.disconnectAll();
+                break;
+            case LocalTeardownMode::Immediate:
+                m_transport.shutdown();
+                break;
+            case LocalTeardownMode::Unload:
+                m_transport.shutdownForUnload();
+                break;
+            default:
+                break;
+        }
     }
+
     resetSessionState();
+}
+
+void NetplayCoordinator::completeLocalDisconnect(bool shutdownTransport)
+{
+    finalizeLocalTeardown(shutdownTransport ? LocalTeardownMode::Immediate
+                                            : LocalTeardownMode::Graceful);
 }
 
 void NetplayCoordinator::clearPendingKickDisconnect(NetTransport::PeerHandle peer)
@@ -706,12 +727,7 @@ void NetplayCoordinator::processPendingReconnect()
     const auto reconnectDeadline = m_reconnectDeadline;
     const uint16_t reconnectSecondsRemaining = m_reconnectSecondsRemaining;
 
-    if(m_transport.isActive()) {
-        m_transport.disconnectAll();
-        m_transport.shutdown();
-    }
-
-    resetSessionState();
+    finalizeLocalTeardown(LocalTeardownMode::Immediate);
     m_localReconnectToken = reconnectToken;
     m_localDisplayName = displayName;
     m_pendingJoinRomLoaded = pendingJoinRomLoaded;
@@ -3571,7 +3587,6 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
 
 void NetplayCoordinator::disconnect()
 {
-    clearReconnectAttemptState();
     if(m_transport.isActive()) {
         if(m_hosting) {
             endSession();
@@ -3579,7 +3594,7 @@ void NetplayCoordinator::disconnect()
             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(m_localParticipantId));
             m_transport.flush();
             m_transport.disconnectAll();
-            completeLocalDisconnect();
+            completeLocalDisconnect(false);
             return;
         } else if(m_serverPeer != NetTransport::kInvalidPeerHandle && m_localParticipantId != kInvalidParticipantId) {
             m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
@@ -3593,12 +3608,11 @@ void NetplayCoordinator::disconnect()
         }
     }
 
-    completeLocalDisconnect();
+    finalizeLocalTeardown(LocalTeardownMode::Immediate);
 }
 
 void NetplayCoordinator::disconnectImmediately()
 {
-    clearReconnectAttemptState();
     if(m_transport.isActive()) {
         if(!m_hosting &&
            m_serverPeer != NetTransport::kInvalidPeerHandle &&
@@ -3615,16 +3629,12 @@ void NetplayCoordinator::disconnectImmediately()
         m_transport.disconnectAll();
     }
 
-    completeLocalDisconnect();
+    finalizeLocalTeardown(LocalTeardownMode::Graceful);
 }
 
 void NetplayCoordinator::shutdownForUnload()
 {
-    clearReconnectAttemptState();
-    if(m_transport.isActive()) {
-        m_transport.shutdownForUnload();
-    }
-    resetSessionState();
+    finalizeLocalTeardown(LocalTeardownMode::Unload);
 }
 
 void NetplayCoordinator::update(uint32_t timeoutMs)
@@ -3660,20 +3670,20 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                     m_session.roomState().state = SessionState::Ended;
                     m_reconnectAttemptInFlight = false;
                     if(m_gracefulDisconnectPending) {
-                        completeLocalDisconnect();
+                        completeLocalDisconnect(false);
                     } else if(m_disconnectExpectedAfterJoinReject) {
                         const std::string preservedError = m_lastError;
                         m_disconnectExpectedAfterJoinReject = false;
-                        completeLocalDisconnect();
+                        completeLocalDisconnect(false);
                         m_lastError = preservedError;
                     } else if(m_disconnectExpectedAfterHostShutdown) {
                         const std::string preservedError = m_lastError.empty() ? std::string("Owner closed the room") : m_lastError;
                         m_disconnectExpectedAfterHostShutdown = false;
-                        completeLocalDisconnect();
+                        completeLocalDisconnect(false);
                         m_lastError = preservedError;
                     } else if(event.data == kDisconnectReasonKicked) {
                         const std::string preservedError = m_lastError.empty() ? std::string("Removed from room by host") : m_lastError;
-                        completeLocalDisconnect();
+                        completeLocalDisconnect(false);
                         m_lastError = preservedError;
                     } else if(m_localParticipantId != kInvalidParticipantId &&
                               m_localReconnectToken != 0 &&

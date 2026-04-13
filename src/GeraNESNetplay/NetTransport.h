@@ -95,9 +95,13 @@ public:
 
 private:
     NetTransportBackend m_backend = NetTransportBackend::ENet;
+    NetTransportOptions m_options;
     std::unique_ptr<INetTransport> m_impl;
+    std::string m_lastErrorCache;
+    std::vector<std::string> m_advertisedIceServersCache;
 
     bool ensureImpl();
+    void discardImpl(bool invokeShutdown);
 
 public:
     explicit NetTransport(NetTransportBackend backend = NetTransportBackend::ENet);

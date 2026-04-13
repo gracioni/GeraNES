@@ -402,6 +402,12 @@ private:
     static constexpr auto kWebRtcPeerHandshakeTimeout = std::chrono::seconds(12);
     static constexpr auto kWebRtcGracefulDisconnectDelay = std::chrono::milliseconds(350);
 
+    enum class ShutdownMode : uint8_t
+    {
+        Graceful,
+        Unload
+    };
+
     enum class PeerHandshakeState : uint8_t
     {
         Idle,
@@ -437,6 +443,35 @@ private:
         std::optional<std::chrono::steady_clock::time_point> closeDeadline;
     };
 
+    struct SessionEvent
+    {
+        enum class Type : uint8_t
+        {
+            None,
+            SignalingConnected,
+            SignalingDisconnected,
+            SignalingError,
+            SignalingMessage,
+            PeerLocalDescriptionReady,
+            PeerIceCandidateReady,
+            PeerDataChannelOpen,
+            PeerDataChannelClosed,
+            PeerDataMessage,
+            PeerError
+        };
+
+        Type type = Type::None;
+        PeerHandle peer = kInvalidPeerHandle;
+        WebRtcSignalingMessage signalingMessage = {};
+        std::string text;
+        std::string sdp;
+        bool descriptionIsOffer = false;
+        std::string candidate;
+        std::string mid;
+        int mlineIndex = -1;
+        std::vector<uint8_t> payload;
+    };
+
     struct DetachedRuntimeResources
     {
         std::vector<std::unique_ptr<IWebRtcPeerConnection>> peerConnections;
@@ -446,31 +481,305 @@ private:
 
     NetTransportOptions m_options;
     std::string m_lastError;
-    std::unique_ptr<IWebRtcSignalingServer> m_signalingServer;
-    std::unique_ptr<IWebRtcSignalingClient> m_signalingClient;
-    std::deque<IWebRtcSignalingClient::Event> m_pendingSignalingEvents;
-    std::string m_localPeerId;
-    std::optional<WebRtcSignalingConfig> m_activeSignalingConfig;
-    std::vector<std::string> m_signaledIceServers;
-    std::vector<WebRtcPeerState> m_peers;
-    std::vector<PeerHandle> m_requestedPeerCloses;
-    PeerHandle m_nextPeerHandle = 1;
-    size_t m_requestedMaxPeers = 1;
-    TransportLifecycle m_lifecycle = TransportLifecycle::Idle;
-    bool m_signalingReady = false;
-    bool m_hosting = false;
-    bool m_active = false;
-    bool m_waitingForInitialOffer = false;
-    std::optional<std::chrono::steady_clock::time_point> m_initialOfferDeadline;
-    std::optional<std::chrono::steady_clock::time_point> m_bootstrapDeadline;
-    bool m_bootstrapPending = false;
-    bool m_bootstrapHost = false;
-    bool m_bootstrapHelloSent = false;
-    bool m_bootstrapRoomRequestSent = false;
-    bool m_bootstrapSawWelcome = false;
-    bool m_bootstrapSawRoomJoined = false;
-    bool m_fatalShutdownRequested = false;
-    bool m_closeAllPeersRequested = false;
+    struct SessionRuntime
+    {
+        std::unique_ptr<IWebRtcSignalingServer> signalingServer;
+        std::unique_ptr<IWebRtcSignalingClient> signalingClient;
+        std::deque<IWebRtcSignalingClient::Event> pendingSignalingEvents;
+        std::deque<SessionEvent> sessionEvents;
+        std::string localPeerId;
+        std::optional<WebRtcSignalingConfig> activeSignalingConfig;
+        std::vector<std::string> signaledIceServers;
+        std::vector<WebRtcPeerState> peers;
+        std::vector<PeerHandle> requestedPeerCloses;
+        PeerHandle nextPeerHandle = 1;
+        size_t requestedMaxPeers = 1;
+        TransportLifecycle lifecycle = TransportLifecycle::Idle;
+        bool signalingReady = false;
+        bool hosting = false;
+        bool active = false;
+        bool waitingForInitialOffer = false;
+        std::optional<std::chrono::steady_clock::time_point> initialOfferDeadline;
+        std::optional<std::chrono::steady_clock::time_point> bootstrapDeadline;
+        bool bootstrapPending = false;
+        bool bootstrapHost = false;
+        bool bootstrapHelloSent = false;
+        bool bootstrapRoomRequestSent = false;
+        bool bootstrapSawWelcome = false;
+        bool bootstrapSawRoomJoined = false;
+        bool closeAllPeersRequested = false;
+        std::optional<std::string> pendingFatalShutdownError;
+
+        void queueSignalingEvent(const IWebRtcSignalingClient::Event& event)
+        {
+            SessionEvent queuedEvent;
+            switch(event.type) {
+                case IWebRtcSignalingClient::Event::Type::Connected:
+                    queuedEvent.type = SessionEvent::Type::SignalingConnected;
+                    sessionEvents.push_back(std::move(queuedEvent));
+                    return;
+                case IWebRtcSignalingClient::Event::Type::Disconnected:
+                    queuedEvent.type = SessionEvent::Type::SignalingDisconnected;
+                    sessionEvents.push_back(std::move(queuedEvent));
+                    return;
+                case IWebRtcSignalingClient::Event::Type::Error:
+                    queuedEvent.type = SessionEvent::Type::SignalingError;
+                    queuedEvent.text = event.text;
+                    sessionEvents.push_back(std::move(queuedEvent));
+                    return;
+                case IWebRtcSignalingClient::Event::Type::Message:
+                    queuedEvent.type = SessionEvent::Type::SignalingMessage;
+                    queuedEvent.signalingMessage = event.message;
+                    sessionEvents.push_back(std::move(queuedEvent));
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        void queuePeerEvent(PeerHandle peerHandle, const IWebRtcPeerConnection::Event& event)
+        {
+            SessionEvent queuedEvent;
+            queuedEvent.peer = peerHandle;
+            switch(event.type) {
+                case IWebRtcPeerConnection::Event::Type::LocalDescriptionReady:
+                    queuedEvent.type = SessionEvent::Type::PeerLocalDescriptionReady;
+                    queuedEvent.sdp = event.sdp;
+                    queuedEvent.descriptionIsOffer = event.descriptionIsOffer;
+                    break;
+                case IWebRtcPeerConnection::Event::Type::IceCandidateReady:
+                    queuedEvent.type = SessionEvent::Type::PeerIceCandidateReady;
+                    queuedEvent.candidate = event.candidate;
+                    queuedEvent.mid = event.mid;
+                    queuedEvent.mlineIndex = event.mlineIndex;
+                    break;
+                case IWebRtcPeerConnection::Event::Type::DataChannelOpen:
+                    queuedEvent.type = SessionEvent::Type::PeerDataChannelOpen;
+                    break;
+                case IWebRtcPeerConnection::Event::Type::DataChannelClosed:
+                    queuedEvent.type = SessionEvent::Type::PeerDataChannelClosed;
+                    break;
+                case IWebRtcPeerConnection::Event::Type::DataMessage:
+                    queuedEvent.type = SessionEvent::Type::PeerDataMessage;
+                    queuedEvent.payload = event.payload;
+                    break;
+                case IWebRtcPeerConnection::Event::Type::Error:
+                    queuedEvent.type = SessionEvent::Type::PeerError;
+                    queuedEvent.text = event.text;
+                    break;
+                default:
+                    return;
+            }
+            sessionEvents.push_back(std::move(queuedEvent));
+        }
+
+        void collectSignalingEvents()
+        {
+            if(!signalingClient) {
+                return;
+            }
+
+            std::deque<IWebRtcSignalingClient::Event> signalingEvents = std::move(pendingSignalingEvents);
+            for(const auto& event : signalingClient->poll()) {
+                signalingEvents.push_back(event);
+            }
+
+            for(const auto& event : signalingEvents) {
+                queueSignalingEvent(event);
+            }
+        }
+
+        void collectPeerEvents(TransportLifecycle lifecycle)
+        {
+            if(lifecycle == TransportLifecycle::Closing) {
+                return;
+            }
+
+            for(WebRtcPeerState& peer : peers) {
+                if(!peer.connection || peer.closeRequested) {
+                    continue;
+                }
+                for(const auto& event : peer.connection->poll()) {
+                    queuePeerEvent(peer.handle, event);
+                }
+            }
+        }
+
+        template<typename Fn>
+        void drainQueuedEvents(Fn&& handler)
+        {
+            while(!sessionEvents.empty()) {
+                SessionEvent event = std::move(sessionEvents.front());
+                sessionEvents.pop_front();
+                handler(std::move(event));
+            }
+        }
+
+        void deferSignalingMessage(const WebRtcSignalingMessage& message)
+        {
+            IWebRtcSignalingClient::Event deferredEvent;
+            deferredEvent.type = IWebRtcSignalingClient::Event::Type::Message;
+            deferredEvent.message = message;
+            pendingSignalingEvents.push_back(std::move(deferredEvent));
+        }
+
+        WebRtcPeerState* findPeerByHandle(PeerHandle handle)
+        {
+            auto it = std::find_if(peers.begin(), peers.end(),
+                                   [handle](const WebRtcPeerState& peer) { return peer.handle == handle; });
+            return it != peers.end() ? &*it : nullptr;
+        }
+
+        void requestFatalShutdown(std::string error)
+        {
+            if(!pendingFatalShutdownError.has_value()) {
+                pendingFatalShutdownError = std::move(error);
+            }
+        }
+
+        std::optional<std::string> takeFatalShutdownError()
+        {
+            if(!pendingFatalShutdownError.has_value()) {
+                return std::nullopt;
+            }
+            std::optional<std::string> error = std::move(pendingFatalShutdownError);
+            pendingFatalShutdownError.reset();
+            return error;
+        }
+
+        void requestPeerClose(PeerHandle handle)
+        {
+            if(handle == kInvalidPeerHandle) {
+                return;
+            }
+            if(WebRtcPeerState* peer = findPeerByHandle(handle)) {
+                peer->closeRequested = true;
+                peer->handshakeDeadline.reset();
+                if(!peer->closeDeadline.has_value()) {
+                    peer->closeDeadline = std::chrono::steady_clock::now();
+                }
+            }
+            if(std::find(requestedPeerCloses.begin(), requestedPeerCloses.end(), handle) == requestedPeerCloses.end()) {
+                requestedPeerCloses.push_back(handle);
+            }
+        }
+
+        void schedulePeerClose(PeerHandle handle, std::chrono::steady_clock::time_point deadline)
+        {
+            if(WebRtcPeerState* peer = findPeerByHandle(handle)) {
+                peer->closeRequested = true;
+                peer->handshakeDeadline.reset();
+                peer->closeDeadline = deadline;
+            }
+        }
+
+        void requestCloseAllPeers()
+        {
+            closeAllPeersRequested = true;
+        }
+
+        std::vector<PeerHandle> takePendingPeerCloses(const std::chrono::steady_clock::time_point now,
+                                                      bool& closeAllPeers)
+        {
+            closeAllPeers = closeAllPeersRequested;
+            closeAllPeersRequested = false;
+
+            std::vector<PeerHandle> handles;
+            if(closeAllPeers) {
+                handles.reserve(peers.size());
+                for(const WebRtcPeerState& peer : peers) {
+                    handles.push_back(peer.handle);
+                }
+                requestedPeerCloses.clear();
+                return handles;
+            }
+
+            for(const WebRtcPeerState& peer : peers) {
+                if(peer.closeDeadline.has_value() && now >= *peer.closeDeadline) {
+                    handles.push_back(peer.handle);
+                }
+            }
+            for(PeerHandle handle : requestedPeerCloses) {
+                if(std::find(handles.begin(), handles.end(), handle) == handles.end()) {
+                    handles.push_back(handle);
+                }
+            }
+            requestedPeerCloses.clear();
+            return handles;
+        }
+
+        DetachedRuntimeResources detachResources()
+        {
+            DetachedRuntimeResources resources;
+            resources.peerConnections.reserve(peers.size());
+            for(WebRtcPeerState& peer : peers) {
+                if(peer.connection) {
+                    resources.peerConnections.push_back(std::move(peer.connection));
+                }
+            }
+            resources.signalingClient = std::move(signalingClient);
+            resources.signalingServer = std::move(signalingServer);
+            return resources;
+        }
+
+        void clear(bool closePeerConnections)
+        {
+            if(closePeerConnections) {
+                for(WebRtcPeerState& peer : peers) {
+                    if(peer.connection) {
+                        peer.connection->close();
+                    }
+                }
+            }
+            peers.clear();
+            lifecycle = TransportLifecycle::Idle;
+            signalingReady = false;
+            localPeerId.clear();
+            signaledIceServers.clear();
+            pendingSignalingEvents.clear();
+            sessionEvents.clear();
+            requestedPeerCloses.clear();
+            nextPeerHandle = 1;
+            hosting = false;
+            active = false;
+            waitingForInitialOffer = false;
+            initialOfferDeadline.reset();
+            bootstrapDeadline.reset();
+            bootstrapPending = false;
+            bootstrapHost = false;
+            bootstrapHelloSent = false;
+            bootstrapRoomRequestSent = false;
+            bootstrapSawWelcome = false;
+            bootstrapSawRoomJoined = false;
+            closeAllPeersRequested = false;
+            pendingFatalShutdownError.reset();
+        }
+    };
+
+    SessionRuntime m_session;
+    std::unique_ptr<IWebRtcSignalingServer>& m_signalingServer = m_session.signalingServer;
+    std::unique_ptr<IWebRtcSignalingClient>& m_signalingClient = m_session.signalingClient;
+    std::deque<IWebRtcSignalingClient::Event>& m_pendingSignalingEvents = m_session.pendingSignalingEvents;
+    std::deque<SessionEvent>& m_sessionEvents = m_session.sessionEvents;
+    std::string& m_localPeerId = m_session.localPeerId;
+    std::optional<WebRtcSignalingConfig>& m_activeSignalingConfig = m_session.activeSignalingConfig;
+    std::vector<std::string>& m_signaledIceServers = m_session.signaledIceServers;
+    std::vector<WebRtcPeerState>& m_peers = m_session.peers;
+    PeerHandle& m_nextPeerHandle = m_session.nextPeerHandle;
+    size_t& m_requestedMaxPeers = m_session.requestedMaxPeers;
+    TransportLifecycle& m_lifecycle = m_session.lifecycle;
+    bool& m_signalingReady = m_session.signalingReady;
+    bool& m_hosting = m_session.hosting;
+    bool& m_active = m_session.active;
+    bool& m_waitingForInitialOffer = m_session.waitingForInitialOffer;
+    std::optional<std::chrono::steady_clock::time_point>& m_initialOfferDeadline = m_session.initialOfferDeadline;
+    std::optional<std::chrono::steady_clock::time_point>& m_bootstrapDeadline = m_session.bootstrapDeadline;
+    bool& m_bootstrapPending = m_session.bootstrapPending;
+    bool& m_bootstrapHost = m_session.bootstrapHost;
+    bool& m_bootstrapHelloSent = m_session.bootstrapHelloSent;
+    bool& m_bootstrapRoomRequestSent = m_session.bootstrapRoomRequestSent;
+    bool& m_bootstrapSawWelcome = m_session.bootstrapSawWelcome;
+    bool& m_bootstrapSawRoomJoined = m_session.bootstrapSawRoomJoined;
     void logTrace(const std::string& message) const
     {
         Logger::instance().log("[WebRTC transport] " + message, Logger::Type::INFO);
@@ -511,46 +820,12 @@ private:
         if(!m_peers.empty() || m_signalingReady || m_active) {
             logTrace("clearing runtime state");
         }
-        for(WebRtcPeerState& peer : m_peers) {
-            if(peer.connection) {
-                peer.connection->close();
-            }
-        }
-        m_peers.clear();
-        m_lifecycle = TransportLifecycle::Idle;
-        m_signalingReady = false;
-        m_localPeerId.clear();
-        m_signaledIceServers.clear();
-        m_pendingSignalingEvents.clear();
-        m_requestedPeerCloses.clear();
-        m_nextPeerHandle = 1;
-        m_hosting = false;
-        m_active = false;
-        m_waitingForInitialOffer = false;
-        m_initialOfferDeadline.reset();
-        m_bootstrapDeadline.reset();
-        m_bootstrapPending = false;
-        m_bootstrapHost = false;
-        m_bootstrapHelloSent = false;
-        m_bootstrapRoomRequestSent = false;
-        m_bootstrapSawWelcome = false;
-        m_bootstrapSawRoomJoined = false;
-        m_fatalShutdownRequested = false;
-        m_closeAllPeersRequested = false;
+        m_session.clear(true);
     }
 
     DetachedRuntimeResources detachRuntimeResources()
     {
-        DetachedRuntimeResources resources;
-        resources.peerConnections.reserve(m_peers.size());
-        for(WebRtcPeerState& peer : m_peers) {
-            if(peer.connection) {
-                resources.peerConnections.push_back(std::move(peer.connection));
-            }
-        }
-        resources.signalingClient = std::move(m_signalingClient);
-        resources.signalingServer = std::move(m_signalingServer);
-        return resources;
+        return m_session.detachResources();
     }
 
     void requestFatalShutdown(const std::string& error)
@@ -558,8 +833,7 @@ private:
         if(m_lifecycle == TransportLifecycle::Closing) {
             return;
         }
-        m_lastError = error;
-        m_fatalShutdownRequested = true;
+        m_session.requestFatalShutdown(error);
     }
 
     bool sendBootstrapRoomRequest()
@@ -879,24 +1153,12 @@ private:
 
     void requestPeerClose(PeerHandle handle)
     {
-        if(handle == kInvalidPeerHandle) {
-            return;
-        }
-        if(WebRtcPeerState* peer = findPeerByHandle(handle)) {
-            peer->closeRequested = true;
-            peer->handshakeDeadline.reset();
-            if(!peer->closeDeadline.has_value()) {
-                peer->closeDeadline = std::chrono::steady_clock::now();
-            }
-        }
-        if(std::find(m_requestedPeerCloses.begin(), m_requestedPeerCloses.end(), handle) == m_requestedPeerCloses.end()) {
-            m_requestedPeerCloses.push_back(handle);
-        }
+        m_session.requestPeerClose(handle);
     }
 
     void requestCloseAllPeers()
     {
-        m_closeAllPeersRequested = true;
+        m_session.requestCloseAllPeers();
     }
 
     void closeAllPeers(std::vector<Event>* events = nullptr)
@@ -913,9 +1175,10 @@ private:
 
     void schedulePeerClose(WebRtcPeerState& peer)
     {
-        peer.closeRequested = true;
-        peer.handshakeDeadline.reset();
-        peer.closeDeadline = std::chrono::steady_clock::now() + kWebRtcGracefulDisconnectDelay;
+        m_session.schedulePeerClose(
+            peer.handle,
+            std::chrono::steady_clock::now() + kWebRtcGracefulDisconnectDelay
+        );
     }
 
     void handlePeerFailure(WebRtcPeerState& peer,
@@ -937,26 +1200,13 @@ private:
 
     void processPendingPeerClose(std::vector<Event>& events)
     {
-        if(m_closeAllPeersRequested) {
-            m_closeAllPeersRequested = false;
+        bool closeAllRequested = false;
+        std::vector<PeerHandle> handles =
+            m_session.takePendingPeerCloses(std::chrono::steady_clock::now(), closeAllRequested);
+        if(closeAllRequested) {
             closeAllPeers(&events);
-            m_requestedPeerCloses.clear();
             return;
         }
-
-        const auto now = std::chrono::steady_clock::now();
-        std::vector<PeerHandle> handles;
-        for(const WebRtcPeerState& peer : m_peers) {
-            if(peer.closeDeadline.has_value() && now >= *peer.closeDeadline) {
-                handles.push_back(peer.handle);
-            }
-        }
-        for(PeerHandle handle : m_requestedPeerCloses) {
-            if(std::find(handles.begin(), handles.end(), handle) == handles.end()) {
-                handles.push_back(handle);
-            }
-        }
-        m_requestedPeerCloses.clear();
         for(PeerHandle handle : handles) {
             closePeer(handle, &events);
         }
@@ -1000,6 +1250,13 @@ private:
                                   const char* context)
     {
         if(sendSignalingMessage(message)) {
+            std::string sendLog = std::string("sent signaling message: ") + signalTypeLabel(message.type) +
+                                  " peerId=" + m_localPeerId +
+                                  " targetPeerId=" + peer.remotePeerId;
+            if(!message.roomId.empty()) {
+                sendLog += " roomId=" + message.roomId;
+            }
+            logTrace(sendLog);
             return true;
         }
 
@@ -1008,147 +1265,12 @@ private:
         return false;
     }
 
-    void sendLeaveRoomBestEffort()
-    {
-        if(!m_signalingClient || !m_signalingClient->isConnected()) {
-            return;
-        }
-        if(!m_activeSignalingConfig.has_value() || m_localPeerId.empty()) {
-            return;
-        }
-        if(!m_signalingReady && !m_bootstrapSawRoomJoined) {
-            return;
-        }
-
-        WebRtcSignalingMessage leaveMessage;
-        leaveMessage.type = WebRtcSignalType::LeaveRoom;
-        leaveMessage.roomId = m_activeSignalingConfig->roomId;
-        leaveMessage.peerId = m_localPeerId;
-        logTrace("sent signaling message: LeaveRoom roomId=" + leaveMessage.roomId);
-        (void)m_signalingClient->send(leaveMessage);
-    }
-
-    void drainPeerEvents(PeerHandle handle, std::vector<Event>& events)
-    {
-        if(m_lifecycle == TransportLifecycle::Closing) {
-            return;
-        }
-
-        WebRtcPeerState* peer = findPeerByHandle(handle);
-        if(peer == nullptr || !peer->connection || peer->closeRequested) return;
-
-        for(const auto& event : peer->connection->poll()) {
-            switch(event.type) {
-                case IWebRtcPeerConnection::Event::Type::LocalDescriptionReady: {
-                    logTrace(std::string("local description ready for ") + peer->remotePeerId +
-                             (event.descriptionIsOffer ? " (offer)" : " (answer)"));
-                    WebRtcSignalingMessage message;
-                    message.type = event.descriptionIsOffer ? WebRtcSignalType::Offer : WebRtcSignalType::Answer;
-                    if(event.descriptionIsOffer) {
-                        noteHandshakeProgress(*peer, PeerHandshakeState::WaitingForAnswer);
-                    } else {
-                        noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
-                    }
-                    message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
-                    message.peerId = m_localPeerId;
-                    message.targetPeerId = peer->remotePeerId;
-                    message.sdp = event.sdp;
-                    if(!sendPeerSignalingMessage(
-                           message,
-                           *peer,
-                           event.descriptionIsOffer ? "sending WebRTC offer" : "sending WebRTC answer")) {
-                        return;
-                    }
-                    break;
-                }
-
-                case IWebRtcPeerConnection::Event::Type::IceCandidateReady: {
-                    logTrace("local ICE candidate ready for " + peer->remotePeerId);
-                    WebRtcSignalingMessage message;
-                    message.type = WebRtcSignalType::IceCandidate;
-                    noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
-                    message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
-                    message.peerId = m_localPeerId;
-                    message.targetPeerId = peer->remotePeerId;
-                    message.candidate = event.candidate;
-                    message.mid = event.mid;
-                    message.mlineIndex = event.mlineIndex;
-                    if(!sendPeerSignalingMessage(message, *peer, "sending WebRTC ICE candidate")) {
-                        return;
-                    }
-                    break;
-                }
-
-                case IWebRtcPeerConnection::Event::Type::DataChannelOpen: {
-                    if(!peer->connected) {
-                        logTrace("data channel opened for " + peer->remotePeerId);
-                        peer->connected = true;
-                        markPeerConnected(*peer);
-                        stopInitialOfferWait();
-                        Event connected;
-                        connected.type = Event::Type::Connected;
-                        connected.peer = peer->handle;
-                        events.push_back(std::move(connected));
-                    }
-                    break;
-                }
-
-                case IWebRtcPeerConnection::Event::Type::DataChannelClosed: {
-                    logTrace("data channel closed for " + peer->remotePeerId);
-                    if(peer->connected && !peer->disconnectEmitted) {
-                        peer->connected = false;
-                        peer->disconnectEmitted = true;
-                        Event disconnected;
-                        disconnected.type = Event::Type::Disconnected;
-                        disconnected.peer = peer->handle;
-                        disconnected.data = static_cast<uint32_t>(peer->tag);
-                        events.push_back(std::move(disconnected));
-                    }
-                    schedulePeerClose(*peer);
-                    break;
-                }
-
-                case IWebRtcPeerConnection::Event::Type::DataMessage: {
-                    if(event.payload.empty()) {
-                        break;
-                    }
-                    Event packet;
-                    packet.type = Event::Type::PacketReceived;
-                    packet.peer = peer->handle;
-                    packet.channel = static_cast<Channel>(event.payload.front());
-                    packet.payload.assign(event.payload.begin() + 1, event.payload.end());
-                    events.push_back(std::move(packet));
-                    break;
-                }
-
-                case IWebRtcPeerConnection::Event::Type::Error:
-                {
-                    const std::string error = event.text.empty() ? peer->connection->lastError() : event.text;
-                    logTrace("peer error for " + peer->remotePeerId + ": " + error);
-                    if(!shouldIgnoreExpectedPeerError(*peer, error)) {
-                        handlePeerFailure(*peer, error, &events);
-                        return;
-                    }
-                    break;
-                }
-
-                default:
-                    break;
-            }
-        }
-    }
-
     void processSignalingEvents(std::vector<Event>& events)
     {
-        if(!m_signalingClient || m_lifecycle == TransportLifecycle::Closing) return;
+        if(m_lifecycle == TransportLifecycle::Closing) return;
 
-        std::deque<IWebRtcSignalingClient::Event> signalingEvents = std::move(m_pendingSignalingEvents);
-        for(const auto& event : m_signalingClient->poll()) {
-            signalingEvents.push_back(event);
-        }
-
-        for(const auto& event : signalingEvents) {
-            if(event.type == IWebRtcSignalingClient::Event::Type::Disconnected) {
+        m_session.drainQueuedEvents([&](SessionEvent event) {
+            if(event.type == SessionEvent::Type::SignalingDisconnected) {
                 logTrace("signaling disconnected");
                 const bool keepSessionAlive = !m_bootstrapPending && hasConnectedPeer();
                 if(!keepSessionAlive) {
@@ -1171,10 +1293,10 @@ private:
                     m_lifecycle = TransportLifecycle::DegradedSignaling;
                     logTrace("keeping active WebRTC session alive despite signaling disconnect");
                 }
-                continue;
+                return;
             }
 
-            if(event.type == IWebRtcSignalingClient::Event::Type::Error) {
+            if(event.type == SessionEvent::Type::SignalingError) {
                 const std::string errorText = !event.text.empty() ? event.text : m_signalingClient->lastError();
                 logTrace("signaling event error: " + errorText);
                 if(!m_signalingClient->isConnected()) {
@@ -1191,10 +1313,10 @@ private:
                         }
                     }
                 }
-                continue;
+                return;
             }
 
-            if(event.type == IWebRtcSignalingClient::Event::Type::Connected) {
+            if(event.type == SessionEvent::Type::SignalingConnected) {
                 if(m_bootstrapPending && !m_bootstrapHelloSent) {
                     WebRtcSignalingMessage hello;
                     hello.type = WebRtcSignalType::Hello;
@@ -1202,19 +1324,131 @@ private:
                     hello.peerId = m_localPeerId;
                     if(!sendSignalingMessage(hello)) {
                         m_bootstrapPending = false;
-                        continue;
+                        return;
                     }
                     m_bootstrapHelloSent = true;
                     logTrace("sent signaling message: Hello roomId=" + hello.roomId);
                 }
-                continue;
+                return;
             }
 
-            if(event.type != IWebRtcSignalingClient::Event::Type::Message) {
-                continue;
+            if(event.type == SessionEvent::Type::PeerLocalDescriptionReady) {
+                WebRtcPeerState* peer = findPeerByHandle(event.peer);
+                if(peer == nullptr) {
+                    return;
+                }
+                logTrace(std::string("local description ready for ") + peer->remotePeerId +
+                         (event.descriptionIsOffer ? " (offer)" : " (answer)"));
+                WebRtcSignalingMessage message;
+                message.type = event.descriptionIsOffer ? WebRtcSignalType::Offer : WebRtcSignalType::Answer;
+                if(event.descriptionIsOffer) {
+                    noteHandshakeProgress(*peer, PeerHandshakeState::WaitingForAnswer);
+                } else {
+                    noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
+                }
+                message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
+                message.peerId = m_localPeerId;
+                message.targetPeerId = peer->remotePeerId;
+                message.sdp = event.sdp;
+                if(!sendPeerSignalingMessage(
+                       message,
+                       *peer,
+                       event.descriptionIsOffer ? "sending WebRTC offer" : "sending WebRTC answer")) {
+                    return;
+                }
+                return;
             }
 
-            const WebRtcSignalingMessage& message = event.message;
+            if(event.type == SessionEvent::Type::PeerIceCandidateReady) {
+                WebRtcPeerState* peer = findPeerByHandle(event.peer);
+                if(peer == nullptr) {
+                    return;
+                }
+                logTrace("local ICE candidate ready for " + peer->remotePeerId);
+                WebRtcSignalingMessage message;
+                message.type = WebRtcSignalType::IceCandidate;
+                noteHandshakeProgress(*peer, PeerHandshakeState::Negotiating);
+                message.roomId = m_activeSignalingConfig ? m_activeSignalingConfig->roomId : std::string{};
+                message.peerId = m_localPeerId;
+                message.targetPeerId = peer->remotePeerId;
+                message.candidate = event.candidate;
+                message.mid = event.mid;
+                message.mlineIndex = event.mlineIndex;
+                if(!sendPeerSignalingMessage(message, *peer, "sending WebRTC ICE candidate")) {
+                    return;
+                }
+                return;
+            }
+
+            if(event.type == SessionEvent::Type::PeerDataChannelOpen) {
+                WebRtcPeerState* peer = findPeerByHandle(event.peer);
+                if(peer == nullptr) {
+                    return;
+                }
+                if(!peer->connected) {
+                    logTrace("data channel opened for " + peer->remotePeerId);
+                    peer->connected = true;
+                    markPeerConnected(*peer);
+                    stopInitialOfferWait();
+                    Event connected;
+                    connected.type = Event::Type::Connected;
+                    connected.peer = peer->handle;
+                    events.push_back(std::move(connected));
+                }
+                return;
+            }
+
+            if(event.type == SessionEvent::Type::PeerDataChannelClosed) {
+                WebRtcPeerState* peer = findPeerByHandle(event.peer);
+                if(peer == nullptr) {
+                    return;
+                }
+                logTrace("data channel closed for " + peer->remotePeerId);
+                if(peer->connected && !peer->disconnectEmitted) {
+                    peer->connected = false;
+                    peer->disconnectEmitted = true;
+                    Event disconnected;
+                    disconnected.type = Event::Type::Disconnected;
+                    disconnected.peer = peer->handle;
+                    disconnected.data = static_cast<uint32_t>(peer->tag);
+                    events.push_back(std::move(disconnected));
+                }
+                schedulePeerClose(*peer);
+                return;
+            }
+
+            if(event.type == SessionEvent::Type::PeerDataMessage) {
+                if(event.payload.empty()) {
+                    return;
+                }
+                Event packet;
+                packet.type = Event::Type::PacketReceived;
+                packet.peer = event.peer;
+                packet.channel = static_cast<Channel>(event.payload.front());
+                packet.payload.assign(event.payload.begin() + 1, event.payload.end());
+                events.push_back(std::move(packet));
+                return;
+            }
+
+            if(event.type == SessionEvent::Type::PeerError) {
+                WebRtcPeerState* peer = findPeerByHandle(event.peer);
+                if(peer == nullptr || !peer->connection) {
+                    return;
+                }
+                const std::string error = event.text.empty() ? peer->connection->lastError() : event.text;
+                logTrace("peer error for " + peer->remotePeerId + ": " + error);
+                if(!shouldIgnoreExpectedPeerError(*peer, error)) {
+                    handlePeerFailure(*peer, error, &events);
+                    return;
+                }
+                return;
+            }
+
+            if(event.type != SessionEvent::Type::SignalingMessage) {
+                return;
+            }
+
+            const WebRtcSignalingMessage& message = event.signalingMessage;
             std::string signalLog = std::string("received signaling message: ") + signalTypeLabel(message.type);
             if(!message.peerId.empty()) {
                 signalLog += " peerId=" + message.peerId;
@@ -1235,7 +1469,7 @@ private:
                     if(!sendBootstrapRoomRequest()) {
                         m_bootstrapPending = false;
                         m_bootstrapDeadline.reset();
-                        continue;
+                        return;
                     }
                 } else if(message.type == WebRtcSignalType::RoomJoined &&
                           m_activeSignalingConfig.has_value() &&
@@ -1253,10 +1487,10 @@ private:
                     requestFatalShutdown(!message.error.empty() ? message.error : "WebRTC signaling reported an error");
                     m_bootstrapPending = false;
                     m_bootstrapDeadline.reset();
-                    continue;
+                    return;
                 } else {
                     logTrace(std::string("queued signaling message during bootstrap: ") + signalTypeLabel(message.type));
-                    m_pendingSignalingEvents.push_back(event);
+                    m_session.deferSignalingMessage(message);
                 }
 
                 if(m_bootstrapSawWelcome && m_bootstrapSawRoomJoined) {
@@ -1269,7 +1503,7 @@ private:
                     }
                     logTrace("bootstrap complete");
                 }
-                continue;
+                return;
             }
             switch(message.type) {
                 case WebRtcSignalType::PeerJoined:
@@ -1363,38 +1597,46 @@ private:
                 default:
                     break;
             }
-        }
+        });
     }
 
 public:
     bool initialize() override { return true; }
-    void shutdown() override
+    void performShutdown(ShutdownMode mode)
     {
-        m_lifecycle = TransportLifecycle::Closing;
-        if(!m_lastError.empty()) {
-            logTrace("shutdown due to error: " + m_lastError);
-        } else {
-            logTrace("shutdown");
+        if(m_lifecycle == TransportLifecycle::Closing &&
+           !m_signalingClient &&
+           !m_signalingServer &&
+           m_peers.empty()) {
+            return;
         }
-        sendLeaveRoomBestEffort();
-        DetachedRuntimeResources resources = detachRuntimeResources();
-        clearRuntimeState();
-        for(auto& connection : resources.peerConnections) {
-            if(connection) {
-                connection->close();
-            }
-        }
-        if(resources.signalingClient) {
-            resources.signalingClient->disconnect();
-        }
-        if(resources.signalingServer) {
-            resources.signalingServer->stop();
-        }
-    }
 
-    void shutdownForUnload() override
-    {
         m_lifecycle = TransportLifecycle::Closing;
+
+        if(mode == ShutdownMode::Graceful) {
+            if(!m_lastError.empty()) {
+                logTrace("shutdown due to error: " + m_lastError);
+            } else {
+                logTrace("shutdown");
+            }
+            logTrace("detaching runtime resources");
+            DetachedRuntimeResources resources = detachRuntimeResources();
+            clearRuntimeState();
+            if(resources.signalingClient) {
+                logTrace("disconnecting signaling client");
+                resources.signalingClient->disconnect();
+            }
+            for(auto& connection : resources.peerConnections) {
+                if(connection) {
+                    connection->close();
+                }
+            }
+            if(resources.signalingServer) {
+                resources.signalingServer->stop();
+            }
+            return;
+        }
+
         logTrace("shutdown for unload");
 
         DetachedRuntimeResources resources = detachRuntimeResources();
@@ -1405,6 +1647,17 @@ public:
         }
         (void)resources.signalingClient.release();
         (void)resources.signalingServer.release();
+    }
+
+public:
+    void shutdown() override
+    {
+        performShutdown(ShutdownMode::Graceful);
+    }
+
+    void shutdownForUnload() override
+    {
+        performShutdown(ShutdownMode::Unload);
     }
     void setOptions(const NetTransportOptions& options) override { m_options = options; }
     const NetTransportOptions& options() const override { return m_options; }
@@ -1503,15 +1756,10 @@ public:
         std::vector<Event> events;
 
         do {
+            m_session.collectSignalingEvents();
             processSignalingEvents(events);
-            std::vector<PeerHandle> handles;
-            handles.reserve(m_peers.size());
-            for(const WebRtcPeerState& peer : m_peers) {
-                handles.push_back(peer.handle);
-            }
-            for(PeerHandle handle : handles) {
-                drainPeerEvents(handle, events);
-            }
+            m_session.collectPeerEvents(m_lifecycle);
+            processSignalingEvents(events);
             processPendingPeerClose(events);
             if(!events.empty() || timeoutMs == 0) {
                 break;
@@ -1522,7 +1770,9 @@ public:
         if(m_lifecycle != TransportLifecycle::Closing) {
             updateHandshakeTimeout();
         }
-        if(m_fatalShutdownRequested) {
+        if(const std::optional<std::string> fatalShutdownError = m_session.takeFatalShutdownError();
+           fatalShutdownError.has_value()) {
+            m_lastError = *fatalShutdownError;
             shutdown();
         }
 
@@ -1634,7 +1884,7 @@ bool NetTransport::ensureImpl()
 #if !defined(__EMSCRIPTEN__)
         case NetTransportBackend::ENet:
             m_impl = std::make_unique<ENetTransport>();
-            return true;
+            break;
 #else
         case NetTransportBackend::ENet:
             return false;
@@ -1642,19 +1892,42 @@ bool NetTransport::ensureImpl()
 
         case NetTransportBackend::WebRTC:
             m_impl = std::make_unique<WebRTCTransport>();
-            return true;
+            break;
 
         default:
             return false;
     }
+
+    if(m_impl) {
+        m_impl->setOptions(m_options);
+    }
+
+    return static_cast<bool>(m_impl);
+}
+
+void NetTransport::discardImpl(bool invokeShutdown)
+{
+    if(!m_impl) {
+        return;
+    }
+
+    m_lastErrorCache = m_impl->lastError();
+    m_advertisedIceServersCache = m_impl->advertisedIceServers();
+
+    if(invokeShutdown) {
+        m_impl->shutdown();
+        m_lastErrorCache = m_impl->lastError();
+        m_advertisedIceServersCache = m_impl->advertisedIceServers();
+    }
+
+    m_impl.reset();
 }
 
 bool NetTransport::setBackend(NetTransportBackend backend)
 {
     if(m_impl && m_impl->isActive()) return false;
     if(m_impl) {
-        m_impl->shutdown();
-        m_impl.reset();
+        discardImpl(true);
     }
     m_backend = backend;
     return true;
@@ -1667,6 +1940,7 @@ NetTransportBackend NetTransport::backend() const
 
 void NetTransport::setOptions(const NetTransportOptions& options)
 {
+    m_options = options;
     if(ensureImpl()) {
         m_impl->setOptions(options);
     }
@@ -1674,20 +1948,17 @@ void NetTransport::setOptions(const NetTransportOptions& options)
 
 const NetTransportOptions& NetTransport::options() const
 {
-    static const NetTransportOptions emptyOptions;
-    return m_impl ? m_impl->options() : emptyOptions;
+    return m_impl ? m_impl->options() : m_options;
 }
 
 const std::string& NetTransport::lastError() const
 {
-    static const std::string emptyError;
-    return m_impl ? m_impl->lastError() : emptyError;
+    return m_impl ? m_impl->lastError() : m_lastErrorCache;
 }
 
 const std::vector<std::string>& NetTransport::advertisedIceServers() const
 {
-    static const std::vector<std::string> empty;
-    return m_impl ? m_impl->advertisedIceServers() : empty;
+    return m_impl ? m_impl->advertisedIceServers() : m_advertisedIceServersCache;
 }
 
 bool NetTransport::initialize()
@@ -1698,25 +1969,52 @@ bool NetTransport::initialize()
 void NetTransport::shutdown()
 {
     if(m_impl) {
-        m_impl->shutdown();
+        discardImpl(true);
     }
 }
 
 void NetTransport::shutdownForUnload()
 {
     if(m_impl) {
+        m_lastErrorCache = m_impl->lastError();
+        m_advertisedIceServersCache = m_impl->advertisedIceServers();
         m_impl->shutdownForUnload();
+        m_impl.reset();
     }
 }
 
 bool NetTransport::hostSession(uint16_t port, size_t maxPeers)
 {
-    return ensureImpl() && m_impl->hostSession(port, maxPeers);
+    m_lastErrorCache.clear();
+    m_advertisedIceServersCache.clear();
+    if(!ensureImpl()) {
+        return false;
+    }
+
+    const bool hosted = m_impl->hostSession(port, maxPeers);
+    m_lastErrorCache = m_impl->lastError();
+    m_advertisedIceServersCache = m_impl->advertisedIceServers();
+    if(!hosted) {
+        discardImpl(true);
+    }
+    return hosted;
 }
 
 bool NetTransport::connectToHost(const std::string& hostName, uint16_t port, size_t channelCount)
 {
-    return ensureImpl() && m_impl->connectToHost(hostName, port, channelCount);
+    m_lastErrorCache.clear();
+    m_advertisedIceServersCache.clear();
+    if(!ensureImpl()) {
+        return false;
+    }
+
+    const bool connected = m_impl->connectToHost(hostName, port, channelCount);
+    m_lastErrorCache = m_impl->lastError();
+    m_advertisedIceServersCache = m_impl->advertisedIceServers();
+    if(!connected) {
+        discardImpl(true);
+    }
+    return connected;
 }
 
 void NetTransport::disconnectAll(uint32_t data)
@@ -1747,7 +2045,17 @@ std::vector<NetTransport::PeerHandle> NetTransport::connectedPeers() const
 
 std::vector<NetTransport::Event> NetTransport::poll(uint32_t timeoutMs)
 {
-    return m_impl ? m_impl->poll(timeoutMs) : std::vector<Event>{};
+    if(!m_impl) {
+        return {};
+    }
+
+    std::vector<Event> events = m_impl->poll(timeoutMs);
+    m_lastErrorCache = m_impl->lastError();
+    m_advertisedIceServersCache = m_impl->advertisedIceServers();
+    if(!m_impl->isActive()) {
+        m_impl.reset();
+    }
+    return events;
 }
 
 bool NetTransport::sendReliable(PeerHandle peer, Channel channel, const std::vector<uint8_t>& payload)

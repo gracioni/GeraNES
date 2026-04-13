@@ -346,6 +346,17 @@ if(NOT EMSCRIPTEN)
             target_include_directories(${_mbedtls_target} PUBLIC ${CMAKE_CURRENT_LIST_DIR}/cmake)
         endif()
     endforeach()
+    get_target_property(_geranes_mbedtls_include_dirs mbedtls INTERFACE_INCLUDE_DIRECTORIES)
+    if(NOT _geranes_mbedtls_include_dirs)
+        get_target_property(_geranes_mbedtls_include_dirs mbedtls INCLUDE_DIRECTORIES)
+    endif()
+    set(MBEDTLS_FOUND TRUE CACHE INTERNAL "GeraNES bundled MbedTLS available")
+    set(MBEDTLS_INCLUDE_DIRS "${_geranes_mbedtls_include_dirs}" CACHE STRING "Bundled MbedTLS includes" FORCE)
+    set(MBEDTLS_VERSION_GREATER_THAN_3 "${_geranes_mbedtls_include_dirs}" CACHE STRING "Bundled MbedTLS v3 marker" FORCE)
+    set(MBEDTLS_LIBRARY mbedtls CACHE STRING "Bundled MbedTLS library" FORCE)
+    set(MBEDX509_LIBRARY mbedx509 CACHE STRING "Bundled MbedX509 library" FORCE)
+    set(MBEDCRYPTO_LIBRARY mbedcrypto CACHE STRING "Bundled MbedCrypto library" FORCE)
+    set(MBEDTLS_LIBRARIES "mbedtls;mbedx509;mbedcrypto" CACHE STRING "Bundled MbedTLS libraries" FORCE)
 
     set(NO_TESTS ON CACHE BOOL "Disable libdatachannel tests" FORCE)
     set(NO_EXAMPLES ON CACHE BOOL "Disable libdatachannel examples" FORCE)
@@ -378,6 +389,26 @@ if(NOT EMSCRIPTEN)
                 )
             endif()
         endforeach()
+    endif()
+
+    set(USE_TLS ON CACHE BOOL "Enable IXWebSocket TLS support" FORCE)
+    set(USE_MBED_TLS ON CACHE BOOL "Use MbedTLS for IXWebSocket TLS" FORCE)
+    set(USE_OPEN_SSL OFF CACHE BOOL "Disable OpenSSL for IXWebSocket TLS" FORCE)
+    set(USE_ZLIB OFF CACHE BOOL "Disable IXWebSocket zlib support" FORCE)
+    set(BUILD_DEMO OFF CACHE BOOL "Disable IXWebSocket demo build" FORCE)
+    set(IXWEBSOCKET_INSTALL OFF CACHE BOOL "Disable IXWebSocket install rules" FORCE)
+
+    FetchContent_Declare(
+        ixwebsocket
+        GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+        GIT_TAG v11.4.6
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+
+    FetchContent_MakeAvailable(ixwebsocket)
+    if(TARGET ixwebsocket)
+        target_compile_definitions(ixwebsocket PRIVATE IXWEBSOCKET_USE_MBED_TLS_MIN_VERSION_3)
     endif()
 endif()
 
@@ -456,7 +487,7 @@ endif()
 set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet LibDataChannel::LibDataChannelStatic)
+    set(LIBS ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
 else()
 set(LIBS ${LIBS} -lopenal)
 endif()
@@ -465,7 +496,7 @@ endif()
 if(WIN32)
     set(APP_ICON_RESOURCE_WINDOWS ${CMAKE_CURRENT_SOURCE_DIR}/src/resources.rc)
     list(APPEND GERANES_EXE_SOURCES ${APP_ICON_RESOURCE_WINDOWS})
-    set(LIBS ${LIBS} -ldwmapi -lmswsock)
+    set(LIBS ${LIBS} -ldwmapi -lmswsock -lwinhttp)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
