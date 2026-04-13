@@ -1132,14 +1132,15 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
         previousReceivedSequence = participant->lastReceivedInputSequence;
         if(!participantHasAssignment(*participant, input.playerSlot)) {
+            if(participantIsObserver(*participant)) {
+                // Observers can still emit local input events depending on platform/UI.
+                // Ignore silently to avoid flooding logs every frame.
+                return true;
+            }
             std::ostringstream oss;
             oss << "Ignored input for unexpected assignment from " << participant->displayName
                 << ": got " << inputAssignmentLabel(input.playerSlot, m_session.roomState());
-            if(participantIsObserver(*participant)) {
-                oss << ", expected observer";
-            } else {
-                oss << ", expected one of " << participantAssignmentsLabel(*participant, m_session.roomState());
-            }
+            oss << ", expected one of " << participantAssignmentsLabel(*participant, m_session.roomState());
             pushLog(oss.str());
             return true;
         }
@@ -1192,7 +1193,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             participant->sequenceRebasePending &&
             input.frame == expectedFrame &&
             input.sequence > participant->lastReceivedInputSequence;
-        if(input.sequence != expectedSequence && !allowSequenceRebase) {
+        const bool allowClientResyncRebase =
+            !m_hosting &&
+            participant->sequenceRebasePending &&
+            input.frame >= expectedFrame &&
+            input.sequence > participant->lastReceivedInputSequence;
+        if(input.sequence != expectedSequence && !allowSequenceRebase && !allowClientResyncRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input sequence from " << participant->displayName
                 << " seq " << input.sequence
@@ -1202,7 +1208,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
 
-        if(input.frame != expectedFrame) {
+        if(input.frame != expectedFrame && !allowClientResyncRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
                 << " frame " << input.frame
@@ -1210,6 +1216,15 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " seq " << input.sequence;
             pushLog(oss.str());
             return true;
+        }
+        if(allowClientResyncRebase && input.frame > expectedFrame) {
+            std::ostringstream oss;
+            oss << "Accepted client-side input rebase from " << participant->displayName
+                << " frame " << input.frame
+                << " expectedFrame " << expectedFrame
+                << " seq " << input.sequence
+                << " expectedSeq " << expectedSequence;
+            pushLog(oss.str());
         }
 
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
@@ -3350,6 +3365,15 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.normalizeControllerAssignments();
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
+    if(!m_hosting &&
+       participantId != m_localParticipantId &&
+       participant.connected &&
+       !participant.reconnectReserved) {
+        // Non-host peers can join while remote participants are already
+        // simulating at high frame/sequence values. Arm one-time sequence
+        // rebase so first received gameplay packet establishes baseline.
+        participant.sequenceRebasePending = true;
+    }
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
 
     if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
@@ -3894,12 +3918,37 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 "; cancelling targeted observer resync"
             );
         } else if(m_session.roomState().activeResyncId != 0u) {
-            scheduleResyncRetry(
-                m_session.roomState().resyncTargetFrame,
-                "Resync ACK timed out waiting for " +
-                    std::to_string(static_cast<unsigned>(m_pendingResyncAcks.size())) +
-                    " participant(s); retrying"
-            );
+            std::vector<ParticipantId> stalledParticipants;
+            stalledParticipants.reserve(m_pendingResyncAcks.size());
+            for(const ParticipantId participantId : m_pendingResyncAcks) {
+                if(participantId == m_localParticipantId) continue;
+                const ParticipantInfo* participant = m_session.findParticipant(participantId);
+                if(participant == nullptr || !participant->connected || participant->reconnectReserved) {
+                    continue;
+                }
+                stalledParticipants.push_back(participantId);
+            }
+
+            if(!stalledParticipants.empty()) {
+                std::ostringstream oss;
+                oss << "Resync ACK timed out; removing stalled participant(s): ";
+                for(size_t i = 0; i < stalledParticipants.size(); ++i) {
+                    if(i != 0) oss << ", ";
+                    oss << static_cast<int>(stalledParticipants[i]);
+                }
+                pushLog(oss.str());
+
+                for(const ParticipantId participantId : stalledParticipants) {
+                    (void)kickParticipant(participantId);
+                }
+            } else {
+                scheduleResyncRetry(
+                    m_session.roomState().resyncTargetFrame,
+                    "Resync ACK timed out waiting for " +
+                        std::to_string(static_cast<unsigned>(m_pendingResyncAcks.size())) +
+                        " participant(s); retrying"
+                );
+            }
         }
     }
 
