@@ -826,9 +826,9 @@ inline void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu&
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         reanchorInputDriver(anchorFrame, localAssignedSlots());
         m_postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
+        m_emuHost.setSimulationSuspended(false);
         if(m_observerVisibilityResyncPending) {
             m_observerVisibilityResyncPending = false;
-            m_emuHost.setSimulationSuspended(false);
         }
     }
 

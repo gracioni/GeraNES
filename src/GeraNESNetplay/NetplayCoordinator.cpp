@@ -433,6 +433,20 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
     if(peer == NetTransport::kInvalidPeerHandle) return false;
 
     const SessionState state = m_session.roomState().state;
+    if(state == SessionState::Starting || state == SessionState::Resyncing) {
+        PacketWriter writer;
+        PacketHeader header;
+        header.type = MessageType::StartSession;
+        header.sessionId = m_session.roomState().sessionId;
+        writer.writePod(header);
+        StartSessionData startData;
+        startData.state = state;
+        startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
+        startData.predictFrames = m_session.roomState().predictFrames;
+        startData.topology = makeTopologyData(m_session.roomState());
+        return m_transport.sendReliable(peer, Channel::Control, writer.data());
+    }
+
     if(state == SessionState::Paused) {
         PacketWriter writer;
         PacketHeader header;
@@ -591,8 +605,25 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     }
 
     if(targeted) {
-        (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
-        (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
+        const NetTransport::PeerHandle targetPeer = peerFromParticipantId(targetParticipantId);
+        (void)sendConfirmedFramesToPeer(targetPeer, recoveryFrame + 1u);
+        if(targetPeer != NetTransport::kInvalidPeerHandle) {
+            PacketWriter writer;
+            PacketHeader header;
+            header.type = MessageType::ResumeSession;
+            header.sessionId = m_session.roomState().sessionId;
+            writer.writePod(header);
+            StartSessionData startData;
+            startData.state = SessionState::Running;
+            startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
+            startData.predictFrames = m_session.roomState().predictFrames;
+            startData.topology = makeTopologyData(m_session.roomState());
+            startData.resumeAtHostTimeUs = resumeAtHostTimeUs;
+            startData.resumeFrame = recoveryFrame;
+            (void)m_transport.sendReliable(targetPeer, Channel::Control, writer.data());
+        } else {
+            (void)sendCurrentSessionStateToPeer(targetPeer);
+        }
         return;
     }
     m_activeResyncResumeState = resumeState;
@@ -1347,15 +1378,8 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         return false;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = data.timelineEpoch;
-    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
-        noteDroppedGameplayInputDuringRecovery(
-            "confirmed_input_frames",
-            data.startFrame,
-            m_localParticipantId,
-            kObserverPlayerSlot
-        );
-        return true;
-    }
+    const bool resyncLocked =
+        m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked;
 
     for(uint16_t i = 0; i < data.frameCount; ++i) {
         ConfirmedInputFrameEntry entry;
@@ -1390,6 +1414,14 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
             localParticipant->lastReceivedInputFrame = std::max(localParticipant->lastReceivedInputFrame, lastFrame);
         }
 
+        if(resyncLocked) {
+            std::ostringstream oss;
+            oss << "Accepted confirmed-frame catch-up during recovery"
+                << " startFrame " << data.startFrame
+                << " lastFrame " << lastFrame
+                << " frameCount " << data.frameCount;
+            pushLog(oss.str());
+        }
     }
 
     return true;
