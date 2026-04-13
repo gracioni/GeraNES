@@ -1141,7 +1141,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 oss << ", expected one of " << participantAssignmentsLabel(*participant, m_session.roomState());
             }
             pushLog(oss.str());
-            return false;
+            return true;
         }
 
         if(m_hosting && participant->id != m_localParticipantId) {
