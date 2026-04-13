@@ -60,8 +60,8 @@ class ServerConfig:
     port: int = 8765
     ice_servers: list[str] = field(default_factory=list)
     log_level: str = "INFO"
-    ping_interval_seconds: int | None = 15
-    ping_timeout_seconds: int | None = 15
+    ping_interval_seconds: int | None = None
+    ping_timeout_seconds: int | None = None
 
 
 class SignalingServer:
@@ -690,10 +690,10 @@ def _build_config(args: argparse.Namespace) -> ServerConfig:
     port = int(args.port if args.port is not None else loaded.get("port", 8765))
     log_level = str(args.log_level if args.log_level is not None else loaded.get("logLevel", "INFO"))
     ping_interval_seconds = _as_optional_int(
-        args.ping_interval if args.ping_interval is not None else loaded.get("pingIntervalSeconds", 15)
+        args.ping_interval if args.ping_interval is not None else loaded.get("pingIntervalSeconds")
     )
     ping_timeout_seconds = _as_optional_int(
-        args.ping_timeout if args.ping_timeout is not None else loaded.get("pingTimeoutSeconds", 15)
+        args.ping_timeout if args.ping_timeout is not None else loaded.get("pingTimeoutSeconds")
     )
 
     ice_servers: list[str] = []
