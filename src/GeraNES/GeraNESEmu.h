@@ -2074,7 +2074,9 @@ public:
     {
         if(inputFrame.timelineEpoch != m_inputTimelineEpoch) {
             Logger::instance().log(
-                "Rejected input enqueue due to timeline epoch mismatch: frame=" + std::to_string(inputFrame.frame),
+                "Rejected input enqueue due to timeline epoch mismatch: frame=" + std::to_string(inputFrame.frame) +
+                " inputEpoch=" + std::to_string(inputFrame.timelineEpoch) +
+                " currentEpoch=" + std::to_string(m_inputTimelineEpoch),
                 Logger::Type::WARNING
             );
             return InputBuffer::EnqueueResult::RejectedEpoch;

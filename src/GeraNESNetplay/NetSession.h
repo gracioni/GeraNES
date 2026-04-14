@@ -54,6 +54,16 @@ struct ParticipantInfo
     void normalizeControllerAssignments()
     {
         controllerAssignments.erase(
+            std::remove_if(
+                controllerAssignments.begin(),
+                controllerAssignments.end(),
+                [](PlayerSlot slot) {
+                    return slot != kObserverPlayerSlot && slot > kMultitapP4PlayerSlot;
+                }
+            ),
+            controllerAssignments.end()
+        );
+        controllerAssignments.erase(
             std::remove(controllerAssignments.begin(), controllerAssignments.end(), kObserverPlayerSlot),
             controllerAssignments.end()
         );

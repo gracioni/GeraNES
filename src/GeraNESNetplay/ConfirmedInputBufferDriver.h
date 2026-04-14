@@ -539,7 +539,8 @@ public:
             }
             InputFrame inputFrame = confirmed.inputFrame;
             inputFrame.speculative = confirmed.predicted;
-            emu.queueInputFrame(inputFrame);
+            inputFrame.timelineEpoch = emu.inputTimelineEpoch();
+            (void)emu.queueInputFrame(inputFrame);
             m_pendingFrames.pop_front();
         }
     }

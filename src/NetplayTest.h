@@ -2856,9 +2856,15 @@ private:
         std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending = peer.coordinator.consumePendingResyncApply();
         if(!pending.has_value()) return;
 
-        const bool loaded = peer.emu.loadStateFromMemory(pending->payload);
-        const uint32_t loadedCrc32 = loaded ? peer.emu.canonicalNetplayStateCrc32() : 0u;
-        if(loaded) {
+        const bool loaded =
+            !pending->payload.empty() &&
+            peer.emu.loadStateFromMemory(pending->payload);
+        const uint32_t loadedFrame = peer.emu.exactEmulationFrame();
+        const bool loadedExpectedFrame =
+            loaded &&
+            (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
+        const uint32_t loadedCrc32 = loadedExpectedFrame ? peer.emu.canonicalNetplayStateCrc32() : 0u;
+        if(loadedExpectedFrame) {
             peer.emu.withExclusiveAccess([&](auto& emu) {
                 emu.setInputTimelineEpoch(peer.coordinator.session().roomState().timelineEpoch);
             });
@@ -2869,7 +2875,12 @@ private:
                 pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
             );
         }
-        peer.coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
+        peer.coordinator.acknowledgeResync(
+            pending->resyncId,
+            pending->targetFrame,
+            loadedCrc32,
+            loadedExpectedFrame
+        );
     }
 
     static void processAppRollback(AppPeerState& peer)

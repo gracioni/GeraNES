@@ -1092,8 +1092,23 @@ inline void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 
         InputFrame inputFrame = playbackFrame.inputFrame;
         inputFrame.speculative = playbackFrame.predicted;
-        emu.queueInputFrame(inputFrame);
-        emu.updateUntilFrame(frameDt);
+        inputFrame.timelineEpoch = emu.inputTimelineEpoch();
+        const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
+        if(enqueueResult != InputBuffer::EnqueueResult::Inserted &&
+           enqueueResult != InputBuffer::EnqueueResult::UpdatedPending) {
+            m_coordinator.appendNetplayLog(
+                "Netplay resimulation failed: rejected playback enqueue at frame " +
+                std::to_string(nextFrame)
+            );
+            return;
+        }
+        if(!emu.updateUntilFrame(frameDt)) {
+            m_coordinator.appendNetplayLog(
+                "Netplay resimulation failed: emulator did not advance at frame " +
+                std::to_string(nextFrame)
+            );
+            return;
+        }
     }
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
     m_emuHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
@@ -1255,8 +1270,10 @@ inline bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint3
 
     InputFrame inputFrame = playbackFrame.inputFrame;
     inputFrame.speculative = playbackFrame.predicted;
-    emu.queueInputFrame(inputFrame);
-    return true;
+    inputFrame.timelineEpoch = emu.inputTimelineEpoch();
+    const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
+    return enqueueResult == InputBuffer::EnqueueResult::Inserted ||
+           enqueueResult == InputBuffer::EnqueueResult::UpdatedPending;
 }
 
 inline void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)

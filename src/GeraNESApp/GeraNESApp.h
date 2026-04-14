@@ -781,9 +781,15 @@ private:
         std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending = m_netplayCoordinator.consumePendingResyncApply();
         if(!pending.has_value()) return;
 
-        const bool loaded = m_emu.loadStateFromMemory(pending->payload);
-        const uint32_t loadedCrc32 = loaded ? m_emu.canonicalNetplayStateCrc32() : 0;
-        if(loaded) {
+        const bool loaded =
+            !pending->payload.empty() &&
+            m_emu.loadStateFromMemory(pending->payload);
+        const uint32_t loadedFrame = m_emu.exactEmulationFrame();
+        const bool loadedExpectedFrame =
+            loaded &&
+            (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
+        const uint32_t loadedCrc32 = loadedExpectedFrame ? m_emu.canonicalNetplayStateCrc32() : 0;
+        if(loadedExpectedFrame) {
             m_emu.withExclusiveAccess([&](GeraNESEmu& emu) {
                 emu.setInputTimelineEpoch(m_netplayCoordinator.session().roomState().timelineEpoch);
             });
@@ -794,12 +800,25 @@ private:
                 pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
             );
         }
-        m_netplayCoordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loaded);
+        m_netplayCoordinator.acknowledgeResync(
+            pending->resyncId,
+            pending->targetFrame,
+            loadedCrc32,
+            loadedExpectedFrame
+        );
 
-        if(loaded) {
+        if(loadedExpectedFrame) {
             reanchorNetplayLocalTimelineTracking();
             m_netplayCoordinator.appendNetplayLog("Netplay resync applied");
         } else {
+            if(loaded && loadedFrame != pending->targetFrame) {
+                m_netplayCoordinator.appendNetplayLog(
+                    "Netplay resync load frame mismatch: expected " +
+                    std::to_string(pending->targetFrame) +
+                    ", got " +
+                    std::to_string(loadedFrame)
+                );
+            }
             m_netplayCoordinator.appendNetplayLog("Netplay resync failed");
         }
     }

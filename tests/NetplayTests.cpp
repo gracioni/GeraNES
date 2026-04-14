@@ -8,6 +8,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <thread>
 #include <vector>
 
@@ -28,6 +29,7 @@
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
 #include "GeraNESNetplay/WebRtcSignaling.h"
 #include "GeraNESNetplay/WebRtcSignalingClient.h"
+#include "GeraNES/util/Crc32.h"
 #include "GeraNESApp/AudioOutputBase.h"
 #include "NetplayTest.h"
 #include "TestSupport.h"
@@ -2161,6 +2163,394 @@ TEST_CASE("ENet coordinator supports host plus two participants", "[netplay][ene
     host.disconnect();
     clientA.disconnect();
     clientB.disconnect();
+}
+
+TEST_CASE("Netplay ENet host observer with three clients survives repeated host load-state resync",
+          "[netplay][enet][observer][load-state][stress]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator inputClient;
+    Netplay::NetplayCoordinator observerA;
+    Netplay::NetplayCoordinator observerB;
+    uint16_t port = 0;
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(inputClient.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(observerA.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(observerB.setTransportBackend(Netplay::NetTransportBackend::ENet));
+
+    bool started = false;
+    for(int attempt = 0; attempt < 24 && !started; ++attempt) {
+        host.disconnect();
+        inputClient.disconnect();
+        observerA.disconnect();
+        observerB.disconnect();
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+
+        port = reserveLoopbackPort();
+        if(!host.host(port, 3, "Host")) continue;
+        if(!inputClient.join("127.0.0.1", port, "InputClient")) continue;
+        if(!observerA.join("127.0.0.1", port, "ObserverA")) continue;
+        if(!observerB.join("127.0.0.1", port, "ObserverB")) continue;
+        started = true;
+    }
+    REQUIRE(started);
+
+    auto pumpAll = [&](uint32_t timeoutMs = 0u) {
+        host.update(timeoutMs);
+        inputClient.update(timeoutMs);
+        observerA.update(timeoutMs);
+        observerB.update(timeoutMs);
+    };
+
+    bool connected = false;
+    for(int step = 0; step < 1800 && !connected; ++step) {
+        pumpAll(0);
+        connected =
+            host.isConnected() &&
+            inputClient.isConnected() &&
+            observerA.isConnected() &&
+            observerB.isConnected() &&
+            host.session().roomState().participants.size() == 4u &&
+            inputClient.session().roomState().participants.size() == 4u &&
+            observerA.session().roomState().participants.size() == 4u &&
+            observerB.session().roomState().participants.size() == 4u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    const auto findParticipantIdByName = [](const Netplay::RoomState& room, const std::string& name) -> std::optional<Netplay::ParticipantId> {
+        for(const auto& participant : room.participants) {
+            if(participant.displayName == name) {
+                return participant.id;
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto hostId = findParticipantIdByName(host.session().roomState(), "Host");
+    const auto inputClientId = findParticipantIdByName(host.session().roomState(), "InputClient");
+    const auto observerAId = findParticipantIdByName(host.session().roomState(), "ObserverA");
+    const auto observerBId = findParticipantIdByName(host.session().roomState(), "ObserverB");
+    REQUIRE(hostId.has_value());
+    REQUIRE(inputClientId.has_value());
+    REQUIRE(observerAId.has_value());
+    REQUIRE(observerBId.has_value());
+
+    REQUIRE(host.clearControllerAssignments(*hostId));
+    REQUIRE(host.assignController(*inputClientId, Netplay::kPort1PlayerSlot));
+    REQUIRE(host.clearControllerAssignments(*observerAId));
+    REQUIRE(host.clearControllerAssignments(*observerBId));
+
+    for(int step = 0; step < 400; ++step) {
+        pumpAll(0);
+    }
+
+    auto verifyAssignmentView = [&](const Netplay::NetplayCoordinator& coordinator) {
+        const auto& room = coordinator.session().roomState();
+        const auto findById = [&](Netplay::ParticipantId id) -> const Netplay::ParticipantInfo* {
+            for(const auto& participant : room.participants) {
+                if(participant.id == id) return &participant;
+            }
+            return nullptr;
+        };
+
+        const Netplay::ParticipantInfo* hostParticipant = findById(*hostId);
+        const Netplay::ParticipantInfo* inputParticipant = findById(*inputClientId);
+        const Netplay::ParticipantInfo* obsAParticipant = findById(*observerAId);
+        const Netplay::ParticipantInfo* obsBParticipant = findById(*observerBId);
+        REQUIRE(hostParticipant != nullptr);
+        REQUIRE(inputParticipant != nullptr);
+        REQUIRE(obsAParticipant != nullptr);
+        REQUIRE(obsBParticipant != nullptr);
+        REQUIRE(Netplay::participantIsObserver(*hostParticipant));
+        REQUIRE_FALSE(Netplay::participantIsObserver(*inputParticipant));
+        REQUIRE(Netplay::participantHasAssignment(*inputParticipant, Netplay::kPort1PlayerSlot));
+        REQUIRE(Netplay::participantIsObserver(*obsAParticipant));
+        REQUIRE(Netplay::participantIsObserver(*obsBParticipant));
+    };
+
+    verifyAssignmentView(host);
+    verifyAssignmentView(inputClient);
+    verifyAssignmentView(observerA);
+    verifyAssignmentView(observerB);
+
+    GeraNESEmu hostEmu(DummyAudioOutput::instance());
+    GeraNESEmu inputClientEmu(DummyAudioOutput::instance());
+    GeraNESEmu observerAEmu(DummyAudioOutput::instance());
+    GeraNESEmu observerBEmu(DummyAudioOutput::instance());
+
+    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(inputClientEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(observerAEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(observerBEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostEmu.valid());
+    REQUIRE(inputClientEmu.valid());
+    REQUIRE(observerAEmu.valid());
+    REQUIRE(observerBEmu.valid());
+
+    auto stepRandomEmuFrame = [](GeraNESEmu& emu, std::mt19937& rng) {
+        InputFrame frame = emu.createInputFrame(emu.frameCount());
+        frame.p1A = (rng() & 1u) != 0u;
+        frame.p1B = (rng() & 1u) != 0u;
+        frame.p1Start = (rng() % 23u) == 0u;
+        frame.p1Select = (rng() % 37u) == 0u;
+        frame.p1Up = (rng() % 7u) == 0u;
+        frame.p1Down = (rng() % 11u) == 0u;
+        frame.p1Left = (rng() % 13u) == 0u;
+        frame.p1Right = (rng() % 17u) == 0u;
+        const auto enqueueResult = emu.queueInputFrame(frame);
+        REQUIRE((enqueueResult == InputBuffer::EnqueueResult::Inserted ||
+                 enqueueResult == InputBuffer::EnqueueResult::UpdatedPending));
+        const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+        REQUIRE(emu.updateUntilFrame(frameDt));
+    };
+
+    std::mt19937 rng(0xC0FFEEu);
+    uint32_t netplayInputFrame = 1u;
+
+    for(int cycle = 0; cycle < 20; ++cycle) {
+        INFO("Cycle: " << cycle);
+        const uint32_t burstFrames = 8u + (rng() % 12u);
+        for(uint32_t i = 0; i < burstFrames; ++i) {
+            const uint64_t randomMask = static_cast<uint64_t>(rng() & 0x0FFFu);
+            inputClient.recordLocalInputFrame(netplayInputFrame, Netplay::kPort1PlayerSlot, randomMask, 0u);
+            inputClient.setLocalSimulationFrame(netplayInputFrame);
+
+            for(int pump = 0; pump < 6; ++pump) {
+                pumpAll(0);
+            }
+            ++netplayInputFrame;
+        }
+
+        const uint32_t hostAdvanceFrames = 3u + (rng() % 8u);
+        for(uint32_t i = 0; i < hostAdvanceFrames; ++i) {
+            stepRandomEmuFrame(hostEmu, rng);
+        }
+
+        const Netplay::FrameNumber authoritativeFrame = hostEmu.frameCount();
+        const std::vector<uint8_t> statePayload = hostEmu.saveNetplayStateToMemory();
+        REQUIRE_FALSE(statePayload.empty());
+
+        const uint32_t payloadCrc32 =
+            Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        const uint32_t stateCrc32 = hostEmu.canonicalNetplayStateCrc32();
+
+        REQUIRE(host.beginResync(
+            authoritativeFrame,
+            statePayload,
+            payloadCrc32,
+            stateCrc32,
+            Netplay::ResyncReason::HostLoadedState
+        ));
+
+        bool resyncSettled = false;
+        for(int step = 0; step < 2400 && !resyncSettled; ++step) {
+            pumpAll(0);
+
+            auto processClientResync = [&](Netplay::NetplayCoordinator& coordinator, GeraNESEmu& emu) {
+                const std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending =
+                    coordinator.consumePendingResyncApply();
+                if(!pending.has_value()) return;
+
+                const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
+                const uint32_t loadedFrame = emu.frameCount();
+                const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0u;
+                const bool accepted =
+                    loaded &&
+                    loadedFrame == pending->targetFrame &&
+                    loadedCrc32 == stateCrc32;
+                REQUIRE(coordinator.acknowledgeResync(
+                    pending->resyncId,
+                    pending->targetFrame,
+                    loadedCrc32,
+                    accepted
+                ));
+                REQUIRE(accepted);
+            };
+
+            processClientResync(inputClient, inputClientEmu);
+            processClientResync(observerA, observerAEmu);
+            processClientResync(observerB, observerBEmu);
+
+            const auto& room = host.session().roomState();
+            resyncSettled =
+                room.activeResyncId == 0u &&
+                room.pendingResyncAckCount == 0u &&
+                room.state == Netplay::SessionState::Running;
+
+            if(!resyncSettled) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+        }
+
+        REQUIRE(resyncSettled);
+        REQUIRE(inputClientEmu.frameCount() == authoritativeFrame);
+        REQUIRE(observerAEmu.frameCount() == authoritativeFrame);
+        REQUIRE(observerBEmu.frameCount() == authoritativeFrame);
+        REQUIRE(inputClientEmu.canonicalNetplayStateCrc32() == stateCrc32);
+        REQUIRE(observerAEmu.canonicalNetplayStateCrc32() == stateCrc32);
+        REQUIRE(observerBEmu.canonicalNetplayStateCrc32() == stateCrc32);
+
+        INFO("Host lastError: " << host.lastError());
+        INFO("InputClient lastError: " << inputClient.lastError());
+        INFO("ObserverA lastError: " << observerA.lastError());
+        INFO("ObserverB lastError: " << observerB.lastError());
+        REQUIRE(host.lastError().empty());
+        REQUIRE(inputClient.lastError().empty());
+        REQUIRE(observerA.lastError().empty());
+        REQUIRE(observerB.lastError().empty());
+        REQUIRE(host.isConnected());
+        REQUIRE(inputClient.isConnected());
+        REQUIRE(observerA.isConnected());
+        REQUIRE(observerB.isConnected());
+    }
+
+    host.disconnect();
+    inputClient.disconnect();
+    observerA.disconnect();
+    observerB.disconnect();
+}
+
+TEST_CASE("Netplay observer ignores stale pending resync apply when newer host load-state arrives",
+          "[netplay][enet][observer][load-state][stale-pending]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator observer;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(observer.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(observer.join("127.0.0.1", port, "Observer"));
+
+    auto pump = [&](uint32_t timeoutMs = 0u) {
+        host.update(timeoutMs);
+        observer.update(timeoutMs);
+    };
+
+    bool connected = false;
+    for(int step = 0; step < 1200 && !connected; ++step) {
+        pump(0);
+        connected =
+            host.isConnected() &&
+            observer.isConnected() &&
+            host.session().roomState().participants.size() == 2u &&
+            observer.session().roomState().participants.size() == 2u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    const auto findParticipantIdByName = [](const Netplay::RoomState& room, const std::string& name) -> std::optional<Netplay::ParticipantId> {
+        for(const auto& participant : room.participants) {
+            if(participant.displayName == name) {
+                return participant.id;
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto observerId = findParticipantIdByName(host.session().roomState(), "Observer");
+    REQUIRE(observerId.has_value());
+    REQUIRE(host.clearControllerAssignments(*observerId));
+    for(int step = 0; step < 120; ++step) {
+        pump(0);
+    }
+
+    GeraNESEmu hostEmu(DummyAudioOutput::instance());
+    GeraNESEmu observerEmu(DummyAudioOutput::instance());
+    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(observerEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostEmu.valid());
+    REQUIRE(observerEmu.valid());
+
+    for(uint32_t frame = 0; frame < 12u; ++frame) {
+        queueFrameAndAdvance(hostEmu, frame, false);
+    }
+    const Netplay::FrameNumber firstFrame = hostEmu.frameCount();
+    const std::vector<uint8_t> firstPayload = hostEmu.saveNetplayStateToMemory();
+    REQUIRE_FALSE(firstPayload.empty());
+    const uint32_t firstPayloadCrc32 =
+        Crc32::calc(reinterpret_cast<const char*>(firstPayload.data()), firstPayload.size());
+    const uint32_t firstStateCrc32 = hostEmu.canonicalNetplayStateCrc32();
+
+    for(uint32_t frame = firstFrame; frame < firstFrame + 9u; ++frame) {
+        queueFrameAndAdvance(hostEmu, frame, false);
+    }
+    const Netplay::FrameNumber secondFrame = hostEmu.frameCount();
+    const std::vector<uint8_t> secondPayload = hostEmu.saveNetplayStateToMemory();
+    REQUIRE_FALSE(secondPayload.empty());
+    const uint32_t secondPayloadCrc32 =
+        Crc32::calc(reinterpret_cast<const char*>(secondPayload.data()), secondPayload.size());
+    const uint32_t secondStateCrc32 = hostEmu.canonicalNetplayStateCrc32();
+
+    REQUIRE(host.beginResync(
+        firstFrame,
+        firstPayload,
+        firstPayloadCrc32,
+        firstStateCrc32,
+        Netplay::ResyncReason::HostLoadedState
+    ));
+    REQUIRE(host.beginResync(
+        secondFrame,
+        secondPayload,
+        secondPayloadCrc32,
+        secondStateCrc32,
+        Netplay::ResyncReason::HostLoadedState
+    ));
+
+    // Allow both resync streams to reach the observer before consuming.
+    for(int step = 0; step < 240; ++step) {
+        pump(0);
+    }
+
+    const std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending =
+        observer.consumePendingResyncApply();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->targetFrame == secondFrame);
+    REQUIRE(pending->expectedPayloadCrc32 == secondPayloadCrc32);
+
+    const bool loaded = observerEmu.loadStateFromMemoryOnCleanBoot(pending->payload);
+    const uint32_t loadedFrame = observerEmu.frameCount();
+    const uint32_t loadedCrc32 = loaded ? observerEmu.canonicalNetplayStateCrc32() : 0u;
+    const bool accepted =
+        loaded &&
+        loadedFrame == secondFrame &&
+        loadedCrc32 == secondStateCrc32;
+    REQUIRE(accepted);
+    REQUIRE(observer.acknowledgeResync(
+        pending->resyncId,
+        pending->targetFrame,
+        loadedCrc32,
+        accepted
+    ));
+
+    bool settled = false;
+    for(int step = 0; step < 1200 && !settled; ++step) {
+        pump(0);
+        const auto& room = host.session().roomState();
+        settled =
+            room.activeResyncId == 0u &&
+            room.pendingResyncAckCount == 0u &&
+            room.state == Netplay::SessionState::Running;
+        if(!settled) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+    REQUIRE(settled);
+    REQUIRE(observer.lastError().empty());
+    REQUIRE(host.lastError().empty());
+
+    host.disconnect();
+    observer.disconnect();
 }
 
 TEST_CASE("WebRTC coordinator supports host plus two participants", "[netplay][webrtc][coordinator][multi-peer]")

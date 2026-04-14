@@ -96,6 +96,7 @@ private:
             ? input.frameOverride
             : buildInputFrameForEmu(emu, targetFrame, input.state, input.speculative);
         frame.frame = targetFrame;
+        frame.timelineEpoch = emu.inputTimelineEpoch();
         frame.speculative = input.speculative;
         emu.queueInputFrame(frame);
         emu.setRewind(input.state.rewind);
