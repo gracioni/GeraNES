@@ -5,7 +5,5 @@
   "pingIntervalSeconds": null,
   "pingTimeoutSeconds": null,
   "iceServers": [
-    "stun:stun.l.google.com:19302",
-    "turn:username:password@turn.example.com:3478?transport=udp"
   ]
 }
