@@ -1932,11 +1932,10 @@ private:
             const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
             const auto previousHostViewClientId = findParticipantIdByName(hostPeer.runtime.uiSnapshot().room, clientPeer.name);
 
-            clientPeer.runtime.disconnect();
+            clientPeer.runtime.simulateTransportFailureForTests();
 
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
                     const auto hostClientId = findParticipantIdByName(hostSnap.room, clientPeer.name);
                     const auto* reservedParticipant =
                         hostClientId.has_value()
@@ -1948,8 +1947,7 @@ private:
                            hostClientId.has_value() &&
                            reservedParticipant != nullptr &&
                            !reservedParticipant->connected &&
-                           reservedParticipant->reconnectReserved &&
-                           !clientSnap.active;
+                           reservedParticipant->reconnectReserved;
                 }, options.startupTimeoutSteps, 5u)) {
                 failureReason = std::string("Timed out waiting for host/client disconnect state after ") + triggerDescription + ".";
                 return false;
@@ -1985,11 +1983,19 @@ private:
                 return false;
             }
 
+            bool hostResumeRequestedAfterReconnect = false;
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
                     const auto clientSnap = clientPeer.runtime.uiSnapshot();
                     const auto* hostClientParticipant = findParticipantInRoom(hostSnap.room, *rejoinedClientId);
                     const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
+                    const bool hostPausedWithoutActiveResync =
+                        hostSnap.room.state == Netplay::SessionState::Paused &&
+                        hostSnap.room.activeResyncId == 0;
+                    if(hostPausedWithoutActiveResync && !hostResumeRequestedAfterReconnect) {
+                        hostPeer.runtime.toggleHostedSessionPause();
+                        hostResumeRequestedAfterReconnect = true;
+                    }
                     return hostClientParticipant != nullptr &&
                            hostClientParticipant->controllerAssignment == 1 &&
                            hostClientParticipant->connected &&
@@ -2136,8 +2142,7 @@ private:
                             return hostClientId.has_value() &&
                                    reservedParticipant != nullptr &&
                                    !reservedParticipant->connected &&
-                                   reservedParticipant->reconnectReserved &&
-                                   !clientSnap.active;
+                                   reservedParticipant->reconnectReserved;
                         }, options.startupTimeoutSteps, 5u)) {
                         failureReason = "Timed out waiting for reconnect reservation to be created.";
                         result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);

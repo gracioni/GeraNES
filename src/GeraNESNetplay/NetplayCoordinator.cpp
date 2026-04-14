@@ -579,7 +579,6 @@ void NetplayCoordinator::clearTargetedResyncTracking()
     m_activeTargetedResyncExpectedStateCrc32 = 0;
     m_activeResyncResumeAtHostTimeUs = 0;
     m_activeResyncAckDeadline = {};
-    m_pendingRealtimeResume = {};
 }
 
 void NetplayCoordinator::finalizeActiveResyncIfReady()
@@ -3479,6 +3478,11 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
                   participant.id
               ) == m_pendingSequenceResetParticipants.end()) {
         m_pendingSequenceResetParticipants.push_back(participant.id);
+        // A reclaimed identity may resume from a rebased local input sequence.
+        // Reset the host-side sequence expectation so resumed frames are not
+        // dropped as stale before the reconnect resync window closes.
+        participant.lastReceivedInputSequence = 0;
+        participant.sequenceRebasePending = true;
     }
 
     if(m_session.roomState().state == SessionState::Starting ||
@@ -4876,7 +4880,9 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_activeResyncTargetParticipantId = targetedResync ? targetParticipantId : kInvalidParticipantId;
     m_activeResyncResumeState = resumeState;
     m_activeResyncResumeAtHostTimeUs = resumeAtHostTimeUs;
-    m_pendingRealtimeResume = {};
+    if(!targetedResync) {
+        m_pendingRealtimeResume = {};
+    }
     if(!targetedResync) {
         m_session.roomState().state = SessionState::Resyncing;
     } else {
