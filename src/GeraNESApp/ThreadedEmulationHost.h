@@ -390,6 +390,7 @@ private:
                 {
                     std::scoped_lock emuLock(m_emuMutex);
                     dispatch_queued_calls();
+                    runPreAdvanceHookLocked();
                     m_workerWakeRequested.store(false, std::memory_order_release);
                     refreshSnapshotLocked();
                 }
