@@ -2462,6 +2462,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
     removeParticipant(data.participantId);
     if(hostLeft) {
         pushLog("Owner left the room");
+        pushToast("Owner left the room");
         m_serverPeer = NetTransport::kInvalidPeerHandle;
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
@@ -2469,6 +2470,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         clearReconnectAttemptState();
     } else if(localParticipantKicked) {
         pushLog("Removed from room by host");
+        pushToast("Removed from room by host");
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
         m_lastError = "Removed from room by host";
@@ -2946,8 +2948,10 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     } else {
         if(data.state == SessionState::Paused && previousState != SessionState::Paused) {
             pushLog("Owner paused");
+            pushToast("Owner paused");
         } else if(data.state == SessionState::Running && previousState == SessionState::Paused) {
             pushLog("Owner resumed");
+            pushToast("Owner resumed");
         }
         pushLog(data.state == SessionState::Running ? "Session started" : "Session state updated");
         if(data.state != SessionState::Resyncing && data.state != SessionState::Paused) {
@@ -3840,11 +3844,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             pushLog(m_lastError);
                         }
                     } else {
-                        pushLog("Peer connected");
+                        pushLog("Peer joined");
                     }
                 }
                 else {
-                    pushLog("Peer connected");
+                    pushLog("Peer joined");
                 }
                 break;
 
@@ -3852,6 +3856,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 clearPendingKickDisconnect(event.peer);
                 if(event.peer == m_serverPeer) {
                     pushLog("Disconnected from host");
+                    pushToast("Disconnected from host");
                     m_serverPeer = NetTransport::kInvalidPeerHandle;
                     m_connected = false;
                     m_session.roomState().state = SessionState::Ended;
@@ -3896,7 +3901,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             participant != nullptr &&
                             participant->reconnectToken != 0 &&
                             hasAssignedInput;
-                        pushLog("Peer disconnected: participant " + std::to_string(static_cast<int>(participantId)));
+                        pushLog("Peer left: participant " + std::to_string(static_cast<int>(participantId)));
+                        const std::string participantLeftToast =
+                            participant != nullptr
+                                ? (participantLabel(*participant) + " left")
+                                : ("Participant " + std::to_string(static_cast<int>(participantId)) + " left");
                         if(m_pendingHostLateJoinResyncParticipant.has_value() &&
                            *m_pendingHostLateJoinResyncParticipant == participantId) {
                             m_pendingHostLateJoinResyncParticipant.reset();
@@ -3928,7 +3937,8 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 finalizeActiveResyncIfReady();
                             }
                             m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), event.peer);
-                            pushLog(participantLabel(*participant) + " disconnected; reconnect reserved");
+                            pushLog(participantLabel(*participant) + " left (reserved)");
+                            pushToast(participantLabel(*participant) + " left (reserved)");
                             if(hadAssignedInput) {
                                 // Keep the host authoritative timeline moving while this
                                 // participant is temporarily disconnected by replaying
@@ -3938,13 +3948,16 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         } else {
                             removeParticipant(participantId);
                             m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), event.peer);
+                            pushToast(participantLeftToast);
                         }
                         refreshHostRoomState();
                     } else {
-                        pushLog("Peer disconnected");
+                        pushLog("Peer left");
+                        pushToast("Peer left");
                     }
                 } else {
-                    pushLog("Peer disconnected");
+                    pushLog("Peer left");
+                    pushToast("Peer left");
                 }
                 break;
 
@@ -5388,6 +5401,7 @@ bool NetplayCoordinator::pauseSession()
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner paused session");
+    pushToast("Owner paused");
     return true;
 }
 
@@ -5413,6 +5427,7 @@ bool NetplayCoordinator::resumeSession()
     writer.writePod(data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner resumed session");
+    pushToast("Owner resumed");
     return true;
 }
 
