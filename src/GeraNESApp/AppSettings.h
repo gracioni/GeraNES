@@ -414,6 +414,7 @@ public:
         bool useEmbeddedSignalingServer = false;
 #endif
         std::string signalingUrl = "ws://127.0.0.1:27990";
+        int embeddedSignalingPort = 27990;
         std::string signalingRoomId = "default";
         std::string signalingPassword;
         bool autoGameplayTuning = true;
@@ -432,6 +433,7 @@ public:
                 {"transportBackend", value.transportBackend},
                 {"useEmbeddedSignalingServer", value.useEmbeddedSignalingServer},
                 {"signalingUrl", value.signalingUrl},
+                {"embeddedSignalingPort", value.embeddedSignalingPort},
                 {"signalingRoomId", value.signalingRoomId},
                 {"signalingPassword", value.signalingPassword},
                 {"autoGameplayTuning", value.autoGameplayTuning},
@@ -452,6 +454,11 @@ public:
             value.transportBackend = j.value("transportBackend", defaults.transportBackend);
             value.useEmbeddedSignalingServer = j.value("useEmbeddedSignalingServer", defaults.useEmbeddedSignalingServer);
             value.signalingUrl = j.value("signalingUrl", defaults.signalingUrl);
+            value.embeddedSignalingPort = std::clamp(
+                j.value("embeddedSignalingPort", defaults.embeddedSignalingPort),
+                1,
+                65535
+            );
             value.signalingRoomId = j.value("signalingRoomId", defaults.signalingRoomId);
             value.signalingPassword = j.value("signalingPassword", defaults.signalingPassword);
             value.autoGameplayTuning = j.value("autoGameplayTuning", defaults.autoGameplayTuning);

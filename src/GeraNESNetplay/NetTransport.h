@@ -28,6 +28,7 @@ struct NetTransportOptions
 #else
     bool useEmbeddedWebRtcSignalingServer = false;
 #endif
+    uint16_t embeddedWebRtcSignalingPort = 27990;
     std::optional<WebRtcSignalingConfig> webRtcSignaling;
 };
 

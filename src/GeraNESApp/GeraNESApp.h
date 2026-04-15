@@ -1831,6 +1831,8 @@ private:
         cfg.netplay.useEmbeddedSignalingServer = false;
 #endif
         transportOptions.useEmbeddedWebRtcSignalingServer = cfg.netplay.useEmbeddedSignalingServer;
+        transportOptions.embeddedWebRtcSignalingPort =
+            static_cast<uint16_t>(std::clamp(cfg.netplay.embeddedSignalingPort, 1, 65535));
         transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
             cfg.netplay.signalingUrl,
             cfg.netplay.signalingRoomId,

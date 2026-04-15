@@ -1,12 +1,15 @@
 #include "GeraNESNetplay/WebRtcSignalingServer.h"
 
-#include <map>
+#include <algorithm>
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "GeraNESNetplay/WebRtcSignaling.h"
@@ -40,6 +43,7 @@ class DesktopWebRtcSignalingServer final : public IWebRtcSignalingServer
 {
 private:
     using Connection = std::shared_ptr<rtc::WebSocket>;
+
     struct CallbackContext
     {
         std::atomic<bool> alive{true};
@@ -55,15 +59,19 @@ private:
     struct RoomState
     {
         std::string password;
-        size_t maxParticipants = 2;
+        std::size_t maxParticipants = 2;
         Connection owner;
         std::string ownerPeerId;
         std::set<Connection, std::owner_less<Connection>> members;
+    };
 
-        bool passwordProtected() const
-        {
-            return !password.empty();
-        }
+    struct DetachResult
+    {
+        std::string roomId;
+        std::optional<WebRtcSignalingMessage> peerLeft;
+        bool ownerDisconnected = false;
+        std::string ownerPeerId;
+        std::vector<Connection> orphanRecipients;
     };
 
     std::unique_ptr<rtc::WebSocketServer> m_server;
@@ -83,6 +91,21 @@ private:
         return context->owner;
     }
 
+    static std::string trimNonEmpty(const std::string& text)
+    {
+        const std::size_t begin = text.find_first_not_of(" \t\r\n");
+        if(begin == std::string::npos) {
+            return {};
+        }
+        const std::size_t end = text.find_last_not_of(" \t\r\n");
+        return text.substr(begin, end - begin + 1);
+    }
+
+    static std::size_t sanitizeMaxParticipants(int requested)
+    {
+        return requested > 2 ? static_cast<std::size_t>(requested) : static_cast<std::size_t>(2);
+    }
+
     void sendMessage(const Connection& connection, const WebRtcSignalingMessage& message)
     {
         if(!connection) return;
@@ -97,84 +120,359 @@ private:
         sendMessage(connection, message);
     }
 
-    std::optional<Connection> findPeerInRoom(const std::string& roomId,
-                                             const std::string& peerId) const
+    std::optional<Connection> findPeerInRoomLocked(const std::string& roomId, const std::string& peerId) const
     {
         const auto roomIt = m_rooms.find(roomId);
-        if(roomIt == m_rooms.end()) return std::nullopt;
-
-        for(const auto& connection : roomIt->second.members) {
-            const auto clientIt = m_clients.find(connection);
-            if(clientIt != m_clients.end() && clientIt->second.peerId == peerId) {
-                return connection;
-            }
+        if(roomIt == m_rooms.end()) {
+            return std::nullopt;
         }
 
+        for(const auto& member : roomIt->second.members) {
+            const auto clientIt = m_clients.find(member);
+            if(clientIt != m_clients.end() && clientIt->second.peerId == peerId) {
+                return member;
+            }
+        }
         return std::nullopt;
     }
 
-    void broadcastToRoom(const std::string& roomId,
-                         const WebRtcSignalingMessage& message,
-                         const Connection& except = {})
+    void sendMessages(const std::vector<std::pair<Connection, WebRtcSignalingMessage>>& pending)
     {
-        std::vector<Connection> recipients;
-        {
-            std::scoped_lock lock(m_mutex);
-            const auto roomIt = m_rooms.find(roomId);
-            if(roomIt == m_rooms.end()) return;
-
-            for(const auto& connection : roomIt->second.members) {
-                if(except && connection == except) {
-                    continue;
-                }
-                recipients.push_back(connection);
-            }
-        }
-
-        for(const auto& connection : recipients) {
-            sendMessage(connection, message);
+        for(const auto& entry : pending) {
+            sendMessage(entry.first, entry.second);
         }
     }
 
-    void removeClientLocked(const Connection& connection,
-                            std::optional<WebRtcSignalingMessage>& peerLeft)
+    void closeSpecificPeers(const std::vector<Connection>& recipients)
     {
+        for(const auto& recipient : recipients) {
+            if(!recipient) {
+                continue;
+            }
+            try {
+                recipient->resetCallbacks();
+                recipient->forceClose();
+            } catch(...) {
+            }
+        }
+    }
+
+    void detachClientFromCurrentRoomLocked(const Connection& connection, ClientState& client)
+    {
+        if(client.roomId.empty()) {
+            return;
+        }
+
+        auto roomIt = m_rooms.find(client.roomId);
+        if(roomIt == m_rooms.end()) {
+            client.roomId.clear();
+            return;
+        }
+
+        roomIt->second.members.erase(connection);
+        if(roomIt->second.owner == connection || roomIt->second.members.empty()) {
+            m_rooms.erase(roomIt);
+        }
+        client.roomId.clear();
+    }
+
+    DetachResult detachClientLocked(const Connection& connection, bool removeClient)
+    {
+        DetachResult result;
+
         const auto clientIt = m_clients.find(connection);
-        if(clientIt == m_clients.end()) return;
+        if(clientIt == m_clients.end()) {
+            return result;
+        }
 
-        const std::string roomId = clientIt->second.roomId;
-        const std::string peerId = clientIt->second.peerId;
-        m_clients.erase(clientIt);
+        ClientState& client = clientIt->second;
+        result.roomId = client.roomId;
 
-        if(!roomId.empty()) {
-            auto roomIt = m_rooms.find(roomId);
+        if(!client.roomId.empty()) {
+            auto roomIt = m_rooms.find(client.roomId);
             if(roomIt != m_rooms.end()) {
-                roomIt->second.members.erase(connection);
-                if(roomIt->second.members.empty()) {
+                RoomState& room = roomIt->second;
+                room.members.erase(connection);
+                if(room.owner == connection) {
+                    result.ownerDisconnected = true;
+                    result.ownerPeerId = !room.ownerPeerId.empty() ? room.ownerPeerId : client.peerId;
+                    for(const auto& member : room.members) {
+                        result.orphanRecipients.push_back(member);
+                    }
+                    m_rooms.erase(roomIt);
+                } else if(room.members.empty()) {
                     m_rooms.erase(roomIt);
                 }
             }
 
-            if(!peerId.empty()) {
-                peerLeft = WebRtcSignalingMessage{};
-                peerLeft->type = WebRtcSignalType::PeerLeft;
-                peerLeft->roomId = roomId;
-                peerLeft->peerId = peerId;
+            if(!client.peerId.empty()) {
+                WebRtcSignalingMessage peerLeft;
+                peerLeft.type = WebRtcSignalType::PeerLeft;
+                peerLeft.roomId = client.roomId;
+                peerLeft.peerId = client.peerId;
+                result.peerLeft = std::move(peerLeft);
             }
+
+            client.roomId.clear();
+        }
+
+        if(removeClient) {
+            m_clients.erase(clientIt);
+        }
+
+        return result;
+    }
+
+    void handleDetachedClient(const DetachResult& detach, const Connection& departed)
+    {
+        if(detach.ownerDisconnected) {
+            closeSpecificPeers(detach.orphanRecipients);
+            return;
+        }
+
+        if(detach.peerLeft.has_value()) {
+            std::vector<std::pair<Connection, WebRtcSignalingMessage>> pending;
+            {
+                std::scoped_lock lock(m_mutex);
+                const auto roomIt = m_rooms.find(detach.roomId);
+                if(roomIt != m_rooms.end()) {
+                    for(const auto& member : roomIt->second.members) {
+                        if(member == departed) {
+                            continue;
+                        }
+                        pending.emplace_back(member, *detach.peerLeft);
+                    }
+                }
+            }
+            sendMessages(pending);
         }
     }
 
     void handleDisconnect(const Connection& connection)
     {
-        std::optional<WebRtcSignalingMessage> peerLeft;
+        DetachResult detach;
         {
             std::scoped_lock lock(m_mutex);
-            removeClientLocked(connection, peerLeft);
+            detach = detachClientLocked(connection, true);
+        }
+        handleDetachedClient(detach, connection);
+    }
+
+    void handleHello(const Connection& connection,
+                     const WebRtcSignalingMessage& message,
+                     std::vector<std::pair<Connection, WebRtcSignalingMessage>>& pending)
+    {
+        const std::string peerId = trimNonEmpty(message.peerId);
+        if(peerId.empty()) {
+            sendError(connection, "Missing peer id");
+            return;
         }
 
-        if(peerLeft.has_value()) {
-            broadcastToRoom(peerLeft->roomId, *peerLeft, connection);
+        {
+            std::scoped_lock lock(m_mutex);
+            ClientState& client = m_clients[connection];
+            client.peerId = peerId;
         }
+
+        WebRtcSignalingMessage response;
+        response.type = WebRtcSignalType::Welcome;
+        response.roomId = message.roomId;
+        response.peerId = peerId;
+        pending.emplace_back(connection, std::move(response));
+    }
+
+    void handleRoomList(const Connection& connection,
+                        std::vector<std::pair<Connection, WebRtcSignalingMessage>>& pending)
+    {
+        WebRtcSignalingMessage response;
+        response.type = WebRtcSignalType::RoomList;
+
+        {
+            std::scoped_lock lock(m_mutex);
+            for(const auto& [roomId, room] : m_rooms) {
+                if(room.members.empty()) {
+                    continue;
+                }
+                WebRtcSignalingRoomInfo info;
+                info.roomId = roomId;
+                info.passwordProtected = !room.password.empty();
+                response.rooms.push_back(std::move(info));
+            }
+        }
+
+        pending.emplace_back(connection, std::move(response));
+    }
+
+    void handleCreateRoom(const Connection& connection,
+                          const WebRtcSignalingMessage& message,
+                          std::vector<std::pair<Connection, WebRtcSignalingMessage>>& pending)
+    {
+        const std::string roomId = trimNonEmpty(message.roomId);
+        const std::string peerId = trimNonEmpty(message.peerId);
+        if(roomId.empty() || peerId.empty()) {
+            sendError(connection, "Missing room id or peer id");
+            return;
+        }
+
+        {
+            std::scoped_lock lock(m_mutex);
+            const auto existingRoomIt = m_rooms.find(roomId);
+            if(existingRoomIt != m_rooms.end() && !existingRoomIt->second.members.empty()) {
+                sendError(connection, "Room already exists");
+                return;
+            }
+
+            ClientState& client = m_clients[connection];
+            if(!client.roomId.empty() && client.roomId != roomId) {
+                detachClientFromCurrentRoomLocked(connection, client);
+            }
+            client.peerId = peerId;
+            client.roomId = roomId;
+
+            RoomState& room = m_rooms[roomId];
+            room.password = message.password;
+            room.maxParticipants = sanitizeMaxParticipants(message.maxParticipants);
+            room.owner = connection;
+            room.ownerPeerId = peerId;
+            room.members.clear();
+            room.members.insert(connection);
+        }
+
+        WebRtcSignalingMessage response;
+        response.type = WebRtcSignalType::RoomJoined;
+        response.roomId = roomId;
+        response.peerId = peerId;
+        pending.emplace_back(connection, std::move(response));
+    }
+
+    void handleJoinRoom(const Connection& connection,
+                        const WebRtcSignalingMessage& message,
+                        std::vector<std::pair<Connection, WebRtcSignalingMessage>>& pending)
+    {
+        const std::string roomId = trimNonEmpty(message.roomId);
+        const std::string peerId = trimNonEmpty(message.peerId);
+        if(roomId.empty() || peerId.empty()) {
+            sendError(connection, "Missing room id or peer id");
+            return;
+        }
+
+        std::vector<std::string> existingPeerIds;
+        std::vector<Connection> recipients;
+
+        {
+            std::scoped_lock lock(m_mutex);
+            auto roomIt = m_rooms.find(roomId);
+            if(roomIt == m_rooms.end() || roomIt->second.members.empty()) {
+                sendError(connection, "Room does not exist");
+                return;
+            }
+
+            RoomState& room = roomIt->second;
+            if(!room.owner || room.members.find(room.owner) == room.members.end()) {
+                m_rooms.erase(roomIt);
+                sendError(connection, "Room does not exist");
+                return;
+            }
+            if(room.password != message.password) {
+                sendError(connection, "Invalid room password");
+                return;
+            }
+            if(room.members.size() >= room.maxParticipants) {
+                sendError(connection, "Room is full");
+                return;
+            }
+
+            ClientState& client = m_clients[connection];
+            if(!client.roomId.empty() && client.roomId != roomId) {
+                detachClientFromCurrentRoomLocked(connection, client);
+            }
+            client.peerId = peerId;
+            client.roomId = roomId;
+
+            for(const auto& member : room.members) {
+                if(member == connection) {
+                    continue;
+                }
+                recipients.push_back(member);
+                const auto clientIt = m_clients.find(member);
+                if(clientIt != m_clients.end() && !clientIt->second.peerId.empty()) {
+                    existingPeerIds.push_back(clientIt->second.peerId);
+                }
+            }
+
+            room.members.insert(connection);
+        }
+
+        WebRtcSignalingMessage joined;
+        joined.type = WebRtcSignalType::RoomJoined;
+        joined.roomId = roomId;
+        joined.peerId = peerId;
+        pending.emplace_back(connection, joined);
+
+        for(const std::string& existingPeerId : existingPeerIds) {
+            WebRtcSignalingMessage peerJoined;
+            peerJoined.type = WebRtcSignalType::PeerJoined;
+            peerJoined.roomId = roomId;
+            peerJoined.peerId = existingPeerId;
+            pending.emplace_back(connection, std::move(peerJoined));
+        }
+
+        for(const auto& recipient : recipients) {
+            WebRtcSignalingMessage peerJoined;
+            peerJoined.type = WebRtcSignalType::PeerJoined;
+            peerJoined.roomId = roomId;
+            peerJoined.peerId = peerId;
+            pending.emplace_back(recipient, std::move(peerJoined));
+        }
+    }
+
+    void handleLeaveRoom(const Connection& connection)
+    {
+        DetachResult detach;
+        {
+            std::scoped_lock lock(m_mutex);
+            detach = detachClientLocked(connection, false);
+        }
+        handleDetachedClient(detach, connection);
+    }
+
+    void handleDirectSignal(const Connection& connection,
+                            const WebRtcSignalingMessage& message,
+                            std::vector<std::pair<Connection, WebRtcSignalingMessage>>& pending)
+    {
+        const std::string targetPeerId = trimNonEmpty(message.targetPeerId);
+        if(targetPeerId.empty()) {
+            sendError(connection, "Missing target peer id");
+            return;
+        }
+
+        std::optional<Connection> target;
+        std::string roomId;
+        std::string senderPeerId;
+
+        {
+            std::scoped_lock lock(m_mutex);
+            const auto clientIt = m_clients.find(connection);
+            if(clientIt == m_clients.end() || clientIt->second.roomId.empty()) {
+                sendError(connection, "Join a room before sending signaling data");
+                return;
+            }
+
+            roomId = clientIt->second.roomId;
+            senderPeerId = clientIt->second.peerId;
+            target = findPeerInRoomLocked(roomId, targetPeerId);
+        }
+
+        if(!target.has_value()) {
+            sendError(connection, "Target peer is not connected");
+            return;
+        }
+
+        WebRtcSignalingMessage forward = message;
+        forward.roomId = roomId;
+        forward.peerId = senderPeerId;
+        forward.targetPeerId = targetPeerId;
+        pending.emplace_back(*target, std::move(forward));
     }
 
     void handleMessage(const Connection& connection, const std::string& payload)
@@ -185,194 +483,34 @@ private:
             return;
         }
 
-        std::optional<WebRtcSignalingMessage> directMessage;
-        std::optional<WebRtcSignalingMessage> broadcastMessage;
-        std::optional<Connection> directTarget;
-        std::string broadcastRoomId;
-
-        {
-            std::scoped_lock lock(m_mutex);
-            ClientState& client = m_clients[connection];
-            const WebRtcSignalingMessage& message = *parsed;
-
-            switch(message.type) {
-                case WebRtcSignalType::Hello: {
-                    if(message.peerId.empty()) {
-                        sendError(connection, "Missing peer id");
-                        return;
-                    }
-                    client.peerId = message.peerId;
-
-                    directMessage = WebRtcSignalingMessage{};
-                    directMessage->type = WebRtcSignalType::Welcome;
-                    directMessage->roomId = message.roomId;
-                    directMessage->peerId = message.peerId;
-                    directTarget = connection;
-                    break;
-                }
-
-                case WebRtcSignalType::RoomList: {
-                    directMessage = WebRtcSignalingMessage{};
-                    directMessage->type = WebRtcSignalType::RoomList;
-                    directTarget = connection;
-                    for(const auto& [roomId, room] : m_rooms) {
-                        if(room.members.empty()) continue;
-                        WebRtcSignalingRoomInfo info;
-                        info.roomId = roomId;
-                        info.passwordProtected = room.passwordProtected();
-                        directMessage->rooms.push_back(std::move(info));
-                    }
-                    break;
-                }
-
-                case WebRtcSignalType::CreateRoom: {
-                    if(message.roomId.empty() || message.peerId.empty()) {
-                        sendError(connection, "Missing room id or peer id");
-                        return;
-                    }
-
-                    const auto existingRoom = m_rooms.find(message.roomId);
-                    if(existingRoom != m_rooms.end() && !existingRoom->second.members.empty()) {
-                        sendError(connection, "Room already exists");
-                        return;
-                    }
-
-                    client.peerId = message.peerId;
-                    client.roomId = message.roomId;
-                    RoomState& room = m_rooms[message.roomId];
-                    room.password = message.password;
-                    room.maxParticipants = message.maxParticipants > 0
-                        ? static_cast<size_t>(message.maxParticipants)
-                        : static_cast<size_t>(2);
-                    room.owner = connection;
-                    room.ownerPeerId = message.peerId;
-                    room.members.insert(connection);
-
-                    directMessage = WebRtcSignalingMessage{};
-                    directMessage->type = WebRtcSignalType::RoomJoined;
-                    directMessage->roomId = message.roomId;
-                    directMessage->peerId = message.peerId;
-                    directTarget = connection;
-                    break;
-                }
-
-                case WebRtcSignalType::JoinRoom: {
-                    if(message.roomId.empty() || message.peerId.empty()) {
-                        sendError(connection, "Missing room id or peer id");
-                        return;
-                    }
-
-                    auto roomIt = m_rooms.find(message.roomId);
-                    if(roomIt == m_rooms.end() || roomIt->second.members.empty()) {
-                        sendError(connection, "Room does not exist");
-                        return;
-                    }
-                    if(roomIt->second.maxParticipants > 0 &&
-                       roomIt->second.members.size() >= roomIt->second.maxParticipants) {
-                        sendError(connection, "Room is full");
-                        return;
-                    }
-                    if(roomIt->second.password != message.password) {
-                        sendError(connection, "Invalid room password");
-                        return;
-                    }
-
-                    client.peerId = message.peerId;
-                    client.roomId = message.roomId;
-                    roomIt->second.members.insert(connection);
-
-                    directMessage = WebRtcSignalingMessage{};
-                    directMessage->type = WebRtcSignalType::RoomJoined;
-                    directMessage->roomId = message.roomId;
-                    directMessage->peerId = message.peerId;
-                    directTarget = connection;
-
-                    broadcastMessage = WebRtcSignalingMessage{};
-                    broadcastMessage->type = WebRtcSignalType::PeerJoined;
-                    broadcastMessage->roomId = message.roomId;
-                    broadcastMessage->peerId = message.peerId;
-                    broadcastRoomId = message.roomId;
-                    break;
-                }
-
-                case WebRtcSignalType::LeaveRoom: {
-                    if(client.roomId.empty()) {
-                        break;
-                    }
-
-                    const std::string roomId = client.roomId;
-                    const std::string peerId = client.peerId;
-                    auto roomIt = m_rooms.find(roomId);
-                    if(roomIt != m_rooms.end()) {
-                        roomIt->second.members.erase(connection);
-                        if(roomIt->second.owner == connection) {
-                            std::vector<Connection> orphanConnections;
-                            orphanConnections.reserve(roomIt->second.members.size());
-                            for(const auto& member : roomIt->second.members) {
-                                orphanConnections.push_back(member);
-                            }
-                            m_rooms.erase(roomIt);
-                            client.roomId.clear();
-                            for(const auto& orphan : orphanConnections) {
-                                try {
-                                    orphan->resetCallbacks();
-                                    orphan->forceClose();
-                                } catch(...) {
-                                }
-                            }
-                            break;
-                        }
-                        if(roomIt->second.members.empty()) {
-                            m_rooms.erase(roomIt);
-                        }
-                    }
-
-                    client.roomId.clear();
-                    broadcastMessage = WebRtcSignalingMessage{};
-                    broadcastMessage->type = WebRtcSignalType::PeerLeft;
-                    broadcastMessage->roomId = roomId;
-                    broadcastMessage->peerId = peerId;
-                    broadcastRoomId = roomId;
-                    break;
-                }
-
-                case WebRtcSignalType::Offer:
-                case WebRtcSignalType::Answer:
-                case WebRtcSignalType::IceCandidate: {
-                    if(client.roomId.empty()) {
-                        sendError(connection, "Join a room before sending signaling data");
-                        return;
-                    }
-                    if(message.targetPeerId.empty()) {
-                        sendError(connection, "Missing target peer id");
-                        return;
-                    }
-
-                    directTarget = findPeerInRoom(client.roomId, message.targetPeerId);
-                    if(!directTarget.has_value()) {
-                        sendError(connection, "Target peer is not connected");
-                        return;
-                    }
-
-                    directMessage = message;
-                    directMessage->roomId = client.roomId;
-                    directMessage->peerId = client.peerId;
-                    break;
-                }
-
-                default:
-                    sendError(connection, "Unsupported signaling message");
-                    return;
-            }
+        std::vector<std::pair<Connection, WebRtcSignalingMessage>> pending;
+        switch(parsed->type) {
+            case WebRtcSignalType::Hello:
+                handleHello(connection, *parsed, pending);
+                break;
+            case WebRtcSignalType::RoomList:
+                handleRoomList(connection, pending);
+                break;
+            case WebRtcSignalType::CreateRoom:
+                handleCreateRoom(connection, *parsed, pending);
+                break;
+            case WebRtcSignalType::JoinRoom:
+                handleJoinRoom(connection, *parsed, pending);
+                break;
+            case WebRtcSignalType::LeaveRoom:
+                handleLeaveRoom(connection);
+                break;
+            case WebRtcSignalType::Offer:
+            case WebRtcSignalType::Answer:
+            case WebRtcSignalType::IceCandidate:
+                handleDirectSignal(connection, *parsed, pending);
+                break;
+            default:
+                sendError(connection, "Unsupported signaling message");
+                break;
         }
 
-        if(directMessage.has_value() && directTarget.has_value()) {
-            sendMessage(*directTarget, *directMessage);
-        }
-
-        if(broadcastMessage.has_value() && !broadcastRoomId.empty()) {
-            broadcastToRoom(broadcastRoomId, *broadcastMessage, connection);
-        }
+        sendMessages(pending);
     }
 
     void attachClientCallbacks(const Connection& connection)
@@ -382,44 +520,55 @@ private:
             m_clients.try_emplace(connection);
         }
 
-        std::weak_ptr<rtc::WebSocket> weakConnection = connection;
+        const std::weak_ptr<rtc::WebSocket> weakConnection = connection;
         const std::shared_ptr<CallbackContext> callbackContext = m_callbackContext;
+
         connection->onMessage([weakConnection, callbackContext](rtc::message_variant data) {
             auto* self = ownerFromContext(callbackContext);
             if(self == nullptr) {
                 return;
             }
             const auto connection = weakConnection.lock();
-            if(!connection) return;
+            if(!connection) {
+                return;
+            }
             const auto* text = std::get_if<std::string>(&data);
-            if(text == nullptr) return;
+            if(text == nullptr) {
+                return;
+            }
             try {
                 self->handleMessage(connection, *text);
             } catch(...) {
             }
         });
+
         connection->onClosed([weakConnection, callbackContext]() {
             auto* self = ownerFromContext(callbackContext);
             if(self == nullptr) {
                 return;
             }
-            if(const auto connection = weakConnection.lock(); connection) {
-                try {
-                    self->handleDisconnect(connection);
-                } catch(...) {
-                }
+            const auto connection = weakConnection.lock();
+            if(!connection) {
+                return;
+            }
+            try {
+                self->handleDisconnect(connection);
+            } catch(...) {
             }
         });
+
         connection->onError([weakConnection, callbackContext](std::string) {
             auto* self = ownerFromContext(callbackContext);
             if(self == nullptr) {
                 return;
             }
-            if(const auto connection = weakConnection.lock(); connection) {
-                try {
-                    self->handleDisconnect(connection);
-                } catch(...) {
-                }
+            const auto connection = weakConnection.lock();
+            if(!connection) {
+                return;
+            }
+            try {
+                self->handleDisconnect(connection);
+            } catch(...) {
             }
         });
     }
@@ -439,9 +588,8 @@ public:
             config.port = port;
 
             auto server = std::make_unique<rtc::WebSocketServer>(config);
-            m_callbackContext = std::make_shared<CallbackContext>();
-            m_callbackContext->owner = this;
-            const std::shared_ptr<CallbackContext> callbackContext = m_callbackContext;
+            auto callbackContext = std::make_shared<CallbackContext>();
+            callbackContext->owner = this;
             server->onClient([callbackContext](Connection connection) {
                 auto* self = ownerFromContext(callbackContext);
                 if(self == nullptr) {
@@ -456,6 +604,7 @@ public:
                 m_clients.clear();
                 m_rooms.clear();
                 m_server = std::move(server);
+                m_callbackContext = std::move(callbackContext);
                 m_port = m_server->port();
                 m_running = true;
             }
@@ -475,6 +624,7 @@ public:
         std::unique_ptr<rtc::WebSocketServer> server;
         std::vector<Connection> connections;
         std::shared_ptr<CallbackContext> callbackContext;
+
         {
             std::scoped_lock lock(m_mutex);
             for(const auto& [connection, state] : m_clients) {
@@ -494,12 +644,7 @@ public:
             callbackContext->owner = nullptr;
         }
 
-        for(const auto& connection : connections) {
-            if(connection) {
-                connection->resetCallbacks();
-                connection->forceClose();
-            }
-        }
+        closeSpecificPeers(connections);
 
         if(server) {
             server->onClient(nullptr);

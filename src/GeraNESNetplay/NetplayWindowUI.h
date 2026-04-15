@@ -141,9 +141,6 @@ inline void drawNetplayWindow(bool& showWindow,
         ImGui::SetNextItemWidth(220.0f);
         ImGui::InputText(hostMode ? "Room Password##NetplayHostRoomPassword" : "Room Password##NetplayJoinRoomPassword",
                          &cfg.signalingPassword);
-        ImGui::SetNextItemWidth(320.0f);
-        ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
-        const WebRtcSignalingConfig signalingConfig{cfg.signalingUrl, cfg.signalingRoomId, cfg.signalingPassword};
 #ifdef __EMSCRIPTEN__
         cfg.useEmbeddedSignalingServer = false;
         ImGui::TextWrapped("Web builds require an external WebRTC signaling server URL.");
@@ -152,24 +149,42 @@ inline void drawNetplayWindow(bool& showWindow,
             ImGui::Checkbox("Start Embedded Signaling Server##NetplayEmbeddedSignaling", &cfg.useEmbeddedSignalingServer);
         }
 #endif
-        if(cfg.useEmbeddedSignalingServer) {
-            if(hostMode) {
-                ImGui::TextWrapped("The owner will start the embedded signaling server on the port specified in the signaling URL above. Share your address, room ID, and password with participants.");
-                ImGui::TextWrapped("Leave the password empty to create a public room.");
-            } else {
-                ImGui::TextWrapped("Join using the same signaling URL and room id shared by the owner.");
-            }
+
+        if(hostMode && cfg.useEmbeddedSignalingServer) {
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::InputInt("Signaling Port##NetplayEmbeddedSignalingPort", &cfg.embeddedSignalingPort);
+            cfg.embeddedSignalingPort = std::clamp(cfg.embeddedSignalingPort, 1, 65535);
+        } else {
+            ImGui::SetNextItemWidth(320.0f);
+            ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
+        }
+
+        const std::string effectiveSignalingUrl =
+            hostMode && cfg.useEmbeddedSignalingServer
+                ? buildWebRtcSignalingUrl("127.0.0.1", static_cast<uint16_t>(cfg.embeddedSignalingPort))
+                : cfg.signalingUrl;
+        const WebRtcSignalingConfig signalingConfig{
+            effectiveSignalingUrl,
+            cfg.signalingRoomId,
+            cfg.signalingPassword
+        };
+
+        if(hostMode && cfg.useEmbeddedSignalingServer) {
+            ImGui::TextWrapped("The owner will start the embedded signaling server on port %d.", cfg.embeddedSignalingPort);
+            ImGui::TextWrapped("Leave the password empty to create a public room.");
         }
         if(!signalingConfig.valid()) {
             ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Configure signaling URL and room id for WebRTC.");
-        } else if(!cfg.useEmbeddedSignalingServer) {
+        } else if(!(hostMode && cfg.useEmbeddedSignalingServer)) {
             ImGui::TextWrapped("Manual signaling will use %s (room %s).", cfg.signalingUrl.c_str(), cfg.signalingRoomId.c_str());
         }
     };
 
-    const auto applyWebRtcTransportOptions = [&](const std::string& password) {
+    const auto applyWebRtcTransportOptions = [&](bool hostMode, const std::string& password) {
         NetTransportOptions transportOptions;
-        transportOptions.useEmbeddedWebRtcSignalingServer = cfg.useEmbeddedSignalingServer;
+        transportOptions.useEmbeddedWebRtcSignalingServer = hostMode && cfg.useEmbeddedSignalingServer;
+        transportOptions.embeddedWebRtcSignalingPort =
+            static_cast<uint16_t>(std::clamp(cfg.embeddedSignalingPort, 1, 65535));
         transportOptions.webRtcSignaling = WebRtcSignalingConfig{cfg.signalingUrl, cfg.signalingRoomId, password};
         runtime.setTransportOptions(transportOptions);
     };
@@ -178,7 +193,7 @@ inline void drawNetplayWindow(bool& showWindow,
         const bool joinUsingWebRtc =
             static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
         if(joinUsingWebRtc) {
-            applyWebRtcTransportOptions(cfg.signalingPassword);
+            applyWebRtcTransportOptions(false, cfg.signalingPassword);
         }
         runtime.join(joinUsingWebRtc ? std::string{} : cfg.hostName,
                      joinUsingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
@@ -375,7 +390,7 @@ inline void drawNetplayWindow(bool& showWindow,
                 ImGui::BeginDisabled(!canHost);
                 if(ImGui::Button("Create Room##NetplayHostButton")) {
                     if(usingWebRtc) {
-                        applyWebRtcTransportOptions(cfg.signalingPassword);
+                        applyWebRtcTransportOptions(true, cfg.signalingPassword);
                     }
                     runtime.host(usingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
                                  static_cast<size_t>(cfg.maxPeers),
