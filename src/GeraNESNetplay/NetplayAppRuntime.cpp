@@ -832,11 +832,41 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
         return;
     }
 
-    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
     constexpr uint32_t kMaxSilentCatchupFrames = 120u;
+    const uint32_t advancedFrames = advanceToSharedClockIfNeededOnWorker(emu, kMaxSilentCatchupFrames);
+
+    if(advancedFrames > 0u) {
+        std::ostringstream oss;
+        oss << "Netplay resync shared-clock alignment advanced "
+            << advancedFrames
+            << " frame(s) from "
+            << loadedFrame
+            << " to "
+            << emu.frameCount()
+            << " (audio muted)";
+        m_coordinator.appendNetplayLog(oss.str());
+    }
+}
+
+uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu, uint32_t maxFrames)
+{
+    if(maxFrames == 0u) {
+        return 0u;
+    }
+    if(m_coordinator.isHosting()) {
+        return 0u;
+    }
+    if(!m_coordinator.isActive() || m_coordinator.session().roomState().state != SessionState::Running) {
+        return 0u;
+    }
+    if(!emu.valid()) {
+        return 0u;
+    }
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
     uint32_t advancedFrames = 0u;
 
-    while(advancedFrames < kMaxSilentCatchupFrames) {
+    while(advancedFrames < maxFrames) {
         const FrameNumber nextFrame = emu.frameCount() + 1u;
         const uint64_t nextFrameClockMicros = m_coordinator.authoritativeFrameStartClockMicros(nextFrame);
         if(nextFrameClockMicros == 0u) {
@@ -860,17 +890,7 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
         m_coordinator.setLocalSimulationFrame(emu.frameCount());
     }
 
-    if(advancedFrames > 0u) {
-        std::ostringstream oss;
-        oss << "Netplay resync shared-clock alignment advanced "
-            << advancedFrames
-            << " frame(s) from "
-            << loadedFrame
-            << " to "
-            << emu.frameCount()
-            << " (audio muted)";
-        m_coordinator.appendNetplayLog(oss.str());
-    }
+    return advancedFrames;
 }
 
 void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
@@ -1766,6 +1786,9 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     if(running) {
         if(!holdForPostResyncDelayBuffer) {
+            constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
+            (void)advanceToSharedClockIfNeededOnWorker(emu, kMaxContinuousClockCatchupFrames);
+
             m_inputDriver.preparePlaybackFramesForEmulationThread(
                 m_coordinator,
                 m_coordinator.isActive(),

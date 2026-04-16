@@ -187,6 +187,7 @@ private:
     void processHostResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
+    uint32_t advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu, uint32_t maxFrames);
     void alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu, FrameNumber loadedFrame);
     void processRollbackIfNeededOnWorker(GeraNESEmu& emu);
     bool shouldRecoverStandaloneInputWhileNetplayActive() const;
