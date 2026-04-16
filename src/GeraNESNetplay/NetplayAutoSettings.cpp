@@ -147,6 +147,8 @@ void NetplayAutoSettings::resetForSession(uint32_t sessionId, uint32_t timelineE
     m_lastMissingInputStopCount = 0;
     m_lastRollbackScheduledCount = 0;
     m_lastPredictedFrameUseCount = 0;
+    m_lastRecoveryModeTransitionCount = 0;
+    m_delayRetuneBlockedUntilFrame = 0;
     m_lastDecisionReason.clear();
 }
 
@@ -178,6 +180,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         m_predictLocked = false;
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_delayRetuneBlockedUntilFrame = 0;
         m_lastDecisionReason = "Automatic gameplay tuning disabled";
         return recommendations;
     }
@@ -204,6 +207,31 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
         m_lastDecisionReason = "Waiting for running session";
+        return recommendations;
+    }
+
+    if(room.recoveryInputMode != RecoveryInputMode::Normal ||
+       room.activeResyncId != 0u ||
+       room.pendingResyncAckCount != 0u) {
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_lastDecisionReason = "Recovery/resync active; delaying auto-tune";
+        return recommendations;
+    }
+
+    if(room.recoveryModeTransitionCount != m_lastRecoveryModeTransitionCount) {
+        m_lastRecoveryModeTransitionCount = room.recoveryModeTransitionCount;
+        m_delayRetuneBlockedUntilFrame = currentFrame + kPostRecoveryRetuneDelayFrames;
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_lastDecisionReason = "Recovery transition detected; waiting for stability before retune";
+        return recommendations;
+    }
+
+    if(currentFrame < m_delayRetuneBlockedUntilFrame) {
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_lastDecisionReason = "Post-recovery settle window active";
         return recommendations;
     }
 
@@ -276,7 +304,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
     const bool shouldIncrease = stressScore >= 4u;
 
-    if(shouldIncrease && (!cooldownActive || severePressureNow)) {
+    if(shouldIncrease && !cooldownActive) {
         const uint8_t increaseStep =
             (stressScore >= 10u || recoveringAssignedPeer || missingInputStopDelta > 0u) ? 2u : 1u;
         const uint8_t targetDelay =

@@ -63,6 +63,8 @@ private:
     uint32_t m_lastMissingInputStopCount = 0;
     uint32_t m_lastRollbackScheduledCount = 0;
     uint32_t m_lastPredictedFrameUseCount = 0;
+    uint32_t m_lastRecoveryModeTransitionCount = 0;
+    FrameNumber m_delayRetuneBlockedUntilFrame = 0;
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;
@@ -71,6 +73,7 @@ private:
     static constexpr FrameNumber kDelayDecreaseStableFrames = 600;
     static constexpr FrameNumber kPredictDecreaseStableFrames = 900;
     static constexpr FrameNumber kAdjustmentCooldownFrames = 180;
+    static constexpr FrameNumber kPostRecoveryRetuneDelayFrames = 300;
 
     static bool isAssignedActiveParticipant(const ParticipantInfo& participant);
     static uint8_t clampDelay(uint32_t frames);
