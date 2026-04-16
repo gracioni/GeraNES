@@ -28,6 +28,7 @@ public:
     struct ConfirmedFrameInputs
     {
         FrameNumber frame = 0;
+        uint64_t authoritativeFrameStartClockMicros = 0;
         std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
         std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
         InputFrame inputFrame = {};
@@ -162,6 +163,8 @@ private:
     uint64_t m_sharedClockRttMicros = 0;
     uint64_t m_bestClockSyncDelayMicros = 0;
     bool m_sharedClockSynchronized = false;
+    std::unordered_map<FrameNumber, uint64_t> m_authoritativeFrameStartClockMicros;
+    std::deque<FrameNumber> m_authoritativeFrameStartClockOrder;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -273,6 +276,7 @@ private:
     void processClockSyncIfNeeded(const std::chrono::steady_clock::time_point& now);
     static int64_t monotonicNowMicros();
     uint64_t sharedClockNowMicros() const;
+    uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     bool allRequiredParticipantsRomCompatible() const;
     void refreshHostRoomState();
     void updatePeerHealthFromTransport();
@@ -347,6 +351,7 @@ public:
     void appendNetplayLog(const std::string& message);
     const RollbackStats& predictionStats() const;
     void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached);
+    void recordLocalAuthoritativeFrameStart(FrameNumber frame);
     void setLocalSimulationFrame(FrameNumber frame);
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();

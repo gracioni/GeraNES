@@ -987,6 +987,7 @@ bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
 
 bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame)
 {
+    m_coordinator.recordLocalAuthoritativeFrameStart(frame);
     NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
     if(!tryBuildPlaybackConfirmedFrame(frame, playbackFrame)) {
         return false;

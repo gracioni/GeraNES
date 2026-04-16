@@ -782,6 +782,9 @@ void drawNetplayWindow(bool& showWindow,
                     static_cast<long long>(room.sharedClockOffsetMicros));
         ImGui::Text("Clock RTT (us): %llu",
                     static_cast<unsigned long long>(room.sharedClockRttMicros));
+        ImGui::Text("Last Authoritative Frame Clock: frame %u @ %llu us",
+                    room.lastAuthoritativeClockFrame,
+                    static_cast<unsigned long long>(room.lastAuthoritativeClockMicros));
 
         const uint64_t localNowMicros = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(

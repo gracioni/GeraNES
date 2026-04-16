@@ -79,6 +79,8 @@ struct RoomState
     uint32_t staleInputPacketCount = 0;
     uint32_t staleFrameStatusPacketCount = 0;
     uint32_t staleCrcPacketCount = 0;
+    FrameNumber lastAuthoritativeClockFrame = 0;
+    uint64_t lastAuthoritativeClockMicros = 0;
     uint64_t sharedClockMicros = 0;
     uint64_t sharedClockRttMicros = 0;
     int64_t sharedClockOffsetMicros = 0;

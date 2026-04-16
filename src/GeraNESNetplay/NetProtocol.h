@@ -134,6 +134,7 @@ struct InputFrameData
 {
     uint32_t timelineEpoch = 0;
     FrameNumber frame = 0;
+    uint64_t authoritativeFrameStartClockMicros = 0;
     ParticipantId participantId = kInvalidParticipantId;
     PlayerSlot playerSlot = kObserverPlayerSlot;
     uint64_t buttonMaskLo = 0;
@@ -151,6 +152,7 @@ struct ConfirmedInputFramesData
 
 struct ConfirmedInputFrameEntry
 {
+    uint64_t authoritativeFrameStartClockMicros = 0;
     std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
     std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
     uint16_t payloadSize = 0;

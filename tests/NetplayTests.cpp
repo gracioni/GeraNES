@@ -2284,6 +2284,96 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer confirmations", "[netplay][clock][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.sessionId = 1;
+    room.state = Netplay::SessionState::Lobby;
+    room.currentFrame = 0;
+    room.lastConfirmedFrame = 0;
+    room.selectedGameName = "ClockBatch";
+
+    Netplay::ParticipantInfo* hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
+    hostLocal->connected = true;
+    hostLocal->romLoaded = true;
+    hostLocal->romCompatible = true;
+    hostLocal->role = Netplay::ParticipantRole::SessionOwner;
+    hostLocal->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    hostLocal->normalizeControllerAssignments();
+
+    const Netplay::ParticipantId remoteParticipantId =
+        static_cast<Netplay::ParticipantId>(host.localParticipantId() + 1u);
+    Netplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = remoteParticipantId;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = Netplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+
+    constexpr Netplay::FrameNumber kPrebufferFrames = 8u;
+    for(Netplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
+        host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0u);
+    }
+    REQUIRE(host.latestConfirmedFrame() == 0u);
+
+    // Feed remote frames while not running so host stores confirmed inputs but
+    // does not publish them yet. This models prebuffer prepared ahead of run.
+    uint32_t sequence = 1u;
+    for(Netplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
+        Netplay::InputFrameData remote{};
+        remote.timelineEpoch = room.timelineEpoch;
+        remote.frame = frame;
+        remote.participantId = remoteParticipantId;
+        remote.playerSlot = Netplay::kPort2PlayerSlot;
+        remote.sequence = sequence++;
+        remote.buttonMaskLo = 0u;
+        remote.buttonMaskHi = 0u;
+
+        InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(host.injectInputFrameForTests(remote, contribution));
+    }
+
+    room.state = Netplay::SessionState::Running;
+    host.recordLocalInputFrame(kPrebufferFrames + 1u, Netplay::kPort1PlayerSlot, 0u);
+
+    REQUIRE(host.latestConfirmedFrame() == kPrebufferFrames);
+
+    uint64_t previousClockMicros = 0u;
+    for(Netplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
+        const Netplay::NetplayCoordinator::ConfirmedFrameInputs* confirmed = host.findConfirmedFrame(frame);
+        REQUIRE(confirmed != nullptr);
+        REQUIRE(confirmed->authoritativeFrameStartClockMicros != 0u);
+        if(frame > 1u) {
+            REQUIRE(confirmed->authoritativeFrameStartClockMicros > previousClockMicros);
+            const uint64_t stepMicros =
+                confirmed->authoritativeFrameStartClockMicros - previousClockMicros;
+            REQUIRE(stepMicros >= 1000u);
+            REQUIRE(stepMicros <= 50000u);
+        }
+        previousClockMicros = confirmed->authoritativeFrameStartClockMicros;
+    }
+
+    REQUIRE(room.lastAuthoritativeClockFrame == kPrebufferFrames);
+    REQUIRE(room.lastAuthoritativeClockMicros == previousClockMicros);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer health", "[netplay][implicit-stall][unit]")
 {
     Netplay::NetplayCoordinator host;

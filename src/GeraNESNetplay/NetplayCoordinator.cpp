@@ -207,6 +207,15 @@ uint64_t NetplayCoordinator::sharedClockNowMicros() const
     return adjusted > 0 ? static_cast<uint64_t>(adjusted) : 0u;
 }
 
+uint64_t NetplayCoordinator::authoritativeFrameStartClockMicros(FrameNumber frame) const
+{
+    const auto it = m_authoritativeFrameStartClockMicros.find(frame);
+    if(it != m_authoritativeFrameStartClockMicros.end()) {
+        return it->second;
+    }
+    return 0u;
+}
+
 static const char* transportBackendLabel(NetTransportBackend backend)
 {
     return netTransportBackendLabel(backend);
@@ -324,10 +333,14 @@ void NetplayCoordinator::resetSessionState()
     m_sharedClockRttMicros = 0;
     m_bestClockSyncDelayMicros = std::numeric_limits<uint64_t>::max();
     m_sharedClockSynchronized = false;
+    m_authoritativeFrameStartClockMicros.clear();
+    m_authoritativeFrameStartClockOrder.clear();
     m_session.roomState().sharedClockMicros = 0;
     m_session.roomState().sharedClockRttMicros = 0;
     m_session.roomState().sharedClockOffsetMicros = 0;
     m_session.roomState().sharedClockSynchronized = false;
+    m_session.roomState().lastAuthoritativeClockFrame = 0;
+    m_session.roomState().lastAuthoritativeClockMicros = 0;
 }
 
 void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId)
@@ -511,6 +524,7 @@ bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer
 
         for(const auto& frame : frames) {
             ConfirmedInputFrameEntry entry;
+            entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
             entry.buttonMaskLo = frame.buttonMaskLo;
             entry.buttonMaskHi = frame.buttonMaskHi;
             const std::vector<uint8_t> payload = serializeInputFrame(frame.inputFrame);
@@ -1091,6 +1105,7 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
     writer.writePod(data);
     for(const auto& frame : frames) {
         ConfirmedInputFrameEntry entry;
+        entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
         entry.buttonMaskLo = frame.buttonMaskLo;
         entry.buttonMaskHi = frame.buttonMaskHi;
         const std::vector<uint8_t> payload = serializeInputFrame(frame.inputFrame);
@@ -1194,6 +1209,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     if(!reader.readBytes(payload, input.payloadSize)) return false;
     InputFrame inputFrame;
     if(!deserializeInputFrame(payload.data(), payload.size(), inputFrame)) return false;
+    if(!m_hosting &&
+       input.authoritativeFrameStartClockMicros != 0u &&
+       input.frame >= m_session.roomState().lastAuthoritativeClockFrame) {
+        m_session.roomState().lastAuthoritativeClockFrame = input.frame;
+        m_session.roomState().lastAuthoritativeClockMicros = input.authoritativeFrameStartClockMicros;
+    }
     if(input.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(input.timelineEpoch < m_session.roomState().timelineEpoch) {
             m_session.roomState().lastIgnoredStaleInputEpoch = input.timelineEpoch;
@@ -1401,7 +1422,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     }
 
     if(m_hosting) {
-        m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(input, inputFrame), peer);
+        InputFrameData relayedInput = input;
+        relayedInput.authoritativeFrameStartClockMicros =
+            authoritativeFrameStartClockMicros(input.frame);
+        m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(relayedInput, inputFrame), peer);
         publishConfirmedFramesIfReady();
     }
 
@@ -1437,10 +1461,15 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
 
         ConfirmedFrameInputs frame;
         frame.frame = data.startFrame + static_cast<FrameNumber>(i);
+        frame.authoritativeFrameStartClockMicros = entry.authoritativeFrameStartClockMicros;
         frame.buttonMaskLo = entry.buttonMaskLo;
         frame.buttonMaskHi = entry.buttonMaskHi;
         if(!deserializeInputFrame(payload.data(), payload.size(), frame.inputFrame)) return false;
         storeConfirmedFrame(frame);
+        if(frame.authoritativeFrameStartClockMicros != 0u) {
+            m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
+            m_session.roomState().lastAuthoritativeClockMicros = frame.authoritativeFrameStartClockMicros;
+        }
     }
 
     if(data.frameCount > 0) {
@@ -2242,6 +2271,18 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     }
 
     m_localSimulationFrame = loadedFrame;
+    m_authoritativeFrameStartClockMicros.clear();
+    m_authoritativeFrameStartClockOrder.clear();
+    if(m_hosting) {
+        const uint64_t loadedFrameClockMicros = sharedClockNowMicros();
+        m_authoritativeFrameStartClockMicros[loadedFrame] = loadedFrameClockMicros;
+        m_authoritativeFrameStartClockOrder.push_back(loadedFrame);
+        m_session.roomState().lastAuthoritativeClockFrame = loadedFrame;
+        m_session.roomState().lastAuthoritativeClockMicros = loadedFrameClockMicros;
+    } else {
+        m_session.roomState().lastAuthoritativeClockFrame = loadedFrame;
+        m_session.roomState().lastAuthoritativeClockMicros = 0;
+    }
     m_pendingSequenceResetParticipants.clear();
 
     std::ostringstream oss;
@@ -2274,11 +2315,15 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_lastBroadcastConfirmedFrame = 0;
     m_localInputSequence = 0;
     m_localSimulationFrame = 0;
+    m_authoritativeFrameStartClockMicros.clear();
+    m_authoritativeFrameStartClockOrder.clear();
     m_predictionStats.lastDecision.clear();
     m_predictionStats.lastDecisionFrame = 0;
     m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
     m_session.roomState().currentFrame = 0;
     m_session.roomState().lastConfirmedFrame = 0;
+    m_session.roomState().lastAuthoritativeClockFrame = 0;
+    m_session.roomState().lastAuthoritativeClockMicros = 0;
     m_session.roomState().activeResyncId = 0;
     m_session.roomState().resyncTargetFrame = 0;
     m_session.roomState().resyncConfirmedFrame = 0;
@@ -2315,6 +2360,23 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
 
     m_lastBroadcastConfirmedFrame = std::min(m_lastBroadcastConfirmedFrame, frame);
     m_session.roomState().lastConfirmedFrame = std::min(m_session.roomState().lastConfirmedFrame, frame);
+    for(auto it = m_authoritativeFrameStartClockMicros.begin();
+        it != m_authoritativeFrameStartClockMicros.end();) {
+        if(it->first > frame) {
+            it = m_authoritativeFrameStartClockMicros.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    while(!m_authoritativeFrameStartClockOrder.empty() &&
+          m_authoritativeFrameStartClockOrder.back() > frame) {
+        m_authoritativeFrameStartClockOrder.pop_back();
+    }
+    if(m_session.roomState().lastAuthoritativeClockFrame > frame) {
+        m_session.roomState().lastAuthoritativeClockFrame = frame;
+        m_session.roomState().lastAuthoritativeClockMicros =
+            authoritativeFrameStartClockMicros(frame);
+    }
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         const InputTimeline& timeline =
@@ -4609,6 +4671,35 @@ void NetplayCoordinator::recordPlaybackStop(FrameNumber frame, bool predictionLi
     m_predictionStats.recordPlaybackStop(frame, predictionLimitReached);
 }
 
+void NetplayCoordinator::recordLocalAuthoritativeFrameStart(FrameNumber frame)
+{
+    if(!m_hosting || frame == 0u) {
+        return;
+    }
+    if(m_authoritativeFrameStartClockMicros.find(frame) != m_authoritativeFrameStartClockMicros.end()) {
+        return;
+    }
+
+    uint64_t clockMicros = sharedClockNowMicros();
+    if(clockMicros == 0u) {
+        const int64_t nowMicros = monotonicNowMicros();
+        clockMicros = nowMicros > 0 ? static_cast<uint64_t>(nowMicros) : 0u;
+    }
+    m_authoritativeFrameStartClockMicros[frame] = clockMicros;
+    m_authoritativeFrameStartClockOrder.push_back(frame);
+    if(clockMicros != 0u) {
+        m_session.roomState().lastAuthoritativeClockFrame = frame;
+        m_session.roomState().lastAuthoritativeClockMicros = clockMicros;
+    }
+
+    constexpr size_t kAuthoritativeClockHistoryLimit = kConfirmedFrameHistoryCapacity * 2u;
+    while(m_authoritativeFrameStartClockOrder.size() > kAuthoritativeClockHistoryLimit) {
+        const FrameNumber dropFrame = m_authoritativeFrameStartClockOrder.front();
+        m_authoritativeFrameStartClockOrder.pop_front();
+        m_authoritativeFrameStartClockMicros.erase(dropFrame);
+    }
+}
+
 void NetplayCoordinator::setLocalSimulationFrame(FrameNumber frame)
 {
     m_localSimulationFrame = frame;
@@ -4666,6 +4757,23 @@ void NetplayCoordinator::discardTimelineAfter(FrameNumber frame)
 
     m_lastBroadcastConfirmedFrame = std::min(m_lastBroadcastConfirmedFrame, frame);
     m_session.roomState().lastConfirmedFrame = std::min(m_session.roomState().lastConfirmedFrame, frame);
+    for(auto it = m_authoritativeFrameStartClockMicros.begin();
+        it != m_authoritativeFrameStartClockMicros.end();) {
+        if(it->first > frame) {
+            it = m_authoritativeFrameStartClockMicros.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    while(!m_authoritativeFrameStartClockOrder.empty() &&
+          m_authoritativeFrameStartClockOrder.back() > frame) {
+        m_authoritativeFrameStartClockOrder.pop_back();
+    }
+    if(m_session.roomState().lastAuthoritativeClockFrame > frame) {
+        m_session.roomState().lastAuthoritativeClockFrame = frame;
+        m_session.roomState().lastAuthoritativeClockMicros =
+            authoritativeFrameStartClockMicros(frame);
+    }
 
     uint32_t latestLocalSequence = 0;
     FrameNumber latestLocalFrame = frame;
@@ -4722,6 +4830,11 @@ uint8_t NetplayCoordinator::predictFrames() const
 
 void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 {
+    if(frame.authoritativeFrameStartClockMicros != 0u) {
+        m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
+        m_session.roomState().lastAuthoritativeClockMicros = frame.authoritativeFrameStartClockMicros;
+    }
+
     for(auto& existing : m_confirmedFrames) {
         if(existing.frame == frame.frame) {
             existing = frame;
@@ -4740,6 +4853,7 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
 {
     outFrame = {};
     outFrame.frame = frame;
+    outFrame.authoritativeFrameStartClockMicros = authoritativeFrameStartClockMicros(frame);
     outFrame.inputFrame = makeRoomTopologyBaseFrame(frame, m_session.roomState());
     bool haveAssignedParticipant = false;
 
@@ -4782,6 +4896,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
 
     outFrame = {};
     outFrame.frame = frame;
+    outFrame.authoritativeFrameStartClockMicros = authoritativeFrameStartClockMicros(frame);
     outFrame.inputFrame = makeRoomTopologyBaseFrame(frame, m_session.roomState());
     outFrame.predicted = false;
     bool haveAssignedParticipant = false;
@@ -4859,6 +4974,66 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
         return;
     }
 
+    constexpr uint64_t kNominalFrameStepMicros = 16667u;
+    constexpr uint64_t kMinFrameStepMicros = 1000u;
+    constexpr uint64_t kMaxFrameStepMicros = 50000u;
+    constexpr size_t kAuthoritativeClockHistoryLimit = kConfirmedFrameHistoryCapacity * 2u;
+
+    uint64_t batchBaseClockMicros = sharedClockNowMicros();
+    if(batchBaseClockMicros == 0u) {
+        const int64_t nowMicros = monotonicNowMicros();
+        batchBaseClockMicros = nowMicros > 0 ? static_cast<uint64_t>(nowMicros) : 0u;
+    }
+
+    uint64_t frameStepMicros = kNominalFrameStepMicros;
+    const FrameNumber firstPendingFrame = pendingFrames.front().frame;
+    if(firstPendingFrame > 1u) {
+        const uint64_t previousClockMicros = authoritativeFrameStartClockMicros(firstPendingFrame - 1u);
+        if(previousClockMicros != 0u && batchBaseClockMicros > previousClockMicros) {
+            const uint64_t gapMicros = batchBaseClockMicros - previousClockMicros;
+            const FrameNumber gapFrames = firstPendingFrame - 1u;
+            const uint64_t candidateStepMicros = gapFrames > 0u
+                ? (gapMicros / static_cast<uint64_t>(gapFrames))
+                : 0u;
+            if(candidateStepMicros >= kMinFrameStepMicros &&
+               candidateStepMicros <= kMaxFrameStepMicros) {
+                frameStepMicros = candidateStepMicros;
+            }
+        }
+    }
+
+    uint64_t nextFrameClockMicros = 0u;
+    if(firstPendingFrame > 1u) {
+        const uint64_t previousClockMicros = authoritativeFrameStartClockMicros(firstPendingFrame - 1u);
+        if(previousClockMicros != 0u) {
+            nextFrameClockMicros = previousClockMicros + frameStepMicros;
+        }
+    }
+    if(nextFrameClockMicros == 0u) {
+        nextFrameClockMicros = batchBaseClockMicros;
+    }
+
+    for(auto& frame : pendingFrames) {
+        frame.authoritativeFrameStartClockMicros = nextFrameClockMicros;
+        if(m_authoritativeFrameStartClockMicros.find(frame.frame) == m_authoritativeFrameStartClockMicros.end()) {
+            m_authoritativeFrameStartClockOrder.push_back(frame.frame);
+        }
+        m_authoritativeFrameStartClockMicros[frame.frame] = frame.authoritativeFrameStartClockMicros;
+        if(frameStepMicros > 0u) {
+            nextFrameClockMicros += frameStepMicros;
+        }
+    }
+
+    while(m_authoritativeFrameStartClockOrder.size() > kAuthoritativeClockHistoryLimit) {
+        const FrameNumber dropFrame = m_authoritativeFrameStartClockOrder.front();
+        m_authoritativeFrameStartClockOrder.pop_front();
+        m_authoritativeFrameStartClockMicros.erase(dropFrame);
+    }
+
+    m_session.roomState().lastAuthoritativeClockFrame = pendingFrames.back().frame;
+    m_session.roomState().lastAuthoritativeClockMicros =
+        pendingFrames.back().authoritativeFrameStartClockMicros;
+
     for(const auto& frame : pendingFrames) {
         storeConfirmedFrame(frame);
     }
@@ -4928,6 +5103,8 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     InputFrameData packetData;
     packetData.timelineEpoch = m_session.roomState().timelineEpoch;
     packetData.frame = frame;
+    packetData.authoritativeFrameStartClockMicros =
+        authoritativeFrameStartClockMicros(frame);
     packetData.participantId = m_localParticipantId;
     packetData.playerSlot = slot;
     packetData.buttonMaskLo = buttonMaskLo;
