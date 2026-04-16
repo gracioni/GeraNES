@@ -138,6 +138,7 @@ void SingleThreadEmulationHost::serviceBackgroundWork()
 {
     if(m_framePacingMode == FramePacingMode::Suspended) {
         dispatchQueuedCommands();
+        (void)runPreAdvanceHook();
         return;
     }
     if(m_framePacingMode == FramePacingMode::FreeRunning) {
