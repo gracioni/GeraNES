@@ -854,6 +854,12 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     }
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+    const uint64_t frameDtMicros = static_cast<uint64_t>(frameDt) * 1000u;
+    const uint64_t alignThresholdFrames =
+        static_cast<uint64_t>(m_inputDriver.prebufferFrames()) +
+        static_cast<uint64_t>(m_inputDriver.predictFrames()) +
+        2u;
+    const uint64_t alignThresholdMicros = frameDtMicros * alignThresholdFrames;
     uint32_t advancedFrames = 0u;
 
     while(advancedFrames < maxFrames) {
@@ -864,7 +870,11 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         }
 
         const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
-        if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) {
+        if(nowSharedClockMicros == 0u) {
+            break;
+        }
+        const uint64_t alignDeadlineMicros = nextFrameClockMicros + alignThresholdMicros;
+        if(nowSharedClockMicros < alignDeadlineMicros) {
             break;
         }
 
