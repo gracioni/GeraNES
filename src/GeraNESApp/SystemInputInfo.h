@@ -23,77 +23,19 @@ public:
 private:
     std::map<const std::string, std::string*>* m_map = nullptr;
 
-    void mapInit()
-    {
-        if(m_map != nullptr) return;
-
-        m_map = new std::map<const std::string, std::string*>;
-        m_map->insert(std::make_pair(BUTTONS[0], &saveState));
-        m_map->insert(std::make_pair(BUTTONS[1], &loadState));
-        m_map->insert(std::make_pair(BUTTONS[2], &rewind));
-        m_map->insert(std::make_pair(BUTTONS[3], &speed));
-    }
+    void mapInit();
 
 public:
-    SystemInputInfo() = default;
+    SystemInputInfo();
+    ~SystemInputInfo() override;
+    SystemInputInfo(const SystemInputInfo& other);
+    SystemInputInfo& operator=(const SystemInputInfo& other);
 
-    ~SystemInputInfo()
-    {
-        if(m_map != nullptr) delete m_map;
-    }
+    const std::string& getByButtonName(const std::string& name);
+    void setByButtonIndex(int index, const std::string& input);
 
-    SystemInputInfo(const SystemInputInfo& other)
-    {
-        *this = other;
-    }
-
-    SystemInputInfo& operator=(const SystemInputInfo& other)
-    {
-        saveState = other.saveState;
-        loadState = other.loadState;
-        rewind = other.rewind;
-        speed = other.speed;
-        return *this;
-    }
-
-    const std::string& getByButtonName(const std::string& name)
-    {
-        static std::string empty = "";
-
-        mapInit();
-        if(m_map->count(name)) {
-            return *(*m_map)[name];
-        }
-        return empty;
-    }
-
-    void setByButtonIndex(int index, const std::string& input)
-    {
-        switch(index) {
-            case 0: saveState = input; break;
-            case 1: loadState = input; break;
-            case 2: rewind = input; break;
-            case 3: speed = input; break;
-        }
-    }
-
-    size_t bindingCount() const override
-    {
-        return BUTTONS.size();
-    }
-
-    const char* bindingLabel(size_t index) const override
-    {
-        return BUTTONS[index];
-    }
-
-    const std::string& getBinding(size_t index) const override
-    {
-        return const_cast<SystemInputInfo*>(this)->getByButtonName(BUTTONS[index]);
-    }
-
-    void setBinding(size_t index, const std::string& input) override
-    {
-        setByButtonIndex(static_cast<int>(index), input);
-    }
+    size_t bindingCount() const override;
+    const char* bindingLabel(size_t index) const override;
+    const std::string& getBinding(size_t index) const override;
+    void setBinding(size_t index, const std::string& input) override;
 };

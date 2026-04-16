@@ -30,101 +30,19 @@ public:
 private:
     std::map<const std::string, std::string*>* m_map = nullptr;
 
-    void mapInit()
-    {
-        if(m_map != nullptr) return;
-
-        m_map = new std::map<const std::string, std::string*>;
-        m_map->insert(std::make_pair(BUTTONS[0], &a));
-        m_map->insert(std::make_pair(BUTTONS[1], &b));
-        m_map->insert(std::make_pair(BUTTONS[2], &x));
-        m_map->insert(std::make_pair(BUTTONS[3], &y));
-        m_map->insert(std::make_pair(BUTTONS[4], &l));
-        m_map->insert(std::make_pair(BUTTONS[5], &r));
-        m_map->insert(std::make_pair(BUTTONS[6], &select));
-        m_map->insert(std::make_pair(BUTTONS[7], &start));
-        m_map->insert(std::make_pair(BUTTONS[8], &up));
-        m_map->insert(std::make_pair(BUTTONS[9], &down));
-        m_map->insert(std::make_pair(BUTTONS[10], &left));
-        m_map->insert(std::make_pair(BUTTONS[11], &right));
-    }
+    void mapInit();
 
 public:
-    SnesControllerInfo() = default;
+    SnesControllerInfo();
+    ~SnesControllerInfo() override;
+    SnesControllerInfo(const SnesControllerInfo& other);
+    SnesControllerInfo& operator=(const SnesControllerInfo& other);
 
-    ~SnesControllerInfo()
-    {
-        if(m_map != nullptr) delete m_map;
-    }
+    const std::string& getByButtonName(const std::string& name);
+    void setByButtonIndex(int index, const std::string& input);
 
-    SnesControllerInfo(const SnesControllerInfo& other)
-    {
-        *this = other;
-    }
-
-    SnesControllerInfo& operator=(const SnesControllerInfo& other)
-    {
-        a = other.a;
-        b = other.b;
-        x = other.x;
-        y = other.y;
-        l = other.l;
-        r = other.r;
-        select = other.select;
-        start = other.start;
-        up = other.up;
-        down = other.down;
-        left = other.left;
-        right = other.right;
-        return *this;
-    }
-
-    const std::string& getByButtonName(const std::string& name)
-    {
-        static std::string empty = "";
-
-        mapInit();
-        if(m_map->count(name)) {
-            return *(*m_map)[name];
-        }
-        return empty;
-    }
-
-    void setByButtonIndex(int index, const std::string& input)
-    {
-        switch(index) {
-            case 0: a = input; break;
-            case 1: b = input; break;
-            case 2: x = input; break;
-            case 3: y = input; break;
-            case 4: l = input; break;
-            case 5: r = input; break;
-            case 6: select = input; break;
-            case 7: start = input; break;
-            case 8: up = input; break;
-            case 9: down = input; break;
-            case 10: left = input; break;
-            case 11: right = input; break;
-        }
-    }
-
-    size_t bindingCount() const override
-    {
-        return BUTTONS.size();
-    }
-
-    const char* bindingLabel(size_t index) const override
-    {
-        return BUTTONS[index];
-    }
-
-    const std::string& getBinding(size_t index) const override
-    {
-        return const_cast<SnesControllerInfo*>(this)->getByButtonName(BUTTONS[index]);
-    }
-
-    void setBinding(size_t index, const std::string& input) override
-    {
-        setByButtonIndex(static_cast<int>(index), input);
-    }
+    size_t bindingCount() const override;
+    const char* bindingLabel(size_t index) const override;
+    const std::string& getBinding(size_t index) const override;
+    void setBinding(size_t index, const std::string& input) override;
 };

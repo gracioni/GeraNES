@@ -1,7 +1,6 @@
 #pragma once
 
-#include <algorithm>
-#include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -51,34 +50,8 @@ struct ParticipantInfo
     bool inputSuspended = false;
     bool inputResumeAwaitingResync = false;
 
-    void normalizeControllerAssignments()
-    {
-        controllerAssignments.erase(
-            std::remove_if(
-                controllerAssignments.begin(),
-                controllerAssignments.end(),
-                [](PlayerSlot slot) {
-                    return slot != kObserverPlayerSlot && slot > kMultitapP4PlayerSlot;
-                }
-            ),
-            controllerAssignments.end()
-        );
-        controllerAssignments.erase(
-            std::remove(controllerAssignments.begin(), controllerAssignments.end(), kObserverPlayerSlot),
-            controllerAssignments.end()
-        );
-        std::sort(controllerAssignments.begin(), controllerAssignments.end());
-        controllerAssignments.erase(
-            std::unique(controllerAssignments.begin(), controllerAssignments.end()),
-            controllerAssignments.end()
-        );
-        controllerAssignment = controllerAssignments.empty() ? kObserverPlayerSlot : controllerAssignments.front();
-    }
-
-    bool hasControllerAssignment(PlayerSlot slot) const
-    {
-        return std::find(controllerAssignments.begin(), controllerAssignments.end(), slot) != controllerAssignments.end();
-    }
+    void normalizeControllerAssignments();
+    bool hasControllerAssignment(PlayerSlot slot) const;
 };
 
 struct RoomState
@@ -137,36 +110,11 @@ private:
     RoomState m_roomState;
 
 public:
-    RoomState& roomState()
-    {
-        return m_roomState;
-    }
-
-    const RoomState& roomState() const
-    {
-        return m_roomState;
-    }
-
-    void reset()
-    {
-        m_roomState = {};
-    }
-
-    ParticipantInfo* findParticipant(ParticipantId id)
-    {
-        for(auto& participant : m_roomState.participants) {
-            if(participant.id == id) return &participant;
-        }
-        return nullptr;
-    }
-
-    const ParticipantInfo* findParticipant(ParticipantId id) const
-    {
-        for(const auto& participant : m_roomState.participants) {
-            if(participant.id == id) return &participant;
-        }
-        return nullptr;
-    }
+    RoomState& roomState();
+    const RoomState& roomState() const;
+    void reset();
+    ParticipantInfo* findParticipant(ParticipantId id);
+    const ParticipantInfo* findParticipant(ParticipantId id) const;
 };
 
 } // namespace Netplay

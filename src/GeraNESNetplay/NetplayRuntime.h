@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <utility>
 
 #include "Diagnostics.h"
 #include "InputTimeline.h"
@@ -18,71 +19,18 @@ private:
     RollbackStats m_stats;
 
 public:
-    void configureRollbackWindow(size_t snapshotCapacity)
-    {
-        m_snapshots.configure(snapshotCapacity);
-        m_localInputs.configure(snapshotCapacity * 4);
-        m_remoteInputs.configure(snapshotCapacity * 4);
-    }
-
-    void reset()
-    {
-        m_currentFrame = 0;
-        m_snapshots.clear();
-        m_localInputs.clear();
-        m_remoteInputs.clear();
-        m_stats = {};
-    }
-
-    void setCurrentFrame(FrameNumber frame)
-    {
-        m_currentFrame = frame;
-    }
-
-    FrameNumber currentFrame() const
-    {
-        return m_currentFrame;
-    }
-
-    SnapshotSystem& snapshots()
-    {
-        return m_snapshots;
-    }
-
-    const SnapshotSystem& snapshots() const
-    {
-        return m_snapshots;
-    }
-
-    RollbackStats& stats()
-    {
-        return m_stats;
-    }
-
-    const RollbackStats& stats() const
-    {
-        return m_stats;
-    }
-
-    InputTimeline& localInputs()
-    {
-        return m_localInputs;
-    }
-
-    const InputTimeline& localInputs() const
-    {
-        return m_localInputs;
-    }
-
-    InputTimeline& remoteInputs()
-    {
-        return m_remoteInputs;
-    }
-
-    const InputTimeline& remoteInputs() const
-    {
-        return m_remoteInputs;
-    }
+    void configureRollbackWindow(size_t snapshotCapacity);
+    void reset();
+    void setCurrentFrame(FrameNumber frame);
+    FrameNumber currentFrame() const;
+    SnapshotSystem& snapshots();
+    const SnapshotSystem& snapshots() const;
+    RollbackStats& stats();
+    const RollbackStats& stats() const;
+    InputTimeline& localInputs();
+    const InputTimeline& localInputs() const;
+    InputTimeline& remoteInputs();
+    const InputTimeline& remoteInputs() const;
 
     template<typename Saver>
     void captureSnapshot(FrameNumber frame, Saver&& saver)
