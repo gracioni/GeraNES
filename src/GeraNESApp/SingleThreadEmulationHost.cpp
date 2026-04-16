@@ -129,6 +129,11 @@ bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
                 m_emu.update(STEP_MS);
             }
         }
+        if(stepsToRun == maxCatchupSteps) {
+            // Match threaded-host behavior: if catch-up saturated, re-anchor the
+            // pacing clock so we do not stay permanently behind wall time.
+            m_freeRunningNextTick = clock::now();
+        }
     }
 
     return m_emu.frameCount() != frameBefore;
