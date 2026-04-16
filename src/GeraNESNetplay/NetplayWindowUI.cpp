@@ -1240,7 +1240,7 @@ void drawNetplayWindow(bool& showWindow,
     }
 
     
-    ImGui::SetNextWindowSizeConstraints(ImVec2(720.0f, 0.0f), ImVec2(720.0f, FLT_MAX));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(360.0f, 0.0f), ImVec2(360.0f, FLT_MAX));
     if(ImGui::BeginPopupModal(kNetplayOperationPopupId,
                               nullptr,
                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
