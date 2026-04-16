@@ -144,7 +144,7 @@ private:
     std::chrono::steady_clock::time_point m_nextReconnectAttempt = {};
     std::chrono::steady_clock::time_point m_reconnectDeadline = {};
     uint32_t m_gameplayReceiveDelayMs = 0;
-    std::chrono::milliseconds m_remoteInputSuspendTimeout = std::chrono::milliseconds(1000);
+    std::chrono::milliseconds m_remoteInputSuspendTimeout = std::chrono::milliseconds(2500);
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastRemoteInputAt;
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastPeerHealthAt;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;

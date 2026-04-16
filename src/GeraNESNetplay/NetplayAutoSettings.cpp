@@ -313,6 +313,8 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     const bool severePressureNow =
         missingInputStopDelta > 0u ||
         predictionLimitStopDelta > 0u ||
+        rollbackScheduledDelta >= 2u ||
+        predictionMissDelta >= 2u ||
         unresolvedPredictedRemoteFrameCount >= 4u;
     if(!evaluationWindowReached && !severePressureNow) {
         return recommendations;
@@ -342,9 +344,9 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
     const bool shouldIncrease = stressScore >= 4u;
 
-    if(shouldIncrease && !cooldownActive) {
+    if(shouldIncrease && (!cooldownActive || severePressureNow)) {
         const uint8_t increaseStep =
-            (stressScore >= 10u || recoveringAssignedPeer || missingInputStopDelta > 0u) ? 2u : 1u;
+            (stressScore >= 10u || severePressureNow || recoveringAssignedPeer || missingInputStopDelta > 0u) ? 2u : 1u;
         const uint8_t targetDelay =
             clampDelay(static_cast<uint32_t>(std::max<uint8_t>(room.inputDelayFrames, m_currentRecommendedDelay)) +
                        static_cast<uint32_t>(increaseStep));
