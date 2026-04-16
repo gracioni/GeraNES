@@ -119,11 +119,16 @@ bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
 
     if(stepsToRun == 0u) {
         dispatchQueuedCommands();
+        (void)runPreAdvanceHook();
     } else {
+        bool preAdvanceRan = false;
         for(uint32_t step = 0; step < stepsToRun; ++step) {
             dispatchQueuedCommands();
-            if(runPreAdvanceHook()) {
-                return m_emu.frameCount() != frameBefore;
+            if(!preAdvanceRan) {
+                preAdvanceRan = true;
+                if(runPreAdvanceHook()) {
+                    return m_emu.frameCount() != frameBefore;
+                }
             }
             if(m_emu.valid()) {
                 m_emu.update(STEP_MS);
