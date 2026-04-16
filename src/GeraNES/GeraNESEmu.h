@@ -981,12 +981,11 @@ private:
             }
             m_currentFrameInputLocked = true;
         }
-        const InputFrame* inputFrame = &m_lockedPlaybackInputFrame;
         const bool playbackFrameAlreadyRenderedAudibly =
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
-            silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
+            silentAudio || m_lockedPlaybackInputFrame.speculative || playbackFrameAlreadyRenderedAudibly;
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -1487,7 +1486,7 @@ public:
      * Return true on new frame
      */
     template<bool waitForNewFrame>
-    GERANES_INLINE bool _update(uint32_t dt, bool renderAudio = true) //miliseconds
+    GERANES_INLINE bool _update(uint32_t dt, bool isTimeAlign = false) // milliseconds
     {
         const int AUDIO_RENDER_TIME_STEP = 1; //ms
 
@@ -1514,7 +1513,7 @@ public:
 
         
 
-        const bool silentAudio = m_forceSilentAudio || !renderAudio;
+        const bool silentAudio = m_forceSilentAudio || isTimeAlign;
 
         while(loop)
         {
@@ -1553,28 +1552,28 @@ public:
         return ret;
     }
 
-    GERANES_INLINE bool update(uint32_t dt, bool renderAudio = true) {
+    GERANES_INLINE bool update(uint32_t dt, bool isTimeAlign = false) {
         applyPendingNsfControllerActions();
         if(m_paused) return false;
-        return _update<false>(dt, renderAudio);
+        return _update<false>(dt, isTimeAlign);
     }
 
-    GERANES_INLINE bool updateUntilFrame(uint32_t dt, bool renderAudio = true) {
+    GERANES_INLINE bool updateUntilFrame(uint32_t dt, bool isTimeAlign = false) {
         applyPendingNsfControllerActions();
         if(m_paused) return true;
 
         if(!m_speedBoost) {
-            const bool ret = _update<true>(dt, renderAudio);
-            if(renderAudio) {
+            const bool ret = _update<true>(dt, isTimeAlign);
+            if(!isTimeAlign) {
                 compensateVsyncAudioDrift(dt);
             }
             return ret;
         }
 
         // In frame-locked mode (vsync path), run extra emulated frames while held.
-        _update<true>(dt, renderAudio);
+        _update<true>(dt, isTimeAlign);
         for(int i = 1; i < SPEED_BOOST_MULTIPLIER; ++i) {
-            _update<true>(0, renderAudio);
+            _update<true>(0, isTimeAlign);
         }
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;

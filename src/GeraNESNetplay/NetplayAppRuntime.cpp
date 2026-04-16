@@ -872,7 +872,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             break;
         }
 
-        if(!emu.updateUntilFrame(frameDt, false)) {
+        if(!emu.updateUntilFrame(frameDt, true)) {
             break;
         }
 

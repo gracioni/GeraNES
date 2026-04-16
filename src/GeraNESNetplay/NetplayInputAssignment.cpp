@@ -316,15 +316,22 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
             const Settings::Device device = baseFrame.port1Device;
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
-               device == Settings::Device::SNES_CONTROLLER ||
-               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
+               device == Settings::Device::SNES_CONTROLLER) {
                 contribution.p1A = state.p1A; contribution.p1B = state.p1B; contribution.p1Select = state.p1Select; contribution.p1Start = state.p1Start;
                 contribution.p1Up = state.p1Up; contribution.p1Down = state.p1Down; contribution.p1Left = state.p1Left; contribution.p1Right = state.p1Right;
                 contribution.p1X = state.p1X; contribution.p1Y = state.p1Y; contribution.p1L = state.p1L; contribution.p1R = state.p1R;
+                contribution.vbP1A = false; contribution.vbP1B = false; contribution.vbP1Select = false; contribution.vbP1Start = false;
+                contribution.vbP1Up0 = false; contribution.vbP1Down0 = false; contribution.vbP1Left0 = false; contribution.vbP1Right0 = false;
+                contribution.vbP1Up1 = false; contribution.vbP1Down1 = false; contribution.vbP1Left1 = false; contribution.vbP1Right1 = false;
+                contribution.vbP1L = false; contribution.vbP1R = false;
+            } else if(device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                 contribution.vbP1A = state.p1A; contribution.vbP1B = state.p1B; contribution.vbP1Select = state.p1Select; contribution.vbP1Start = state.p1Start;
                 contribution.vbP1Up0 = state.p1Up; contribution.vbP1Down0 = state.p1Down; contribution.vbP1Left0 = state.p1Left; contribution.vbP1Right0 = state.p1Right;
                 contribution.vbP1Up1 = state.p1Up2; contribution.vbP1Down1 = state.p1Down2; contribution.vbP1Left1 = state.p1Left2; contribution.vbP1Right1 = state.p1Right2;
                 contribution.vbP1L = state.p1L; contribution.vbP1R = state.p1R;
+                contribution.p1A = false; contribution.p1B = false; contribution.p1Select = false; contribution.p1Start = false;
+                contribution.p1Up = false; contribution.p1Down = false; contribution.p1Left = false; contribution.p1Right = false;
+                contribution.p1X = false; contribution.p1Y = false; contribution.p1L = false; contribution.p1R = false;
             } else if(device == Settings::Device::ZAPPER) {
                 contribution.zapperP1X = state.zapperX; contribution.zapperP1Y = state.zapperY; contribution.zapperP1Trigger = state.zapperP1Trigger;
             } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
@@ -345,15 +352,22 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
             const Settings::Device device = baseFrame.port2Device;
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
-               device == Settings::Device::SNES_CONTROLLER ||
-               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
+               device == Settings::Device::SNES_CONTROLLER) {
                 contribution.p2A = state.p2A; contribution.p2B = state.p2B; contribution.p2Select = state.p2Select; contribution.p2Start = state.p2Start;
                 contribution.p2Up = state.p2Up; contribution.p2Down = state.p2Down; contribution.p2Left = state.p2Left; contribution.p2Right = state.p2Right;
                 contribution.p2X = state.p2X; contribution.p2Y = state.p2Y; contribution.p2L = state.p2L; contribution.p2R = state.p2R;
+                contribution.vbP2A = false; contribution.vbP2B = false; contribution.vbP2Select = false; contribution.vbP2Start = false;
+                contribution.vbP2Up0 = false; contribution.vbP2Down0 = false; contribution.vbP2Left0 = false; contribution.vbP2Right0 = false;
+                contribution.vbP2Up1 = false; contribution.vbP2Down1 = false; contribution.vbP2Left1 = false; contribution.vbP2Right1 = false;
+                contribution.vbP2L = false; contribution.vbP2R = false;
+            } else if(device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                 contribution.vbP2A = state.p2A; contribution.vbP2B = state.p2B; contribution.vbP2Select = state.p2Select; contribution.vbP2Start = state.p2Start;
                 contribution.vbP2Up0 = state.p2Up; contribution.vbP2Down0 = state.p2Down; contribution.vbP2Left0 = state.p2Left; contribution.vbP2Right0 = state.p2Right;
                 contribution.vbP2Up1 = state.p2Up2; contribution.vbP2Down1 = state.p2Down2; contribution.vbP2Left1 = state.p2Left2; contribution.vbP2Right1 = state.p2Right2;
                 contribution.vbP2L = state.p2L; contribution.vbP2R = state.p2R;
+                contribution.p2A = false; contribution.p2B = false; contribution.p2Select = false; contribution.p2Start = false;
+                contribution.p2Up = false; contribution.p2Down = false; contribution.p2Left = false; contribution.p2Right = false;
+                contribution.p2X = false; contribution.p2Y = false; contribution.p2L = false; contribution.p2R = false;
             } else if(device == Settings::Device::ZAPPER) {
                 contribution.zapperP2X = state.zapperX; contribution.zapperP2Y = state.zapperY; contribution.zapperP2Trigger = state.zapperP2Trigger;
             } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
