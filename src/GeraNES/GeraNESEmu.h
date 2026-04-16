@@ -873,6 +873,16 @@ private:
             else {
                 m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
             }
+        } else {
+            // Preserve device continuity, but never keep the "already rendered"
+            // marker ahead of the loaded frame. Otherwise, rollback/resync can
+            // mute audio for long stretches after timeline rewind.
+            if(m_frameCounter == 0) {
+                m_lastAudiblyRenderedPlaybackFrame.reset();
+            } else if(m_lastAudiblyRenderedPlaybackFrame.has_value() &&
+                      *m_lastAudiblyRenderedPlaybackFrame >= m_frameCounter) {
+                m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
+            }
         }
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
