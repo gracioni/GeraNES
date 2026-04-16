@@ -937,7 +937,17 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
     m_coordinator.discardTimelineAfter(*rollbackFrame, true);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
-    reanchorInputDriver(*rollbackFrame, localAssignedSlots());
+
+    FrameNumber inputDriverAnchorFrame = *rollbackFrame;
+    const ParticipantId localParticipantId = m_coordinator.localParticipantId();
+    for(auto it = m_coordinator.localInputs().entries().rbegin();
+        it != m_coordinator.localInputs().entries().rend();
+        ++it) {
+        if(it->participantId != localParticipantId) continue;
+        inputDriverAnchorFrame = std::max(inputDriverAnchorFrame, it->frame);
+        break;
+    }
+    reanchorInputDriver(inputDriverAnchorFrame, localAssignedSlots());
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
