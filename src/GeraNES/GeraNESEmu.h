@@ -857,6 +857,12 @@ private:
 
     void resyncAudioAfterStateLoad(StateLoadAudioPolicy audioPolicy = StateLoadAudioPolicy::ResetOutput)
     {
+        // Timeline jumps (rollback/resync/manual load) invalidate drift/debt
+        // accounting regardless of output reset policy.
+        m_lastAudioRenderedMs = 0;
+        m_vsyncAudioCompMsAcc = 0.0;
+        m_vsyncAudioSkipMsDebt = 0;
+
         // Audio output internals (wave generators/FIFOs) are not part of save states.
         // Hard resync/manual load resets the live output, but ordinary rollback
         // must preserve the active device/queue so transient jitter does not
@@ -864,9 +870,6 @@ private:
         if(audioPolicy == StateLoadAudioPolicy::ResetOutput) {
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
-            m_lastAudioRenderedMs = 0;
-            m_vsyncAudioCompMsAcc = 0.0;
-            m_vsyncAudioSkipMsDebt = 0;
             if(m_frameCounter == 0) {
                 m_lastAudiblyRenderedPlaybackFrame.reset();
             }
