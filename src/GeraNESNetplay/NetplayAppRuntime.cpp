@@ -1769,7 +1769,21 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     );
 
     bool holdForPostResyncDelayBuffer = false;
-    if(running && m_waitingPostResyncDelayBuffer) {
+    if(running) {
+        const RoomState& room = m_coordinator.session().roomState();
+        const bool hasConnectedAssignedParticipant = std::any_of(
+            room.participants.begin(),
+            room.participants.end(),
+            [](const ParticipantInfo& participant) {
+                return participant.connected && !participantIsObserver(participant);
+            }
+        );
+        if(!hasConnectedAssignedParticipant) {
+            if(!m_observerVisibilityResyncPending) {
+                m_emuHost.setSimulationSuspended(false);
+            }
+            m_waitingPostResyncDelayBuffer = false;
+        } else {
         const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
         const FrameNumber requiredConfirmedFrame =
             emu.frameCount() + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
@@ -1781,6 +1795,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
             if(!m_observerVisibilityResyncPending) {
                 m_emuHost.setSimulationSuspended(false);
             }
+        }
         }
     }
 

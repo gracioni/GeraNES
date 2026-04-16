@@ -1,7 +1,9 @@
 #include "GeraNESNetplay/NetplayAutoSettings.h"
+#include "GeraNESNetplay/NetplayInputAssignment.h"
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace Netplay {
 
@@ -166,45 +168,165 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
                                                                  uint32_t unresolvedPredictedRemoteFrameCount,
                                                                  uint32_t fps)
 {
-    (void)stats;
-    (void)unresolvedPredictedRemoteFrameCount;
-    (void)fps;
-
-    constexpr uint8_t kFixedDelayFrames = 1;
+    const FrameNumber currentFrame = room.currentFrame;
     constexpr uint8_t kFixedPredictFrames = 8;
 
     Recommendations recommendations;
-
-    m_lastSessionId = room.sessionId;
-    m_lastTimelineEpoch = room.timelineEpoch;
-    m_lastState = room.state;
     if(!m_enabled) {
         m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
         m_currentFixedPredict = static_cast<uint8_t>(room.predictFrames);
+        m_predictLocked = false;
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
         m_lastDecisionReason = "Automatic gameplay tuning disabled";
         return recommendations;
     }
 
-    m_currentRecommendedDelay = kFixedDelayFrames;
+    if(m_lastSessionId != room.sessionId ||
+       m_lastTimelineEpoch != room.timelineEpoch ||
+       m_lastState != room.state) {
+        resetForSession(room.sessionId, room.timelineEpoch, room.state);
+    }
+
+    m_lastSessionId = room.sessionId;
+    m_lastTimelineEpoch = room.timelineEpoch;
+    m_lastState = room.state;
+
+    m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
     m_currentFixedPredict = kFixedPredictFrames;
     m_predictLocked = true;
-    m_runningWindowInitialized = false;
-    m_stableFrameCount = 0;
-    m_lastEvaluationFrame = room.currentFrame;
-    m_lastAdjustmentFrame = room.currentFrame;
-    m_lastPredictionMissCount = 0;
-    m_lastPlaybackStopCount = 0;
-    m_lastPredictionLimitStopCount = 0;
-    m_lastMissingInputStopCount = 0;
-    m_lastRollbackScheduledCount = 0;
-    m_lastPredictedFrameUseCount = 0;
-    m_lastDecisionReason = "Fixed tuning active: input delay 1, predict 8";
 
-    if(room.inputDelayFrames != kFixedDelayFrames) {
-        recommendations.inputDelayFrames = kFixedDelayFrames;
-    }
     if(room.predictFrames != kFixedPredictFrames) {
         recommendations.predictFrames = kFixedPredictFrames;
+    }
+
+    if(room.state != SessionState::Running) {
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_lastDecisionReason = "Waiting for running session";
+        return recommendations;
+    }
+
+    const uint8_t baselineDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
+
+    if(!m_runningWindowInitialized) {
+        resetRunningWindow(stats, currentFrame);
+        m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
+        m_lastDecisionReason = "Initialized adaptive delay controller";
+        return recommendations;
+    }
+
+    if(currentFrame <= m_lastEvaluationFrame) {
+        return recommendations;
+    }
+
+    const auto safeDelta = [](uint32_t current, uint32_t previous) {
+        return current >= previous ? (current - previous) : current;
+    };
+
+    const uint32_t predictionMissDelta = safeDelta(stats.predictionMissCount, m_lastPredictionMissCount);
+    const uint32_t playbackStopDelta = safeDelta(stats.playbackStopCount, m_lastPlaybackStopCount);
+    const uint32_t predictionLimitStopDelta =
+        safeDelta(stats.stopDueToPredictionLimitCount, m_lastPredictionLimitStopCount);
+    const uint32_t missingInputStopDelta =
+        safeDelta(stats.stopDueToMissingInputCount, m_lastMissingInputStopCount);
+    const uint32_t rollbackScheduledDelta =
+        safeDelta(stats.rollbackScheduledCount, m_lastRollbackScheduledCount);
+    const uint32_t predictedFrameUseDelta =
+        safeDelta(stats.predictedFrameUseCount, m_lastPredictedFrameUseCount);
+
+    m_lastPredictionMissCount = stats.predictionMissCount;
+    m_lastPlaybackStopCount = stats.playbackStopCount;
+    m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
+    m_lastMissingInputStopCount = stats.stopDueToMissingInputCount;
+    m_lastRollbackScheduledCount = stats.rollbackScheduledCount;
+    m_lastPredictedFrameUseCount = stats.predictedFrameUseCount;
+
+    const bool evaluationWindowReached =
+        (currentFrame - m_lastEvaluationFrame) >= kEvaluationWindowFrames;
+    const bool severePressureNow =
+        missingInputStopDelta > 0u ||
+        predictionLimitStopDelta > 0u ||
+        unresolvedPredictedRemoteFrameCount >= 4u;
+    if(!evaluationWindowReached && !severePressureNow) {
+        return recommendations;
+    }
+    m_lastEvaluationFrame = currentFrame;
+
+    bool recoveringAssignedPeer = false;
+    for(const ParticipantInfo& participant : room.participants) {
+        if(participant.id == kInvalidParticipantId || !participant.connected) continue;
+        if(participantIsObserver(participant)) continue;
+        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+            recoveringAssignedPeer = true;
+            break;
+        }
+    }
+
+    const uint32_t stressScore =
+        (predictionMissDelta * 2u) +
+        (playbackStopDelta * 2u) +
+        (predictionLimitStopDelta * 4u) +
+        (missingInputStopDelta * 5u) +
+        (rollbackScheduledDelta * 2u) +
+        (unresolvedPredictedRemoteFrameCount > 0u ? 1u + (unresolvedPredictedRemoteFrameCount / 2u) : 0u) +
+        (recoveringAssignedPeer ? 4u : 0u);
+
+    const FrameNumber framesSinceAdjustment = currentFrame - m_lastAdjustmentFrame;
+    const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
+    const bool shouldIncrease = stressScore >= 4u;
+
+    if(shouldIncrease && (!cooldownActive || severePressureNow)) {
+        const uint8_t increaseStep =
+            (stressScore >= 10u || recoveringAssignedPeer || missingInputStopDelta > 0u) ? 2u : 1u;
+        const uint8_t targetDelay =
+            clampDelay(static_cast<uint32_t>(std::max<uint8_t>(room.inputDelayFrames, m_currentRecommendedDelay)) +
+                       static_cast<uint32_t>(increaseStep));
+        if(targetDelay > room.inputDelayFrames) {
+            recommendations.inputDelayFrames = targetDelay;
+            m_currentRecommendedDelay = targetDelay;
+            m_lastAdjustmentFrame = currentFrame;
+            m_stableFrameCount = 0;
+            m_lastDecisionReason =
+                "Increased delay to absorb prediction/rollback pressure (" +
+                std::to_string(static_cast<unsigned>(stressScore)) + ")";
+            return recommendations;
+        }
+    }
+
+    const bool healthyWindow =
+        stressScore == 0u &&
+        unresolvedPredictedRemoteFrameCount == 0u &&
+        predictionMissDelta == 0u &&
+        playbackStopDelta == 0u &&
+        rollbackScheduledDelta == 0u &&
+        predictedFrameUseDelta == 0u &&
+        !recoveringAssignedPeer;
+
+    if(healthyWindow) {
+        m_stableFrameCount += (currentFrame - m_lastEvaluationFrame + kEvaluationWindowFrames);
+    } else {
+        m_stableFrameCount = 0u;
+    }
+
+    if(!cooldownActive &&
+       m_stableFrameCount >= kDelayDecreaseStableFrames &&
+       room.inputDelayFrames > baselineDelay) {
+        const uint8_t targetDelay = static_cast<uint8_t>(room.inputDelayFrames - 1u);
+        recommendations.inputDelayFrames = targetDelay;
+        m_currentRecommendedDelay = targetDelay;
+        m_lastAdjustmentFrame = currentFrame;
+        m_stableFrameCount = 0u;
+        m_lastDecisionReason =
+            "Decreased delay after sustained stable playback to " +
+            std::to_string(static_cast<unsigned>(targetDelay));
+        return recommendations;
+    }
+
+    if(healthyWindow) {
+        m_lastDecisionReason = "Stable window; monitoring for gradual delay reduction";
+    } else {
+        m_lastDecisionReason = "Within tolerance; keeping current delay";
     }
 
     return recommendations;
