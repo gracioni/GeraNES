@@ -322,31 +322,19 @@ void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
     const auto& room = m_coordinator.session().roomState();
     if(m_coordinator.isHosting()) {
         if(cfg.autoGameplayTuning) {
-            bool recoveringParticipantPresent = false;
-            for(const Netplay::ParticipantInfo& participant : room.participants) {
-                if(participant.id == m_coordinator.localParticipantId()) continue;
-                if(!participant.connected || Netplay::participantIsObserver(participant)) continue;
-                if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
-                    recoveringParticipantPresent = true;
-                    break;
-                }
+            const auto recommendations = m_autoSettings.update(
+                room,
+                m_coordinator.predictionStats(),
+                m_coordinator.unresolvedPredictedRemoteFrameCount(),
+                emu.getRegionFPS()
+            );
+            if(recommendations.inputDelayFrames.has_value() &&
+               room.inputDelayFrames != *recommendations.inputDelayFrames) {
+                m_coordinator.setInputDelayFrames(*recommendations.inputDelayFrames);
             }
-
-            if(!recoveringParticipantPresent) {
-                const auto recommendations = m_autoSettings.update(
-                    room,
-                    m_coordinator.predictionStats(),
-                    m_coordinator.unresolvedPredictedRemoteFrameCount(),
-                    emu.getRegionFPS()
-                );
-                if(recommendations.inputDelayFrames.has_value() &&
-                   room.inputDelayFrames != *recommendations.inputDelayFrames) {
-                    m_coordinator.setInputDelayFrames(*recommendations.inputDelayFrames);
-                }
-                if(recommendations.predictFrames.has_value() &&
-                   room.predictFrames != *recommendations.predictFrames) {
-                    m_coordinator.setPredictFrames(*recommendations.predictFrames);
-                }
+            if(recommendations.predictFrames.has_value() &&
+               room.predictFrames != *recommendations.predictFrames) {
+                m_coordinator.setPredictFrames(*recommendations.predictFrames);
             }
         } else {
             const uint8_t manualDelay = static_cast<uint8_t>(std::max(0, cfg.inputDelayFrames));

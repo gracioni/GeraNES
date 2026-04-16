@@ -3070,6 +3070,7 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
     if(!reader.readPod(data)) return false;
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
+        const FrameNumber previousReportedCurrentFrame = participant->lastReportedCurrentFrame;
         participant->pingMs = data.pingMs;
         participant->jitterMs = data.jitterMs;
         participant->lastReportedCurrentFrame = data.currentFrame;
@@ -3080,6 +3081,15 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
         participant->sharedClockSampledAtLocalMicros =
             static_cast<uint64_t>(std::max<int64_t>(0, monotonicNowMicros()));
         ++participant->peerHealthSerial;
+        if(m_hosting &&
+           participant->connected &&
+           !participantIsObserver(*participant) &&
+           data.currentFrame > previousReportedCurrentFrame) {
+            // If peer health reports forward simulation progress, treat this as
+            // fresh activity so input-timeout suspension does not false-trigger
+            // during temporary packet ordering/duplication anomalies.
+            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+        }
         tryScheduleImplicitRecoveryResync(*participant);
     }
 

@@ -228,12 +228,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         return recommendations;
     }
 
-    if(currentFrame < m_delayRetuneBlockedUntilFrame) {
-        m_runningWindowInitialized = false;
-        m_stableFrameCount = 0;
-        m_lastDecisionReason = "Post-recovery settle window active";
-        return recommendations;
-    }
+    const bool inPostRecoverySettleWindow = currentFrame < m_delayRetuneBlockedUntilFrame;
 
     const uint8_t baselineDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
 
@@ -320,6 +315,13 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
                 std::to_string(static_cast<unsigned>(stressScore)) + ")";
             return recommendations;
         }
+    }
+
+    if(inPostRecoverySettleWindow) {
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_lastDecisionReason = "Post-recovery settle window active";
+        return recommendations;
     }
 
     const bool healthyWindow =
