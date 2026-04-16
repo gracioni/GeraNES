@@ -333,7 +333,9 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     }
 
     if(localSlots.empty()) {
-        const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames + m_predictFrames;
+        // Input production horizon must follow configured delay only.
+        // Prediction is consumed by playback/simulation, not by committed local input generation.
+        const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
         if(m_producedThroughFrame < targetBufferedThroughFrame) {
             m_producedThroughFrame = targetBufferedThroughFrame;
         }
@@ -349,7 +351,8 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     (void)regionFps;
     (void)confirmedThroughFrame;
 
-    const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames + m_predictFrames;
+    // Produce committed local inputs using delay-only horizon.
+    const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
 
     while(m_producedThroughFrame < targetBufferedThroughFrame) {
         ++m_producedThroughFrame;
