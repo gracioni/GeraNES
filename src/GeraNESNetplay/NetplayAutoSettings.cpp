@@ -119,6 +119,29 @@ uint8_t NetplayAutoSettings::predictionBaselineForRoom(const RoomState& room, ui
     return clampPredict(baseline);
 }
 
+uint64_t NetplayAutoSettings::activeParticipantSignature(const RoomState& room)
+{
+    // Simple FNV-1a style fold over participant membership/assignment state.
+    uint64_t hash = 1469598103934665603ull;
+    auto mix = [&hash](uint64_t value) {
+        hash ^= value;
+        hash *= 1099511628211ull;
+    };
+
+    for(const ParticipantInfo& participant : room.participants) {
+        mix(static_cast<uint64_t>(participant.id));
+        mix(static_cast<uint64_t>(participant.connected ? 1u : 0u));
+        mix(static_cast<uint64_t>(participant.reconnectReserved ? 1u : 0u));
+        mix(static_cast<uint64_t>(participant.role));
+        mix(static_cast<uint64_t>(participant.controllerAssignments.size()));
+        for(PlayerSlot slot : participant.controllerAssignments) {
+            mix(static_cast<uint64_t>(slot) + 17ull);
+        }
+    }
+
+    return hash;
+}
+
 void NetplayAutoSettings::resetRunningWindow(const RollbackStats& stats, FrameNumber frame)
 {
     m_runningWindowInitialized = true;
@@ -148,6 +171,7 @@ void NetplayAutoSettings::resetForSession(uint32_t sessionId, uint32_t timelineE
     m_lastRollbackScheduledCount = 0;
     m_lastPredictedFrameUseCount = 0;
     m_lastRecoveryModeTransitionCount = 0;
+    m_lastActiveParticipantSignature = 0;
     m_delayRetuneBlockedUntilFrame = 0;
     m_lastDecisionReason.clear();
 }
@@ -202,6 +226,28 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     if(room.predictFrames != kFixedPredictFrames) {
         recommendations.predictFrames = kFixedPredictFrames;
     }
+
+    const uint64_t participantSignature = activeParticipantSignature(room);
+    if(m_lastActiveParticipantSignature != 0u &&
+       participantSignature != m_lastActiveParticipantSignature) {
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_delayRetuneBlockedUntilFrame = 0;
+        const uint8_t rebasedDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
+        if(room.inputDelayFrames != rebasedDelay) {
+            recommendations.inputDelayFrames = rebasedDelay;
+            m_currentRecommendedDelay = rebasedDelay;
+            m_lastAdjustmentFrame = currentFrame;
+            m_lastDecisionReason =
+                "Participant topology changed; rebased delay to " +
+                std::to_string(static_cast<unsigned>(rebasedDelay));
+        } else {
+            m_lastDecisionReason = "Participant topology changed; reset adaptive window";
+        }
+        m_lastActiveParticipantSignature = participantSignature;
+        return recommendations;
+    }
+    m_lastActiveParticipantSignature = participantSignature;
 
     if(room.state != SessionState::Running) {
         m_runningWindowInitialized = false;

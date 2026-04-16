@@ -820,7 +820,14 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
         return;
     }
 
+    // Web/mobile browsers can have coarse timers and intermittent scheduling.
+    // Keep post-resync clock catch-up bounded there to avoid long burst
+    // simulation loops that amplify rollback pressure.
+#ifdef __EMSCRIPTEN__
+    constexpr uint32_t kMaxSilentCatchupFrames = 24u;
+#else
     constexpr uint32_t kMaxSilentCatchupFrames = 120u;
+#endif
     const uint32_t advancedFrames = advanceToSharedClockIfNeededOnWorker(emu, kMaxSilentCatchupFrames);
 
     if(advancedFrames > 0u) {
@@ -1792,7 +1799,13 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     if(running) {
         if(!holdForPostResyncDelayBuffer) {
+            // Continuous shared-clock catch-up must be conservative on web to
+            // avoid frame-time spikes and rollback cascades on slow devices.
+#ifdef __EMSCRIPTEN__
+            constexpr uint32_t kMaxContinuousClockCatchupFrames = 6u;
+#else
             constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
+#endif
             (void)advanceToSharedClockIfNeededOnWorker(emu, kMaxContinuousClockCatchupFrames);
 
             m_inputDriver.preparePlaybackFramesForEmulationThread(
