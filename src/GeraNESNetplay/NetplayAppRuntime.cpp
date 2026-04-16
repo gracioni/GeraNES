@@ -1793,14 +1793,15 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
                 if(!m_observerVisibilityResyncPending) {
                     m_emuHost.setSimulationSuspended(false);
                 }
-                Log::warn(
-                    "Post-resync delay buffer wait timed out after %llu ms; resuming simulation (confirmed=%u required=%u)",
-                    static_cast<unsigned long long>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()
-                    ),
-                    static_cast<unsigned>(confirmedThroughFrame),
-                    static_cast<unsigned>(requiredConfirmedFrame)
-                );
+                std::ostringstream warning;
+                warning << "Post-resync delay buffer wait timed out after "
+                        << std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()
+                        << " ms; resuming simulation (confirmed="
+                        << static_cast<unsigned>(confirmedThroughFrame)
+                        << " required="
+                        << static_cast<unsigned>(requiredConfirmedFrame)
+                        << ")";
+                m_coordinator.appendNetplayLog(warning.str());
             }
         }
         if(holdForPostResyncDelayBuffer) {
