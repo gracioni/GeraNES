@@ -562,6 +562,7 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
+        m_waitingPostResyncDelayBuffer = false;
         return;
     }
 
@@ -611,6 +612,7 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         reanchorInputDriver(anchorFrame, localAssignedSlots());
+        m_waitingPostResyncDelayBuffer = true;
         m_postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
         if(m_observerVisibilityResyncPending) {
             m_observerVisibilityResyncPending = false;
@@ -1584,6 +1586,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
+        m_waitingPostResyncDelayBuffer = false;
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;
         m_webPageVisible = true;
@@ -1692,19 +1695,37 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_inputDriver.confirmedThroughFrame(m_coordinator)
     );
 
-    if(running) {
-        m_inputDriver.preparePlaybackFramesForEmulationThread(
-            m_coordinator,
-            m_coordinator.isActive(),
-            false,
-            m_coordinator.session().roomState().state,
-            emu.frameCount()
-        );
-        m_inputDriver.queuePendingFramesToEmu(emu);
+    bool holdForPostResyncDelayBuffer = false;
+    if(running && m_waitingPostResyncDelayBuffer) {
+        const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+        const FrameNumber requiredConfirmedFrame =
+            emu.frameCount() + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
+        holdForPostResyncDelayBuffer = confirmedThroughFrame < requiredConfirmedFrame;
+        if(holdForPostResyncDelayBuffer) {
+            m_emuHost.setSimulationSuspended(true);
+        } else {
+            m_waitingPostResyncDelayBuffer = false;
+            if(!m_observerVisibilityResyncPending) {
+                m_emuHost.setSimulationSuspended(false);
+            }
+        }
+    }
 
-        const uint32_t currentFrame = emu.frameCount();
-        if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
-            tryQueuePlaybackFrameToEmu(emu, currentFrame);
+    if(running) {
+        if(!holdForPostResyncDelayBuffer) {
+            m_inputDriver.preparePlaybackFramesForEmulationThread(
+                m_coordinator,
+                m_coordinator.isActive(),
+                false,
+                m_coordinator.session().roomState().state,
+                emu.frameCount()
+            );
+            m_inputDriver.queuePendingFramesToEmu(emu);
+
+            const uint32_t currentFrame = emu.frameCount();
+            if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
+                tryQueuePlaybackFrameToEmu(emu, currentFrame);
+            }
         }
     }
 

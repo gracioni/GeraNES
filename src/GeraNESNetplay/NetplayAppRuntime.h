@@ -116,6 +116,7 @@ private:
     FrameNumber m_lastLoadedAuthoritativeFrame = 0;
     FrameNumber m_lastRecoveryReanchorFrame = 0;
     bool m_forceNextConfirmedCrcSubmission = false;
+    bool m_waitingPostResyncDelayBuffer = false;
     bool m_observerVisibilityResyncPending = false;
     bool m_webVisibilityManagedPause = false;
     bool m_webPageVisible = true;
