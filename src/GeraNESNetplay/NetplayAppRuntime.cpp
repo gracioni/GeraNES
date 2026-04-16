@@ -551,6 +551,7 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         m_waitingPostResyncDelayBuffer = false;
+        m_waitingPostResyncDelayBufferSince = {};
         return;
     }
 
@@ -601,6 +602,7 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         reanchorInputDriver(anchorFrame, localAssignedSlots());
         m_waitingPostResyncDelayBuffer = true;
+        m_waitingPostResyncDelayBufferSince = std::chrono::steady_clock::now();
         m_postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
         if(m_observerVisibilityResyncPending) {
             m_observerVisibilityResyncPending = false;
@@ -1666,6 +1668,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
         m_waitingPostResyncDelayBuffer = false;
+        m_waitingPostResyncDelayBufferSince = {};
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;
         m_webPageVisible = true;
@@ -1776,14 +1779,35 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     bool holdForPostResyncDelayBuffer = false;
     if(running && m_waitingPostResyncDelayBuffer) {
+        constexpr auto kMaxPostResyncDelayBufferWait = std::chrono::milliseconds(1500);
         const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
         const FrameNumber requiredConfirmedFrame =
             emu.frameCount() + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
         holdForPostResyncDelayBuffer = confirmedThroughFrame < requiredConfirmedFrame;
+        if(holdForPostResyncDelayBuffer && m_waitingPostResyncDelayBufferSince.time_since_epoch().count() != 0) {
+            const auto waited = std::chrono::steady_clock::now() - m_waitingPostResyncDelayBufferSince;
+            if(waited >= kMaxPostResyncDelayBufferWait) {
+                holdForPostResyncDelayBuffer = false;
+                m_waitingPostResyncDelayBuffer = false;
+                m_waitingPostResyncDelayBufferSince = {};
+                if(!m_observerVisibilityResyncPending) {
+                    m_emuHost.setSimulationSuspended(false);
+                }
+                Log::warn(
+                    "Post-resync delay buffer wait timed out after %llu ms; resuming simulation (confirmed=%u required=%u)",
+                    static_cast<unsigned long long>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()
+                    ),
+                    static_cast<unsigned>(confirmedThroughFrame),
+                    static_cast<unsigned>(requiredConfirmedFrame)
+                );
+            }
+        }
         if(holdForPostResyncDelayBuffer) {
             m_emuHost.setSimulationSuspended(true);
         } else {
             m_waitingPostResyncDelayBuffer = false;
+            m_waitingPostResyncDelayBufferSince = {};
             if(!m_observerVisibilityResyncPending) {
                 m_emuHost.setSimulationSuspended(false);
             }
