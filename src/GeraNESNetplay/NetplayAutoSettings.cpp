@@ -119,6 +119,28 @@ uint8_t NetplayAutoSettings::predictionBaselineForRoom(const RoomState& room, ui
     return clampPredict(baseline);
 }
 
+uint64_t NetplayAutoSettings::activeParticipantSignature(const RoomState& room)
+{
+    uint64_t hash = 1469598103934665603ull;
+    auto mix = [&hash](uint64_t value) {
+        hash ^= value;
+        hash *= 1099511628211ull;
+    };
+
+    for(const ParticipantInfo& participant : room.participants) {
+        mix(static_cast<uint64_t>(participant.id));
+        mix(static_cast<uint64_t>(participant.connected ? 1u : 0u));
+        mix(static_cast<uint64_t>(participant.reconnectReserved ? 1u : 0u));
+        mix(static_cast<uint64_t>(participant.role));
+        mix(static_cast<uint64_t>(participant.controllerAssignments.size()));
+        for(PlayerSlot slot : participant.controllerAssignments) {
+            mix(static_cast<uint64_t>(slot) + 17ull);
+        }
+    }
+
+    return hash;
+}
+
 void NetplayAutoSettings::resetRunningWindow(const RollbackStats& stats, FrameNumber frame)
 {
     m_runningWindowInitialized = true;
@@ -148,6 +170,7 @@ void NetplayAutoSettings::resetForSession(uint32_t sessionId, uint32_t timelineE
     m_lastRollbackScheduledCount = 0;
     m_lastPredictedFrameUseCount = 0;
     m_lastRecoveryModeTransitionCount = 0;
+    m_lastActiveParticipantSignature = 0;
     m_delayRetuneBlockedUntilFrame = 0;
     m_lastDecisionReason.clear();
 }
@@ -203,6 +226,28 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         recommendations.predictFrames = kFixedPredictFrames;
     }
 
+    const uint64_t participantSignature = activeParticipantSignature(room);
+    if(m_lastActiveParticipantSignature != 0u &&
+       participantSignature != m_lastActiveParticipantSignature) {
+        m_runningWindowInitialized = false;
+        m_stableFrameCount = 0;
+        m_delayRetuneBlockedUntilFrame = 0;
+        const uint8_t rebasedDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
+        if(room.inputDelayFrames != rebasedDelay) {
+            recommendations.inputDelayFrames = rebasedDelay;
+            m_currentRecommendedDelay = rebasedDelay;
+            m_lastAdjustmentFrame = currentFrame;
+            m_lastDecisionReason =
+                "Participant topology changed; rebased delay to " +
+                std::to_string(static_cast<unsigned>(rebasedDelay));
+        } else {
+            m_lastDecisionReason = "Participant topology changed; reset adaptive window";
+        }
+        m_lastActiveParticipantSignature = participantSignature;
+        return recommendations;
+    }
+    m_lastActiveParticipantSignature = participantSignature;
+
     if(room.state != SessionState::Running) {
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
@@ -255,9 +300,6 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         safeDelta(stats.stopDueToMissingInputCount, m_lastMissingInputStopCount);
     const uint32_t rollbackScheduledDelta =
         safeDelta(stats.rollbackScheduledCount, m_lastRollbackScheduledCount);
-    const uint32_t predictedFrameUseDelta =
-        safeDelta(stats.predictedFrameUseCount, m_lastPredictedFrameUseCount);
-
     m_lastPredictionMissCount = stats.predictionMissCount;
     m_lastPlaybackStopCount = stats.playbackStopCount;
     m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
@@ -330,7 +372,6 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         predictionMissDelta == 0u &&
         playbackStopDelta == 0u &&
         rollbackScheduledDelta == 0u &&
-        predictedFrameUseDelta == 0u &&
         !recoveringAssignedPeer;
 
     if(healthyWindow) {
@@ -341,15 +382,22 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
 
     if(!cooldownActive &&
        m_stableFrameCount >= kDelayDecreaseStableFrames &&
-       room.inputDelayFrames > baselineDelay) {
-        const uint8_t targetDelay = static_cast<uint8_t>(room.inputDelayFrames - 1u);
+       room.inputDelayFrames > 1u) {
+        // After suspend/resume transitions, jitter telemetry can remain high for
+        // a while. Let delay recover downward gradually when runtime is stable.
+        const uint8_t decreaseStep = room.inputDelayFrames >= 6u ? 2u : 1u;
+        const uint8_t loweredDelay = static_cast<uint8_t>(
+            room.inputDelayFrames > decreaseStep ? room.inputDelayFrames - decreaseStep : 1u
+        );
+        const uint8_t targetDelay = std::max<uint8_t>(1u, std::min<uint8_t>(loweredDelay, room.inputDelayFrames));
         recommendations.inputDelayFrames = targetDelay;
         m_currentRecommendedDelay = targetDelay;
         m_lastAdjustmentFrame = currentFrame;
         m_stableFrameCount = 0u;
         m_lastDecisionReason =
             "Decreased delay after sustained stable playback to " +
-            std::to_string(static_cast<unsigned>(targetDelay));
+            std::to_string(static_cast<unsigned>(targetDelay)) +
+            " (jitter floor " + std::to_string(static_cast<unsigned>(baselineDelay)) + ")";
         return recommendations;
     }
 

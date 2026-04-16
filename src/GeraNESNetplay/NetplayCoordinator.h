@@ -284,6 +284,7 @@ private:
     void discardTimelineStateAfter(FrameNumber frame);
     void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void scheduleResyncRetry(FrameNumber targetFrame, const std::string& reason);
+    bool ejectParticipantForResyncFailure(ParticipantId participantId, const std::string& reason);
     static const char* recoveryInputModeLabel(RecoveryInputMode mode);
     void setRecoveryInputMode(RecoveryInputMode mode,
                               const char* reason,

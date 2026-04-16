@@ -1617,6 +1617,37 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     pushLog(reason);
 }
 
+bool NetplayCoordinator::ejectParticipantForResyncFailure(ParticipantId participantId, const std::string& reason)
+{
+    if(!m_hosting || participantId == kInvalidParticipantId || participantId == m_localParticipantId) {
+        return false;
+    }
+
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr || participantIsObserver(*participant)) {
+        return false;
+    }
+
+    pushLog(reason);
+    if(participant->reconnectReserved) {
+        (void)removeReconnectReservation(participantId);
+    } else {
+        (void)kickParticipant(participantId);
+    }
+
+    m_pendingResyncAcks.erase(
+        std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
+        m_pendingResyncAcks.end()
+    );
+    m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
+    if(m_pendingResyncAcks.empty()) {
+        finalizeActiveResyncIfReady();
+    } else {
+        m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
+    }
+    return true;
+}
+
 const char* NetplayCoordinator::recoveryInputModeLabel(RecoveryInputMode mode)
 {
     switch(mode) {
@@ -2833,9 +2864,10 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
             );
             return true;
         }
-        scheduleResyncRetry(
-            m_session.roomState().resyncTargetFrame,
-            "Resync ACK failure from participant " + std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+        (void)ejectParticipantForResyncFailure(
+            data.participantId,
+            "Resync ACK failure from participant " + std::to_string(static_cast<int>(data.participantId)) +
+                "; removing participant to keep room running"
         );
         return true;
     }
@@ -2869,10 +2901,11 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
             );
             return true;
         }
-        scheduleResyncRetry(
-            m_session.roomState().resyncTargetFrame,
+        (void)ejectParticipantForResyncFailure(
+            data.participantId,
             "Resync ACK loaded unexpected frame from participant " +
-                std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+                std::to_string(static_cast<int>(data.participantId)) +
+                "; removing participant to keep room running"
         );
         return true;
     }
@@ -2907,10 +2940,11 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
             );
             return true;
         }
-        scheduleResyncRetry(
-            m_session.roomState().resyncTargetFrame,
+        (void)ejectParticipantForResyncFailure(
+            data.participantId,
             "Resync ACK state CRC mismatch from participant " +
-                std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+                std::to_string(static_cast<int>(data.participantId)) +
+                "; removing participant to keep room running"
         );
         return true;
     }
@@ -2964,9 +2998,10 @@ bool NetplayCoordinator::handleResyncAbort(PacketReader& reader)
         return true;
     }
 
-    scheduleResyncRetry(
-        m_session.roomState().resyncTargetFrame,
-        "Resync aborted by participant " + std::to_string(static_cast<int>(data.participantId)) + "; retrying"
+    (void)ejectParticipantForResyncFailure(
+        data.participantId,
+        "Resync aborted by participant " + std::to_string(static_cast<int>(data.participantId)) +
+            "; removing participant to keep room running"
     );
     return true;
 }
@@ -4413,7 +4448,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
             for(const ParticipantId participantId : m_pendingResyncAcks) {
                 if(participantId == m_localParticipantId) continue;
                 const ParticipantInfo* participant = m_session.findParticipant(participantId);
-                if(participant == nullptr || !participant->connected || participant->reconnectReserved) {
+                if(participant == nullptr) {
                     continue;
                 }
                 if(participantIsObserver(*participant)) {
@@ -4451,7 +4486,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 pushLog(oss.str());
 
                 for(const ParticipantId participantId : stalledParticipants) {
-                    (void)kickParticipant(participantId);
+                    (void)ejectParticipantForResyncFailure(
+                        participantId,
+                        "Resync ACK timeout from participant " + std::to_string(static_cast<int>(participantId)) +
+                            "; removing participant to keep room running"
+                    );
                 }
             } else if(m_pendingResyncAcks.empty()) {
                 finalizeActiveResyncIfReady();

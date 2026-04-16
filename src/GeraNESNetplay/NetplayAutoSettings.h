@@ -64,6 +64,7 @@ private:
     uint32_t m_lastRollbackScheduledCount = 0;
     uint32_t m_lastPredictedFrameUseCount = 0;
     uint32_t m_lastRecoveryModeTransitionCount = 0;
+    uint64_t m_lastActiveParticipantSignature = 0;
     FrameNumber m_delayRetuneBlockedUntilFrame = 0;
     std::string m_lastDecisionReason;
 
@@ -80,6 +81,7 @@ private:
     static uint8_t clampPredict(uint32_t frames);
     static uint8_t jitterFramesForRoom(const RoomState& room, uint32_t fps);
     static uint8_t predictionBaselineForRoom(const RoomState& room, uint32_t fps);
+    static uint64_t activeParticipantSignature(const RoomState& room);
 
     void resetRunningWindow(const RollbackStats& stats, FrameNumber frame);
     void resetForSession(uint32_t sessionId, uint32_t timelineEpoch, SessionState state);
