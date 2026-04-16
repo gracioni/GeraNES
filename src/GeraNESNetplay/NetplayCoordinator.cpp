@@ -4451,7 +4451,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
             for(const ParticipantId participantId : m_pendingResyncAcks) {
                 if(participantId == m_localParticipantId) continue;
                 const ParticipantInfo* participant = m_session.findParticipant(participantId);
-                if(participant == nullptr || !participant->connected || participant->reconnectReserved) {
+                if(participant == nullptr) {
                     continue;
                 }
                 if(participantIsObserver(*participant)) {
@@ -4489,7 +4489,11 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 pushLog(oss.str());
 
                 for(const ParticipantId participantId : stalledParticipants) {
-                    (void)kickParticipant(participantId);
+                    (void)ejectParticipantForResyncFailure(
+                        participantId,
+                        "Resync ACK timeout from participant " + std::to_string(static_cast<int>(participantId)) +
+                            "; removing participant to keep room running"
+                    );
                 }
             } else if(m_pendingResyncAcks.empty()) {
                 finalizeActiveResyncIfReady();
