@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "GeraNESNetplay/NetplayAppRuntime.h"
@@ -66,9 +67,62 @@ struct WebRtcRoomBrowserUiState
     }
 };
 
+struct PendingConnectOperationUiState
+{
+    enum class Type
+    {
+        None,
+        CreateRoom,
+        JoinRoom
+    };
+
+    Type type = Type::None;
+    bool cancelRequested = false;
+    bool requestOpenModal = false;
+    bool modalOpen = false;
+    bool sawAttemptInFlight = false;
+    std::chrono::steady_clock::time_point startedAt = {};
+    std::string initialErrorText;
+    std::string statusText;
+
+    bool active() const
+    {
+        return type != Type::None;
+    }
+
+    void begin(Type operationType, std::string message)
+    {
+        type = operationType;
+        cancelRequested = false;
+        requestOpenModal = false;
+        modalOpen = false;
+        sawAttemptInFlight = false;
+        startedAt = std::chrono::steady_clock::now();
+        initialErrorText.clear();
+        statusText = std::move(message);
+    }
+
+    void clear()
+    {
+        type = Type::None;
+        cancelRequested = false;
+        requestOpenModal = false;
+        modalOpen = false;
+        sawAttemptInFlight = false;
+        initialErrorText.clear();
+        statusText.clear();
+    }
+};
+
 inline WebRtcRoomBrowserUiState& webRtcRoomBrowserUiState()
 {
     static WebRtcRoomBrowserUiState state;
+    return state;
+}
+
+inline PendingConnectOperationUiState& pendingConnectOperationUiState()
+{
+    static PendingConnectOperationUiState state;
     return state;
 }
 
@@ -77,11 +131,13 @@ inline void drawNetplayWindow(bool& showWindow,
                               const ImVec2& viewportCenter)
 {
     WebRtcRoomBrowserUiState& roomBrowser = webRtcRoomBrowserUiState();
+    PendingConnectOperationUiState& pendingOperation = pendingConnectOperationUiState();
     if(!showWindow) {
         roomBrowser.windowOpen = false;
         roomBrowser.requestOpenWindow = false;
         roomBrowser.requestPasswordPrompt = false;
         roomBrowser.disconnect();
+        pendingOperation.clear();
         return;
     }
 
@@ -102,6 +158,7 @@ inline void drawNetplayWindow(bool& showWindow,
     const bool active = snapshot.active;
     const bool showConnectedControls = snapshot.hosting || snapshot.connected;
     const bool connecting = active && !snapshot.hosting && !snapshot.connected && !snapshot.reconnecting;
+    const auto now = std::chrono::steady_clock::now();
     const auto& room = snapshot.room;
     const bool canHost = snapshot.localRomLoaded;
     auto availableBackends = availableNetTransportBackends();
@@ -189,7 +246,19 @@ inline void drawNetplayWindow(bool& showWindow,
         runtime.setTransportOptions(transportOptions);
     };
 
+    const auto beginPendingOperation = [&](PendingConnectOperationUiState::Type type, const char* statusText) {
+        if(pendingOperation.active()) {
+            return false;
+        }
+        pendingOperation.begin(type, statusText);
+        pendingOperation.initialErrorText = snapshot.lastError;
+        return true;
+    };
+
     const auto startJoinFromCurrentConfig = [&]() {
+        if(!beginPendingOperation(PendingConnectOperationUiState::Type::JoinRoom, "Joining room...")) {
+            return;
+        }
         const bool joinUsingWebRtc =
             static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
         if(joinUsingWebRtc) {
@@ -258,9 +327,57 @@ inline void drawNetplayWindow(bool& showWindow,
         return true;
     };
 
+    if(pendingOperation.active() && (active || connecting || snapshot.reconnecting)) {
+        pendingOperation.sawAttemptInFlight = true;
+    }
+    const bool hasNewError =
+        !snapshot.lastError.empty() && snapshot.lastError != pendingOperation.initialErrorText;
+    const bool operationSucceeded =
+        (pendingOperation.type == PendingConnectOperationUiState::Type::CreateRoom && snapshot.hosting) ||
+        (pendingOperation.type == PendingConnectOperationUiState::Type::JoinRoom && snapshot.connected);
+    const bool operationFailed =
+        pendingOperation.active() &&
+        !snapshot.lastError.empty() &&
+        !connecting &&
+        !snapshot.reconnecting &&
+        !snapshot.hosting &&
+        !snapshot.connected &&
+        (pendingOperation.sawAttemptInFlight || hasNewError);
+    const bool operationCancelledCompleted =
+        pendingOperation.active() &&
+        pendingOperation.cancelRequested &&
+        !active &&
+        !connecting &&
+        !snapshot.reconnecting &&
+        !snapshot.hosting &&
+        !snapshot.connected;
+    const bool operationCompleted = operationSucceeded || operationFailed || operationCancelledCompleted;
+    if(operationCompleted) {
+        pendingOperation.clear();
+    } else if(pendingOperation.active() &&
+              !pendingOperation.modalOpen &&
+              (now - pendingOperation.startedAt) >= std::chrono::milliseconds(100)) {
+        pendingOperation.requestOpenModal = true;
+        pendingOperation.modalOpen = true;
+    }
+
+    constexpr const char* kNetplayOperationPopupId = "##NetplayOperationModal";
+    if(pendingOperation.requestOpenModal) {
+        ImGui::OpenPopup(kNetplayOperationPopupId);
+        pendingOperation.requestOpenModal = false;
+    } else if(pendingOperation.active() &&
+              pendingOperation.modalOpen &&
+              !ImGui::IsPopupOpen(kNetplayOperationPopupId)) {
+        ImGui::OpenPopup(kNetplayOperationPopupId);
+    }
+
     ImGui::SetNextItemWidth(220.0f);
     ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
     const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
+    const bool blockInputs = pendingOperation.active();
+    if(blockInputs) {
+        ImGui::BeginDisabled();
+    }
     if(roomBrowser.fetching && roomBrowser.client) {
         if(roomBrowser.waitingForConnected && roomBrowser.client->isConnected()) {
             roomBrowser.waitingForConnected = false;
@@ -389,12 +506,14 @@ inline void drawNetplayWindow(bool& showWindow,
                 cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
                 ImGui::BeginDisabled(!canHost);
                 if(ImGui::Button("Create Room##NetplayHostButton")) {
-                    if(usingWebRtc) {
-                        applyWebRtcTransportOptions(true, cfg.signalingPassword);
+                    if(beginPendingOperation(PendingConnectOperationUiState::Type::CreateRoom, "Creating room...")) {
+                        if(usingWebRtc) {
+                            applyWebRtcTransportOptions(true, cfg.signalingPassword);
+                        }
+                        runtime.host(usingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
+                                     static_cast<size_t>(cfg.maxPeers),
+                                     cfg.displayName);
                     }
-                    runtime.host(usingWebRtc ? 0 : static_cast<uint16_t>(cfg.port),
-                                 static_cast<size_t>(cfg.maxPeers),
-                                 cfg.displayName);
                 }
                 ImGui::EndDisabled();
                 if(!canHost) {
@@ -1116,6 +1235,37 @@ inline void drawNetplayWindow(bool& showWindow,
                           logBuffer.data(),
                           logBuffer.size(),
                           ImVec2(-1.0f, 180.0f));
+    if(blockInputs) {
+        ImGui::EndDisabled();
+    }
+
+    
+    ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 0.0f), ImVec2(320.0f, FLT_MAX));
+    if(ImGui::BeginPopupModal(kNetplayOperationPopupId,
+                              nullptr,
+                              ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+        if(!pendingOperation.active()) {
+            pendingOperation.modalOpen = false;
+            ImGui::CloseCurrentPopup();
+        } else {
+            TextCenteredWrapped(pendingOperation.statusText);
+            if(pendingOperation.cancelRequested) {
+                ImGui::TextDisabled("Canceling...");
+            }
+            const float cancelButtonWidth = 180.0f;
+            const float availableWidth = ImGui::GetContentRegionAvail().x;
+            if(availableWidth > cancelButtonWidth) {
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableWidth - cancelButtonWidth) * 0.5f);
+            }
+            ImGui::BeginDisabled(pendingOperation.cancelRequested);
+            if(ImGui::Button("Cancel##NetplayOperationCancel", ImVec2(cancelButtonWidth, 0.0f))) {
+                pendingOperation.cancelRequested = true;
+                runtime.disconnect();
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::EndPopup();
+    }
 
     ImGui::End();
 }
