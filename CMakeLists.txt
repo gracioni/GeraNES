@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.26)
+# CMake 4 removed implicit compatibility with very old policy versions used by
+# some vendored dependencies (e.g. glew-cmake, plog).
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 #message(${CMAKE_RC_COMPILER})
 
@@ -567,7 +570,21 @@ add_executable(GeraNESTests
     tests/NetplayTests.cpp
 )
 target_compile_features(GeraNESTests PUBLIC cxx_std_20)
-target_include_directories(GeraNESTests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(GeraNESTests PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+)
+target_precompile_headers(GeraNESTests PRIVATE
+    <catch2/catch_test_macros.hpp>
+    <algorithm>
+    <chrono>
+    <cstdint>
+    <optional>
+    <random>
+    <string>
+    <thread>
+    <vector>
+)
 if(MINGW)
     target_compile_options(GeraNESTests PRIVATE -Wa,-mbig-obj)
 endif()
