@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <limits>
 #include <sstream>
 
 #ifdef ERROR
@@ -187,6 +188,25 @@ uint64_t NetplayCoordinator::generateReconnectToken()
     return mixed != 0 ? mixed : 1ull;
 }
 
+int64_t NetplayCoordinator::monotonicNowMicros()
+{
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+}
+
+uint64_t NetplayCoordinator::sharedClockNowMicros() const
+{
+    const int64_t nowMicros = monotonicNowMicros();
+    if(m_hosting) {
+        return nowMicros > 0 ? static_cast<uint64_t>(nowMicros) : 0u;
+    }
+    if(!m_sharedClockSynchronized) {
+        return 0u;
+    }
+    const int64_t adjusted = nowMicros + m_sharedClockOffsetMicros;
+    return adjusted > 0 ? static_cast<uint64_t>(adjusted) : 0u;
+}
+
 static const char* transportBackendLabel(NetTransportBackend backend)
 {
     return netTransportBackendLabel(backend);
@@ -215,6 +235,8 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
         case MessageType::FrameStatus: return "FrameStatus";
         case MessageType::PeerHealth: return "PeerHealth";
         case MessageType::CrcReport: return "CrcReport";
+        case MessageType::ClockSyncRequest: return "ClockSyncRequest";
+        case MessageType::ClockSyncResponse: return "ClockSyncResponse";
         case MessageType::ResyncBegin: return "ResyncBegin";
         case MessageType::ResyncChunk: return "ResyncChunk";
         case MessageType::ResyncComplete: return "ResyncComplete";
@@ -295,6 +317,17 @@ void NetplayCoordinator::resetSessionState()
     m_delayedPacketEvents.clear();
     m_pendingKickDisconnects.clear();
     m_activeResyncAckDeadline = {};
+    m_lastClockSyncRequestAt = {};
+    m_nextClockSyncSequence = 1;
+    m_pendingClockSyncRequests.clear();
+    m_sharedClockOffsetMicros = 0;
+    m_sharedClockRttMicros = 0;
+    m_bestClockSyncDelayMicros = std::numeric_limits<uint64_t>::max();
+    m_sharedClockSynchronized = false;
+    m_session.roomState().sharedClockMicros = 0;
+    m_session.roomState().sharedClockRttMicros = 0;
+    m_session.roomState().sharedClockOffsetMicros = 0;
+    m_session.roomState().sharedClockSynchronized = false;
 }
 
 void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId)
@@ -984,6 +1017,32 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncRequestPacket(const ResyncRe
 
     PacketHeader header;
     header.type = MessageType::ResyncRequest;
+    header.sessionId = m_session.roomState().sessionId;
+    writer.writePod(header);
+    writer.writePod(data);
+
+    return writer.data();
+}
+
+std::vector<uint8_t> NetplayCoordinator::buildClockSyncRequestPacket(const ClockSyncRequestData& data) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ClockSyncRequest;
+    header.sessionId = m_session.roomState().sessionId;
+    writer.writePod(header);
+    writer.writePod(data);
+
+    return writer.data();
+}
+
+std::vector<uint8_t> NetplayCoordinator::buildClockSyncResponsePacket(const ClockSyncResponseData& data) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ClockSyncResponse;
     header.sessionId = m_session.roomState().sessionId;
     writer.writePod(header);
     writer.writePod(data);
@@ -2877,6 +2936,72 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
     return true;
 }
 
+bool NetplayCoordinator::handleClockSyncRequest(NetTransport::PeerHandle peer, PacketReader& reader)
+{
+    ClockSyncRequestData data;
+    if(!reader.readPod(data)) return false;
+    if(!m_hosting) return true;
+
+    const int64_t receiveMicros = monotonicNowMicros();
+    ClockSyncResponseData response;
+    response.sequence = data.sequence;
+    response.clientSendMicros = data.clientSendMicros;
+    response.hostReceiveMicros = receiveMicros > 0 ? static_cast<uint64_t>(receiveMicros) : 0u;
+    const int64_t sendMicros = monotonicNowMicros();
+    response.hostSendMicros = sendMicros > 0 ? static_cast<uint64_t>(sendMicros) : 0u;
+    m_transport.sendUnreliable(peer, Channel::Diagnostics, buildClockSyncResponsePacket(response));
+    return true;
+}
+
+bool NetplayCoordinator::handleClockSyncResponse(NetTransport::PeerHandle peer, PacketReader& reader)
+{
+    ClockSyncResponseData data;
+    if(!reader.readPod(data)) return false;
+    if(m_hosting || m_serverPeer == NetTransport::kInvalidPeerHandle || peer != m_serverPeer) return true;
+
+    auto it = m_pendingClockSyncRequests.find(data.sequence);
+    if(it == m_pendingClockSyncRequests.end()) {
+        return true;
+    }
+    const PendingClockSyncRequest pending = it->second;
+    m_pendingClockSyncRequests.erase(it);
+
+    if(data.clientSendMicros != static_cast<uint64_t>(std::max<int64_t>(0, pending.clientSendMicros))) {
+        return true;
+    }
+
+    const int64_t t1 = pending.clientSendMicros;
+    const int64_t t2 = static_cast<int64_t>(data.hostReceiveMicros);
+    const int64_t t3 = static_cast<int64_t>(data.hostSendMicros);
+    const int64_t t4 = monotonicNowMicros();
+    if(t1 <= 0 || t2 <= 0 || t3 <= 0 || t4 <= 0 || t3 < t2 || t4 < t1) {
+        return true;
+    }
+
+    const int64_t rawDelay = (t4 - t1) - (t3 - t2);
+    const uint64_t delayMicros = rawDelay > 0 ? static_cast<uint64_t>(rawDelay) : 0u;
+    const int64_t offsetMicros = ((t2 - t1) + (t3 - t4)) / 2;
+
+    if(!m_sharedClockSynchronized) {
+        m_sharedClockOffsetMicros = offsetMicros;
+        m_bestClockSyncDelayMicros = delayMicros;
+        m_sharedClockSynchronized = true;
+    } else {
+        if(delayMicros < m_bestClockSyncDelayMicros) {
+            m_bestClockSyncDelayMicros = delayMicros;
+        }
+        const bool acceptableSample =
+            delayMicros <= (m_bestClockSyncDelayMicros + 2000u) ||
+            delayMicros <= (m_sharedClockRttMicros + 2000u);
+        if(acceptableSample) {
+            m_sharedClockOffsetMicros =
+                (m_sharedClockOffsetMicros * 7 + offsetMicros) / 8;
+        }
+    }
+    m_sharedClockRttMicros = delayMicros;
+    return true;
+}
+
 bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     PeerHealthData data;
@@ -2887,6 +3012,11 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
         participant->jitterMs = data.jitterMs;
         participant->lastReportedCurrentFrame = data.currentFrame;
         participant->lastReportedConfirmedFrame = data.lastConfirmedFrame;
+        participant->sharedClockMicros = data.sharedClockMicros;
+        participant->clockSyncRttMicros = data.clockSyncRttMicros;
+        participant->sharedClockSynchronized = data.sharedClockSynchronized != 0;
+        participant->sharedClockSampledAtLocalMicros =
+            static_cast<uint64_t>(std::max<int64_t>(0, monotonicNowMicros()));
         ++participant->peerHealthSerial;
         tryScheduleImplicitRecoveryResync(*participant);
     }
@@ -2996,6 +3126,16 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
     data.participantId = m_localParticipantId;
     data.currentFrame = m_session.roomState().currentFrame;
     data.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
+    data.sharedClockMicros = sharedClockNowMicros();
+    data.clockSyncRttMicros = m_sharedClockRttMicros;
+    data.sharedClockSynchronized = (m_hosting || m_sharedClockSynchronized) ? 1u : 0u;
+    if(ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId)) {
+        participant->sharedClockMicros = data.sharedClockMicros;
+        participant->clockSyncRttMicros = data.clockSyncRttMicros;
+        participant->sharedClockSynchronized = data.sharedClockSynchronized != 0;
+        participant->sharedClockSampledAtLocalMicros =
+            static_cast<uint64_t>(std::max<int64_t>(0, monotonicNowMicros()));
+    }
 
     if(m_hosting) {
         m_transport.broadcastUnreliable(
@@ -3009,6 +3149,11 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
         if(ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId)) {
             participant->pingMs = data.pingMs;
             participant->jitterMs = data.jitterMs;
+            participant->sharedClockMicros = data.sharedClockMicros;
+            participant->clockSyncRttMicros = data.clockSyncRttMicros;
+            participant->sharedClockSynchronized = data.sharedClockSynchronized != 0;
+            participant->sharedClockSampledAtLocalMicros =
+                static_cast<uint64_t>(std::max<int64_t>(0, monotonicNowMicros()));
         }
 
         m_transport.sendUnreliable(
@@ -3017,6 +3162,53 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
             buildPeerHealthPacket(data, m_session.roomState().sessionId)
         );
     }
+}
+
+void NetplayCoordinator::processClockSyncIfNeeded(const std::chrono::steady_clock::time_point& now)
+{
+    if(!m_transport.isActive() || !m_connected || m_hosting || m_serverPeer == NetTransport::kInvalidPeerHandle) {
+        return;
+    }
+
+    for(auto it = m_pendingClockSyncRequests.begin(); it != m_pendingClockSyncRequests.end();) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.sentAt);
+        if(elapsed.count() >= 10) {
+            it = m_pendingClockSyncRequests.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    const auto interval = m_sharedClockSynchronized
+        ? std::chrono::milliseconds(1000)
+        : std::chrono::milliseconds(250);
+    if(m_lastClockSyncRequestAt.time_since_epoch().count() != 0 &&
+       (now - m_lastClockSyncRequestAt) < interval) {
+        return;
+    }
+    m_lastClockSyncRequestAt = now;
+
+    const uint32_t sequence = m_nextClockSyncSequence++;
+    const int64_t clientSendMicros = monotonicNowMicros();
+    if(clientSendMicros <= 0) {
+        return;
+    }
+
+    ClockSyncRequestData request;
+    request.sequence = sequence;
+    request.clientSendMicros = static_cast<uint64_t>(clientSendMicros);
+
+    PendingClockSyncRequest pending;
+    pending.sequence = sequence;
+    pending.clientSendMicros = clientSendMicros;
+    pending.sentAt = now;
+    m_pendingClockSyncRequests[sequence] = pending;
+
+    m_transport.sendUnreliable(
+        m_serverPeer,
+        Channel::Diagnostics,
+        buildClockSyncRequestPacket(request)
+    );
 }
 
 FrameNumber NetplayCoordinator::computeHostInputConfirmedFrame() const
@@ -3653,6 +3845,12 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
         case MessageType::ResyncRequest:
             return handleResyncRequest(peer, reader);
 
+        case MessageType::ClockSyncRequest:
+            return handleClockSyncRequest(peer, reader);
+
+        case MessageType::ClockSyncResponse:
+            return handleClockSyncResponse(peer, reader);
+
         case MessageType::PeerHealth:
             return handlePeerHealth(peer, reader);
 
@@ -3713,6 +3911,14 @@ bool NetplayCoordinator::host(uint16_t port, size_t maxPeers, const std::string&
     m_localParticipantId = 0;
     m_session.roomState().sessionId = generateSessionId();
     m_session.roomState().state = SessionState::Lobby;
+    m_sharedClockSynchronized = true;
+    m_sharedClockOffsetMicros = 0;
+    m_sharedClockRttMicros = 0;
+    m_bestClockSyncDelayMicros = 0;
+    m_session.roomState().sharedClockSynchronized = true;
+    m_session.roomState().sharedClockOffsetMicros = 0;
+    m_session.roomState().sharedClockRttMicros = 0;
+    m_session.roomState().sharedClockMicros = sharedClockNowMicros();
 
     ParticipantInfo& hostParticipant = ensureParticipant(m_localParticipantId, m_localDisplayName);
     hostParticipant.connected = true;
@@ -3758,6 +3964,15 @@ bool NetplayCoordinator::join(const std::string& hostName, uint16_t port, const 
     m_pendingJoinRomLoaded = pendingJoinRomLoaded;
     m_pendingJoinRomValidation = pendingJoinRomValidation;
     m_session.roomState().state = SessionState::Lobby;
+    m_sharedClockSynchronized = false;
+    m_sharedClockOffsetMicros = 0;
+    m_sharedClockRttMicros = 0;
+    m_bestClockSyncDelayMicros = std::numeric_limits<uint64_t>::max();
+    m_pendingClockSyncRequests.clear();
+    m_session.roomState().sharedClockSynchronized = false;
+    m_session.roomState().sharedClockOffsetMicros = 0;
+    m_session.roomState().sharedClockRttMicros = 0;
+    m_session.roomState().sharedClockMicros = 0;
     const auto& iceServers = m_transport.advertisedIceServers();
     if(!iceServers.empty()) {
         m_loggedAdvertisedIceServers = iceServers;
@@ -4164,6 +4379,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     }
 
     updatePeerHealthFromTransport();
+    processClockSyncIfNeeded(now);
     updateReconnectReservations();
     processRemoteInputSuspension(now);
     if(m_hosting && m_session.roomState().state == SessionState::Running) {
@@ -4172,6 +4388,10 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     }
     broadcastFrameStatusIfNeeded();
     broadcastPeerHealthIfNeeded();
+    m_session.roomState().sharedClockMicros = sharedClockNowMicros();
+    m_session.roomState().sharedClockRttMicros = m_sharedClockRttMicros;
+    m_session.roomState().sharedClockOffsetMicros = m_hosting ? 0 : m_sharedClockOffsetMicros;
+    m_session.roomState().sharedClockSynchronized = m_hosting || m_sharedClockSynchronized;
     if(m_gracefulDisconnectPending &&
        m_gracefulDisconnectDeadline != std::chrono::steady_clock::time_point{} &&
        std::chrono::steady_clock::now() >= m_gracefulDisconnectDeadline) {

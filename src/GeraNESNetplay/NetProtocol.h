@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 5;
+constexpr uint8_t kProtocolVersion = 6;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -44,6 +44,8 @@ enum class MessageType : uint16_t
     FrameStatus,
     PeerHealth,
     CrcReport,
+    ClockSyncRequest,
+    ClockSyncResponse,
 
     ResyncBegin = 200,
     ResyncChunk,
@@ -205,6 +207,23 @@ struct PeerHealthData
     FrameNumber lastConfirmedFrame = 0;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
+    uint64_t sharedClockMicros = 0;
+    uint64_t clockSyncRttMicros = 0;
+    uint8_t sharedClockSynchronized = 0;
+};
+
+struct ClockSyncRequestData
+{
+    uint32_t sequence = 0;
+    uint64_t clientSendMicros = 0;
+};
+
+struct ClockSyncResponseData
+{
+    uint32_t sequence = 0;
+    uint64_t clientSendMicros = 0;
+    uint64_t hostReceiveMicros = 0;
+    uint64_t hostSendMicros = 0;
 };
 
 struct CrcReportData

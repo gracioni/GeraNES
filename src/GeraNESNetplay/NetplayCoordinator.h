@@ -80,6 +80,13 @@ private:
         std::chrono::steady_clock::time_point disconnectAt = {};
     };
 
+    struct PendingClockSyncRequest
+    {
+        uint32_t sequence = 0;
+        int64_t clientSendMicros = 0;
+        std::chrono::steady_clock::time_point sentAt = {};
+    };
+
     enum class LocalTeardownMode : uint8_t
     {
         Graceful,
@@ -148,6 +155,13 @@ private:
     uint32_t m_activeTargetedResyncId = 0;
     FrameNumber m_activeTargetedResyncFrame = 0;
     uint32_t m_activeTargetedResyncExpectedStateCrc32 = 0;
+    std::chrono::steady_clock::time_point m_lastClockSyncRequestAt = {};
+    uint32_t m_nextClockSyncSequence = 1;
+    std::unordered_map<uint32_t, PendingClockSyncRequest> m_pendingClockSyncRequests;
+    int64_t m_sharedClockOffsetMicros = 0;
+    uint64_t m_sharedClockRttMicros = 0;
+    uint64_t m_bestClockSyncDelayMicros = 0;
+    bool m_sharedClockSynchronized = false;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -194,6 +208,8 @@ private:
     std::vector<uint8_t> buildResyncAckPacket(const ResyncAckData& data) const;
     std::vector<uint8_t> buildResyncAbortPacket(const ResyncAbortData& data) const;
     std::vector<uint8_t> buildResyncRequestPacket(const ResyncRequestData& data) const;
+    std::vector<uint8_t> buildClockSyncRequestPacket(const ClockSyncRequestData& data) const;
+    std::vector<uint8_t> buildClockSyncResponsePacket(const ClockSyncResponseData& data) const;
     std::vector<uint8_t> buildPeerHealthPacket(const PeerHealthData& data, uint32_t sessionId) const;
     bool handleControlPacket(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload);
     bool handleJoinRoom(NetTransport::PeerHandle peer, PacketReader& reader);
@@ -209,6 +225,8 @@ private:
     bool handleResyncAck(PacketReader& reader);
     bool handleResyncAbort(PacketReader& reader);
     bool handleResyncRequest(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleClockSyncRequest(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleClockSyncResponse(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
@@ -252,6 +270,9 @@ private:
     FrameNumber computeHostConfirmedFrame() const;
     void broadcastFrameStatusIfNeeded();
     void broadcastPeerHealthIfNeeded();
+    void processClockSyncIfNeeded(const std::chrono::steady_clock::time_point& now);
+    static int64_t monotonicNowMicros();
+    uint64_t sharedClockNowMicros() const;
     bool allRequiredParticipantsRomCompatible() const;
     void refreshHostRoomState();
     void updatePeerHealthFromTransport();

@@ -774,6 +774,43 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Stabilization CRC Passes: %u", room.stabilizationCrcPassCount);
         ImGui::Text("Last Remote CRC: %08X @ frame %u", room.lastRemoteCrc32, room.lastRemoteCrcFrame);
 
+        ImGui::Separator();
+        ImGui::Text("Shared Clock: %s", room.sharedClockSynchronized ? "Synchronized" : "Unsynchronized");
+        ImGui::Text("Local Shared Clock (us): %llu",
+                    static_cast<unsigned long long>(room.sharedClockMicros));
+        ImGui::Text("Clock Offset (us): %lld",
+                    static_cast<long long>(room.sharedClockOffsetMicros));
+        ImGui::Text("Clock RTT (us): %llu",
+                    static_cast<unsigned long long>(room.sharedClockRttMicros));
+
+        const uint64_t localNowMicros = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()
+            ).count()
+        );
+        ImGui::TextUnformatted("Participant Shared Clocks:");
+        for(const ParticipantInfo& participant : room.participants) {
+            const std::string participantName =
+                !participant.displayName.empty()
+                    ? participant.displayName
+                    : std::to_string(static_cast<int>(participant.id));
+            if(!participant.sharedClockSynchronized) {
+                ImGui::TextDisabled("%s: unsynced", participantName.c_str());
+                continue;
+            }
+
+            uint64_t projectedSharedClockMicros = participant.sharedClockMicros;
+            if(participant.sharedClockSampledAtLocalMicros != 0 &&
+               localNowMicros >= participant.sharedClockSampledAtLocalMicros) {
+                projectedSharedClockMicros +=
+                    (localNowMicros - participant.sharedClockSampledAtLocalMicros);
+            }
+            ImGui::Text("%s: %llu us (RTT %llu us)",
+                        participantName.c_str(),
+                        static_cast<unsigned long long>(projectedSharedClockMicros),
+                        static_cast<unsigned long long>(participant.clockSyncRttMicros));
+        }
+
         if(snapshot.latestLocalInput.has_value()) {
             const std::string assignment = inputAssignmentLabel(snapshot.latestLocalInput->playerSlot, room);
             ImGui::Text("Latest Local Input: frame %u %s mask %04llX",

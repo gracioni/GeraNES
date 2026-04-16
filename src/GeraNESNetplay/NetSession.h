@@ -32,6 +32,10 @@ struct ParticipantInfo
     bool romCompatible = false;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
+    uint64_t sharedClockMicros = 0;
+    uint64_t clockSyncRttMicros = 0;
+    uint64_t sharedClockSampledAtLocalMicros = 0;
+    bool sharedClockSynchronized = false;
     FrameNumber lastReportedCurrentFrame = 0;
     FrameNumber lastReportedConfirmedFrame = 0;
     uint32_t peerHealthSerial = 0;
@@ -75,6 +79,10 @@ struct RoomState
     uint32_t staleInputPacketCount = 0;
     uint32_t staleFrameStatusPacketCount = 0;
     uint32_t staleCrcPacketCount = 0;
+    uint64_t sharedClockMicros = 0;
+    uint64_t sharedClockRttMicros = 0;
+    int64_t sharedClockOffsetMicros = 0;
+    bool sharedClockSynchronized = false;
     RecoveryInputMode recoveryInputMode = RecoveryInputMode::Normal;
     uint32_t recoveryModeTransitionCount = 0;
     uint32_t inputsDroppedDuringRecovery = 0;
