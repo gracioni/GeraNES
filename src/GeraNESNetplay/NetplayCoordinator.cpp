@@ -4754,6 +4754,56 @@ const RollbackStats& NetplayCoordinator::predictionStats() const
 void NetplayCoordinator::recordPlaybackStop(FrameNumber frame, bool predictionLimitReached)
 {
     m_predictionStats.recordPlaybackStop(frame, predictionLimitReached);
+    if(!predictionLimitReached) {
+        return;
+    }
+    if(!m_hosting || m_session.roomState().state != SessionState::Running) {
+        return;
+    }
+
+    const std::optional<ImplicitStallRecoveryMonitor::PendingRecovery> pendingRecovery =
+        m_implicitRecoveryMonitor.pending();
+    if(!pendingRecovery.has_value()) {
+        return;
+    }
+
+    ParticipantInfo* participant = m_session.findParticipant(pendingRecovery->participantId);
+    if(participant == nullptr ||
+       participant->id == m_localParticipantId ||
+       !participant->connected ||
+       participantIsObserver(*participant) ||
+       participant->inputSuspended ||
+       participant->inputResumeAwaitingResync) {
+        return;
+    }
+
+    bool hasBaselineInput = true;
+    for(PlayerSlot slot : participantAssignments(*participant)) {
+        if(m_remoteInputs.latestConfirmedFor(participant->id, slot) == nullptr) {
+            hasBaselineInput = false;
+            break;
+        }
+    }
+    if(!hasBaselineInput) {
+        return;
+    }
+
+    participant->inputSuspended = true;
+    participant->inputResumeAwaitingResync = false;
+    participant->lastDecisionFrame = frame;
+    participant->lastDecisionSlot = pendingRecovery->playerSlot;
+    participant->lastDecision = "Suspended due to prediction-limit stall";
+
+    std::ostringstream oss;
+    oss << "Participant input suspended due to prediction-limit stall: "
+        << participant->displayName
+        << " stalledFrame=" << pendingRecovery->stalledFrame
+        << " playbackStopFrame=" << frame
+        << " classification=suspended_input_prediction_limit";
+    pushLog(oss.str());
+
+    // Keep host simulation progressing without waiting for timeout.
+    synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
 }
 
 void NetplayCoordinator::recordLocalAuthoritativeFrameStart(FrameNumber frame)

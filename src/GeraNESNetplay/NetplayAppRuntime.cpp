@@ -1062,7 +1062,13 @@ bool NetplayAppRuntime::shouldAllowPredictionForFrame(FrameNumber frame) const
     const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
     const FrameNumber delaySlackFrame =
         confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
-    return frame > delaySlackFrame;
+    if(frame <= delaySlackFrame) {
+        return false;
+    }
+
+    const FrameNumber predictionCapFrame =
+        delaySlackFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
+    return frame <= predictionCapFrame;
 }
 
 bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame)
