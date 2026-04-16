@@ -1815,9 +1815,23 @@ void GeraNESApp::mainLoop()
     bool netplayPacingOverrideActive = false;
     netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
     const bool minimized = isMinimized();
+    bool displayRateCompatibleWithEmu =
+        displayFrameRate == static_cast<int>(m_emu.getRegionFPS());
+#ifdef __EMSCRIPTEN__
+    if(!displayRateCompatibleWithEmu && displayFrameRate > 0) {
+        const int emuFps = static_cast<int>(m_emu.getRegionFPS());
+        if(emuFps > 0 && displayFrameRate > emuFps) {
+            const int ratio = std::max(1, displayFrameRate / emuFps);
+            const int nearestMultiple = emuFps * ratio;
+            if(std::abs(displayFrameRate - nearestMultiple) <= 1) {
+                displayRateCompatibleWithEmu = true;
+            }
+        }
+    }
+#endif
     const bool allowVsyncLock =
         m_vsyncMode != OFF &&
-        displayFrameRate == static_cast<int>(m_emu.getRegionFPS()) &&
+        displayRateCompatibleWithEmu &&
         !minimized &&
         !isWindowsTitleBarInteractionActive() &&
         !netplayPacingOverrideActive;
