@@ -275,8 +275,6 @@ private:
     void broadcastPeerHealthIfNeeded();
     void processClockSyncIfNeeded(const std::chrono::steady_clock::time_point& now);
     static int64_t monotonicNowMicros();
-    uint64_t sharedClockNowMicros() const;
-    uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     bool allRequiredParticipantsRomCompatible() const;
     void refreshHostRoomState();
     void updatePeerHealthFromTransport();
@@ -365,6 +363,8 @@ public:
     // Highest confirmed frame bundle already published/stored locally.
     FrameNumber latestPublishedConfirmedFrame() const;
     FrameNumber latestConfirmedFrame() const;
+    uint64_t sharedClockNowMicros() const;
+    uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     FrameNumber authoritativeResyncTargetFrame() const;
     uint8_t predictFrames() const;
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution);

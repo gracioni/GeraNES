@@ -796,6 +796,7 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
         );
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
+        alignResyncPlaybackToSharedClockOnWorker(emu, pending->targetFrame);
         std::ostringstream oss;
         oss << "Netplay resync post-load validation accepted"
             << " targetFrame " << pending->targetFrame
@@ -818,6 +819,57 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         }
         m_coordinator.appendNetplayLog("Netplay resync post-load validation rejected");
         m_coordinator.appendNetplayLog("Netplay resync failed");
+    }
+}
+
+void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu, FrameNumber loadedFrame)
+{
+    if(!m_coordinator.isActive() || m_coordinator.session().roomState().state != SessionState::Running) {
+        return;
+    }
+
+    if(!emu.valid()) {
+        return;
+    }
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+    constexpr uint32_t kMaxSilentCatchupFrames = 120u;
+    uint32_t advancedFrames = 0u;
+
+    while(advancedFrames < kMaxSilentCatchupFrames) {
+        const FrameNumber nextFrame = emu.frameCount() + 1u;
+        const uint64_t nextFrameClockMicros = m_coordinator.authoritativeFrameStartClockMicros(nextFrame);
+        if(nextFrameClockMicros == 0u) {
+            break;
+        }
+
+        const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
+        if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) {
+            break;
+        }
+
+        if(!tryQueuePlaybackFrameToEmu(emu, nextFrame)) {
+            break;
+        }
+
+        if(!emu.updateUntilFrame(frameDt, false)) {
+            break;
+        }
+
+        ++advancedFrames;
+        m_coordinator.setLocalSimulationFrame(emu.frameCount());
+    }
+
+    if(advancedFrames > 0u) {
+        std::ostringstream oss;
+        oss << "Netplay resync shared-clock alignment advanced "
+            << advancedFrames
+            << " frame(s) from "
+            << loadedFrame
+            << " to "
+            << emu.frameCount()
+            << " (audio muted)";
+        m_coordinator.appendNetplayLog(oss.str());
     }
 }
 

@@ -1487,7 +1487,7 @@ public:
      * Return true on new frame
      */
     template<bool waitForNewFrame>
-    GERANES_INLINE bool _update(uint32_t dt) //miliseconds
+    GERANES_INLINE bool _update(uint32_t dt, bool renderAudio = true) //miliseconds
     {
         const int AUDIO_RENDER_TIME_STEP = 1; //ms
 
@@ -1514,14 +1514,16 @@ public:
 
         
 
+        const bool silentAudio = m_forceSilentAudio || !renderAudio;
+
         while(loop)
         {
             bool advanced = false;
             if constexpr(waitForNewFrame) {
-                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, ret, m_forceSilentAudio);
+                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, ret, silentAudio);
             }
             else {
-                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, ret, m_forceSilentAudio);
+                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, ret, silentAudio);
             }
             if(!advanced) break;
 
@@ -1551,26 +1553,28 @@ public:
         return ret;
     }
 
-    GERANES_INLINE bool update(uint32_t dt) {
+    GERANES_INLINE bool update(uint32_t dt, bool renderAudio = true) {
         applyPendingNsfControllerActions();
         if(m_paused) return false;
-        return _update<false>(dt);
+        return _update<false>(dt, renderAudio);
     }
 
-    GERANES_INLINE bool updateUntilFrame(uint32_t dt) {
+    GERANES_INLINE bool updateUntilFrame(uint32_t dt, bool renderAudio = true) {
         applyPendingNsfControllerActions();
         if(m_paused) return true;
 
         if(!m_speedBoost) {
-            const bool ret = _update<true>(dt);
-            compensateVsyncAudioDrift(dt);
+            const bool ret = _update<true>(dt, renderAudio);
+            if(renderAudio) {
+                compensateVsyncAudioDrift(dt);
+            }
             return ret;
         }
 
         // In frame-locked mode (vsync path), run extra emulated frames while held.
-        _update<true>(dt);
+        _update<true>(dt, renderAudio);
         for(int i = 1; i < SPEED_BOOST_MULTIPLIER; ++i) {
-            _update<true>(0);
+            _update<true>(0, renderAudio);
         }
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
