@@ -255,9 +255,6 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         safeDelta(stats.stopDueToMissingInputCount, m_lastMissingInputStopCount);
     const uint32_t rollbackScheduledDelta =
         safeDelta(stats.rollbackScheduledCount, m_lastRollbackScheduledCount);
-    const uint32_t predictedFrameUseDelta =
-        safeDelta(stats.predictedFrameUseCount, m_lastPredictedFrameUseCount);
-
     m_lastPredictionMissCount = stats.predictionMissCount;
     m_lastPlaybackStopCount = stats.playbackStopCount;
     m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
@@ -330,7 +327,6 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         predictionMissDelta == 0u &&
         playbackStopDelta == 0u &&
         rollbackScheduledDelta == 0u &&
-        predictedFrameUseDelta == 0u &&
         !recoveringAssignedPeer;
 
     if(healthyWindow) {
@@ -341,15 +337,24 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
 
     if(!cooldownActive &&
        m_stableFrameCount >= kDelayDecreaseStableFrames &&
-       room.inputDelayFrames > baselineDelay) {
-        const uint8_t targetDelay = static_cast<uint8_t>(room.inputDelayFrames - 1u);
+       room.inputDelayFrames > 1u) {
+        // Allow delay to recover downward after suspend/recovery spikes even
+        // when jitter telemetry remains temporarily elevated. If this is still
+        // too aggressive, stress will increase and auto-tune will raise delay
+        // again.
+        const uint8_t decreaseStep = room.inputDelayFrames >= 6u ? 2u : 1u;
+        const uint8_t loweredDelay = static_cast<uint8_t>(
+            room.inputDelayFrames > decreaseStep ? room.inputDelayFrames - decreaseStep : 1u
+        );
+        const uint8_t targetDelay = std::max<uint8_t>(1u, std::min<uint8_t>(loweredDelay, room.inputDelayFrames));
         recommendations.inputDelayFrames = targetDelay;
         m_currentRecommendedDelay = targetDelay;
         m_lastAdjustmentFrame = currentFrame;
         m_stableFrameCount = 0u;
         m_lastDecisionReason =
             "Decreased delay after sustained stable playback to " +
-            std::to_string(static_cast<unsigned>(targetDelay));
+            std::to_string(static_cast<unsigned>(targetDelay)) +
+            " (jitter floor " + std::to_string(static_cast<unsigned>(baselineDelay)) + ")";
         return recommendations;
     }
 
