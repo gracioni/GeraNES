@@ -3901,11 +3901,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             participant != nullptr &&
                             participant->reconnectToken != 0 &&
                             hasAssignedInput;
-                        pushLog("Peer left: participant " + std::to_string(static_cast<int>(participantId)));
-                        const std::string participantLeftToast =
+                        const std::string participantLeftLabel =
                             participant != nullptr
-                                ? (participantLabel(*participant) + " left")
-                                : ("Participant " + std::to_string(static_cast<int>(participantId)) + " left");
+                                ? participantLabel(*participant)
+                                : std::to_string(static_cast<int>(participantId));
+                        pushLog(participantLeftLabel + " left");
+                        const std::string participantLeftToast = participantLeftLabel + " left";
                         if(m_pendingHostLateJoinResyncParticipant.has_value() &&
                            *m_pendingHostLateJoinResyncParticipant == participantId) {
                             m_pendingHostLateJoinResyncParticipant.reset();
@@ -3952,12 +3953,42 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         }
                         refreshHostRoomState();
                     } else {
-                        pushLog("Peer left");
-                        pushToast("Peer left");
+                        ParticipantId participantId = participantIdFromPeer(event.peer);
+                        if(participantId == kInvalidParticipantId && event.data != 0) {
+                            participantId = static_cast<ParticipantId>(event.data - 1u);
+                        }
+                        if(participantId != kInvalidParticipantId) {
+                            if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
+                                const std::string participantLeftLabel = participantLabel(*participant);
+                                pushLog(participantLeftLabel + " left");
+                                pushToast(participantLeftLabel + " left");
+                            } else {
+                                const std::string participantLeftLabel = std::to_string(static_cast<int>(participantId));
+                                pushLog(participantLeftLabel + " left");
+                                pushToast(participantLeftLabel + " left");
+                            }
+                        } else {
+                            pushLog("Participant left");
+                            pushToast("Participant left");
+                        }
                     }
                 } else {
-                    pushLog("Peer left");
-                    pushToast("Peer left");
+                    ParticipantId participantId = participantIdFromPeer(event.peer);
+                    if(participantId != kInvalidParticipantId &&
+                       participantId != m_localParticipantId) {
+                        if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
+                            const std::string participantLeftLabel = participantLabel(*participant);
+                            pushLog(participantLeftLabel + " left");
+                            pushToast(participantLeftLabel + " left");
+                        } else {
+                            const std::string participantLeftLabel = std::to_string(static_cast<int>(participantId));
+                            pushLog(participantLeftLabel + " left");
+                            pushToast(participantLeftLabel + " left");
+                        }
+                    } else {
+                        pushLog("Participant left");
+                        pushToast("Participant left");
+                    }
                 }
                 break;
 
