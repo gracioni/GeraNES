@@ -935,7 +935,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     const uint32_t rollbackCanonicalCrc32 = emu.canonicalNetplayStateCrc32();
     m_emuHost.seedNetplaySnapshot(*rollbackFrame, *snapshotData, rollbackCanonicalCrc32);
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
-    m_coordinator.discardTimelineAfter(*rollbackFrame);
+    m_coordinator.discardTimelineAfter(*rollbackFrame, true);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
     reanchorInputDriver(*rollbackFrame, localAssignedSlots());
 

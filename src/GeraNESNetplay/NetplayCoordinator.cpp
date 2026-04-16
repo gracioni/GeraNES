@@ -4747,9 +4747,11 @@ FrameNumber NetplayCoordinator::localSimulationFrame() const
     return m_localSimulationFrame;
 }
 
-void NetplayCoordinator::discardTimelineAfter(FrameNumber frame)
+void NetplayCoordinator::discardTimelineAfter(FrameNumber frame, bool preserveLocalInputs)
 {
-    m_localInputs.eraseFramesAfter(frame);
+    if(!preserveLocalInputs) {
+        m_localInputs.eraseFramesAfter(frame);
+    }
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
         m_confirmedFrames.pop_back();
@@ -4775,21 +4777,23 @@ void NetplayCoordinator::discardTimelineAfter(FrameNumber frame)
             authoritativeFrameStartClockMicros(frame);
     }
 
-    uint32_t latestLocalSequence = 0;
-    FrameNumber latestLocalFrame = frame;
-    for(auto it = m_localInputs.entries().rbegin(); it != m_localInputs.entries().rend(); ++it) {
-        if(it->participantId != m_localParticipantId) continue;
-        latestLocalSequence = it->sequence;
-        latestLocalFrame = it->frame;
-        break;
-    }
-    m_localInputSequence = latestLocalSequence;
+    if(!preserveLocalInputs) {
+        uint32_t latestLocalSequence = 0;
+        FrameNumber latestLocalFrame = frame;
+        for(auto it = m_localInputs.entries().rbegin(); it != m_localInputs.entries().rend(); ++it) {
+            if(it->participantId != m_localParticipantId) continue;
+            latestLocalSequence = it->sequence;
+            latestLocalFrame = it->frame;
+            break;
+        }
+        m_localInputSequence = latestLocalSequence;
 
-    if(ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId)) {
-        localParticipant->lastReceivedInputFrame = latestLocalFrame;
-        localParticipant->lastContiguousInputFrame = latestLocalFrame;
-        localParticipant->lastReceivedInputSequence = latestLocalSequence;
-        localParticipant->pendingMissingInputFrom.reset();
+        if(ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId)) {
+            localParticipant->lastReceivedInputFrame = latestLocalFrame;
+            localParticipant->lastContiguousInputFrame = latestLocalFrame;
+            localParticipant->lastReceivedInputSequence = latestLocalSequence;
+            localParticipant->pendingMissingInputFrom.reset();
+        }
     }
 }
 
