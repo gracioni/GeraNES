@@ -2003,21 +2003,19 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
         return;
     }
 
-    FrameNumber rollbackFrame = inputFrame > 0 ? (inputFrame - 1) : 0;
-    if(rollbackFrame < confirmedFrame) {
-        rollbackFrame = confirmedFrame;
-    }
-
-    if(!m_pendingRollbackFrame.has_value() || rollbackFrame < *m_pendingRollbackFrame) {
-        m_pendingRollbackFrame = rollbackFrame;
-    }
-
-    m_predictionStats.recordRollbackScheduled(inputFrame, slot);
-    if(participant != nullptr) {
-        ++participant->rollbackScheduledCount;
-    }
     if(inputFrame > currentFrame) {
         if(!predictionMatched) {
+            FrameNumber rollbackFrame = inputFrame > 0 ? (inputFrame - 1) : 0;
+            if(rollbackFrame < confirmedFrame) {
+                rollbackFrame = confirmedFrame;
+            }
+            if(!m_pendingRollbackFrame.has_value() || rollbackFrame < *m_pendingRollbackFrame) {
+                m_pendingRollbackFrame = rollbackFrame;
+            }
+            m_predictionStats.recordRollbackScheduled(inputFrame, slot);
+            if(participant != nullptr) {
+                ++participant->rollbackScheduledCount;
+            }
             m_predictionStats.recordFutureFrameMismatch(inputFrame, slot);
             if(participant != nullptr) {
                 ++participant->futureFrameMismatchCount;
@@ -2032,9 +2030,25 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
         return;
     }
 
-    recordParticipantDecision("Rollback scheduled");
     if(!predictionMatched) {
+        FrameNumber rollbackFrame = inputFrame > 0 ? (inputFrame - 1) : 0;
+        if(rollbackFrame < confirmedFrame) {
+            rollbackFrame = confirmedFrame;
+        }
+        if(!m_pendingRollbackFrame.has_value() || rollbackFrame < *m_pendingRollbackFrame) {
+            m_pendingRollbackFrame = rollbackFrame;
+        }
+        m_predictionStats.recordRollbackScheduled(inputFrame, slot);
+        if(participant != nullptr) {
+            ++participant->rollbackScheduledCount;
+        }
+    }
+
+    if(!predictionMatched) {
+        recordParticipantDecision("Rollback scheduled");
         pushLog(predictionMessage() + " classification=speculative_mismatch_corrected_by_rollback");
+    } else {
+        recordParticipantDecision("Prediction validated");
     }
 }
 
