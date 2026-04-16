@@ -1366,7 +1366,13 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
     if(existing != nullptr && existing->predicted) {
-        const bool predictionHit = inputFramesEqual(existing->inputFrame, inputFrame);
+        // Compare only assignment-level contribution for prediction validation.
+        // Full InputFrame byte equality is too strict (it includes fields that
+        // are irrelevant for the assigned slot/device and can differ across
+        // platforms without changing effective gameplay input).
+        const bool predictionHit =
+            existing->buttonMaskLo == input.buttonMaskLo &&
+            existing->buttonMaskHi == input.buttonMaskHi;
         const FrameNumber currentFrame = m_localSimulationFrame;
         if(input.frame <= currentFrame) {
             m_predictionStats.recordPrediction(predictionHit);
