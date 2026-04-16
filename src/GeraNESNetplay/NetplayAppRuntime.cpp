@@ -942,7 +942,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     while(emu.frameCount() < currentFrame) {
         const uint32_t nextFrame = emu.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const bool allowPrediction = nextFrame > m_inputDriver.confirmedThroughFrame(m_coordinator);
+        const bool allowPrediction = shouldAllowPredictionForFrame(nextFrame);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
             m_coordinator.appendNetplayLog("Netplay resimulation failed");
             return;
@@ -960,7 +960,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
             );
             return;
         }
-        if(!emu.updateUntilFrame(frameDt)) {
+        if(!emu.updateUntilFrame(frameDt, false)) {
             m_coordinator.appendNetplayLog(
                 "Netplay resimulation failed: emulator did not advance at frame " +
                 std::to_string(nextFrame)
@@ -1047,12 +1047,20 @@ void NetplayAppRuntime::syncEmuInputTimelineEpoch(GeraNESEmu& emu)
 bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
                                                               NetplayCoordinator::ConfirmedFrameInputs& outFrame)
 {
-    const bool allowPrediction = frame > m_inputDriver.confirmedThroughFrame(m_coordinator);
+    const bool allowPrediction = shouldAllowPredictionForFrame(frame);
     if(!m_coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame)) {
         recordPlaybackStop(frame);
         return false;
     }
     return true;
+}
+
+bool NetplayAppRuntime::shouldAllowPredictionForFrame(FrameNumber frame) const
+{
+    const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    const FrameNumber delaySlackFrame =
+        confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
+    return frame > delaySlackFrame;
 }
 
 bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame)

@@ -321,6 +321,7 @@ void NetplayCoordinator::resetSessionState()
     m_activeTargetedResyncExpectedStateCrc32 = 0;
     m_reconnectReservationDeadlines.clear();
     m_lastRemoteInputAt.clear();
+    m_lastPeerHealthAt.clear();
     m_lastTransportError.clear();
     clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
@@ -440,6 +441,7 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
     );
     m_reconnectReservationDeadlines.erase(participantId);
     m_lastRemoteInputAt.erase(participantId);
+    m_lastPeerHealthAt.erase(participantId);
     m_pendingResyncAcks.erase(
         std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
         m_pendingResyncAcks.end()
@@ -1873,8 +1875,9 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             continue;
         }
 
-        const auto it = m_lastRemoteInputAt.find(participant.id);
-        if(it == m_lastRemoteInputAt.end()) {
+        const auto inputIt = m_lastRemoteInputAt.find(participant.id);
+        const auto healthIt = m_lastPeerHealthAt.find(participant.id);
+        if(inputIt == m_lastRemoteInputAt.end() && healthIt == m_lastPeerHealthAt.end()) {
             continue;
         }
 
@@ -1882,7 +1885,19 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             continue;
         }
 
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second);
+        std::chrono::steady_clock::time_point latestActivity = {};
+        if(inputIt != m_lastRemoteInputAt.end()) {
+            latestActivity = inputIt->second;
+        }
+        if(healthIt != m_lastPeerHealthAt.end() &&
+           (latestActivity.time_since_epoch().count() == 0 || healthIt->second > latestActivity)) {
+            latestActivity = healthIt->second;
+        }
+        if(latestActivity.time_since_epoch().count() == 0) {
+            continue;
+        }
+
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - latestActivity);
         if(elapsed < m_remoteInputSuspendTimeout) {
             continue;
         }
@@ -3070,6 +3085,7 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
     if(!reader.readPod(data)) return false;
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
+        m_lastPeerHealthAt[participant->id] = std::chrono::steady_clock::now();
         const FrameNumber previousReportedCurrentFrame = participant->lastReportedCurrentFrame;
         participant->pingMs = data.pingMs;
         participant->jitterMs = data.jitterMs;

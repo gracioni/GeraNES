@@ -197,6 +197,7 @@ private:
     void updateUiSnapshot(const std::optional<RomSelection>& localRom);
     void syncEmuInputTimelineEpoch(GeraNESEmu& emu);
     bool tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame);
+    bool shouldAllowPredictionForFrame(FrameNumber frame) const;
     void recordPlaybackStop(FrameNumber frame);
 
     template<typename Fn>
