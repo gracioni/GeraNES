@@ -864,6 +864,10 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
 
     while(advancedFrames < maxFrames) {
         const FrameNumber nextFrame = emu.frameCount() + 1u;
+        const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+        if(nextFrame > confirmedThroughFrame) {
+            break;
+        }
         const uint64_t nextFrameClockMicros = m_coordinator.authoritativeFrameStartClockMicros(nextFrame);
         if(nextFrameClockMicros == 0u) {
             break;
