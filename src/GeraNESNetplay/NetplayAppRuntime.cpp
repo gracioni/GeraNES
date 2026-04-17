@@ -823,7 +823,11 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
     }
 
     constexpr uint32_t kMaxSilentCatchupFrames = 120u;
-    const uint32_t advancedFrames = advanceToSharedClockIfNeededOnWorker(emu, kMaxSilentCatchupFrames);
+    const uint32_t advancedFrames = advanceToSharedClockIfNeededOnWorker(
+        emu,
+        kMaxSilentCatchupFrames,
+        false
+    );
 
     if(advancedFrames > 0u) {
         std::ostringstream oss;
@@ -838,7 +842,9 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
     }
 }
 
-uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu, uint32_t maxFrames)
+uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu,
+                                                                 uint32_t maxFrames,
+                                                                 bool requireLagTrigger)
 {
     if(maxFrames == 0u) {
         return 0u;
@@ -854,10 +860,51 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     }
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+    const uint64_t frameDtMicros =
+        std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, static_cast<uint64_t>(emu.getRegionFPS())));
+    const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    bool lagTriggerActivated = false;
+    FrameNumber estimatedHostFrameFromClock = 0u;
+    FrameNumber estimatedLagFrames = 0u;
+
+    if(requireLagTrigger) {
+        constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 10u;
+        const RoomState& room = m_coordinator.session().roomState();
+        if(room.lastAuthoritativeClockFrame == 0u ||
+           room.lastAuthoritativeClockMicros == 0u ||
+           !room.sharedClockSynchronized) {
+            return 0u;
+        }
+
+        const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
+        if(nowSharedClockMicros == 0u || nowSharedClockMicros <= room.lastAuthoritativeClockMicros) {
+            return 0u;
+        }
+
+        const uint64_t elapsedSinceAuthoritativeMicros =
+            nowSharedClockMicros - room.lastAuthoritativeClockMicros;
+        const FrameNumber estimatedHostFrame =
+            room.lastAuthoritativeClockFrame +
+            static_cast<FrameNumber>(elapsedSinceAuthoritativeMicros / frameDtMicros);
+        estimatedHostFrameFromClock = estimatedHostFrame;
+        const FrameNumber localFrame = emu.frameCount();
+        if(estimatedHostFrame < localFrame + kContinuousCatchupLagTriggerFrames) {
+            return 0u;
+        }
+        lagTriggerActivated = true;
+        estimatedLagFrames = estimatedHostFrame > localFrame ? (estimatedHostFrame - localFrame) : 0u;
+        if(localFrame >= confirmedThroughFrame) {
+            return 0u;
+        }
+    }
+
     uint32_t advancedFrames = 0u;
 
     while(advancedFrames < maxFrames) {
         const FrameNumber nextFrame = emu.frameCount() + 1u;
+        if(nextFrame > confirmedThroughFrame) {
+            break;
+        }
         const uint64_t nextFrameClockMicros = m_coordinator.authoritativeFrameStartClockMicros(nextFrame);
         if(nextFrameClockMicros == 0u) {
             break;
@@ -868,16 +915,48 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             break;
         }
 
-        if(!tryQueuePlaybackFrameToEmu(emu, nextFrame)) {
+        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame)) {
+            break;
+        }
+        if(playbackFrame.predicted) {
             break;
         }
 
-        if(!emu.updateUntilFrame(frameDt, false)) {
+        InputFrame inputFrame = playbackFrame.inputFrame;
+        inputFrame.speculative = false;
+        inputFrame.timelineEpoch = emu.inputTimelineEpoch();
+        const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
+        if(enqueueResult != InputBuffer::EnqueueResult::Inserted &&
+           enqueueResult != InputBuffer::EnqueueResult::UpdatedPending) {
+            break;
+        }
+
+        if(!emu.updateUntilFrame(frameDt, true)) {
             break;
         }
 
         ++advancedFrames;
         m_coordinator.setLocalSimulationFrame(emu.frameCount());
+    }
+
+    if(advancedFrames > 0u) {
+        std::ostringstream oss;
+        oss << "Netplay continuous shared-clock catchup advanced "
+            << advancedFrames
+            << " frame(s)"
+            << " localFrame="
+            << emu.frameCount()
+            << " confirmedThrough="
+            << confirmedThroughFrame;
+        if(lagTriggerActivated) {
+            oss << " triggerLagFrames="
+                << estimatedLagFrames
+                << " estimatedHostFrame="
+                << estimatedHostFrameFromClock;
+        }
+        oss << " (audio muted)";
+        m_coordinator.appendNetplayLog(oss.str());
     }
 
     return advancedFrames;
