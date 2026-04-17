@@ -1791,7 +1791,6 @@ void GeraNESApp::mainLoop()
 {
     updateCursor();
 
-    int displayFrameRate = getDisplayFrameRate();
     Uint64 tempTime = SDL_GetTicks64();
     Uint64 dt = tempTime - m_mainLoopLastTime;
 
@@ -1817,7 +1816,6 @@ void GeraNESApp::mainLoop()
     const bool minimized = isMinimized();
     const bool allowVsyncLock =
         m_vsyncMode != OFF &&
-        displayFrameRate == static_cast<int>(m_emu.getRegionFPS()) &&
         !minimized &&
         !isWindowsTitleBarInteractionActive() &&
         !netplayPacingOverrideActive;
