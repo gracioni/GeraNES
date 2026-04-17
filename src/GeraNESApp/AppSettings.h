@@ -214,6 +214,7 @@ public:
         bool autoGameplayTuning = true;
         int inputDelayFrames = 2;
         int predictFrames = 0;
+        bool showNetplayDebugLog = false;
         int gameplayReceiveDelayMs = 0;
         std::string displayName = "Participant";
         std::string hostName = "127.0.0.1";
@@ -233,6 +234,7 @@ public:
                 {"autoGameplayTuning", value.autoGameplayTuning},
                 {"inputDelayFrames", value.inputDelayFrames},
                 {"predictFrames", value.predictFrames},
+                {"showNetplayDebugLog", value.showNetplayDebugLog},
                 {"gameplayReceiveDelayMs", value.gameplayReceiveDelayMs},
                 {"displayName", value.displayName},
                 {"hostName", value.hostName},
@@ -258,6 +260,9 @@ public:
             value.autoGameplayTuning = j.value("autoGameplayTuning", defaults.autoGameplayTuning);
             value.inputDelayFrames = j.value("inputDelayFrames", defaults.inputDelayFrames);
             value.predictFrames = j.value("predictFrames", defaults.predictFrames);
+            value.showNetplayDebugLog =
+                j.value("showNetplayDebugLog",
+                        j.value("debugMode", defaults.showNetplayDebugLog));
             value.gameplayReceiveDelayMs = j.value("gameplayReceiveDelayMs", defaults.gameplayReceiveDelayMs);
             value.displayName = j.value("displayName", defaults.displayName);
             value.hostName = j.value("hostName", defaults.hostName);

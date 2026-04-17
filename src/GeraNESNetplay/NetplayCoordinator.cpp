@@ -1999,7 +1999,9 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
             ++participant->confirmedFrameConflictCount;
         }
         recordParticipantDecision("Confirmed-frame conflict");
-        pushLog(predictionMessage() + " after confirmed window");
+        if(m_debugMode) {
+            pushLog(predictionMessage() + " after confirmed window");
+        }
 
         if(m_hosting &&
            m_session.roomState().state != SessionState::Resyncing) {
@@ -2031,14 +2033,14 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
         } else {
             recordParticipantDecision("Future prediction validated");
         }
-        if(!predictionMatched) {
+        if(!predictionMatched && m_debugMode) {
             pushLog(predictionMessage() + " before local simulation reached that frame");
         }
         return;
     }
 
     recordParticipantDecision("Rollback scheduled");
-    if(!predictionMatched) {
+    if(!predictionMatched && m_debugMode) {
         pushLog(predictionMessage() + " classification=speculative_mismatch_corrected_by_rollback");
     }
 }
@@ -4541,6 +4543,11 @@ bool NetplayCoordinator::setTransportBackend(NetTransportBackend backend)
 void NetplayCoordinator::setTransportOptions(const NetTransportOptions& options)
 {
     m_transport.setOptions(options);
+}
+
+void NetplayCoordinator::setDebugMode(bool enabled)
+{
+    m_debugMode = enabled;
 }
 
 const NetTransportOptions& NetplayCoordinator::transportOptions() const

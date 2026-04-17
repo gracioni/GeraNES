@@ -306,6 +306,7 @@ void NetplayAppRuntime::syncRomValidation(const std::optional<RomSelection>& loc
 void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
 {
     auto& cfg = AppSettings::instance().data.netplay;
+    m_coordinator.setDebugMode(cfg.showNetplayDebugLog);
     cfg.gameplayReceiveDelayMs = std::max(0, cfg.gameplayReceiveDelayMs);
 #ifdef NDEBUG
     cfg.gameplayReceiveDelayMs = 0;
@@ -1053,7 +1054,8 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     m_emuHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
 
     const uint32_t recoveredConfirmedFrame = m_coordinator.session().roomState().lastConfirmedFrame;
-    if(recoveredConfirmedFrame != 0u && recoveredConfirmedFrame <= emu.frameCount()) {
+    const bool showNetplayDebugLog = AppSettings::instance().data.netplay.showNetplayDebugLog;
+    if(showNetplayDebugLog && recoveredConfirmedFrame != 0u && recoveredConfirmedFrame <= emu.frameCount()) {
         const uint32_t recoveredConfirmedCrc32 = emu.canonicalNetplayStateCrc32();
         std::ostringstream validate;
         validate << "Rollback recovery reanchored"
@@ -1064,10 +1066,12 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         m_coordinator.appendNetplayLog(validate.str());
     }
 
-    m_coordinator.appendNetplayLog(
-        "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
-        " -> " + std::to_string(*rollbackFrame) + ")"
-    );
+    if(showNetplayDebugLog) {
+        m_coordinator.appendNetplayLog(
+            "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
+            " -> " + std::to_string(*rollbackFrame) + ")"
+        );
+    }
 }
 
 void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection>& localRom)

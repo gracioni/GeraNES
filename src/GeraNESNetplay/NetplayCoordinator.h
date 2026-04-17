@@ -111,6 +111,7 @@ private:
     std::string m_localEmulatorVersion;
     bool m_disconnectExpectedAfterJoinReject = false;
     bool m_disconnectExpectedAfterHostShutdown = false;
+    bool m_debugMode = false;
     bool m_gracefulDisconnectPending = false;
     std::chrono::steady_clock::time_point m_gracefulDisconnectDeadline = {};
     std::string m_lastError;
@@ -318,6 +319,7 @@ public:
     void update(uint32_t timeoutMs = 0);
     bool setTransportBackend(NetTransportBackend backend);
     void setTransportOptions(const NetTransportOptions& options);
+    void setDebugMode(bool enabled);
     const NetTransportOptions& transportOptions() const;
     NetTransportBackend transportBackend() const;
 
