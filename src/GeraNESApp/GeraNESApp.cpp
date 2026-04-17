@@ -1819,13 +1819,7 @@ void GeraNESApp::mainLoop()
         !minimized &&
         !isWindowsTitleBarInteractionActive() &&
         !netplayPacingOverrideActive;
-    if(!allowVsyncLock) {
-        m_presenterFrameAccumMs = 0.0;
-        if(!netplayPacingOverrideActive) {
-            m_emu.setSimulationSuspended(false);
-        }
-        if(m_emu.update(dt)) render();
-    } else {
+    const auto advanceWithFixedStep = [&]() {
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
         const double emuFrameMs = 1000.0 / static_cast<double>(emuFps);
         m_presenterFrameAccumMs += static_cast<double>(dt);
@@ -1843,6 +1837,18 @@ void GeraNESApp::mainLoop()
         for(uint32_t i = 0u; i < framesToAdvance; ++i) {
             m_emu.updateUntilFrame(stepDtMs);
         }
+        if(framesToAdvance > 0u) {
+            render();
+        }
+    };
+
+    if(netplayPacingOverrideActive) {
+        advanceWithFixedStep();
+    } else if(!allowVsyncLock) {
+        m_emu.setSimulationSuspended(false);
+        advanceWithFixedStep();
+    } else {
+        advanceWithFixedStep();
         render();
     }
     m_frameCounter++;
