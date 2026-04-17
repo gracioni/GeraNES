@@ -146,6 +146,9 @@ private:
     std::unordered_map<uint32_t, size_t> m_netplaySnapshotIndexByFrame;
     size_t m_netplaySnapshotCapacity = 0;
     NetplayDiagnosticsSnapshot m_netplayDiagnostics;
+    bool m_hasCachedNetplayCrc = false;
+    uint32_t m_cachedNetplayCrcFrame = 0;
+    uint32_t m_cachedNetplayCrcValue = 0;
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;

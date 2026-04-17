@@ -28,6 +28,9 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     const uint32_t crc32 = emu.canonicalNetplayStateCrc32();
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
+    m_hasCachedNetplayCrc = true;
+    m_cachedNetplayCrcFrame = frame;
+    m_cachedNetplayCrcValue = crc32;
 
     size_t snapshotCapacity = 0;
     {
@@ -503,6 +506,7 @@ bool ThreadedEmulationHost::rollbackToFrame(uint32_t frame)
     if(!m_emu.valid()) {
         return false;
     }
+    m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     ++m_netplayDiagnostics.rollbackStats.rollbackCount;
     m_netplayDiagnostics.rollbackStats.lastRollbackFromFrame = rollbackFrom;
@@ -534,6 +538,7 @@ bool ThreadedEmulationHost::loadStateFromMemory(const std::vector<uint8_t>& data
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
+    m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     return true;
 }
@@ -546,6 +551,7 @@ bool ThreadedEmulationHost::loadStateFromMemoryAsManualStateChange(const std::ve
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
+    m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     onLoadExecutedLocked(m_emu.frameCount());
     return true;
@@ -560,7 +566,15 @@ uint32_t ThreadedEmulationHost::canonicalStateCrc32()
 uint32_t ThreadedEmulationHost::canonicalNetplayStateCrc32()
 {
     std::scoped_lock emuLock(m_emuMutex);
-    return m_emu.canonicalNetplayStateCrc32();
+    const uint32_t frame = m_emu.frameCount();
+    if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame == frame) {
+        return m_cachedNetplayCrcValue;
+    }
+    const uint32_t crc = m_emu.canonicalNetplayStateCrc32();
+    m_hasCachedNetplayCrc = true;
+    m_cachedNetplayCrcFrame = frame;
+    m_cachedNetplayCrcValue = crc;
+    return crc;
 }
 
 uint32_t ThreadedEmulationHost::lastFrameReadyFrame() const

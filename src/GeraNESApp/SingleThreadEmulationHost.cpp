@@ -26,6 +26,9 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     const uint32_t crc32 = emu.canonicalNetplayStateCrc32();
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
+    m_hasCachedNetplayCrc = true;
+    m_cachedNetplayCrcFrame = frame;
+    m_cachedNetplayCrcValue = crc32;
 
     if(m_netplaySnapshotCapacity == 0) {
         return;
@@ -254,6 +257,7 @@ void SingleThreadEmulationHost::postCommand(std::function<void(GeraNESEmu&)> com
 bool SingleThreadEmulationHost::open(const std::string& path)
 {
     resetFreeRunningPacing();
+    m_hasCachedNetplayCrc = false;
     const bool opened = m_emu.open(path);
     if(opened) {
         const uint32_t bootstrapFrame = m_emu.frameCount();
@@ -399,6 +403,7 @@ bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
     const bool loaded = m_emu.valid();
     if(loaded) {
         resetFreeRunningPacing();
+        m_hasCachedNetplayCrc = false;
         ++m_netplayDiagnostics.rollbackStats.rollbackCount;
         m_netplayDiagnostics.rollbackStats.lastRollbackFromFrame = rollbackFrom;
         m_netplayDiagnostics.rollbackStats.lastRollbackToFrame = frame;
@@ -427,6 +432,7 @@ bool SingleThreadEmulationHost::loadStateFromMemory(const std::vector<uint8_t>& 
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
         resetFreeRunningPacing();
+        m_hasCachedNetplayCrc = false;
         refreshPresentedFramebuffer();
     }
     return loaded;
@@ -439,6 +445,7 @@ bool SingleThreadEmulationHost::loadStateFromMemoryAsManualStateChange(const std
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
         resetFreeRunningPacing();
+        m_hasCachedNetplayCrc = false;
         onLoadExecutedLocked(m_emu.frameCount());
         refreshPresentedFramebuffer();
     }
@@ -452,7 +459,15 @@ uint32_t SingleThreadEmulationHost::canonicalStateCrc32()
 
 uint32_t SingleThreadEmulationHost::canonicalNetplayStateCrc32()
 {
-    return m_emu.canonicalNetplayStateCrc32();
+    const uint32_t frame = m_emu.frameCount();
+    if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame == frame) {
+        return m_cachedNetplayCrcValue;
+    }
+    const uint32_t crc = m_emu.canonicalNetplayStateCrc32();
+    m_hasCachedNetplayCrc = true;
+    m_cachedNetplayCrcFrame = frame;
+    m_cachedNetplayCrcValue = crc;
+    return crc;
 }
 
 uint32_t SingleThreadEmulationHost::lastFrameReadyFrame() const

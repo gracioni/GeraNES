@@ -147,6 +147,9 @@ private:
     std::unordered_map<uint32_t, size_t> m_netplaySnapshotIndexByFrame;
     size_t m_netplaySnapshotCapacity = 0;
     NetplayDiagnosticsSnapshot m_netplayDiagnostics;
+    bool m_hasCachedNetplayCrc = false;
+    uint32_t m_cachedNetplayCrcFrame = 0;
+    uint32_t m_cachedNetplayCrcValue = 0;
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     mutable std::mutex m_manualStateChangeMutex;
@@ -255,6 +258,7 @@ public:
     bool open(const std::string& path)
     {
         std::scoped_lock emuLock(m_emuMutex);
+        m_hasCachedNetplayCrc = false;
         const bool opened = m_emu.open(path);
         if(opened) {
             const uint32_t bootstrapFrame = m_emu.frameCount();
