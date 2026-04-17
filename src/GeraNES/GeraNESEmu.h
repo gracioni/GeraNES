@@ -867,16 +867,12 @@ private:
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
-        }
-        // Always re-anchor audible playback bookkeeping to the loaded frame.
-        // This prevents rollback/state-load from keeping a stale "already
-        // rendered" marker that can suppress audio on newly replayed confirmed
-        // frames.
-        if(m_frameCounter == 0) {
-            m_lastAudiblyRenderedPlaybackFrame.reset();
-        }
-        else {
-            m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
+            if(m_frameCounter == 0) {
+                m_lastAudiblyRenderedPlaybackFrame.reset();
+            }
+            else {
+                m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
+            }
         }
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
