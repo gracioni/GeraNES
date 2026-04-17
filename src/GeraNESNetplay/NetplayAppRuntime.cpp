@@ -1,6 +1,7 @@
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 
@@ -8,9 +9,122 @@
 
 namespace Netplay {
 
+namespace {
+
+const char* sessionStateLabel(SessionState state)
+{
+    switch(state) {
+        case SessionState::Lobby: return "Lobby";
+        case SessionState::Starting: return "Starting";
+        case SessionState::Running: return "Running";
+        case SessionState::Paused: return "Paused";
+        case SessionState::Resyncing: return "Resyncing";
+        case SessionState::Ended: return "Ended";
+        default: return "Unknown";
+    }
+}
+
+} // namespace
+
 NetplayAppRuntime::NetplayAppRuntime(IEmulationHost& emuHost)
     : m_emuHost(emuHost)
 {
+}
+
+const char* NetplayAppRuntime::clientDiagnosticsLogFilePath()
+{
+    return "netplay_client_debug.log";
+}
+
+bool NetplayAppRuntime::clientDiagnosticsEnabled() const
+{
+    return m_coordinator.isActive() &&
+           m_coordinator.isConnected() &&
+           !m_coordinator.isHosting();
+}
+
+void NetplayAppRuntime::updateClientDiagnosticsMode()
+{
+    const bool shouldEnable = clientDiagnosticsEnabled();
+    if(shouldEnable == m_clientDiagnosticsActive) {
+        return;
+    }
+
+    if(shouldEnable) {
+        m_clientDiagnosticsActive = true;
+        m_clientDiagnosticsSequence = 0;
+        m_hasLastPlaybackPredictedLog = false;
+        m_lastPlaybackPredictedLog = false;
+        m_lastPlaybackPredictionLogFrame = 0;
+        m_lastClientStallResyncRequestAt = {};
+        m_lastClientStallResyncRequestFrame = 0;
+
+        std::ofstream file(clientDiagnosticsLogFilePath(), std::ios::trunc);
+        if(file.good()) {
+            const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+            const RoomState& room = m_coordinator.session().roomState();
+            file << nowMs
+                 << " [mode] client diagnostics enabled"
+                 << " sessionId=" << room.sessionId
+                 << " localParticipantId=" << static_cast<unsigned>(m_coordinator.localParticipantId())
+                 << " backend=" << netTransportBackendLabel(m_coordinator.transportBackend())
+                 << "\n";
+        }
+        return;
+    }
+
+    if(m_clientDiagnosticsActive) {
+        std::ofstream file(clientDiagnosticsLogFilePath(), std::ios::app);
+        if(file.good()) {
+            const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+            file << nowMs << " [mode] client diagnostics disabled\n";
+        }
+    }
+    m_clientDiagnosticsActive = false;
+    m_hasLastPlaybackPredictedLog = false;
+    m_lastPlaybackPredictedLog = false;
+    m_lastPlaybackPredictionLogFrame = 0;
+    m_lastClientStallResyncRequestAt = {};
+    m_lastClientStallResyncRequestFrame = 0;
+}
+
+void NetplayAppRuntime::appendClientDiagnosticsLine(const char* category, const std::string& message)
+{
+    if(!m_clientDiagnosticsActive) {
+        return;
+    }
+
+    std::ofstream file(clientDiagnosticsLogFilePath(), std::ios::app);
+    if(!file.good()) {
+        return;
+    }
+
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+    const RoomState& room = m_coordinator.session().roomState();
+    file << nowMs
+         << " ["
+         << category
+         << "] seq="
+         << (++m_clientDiagnosticsSequence)
+         << " roomState="
+         << sessionStateLabel(room.state)
+         << " localFrame="
+         << m_coordinator.localSimulationFrame()
+         << " confirmedFrame="
+         << room.lastConfirmedFrame
+         << " delay="
+         << static_cast<unsigned>(room.inputDelayFrames)
+         << " predict="
+         << static_cast<unsigned>(room.predictFrames)
+         << " | "
+         << message
+         << "\n";
 }
 
 std::string NetplayAppRuntime::buildRomKey(const std::optional<RomSelection>& selection)
@@ -561,6 +675,19 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         return;
     }
 
+    {
+        std::ostringstream oss;
+        oss << "session state transition "
+            << (previousState.has_value() ? sessionStateLabel(*previousState) : "None")
+            << " -> "
+            << sessionStateLabel(currentState)
+            << " activeResyncId="
+            << m_coordinator.session().roomState().activeResyncId
+            << " pendingResyncAckCount="
+            << m_coordinator.session().roomState().pendingResyncAckCount;
+        appendClientDiagnosticsLine("state", oss.str());
+    }
+
     const bool enteringResync = currentState == SessionState::Resyncing;
     const bool leavingResync =
         previousState.has_value() &&
@@ -766,6 +893,16 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
 {
     std::optional<NetplayCoordinator::PendingResyncApply> pending = m_coordinator.consumePendingResyncApply();
     if(!pending.has_value()) return;
+    {
+        std::ostringstream oss;
+        oss << "resync apply begin"
+            << " resyncId=" << pending->resyncId
+            << " targetFrame=" << pending->targetFrame
+            << " payloadBytes=" << pending->payload.size()
+            << " frameReadyFrame=" << pending->frameReadyFrame
+            << " frameReadyCrc32=" << pending->frameReadyCrc32;
+        appendClientDiagnosticsLine("resync", oss.str());
+    }
 
     m_emuHost.beginPresentationHoldUntilNextFrameReady();
     const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
@@ -794,6 +931,7 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             << " frameReadyFrame "
             << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
         m_coordinator.appendNetplayLog(oss.str());
+        appendClientDiagnosticsLine("resync", oss.str());
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
 
@@ -809,6 +947,17 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         }
         m_coordinator.appendNetplayLog("Netplay resync post-load validation rejected");
         m_coordinator.appendNetplayLog("Netplay resync failed");
+        appendClientDiagnosticsLine(
+            "resync",
+            "resync apply failed: post-load validation rejected"
+        );
+    } else {
+        std::ostringstream oss;
+        oss << "resync apply acked"
+            << " resyncId=" << pending->resyncId
+            << " targetFrame=" << pending->targetFrame
+            << " loadedCrc32=" << loadedCrc32;
+        appendClientDiagnosticsLine("resync", oss.str());
     }
 }
 
@@ -835,6 +984,7 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
             << emu.frameCount()
             << " (audio muted)";
         m_coordinator.appendNetplayLog(oss.str());
+        appendClientDiagnosticsLine("clock-align", oss.str());
     }
 }
 
@@ -882,7 +1032,27 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             break;
         }
 
-        if(!tryQueuePlaybackFrameToEmu(emu, nextFrame)) {
+        // Continuous shared-clock alignment is confirmed-only: never grow the
+        // speculative frontier from this path.
+        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame)) {
+            break;
+        }
+        if(playbackFrame.predicted) {
+            appendClientDiagnosticsLine(
+                "clock-align",
+                "aborted catchup: predicted frame produced while confirmed-only was required"
+            );
+            break;
+        }
+
+        InputFrame inputFrame = playbackFrame.inputFrame;
+        inputFrame.frame = nextFrame;
+        inputFrame.speculative = false;
+        inputFrame.timelineEpoch = emu.inputTimelineEpoch();
+        const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
+        if(enqueueResult != InputBuffer::EnqueueResult::Inserted &&
+           enqueueResult != InputBuffer::EnqueueResult::UpdatedPending) {
             break;
         }
 
@@ -892,6 +1062,15 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
 
         ++advancedFrames;
         m_coordinator.setLocalSimulationFrame(emu.frameCount());
+    }
+
+    if(advancedFrames > 0u) {
+        std::ostringstream oss;
+        oss << "shared-clock catchup advanced "
+            << advancedFrames
+            << " frame(s)"
+            << " maxFrames=" << maxFrames;
+        appendClientDiagnosticsLine("clock-align", oss.str());
     }
 
     return advancedFrames;
@@ -907,6 +1086,16 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     if(currentFrame == 0) return;
 
     const FrameNumber confirmedFrame = m_coordinator.session().roomState().lastConfirmedFrame;
+    {
+        std::ostringstream oss;
+        oss << "rollback begin"
+            << " requestedFrame=" << *rollbackFrame
+            << " currentFrame=" << currentFrame
+            << " confirmedFrame=" << confirmedFrame
+            << " prebuffer=" << m_inputDriver.prebufferFrames()
+            << " predict=" << m_inputDriver.predictFrames();
+        appendClientDiagnosticsLine("rollback", oss.str());
+    }
     const FrameNumber latestSafeRollbackFrame = currentFrame - 1u;
     const FrameNumber earliestConfirmedReplayFrame =
         confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
@@ -917,12 +1106,17 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 
     if(*rollbackFrame >= currentFrame) {
         m_coordinator.rescheduleRollbackFrame(*rollbackFrame);
+        appendClientDiagnosticsLine(
+            "rollback",
+            "rollback skipped: targetFrame >= currentFrame, rescheduled"
+        );
         return;
     }
 
     const std::optional<std::vector<uint8_t>> snapshotData = m_emuHost.netplaySnapshotForFrame(*rollbackFrame);
     if(!snapshotData.has_value() || snapshotData->empty()) {
         m_coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
+        appendClientDiagnosticsLine("rollback", "rollback failed: snapshot unavailable");
         return;
     }
 
@@ -933,6 +1127,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     if(!emu.valid()) {
         m_coordinator.appendNetplayLog("Netplay rollback failed");
+        appendClientDiagnosticsLine("rollback", "rollback failed: emu invalid after state load");
         return;
     }
 
@@ -955,17 +1150,29 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+    uint32_t replayedFrames = 0u;
+    uint32_t replayedPredictedFrames = 0u;
     while(emu.frameCount() < currentFrame) {
         const uint32_t nextFrame = emu.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = shouldAllowPredictionForFrame(nextFrame);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
             m_coordinator.appendNetplayLog("Netplay resimulation failed");
+            {
+                std::ostringstream oss;
+                oss << "resimulation failed: cannot build playback frame"
+                    << " frame=" << nextFrame
+                    << " allowPrediction=" << (allowPrediction ? 1 : 0);
+                appendClientDiagnosticsLine("rollback", oss.str());
+            }
             return;
         }
 
         InputFrame inputFrame = playbackFrame.inputFrame;
         inputFrame.speculative = playbackFrame.predicted;
+        if(playbackFrame.predicted) {
+            ++replayedPredictedFrames;
+        }
         inputFrame.timelineEpoch = emu.inputTimelineEpoch();
         const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
         if(enqueueResult != InputBuffer::EnqueueResult::Inserted &&
@@ -974,6 +1181,13 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
                 "Netplay resimulation failed: rejected playback enqueue at frame " +
                 std::to_string(nextFrame)
             );
+            {
+                std::ostringstream oss;
+                oss << "resimulation failed: rejected enqueue"
+                    << " frame=" << nextFrame
+                    << " enqueueResult=" << static_cast<unsigned>(enqueueResult);
+                appendClientDiagnosticsLine("rollback", oss.str());
+            }
             return;
         }
         if(!emu.updateUntilFrame(frameDt, false)) {
@@ -981,8 +1195,15 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
                 "Netplay resimulation failed: emulator did not advance at frame " +
                 std::to_string(nextFrame)
             );
+            {
+                std::ostringstream oss;
+                oss << "resimulation failed: updateUntilFrame returned false"
+                    << " frame=" << nextFrame;
+                appendClientDiagnosticsLine("rollback", oss.str());
+            }
             return;
         }
+        ++replayedFrames;
     }
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
     m_emuHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
@@ -1003,6 +1224,15 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         "Netplay rollback applied (" + std::to_string(rollbackFromFrame) +
         " -> " + std::to_string(*rollbackFrame) + ")"
     );
+    {
+        std::ostringstream oss;
+        oss << "rollback complete"
+            << " from=" << rollbackFromFrame
+            << " to=" << *rollbackFrame
+            << " replayedFrames=" << replayedFrames
+            << " replayedPredictedFrames=" << replayedPredictedFrames;
+        appendClientDiagnosticsLine("rollback", oss.str());
+    }
 }
 
 void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection>& localRom)
@@ -1065,6 +1295,18 @@ bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
 {
     const bool allowPrediction = shouldAllowPredictionForFrame(frame);
     if(!m_coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame)) {
+        const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+        const FrameNumber predictedThroughFrame =
+            confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
+        std::ostringstream oss;
+        oss << "playback frame unavailable"
+            << " frame=" << frame
+            << " allowPrediction=" << (allowPrediction ? 1 : 0)
+            << " confirmedThrough=" << confirmedThroughFrame
+            << " predictedThrough=" << predictedThroughFrame
+            << " unresolvedPredictedRemote="
+            << m_coordinator.unresolvedPredictedRemoteFrameCount();
+        appendClientDiagnosticsLine("playback", oss.str());
         recordPlaybackStop(frame);
         return false;
     }
@@ -1161,6 +1403,34 @@ bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t fra
     inputFrame.speculative = playbackFrame.predicted;
     inputFrame.timelineEpoch = emu.inputTimelineEpoch();
     const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
+    if(enqueueResult != InputBuffer::EnqueueResult::Inserted &&
+       enqueueResult != InputBuffer::EnqueueResult::UpdatedPending) {
+        std::ostringstream oss;
+        oss << "queue playback frame rejected"
+            << " frame=" << frame
+            << " predicted=" << (playbackFrame.predicted ? 1 : 0)
+            << " enqueueResult=" << static_cast<unsigned>(enqueueResult);
+        appendClientDiagnosticsLine("playback", oss.str());
+    }
+    if(enqueueResult == InputBuffer::EnqueueResult::Inserted ||
+       enqueueResult == InputBuffer::EnqueueResult::UpdatedPending) {
+        const bool shouldLogPredictionState =
+            !m_hasLastPlaybackPredictedLog ||
+            m_lastPlaybackPredictedLog != playbackFrame.predicted ||
+            frame >= m_lastPlaybackPredictionLogFrame + 120u;
+        if(shouldLogPredictionState) {
+            const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+            std::ostringstream oss;
+            oss << "queue playback frame accepted"
+                << " frame=" << frame
+                << " predicted=" << (playbackFrame.predicted ? 1 : 0)
+                << " confirmedThrough=" << confirmedThroughFrame;
+            appendClientDiagnosticsLine("playback", oss.str());
+            m_hasLastPlaybackPredictedLog = true;
+            m_lastPlaybackPredictedLog = playbackFrame.predicted;
+            m_lastPlaybackPredictionLogFrame = frame;
+        }
+    }
     return enqueueResult == InputBuffer::EnqueueResult::Inserted ||
            enqueueResult == InputBuffer::EnqueueResult::UpdatedPending;
 }
@@ -1172,6 +1442,43 @@ void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)
         confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
     const bool predictionLimitReached = frame > predictedThroughFrame;
     m_coordinator.recordPlaybackStop(frame, predictionLimitReached);
+    std::ostringstream oss;
+    oss << "playback stopped"
+        << " frame=" << frame
+        << " confirmedThrough=" << confirmedThroughFrame
+        << " predictedThrough=" << predictedThroughFrame
+        << " predictionLimitReached=" << (predictionLimitReached ? 1 : 0);
+    appendClientDiagnosticsLine("playback-stop", oss.str());
+
+    if(!predictionLimitReached) {
+        return;
+    }
+    if(!m_coordinator.isActive() ||
+       !m_coordinator.isConnected() ||
+       m_coordinator.isHosting() ||
+       m_coordinator.session().roomState().state != SessionState::Running ||
+       m_coordinator.session().roomState().activeResyncId != 0u) {
+        return;
+    }
+
+    constexpr auto kClientStallResyncRequestCooldown = std::chrono::milliseconds(750);
+    const auto now = std::chrono::steady_clock::now();
+    if(m_lastClientStallResyncRequestAt.time_since_epoch().count() != 0 &&
+       (now - m_lastClientStallResyncRequestAt) < kClientStallResyncRequestCooldown &&
+       frame <= m_lastClientStallResyncRequestFrame + 1u) {
+        return;
+    }
+
+    if(m_coordinator.requestHostResync(ResyncReason::ConfirmedDesync)) {
+        m_lastClientStallResyncRequestAt = now;
+        m_lastClientStallResyncRequestFrame = frame;
+        std::ostringstream stall;
+        stall << "requested host resync due to prediction-limit stall"
+              << " frame=" << frame
+              << " confirmedThrough=" << confirmedThroughFrame
+              << " predictedThrough=" << predictedThroughFrame;
+        appendClientDiagnosticsLine("stall-resync", stall.str());
+    }
 }
 
 void NetplayAppRuntime::setLocalReconnectToken(uint64_t token)
@@ -1663,6 +1970,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     if(!m_coordinator.isActive() && m_coordinator.reconnectPending()) {
         m_coordinator.update(0);
     }
+    updateClientDiagnosticsMode();
 
     if(!m_coordinator.isActive()) {
         (void)m_emuHost.consumeManualStateChanges();
@@ -1729,6 +2037,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     syncEmuInputTimelineEpoch(emu);
     m_coordinator.setLocalSimulationFrame(emu.frameCount());
     m_coordinator.update(0);
+    updateClientDiagnosticsMode();
     syncEmuInputTimelineEpoch(emu);
     handleSessionStateTransitionsOnWorker(emu);
     processAutoStartIfNeeded(emu, localRom);
@@ -1822,6 +2131,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
                         << static_cast<unsigned>(requiredConfirmedFrame)
                         << ")";
                 m_coordinator.appendNetplayLog(warning.str());
+                appendClientDiagnosticsLine("delay-buffer", warning.str());
             }
         }
         if(holdForPostResyncDelayBuffer) {

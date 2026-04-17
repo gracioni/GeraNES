@@ -123,8 +123,19 @@ private:
     bool m_webPageVisible = true;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
+    bool m_clientDiagnosticsActive = false;
+    uint64_t m_clientDiagnosticsSequence = 0;
+    bool m_hasLastPlaybackPredictedLog = false;
+    bool m_lastPlaybackPredictedLog = false;
+    FrameNumber m_lastPlaybackPredictionLogFrame = 0;
+    std::chrono::steady_clock::time_point m_lastClientStallResyncRequestAt = {};
+    FrameNumber m_lastClientStallResyncRequestFrame = 0;
 
     static std::string buildRomKey(const std::optional<RomSelection>& selection);
+    static const char* clientDiagnosticsLogFilePath();
+    bool clientDiagnosticsEnabled() const;
+    void updateClientDiagnosticsMode();
+    void appendClientDiagnosticsLine(const char* category, const std::string& message);
 
     // Recovery entry points and ownership:
     // - `processRollbackIfNeededOnWorker`: local rollback correction after
