@@ -987,19 +987,13 @@ private:
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
             silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
-        // When a tick is explicitly non-audible (silent/time-align/speculative/
-        // already-rendered playback frame), keep audio output timing controls
-        // frozen so rollback/replay can re-render from the same control state.
-        const bool advanceAudioOutputClock = !tickSkipAudioRender;
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
             m_cpuCyclesAcc = m_cpu.run();
 
             if constexpr(!consumeUpdateBudget) {
-                if(advanceAudioOutputClock) {
                 m_audioRenderCyclesAcc += m_cpuCyclesAcc * 1000;
-                }
             }
 
             if(m_frameStarted) {
@@ -1023,12 +1017,10 @@ private:
 
         if constexpr(consumeUpdateBudget) {
             m_updateCyclesAcc -= 1000;
-            if(advanceAudioOutputClock) {
-                m_audioRenderCyclesAcc += 1000;
-            }
+            m_audioRenderCyclesAcc += 1000;
         }
 
-        while(advanceAudioOutputClock && m_audioRenderCyclesAcc >= audioRenderCycles) {
+        while(m_audioRenderCyclesAcc >= audioRenderCycles) {
             m_audioRenderCyclesAcc -= audioRenderCycles;
             if(m_vsyncAudioSkipMsDebt > 0) {
                 --m_vsyncAudioSkipMsDebt;
