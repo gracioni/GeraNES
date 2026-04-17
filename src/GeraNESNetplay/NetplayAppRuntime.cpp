@@ -974,9 +974,9 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
 
     const FrameNumber confirmedFrame = m_coordinator.session().roomState().lastConfirmedFrame;
     const FrameNumber latestSafeRollbackFrame = currentFrame - 1u;
-    const FrameNumber earliestConfirmedReplayFrame =
-        confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
-    const FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
+    // Keep the snapshot anchor at (at least) the latest confirmed frame so rollback
+    // replay starts from the frame immediately after the confirmed boundary.
+    const FrameNumber rollbackFloor = std::min(confirmedFrame, latestSafeRollbackFrame);
     if(*rollbackFrame < rollbackFloor) {
         rollbackFrame = rollbackFloor;
     }
