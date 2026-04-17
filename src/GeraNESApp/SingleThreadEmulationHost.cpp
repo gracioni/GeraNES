@@ -372,7 +372,7 @@ void SingleThreadEmulationHost::configureNetplaySnapshots(size_t snapshotCapacit
 
 bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
 {
-    std::vector<uint8_t> snapshotData;
+    const std::vector<uint8_t>* snapshotData = nullptr;
     auto it = std::find_if(
         m_netplaySnapshots.rbegin(),
         m_netplaySnapshots.rend(),
@@ -381,13 +381,13 @@ bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
     if(it == m_netplaySnapshots.rend()) {
         return false;
     }
-    snapshotData = it->data;
+    snapshotData = &it->data;
 
-    if(snapshotData.empty()) return false;
+    if(snapshotData == nullptr || snapshotData->empty()) return false;
     m_holdPresentedFramebufferUntilFrameReady = true;
     const uint32_t rollbackFrom = m_emu.frameCount();
     m_emu.loadStateFromMemoryWithAudioPolicy(
-        snapshotData,
+        *snapshotData,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     const bool loaded = m_emu.valid();
     if(loaded) {
