@@ -1,6 +1,7 @@
 #include "GeraNESApp/GeraNESApp.h"
 #include "GeraNESNetplay/NetplayWindowUI.h"
 
+#include <cstdlib>
 #include <fstream>
 
 void GeraNESApp::updateMVP()
@@ -1818,27 +1819,49 @@ void GeraNESApp::mainLoop()
         !minimized &&
         !isWindowsTitleBarInteractionActive();
     if(!allowPresenterPacing) {
-        m_presenterFrameAccumMs = 0.0;
+        m_presenterFrameAccumScaled = 0;
+        m_presenterStepRemainder = 0;
         if(!netplayPacingOverrideActive) {
             m_emu.setSimulationSuspended(false);
         }
         if(m_emu.update(dt)) render();
     } else {
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
-        const double emuFrameMs = 1000.0 / static_cast<double>(emuFps);
-        m_presenterFrameAccumMs += static_cast<double>(dt);
+        const bool vsyncEnabled = m_vsyncMode != OFF;
+        const int displayFrameRate = vsyncEnabled ? this->getDisplayFrameRate() : 0;
+        const bool monitorCadenceMatchesEmu =
+            vsyncEnabled &&
+            displayFrameRate > 0 &&
+            std::abs(displayFrameRate - static_cast<int>(emuFps)) <= 1;
+
+        if(monitorCadenceMatchesEmu) {
+            const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
+            uint32_t stepDtMs = stepNumerator / emuFps;
+            m_presenterStepRemainder = stepNumerator % emuFps;
+            stepDtMs = std::max<uint32_t>(1u, stepDtMs);
+            m_presenterFrameAccumScaled = 0;
+            m_emu.updateUntilFrame(stepDtMs);
+            render();
+            m_frameCounter++;
+            return;
+        }
+
+        m_presenterFrameAccumScaled += static_cast<uint64_t>(dt) * static_cast<uint64_t>(emuFps);
 
         uint32_t framesToAdvance = 0u;
-        while(m_presenterFrameAccumMs >= emuFrameMs && framesToAdvance < 3u) {
+        while(m_presenterFrameAccumScaled >= 1000u && framesToAdvance < 3u) {
             ++framesToAdvance;
-            m_presenterFrameAccumMs -= emuFrameMs;
+            m_presenterFrameAccumScaled -= 1000u;
         }
-        if(framesToAdvance == 3u && m_presenterFrameAccumMs > emuFrameMs) {
-            m_presenterFrameAccumMs = emuFrameMs;
+        if(framesToAdvance == 3u && m_presenterFrameAccumScaled > 1000u) {
+            m_presenterFrameAccumScaled = 1000u;
         }
 
-        const uint32_t stepDtMs = std::max<uint32_t>(1u, static_cast<uint32_t>(emuFrameMs));
         for(uint32_t i = 0u; i < framesToAdvance; ++i) {
+            const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
+            uint32_t stepDtMs = stepNumerator / emuFps;
+            m_presenterStepRemainder = stepNumerator % emuFps;
+            stepDtMs = std::max<uint32_t>(1u, stepDtMs);
             m_emu.updateUntilFrame(stepDtMs);
         }
         render();
