@@ -1024,11 +1024,10 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     while(emu.frameCount() < currentFrame) {
         const uint32_t nextFrame = emu.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        // Rollback replay should consume only confirmed inputs. If the next frame
-        // is not confirmed yet, stop replay here and continue on future ticks.
-        constexpr bool allowPrediction = false;
+        const bool allowPrediction = shouldAllowPredictionForFrame(nextFrame);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
-            break;
+            m_coordinator.appendNetplayLog("Netplay resimulation failed");
+            return;
         }
 
         InputFrame inputFrame = playbackFrame.inputFrame;
