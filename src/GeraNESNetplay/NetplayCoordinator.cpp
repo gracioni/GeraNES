@@ -1079,7 +1079,8 @@ std::vector<uint8_t> NetplayCoordinator::buildPeerHealthPacket(const PeerHealthD
     return writer.data();
 }
 
-static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input, const InputFrame& inputFrame)
+static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input,
+                                                  std::span<const uint8_t> serializedInputFrame)
 {
     PacketWriter writer;
 
@@ -1088,10 +1089,15 @@ static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input, c
     header.sessionId = 0;
     writer.writePod(header);
     writer.writePod(input);
-    const std::vector<uint8_t> payload = serializeInputFrame(inputFrame);
-    writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
+    writer.writeBytes(serializedInputFrame);
 
     return writer.data();
+}
+
+static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input, const InputFrame& inputFrame)
+{
+    const std::vector<uint8_t> payload = serializeInputFrame(inputFrame);
+    return buildInputFramePacket(input, std::span<const uint8_t>(payload.data(), payload.size()));
 }
 
 static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInputFramesData& data,
@@ -5191,8 +5197,12 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     packetData.buttonMaskLo = buttonMaskLo;
     packetData.buttonMaskHi = buttonMaskHi;
     packetData.sequence = entry.sequence;
-    packetData.payloadSize = static_cast<uint16_t>(serializeInputFrame(contribution).size());
-    const std::vector<uint8_t> payload = buildInputFramePacket(packetData, contribution);
+    const std::vector<uint8_t> serializedContribution = serializeInputFrame(contribution);
+    packetData.payloadSize = static_cast<uint16_t>(serializedContribution.size());
+    const std::vector<uint8_t> payload = buildInputFramePacket(
+        packetData,
+        std::span<const uint8_t>(serializedContribution.data(), serializedContribution.size())
+    );
 
     if(m_hosting) {
         synthesizeSuspendedRemoteInputsUpTo(frame);
