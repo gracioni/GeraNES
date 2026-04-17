@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -142,6 +143,7 @@ private:
     };
 
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
+    std::unordered_map<uint32_t, size_t> m_netplaySnapshotIndexByFrame;
     size_t m_netplaySnapshotCapacity = 0;
     NetplayDiagnosticsSnapshot m_netplayDiagnostics;
     uint32_t m_lastFrameReadyFrameValue = 0;
@@ -152,6 +154,7 @@ private:
     void onResetExecutedLocked(uint32_t frame);
     void onLoadExecutedLocked(uint32_t frame);
     void recordFrameReadyNetplayState(GeraNESEmu& emu);
+    void rebuildNetplaySnapshotIndex();
 
     enum class FramePacingMode : uint8_t
     {
