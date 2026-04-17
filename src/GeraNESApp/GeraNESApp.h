@@ -215,7 +215,8 @@ private:
     int m_fps = 0;
     int m_frameCounter = 0;
     uint32_t m_lastMainLoopDtMs = 0;
-    double m_presenterFrameAccumMs = 0.0;
+    uint64_t m_presenterFrameAccumScaled = 0;
+    uint32_t m_presenterStepRemainder = 0;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
