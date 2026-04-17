@@ -1791,7 +1791,6 @@ void GeraNESApp::mainLoop()
 {
     updateCursor();
 
-    int displayFrameRate = getDisplayFrameRate();
     Uint64 tempTime = SDL_GetTicks64();
     Uint64 dt = tempTime - m_mainLoopLastTime;
 
@@ -1815,13 +1814,10 @@ void GeraNESApp::mainLoop()
     bool netplayPacingOverrideActive = false;
     netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
     const bool minimized = isMinimized();
-    const bool allowVsyncLock =
-        m_vsyncMode != OFF &&
-        displayFrameRate == static_cast<int>(m_emu.getRegionFPS()) &&
+    const bool allowPresenterPacing =
         !minimized &&
-        !isWindowsTitleBarInteractionActive() &&
-        !netplayPacingOverrideActive;
-    if(!allowVsyncLock) {
+        !isWindowsTitleBarInteractionActive();
+    if(!allowPresenterPacing) {
         m_presenterFrameAccumMs = 0.0;
         if(!netplayPacingOverrideActive) {
             m_emu.setSimulationSuspended(false);
