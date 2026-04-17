@@ -65,6 +65,13 @@ public:
         uint64_t emulationTick = 0;
     };
 
+    struct RollbackAudioPhase
+    {
+        uint32_t audioRenderCyclesAcc = 0;
+        std::optional<uint32_t> lastAudiblyRenderedPlaybackFrame;
+        bool currentPlaybackFrameRenderedAudibly = false;
+    };
+
     enum class StateLoadAudioPolicy
     {
         ResetOutput,
@@ -1880,6 +1887,22 @@ public:
         m_updateCyclesAcc = savedUpdateCyclesAcc;
         m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
         return s.getData();
+    }
+
+    RollbackAudioPhase captureRollbackAudioPhase() const
+    {
+        RollbackAudioPhase phase;
+        phase.audioRenderCyclesAcc = m_audioRenderCyclesAcc;
+        phase.lastAudiblyRenderedPlaybackFrame = m_lastAudiblyRenderedPlaybackFrame;
+        phase.currentPlaybackFrameRenderedAudibly = m_currentPlaybackFrameRenderedAudibly;
+        return phase;
+    }
+
+    void restoreRollbackAudioPhase(const RollbackAudioPhase& phase)
+    {
+        m_audioRenderCyclesAcc = phase.audioRenderCyclesAcc;
+        m_lastAudiblyRenderedPlaybackFrame = phase.lastAudiblyRenderedPlaybackFrame;
+        m_currentPlaybackFrameRenderedAudibly = phase.currentPlaybackFrameRenderedAudibly;
     }
 
     uint32_t canonicalStateCrc32() const

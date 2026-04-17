@@ -23,6 +23,7 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
         return;
     }
 
+    const GeraNESEmu::RollbackAudioPhase audioPhase = emu.captureRollbackAudioPhase();
     std::vector<uint8_t> snapshotData = emu.saveNetplayRollbackStateToMemory();
     if(snapshotData.empty()) {
         return;
@@ -36,8 +37,14 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     if(existing != m_netplaySnapshots.end()) {
         existing->crc32 = crc32;
         existing->data = std::move(snapshotData);
+        existing->audioPhase = audioPhase;
     } else {
-        m_netplaySnapshots.push_back(NetplayStoredSnapshot{frame, crc32, std::move(snapshotData)});
+        m_netplaySnapshots.push_back(NetplayStoredSnapshot{
+            frame,
+            crc32,
+            std::move(snapshotData),
+            audioPhase
+        });
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity) {
             m_netplaySnapshots.pop_front();
         }
@@ -373,6 +380,7 @@ void SingleThreadEmulationHost::configureNetplaySnapshots(size_t snapshotCapacit
 bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
 {
     std::vector<uint8_t> snapshotData;
+    std::optional<GeraNESEmu::RollbackAudioPhase> snapshotAudioPhase;
     auto it = std::find_if(
         m_netplaySnapshots.rbegin(),
         m_netplaySnapshots.rend(),
@@ -382,6 +390,7 @@ bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
         return false;
     }
     snapshotData = it->data;
+    snapshotAudioPhase = it->audioPhase;
 
     if(snapshotData.empty()) return false;
     m_holdPresentedFramebufferUntilFrameReady = true;
@@ -389,6 +398,9 @@ bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
     m_emu.loadStateFromMemoryWithAudioPolicy(
         snapshotData,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    if(snapshotAudioPhase.has_value()) {
+        m_emu.restoreRollbackAudioPhase(*snapshotAudioPhase);
+    }
     const bool loaded = m_emu.valid();
     if(loaded) {
         resetFreeRunningPacing();
@@ -515,8 +527,14 @@ void SingleThreadEmulationHost::seedNetplaySnapshot(
     if(existing != m_netplaySnapshots.end()) {
         existing->crc32 = crc32;
         existing->data = data;
+        existing->audioPhase.reset();
     } else {
-        m_netplaySnapshots.push_back(NetplayStoredSnapshot{frame, crc32, data});
+        m_netplaySnapshots.push_back(NetplayStoredSnapshot{
+            frame,
+            crc32,
+            data,
+            std::nullopt
+        });
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity && !m_netplaySnapshots.empty()) {
             m_netplaySnapshots.pop_front();
         }

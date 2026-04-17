@@ -139,6 +139,7 @@ private:
         uint32_t frame = 0;
         uint32_t crc32 = 0;
         std::vector<uint8_t> data;
+        std::optional<GeraNESEmu::RollbackAudioPhase> audioPhase;
     };
 
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
