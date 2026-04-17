@@ -14,6 +14,11 @@ private:
     std::vector<uint8_t> m_data;
 
 public:
+    void reserve(size_t size)
+    {
+        m_data.reserve(size);
+    }
+
     template<typename T>
     void writePod(const T& value)
     {

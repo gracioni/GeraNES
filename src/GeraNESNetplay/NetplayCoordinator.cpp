@@ -1083,6 +1083,7 @@ static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input,
                                                   std::span<const uint8_t> serializedInputFrame)
 {
     PacketWriter writer;
+    writer.reserve(sizeof(PacketHeader) + sizeof(InputFrameData) + serializedInputFrame.size());
 
     PacketHeader header;
     header.type = MessageType::InputFrame;
@@ -1105,18 +1106,27 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
                                                             uint32_t sessionId)
 {
     PacketWriter writer;
+    size_t estimatedPayloadSize = sizeof(PacketHeader) + sizeof(ConfirmedInputFramesData);
+    std::vector<std::vector<uint8_t>> serializedPayloads;
+    serializedPayloads.reserve(frames.size());
+    for(const auto& frame : frames) {
+        serializedPayloads.push_back(serializeInputFrame(frame.inputFrame));
+        estimatedPayloadSize += sizeof(ConfirmedInputFrameEntry) + serializedPayloads.back().size();
+    }
+    writer.reserve(estimatedPayloadSize);
 
     PacketHeader header;
     header.type = MessageType::ConfirmedInputFrames;
     header.sessionId = sessionId;
     writer.writePod(header);
     writer.writePod(data);
-    for(const auto& frame : frames) {
+    for(size_t i = 0; i < frames.size(); ++i) {
+        const auto& frame = frames[i];
+        const auto& payload = serializedPayloads[i];
         ConfirmedInputFrameEntry entry;
         entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
         entry.buttonMaskLo = frame.buttonMaskLo;
         entry.buttonMaskHi = frame.buttonMaskHi;
-        const std::vector<uint8_t> payload = serializeInputFrame(frame.inputFrame);
         entry.payloadSize = static_cast<uint16_t>(payload.size());
         writer.writePod(entry);
         writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
