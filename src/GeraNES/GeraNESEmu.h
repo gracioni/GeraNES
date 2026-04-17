@@ -861,37 +861,19 @@ private:
         // Hard resync/manual load resets the live output, but ordinary rollback
         // must preserve the active device/queue so transient jitter does not
         // create long audible dropouts.
-        const std::optional<uint32_t> latestAudibleFrameAfterLoad =
-            m_frameCounter == 0 ? std::optional<uint32_t>{} : std::optional<uint32_t>{m_frameCounter - 1u};
-
         if(audioPolicy == StateLoadAudioPolicy::ResetOutput) {
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
-            m_lastAudiblyRenderedPlaybackFrame = latestAudibleFrameAfterLoad;
-        } else {
-            // Keep queued output continuity on rollback, but drop transient
-            // sample buffers tied to the pre-rollback timeline.
-            m_audioOutput.clearAudioBuffers();
-
-            // Clamp the audible-frame watermark to the loaded timeline. If it
-            // stays ahead after rollback, replayed confirmed frames are muted
-            // for too long and produce audible holes/jitter.
-            if(latestAudibleFrameAfterLoad.has_value()) {
-                if(!m_lastAudiblyRenderedPlaybackFrame.has_value() ||
-                   *m_lastAudiblyRenderedPlaybackFrame > *latestAudibleFrameAfterLoad) {
-                    m_lastAudiblyRenderedPlaybackFrame = latestAudibleFrameAfterLoad;
-                }
-            } else {
+            m_lastAudioRenderedMs = 0;
+            m_vsyncAudioCompMsAcc = 0.0;
+            m_vsyncAudioSkipMsDebt = 0;
+            if(m_frameCounter == 0) {
                 m_lastAudiblyRenderedPlaybackFrame.reset();
             }
+            else {
+                m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
+            }
         }
-
-        // Drift/debt accumulators are timeline-relative; reset them after any
-        // state load (including rollback preserve mode) to avoid one-shot pops.
-        m_lastAudioRenderedMs = 0;
-        m_vsyncAudioCompMsAcc = 0.0;
-        m_vsyncAudioSkipMsDebt = 0;
-
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
         m_apu.updateAudioOutput();
