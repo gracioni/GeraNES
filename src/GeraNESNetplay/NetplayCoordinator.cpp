@@ -5138,16 +5138,6 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     const uint64_t buttonMaskLo = assignedContributionPrimaryMask(slot, contribution);
     const uint64_t buttonMaskHi = 0;
 
-    const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
-    if(latest != nullptr && frame != latest->frame + 1u) {
-        std::ostringstream oss;
-        oss << "Rejected non-sequential local input frame " << frame
-            << " for slot " << static_cast<unsigned>(slot) + 1u
-            << " expected " << (latest->frame + 1u);
-        pushLog(oss.str());
-        return;
-    }
-
     const TimelineInputEntry* existing = m_localInputs.find(frame, m_localParticipantId, slot);
     if(existing != nullptr) {
         if(existing->buttonMaskLo != buttonMaskLo ||
@@ -5160,6 +5150,16 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
                 << " newMaskLo " << buttonMaskLo;
             pushLog(oss.str());
         }
+        return;
+    }
+
+    const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
+    if(latest != nullptr && frame != latest->frame + 1u) {
+        std::ostringstream oss;
+        oss << "Rejected non-sequential local input frame " << frame
+            << " for slot " << static_cast<unsigned>(slot) + 1u
+            << " expected " << (latest->frame + 1u);
+        pushLog(oss.str());
         return;
     }
 
