@@ -68,6 +68,9 @@ public:
     struct RollbackAudioPhase
     {
         uint32_t audioRenderCyclesAcc = 0;
+        uint32_t lastAudioRenderedMs = 0;
+        double vsyncAudioCompMsAcc = 0.0;
+        int vsyncAudioSkipMsDebt = 0;
         std::optional<uint32_t> lastAudiblyRenderedPlaybackFrame;
         bool currentPlaybackFrameRenderedAudibly = false;
     };
@@ -1893,6 +1896,9 @@ public:
     {
         RollbackAudioPhase phase;
         phase.audioRenderCyclesAcc = m_audioRenderCyclesAcc;
+        phase.lastAudioRenderedMs = m_lastAudioRenderedMs;
+        phase.vsyncAudioCompMsAcc = m_vsyncAudioCompMsAcc;
+        phase.vsyncAudioSkipMsDebt = m_vsyncAudioSkipMsDebt;
         phase.lastAudiblyRenderedPlaybackFrame = m_lastAudiblyRenderedPlaybackFrame;
         phase.currentPlaybackFrameRenderedAudibly = m_currentPlaybackFrameRenderedAudibly;
         return phase;
@@ -1901,6 +1907,9 @@ public:
     void restoreRollbackAudioPhase(const RollbackAudioPhase& phase)
     {
         m_audioRenderCyclesAcc = phase.audioRenderCyclesAcc;
+        m_lastAudioRenderedMs = phase.lastAudioRenderedMs;
+        m_vsyncAudioCompMsAcc = phase.vsyncAudioCompMsAcc;
+        m_vsyncAudioSkipMsDebt = phase.vsyncAudioSkipMsDebt;
         m_lastAudiblyRenderedPlaybackFrame = phase.lastAudiblyRenderedPlaybackFrame;
         m_currentPlaybackFrameRenderedAudibly = phase.currentPlaybackFrameRenderedAudibly;
     }
