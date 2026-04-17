@@ -3,6 +3,7 @@
 #include <AL/al.h>
 #include <AL/alc.h>
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -24,12 +25,15 @@ private:
 
     std::string m_currentDeviceName = "";
     std::vector<ALshort> m_bufferData;
+    std::deque<std::vector<ALshort>> m_queuedChunks;
 
     uint32_t sampleAcc = 0;
     float m_volume = 1.0f;
 
     void clearBuffers();
     void turnOff();
+    void popProcessedQueuedChunks();
+    void rebuildQueuedChunksOnSource();
 
 public:
     OpenALAudioOutput();
@@ -45,6 +49,8 @@ public:
     bool init() override;
     void render(uint32_t dt, bool silenceFlag) override;
     void discardQueuedAudio() override;
+    size_t queuedAudioByteCount() const override;
+    bool trimQueuedAudioTailBytes(size_t bytes) override;
     void setVolume(float volume) override;
     float getVolume() const override;
 };

@@ -40,6 +40,7 @@
 #include "Rewind.h"
 
 #include <filesystem>
+#include <deque>
 #include <memory>
 
 enum class AccessType
@@ -104,6 +105,8 @@ private:
     uint32_t m_lastAudioRenderedMs;
     double m_vsyncAudioCompMsAcc;
     int m_vsyncAudioSkipMsDebt;
+    size_t m_currentFrameQueuedAudioBytes = 0;
+    std::deque<std::pair<uint32_t, size_t>> m_speculativeFrameQueuedAudioBytes;
     uint64_t m_emulationTickCounter;
 
     uint8_t m_openBus;
@@ -900,6 +903,8 @@ private:
         m_applyingPendingNsfActions = false;
         m_forceSilentAudio = false;
         m_currentPlaybackFrameRenderedAudibly = false;
+        m_currentFrameQueuedAudioBytes = 0;
+        m_speculativeFrameQueuedAudioBytes.clear();
         m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
     }
@@ -957,7 +962,12 @@ private:
         m_audioOutput.setExpansionAudioVolume(1.0f);
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
         const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
+        const size_t queuedBefore = m_audioOutput.queuedAudioByteCount();
         m_audioOutput.render(ms, silentRender);
+        const size_t queuedAfter = m_audioOutput.queuedAudioByteCount();
+        if(queuedAfter > queuedBefore) {
+            m_currentFrameQueuedAudioBytes += (queuedAfter - queuedBefore);
+        }
         return !silentRender;
     }
 
@@ -986,7 +996,7 @@ private:
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
-            silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
+            silentAudio || playbackFrameAlreadyRenderedAudibly;
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -1007,7 +1017,17 @@ private:
                 if(completedFrameRenderedAudibly) {
                     m_lastAudiblyRenderedPlaybackFrame = playbackFrame;
                 }
+                if(inputFrame->speculative && m_currentFrameQueuedAudioBytes > 0) {
+                    m_speculativeFrameQueuedAudioBytes.push_back(
+                        std::make_pair(playbackFrame, m_currentFrameQueuedAudioBytes)
+                    );
+                    constexpr size_t kMaxSpeculativeAudioHistoryFrames = 4096;
+                    while(m_speculativeFrameQueuedAudioBytes.size() > kMaxSpeculativeAudioHistoryFrames) {
+                        m_speculativeFrameQueuedAudioBytes.pop_front();
+                    }
+                }
                 m_currentPlaybackFrameRenderedAudibly = false;
+                m_currentFrameQueuedAudioBytes = 0;
                 m_rewind.newFrame();
                 frameReady = true;
                 signalFrameReady();
@@ -1057,6 +1077,8 @@ private:
         if(dt > 34) {
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
+            m_currentFrameQueuedAudioBytes = 0;
+            m_speculativeFrameQueuedAudioBytes.clear();
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
@@ -1270,6 +1292,8 @@ public:
             m_audioOutput.setRewinding(isRewinding);
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
+            m_currentFrameQueuedAudioBytes = 0;
+            m_speculativeFrameQueuedAudioBytes.clear();
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
@@ -1614,6 +1638,8 @@ public:
         };
 
         m_audioOutput.discardQueuedAudio();
+        m_currentFrameQueuedAudioBytes = 0;
+        m_speculativeFrameQueuedAudioBytes.clear();
         m_runningLoop = true;
 
         while(executionPointLessThan(executionPoint(), target)) {
@@ -1631,6 +1657,37 @@ public:
 
         restoreSilentAudio();
         return executionPointEqual(executionPoint(), target);
+    }
+
+    size_t queuedAudioByteCount() const
+    {
+        return m_audioOutput.queuedAudioByteCount();
+    }
+
+    size_t trimSpeculativeQueuedAudioForRollback(uint32_t rollbackFrame, uint32_t rollbackFromFrame)
+    {
+        if(rollbackFromFrame <= rollbackFrame + 1u) return 0;
+
+        size_t trimBytes = 0;
+        for(const auto& [frame, bytes] : m_speculativeFrameQueuedAudioBytes) {
+            if(frame > rollbackFrame && frame < rollbackFromFrame) {
+                trimBytes += bytes;
+            }
+        }
+        if(trimBytes == 0) return 0;
+
+        const size_t queuedNow = m_audioOutput.queuedAudioByteCount();
+        const size_t clampedTrimBytes = std::min(trimBytes, queuedNow);
+        if(clampedTrimBytes > 0) {
+            (void)m_audioOutput.trimQueuedAudioTailBytes(clampedTrimBytes);
+        }
+
+        while(!m_speculativeFrameQueuedAudioBytes.empty() &&
+              m_speculativeFrameQueuedAudioBytes.back().first > rollbackFrame) {
+            m_speculativeFrameQueuedAudioBytes.pop_back();
+        }
+
+        return clampedTrimBytes;
     }
 
     GERANES_INLINE const uint32_t* getFramebuffer() const

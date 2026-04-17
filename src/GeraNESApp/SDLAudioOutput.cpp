@@ -9,6 +9,8 @@
 void SDLAudioOutput::clearBuffers()
 {
     m_buffer.clear();
+    m_queuedChunks.clear();
+    m_queuedDeviceBytesMirror = 0;
     sampleAcc = 0;
 
     AudioOutputBase::clearBuffers();
@@ -205,9 +207,18 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
         sampleAcc -= 1000;
     }
 
+    syncQueuedMirrorToDevice();
     bool playFlag = SDL_GetQueuedAudioSize(m_device) != 0;
     if(playFlag || m_buffer.size() >= sampleRate() * (sampleSize() / 8) * BUFFER_TIME)
     {
+        if(!m_buffer.empty()) {
+            std::vector<uint8_t> chunk(
+                reinterpret_cast<const uint8_t*>(m_buffer.data()),
+                reinterpret_cast<const uint8_t*>(m_buffer.data()) + m_buffer.size()
+            );
+            m_queuedDeviceBytesMirror += chunk.size();
+            m_queuedChunks.push_back(std::move(chunk));
+        }
         SDL_QueueAudio(m_device, static_cast<void*>(m_buffer.data()), static_cast<Uint32>(m_buffer.size()));
         m_buffer.clear();
     }
@@ -216,10 +227,88 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
 void SDLAudioOutput::discardQueuedAudio()
 {
     m_buffer.clear();
+    m_queuedChunks.clear();
+    m_queuedDeviceBytesMirror = 0;
     sampleAcc = 0;
     if(m_device != 0) {
         SDL_ClearQueuedAudio(m_device);
     }
+}
+
+void SDLAudioOutput::syncQueuedMirrorToDevice()
+{
+    if(m_device == 0) {
+        m_queuedChunks.clear();
+        m_queuedDeviceBytesMirror = 0;
+        return;
+    }
+
+    const size_t deviceQueued = static_cast<size_t>(SDL_GetQueuedAudioSize(m_device));
+    if(deviceQueued >= m_queuedDeviceBytesMirror) {
+        return;
+    }
+
+    size_t consumed = m_queuedDeviceBytesMirror - deviceQueued;
+    while(consumed > 0 && !m_queuedChunks.empty()) {
+        std::vector<uint8_t>& front = m_queuedChunks.front();
+        if(consumed >= front.size()) {
+            consumed -= front.size();
+            m_queuedDeviceBytesMirror -= front.size();
+            m_queuedChunks.pop_front();
+        } else {
+            front.erase(front.begin(), front.begin() + static_cast<std::ptrdiff_t>(consumed));
+            m_queuedDeviceBytesMirror -= consumed;
+            consumed = 0;
+        }
+    }
+}
+
+void SDLAudioOutput::rebuildDeviceQueueFromMirror()
+{
+    if(m_device == 0) return;
+    SDL_ClearQueuedAudio(m_device);
+    for(const std::vector<uint8_t>& chunk : m_queuedChunks) {
+        if(!chunk.empty()) {
+            SDL_QueueAudio(m_device, static_cast<const void*>(chunk.data()), static_cast<Uint32>(chunk.size()));
+        }
+    }
+}
+
+size_t SDLAudioOutput::queuedAudioByteCount() const
+{
+    auto* self = const_cast<SDLAudioOutput*>(this);
+    self->syncQueuedMirrorToDevice();
+    return self->m_queuedDeviceBytesMirror + self->m_buffer.size();
+}
+
+bool SDLAudioOutput::trimQueuedAudioTailBytes(size_t bytes)
+{
+    if(bytes == 0) return true;
+
+    syncQueuedMirrorToDevice();
+    size_t available = queuedAudioByteCount();
+    if(available == 0) return false;
+    bytes = std::min(bytes, available);
+
+    size_t trimFromPending = std::min(bytes, m_buffer.size());
+    if(trimFromPending > 0) {
+        m_buffer.resize(m_buffer.size() - trimFromPending);
+        bytes -= trimFromPending;
+    }
+
+    while(bytes > 0 && !m_queuedChunks.empty()) {
+        std::vector<uint8_t>& back = m_queuedChunks.back();
+        const size_t remove = std::min(bytes, back.size());
+        back.resize(back.size() - remove);
+        m_queuedDeviceBytesMirror -= remove;
+        bytes -= remove;
+        if(back.empty()) {
+            m_queuedChunks.pop_back();
+        }
+    }
+
+    rebuildDeviceQueueFromMirror();
+    return true;
 }
 
 void SDLAudioOutput::setVolume(float volume)

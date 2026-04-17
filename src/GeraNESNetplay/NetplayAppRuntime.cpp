@@ -993,6 +993,8 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     }
 
     const uint32_t rollbackFromFrame = currentFrame;
+    const size_t trimmedSpeculativeAudioBytes =
+        emu.trimSpeculativeQueuedAudioForRollback(*rollbackFrame, rollbackFromFrame);
     m_emuHost.beginPresentationHoldUntilNextFrameReady();
     emu.loadStateFromMemoryWithAudioPolicy(
         *snapshotData,
@@ -1062,7 +1064,8 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
                  << " targetFrame " << *rollbackFrame
                  << " confirmedFrame " << recoveredConfirmedFrame
                  << " localSimulationFrame " << emu.frameCount()
-                 << " canonicalCrc32 " << recoveredConfirmedCrc32;
+                 << " canonicalCrc32 " << recoveredConfirmedCrc32
+                 << " trimmedSpeculativeAudioBytes " << trimmedSpeculativeAudioBytes;
         m_coordinator.appendNetplayLog(validate.str());
     }
 

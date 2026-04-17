@@ -2,6 +2,7 @@
 
 #include <SDL.h>
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,8 @@ private:
     std::string m_currentDeviceName = "";
 
     std::vector<char> m_buffer;
+    std::deque<std::vector<uint8_t>> m_queuedChunks;
+    size_t m_queuedDeviceBytesMirror = 0;
 
     SDL_AudioSpec spec{};
 
@@ -24,6 +27,8 @@ private:
 
     void clearBuffers();
     void turnOff();
+    void syncQueuedMirrorToDevice();
+    void rebuildDeviceQueueFromMirror();
 
 public:
     SDLAudioOutput();
@@ -39,6 +44,8 @@ public:
     bool init() override;
     void render(uint32_t dt, bool silenceFlag) override;
     void discardQueuedAudio() override;
+    size_t queuedAudioByteCount() const override;
+    bool trimQueuedAudioTailBytes(size_t bytes) override;
     void setVolume(float volume) override;
     float getVolume() const override;
 };

@@ -10,6 +10,7 @@
 void OpenALAudioOutput::clearBuffers()
 {
     m_bufferData.clear();
+    m_queuedChunks.clear();
     sampleAcc = 0;
 
     AudioOutputBase::clearBuffers();
@@ -168,14 +169,7 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
         sampleAcc -= 1000;
     }
 
-    ALint numProcessed;
-    alGetSourcei(m_source, AL_BUFFERS_PROCESSED, &numProcessed);
-
-    if(numProcessed > 0) {
-        std::vector<ALuint> processedBuffers(static_cast<size_t>(numProcessed));
-        alSourceUnqueueBuffers(m_source, numProcessed, processedBuffers.data());
-        m_buffersAvailable = std::min<int>(static_cast<int>(N_BUFFERS), m_buffersAvailable + numProcessed);
-    }
+    popProcessedQueuedChunks();
 
     if(m_buffersAvailable > 0 && m_bufferData.size() >= sampleRate() * (sampleSize() / 8) * BUFFER_TIME / N_BUFFERS) {
         alBufferData(m_buffer[m_currentBufferIndex],
@@ -184,6 +178,7 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
                      static_cast<ALsizei>(m_bufferData.size() * sizeof(ALshort)),
                      sampleRate());
         alSourceQueueBuffers(m_source, 1, &m_buffer[m_currentBufferIndex]);
+        m_queuedChunks.push_back(m_bufferData);
         m_currentBufferIndex = (m_currentBufferIndex + 1) % N_BUFFERS;
 
         m_buffersAvailable--;
@@ -205,6 +200,7 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
 void OpenALAudioOutput::discardQueuedAudio()
 {
     m_bufferData.clear();
+    m_queuedChunks.clear();
     sampleAcc = 0;
     clearBuffers();
 
@@ -222,6 +218,106 @@ void OpenALAudioOutput::discardQueuedAudio()
         m_currentBufferIndex = 0;
         m_buffersAvailable = static_cast<int>(N_BUFFERS);
     }
+}
+
+void OpenALAudioOutput::popProcessedQueuedChunks()
+{
+    ALint numProcessed = 0;
+    alGetSourcei(m_source, AL_BUFFERS_PROCESSED, &numProcessed);
+
+    if(numProcessed > 0) {
+        std::vector<ALuint> processedBuffers(static_cast<size_t>(numProcessed));
+        alSourceUnqueueBuffers(m_source, numProcessed, processedBuffers.data());
+        m_buffersAvailable = std::min<int>(static_cast<int>(N_BUFFERS), m_buffersAvailable + numProcessed);
+        while(numProcessed-- > 0 && !m_queuedChunks.empty()) {
+            m_queuedChunks.pop_front();
+        }
+    }
+}
+
+void OpenALAudioOutput::rebuildQueuedChunksOnSource()
+{
+    if(!m_device) return;
+    alSourceStop(m_source);
+
+    ALint queued = 0;
+    alGetSourcei(m_source, AL_BUFFERS_QUEUED, &queued);
+    while(queued > 0) {
+        ALuint bufferId = 0;
+        alSourceUnqueueBuffers(m_source, 1, &bufferId);
+        --queued;
+    }
+
+    m_currentBufferIndex = 0;
+    m_buffersAvailable = static_cast<int>(N_BUFFERS);
+    for(const std::vector<ALshort>& chunk : m_queuedChunks) {
+        if(chunk.empty() || m_buffersAvailable <= 0) continue;
+        alBufferData(
+            m_buffer[m_currentBufferIndex],
+            AL_FORMAT_MONO16,
+            chunk.data(),
+            static_cast<ALsizei>(chunk.size() * sizeof(ALshort)),
+            sampleRate()
+        );
+        alSourceQueueBuffers(m_source, 1, &m_buffer[m_currentBufferIndex]);
+        m_currentBufferIndex = (m_currentBufferIndex + 1) % N_BUFFERS;
+        --m_buffersAvailable;
+    }
+
+    ALint state = 0;
+    ALint queuedBuffers = 0;
+    alGetSourcei(m_source, AL_SOURCE_STATE, &state);
+    alGetSourcei(m_source, AL_BUFFERS_QUEUED, &queuedBuffers);
+    if(state != AL_PLAYING && queuedBuffers >= static_cast<ALint>(N_BUFFERS)) {
+        alSourcePlay(m_source);
+    }
+}
+
+size_t OpenALAudioOutput::queuedAudioByteCount() const
+{
+    auto* self = const_cast<OpenALAudioOutput*>(this);
+    if(!self->m_device) return 0;
+    self->popProcessedQueuedChunks();
+
+    size_t queuedBytes = self->m_bufferData.size() * sizeof(ALshort);
+    for(const auto& chunk : self->m_queuedChunks) {
+        queuedBytes += chunk.size() * sizeof(ALshort);
+    }
+    return queuedBytes;
+}
+
+bool OpenALAudioOutput::trimQueuedAudioTailBytes(size_t bytes)
+{
+    if(bytes == 0) return true;
+    if(!m_device) return false;
+
+    popProcessedQueuedChunks();
+    size_t available = queuedAudioByteCount();
+    if(available == 0) return false;
+    bytes = std::min(bytes, available);
+
+    size_t pendingBytes = m_bufferData.size() * sizeof(ALshort);
+    size_t removePending = std::min(bytes, pendingBytes);
+    if(removePending > 0) {
+        const size_t removeSamples = removePending / sizeof(ALshort);
+        m_bufferData.resize(m_bufferData.size() - removeSamples);
+        bytes -= removeSamples * sizeof(ALshort);
+    }
+
+    while(bytes > 0 && !m_queuedChunks.empty()) {
+        std::vector<ALshort>& back = m_queuedChunks.back();
+        size_t backBytes = back.size() * sizeof(ALshort);
+        size_t remove = std::min(bytes, backBytes);
+        size_t removeSamples = remove / sizeof(ALshort);
+        back.resize(back.size() - removeSamples);
+        bytes -= removeSamples * sizeof(ALshort);
+        if(back.empty()) {
+            m_queuedChunks.pop_back();
+        }
+    }
+
+    rebuildQueuedChunksOnSource();
+    return true;
 }
 
 void OpenALAudioOutput::setVolume(float volume)
