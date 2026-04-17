@@ -296,6 +296,8 @@ bool OpenALAudioOutput::trimQueuedAudioTailBytes(size_t bytes)
     if(available == 0) return false;
     bytes = std::min(bytes, available);
 
+    // Quantize to sample granularity (16-bit mono) to guarantee loop progress.
+    bytes &= ~static_cast<size_t>(sizeof(ALshort) - 1);
     size_t pendingBytes = m_bufferData.size() * sizeof(ALshort);
     size_t removePending = std::min(bytes, pendingBytes);
     if(removePending > 0) {
@@ -309,6 +311,7 @@ bool OpenALAudioOutput::trimQueuedAudioTailBytes(size_t bytes)
         size_t backBytes = back.size() * sizeof(ALshort);
         size_t remove = std::min(bytes, backBytes);
         size_t removeSamples = remove / sizeof(ALshort);
+        if(removeSamples == 0) break;
         back.resize(back.size() - removeSamples);
         bytes -= removeSamples * sizeof(ALshort);
         if(back.empty()) {

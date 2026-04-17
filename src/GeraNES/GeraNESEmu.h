@@ -107,6 +107,7 @@ private:
     int m_vsyncAudioSkipMsDebt;
     size_t m_currentFrameQueuedAudioBytes = 0;
     std::deque<std::pair<uint32_t, size_t>> m_speculativeFrameQueuedAudioBytes;
+    bool m_trackQueuedAudioForCurrentFrame = false;
     uint64_t m_emulationTickCounter;
 
     uint8_t m_openBus;
@@ -905,6 +906,7 @@ private:
         m_currentPlaybackFrameRenderedAudibly = false;
         m_currentFrameQueuedAudioBytes = 0;
         m_speculativeFrameQueuedAudioBytes.clear();
+        m_trackQueuedAudioForCurrentFrame = false;
         m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
     }
@@ -962,10 +964,11 @@ private:
         m_audioOutput.setExpansionAudioVolume(1.0f);
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
         const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
-        const size_t queuedBefore = m_audioOutput.queuedAudioByteCount();
+        const bool trackQueuedBytes = m_trackQueuedAudioForCurrentFrame && !silentRender;
+        const size_t queuedBefore = trackQueuedBytes ? m_audioOutput.queuedAudioByteCount() : 0;
         m_audioOutput.render(ms, silentRender);
-        const size_t queuedAfter = m_audioOutput.queuedAudioByteCount();
-        if(queuedAfter > queuedBefore) {
+        const size_t queuedAfter = trackQueuedBytes ? m_audioOutput.queuedAudioByteCount() : 0;
+        if(trackQueuedBytes && queuedAfter > queuedBefore) {
             m_currentFrameQueuedAudioBytes += (queuedAfter - queuedBefore);
         }
         return !silentRender;
@@ -997,6 +1000,7 @@ private:
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
             silentAudio || playbackFrameAlreadyRenderedAudibly;
+        m_trackQueuedAudioForCurrentFrame = inputFrame->speculative;
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -1028,6 +1032,7 @@ private:
                 }
                 m_currentPlaybackFrameRenderedAudibly = false;
                 m_currentFrameQueuedAudioBytes = 0;
+                m_trackQueuedAudioForCurrentFrame = false;
                 m_rewind.newFrame();
                 frameReady = true;
                 signalFrameReady();
@@ -1079,6 +1084,7 @@ private:
             m_audioOutput.clearAudioBuffers();
             m_currentFrameQueuedAudioBytes = 0;
             m_speculativeFrameQueuedAudioBytes.clear();
+            m_trackQueuedAudioForCurrentFrame = false;
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
@@ -1294,6 +1300,7 @@ public:
             m_audioOutput.clearAudioBuffers();
             m_currentFrameQueuedAudioBytes = 0;
             m_speculativeFrameQueuedAudioBytes.clear();
+            m_trackQueuedAudioForCurrentFrame = false;
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
@@ -1640,6 +1647,7 @@ public:
         m_audioOutput.discardQueuedAudio();
         m_currentFrameQueuedAudioBytes = 0;
         m_speculativeFrameQueuedAudioBytes.clear();
+        m_trackQueuedAudioForCurrentFrame = false;
         m_runningLoop = true;
 
         while(executionPointLessThan(executionPoint(), target)) {
