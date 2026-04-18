@@ -194,7 +194,7 @@ std::vector<PlayerSlot> NetplayAppRuntime::localAssignedSlots() const
     const ParticipantId localParticipantId = m_coordinator.localParticipantId();
     for(const auto& participant : m_coordinator.session().roomState().participants) {
         if(participant.id == localParticipantId) {
-            return participant.controllerAssignments;
+            return participantAssignments(participant);
         }
     }
 
@@ -1359,7 +1359,7 @@ NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
     if(snapshot.inputManaged) {
         for(const auto& participant : m_uiSnapshot.room.participants) {
             if(participant.id != m_uiSnapshot.localParticipantId) continue;
-            snapshot.localAssignments = participant.controllerAssignments;
+            snapshot.localAssignments = participantAssignments(participant);
             break;
         }
     }
