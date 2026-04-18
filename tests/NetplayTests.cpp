@@ -1544,32 +1544,56 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
 {
     GeraNESTestSupport::requireRomFixture();
 
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.frames = 240;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 3;
-    options.networkPumpStride = 2;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 33;
-    options.hostStepStride = 1;
-    options.clientStepStride = 2;
-    options.reportPath = GeraNESTestSupport::reportPath("netplay_web_both_assigned_inputs_regression.json").string();
+    for(const Netplay::NetTransportBackend backend : {Netplay::NetTransportBackend::ENet, Netplay::NetTransportBackend::WebRTC}) {
+        INFO("backend=" << Netplay::netTransportBackendLabel(backend));
 
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
+        const uint16_t signalingPort = backend == Netplay::NetTransportBackend::WebRTC
+            ? reserveLoopbackPort()
+            : 0u;
+        std::optional<LocalWebSocketSignalingServer> signalingServer;
+        if(backend == Netplay::NetTransportBackend::WebRTC) {
+            signalingServer.emplace(signalingPort);
+        }
 
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("singleThreadRuntimeFlow") == true);
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetHostFrame").get<uint32_t>());
-    REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetClientFrame").get<uint32_t>());
-    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
+        NetplayTest::Options options;
+        options.romPath = GeraNESTestSupport::romPath().string();
+        options.appFlow = true;
+        options.runtimeFlow = true;
+        options.singleThreadRuntimeFlow = true;
+        options.transportBackend = backend;
+        options.frames = 240;
+        options.inputDelayFrames = 1;
+        options.predictFrames = 3;
+        options.networkPumpStride = 2;
+        options.hostLoopDtMs = 8;
+        options.clientLoopDtMs = 33;
+        options.hostStepStride = 1;
+        options.clientStepStride = 2;
+        if(backend == Netplay::NetTransportBackend::WebRTC) {
+            options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+                "ws://127.0.0.1:" + std::to_string(signalingPort),
+                "web-both-assigned",
+                ""
+            };
+        }
+        options.reportPath = GeraNESTestSupport::reportPath(
+            backend == Netplay::NetTransportBackend::WebRTC
+                ? "netplay_web_webrtc_both_assigned_inputs_regression.json"
+                : "netplay_web_both_assigned_inputs_regression.json"
+        ).string();
+
+        REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+        const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+        REQUIRE(report.at("status") == "ok");
+        REQUIRE(report.at("singleThreadRuntimeFlow") == true);
+        REQUIRE(report.at("host").at("runtimeRunning") == true);
+        REQUIRE(report.at("client").at("runtimeRunning") == true);
+        REQUIRE(report.at("host").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetHostFrame").get<uint32_t>());
+        REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetClientFrame").get<uint32_t>());
+        REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
+        REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
+    }
 }
 
 TEST_CASE("Netplay web observer visibility restore requests host resync without reconnecting",

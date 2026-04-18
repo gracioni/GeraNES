@@ -27,7 +27,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
                                                                  uint32_t,
                                                                  uint32_t)
 {
-    constexpr uint8_t kFixedDelayFrames = 1;
+    constexpr uint8_t kFixedDelayFrames = 3;
     constexpr uint8_t kFixedPredictFrames = 8;
 
     Recommendations recommendations;
@@ -46,7 +46,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         recommendations.predictFrames = kFixedPredictFrames;
     }
 
-    m_snapshot.lastDecisionReason = "Fixed tuning active: input delay 1, predict 8";
+    m_snapshot.lastDecisionReason = "Fixed tuning active: input delay 3, predict 8";
     return recommendations;
 }
 
