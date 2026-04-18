@@ -970,17 +970,25 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
         sockets: {}
     });
 
-    function callVoid(cb, selfPtr) {
-        {{{ makeDynCall('vi') }}}(cb, selfPtr);
+    function callExport(name, args) {
+        const fn = Module['_' + name];
+        if(typeof fn !== 'function') {
+            console.error('[GeraNES][WS] missing export', name);
+            return;
+        }
+        fn.apply(null, args || []);
     }
 
-    function callString(cb, selfPtr, text) {
+    function callExportString(name, selfPtr, text) {
         const value = text || "";
         const len = lengthBytesUTF8(value) + 1;
         const ptr = _malloc(len);
         stringToUTF8(value, ptr, len);
-        {{{ makeDynCall('vii') }}}(cb, selfPtr, ptr);
-        _free(ptr);
+        try {
+            callExport(name, [selfPtr, ptr]);
+        } finally {
+            _free(ptr);
+        }
     }
 
     try {
@@ -991,10 +999,10 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
         scope.sockets[handle] = ws;
 
         ws.onopen = function() {
-            Module.ccall('geranes_ws_on_open', null, ['number'], [self]);
+            callExport('geranes_ws_on_open', [self]);
         };
         ws.onclose = function(event) {
-            Module.ccall('geranes_ws_on_close', null, ['number'], [self]);
+            callExport('geranes_ws_on_close', [self]);
         };
         ws.onerror = function(event) {
             console.error('[GeraNES][WS] error', {
@@ -1003,20 +1011,20 @@ EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
                 readyState: ws.readyState,
                 event: event
             });
-            Module.ccall('geranes_ws_on_error', null, ['number', 'string'], [self, 'WebRTC signaling WebSocket error']);
+            callExportString('geranes_ws_on_error', self, 'WebRTC signaling WebSocket error');
         };
         ws.onmessage = function(event) {
             const text = (typeof event.data === 'string')
                 ? event.data
                 : "";
-            Module.ccall('geranes_ws_on_message', null, ['number', 'string'], [self, text]);
+            callExportString('geranes_ws_on_message', self, text);
         };
 
         return handle;
     } catch(err) {
         console.error('[GeraNES][WS] constructor/setup failed', err);
         try {
-            Module.ccall('geranes_ws_on_error', null, ['number', 'string'], [self, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed']);
+            callExportString('geranes_ws_on_error', self, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed');
         } catch(_) {
         }
         return 0;

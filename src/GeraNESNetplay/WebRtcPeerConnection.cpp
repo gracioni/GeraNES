@@ -627,12 +627,61 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
         peers: {}
     });
 
+    function callExport(name, args) {
+        const fn = Module['_' + name];
+        if(typeof fn !== 'function') {
+            console.error('[GeraNES][RTC] missing export', name);
+            return;
+        }
+        fn.apply(null, args || []);
+    }
+
+    function withUtf8(value, fn) {
+        const text = value || "";
+        const len = lengthBytesUTF8(text) + 1;
+        const ptr = _malloc(len);
+        stringToUTF8(text, ptr, len);
+        try {
+            fn(ptr);
+        } finally {
+            _free(ptr);
+        }
+    }
+
+    function callExportString(name, selfPtr, text) {
+        withUtf8(text, function(ptr) {
+            callExport(name, [selfPtr, ptr]);
+        });
+    }
+
+    function callExportLocalDescription(selfPtr, sdp, offer) {
+        withUtf8(sdp, function(sdpPtr) {
+            callExport('geranes_rtc_on_local_description', [selfPtr, sdpPtr, offer ? 1 : 0]);
+        });
+    }
+
+    function callExportIceCandidate(selfPtr, candidate, mid, mlineIndex) {
+        withUtf8(candidate, function(candidatePtr) {
+            withUtf8(mid, function(midPtr) {
+                callExport('geranes_rtc_on_ice_candidate', [selfPtr, candidatePtr, midPtr, mlineIndex]);
+            });
+        });
+    }
+
+    scope.callExport = scope.callExport || callExport;
+    scope.callExportString = scope.callExportString || callExportString;
+    scope.callExportLocalDescription = scope.callExportLocalDescription || callExportLocalDescription;
+    scope.callExportIceCandidate = scope.callExportIceCandidate || callExportIceCandidate;
+
     function callBytes(selfPtr, data) {
         const view = data instanceof Uint8Array ? data : new Uint8Array(data);
         const ptr = _malloc(view.length);
         HEAPU8.set(view, ptr);
-        Module.ccall('geranes_rtc_on_data_message', null, ['number', 'number', 'number'], [selfPtr, ptr, view.length]);
-        _free(ptr);
+        try {
+            callExport('geranes_rtc_on_data_message', [selfPtr, ptr, view.length]);
+        } finally {
+            _free(ptr);
+        }
     }
 
     scope.describeRtcError = scope.describeRtcError || function(err, pc, dc) {
@@ -699,12 +748,7 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
     function reportError(selfPtr, err) {
         const message = scope.describeRtcError(err, null, null);
         console.error('[GeraNES][RTC] error', { self: selfPtr, error: err, message: message });
-        Module.ccall(
-            'geranes_rtc_on_error',
-            null,
-            ['number', 'string'],
-            [selfPtr, message]
-        );
+        callExportString('geranes_rtc_on_error', selfPtr, message);
     }
 
     try {
@@ -779,10 +823,10 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
             state.dc = dc;
             dc.binaryType = 'arraybuffer';
             dc.onopen = function() {
-                Module.ccall('geranes_rtc_on_channel_open', null, ['number'], [self]);
+                callExport('geranes_rtc_on_channel_open', [self]);
             };
             dc.onclose = function() {
-                Module.ccall('geranes_rtc_on_channel_close', null, ['number'], [self]);
+                callExport('geranes_rtc_on_channel_close', [self]);
             };
             dc.onerror = function(err) {
                 reportError(self, scope.describeRtcError(err || 'WebRTC data channel error', state.pc, dc));
@@ -808,23 +852,18 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
             if(!event.candidate) {
                 return;
             }
-            Module.ccall(
-                'geranes_rtc_on_ice_candidate',
-                null,
-                ['number', 'string', 'string', 'number'],
-                [
-                    self,
-                    event.candidate.candidate || "",
-                    event.candidate.sdpMid || "",
-                    typeof event.candidate.sdpMLineIndex === 'number' ? event.candidate.sdpMLineIndex : -1
-                ]
+            callExportIceCandidate(
+                self,
+                event.candidate.candidate || "",
+                event.candidate.sdpMid || "",
+                typeof event.candidate.sdpMLineIndex === 'number' ? event.candidate.sdpMLineIndex : -1
             );
         };
         pc.onconnectionstatechange = function() {
             if(pc.connectionState === 'failed') {
                 reportError(self, scope.describeRtcError('WebRTC peer connection failed', pc, state.dc));
             } else if(pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
-                Module.ccall('geranes_rtc_on_channel_close', null, ['number'], [self]);
+                callExport('geranes_rtc_on_channel_close', [self]);
             }
         };
         pc.oniceconnectionstatechange = function() {};
@@ -891,12 +930,7 @@ EM_JS(int, geranes_rtc_create_offer_bridge, (int handle, intptr_t self, intptr_t
             ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
             : String(err);
         console.error('[GeraNES][RTC] createOffer failed', { self: selfPtr, error: err, message: message });
-        Module.ccall(
-            'geranes_rtc_on_error',
-            null,
-            ['number', 'string'],
-            [selfPtr, message]
-        );
+        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
     }
 
     (async function() {
@@ -904,12 +938,7 @@ EM_JS(int, geranes_rtc_create_offer_bridge, (int handle, intptr_t self, intptr_t
             const pc = scope.peers[handle].pc;
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            Module.ccall(
-                'geranes_rtc_on_local_description',
-                null,
-                ['number', 'string', 'number'],
-                [self, pc.localDescription ? pc.localDescription.sdp : offer.sdp, 1]
-            );
+            scope.callExportLocalDescription(self, pc.localDescription ? pc.localDescription.sdp : offer.sdp, 1);
         } catch(err) {
             reportError(self, err);
         }
@@ -929,12 +958,7 @@ EM_JS(int, geranes_rtc_create_answer_bridge, (int handle, intptr_t self), {
             ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
             : String(err);
         console.error('[GeraNES][RTC] createAnswer failed', { self: selfPtr, error: err, message: message });
-        Module.ccall(
-            'geranes_rtc_on_error',
-            null,
-            ['number', 'string'],
-            [selfPtr, message]
-        );
+        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
     }
 
     (async function() {
@@ -942,12 +966,7 @@ EM_JS(int, geranes_rtc_create_answer_bridge, (int handle, intptr_t self), {
             const pc = scope.peers[handle].pc;
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            Module.ccall(
-                'geranes_rtc_on_local_description',
-                null,
-                ['number', 'string', 'number'],
-                [self, pc.localDescription ? pc.localDescription.sdp : answer.sdp, 0]
-            );
+            scope.callExportLocalDescription(self, pc.localDescription ? pc.localDescription.sdp : answer.sdp, 0);
         } catch(err) {
             reportError(self, err);
         }
@@ -969,12 +988,7 @@ EM_JS(int, geranes_rtc_set_remote_description_bridge, (int handle, const char* s
             ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
             : String(err);
         console.error('[GeraNES][RTC] setRemoteDescription failed', { self: selfPtr, error: err, message: message });
-        Module.ccall(
-            'geranes_rtc_on_error',
-            null,
-            ['number', 'string'],
-            [selfPtr, message]
-        );
+        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
     }
 
     (async function() {
@@ -1010,12 +1024,7 @@ EM_JS(int, geranes_rtc_add_ice_candidate_bridge, (int handle,
             ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
             : String(err);
         console.error('[GeraNES][RTC] addIceCandidate failed', { self: selfPtr, error: err, message: message });
-        Module.ccall(
-            'geranes_rtc_on_error',
-            null,
-            ['number', 'string'],
-            [selfPtr, message]
-        );
+        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
     }
 
     (async function() {
