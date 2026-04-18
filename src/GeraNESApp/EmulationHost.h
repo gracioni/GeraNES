@@ -2,7 +2,10 @@
 
 #include "GeraNESApp/IEmulationHost.h"
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && defined(GERANES_WEB_PTHREADS)
+#include "GeraNESApp/ThreadedEmulationHost.h"
+using EmulationHost = ThreadedEmulationHost;
+#elif defined(__EMSCRIPTEN__)
 #include "GeraNESApp/SingleThreadEmulationHost.h"
 using EmulationHost = SingleThreadEmulationHost;
 #else

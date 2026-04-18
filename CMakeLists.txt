@@ -28,6 +28,7 @@ add_compile_options(
 )
 
 option(GERANES_ENABLE_WARNINGS_ALL "Enable broad compiler warnings for all targets" ON)
+option(GERANES_WEB_PTHREADS "Use Emscripten pthreads and the threaded emulation host in web builds" OFF)
 add_library(geranes_warnings INTERFACE)
 if(GERANES_ENABLE_WARNINGS_ALL)
     if(MSVC)
@@ -55,7 +56,15 @@ if (EMSCRIPTEN)
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_SDL=2")
 
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s STACK_SIZE=8MB -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s STACK_SIZE=8MB -s WASM=1 -s EXPORTED_RUNTIME_METHODS=[ccall,cwrap] -s EXPORTED_FUNCTIONS=[_main,_malloc,_free]")
+
+    if(GERANES_WEB_PTHREADS)
+        add_compile_definitions(GERANES_WEB_PTHREADS=1)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread -s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=2 -s INITIAL_MEMORY=268435456")
+    else()
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s ALLOW_MEMORY_GROWTH=1")
+    endif()
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
