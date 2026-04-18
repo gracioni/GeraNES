@@ -617,7 +617,7 @@ EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_error(intptr_t selfPtr, const char* tex
 
 int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         if(typeof RTCPeerConnection === 'undefined') {
             return 0;
         }
@@ -806,7 +806,7 @@ int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t se
                 if(Array.isArray(parsed)) {
                     iceServers = parsed
                         .map(parseIceServer)
-                        .filter(v => !!v);
+                        .filter(function(v) { return !!v; });
                 }
             } catch(_) {
             }
@@ -887,12 +887,12 @@ int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t se
             }
             return 0;
         }
-    }, iceServersJsonPtr, host, self);
+    })(), iceServersJsonPtr, host, self);
 }
 
 void geranes_rtc_close_bridge(int handle)
 {
-    MAIN_THREAD_EM_ASM({
+    MAIN_THREAD_EM_ASM((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         if(!scope || !scope.peers[handle]) {
@@ -922,14 +922,14 @@ void geranes_rtc_close_bridge(int handle)
             }
         } catch(_) {
         }
-    }, handle);
+    })(), handle);
 }
 
 int geranes_rtc_create_offer_bridge(int handle, intptr_t self, intptr_t onLocalDescription, intptr_t onError)
 {
     (void)onLocalDescription;
     (void)onError;
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $1;
@@ -957,12 +957,12 @@ int geranes_rtc_create_offer_bridge(int handle, intptr_t self, intptr_t onLocalD
         })();
 
         return 1;
-    }, handle, self);
+    })(), handle, self);
 }
 
 int geranes_rtc_create_answer_bridge(int handle, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $1;
@@ -990,12 +990,12 @@ int geranes_rtc_create_answer_bridge(int handle, intptr_t self)
         })();
 
         return 1;
-    }, handle, self);
+    })(), handle, self);
 }
 
 int geranes_rtc_set_remote_description_bridge(int handle, const char* sdpPtr, int offer, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $3;
@@ -1026,7 +1026,7 @@ int geranes_rtc_set_remote_description_bridge(int handle, const char* sdpPtr, in
         })();
 
         return 1;
-    }, handle, sdpPtr, offer, self);
+    })(), handle, sdpPtr, offer, self);
 }
 
 int geranes_rtc_add_ice_candidate_bridge(int handle,
@@ -1035,7 +1035,7 @@ int geranes_rtc_add_ice_candidate_bridge(int handle,
                                          int mlineIndex,
                                          intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $4;
@@ -1068,12 +1068,12 @@ int geranes_rtc_add_ice_candidate_bridge(int handle,
         })();
 
         return 1;
-    }, handle, candidatePtr, midPtr, mlineIndex, self);
+    })(), handle, candidatePtr, midPtr, mlineIndex, self);
 }
 
 int geranes_rtc_send_bridge(int handle, const uint8_t* payloadPtr, int payloadSize)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         if(!scope || !scope.peers[handle]) {
@@ -1090,12 +1090,12 @@ int geranes_rtc_send_bridge(int handle, const uint8_t* payloadPtr, int payloadSi
         } catch(_) {
             return 0;
         }
-    }, handle, payloadPtr, payloadSize);
+    })(), handle, payloadPtr, payloadSize);
 }
 
 int geranes_rtc_buffered_amount_bridge(int handle)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         if(!scope || !scope.peers[handle]) {
@@ -1106,7 +1106,7 @@ int geranes_rtc_buffered_amount_bridge(int handle)
             return 0;
         }
         return state.dc.bufferedAmount >>> 0;
-    }, handle);
+    })(), handle);
 }
 
 class WebEmscriptenWebRtcPeerConnection final : public IWebRtcPeerConnection

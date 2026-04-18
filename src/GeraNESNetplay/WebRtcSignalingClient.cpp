@@ -961,7 +961,7 @@ EMSCRIPTEN_KEEPALIVE void geranes_ws_on_message(intptr_t selfPtr, const char* te
 
 int geranes_ws_connect_bridge(const char* urlPtr, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         if(typeof WebSocket === 'undefined') {
             return 0;
         }
@@ -1039,12 +1039,12 @@ int geranes_ws_connect_bridge(const char* urlPtr, intptr_t self)
             }
             return 0;
         }
-    }, urlPtr, self);
+    })(), urlPtr, self);
 }
 
 void geranes_ws_close_bridge(int handle)
 {
-    MAIN_THREAD_EM_ASM({
+    MAIN_THREAD_EM_ASM((function() {
         const scope = Module.__geranes_ws_bridge;
         const handle = $0;
         if(!scope || !scope.sockets[handle]) {
@@ -1060,12 +1060,12 @@ void geranes_ws_close_bridge(int handle)
             ws.close();
         } catch(_) {
         }
-    }, handle);
+    })(), handle);
 }
 
 int geranes_ws_send_bridge(int handle, const char* textPtr)
 {
-    return MAIN_THREAD_EM_ASM_INT({
+    return MAIN_THREAD_EM_ASM_INT((function() {
         const scope = Module.__geranes_ws_bridge;
         const handle = $0;
         if(!scope || !scope.sockets[handle]) {
@@ -1082,7 +1082,7 @@ int geranes_ws_send_bridge(int handle, const char* textPtr)
         } catch(_) {
             return 0;
         }
-    }, handle, textPtr);
+    })(), handle, textPtr);
 }
 
 class WebEmscriptenWebRtcSignalingClient final : public IWebRtcSignalingClient
