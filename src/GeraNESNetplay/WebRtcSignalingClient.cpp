@@ -959,15 +959,10 @@ EMSCRIPTEN_KEEPALIVE void geranes_ws_on_error(intptr_t selfPtr, const char* text
 EMSCRIPTEN_KEEPALIVE void geranes_ws_on_message(intptr_t selfPtr, const char* text);
 }
 
-int geranes_ws_connect_bridge(const char* urlPtr, intptr_t self)
+void geranes_ws_connect_bridge(int handle, const char* urlPtr, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
-        if(typeof WebSocket === 'undefined') {
-            return 0;
-        }
-
+    MAIN_THREAD_EM_ASM((function() {
         const scope = Module.__geranes_ws_bridge || (Module.__geranes_ws_bridge = {
-            nextHandle: 1,
             sockets: {}
         });
 
@@ -992,10 +987,15 @@ int geranes_ws_connect_bridge(const char* urlPtr, intptr_t self)
             }
         };
 
+        if(typeof WebSocket === 'undefined') {
+            scope.callExportString('geranes_ws_on_error', $2, 'Browser WebSocket API is not available');
+            return;
+        }
+
         try {
-            const url = UTF8ToString($0);
-            const selfPtr = $1;
-            const handle = scope.nextHandle++;
+            const handle = $0;
+            const url = UTF8ToString($1);
+            const selfPtr = $2;
             console.log('[GeraNES][WS] connecting on main thread', { handle: handle, url: url });
             const ws = new WebSocket(url);
             ws.binaryType = 'arraybuffer';
@@ -1029,17 +1029,14 @@ int geranes_ws_connect_bridge(const char* urlPtr, intptr_t self)
                     : "";
                 scope.callExportString('geranes_ws_on_message', selfPtr, text);
             };
-
-            return handle;
         } catch(err) {
             console.error('[GeraNES][WS] constructor/setup failed', err);
             try {
-                scope.callExportString('geranes_ws_on_error', $1, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed');
+                scope.callExportString('geranes_ws_on_error', $2, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed');
             } catch(_) {
             }
-            return 0;
         }
-    })(), urlPtr, self);
+    })(), handle, urlPtr, self);
 }
 
 void geranes_ws_close_bridge(int handle)
@@ -1065,7 +1062,7 @@ void geranes_ws_close_bridge(int handle)
 
 int geranes_ws_send_bridge(int handle, const char* textPtr)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_ws_bridge;
         const handle = $0;
         if(!scope || !scope.sockets[handle]) {
@@ -1082,7 +1079,7 @@ int geranes_ws_send_bridge(int handle, const char* textPtr)
         } catch(_) {
             return 0;
         }
-    })(), handle, textPtr);
+    })();, handle, textPtr);
 }
 
 class WebEmscriptenWebRtcSignalingClient final : public IWebRtcSignalingClient
@@ -1181,14 +1178,16 @@ public:
             m_pendingMessages.clear();
         }
 
-        m_socketHandle = geranes_ws_connect_bridge(
+        static std::atomic<int> nextSocketHandle{1};
+        m_socketHandle = nextSocketHandle.fetch_add(1, std::memory_order_relaxed);
+        if(m_socketHandle == 0) {
+            m_socketHandle = nextSocketHandle.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        geranes_ws_connect_bridge(
+            m_socketHandle,
             options.config.url.c_str(),
             reinterpret_cast<intptr_t>(this));
-
-        if(m_socketHandle == 0) {
-            m_lastError = "Failed to create browser WebSocket for WebRTC signaling";
-            return false;
-        }
 
         return true;
     }

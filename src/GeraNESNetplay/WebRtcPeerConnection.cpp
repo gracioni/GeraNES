@@ -2,6 +2,7 @@
 #include "logger/logger.h"
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -615,15 +616,10 @@ EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_data_message(intptr_t selfPtr, const ui
 EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_error(intptr_t selfPtr, const char* text);
 }
 
-int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t self)
+void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
-        if(typeof RTCPeerConnection === 'undefined') {
-            return 0;
-        }
-
+    MAIN_THREAD_EM_ASM((function() {
         const scope = Module.__geranes_rtc_bridge || (Module.__geranes_rtc_bridge = {
-            nextHandle: 1,
             peers: {}
         });
 
@@ -751,9 +747,15 @@ int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t se
             callExportString('geranes_rtc_on_error', selfPtr, message);
         }
 
+        if(typeof RTCPeerConnection === 'undefined') {
+            reportError($3, 'Browser RTCPeerConnection API is not available');
+            return;
+        }
+
         try {
-        const iceServersRaw = UTF8ToString($0 || 0);
-        const self = $2;
+        const handle = $0;
+        const iceServersRaw = UTF8ToString($1 || 0);
+        const self = $3;
         let iceServers = [];
         function parseIceServer(value) {
             if(typeof value !== 'string' || value.length === 0) {
@@ -813,7 +815,6 @@ int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t se
         }
 
         const pc = new RTCPeerConnection({ iceServers: iceServers });
-        const handle = scope.nextHandle++;
         const state = {
             pc: pc,
             dc: null
@@ -875,19 +876,16 @@ int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t se
             }
         };
 
-        if($1) {
+        if($2) {
             attachChannel(pc.createDataChannel('geranes', { ordered: true }));
         }
-
-        return handle;
         } catch(err) {
             try {
-                reportError($2, err);
+                reportError($3, err);
             } catch(_) {
             }
-            return 0;
         }
-    })(), iceServersJsonPtr, host, self);
+    })(), handle, iceServersJsonPtr, host, self);
 }
 
 void geranes_rtc_close_bridge(int handle)
@@ -929,7 +927,7 @@ int geranes_rtc_create_offer_bridge(int handle, intptr_t self, intptr_t onLocalD
 {
     (void)onLocalDescription;
     (void)onError;
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $1;
@@ -957,12 +955,12 @@ int geranes_rtc_create_offer_bridge(int handle, intptr_t self, intptr_t onLocalD
         })();
 
         return 1;
-    })(), handle, self);
+    })();, handle, self);
 }
 
 int geranes_rtc_create_answer_bridge(int handle, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $1;
@@ -990,12 +988,12 @@ int geranes_rtc_create_answer_bridge(int handle, intptr_t self)
         })();
 
         return 1;
-    })(), handle, self);
+    })();, handle, self);
 }
 
 int geranes_rtc_set_remote_description_bridge(int handle, const char* sdpPtr, int offer, intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $3;
@@ -1026,7 +1024,7 @@ int geranes_rtc_set_remote_description_bridge(int handle, const char* sdpPtr, in
         })();
 
         return 1;
-    })(), handle, sdpPtr, offer, self);
+    })();, handle, sdpPtr, offer, self);
 }
 
 int geranes_rtc_add_ice_candidate_bridge(int handle,
@@ -1035,7 +1033,7 @@ int geranes_rtc_add_ice_candidate_bridge(int handle,
                                          int mlineIndex,
                                          intptr_t self)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         const selfPtr = $4;
@@ -1068,12 +1066,12 @@ int geranes_rtc_add_ice_candidate_bridge(int handle,
         })();
 
         return 1;
-    })(), handle, candidatePtr, midPtr, mlineIndex, self);
+    })();, handle, candidatePtr, midPtr, mlineIndex, self);
 }
 
 int geranes_rtc_send_bridge(int handle, const uint8_t* payloadPtr, int payloadSize)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         if(!scope || !scope.peers[handle]) {
@@ -1090,12 +1088,12 @@ int geranes_rtc_send_bridge(int handle, const uint8_t* payloadPtr, int payloadSi
         } catch(_) {
             return 0;
         }
-    })(), handle, payloadPtr, payloadSize);
+    })();, handle, payloadPtr, payloadSize);
 }
 
 int geranes_rtc_buffered_amount_bridge(int handle)
 {
-    return MAIN_THREAD_EM_ASM_INT((function() {
+    return MAIN_THREAD_EM_ASM_INT(return (function() {
         const scope = Module.__geranes_rtc_bridge;
         const handle = $0;
         if(!scope || !scope.peers[handle]) {
@@ -1106,7 +1104,7 @@ int geranes_rtc_buffered_amount_bridge(int handle)
             return 0;
         }
         return state.dc.bufferedAmount >>> 0;
-    })(), handle);
+    })();, handle);
 }
 
 class WebEmscriptenWebRtcPeerConnection final : public IWebRtcPeerConnection
@@ -1199,15 +1197,17 @@ public:
             }
         }
 
-        m_handle = geranes_rtc_open_bridge(
+        static std::atomic<int> nextPeerHandle{1};
+        m_handle = nextPeerHandle.fetch_add(1, std::memory_order_relaxed);
+        if(m_handle == 0) {
+            m_handle = nextPeerHandle.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        geranes_rtc_open_bridge(
+            m_handle,
             iceServers.dump().c_str(),
             options.host ? 1 : 0,
             reinterpret_cast<intptr_t>(this));
-
-        if(m_handle == 0) {
-            m_lastError = "Failed to create browser WebRTC peer connection";
-            return false;
-        }
 
         m_open = true;
         m_dataChannelOpen = false;
