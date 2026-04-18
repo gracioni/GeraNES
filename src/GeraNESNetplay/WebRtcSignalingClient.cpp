@@ -959,112 +959,131 @@ EMSCRIPTEN_KEEPALIVE void geranes_ws_on_error(intptr_t selfPtr, const char* text
 EMSCRIPTEN_KEEPALIVE void geranes_ws_on_message(intptr_t selfPtr, const char* text);
 }
 
-EM_JS(int, geranes_ws_connect_bridge, (const char* urlPtr,
-                                       intptr_t self), {
-    if(typeof WebSocket === 'undefined') {
-        return 0;
-    }
+int geranes_ws_connect_bridge(const char* urlPtr, intptr_t self)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        if(typeof WebSocket === 'undefined') {
+            return 0;
+        }
 
-    const scope = Module.__geranes_ws_bridge || (Module.__geranes_ws_bridge = {
-        nextHandle: 1,
-        sockets: {}
-    });
+        const scope = Module.__geranes_ws_bridge || (Module.__geranes_ws_bridge = {
+            nextHandle: 1,
+            sockets: {}
+        });
 
-    function callExport(name, args) {
-        const fn = Module['_' + name];
-        if(typeof fn !== 'function') {
-            console.error('[GeraNES][WS] missing export', name);
+        scope.callExport = scope.callExport || function(name, args) {
+            const fn = Module['_' + name];
+            if(typeof fn !== 'function') {
+                console.error('[GeraNES][WS] missing export', name);
+                return;
+            }
+            fn.apply(null, args || []);
+        };
+
+        scope.callExportString = scope.callExportString || function(name, selfPtr, text) {
+            const value = text || "";
+            const len = lengthBytesUTF8(value) + 1;
+            const ptr = _malloc(len);
+            stringToUTF8(value, ptr, len);
+            try {
+                scope.callExport(name, [selfPtr, ptr]);
+            } finally {
+                _free(ptr);
+            }
+        };
+
+        try {
+            const url = UTF8ToString($0);
+            const selfPtr = $1;
+            const handle = scope.nextHandle++;
+            console.log('[GeraNES][WS] connecting on main thread', { handle: handle, url: url });
+            const ws = new WebSocket(url);
+            ws.binaryType = 'arraybuffer';
+            scope.sockets[handle] = ws;
+
+            ws.onopen = function() {
+                console.log('[GeraNES][WS] open', { handle: handle, url: url });
+                scope.callExport('geranes_ws_on_open', [selfPtr]);
+            };
+            ws.onclose = function(event) {
+                console.log('[GeraNES][WS] close', {
+                    handle: handle,
+                    code: event ? event.code : 0,
+                    reason: event ? event.reason : "",
+                    wasClean: event ? event.wasClean : false
+                });
+                scope.callExport('geranes_ws_on_close', [selfPtr]);
+            };
+            ws.onerror = function(event) {
+                console.error('[GeraNES][WS] error', {
+                    handle: handle,
+                    url: url,
+                    readyState: ws.readyState,
+                    event: event
+                });
+                scope.callExportString('geranes_ws_on_error', selfPtr, 'WebRTC signaling WebSocket error');
+            };
+            ws.onmessage = function(event) {
+                const text = (typeof event.data === 'string')
+                    ? event.data
+                    : "";
+                scope.callExportString('geranes_ws_on_message', selfPtr, text);
+            };
+
+            return handle;
+        } catch(err) {
+            console.error('[GeraNES][WS] constructor/setup failed', err);
+            try {
+                scope.callExportString('geranes_ws_on_error', $1, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed');
+            } catch(_) {
+            }
+            return 0;
+        }
+    }, urlPtr, self);
+}
+
+void geranes_ws_close_bridge(int handle)
+{
+    MAIN_THREAD_EM_ASM({
+        const scope = Module.__geranes_ws_bridge;
+        const handle = $0;
+        if(!scope || !scope.sockets[handle]) {
             return;
         }
-        fn.apply(null, args || []);
-    }
-
-    function callExportString(name, selfPtr, text) {
-        const value = text || "";
-        const len = lengthBytesUTF8(value) + 1;
-        const ptr = _malloc(len);
-        stringToUTF8(value, ptr, len);
+        const ws = scope.sockets[handle];
+        delete scope.sockets[handle];
         try {
-            callExport(name, [selfPtr, ptr]);
-        } finally {
-            _free(ptr);
-        }
-    }
-
-    try {
-        const url = UTF8ToString(urlPtr);
-        const handle = scope.nextHandle++;
-        const ws = new WebSocket(url);
-        ws.binaryType = 'arraybuffer';
-        scope.sockets[handle] = ws;
-
-        ws.onopen = function() {
-            callExport('geranes_ws_on_open', [self]);
-        };
-        ws.onclose = function(event) {
-            callExport('geranes_ws_on_close', [self]);
-        };
-        ws.onerror = function(event) {
-            console.error('[GeraNES][WS] error', {
-                handle: handle,
-                url: url,
-                readyState: ws.readyState,
-                event: event
-            });
-            callExportString('geranes_ws_on_error', self, 'WebRTC signaling WebSocket error');
-        };
-        ws.onmessage = function(event) {
-            const text = (typeof event.data === 'string')
-                ? event.data
-                : "";
-            callExportString('geranes_ws_on_message', self, text);
-        };
-
-        return handle;
-    } catch(err) {
-        console.error('[GeraNES][WS] constructor/setup failed', err);
-        try {
-            callExportString('geranes_ws_on_error', self, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed');
+            ws.onopen = null;
+            ws.onclose = null;
+            ws.onerror = null;
+            ws.onmessage = null;
+            ws.close();
         } catch(_) {
         }
-        return 0;
-    }
-});
+    }, handle);
+}
 
-EM_JS(void, geranes_ws_close_bridge, (int handle), {
-    const scope = Module.__geranes_ws_bridge;
-    if(!scope || !scope.sockets[handle]) {
-        return;
-    }
-    const ws = scope.sockets[handle];
-    delete scope.sockets[handle];
-    try {
-        ws.onopen = null;
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.onmessage = null;
-        ws.close();
-    } catch(_) {
-    }
-});
-
-EM_JS(int, geranes_ws_send_bridge, (int handle, const char* textPtr), {
-    const scope = Module.__geranes_ws_bridge;
-    if(!scope || !scope.sockets[handle]) {
-        return 0;
-    }
-    const ws = scope.sockets[handle];
-    if(ws.readyState !== WebSocket.OPEN) {
-        return 0;
-    }
-    try {
-        const text = UTF8ToString(textPtr);
-        ws.send(text);
-        return 1;
-    } catch(_) {
-        return 0;
-    }
-});
+int geranes_ws_send_bridge(int handle, const char* textPtr)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_ws_bridge;
+        const handle = $0;
+        if(!scope || !scope.sockets[handle]) {
+            return 0;
+        }
+        const ws = scope.sockets[handle];
+        if(ws.readyState !== WebSocket.OPEN) {
+            return 0;
+        }
+        try {
+            const text = UTF8ToString($1);
+            ws.send(text);
+            return 1;
+        } catch(_) {
+            return 0;
+        }
+    }, handle, textPtr);
+}
 
 class WebEmscriptenWebRtcSignalingClient final : public IWebRtcSignalingClient
 {

@@ -615,84 +615,84 @@ EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_data_message(intptr_t selfPtr, const ui
 EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_error(intptr_t selfPtr, const char* text);
 }
 
-EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
-                                     int host,
-                                     intptr_t self), {
-    if(typeof RTCPeerConnection === 'undefined') {
-        return 0;
-    }
-
-    const scope = Module.__geranes_rtc_bridge || (Module.__geranes_rtc_bridge = {
-        nextHandle: 1,
-        peers: {}
-    });
-
-    function callExport(name, args) {
-        const fn = Module['_' + name];
-        if(typeof fn !== 'function') {
-            console.error('[GeraNES][RTC] missing export', name);
-            return;
+int geranes_rtc_open_bridge(const char* iceServersJsonPtr, int host, intptr_t self)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        if(typeof RTCPeerConnection === 'undefined') {
+            return 0;
         }
-        fn.apply(null, args || []);
-    }
 
-    function withUtf8(value, fn) {
-        const text = value || "";
-        const len = lengthBytesUTF8(text) + 1;
-        const ptr = _malloc(len);
-        stringToUTF8(text, ptr, len);
-        try {
-            fn(ptr);
-        } finally {
-            _free(ptr);
+        const scope = Module.__geranes_rtc_bridge || (Module.__geranes_rtc_bridge = {
+            nextHandle: 1,
+            peers: {}
+        });
+
+        function callExport(name, args) {
+            const fn = Module['_' + name];
+            if(typeof fn !== 'function') {
+                console.error('[GeraNES][RTC] missing export', name);
+                return;
+            }
+            fn.apply(null, args || []);
         }
-    }
 
-    function callExportString(name, selfPtr, text) {
-        withUtf8(text, function(ptr) {
-            callExport(name, [selfPtr, ptr]);
-        });
-    }
+        function withUtf8(value, fn) {
+            const text = value || "";
+            const len = lengthBytesUTF8(text) + 1;
+            const ptr = _malloc(len);
+            stringToUTF8(text, ptr, len);
+            try {
+                fn(ptr);
+            } finally {
+                _free(ptr);
+            }
+        }
 
-    function callExportLocalDescription(selfPtr, sdp, offer) {
-        withUtf8(sdp, function(sdpPtr) {
-            callExport('geranes_rtc_on_local_description', [selfPtr, sdpPtr, offer ? 1 : 0]);
-        });
-    }
-
-    function callExportIceCandidate(selfPtr, candidate, mid, mlineIndex) {
-        withUtf8(candidate, function(candidatePtr) {
-            withUtf8(mid, function(midPtr) {
-                callExport('geranes_rtc_on_ice_candidate', [selfPtr, candidatePtr, midPtr, mlineIndex]);
+        function callExportString(name, selfPtr, text) {
+            withUtf8(text, function(ptr) {
+                callExport(name, [selfPtr, ptr]);
             });
-        });
-    }
-
-    scope.callExport = scope.callExport || callExport;
-    scope.callExportString = scope.callExportString || callExportString;
-    scope.callExportLocalDescription = scope.callExportLocalDescription || callExportLocalDescription;
-    scope.callExportIceCandidate = scope.callExportIceCandidate || callExportIceCandidate;
-
-    function callBytes(selfPtr, data) {
-        const view = data instanceof Uint8Array ? data : new Uint8Array(data);
-        const ptr = _malloc(view.length);
-        HEAPU8.set(view, ptr);
-        try {
-            callExport('geranes_rtc_on_data_message', [selfPtr, ptr, view.length]);
-        } finally {
-            _free(ptr);
         }
-    }
 
-    scope.describeRtcError = scope.describeRtcError || function(err, pc, dc) {
-        try {
-            if(!err) {
-                return 'Unknown WebRTC browser error';
-            }
+        function callExportLocalDescription(selfPtr, sdp, offer) {
+            withUtf8(sdp, function(sdpPtr) {
+                callExport('geranes_rtc_on_local_description', [selfPtr, sdpPtr, offer ? 1 : 0]);
+            });
+        }
 
-            if(typeof err === 'string') {
-                return err;
+        function callExportIceCandidate(selfPtr, candidate, mid, mlineIndex) {
+            withUtf8(candidate, function(candidatePtr) {
+                withUtf8(mid, function(midPtr) {
+                    callExport('geranes_rtc_on_ice_candidate', [selfPtr, candidatePtr, midPtr, mlineIndex]);
+                });
+            });
+        }
+
+        scope.callExport = scope.callExport || callExport;
+        scope.callExportString = scope.callExportString || callExportString;
+        scope.callExportLocalDescription = scope.callExportLocalDescription || callExportLocalDescription;
+        scope.callExportIceCandidate = scope.callExportIceCandidate || callExportIceCandidate;
+
+        function callBytes(selfPtr, data) {
+            const view = data instanceof Uint8Array ? data : new Uint8Array(data);
+            const ptr = _malloc(view.length);
+            HEAPU8.set(view, ptr);
+            try {
+                callExport('geranes_rtc_on_data_message', [selfPtr, ptr, view.length]);
+            } finally {
+                _free(ptr);
             }
+        }
+
+        scope.describeRtcError = scope.describeRtcError || function(err, pc, dc) {
+            try {
+                if(!err) {
+                    return 'Unknown WebRTC browser error';
+                }
+
+                if(typeof err === 'string') {
+                    return err;
+                }
 
             const parts = [];
             const baseType = err.type || err.name || typeof err;
@@ -739,20 +739,21 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
                 }
             }
 
-            return parts.join(', ');
-        } catch(_) {
-            return String(err);
+                return parts.join(', ');
+            } catch(_) {
+                return String(err);
+            }
+        };
+
+        function reportError(selfPtr, err) {
+            const message = scope.describeRtcError(err, null, null);
+            console.error('[GeraNES][RTC] error', { self: selfPtr, error: err, message: message });
+            callExportString('geranes_rtc_on_error', selfPtr, message);
         }
-    };
 
-    function reportError(selfPtr, err) {
-        const message = scope.describeRtcError(err, null, null);
-        console.error('[GeraNES][RTC] error', { self: selfPtr, error: err, message: message });
-        callExportString('geranes_rtc_on_error', selfPtr, message);
-    }
-
-    try {
-        const iceServersRaw = UTF8ToString(iceServersJsonPtr || 0);
+        try {
+        const iceServersRaw = UTF8ToString($0 || 0);
+        const self = $2;
         let iceServers = [];
         function parseIceServer(value) {
             if(typeof value !== 'string' || value.length === 0) {
@@ -874,204 +875,239 @@ EM_JS(int, geranes_rtc_open_bridge, (const char* iceServersJsonPtr,
             }
         };
 
-        if(host) {
+        if($1) {
             attachChannel(pc.createDataChannel('geranes', { ordered: true }));
         }
 
         return handle;
-    } catch(err) {
+        } catch(err) {
+            try {
+                reportError($2, err);
+            } catch(_) {
+            }
+            return 0;
+        }
+    }, iceServersJsonPtr, host, self);
+}
+
+void geranes_rtc_close_bridge(int handle)
+{
+    MAIN_THREAD_EM_ASM({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        if(!scope || !scope.peers[handle]) {
+            return;
+        }
+
+        const state = scope.peers[handle];
+        delete scope.peers[handle];
+
         try {
-            reportError(self, err);
+            if(state.dc) {
+                state.dc.onopen = null;
+                state.dc.onclose = null;
+                state.dc.onerror = null;
+                state.dc.onmessage = null;
+                state.dc.close();
+            }
         } catch(_) {
         }
-        return 0;
-    }
-});
 
-EM_JS(void, geranes_rtc_close_bridge, (int handle), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return;
-    }
-
-    const state = scope.peers[handle];
-    delete scope.peers[handle];
-
-    try {
-        if(state.dc) {
-            state.dc.onopen = null;
-            state.dc.onclose = null;
-            state.dc.onerror = null;
-            state.dc.onmessage = null;
-            state.dc.close();
-        }
-    } catch(_) {
-    }
-
-    try {
-        if(state.pc) {
-            state.pc.onicecandidate = null;
-            state.pc.onconnectionstatechange = null;
-            state.pc.ondatachannel = null;
-            state.pc.close();
-        }
-    } catch(_) {
-    }
-});
-
-EM_JS(int, geranes_rtc_create_offer_bridge, (int handle, intptr_t self, intptr_t onLocalDescription, intptr_t onError), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return 0;
-    }
-
-    function reportError(selfPtr, err) {
-        const message = scope.describeRtcError
-            ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
-            : String(err);
-        console.error('[GeraNES][RTC] createOffer failed', { self: selfPtr, error: err, message: message });
-        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
-    }
-
-    (async function() {
         try {
-            const pc = scope.peers[handle].pc;
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            scope.callExportLocalDescription(self, pc.localDescription ? pc.localDescription.sdp : offer.sdp, 1);
-        } catch(err) {
-            reportError(self, err);
+            if(state.pc) {
+                state.pc.onicecandidate = null;
+                state.pc.onconnectionstatechange = null;
+                state.pc.ondatachannel = null;
+                state.pc.close();
+            }
+        } catch(_) {
         }
-    })();
+    }, handle);
+}
 
-    return 1;
-});
-
-EM_JS(int, geranes_rtc_create_answer_bridge, (int handle, intptr_t self), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return 0;
-    }
-
-    function reportError(selfPtr, err) {
-        const message = scope.describeRtcError
-            ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
-            : String(err);
-        console.error('[GeraNES][RTC] createAnswer failed', { self: selfPtr, error: err, message: message });
-        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
-    }
-
-    (async function() {
-        try {
-            const pc = scope.peers[handle].pc;
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            scope.callExportLocalDescription(self, pc.localDescription ? pc.localDescription.sdp : answer.sdp, 0);
-        } catch(err) {
-            reportError(self, err);
+int geranes_rtc_create_offer_bridge(int handle, intptr_t self, intptr_t onLocalDescription, intptr_t onError)
+{
+    (void)onLocalDescription;
+    (void)onError;
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        const selfPtr = $1;
+        if(!scope || !scope.peers[handle]) {
+            return 0;
         }
-    })();
 
-    return 1;
-});
-
-EM_JS(int, geranes_rtc_set_remote_description_bridge, (int handle, const char* sdpPtr, int offer, intptr_t self), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return 0;
-    }
-
-    const sdp = UTF8ToString(sdpPtr);
-
-    function reportError(selfPtr, err) {
-        const message = scope.describeRtcError
-            ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
-            : String(err);
-        console.error('[GeraNES][RTC] setRemoteDescription failed', { self: selfPtr, error: err, message: message });
-        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
-    }
-
-    (async function() {
-        try {
-            const pc = scope.peers[handle].pc;
-            await pc.setRemoteDescription({
-                type: offer ? 'offer' : 'answer',
-                sdp: sdp
-            });
-        } catch(err) {
-            reportError(self, err);
+        function reportError(err) {
+            const message = scope.describeRtcError
+                ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
+                : String(err);
+            console.error('[GeraNES][RTC] createOffer failed', { self: selfPtr, error: err, message: message });
+            scope.callExportString('geranes_rtc_on_error', selfPtr, message);
         }
-    })();
 
-    return 1;
-});
+        (async function() {
+            try {
+                const pc = scope.peers[handle].pc;
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                scope.callExportLocalDescription(selfPtr, pc.localDescription ? pc.localDescription.sdp : offer.sdp, 1);
+            } catch(err) {
+                reportError(err);
+            }
+        })();
 
-EM_JS(int, geranes_rtc_add_ice_candidate_bridge, (int handle,
-                                                  const char* candidatePtr,
-                                                  const char* midPtr,
-                                                  int mlineIndex,
-                                                  intptr_t self), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return 0;
-    }
-
-    const candidate = UTF8ToString(candidatePtr);
-    const mid = UTF8ToString(midPtr);
-
-    function reportError(selfPtr, err) {
-        const message = scope.describeRtcError
-            ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
-            : String(err);
-        console.error('[GeraNES][RTC] addIceCandidate failed', { self: selfPtr, error: err, message: message });
-        scope.callExportString('geranes_rtc_on_error', selfPtr, message);
-    }
-
-    (async function() {
-        try {
-            const pc = scope.peers[handle].pc;
-            await pc.addIceCandidate({
-                candidate: candidate,
-                sdpMid: mid || null,
-                sdpMLineIndex: mlineIndex >= 0 ? mlineIndex : null
-            });
-        } catch(err) {
-            reportError(self, err);
-        }
-    })();
-
-    return 1;
-});
-
-EM_JS(int, geranes_rtc_send_bridge, (int handle, const uint8_t* payloadPtr, int payloadSize), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return 0;
-    }
-    const state = scope.peers[handle];
-    if(!state.dc || state.dc.readyState !== 'open') {
-        return 0;
-    }
-    try {
-        const view = HEAPU8.slice(payloadPtr, payloadPtr + payloadSize);
-        state.dc.send(view);
         return 1;
-    } catch(_) {
-        return 0;
-    }
-});
+    }, handle, self);
+}
 
-EM_JS(int, geranes_rtc_buffered_amount_bridge, (int handle), {
-    const scope = Module.__geranes_rtc_bridge;
-    if(!scope || !scope.peers[handle]) {
-        return 0;
-    }
-    const state = scope.peers[handle];
-    if(!state.dc || state.dc.readyState !== 'open') {
-        return 0;
-    }
-    return state.dc.bufferedAmount >>> 0;
-});
+int geranes_rtc_create_answer_bridge(int handle, intptr_t self)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        const selfPtr = $1;
+        if(!scope || !scope.peers[handle]) {
+            return 0;
+        }
+
+        function reportError(err) {
+            const message = scope.describeRtcError
+                ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
+                : String(err);
+            console.error('[GeraNES][RTC] createAnswer failed', { self: selfPtr, error: err, message: message });
+            scope.callExportString('geranes_rtc_on_error', selfPtr, message);
+        }
+
+        (async function() {
+            try {
+                const pc = scope.peers[handle].pc;
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                scope.callExportLocalDescription(selfPtr, pc.localDescription ? pc.localDescription.sdp : answer.sdp, 0);
+            } catch(err) {
+                reportError(err);
+            }
+        })();
+
+        return 1;
+    }, handle, self);
+}
+
+int geranes_rtc_set_remote_description_bridge(int handle, const char* sdpPtr, int offer, intptr_t self)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        const selfPtr = $3;
+        if(!scope || !scope.peers[handle]) {
+            return 0;
+        }
+
+        const sdp = UTF8ToString($1);
+
+        function reportError(err) {
+            const message = scope.describeRtcError
+                ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
+                : String(err);
+            console.error('[GeraNES][RTC] setRemoteDescription failed', { self: selfPtr, error: err, message: message });
+            scope.callExportString('geranes_rtc_on_error', selfPtr, message);
+        }
+
+        (async function() {
+            try {
+                const pc = scope.peers[handle].pc;
+                await pc.setRemoteDescription({
+                    type: $2 ? 'offer' : 'answer',
+                    sdp: sdp
+                });
+            } catch(err) {
+                reportError(err);
+            }
+        })();
+
+        return 1;
+    }, handle, sdpPtr, offer, self);
+}
+
+int geranes_rtc_add_ice_candidate_bridge(int handle,
+                                         const char* candidatePtr,
+                                         const char* midPtr,
+                                         int mlineIndex,
+                                         intptr_t self)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        const selfPtr = $4;
+        if(!scope || !scope.peers[handle]) {
+            return 0;
+        }
+
+        const candidate = UTF8ToString($1);
+        const mid = UTF8ToString($2);
+
+        function reportError(err) {
+            const message = scope.describeRtcError
+                ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
+                : String(err);
+            console.error('[GeraNES][RTC] addIceCandidate failed', { self: selfPtr, error: err, message: message });
+            scope.callExportString('geranes_rtc_on_error', selfPtr, message);
+        }
+
+        (async function() {
+            try {
+                const pc = scope.peers[handle].pc;
+                await pc.addIceCandidate({
+                    candidate: candidate,
+                    sdpMid: mid || null,
+                    sdpMLineIndex: $3 >= 0 ? $3 : null
+                });
+            } catch(err) {
+                reportError(err);
+            }
+        })();
+
+        return 1;
+    }, handle, candidatePtr, midPtr, mlineIndex, self);
+}
+
+int geranes_rtc_send_bridge(int handle, const uint8_t* payloadPtr, int payloadSize)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        if(!scope || !scope.peers[handle]) {
+            return 0;
+        }
+        const state = scope.peers[handle];
+        if(!state.dc || state.dc.readyState !== 'open') {
+            return 0;
+        }
+        try {
+            const view = HEAPU8.slice($1, $1 + $2);
+            state.dc.send(view);
+            return 1;
+        } catch(_) {
+            return 0;
+        }
+    }, handle, payloadPtr, payloadSize);
+}
+
+int geranes_rtc_buffered_amount_bridge(int handle)
+{
+    return MAIN_THREAD_EM_ASM_INT({
+        const scope = Module.__geranes_rtc_bridge;
+        const handle = $0;
+        if(!scope || !scope.peers[handle]) {
+            return 0;
+        }
+        const state = scope.peers[handle];
+        if(!state.dc || state.dc.readyState !== 'open') {
+            return 0;
+        }
+        return state.dc.bufferedAmount >>> 0;
+    }, handle);
+}
 
 class WebEmscriptenWebRtcPeerConnection final : public IWebRtcPeerConnection
 {
