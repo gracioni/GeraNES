@@ -30,27 +30,40 @@ const std::deque<TimelineInputEntry>& InputTimeline::entries() const
     return m_entries;
 }
 
+InputTimeline::LookupStats InputTimeline::lookupStats() const
+{
+    return m_lookupStats;
+}
+
 const TimelineInputEntry* InputTimeline::find(FrameNumber frame, ParticipantId participantId, PlayerSlot slot) const
 {
+    size_t scannedEntries = 0;
     for(const TimelineInputEntry& entry : m_entries) {
+        ++scannedEntries;
         if(entry.frame == frame &&
            entry.participantId == participantId &&
            entry.playerSlot == slot) {
+            m_lookupStats.record(false, true, scannedEntries);
             return &entry;
         }
     }
+    m_lookupStats.record(false, false, scannedEntries);
     return nullptr;
 }
 
 TimelineInputEntry* InputTimeline::findMutable(FrameNumber frame, ParticipantId participantId, PlayerSlot slot)
 {
+    size_t scannedEntries = 0;
     for(TimelineInputEntry& entry : m_entries) {
+        ++scannedEntries;
         if(entry.frame == frame &&
            entry.participantId == participantId &&
            entry.playerSlot == slot) {
+            m_lookupStats.record(true, true, scannedEntries);
             return &entry;
         }
     }
+    m_lookupStats.record(true, false, scannedEntries);
     return nullptr;
 }
 

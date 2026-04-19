@@ -1838,6 +1838,7 @@ void GeraNESApp::mainLoop()
 
     bool netplayPacingOverrideActive = false;
     netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
+    const uint32_t pacingDtMs = static_cast<uint32_t>(std::min<Uint64>(dt, UINT32_MAX));
     const bool minimized = isMinimized();
     const bool allowPresenterPacing =
         !minimized &&
@@ -1848,7 +1849,15 @@ void GeraNESApp::mainLoop()
         if(!netplayPacingOverrideActive) {
             m_emu.setSimulationSuspended(false);
         }
-        if(m_emu.update(dt)) render();
+        const bool advanced = m_emu.update(dt);
+        m_netplayRuntime.recordFramePacing(
+            pacingDtMs,
+            advanced ? 1u : 0u,
+            0u,
+            netplayPacingOverrideActive,
+            false
+        );
+        if(advanced) render();
     } else {
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
         const bool vsyncEnabled = m_vsyncMode != OFF;
@@ -1867,6 +1876,13 @@ void GeraNESApp::mainLoop()
             m_emu.updateUntilFrame(stepDtMs);
             render();
             m_frameCounter++;
+            m_netplayRuntime.recordFramePacing(
+                pacingDtMs,
+                1u,
+                0u,
+                netplayPacingOverrideActive,
+                true
+            );
             return;
         }
 
@@ -1894,6 +1910,13 @@ void GeraNESApp::mainLoop()
             stepDtMs = std::max<uint32_t>(1u, stepDtMs);
             m_emu.updateUntilFrame(stepDtMs);
         }
+        m_netplayRuntime.recordFramePacing(
+            pacingDtMs,
+            framesToAdvance,
+            framesToAdvance > 1u ? framesToAdvance : 0u,
+            netplayPacingOverrideActive,
+            false
+        );
         render();
     }
     m_frameCounter++;

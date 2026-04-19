@@ -57,8 +57,10 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     if(snapshotData.empty()) {
         m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
         m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
+        m_netplayDiagnostics.netplayRollbackSnapshotSerializedBytes.record(0);
         return;
     }
+    const size_t snapshotDataSize = snapshotData.size();
 
     auto indexIt = m_netplaySnapshotIndexByFrame.find(frame);
     if(indexIt != m_netplaySnapshotIndexByFrame.end() &&
@@ -82,6 +84,7 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
     m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
     m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
+    m_netplayDiagnostics.netplayRollbackSnapshotSerializedBytes.record(snapshotDataSize);
 }
 
 void SingleThreadEmulationHost::resetFreeRunningPacing()
@@ -451,6 +454,7 @@ std::vector<uint8_t> SingleThreadEmulationHost::saveNetplayStateToMemory()
     const auto saveStart = HostTimingClock::now();
     std::vector<uint8_t> data = m_emu.saveNetplayStateToMemory();
     m_netplayDiagnostics.netplayStateSaveTiming.record(elapsedMicrosSince(saveStart));
+    m_netplayDiagnostics.netplayStateSerializedBytes.record(data.size());
     return data;
 }
 
@@ -525,7 +529,9 @@ std::optional<std::vector<uint8_t>> SingleThreadEmulationHost::netplaySnapshotFo
        m_netplaySnapshots[indexIt->second].frame != frame) {
         return std::nullopt;
     }
-    return m_netplaySnapshots[indexIt->second].data;
+    const auto& data = m_netplaySnapshots[indexIt->second].data;
+    m_netplayDiagnostics.snapshotLookupCopyBytes.record(data.size());
+    return data;
 }
 
 std::optional<uint32_t> SingleThreadEmulationHost::netplaySnapshotCrc32ForFrame(uint32_t frame) const
@@ -575,6 +581,7 @@ void SingleThreadEmulationHost::seedNetplaySnapshot(
     m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
+    m_netplayDiagnostics.seededSnapshotCopyBytes.record(data.size());
 }
 
 SingleThreadEmulationHost::NetplayDiagnosticsSnapshot SingleThreadEmulationHost::getNetplayDiagnostics() const

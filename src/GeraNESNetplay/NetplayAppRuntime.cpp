@@ -1092,6 +1092,10 @@ void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection>& loca
     snapshot.room = m_coordinator.session().roomState();
     snapshot.localInputCount = m_coordinator.localInputs().size();
     snapshot.remoteInputCount = m_coordinator.remoteInputs().size();
+    snapshot.localInputLookupStats = m_coordinator.localInputs().lookupStats();
+    snapshot.remoteInputLookupStats = m_coordinator.remoteInputs().lookupStats();
+    snapshot.coordinatorPerformanceDiagnostics = m_coordinator.performanceDiagnostics();
+    snapshot.playbackQueueStats = m_inputDriver.playbackQueueStats();
     if(const auto* latestLocal = m_coordinator.localInputs().latest()) {
     snapshot.latestLocalInput = *latestLocal;
     }
@@ -1106,6 +1110,7 @@ void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection>& loca
     snapshot.lastLoadedAuthoritativeFrame = m_lastLoadedAuthoritativeFrame;
     snapshot.lastRecoveryReanchorFrame = m_lastRecoveryReanchorFrame;
     snapshot.autoSettings = m_autoSettings.snapshot();
+    snapshot.framePacingDiagnostics = m_framePacingDiagnostics;
     snapshot.unresolvedPredictedRemoteFrameCount = m_coordinator.unresolvedPredictedRemoteFrameCount();
     snapshot.latestPredictedRemoteFrame = m_coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = m_emuHost.getNetplayDiagnostics();
@@ -1273,6 +1278,23 @@ void NetplayAppRuntime::updateLatestInputState(const IEmulationHost::InputState&
 {
     std::scoped_lock stateLock(m_stateMutex);
     m_latestInputState = inputState;
+}
+
+void NetplayAppRuntime::recordFramePacing(uint32_t dtMs,
+                                          uint32_t framesAdvanced,
+                                          uint32_t catchupFrames,
+                                          bool netplayOverrideActive,
+                                          bool cadenceMatched)
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    m_framePacingDiagnostics.record(
+        dtMs,
+        framesAdvanced,
+        catchupFrames,
+        netplayOverrideActive,
+        cadenceMatched
+    );
+    m_uiSnapshot.framePacingDiagnostics = m_framePacingDiagnostics;
 }
 
 void NetplayAppRuntime::notifyWebVisibilityChanged(bool visible)

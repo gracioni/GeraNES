@@ -125,6 +125,23 @@ struct EmulationHostTypes
             }
         };
 
+        struct ByteStats
+        {
+            uint64_t count = 0;
+            uint64_t totalBytes = 0;
+            uint64_t maxBytes = 0;
+            uint64_t lastBytes = 0;
+
+            void record(size_t bytes)
+            {
+                const uint64_t value = static_cast<uint64_t>(bytes);
+                lastBytes = value;
+                totalBytes += value;
+                maxBytes = std::max(maxBytes, value);
+                ++count;
+            }
+        };
+
         struct RollbackStats
         {
             uint32_t rollbackCount = 0;
@@ -145,6 +162,11 @@ struct EmulationHostTypes
         TimingStats netplayRollbackSnapshotSaveTiming;
         TimingStats netplayCrcTiming;
         TimingStats rollbackLoadTiming;
+        ByteStats netplayStateSerializedBytes;
+        ByteStats netplayRollbackSnapshotSerializedBytes;
+        ByteStats snapshotLookupCopyBytes;
+        ByteStats rollbackSnapshotCopyBytes;
+        ByteStats seededSnapshotCopyBytes;
         RollbackStats rollbackStats;
     };
 

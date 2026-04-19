@@ -746,14 +746,72 @@ void drawNetplayWindow(bool& showWindow,
                         static_cast<unsigned long long>(stats.recentAverageUs),
                         static_cast<unsigned long long>(stats.maxUs));
         };
+        const auto drawByteStats = [](const char* label,
+                                      const IEmulationHost::NetplayDiagnosticsSnapshot::ByteStats& stats) {
+            ImGui::Text("%s: count %llu, total %llu bytes, last %llu bytes, max %llu bytes",
+                        label,
+                        static_cast<unsigned long long>(stats.count),
+                        static_cast<unsigned long long>(stats.totalBytes),
+                        static_cast<unsigned long long>(stats.lastBytes),
+                        static_cast<unsigned long long>(stats.maxBytes));
+        };
         drawTimingStats("Netplay State Save", snapshot.runtimeDiagnostics.netplayStateSaveTiming);
         drawTimingStats("Rollback Snapshot Save", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSaveTiming);
         drawTimingStats("Netplay CRC", snapshot.runtimeDiagnostics.netplayCrcTiming);
         drawTimingStats("Rollback Load", snapshot.runtimeDiagnostics.rollbackLoadTiming);
+        drawByteStats("Netplay State Serialized", snapshot.runtimeDiagnostics.netplayStateSerializedBytes);
+        drawByteStats("Rollback Snapshot Serialized", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSerializedBytes);
+        drawByteStats("Snapshot Lookup Copies", snapshot.runtimeDiagnostics.snapshotLookupCopyBytes);
+        drawByteStats("Rollback Snapshot Copies", snapshot.runtimeDiagnostics.rollbackSnapshotCopyBytes);
+        drawByteStats("Seeded Snapshot Copies", snapshot.runtimeDiagnostics.seededSnapshotCopyBytes);
+        ImGui::Text("Frame Pacing: samples %llu, dt last/max %u/%u ms, advanced last/max %u/%u, catchup last/max %u/%u",
+                    static_cast<unsigned long long>(snapshot.framePacingDiagnostics.sampleCount),
+                    snapshot.framePacingDiagnostics.lastDtMs,
+                    snapshot.framePacingDiagnostics.maxDtMs,
+                    snapshot.framePacingDiagnostics.lastFramesAdvanced,
+                    snapshot.framePacingDiagnostics.maxFramesAdvanced,
+                    snapshot.framePacingDiagnostics.lastCatchupFrames,
+                    snapshot.framePacingDiagnostics.maxCatchupFrames);
+        ImGui::Text("Frame Pacing Totals: advanced %llu, catchup ticks %llu, netplay override %s, monitor cadence %s",
+                    static_cast<unsigned long long>(snapshot.framePacingDiagnostics.totalFramesAdvanced),
+                    static_cast<unsigned long long>(snapshot.framePacingDiagnostics.catchupTickCount),
+                    snapshot.framePacingDiagnostics.netplayPacingOverrideActive ? "Yes" : "No",
+                    snapshot.framePacingDiagnostics.presenterCadenceMatched ? "Yes" : "No");
 
         ImGui::Separator();
         ImGui::Text("Local Input Frames: %zu", snapshot.localInputCount);
         ImGui::Text("Remote Input Frames: %zu", snapshot.remoteInputCount);
+        const auto drawTimelineLookupStats = [](const char* label, const InputTimeline::LookupStats& stats) {
+            ImGui::Text("%s: find %llu, mutable %llu, hits %llu, misses %llu, scanned total %llu, last %llu, max %llu",
+                        label,
+                        static_cast<unsigned long long>(stats.findCalls),
+                        static_cast<unsigned long long>(stats.findMutableCalls),
+                        static_cast<unsigned long long>(stats.hits),
+                        static_cast<unsigned long long>(stats.misses),
+                        static_cast<unsigned long long>(stats.totalScannedEntries),
+                        static_cast<unsigned long long>(stats.lastScannedEntries),
+                        static_cast<unsigned long long>(stats.maxScannedEntries));
+        };
+        const auto drawLinearScanStats = [](const char* label, const NetplayCoordinator::LinearScanStats& stats) {
+            ImGui::Text("%s: calls %llu, hits %llu, misses %llu, scanned total %llu, last %llu, max %llu",
+                        label,
+                        static_cast<unsigned long long>(stats.calls),
+                        static_cast<unsigned long long>(stats.hits),
+                        static_cast<unsigned long long>(stats.misses),
+                        static_cast<unsigned long long>(stats.totalScannedEntries),
+                        static_cast<unsigned long long>(stats.lastScannedEntries),
+                        static_cast<unsigned long long>(stats.maxScannedEntries));
+        };
+        drawTimelineLookupStats("Local Timeline Lookup", snapshot.localInputLookupStats);
+        drawTimelineLookupStats("Remote Timeline Lookup", snapshot.remoteInputLookupStats);
+        drawLinearScanStats("Confirmed Frame Find", snapshot.coordinatorPerformanceDiagnostics.confirmedFrameFind);
+        drawLinearScanStats("Confirmed Frame Store", snapshot.coordinatorPerformanceDiagnostics.confirmedFrameStore);
+        ImGui::Text("Playback Queue Rebuilds: count %llu, total frames %llu, last %llu, max %llu, through %u",
+                    static_cast<unsigned long long>(snapshot.playbackQueueStats.rebuildCount),
+                    static_cast<unsigned long long>(snapshot.playbackQueueStats.totalBuiltFrames),
+                    static_cast<unsigned long long>(snapshot.playbackQueueStats.lastBuiltFrames),
+                    static_cast<unsigned long long>(snapshot.playbackQueueStats.maxBuiltFrames),
+                    snapshot.playbackQueueStats.lastPreparedThroughFrame);
         ImGui::Text("Predicted Frames Used: %u", snapshot.predictionStats.predictedFrameUseCount);
         ImGui::Text("Prediction Hits: %u", snapshot.predictionStats.predictionHitCount);
         ImGui::Text("Prediction Misses: %u", snapshot.predictionStats.predictionMissCount);

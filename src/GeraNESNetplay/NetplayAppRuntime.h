@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -24,6 +25,42 @@ namespace Netplay {
 class NetplayAppRuntime
 {
 public:
+    struct FramePacingDiagnostics
+    {
+        uint64_t sampleCount = 0;
+        uint32_t lastDtMs = 0;
+        uint32_t maxDtMs = 0;
+        uint32_t lastFramesAdvanced = 0;
+        uint32_t maxFramesAdvanced = 0;
+        uint64_t totalFramesAdvanced = 0;
+        uint32_t lastCatchupFrames = 0;
+        uint32_t maxCatchupFrames = 0;
+        uint64_t catchupTickCount = 0;
+        bool netplayPacingOverrideActive = false;
+        bool presenterCadenceMatched = false;
+
+        void record(uint32_t dtMs,
+                    uint32_t framesAdvanced,
+                    uint32_t catchupFrames,
+                    bool netplayOverrideActive,
+                    bool cadenceMatched)
+        {
+            ++sampleCount;
+            lastDtMs = dtMs;
+            maxDtMs = std::max(maxDtMs, dtMs);
+            lastFramesAdvanced = framesAdvanced;
+            maxFramesAdvanced = std::max(maxFramesAdvanced, framesAdvanced);
+            totalFramesAdvanced += framesAdvanced;
+            lastCatchupFrames = catchupFrames;
+            maxCatchupFrames = std::max(maxCatchupFrames, catchupFrames);
+            if(catchupFrames > 0) {
+                ++catchupTickCount;
+            }
+            netplayPacingOverrideActive = netplayOverrideActive;
+            presenterCadenceMatched = cadenceMatched;
+        }
+    };
+
     struct UiSnapshot
     {
         bool valid = false;
@@ -41,6 +78,10 @@ public:
         RoomState room;
         size_t localInputCount = 0;
         size_t remoteInputCount = 0;
+        InputTimeline::LookupStats localInputLookupStats;
+        InputTimeline::LookupStats remoteInputLookupStats;
+        NetplayCoordinator::PerformanceDiagnostics coordinatorPerformanceDiagnostics;
+        ConfirmedInputBufferDriver::PlaybackQueueStats playbackQueueStats;
         std::optional<TimelineInputEntry> latestLocalInput;
         std::optional<TimelineInputEntry> latestRemoteInput;
         RollbackStats predictionStats;
@@ -51,6 +92,7 @@ public:
         FrameNumber lastLoadedAuthoritativeFrame = 0;
         FrameNumber lastRecoveryReanchorFrame = 0;
         NetplayAutoSettings::Snapshot autoSettings;
+        FramePacingDiagnostics framePacingDiagnostics;
         uint32_t unresolvedPredictedRemoteFrameCount = 0;
         FrameNumber latestPredictedRemoteFrame = 0;
         IEmulationHost::NetplayDiagnosticsSnapshot runtimeDiagnostics;
@@ -92,6 +134,7 @@ private:
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
     NetplayAutoSettings m_autoSettings;
+    FramePacingDiagnostics m_framePacingDiagnostics;
 
     mutable std::mutex m_stateMutex;
     std::deque<WorkerCommand> m_pendingCommands;
@@ -219,6 +262,11 @@ public:
     void refreshLocalRomSelectionImmediate();
     void updateLatestInputState(const IEmulationHost::InputState& inputState);
     void updateLatestRawMasks(const std::array<uint64_t, 4>& masks);
+    void recordFramePacing(uint32_t dtMs,
+                           uint32_t framesAdvanced,
+                           uint32_t catchupFrames,
+                           bool netplayOverrideActive,
+                           bool cadenceMatched);
     void notifyWebVisibilityChanged(bool visible);
     void notifyWebVisibilityChangedImmediate(GeraNESEmu& emu, bool visible);
     UiSnapshot uiSnapshot() const;

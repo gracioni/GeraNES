@@ -67,8 +67,10 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
         m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
+        m_netplayDiagnostics.netplayRollbackSnapshotSerializedBytes.record(0);
         return;
     }
+    const size_t snapshotDataSize = snapshotData.size();
 
     std::scoped_lock netplayLock(m_netplaySnapshotMutex);
     auto indexIt = m_netplaySnapshotIndexByFrame.find(frame);
@@ -93,6 +95,7 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
     m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
     m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
+    m_netplayDiagnostics.netplayRollbackSnapshotSerializedBytes.record(snapshotDataSize);
 }
 
 void ThreadedEmulationHost::runPreAdvanceHookLocked()
@@ -519,6 +522,7 @@ bool ThreadedEmulationHost::rollbackToFrame(uint32_t frame)
             return false;
         }
         snapshotData = m_netplaySnapshots[indexIt->second].data;
+        m_netplayDiagnostics.rollbackSnapshotCopyBytes.record(snapshotData.size());
     }
 
     uint32_t rollbackFrom = 0;
@@ -573,6 +577,7 @@ std::vector<uint8_t> ThreadedEmulationHost::saveNetplayStateToMemory()
     {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         m_netplayDiagnostics.netplayStateSaveTiming.record(elapsedUs);
+        m_netplayDiagnostics.netplayStateSerializedBytes.record(data.size());
     }
     return data;
 }
@@ -666,7 +671,9 @@ std::optional<std::vector<uint8_t>> ThreadedEmulationHost::netplaySnapshotForFra
        m_netplaySnapshots[indexIt->second].frame != frame) {
         return std::nullopt;
     }
-    return m_netplaySnapshots[indexIt->second].data;
+    const auto& data = m_netplaySnapshots[indexIt->second].data;
+    m_netplayDiagnostics.snapshotLookupCopyBytes.record(data.size());
+    return data;
 }
 
 std::optional<uint32_t> ThreadedEmulationHost::netplaySnapshotCrc32ForFrame(uint32_t frame) const
@@ -718,6 +725,7 @@ void ThreadedEmulationHost::seedNetplaySnapshot(
     m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
+    m_netplayDiagnostics.seededSnapshotCopyBytes.record(data.size());
 }
 
 ThreadedEmulationHost::NetplayDiagnosticsSnapshot ThreadedEmulationHost::getNetplayDiagnostics() const

@@ -241,6 +241,11 @@ void ConfirmedInputBufferDriver::setPredictFrames(uint32_t frames)
     m_predictFrames = frames;
 }
 
+ConfirmedInputBufferDriver::PlaybackQueueStats ConfirmedInputBufferDriver::playbackQueueStats() const
+{
+    return m_playbackQueueStats;
+}
+
 void ConfirmedInputBufferDriver::reset()
 {
     m_inputProductionAccumulatorMs = 0.0;
@@ -492,6 +497,7 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     std::scoped_lock pendingLock(m_pendingFramesMutex);
     m_pendingFrames = std::move(rebuiltPendingFrames);
     m_queuedThroughFrame = preparedThroughFrame;
+    m_playbackQueueStats.record(m_pendingFrames.size(), preparedThroughFrame);
 }
 
 void ConfirmedInputBufferDriver::prepareConfirmedFramesForEmulationThread(NetplayCoordinator& coordinator,

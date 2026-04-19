@@ -17,6 +17,28 @@ namespace Netplay
 
 class ConfirmedInputBufferDriver
 {
+public:
+    struct PlaybackQueueStats
+    {
+        uint64_t rebuildCount = 0;
+        uint64_t totalBuiltFrames = 0;
+        uint64_t maxBuiltFrames = 0;
+        uint64_t lastBuiltFrames = 0;
+        uint32_t lastPreparedThroughFrame = 0;
+
+        void record(size_t builtFrames, uint32_t preparedThroughFrame)
+        {
+            ++rebuildCount;
+            const uint64_t built = static_cast<uint64_t>(builtFrames);
+            lastBuiltFrames = built;
+            totalBuiltFrames += built;
+            if(built > maxBuiltFrames) {
+                maxBuiltFrames = built;
+            }
+            lastPreparedThroughFrame = preparedThroughFrame;
+        }
+    };
+
 private:
     double m_inputProductionAccumulatorMs = 0.0;
     uint32_t m_producedThroughFrame = 0;
@@ -25,6 +47,7 @@ private:
     uint32_t m_predictFrames = 0;
     mutable std::mutex m_pendingFramesMutex;
     std::deque<NetplayCoordinator::ConfirmedFrameInputs> m_pendingFrames;
+    PlaybackQueueStats m_playbackQueueStats;
 
     void seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
                                       const std::vector<PlayerSlot>& localSlots,
@@ -43,6 +66,7 @@ public:
     void setPrebufferFrames(uint32_t frames);
     uint32_t predictFrames() const;
     void setPredictFrames(uint32_t frames);
+    PlaybackQueueStats playbackQueueStats() const;
     void reset();
     void reanchor(uint32_t frame);
 

@@ -4749,6 +4749,11 @@ const std::vector<std::string>& NetplayCoordinator::eventLog() const
     return m_eventLog;
 }
 
+NetplayCoordinator::PerformanceDiagnostics NetplayCoordinator::performanceDiagnostics() const
+{
+    return m_performanceDiagnostics;
+}
+
 void NetplayCoordinator::appendNetplayLog(const std::string& message)
 {
     pushLog(message);
@@ -4897,11 +4902,15 @@ const InputTimeline& NetplayCoordinator::remoteInputs() const
 
 const NetplayCoordinator::ConfirmedFrameInputs* NetplayCoordinator::findConfirmedFrame(FrameNumber frame) const
 {
+    size_t scannedEntries = 0;
     for(auto it = m_confirmedFrames.rbegin(); it != m_confirmedFrames.rend(); ++it) {
+        ++scannedEntries;
         if(it->frame == frame) {
+            m_performanceDiagnostics.confirmedFrameFind.record(true, scannedEntries);
             return &(*it);
         }
     }
+    m_performanceDiagnostics.confirmedFrameFind.record(false, scannedEntries);
     return nullptr;
 }
 
@@ -4932,12 +4941,16 @@ void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
         m_session.roomState().lastAuthoritativeClockMicros = frame.authoritativeFrameStartClockMicros;
     }
 
+    size_t scannedEntries = 0;
     for(auto& existing : m_confirmedFrames) {
+        ++scannedEntries;
         if(existing.frame == frame.frame) {
             existing = frame;
+            m_performanceDiagnostics.confirmedFrameStore.record(true, scannedEntries);
             return;
         }
     }
+    m_performanceDiagnostics.confirmedFrameStore.record(false, scannedEntries);
 
     if(m_confirmedFrames.size() >= kConfirmedFrameHistoryCapacity) {
         m_confirmedFrames.pop_front();
