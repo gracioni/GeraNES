@@ -290,8 +290,9 @@ public:
     virtual uint32_t lastFrameReadyFrame() const = 0;
     virtual uint32_t lastFrameReadyNetplayCrc32() const = 0;
     virtual void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) = 0;
-    virtual std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const = 0;
+    virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const = 0;
     virtual std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const = 0;
+    virtual bool updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32) = 0;
     virtual void seedNetplaySnapshot(uint32_t frame,
                                      const std::vector<uint8_t>& data,
                                      std::optional<uint32_t> canonicalCrc32 = std::nullopt) = 0;

@@ -87,12 +87,12 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     if(const std::optional<size_t> index = snapshotIndexForFrameLocked(frame); index.has_value()) {
         auto& existing = m_netplaySnapshots[*index];
         existing.crc32 = crc32;
-        existing.data = std::move(snapshot.data);
+        existing.data = std::make_shared<std::vector<uint8_t>>(std::move(snapshot.data));
     } else {
         m_netplaySnapshots.push_back(NetplayStoredSnapshot{
             frame,
             crc32,
-            std::move(snapshot.data)
+            std::make_shared<std::vector<uint8_t>>(std::move(snapshot.data))
         });
         m_netplaySnapshotIndexByFrame[frame] = m_netplaySnapshotNextPosition++;
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity) {
@@ -531,7 +531,7 @@ void ThreadedEmulationHost::configureNetplaySnapshots(size_t snapshotCapacity)
 
 bool ThreadedEmulationHost::rollbackToFrame(uint32_t frame)
 {
-    std::vector<uint8_t> snapshotData;
+    std::shared_ptr<const std::vector<uint8_t>> snapshotData;
     {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         const std::optional<size_t> index = snapshotIndexForFrameLocked(frame);
@@ -539,19 +539,19 @@ bool ThreadedEmulationHost::rollbackToFrame(uint32_t frame)
             return false;
         }
         snapshotData = m_netplaySnapshots[*index].data;
-        m_netplayDiagnostics.rollbackSnapshotCopyBytes.record(snapshotData.size());
+        m_netplayDiagnostics.rollbackSnapshotCopyBytes.record(0);
     }
 
     uint32_t rollbackFrom = 0;
     uint64_t rollbackLoadElapsedUs = 0;
     {
         std::scoped_lock emuLock(m_emuMutex);
-        if(snapshotData.empty()) return false;
+        if(!snapshotData || snapshotData->empty()) return false;
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         rollbackFrom = m_emu.frameCount();
         const auto rollbackLoadStart = HostTimingClock::now();
         m_emu.loadStateFromMemoryWithAudioPolicy(
-            snapshotData,
+            *snapshotData,
             GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
         rollbackLoadElapsedUs = elapsedMicrosSince(rollbackLoadStart);
         if(!m_emu.valid()) {
@@ -679,15 +679,15 @@ void ThreadedEmulationHost::setAuthoritativeFrameReadyState(uint32_t frame, uint
     m_snapshot.lastFrameReadyNetplayCrc32 = canonicalCrc32;
 }
 
-std::optional<std::vector<uint8_t>> ThreadedEmulationHost::netplaySnapshotForFrame(uint32_t frame) const
+std::optional<std::shared_ptr<const std::vector<uint8_t>>> ThreadedEmulationHost::netplaySnapshotForFrame(uint32_t frame) const
 {
     std::scoped_lock netplayLock(m_netplaySnapshotMutex);
     const std::optional<size_t> index = snapshotIndexForFrameLocked(frame);
     if(!index.has_value()) {
         return std::nullopt;
     }
-    const std::vector<uint8_t> data = m_netplaySnapshots[*index].data;
-    m_netplayDiagnostics.snapshotLookupCopyBytes.record(data.size());
+    const std::shared_ptr<const std::vector<uint8_t>> data = m_netplaySnapshots[*index].data;
+    m_netplayDiagnostics.snapshotLookupCopyBytes.record(0);
     return data;
 }
 
@@ -699,6 +699,19 @@ std::optional<uint32_t> ThreadedEmulationHost::netplaySnapshotCrc32ForFrame(uint
         return std::nullopt;
     }
     return m_netplaySnapshots[*index].crc32;
+}
+
+bool ThreadedEmulationHost::updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32)
+{
+    std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+    const std::optional<size_t> index = snapshotIndexForFrameLocked(frame);
+    if(!index.has_value()) {
+        return false;
+    }
+    m_netplaySnapshots[*index].crc32 = canonicalCrc32;
+    m_netplayDiagnostics.latestSnapshotCrc32 = canonicalCrc32;
+    m_netplayDiagnostics.currentFrame = frame;
+    return true;
 }
 
 void ThreadedEmulationHost::seedNetplaySnapshot(
@@ -722,12 +735,12 @@ void ThreadedEmulationHost::seedNetplaySnapshot(
     if(const std::optional<size_t> index = snapshotIndexForFrameLocked(frame); index.has_value()) {
         auto& existing = m_netplaySnapshots[*index];
         existing.crc32 = crc32;
-        existing.data = data;
+        existing.data = std::make_shared<std::vector<uint8_t>>(data);
     } else {
         m_netplaySnapshots.push_back(NetplayStoredSnapshot{
             frame,
             crc32,
-            data
+            std::make_shared<std::vector<uint8_t>>(data)
         });
         m_netplaySnapshotIndexByFrame[frame] = m_netplaySnapshotNextPosition++;
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity && !m_netplaySnapshots.empty()) {
