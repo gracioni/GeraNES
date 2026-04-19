@@ -41,6 +41,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <utility>
 
 enum class AccessType
 {
@@ -1818,7 +1819,8 @@ public:
 
     std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
     {
-        const InputBuffer savedInputBuffer = m_inputBuffer;
+        const size_t inputBufferCapacity = m_inputBuffer.capacity();
+        InputBuffer savedInputBuffer(inputBufferCapacity);
         const bool savedNewFrame = m_newFrame;
         const bool savedFrameStarted = m_frameStarted;
         const bool savedRunningLoop = m_runningLoop;
@@ -1833,6 +1835,7 @@ public:
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
         normalizeInputFrameForNetplaySnapshot(serializedPlaybackInput);
+        std::swap(m_inputBuffer, savedInputBuffer);
         m_inputBuffer.clear();
         m_inputBuffer.push(serializedPlaybackInput);
         m_newFrame = false;
@@ -1851,7 +1854,7 @@ public:
         std::vector<uint8_t> data = s.takeData();
         reserveHint = data.size();
 
-        m_inputBuffer = savedInputBuffer;
+        std::swap(m_inputBuffer, savedInputBuffer);
         m_newFrame = savedNewFrame;
         m_frameStarted = savedFrameStarted;
         m_runningLoop = savedRunningLoop;
