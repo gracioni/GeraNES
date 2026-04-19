@@ -25,6 +25,38 @@ namespace Netplay {
 class NetplayCoordinator
 {
 public:
+    struct LinearScanStats
+    {
+        uint64_t calls = 0;
+        uint64_t hits = 0;
+        uint64_t misses = 0;
+        uint64_t totalScannedEntries = 0;
+        uint64_t maxScannedEntries = 0;
+        uint64_t lastScannedEntries = 0;
+
+        void record(bool hit, size_t scannedEntries)
+        {
+            ++calls;
+            if(hit) {
+                ++hits;
+            } else {
+                ++misses;
+            }
+            const uint64_t scanned = static_cast<uint64_t>(scannedEntries);
+            lastScannedEntries = scanned;
+            totalScannedEntries += scanned;
+            if(scanned > maxScannedEntries) {
+                maxScannedEntries = scanned;
+            }
+        }
+    };
+
+    struct PerformanceDiagnostics
+    {
+        LinearScanStats confirmedFrameFind;
+        LinearScanStats confirmedFrameStore;
+    };
+
     struct ConfirmedFrameInputs
     {
         FrameNumber frame = 0;
@@ -167,6 +199,7 @@ private:
     bool m_sharedClockSynchronized = false;
     std::unordered_map<FrameNumber, uint64_t> m_authoritativeFrameStartClockMicros;
     std::deque<FrameNumber> m_authoritativeFrameStartClockOrder;
+    mutable PerformanceDiagnostics m_performanceDiagnostics;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
@@ -350,6 +383,7 @@ public:
     const std::string& lastError() const;
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;
+    PerformanceDiagnostics performanceDiagnostics() const;
     void appendNetplayLog(const std::string& message);
     const RollbackStats& predictionStats() const;
     void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached);
