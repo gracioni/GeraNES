@@ -736,6 +736,20 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Snapshot Capacity: %zu", snapshot.runtimeDiagnostics.snapshotCapacity);
         ImGui::Text("Stored Snapshots: %zu", snapshot.runtimeDiagnostics.storedSnapshots);
         ImGui::Text("Latest Snapshot CRC32: %08X", snapshot.runtimeDiagnostics.latestSnapshotCrc32);
+        const auto drawTimingStats = [](const char* label,
+                                        const IEmulationHost::NetplayDiagnosticsSnapshot::TimingStats& stats) {
+            ImGui::Text("%s: count %llu, total %llu us, last %llu us, avg %llu us, max %llu us",
+                        label,
+                        static_cast<unsigned long long>(stats.count),
+                        static_cast<unsigned long long>(stats.totalUs),
+                        static_cast<unsigned long long>(stats.lastUs),
+                        static_cast<unsigned long long>(stats.recentAverageUs),
+                        static_cast<unsigned long long>(stats.maxUs));
+        };
+        drawTimingStats("Netplay State Save", snapshot.runtimeDiagnostics.netplayStateSaveTiming);
+        drawTimingStats("Rollback Snapshot Save", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSaveTiming);
+        drawTimingStats("Netplay CRC", snapshot.runtimeDiagnostics.netplayCrcTiming);
+        drawTimingStats("Rollback Load", snapshot.runtimeDiagnostics.rollbackLoadTiming);
 
         ImGui::Separator();
         ImGui::Text("Local Input Frames: %zu", snapshot.localInputCount);

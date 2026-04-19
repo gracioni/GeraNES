@@ -2,6 +2,20 @@
 
 #include <cstring>
 
+namespace
+{
+using HostTimingClock = std::chrono::steady_clock;
+
+uint64_t elapsedMicrosSince(HostTimingClock::time_point start)
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            HostTimingClock::now() - start
+        ).count()
+    );
+}
+}
+
 void SingleThreadEmulationHost::rebuildNetplaySnapshotIndex()
 {
     m_netplaySnapshotIndexByFrame.clear();
@@ -23,7 +37,9 @@ void SingleThreadEmulationHost::onLoadExecutedLocked(uint32_t frame)
 void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 {
     const uint32_t frame = emu.frameCount();
+    const auto crcStart = HostTimingClock::now();
     const uint32_t crc32 = emu.canonicalNetplayStateCrc32();
+    const uint64_t crcElapsedUs = elapsedMicrosSince(crcStart);
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
     m_hasCachedNetplayCrc = true;
@@ -31,11 +47,16 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_cachedNetplayCrcValue = crc32;
 
     if(m_netplaySnapshotCapacity == 0) {
+        m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
         return;
     }
 
+    const auto snapshotSaveStart = HostTimingClock::now();
     std::vector<uint8_t> snapshotData = emu.saveNetplayRollbackStateToMemory();
+    const uint64_t snapshotSaveElapsedUs = elapsedMicrosSince(snapshotSaveStart);
     if(snapshotData.empty()) {
+        m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
+        m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
         return;
     }
 
@@ -59,6 +80,8 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
+    m_netplayDiagnostics.netplayCrcTiming.record(crcElapsedUs);
+    m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
 }
 
 void SingleThreadEmulationHost::resetFreeRunningPacing()
@@ -397,9 +420,12 @@ bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
     if(snapshotData == nullptr || snapshotData->empty()) return false;
     m_holdPresentedFramebufferUntilFrameReady = true;
     const uint32_t rollbackFrom = m_emu.frameCount();
+    const auto rollbackLoadStart = HostTimingClock::now();
     m_emu.loadStateFromMemoryWithAudioPolicy(
         *snapshotData,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    const uint64_t rollbackLoadElapsedUs = elapsedMicrosSince(rollbackLoadStart);
+    m_netplayDiagnostics.rollbackLoadTiming.record(rollbackLoadElapsedUs);
     const bool loaded = m_emu.valid();
     if(loaded) {
         resetFreeRunningPacing();
@@ -422,7 +448,10 @@ std::vector<uint8_t> SingleThreadEmulationHost::saveStateToMemory()
 
 std::vector<uint8_t> SingleThreadEmulationHost::saveNetplayStateToMemory()
 {
-    return m_emu.saveNetplayStateToMemory();
+    const auto saveStart = HostTimingClock::now();
+    std::vector<uint8_t> data = m_emu.saveNetplayStateToMemory();
+    m_netplayDiagnostics.netplayStateSaveTiming.record(elapsedMicrosSince(saveStart));
+    return data;
 }
 
 bool SingleThreadEmulationHost::loadStateFromMemory(const std::vector<uint8_t>& data)
@@ -463,7 +492,9 @@ uint32_t SingleThreadEmulationHost::canonicalNetplayStateCrc32()
     if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame == frame) {
         return m_cachedNetplayCrcValue;
     }
+    const auto crcStart = HostTimingClock::now();
     const uint32_t crc = m_emu.canonicalNetplayStateCrc32();
+    m_netplayDiagnostics.netplayCrcTiming.record(elapsedMicrosSince(crcStart));
     m_hasCachedNetplayCrc = true;
     m_cachedNetplayCrcFrame = frame;
     m_cachedNetplayCrcValue = crc;

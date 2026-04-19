@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -104,6 +105,26 @@ struct EmulationHostTypes
 
     struct NetplayDiagnosticsSnapshot
     {
+        struct TimingStats
+        {
+            uint64_t count = 0;
+            uint64_t totalUs = 0;
+            uint64_t maxUs = 0;
+            uint64_t lastUs = 0;
+            uint64_t recentAverageUs = 0;
+
+            void record(uint64_t elapsedUs)
+            {
+                lastUs = elapsedUs;
+                totalUs += elapsedUs;
+                maxUs = std::max(maxUs, elapsedUs);
+                recentAverageUs = count == 0
+                    ? elapsedUs
+                    : ((recentAverageUs * 7u) + elapsedUs) / 8u;
+                ++count;
+            }
+        };
+
         struct RollbackStats
         {
             uint32_t rollbackCount = 0;
@@ -120,6 +141,10 @@ struct EmulationHostTypes
         size_t snapshotCapacity = 0;
         size_t storedSnapshots = 0;
         uint32_t latestSnapshotCrc32 = 0;
+        TimingStats netplayStateSaveTiming;
+        TimingStats netplayRollbackSnapshotSaveTiming;
+        TimingStats netplayCrcTiming;
+        TimingStats rollbackLoadTiming;
         RollbackStats rollbackStats;
     };
 
