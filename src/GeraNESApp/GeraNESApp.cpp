@@ -134,6 +134,26 @@ void GeraNESApp::togglePauseAction()
     m_emu.togglePaused();
 }
 
+bool GeraNESApp::shouldSuppressRewindForNetplay() const
+{
+    const auto snapshot = m_netplayRuntime.uiSnapshot();
+    return snapshot.active || snapshot.hosting || snapshot.connected || snapshot.reconnecting;
+}
+
+void GeraNESApp::applyEffectiveRewindSettings()
+{
+    static int lastAppliedEffectiveMaxRewindTime = -1;
+    const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
+        ? 0
+        : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
+    if(effectiveMaxRewindTime == lastAppliedEffectiveMaxRewindTime) {
+        return;
+    }
+
+    lastAppliedEffectiveMaxRewindTime = effectiveMaxRewindTime;
+    m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
+}
+
 bool GeraNESApp::isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device)
 {
     return device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) ||
@@ -673,7 +693,9 @@ void GeraNESApp::syncSettings()
     m_konamiHyperShot = cfg.input.konamiHyperShot;
     m_systemInput = cfg.input.system;
 
-    m_emu.setupRewindSystem(cfg.improvements.maxRewindTime > 0, cfg.improvements.maxRewindTime);
+    cfg.improvements.maxRewindTime = std::max(0, cfg.improvements.maxRewindTime);
+    const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay() ? 0 : cfg.improvements.maxRewindTime;
+    m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
     m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
     m_emu.enableOverclock(cfg.improvements.overclock);
     m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.rollbackWindowFrames));
@@ -1801,6 +1823,7 @@ void GeraNESApp::mainLoop()
 
     m_touch->update(dt);
     dispatch_queued_calls();
+    applyEffectiveRewindSettings();
     pollAndPrepareInput();
 
     m_mainLoopLastTime = tempTime;

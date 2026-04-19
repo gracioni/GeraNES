@@ -251,6 +251,8 @@ private:
     bool isNetplayPauseRestricted() const;
     void notifyNetplayPauseRestrictedAction();
     void togglePauseAction();
+    bool shouldSuppressRewindForNetplay() const;
+    void applyEffectiveRewindSettings();
     static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device);
     static const char* touchDeviceLabel(Settings::Device device);
     static bool isTouchCompatibleExpansionDevice(Settings::ExpansionDevice device);

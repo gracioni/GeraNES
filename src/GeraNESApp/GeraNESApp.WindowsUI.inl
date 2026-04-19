@@ -37,11 +37,19 @@ inline void GeraNESApp::showGui()
 
             ImGui::SetNextItemWidth(100);
 
-            int value = AppSettings::instance().data.improvements.maxRewindTime;
+            const bool netplayRewindDisabled = shouldSuppressRewindForNetplay();
+            int value = netplayRewindDisabled
+                ? 0
+                : AppSettings::instance().data.improvements.maxRewindTime;
+            ImGui::BeginDisabled(netplayRewindDisabled);
             if(ImGui::InputInt("Max Rewind Time(s)", &value)) {
                 value = std::max(0, value);
                 AppSettings::instance().data.improvements.maxRewindTime = value;
                 m_emu.setupRewindSystem(value > 0, value);
+            }
+            ImGui::EndDisabled();
+            if(netplayRewindDisabled) {
+                ImGui::TextDisabled("Rewind is disabled while netplay is active.");
             }
         }
 
