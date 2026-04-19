@@ -144,7 +144,9 @@ private:
 
     mutable std::mutex m_netplaySnapshotMutex;
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
-    std::unordered_map<uint32_t, size_t> m_netplaySnapshotIndexByFrame;
+    std::unordered_map<uint32_t, uint64_t> m_netplaySnapshotIndexByFrame;
+    uint64_t m_netplaySnapshotHeadPosition = 0;
+    uint64_t m_netplaySnapshotNextPosition = 0;
     size_t m_netplaySnapshotCapacity = 0;
     mutable NetplayDiagnosticsSnapshot m_netplayDiagnostics;
     bool m_hasCachedNetplayCrc = false;
@@ -157,7 +159,7 @@ private:
     void onResetExecutedLocked(uint32_t frame);
     void onLoadExecutedLocked(uint32_t frame);
     void recordFrameReadyNetplayState(GeraNESEmu& emu);
-    void rebuildNetplaySnapshotIndexLocked();
+    std::optional<size_t> snapshotIndexForFrameLocked(uint32_t frame) const;
 
     enum class FramePacingMode : uint8_t
     {
