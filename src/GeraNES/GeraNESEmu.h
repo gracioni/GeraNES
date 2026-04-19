@@ -57,6 +57,12 @@ public:
         std::vector<uint8_t> data;
     };
 
+    struct NetplaySnapshotWithCrc32
+    {
+        std::vector<uint8_t> data;
+        uint32_t crc32 = 0;
+    };
+
     struct ExecutionPoint
     {
         uint32_t frame = 0;
@@ -1804,7 +1810,7 @@ public:
         inputFrame.speculative = false;
     }
 
-    std::vector<uint8_t> saveNetplayStateToMemory()
+    std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
     {
         const InputBuffer savedInputBuffer = m_inputBuffer;
         const bool savedNewFrame = m_newFrame;
@@ -1843,43 +1849,27 @@ public:
         return s.getData();
     }
 
+    std::vector<uint8_t> saveNetplayStateToMemory()
+    {
+        return saveCanonicalNetplayStateToMemory();
+    }
+
     std::vector<uint8_t> saveNetplayRollbackStateToMemory()
     {
-        const InputBuffer savedInputBuffer = m_inputBuffer;
-        const bool savedNewFrame = m_newFrame;
-        const bool savedFrameStarted = m_frameStarted;
-        const bool savedRunningLoop = m_runningLoop;
-        const HardwareActions savedHardwareActions = m_hardwareActions;
-        const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
-        const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
-        InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
-        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
-           currentPlaybackInput != nullptr) {
-            serializedPlaybackInput = *currentPlaybackInput;
-        } else if(serializedPlaybackInput.frame != m_frameCounter) {
-            serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
+        return saveCanonicalNetplayStateToMemory();
+    }
+
+    NetplaySnapshotWithCrc32 saveNetplaySnapshotWithCrc32()
+    {
+        NetplaySnapshotWithCrc32 snapshot;
+        snapshot.data = saveCanonicalNetplayStateToMemory();
+        if(!snapshot.data.empty()) {
+            snapshot.crc32 = Crc32::calc(
+                reinterpret_cast<const char*>(snapshot.data.data()),
+                snapshot.data.size()
+            );
         }
-        normalizeInputFrameForNetplaySnapshot(serializedPlaybackInput);
-        m_inputBuffer.clear();
-        m_inputBuffer.push(serializedPlaybackInput);
-        m_newFrame = false;
-        m_frameStarted = false;
-        m_runningLoop = false;
-        m_hardwareActions.reset();
-        m_updateCyclesAcc = 0;
-        m_audioRenderCyclesAcc = 0;
-
-        Serialize s;
-        serialization(s);
-
-        m_inputBuffer = savedInputBuffer;
-        m_newFrame = savedNewFrame;
-        m_frameStarted = savedFrameStarted;
-        m_runningLoop = savedRunningLoop;
-        m_hardwareActions = savedHardwareActions;
-        m_updateCyclesAcc = savedUpdateCyclesAcc;
-        m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
-        return s.getData();
+        return snapshot;
     }
 
     uint32_t canonicalStateCrc32() const
@@ -1891,9 +1881,7 @@ public:
 
     uint32_t canonicalNetplayStateCrc32() const
     {
-        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveNetplayStateToMemory();
-        if(data.empty()) return 0;
-        return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+        return const_cast<GeraNESEmu*>(this)->saveNetplaySnapshotWithCrc32().crc32;
     }
 
     /*
