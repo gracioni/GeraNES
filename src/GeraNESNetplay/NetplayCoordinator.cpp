@@ -111,10 +111,16 @@ void applyTopologyData(Netplay::RoomState& room, const Netplay::InputTopologyDat
 
 std::vector<uint8_t> serializeInputFrame(const InputFrame& inputFrame)
 {
+    static thread_local size_t reserveHint = 0;
     Serialize serializer;
+    if(reserveHint > 0) {
+        serializer.reserve(reserveHint);
+    }
     InputFrame copy = inputFrame;
     copy.serialization(serializer);
-    return serializer.getData();
+    std::vector<uint8_t> data = serializer.takeData();
+    reserveHint = data.size();
+    return data;
 }
 
 

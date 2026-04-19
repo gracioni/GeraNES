@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <fstream>
+#include <utility>
 
 #include "util/map_util.h"
 
@@ -64,8 +65,19 @@ class Serialize : public SerializationBase
             }
         }
 
-        const std::vector<uint8_t>& getData() {
+        void reserve(size_t size)
+        {
+            _data.reserve(size);
+        }
+
+        const std::vector<uint8_t>& getData() const
+        {
             return _data;
+        }
+
+        std::vector<uint8_t> takeData()
+        {
+            return std::move(_data);
         }
 
         bool saveToFile(const std::string& fileName)

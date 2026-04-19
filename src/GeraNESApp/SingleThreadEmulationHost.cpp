@@ -76,9 +76,13 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     if(const std::optional<size_t> index = snapshotIndexForFrame(frame); index.has_value()) {
         auto& existing = m_netplaySnapshots[*index];
         existing.crc32 = crc32;
-        existing.data = std::move(snapshot.data);
+        existing.data = std::make_shared<std::vector<uint8_t>>(std::move(snapshot.data));
     } else {
-        m_netplaySnapshots.push_back(NetplayStoredSnapshot{frame, crc32, std::move(snapshot.data)});
+        m_netplaySnapshots.push_back(NetplayStoredSnapshot{
+            frame,
+            crc32,
+            std::make_shared<std::vector<uint8_t>>(std::move(snapshot.data))
+        });
         m_netplaySnapshotIndexByFrame[frame] = m_netplaySnapshotNextPosition++;
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity) {
             m_netplaySnapshotIndexByFrame.erase(m_netplaySnapshots.front().frame);
@@ -426,14 +430,14 @@ void SingleThreadEmulationHost::configureNetplaySnapshots(size_t snapshotCapacit
 
 bool SingleThreadEmulationHost::rollbackToFrame(uint32_t frame)
 {
-    const std::vector<uint8_t>* snapshotData = nullptr;
+    std::shared_ptr<const std::vector<uint8_t>> snapshotData;
     const std::optional<size_t> index = snapshotIndexForFrame(frame);
     if(!index.has_value()) {
         return false;
     }
-    snapshotData = &m_netplaySnapshots[*index].data;
+    snapshotData = m_netplaySnapshots[*index].data;
 
-    if(snapshotData == nullptr || snapshotData->empty()) return false;
+    if(!snapshotData || snapshotData->empty()) return false;
     m_holdPresentedFramebufferUntilFrameReady = true;
     const uint32_t rollbackFrom = m_emu.frameCount();
     const auto rollbackLoadStart = HostTimingClock::now();
@@ -534,14 +538,14 @@ void SingleThreadEmulationHost::setAuthoritativeFrameReadyState(uint32_t frame, 
     m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
 }
 
-std::optional<std::vector<uint8_t>> SingleThreadEmulationHost::netplaySnapshotForFrame(uint32_t frame) const
+std::optional<std::shared_ptr<const std::vector<uint8_t>>> SingleThreadEmulationHost::netplaySnapshotForFrame(uint32_t frame) const
 {
     const std::optional<size_t> index = snapshotIndexForFrame(frame);
     if(!index.has_value()) {
         return std::nullopt;
     }
-    const auto& data = m_netplaySnapshots[*index].data;
-    m_netplayDiagnostics.snapshotLookupCopyBytes.record(data.size());
+    const std::shared_ptr<const std::vector<uint8_t>> data = m_netplaySnapshots[*index].data;
+    m_netplayDiagnostics.snapshotLookupCopyBytes.record(0);
     return data;
 }
 
@@ -552,6 +556,18 @@ std::optional<uint32_t> SingleThreadEmulationHost::netplaySnapshotCrc32ForFrame(
         return std::nullopt;
     }
     return m_netplaySnapshots[*index].crc32;
+}
+
+bool SingleThreadEmulationHost::updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32)
+{
+    const std::optional<size_t> index = snapshotIndexForFrame(frame);
+    if(!index.has_value()) {
+        return false;
+    }
+    m_netplaySnapshots[*index].crc32 = canonicalCrc32;
+    m_netplayDiagnostics.latestSnapshotCrc32 = canonicalCrc32;
+    m_netplayDiagnostics.currentFrame = frame;
+    return true;
 }
 
 void SingleThreadEmulationHost::seedNetplaySnapshot(
@@ -574,9 +590,13 @@ void SingleThreadEmulationHost::seedNetplaySnapshot(
     if(const std::optional<size_t> index = snapshotIndexForFrame(frame); index.has_value()) {
         auto& existing = m_netplaySnapshots[*index];
         existing.crc32 = crc32;
-        existing.data = data;
+        existing.data = std::make_shared<std::vector<uint8_t>>(data);
     } else {
-        m_netplaySnapshots.push_back(NetplayStoredSnapshot{frame, crc32, data});
+        m_netplaySnapshots.push_back(NetplayStoredSnapshot{
+            frame,
+            crc32,
+            std::make_shared<std::vector<uint8_t>>(data)
+        });
         m_netplaySnapshotIndexByFrame[frame] = m_netplaySnapshotNextPosition++;
         while(m_netplaySnapshots.size() > m_netplaySnapshotCapacity && !m_netplaySnapshots.empty()) {
             m_netplaySnapshotIndexByFrame.erase(m_netplaySnapshots.front().frame);

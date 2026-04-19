@@ -1798,9 +1798,15 @@ public:
 
     std::vector<uint8_t> saveStateToMemory()
     {
+        static thread_local size_t reserveHint = 0;
         Serialize s;
+        if(reserveHint > 0) {
+            s.reserve(reserveHint);
+        }
         serialization(s);
-        return s.getData();
+        std::vector<uint8_t> data = s.takeData();
+        reserveHint = data.size();
+        return data;
     }
 
     static void normalizeInputFrameForNetplaySnapshot(InputFrame& inputFrame)
@@ -1837,7 +1843,13 @@ public:
         m_audioRenderCyclesAcc = 0;
 
         Serialize s;
+        static thread_local size_t reserveHint = 0;
+        if(reserveHint > 0) {
+            s.reserve(reserveHint);
+        }
         serialization(s);
+        std::vector<uint8_t> data = s.takeData();
+        reserveHint = data.size();
 
         m_inputBuffer = savedInputBuffer;
         m_newFrame = savedNewFrame;
@@ -1846,7 +1858,7 @@ public:
         m_hardwareActions = savedHardwareActions;
         m_updateCyclesAcc = savedUpdateCyclesAcc;
         m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
-        return s.getData();
+        return data;
     }
 
     std::vector<uint8_t> saveNetplayStateToMemory()
