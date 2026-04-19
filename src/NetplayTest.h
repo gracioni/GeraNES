@@ -3017,12 +3017,12 @@ private:
         const Netplay::FrameNumber authoritativeFrame =
             std::min<Netplay::FrameNumber>(requestedFrame, emuFrame);
 
-        const std::optional<std::shared_ptr<const std::vector<uint8_t>>> confirmedSnapshot =
+        const std::optional<std::vector<uint8_t>> confirmedSnapshot =
             initialSessionSync ? std::nullopt : peer.emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
             initialSessionSync
                 ? peer.emu.saveNetplayStateToMemory()
-                : (confirmedSnapshot.has_value() ? **confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
+                : (confirmedSnapshot.has_value() ? *confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
         if(statePayload.empty()) return;
 
         if(!initialSessionSync && confirmedSnapshot.has_value()) {

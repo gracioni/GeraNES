@@ -97,10 +97,10 @@ std::vector<uint8_t> NetplayAppRuntime::buildAuthoritativeStatePayload(GeraNESEm
                                                                         bool preferConfirmedSnapshot) const
 {
     if(preferConfirmedSnapshot) {
-        if(const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshot =
+        if(const std::optional<std::vector<uint8_t>> snapshot =
                m_emuHost.netplaySnapshotForFrame(authoritativeFrame);
            snapshot.has_value()) {
-            return **snapshot;
+            return *snapshot;
         }
     }
 
@@ -986,15 +986,25 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         return;
     }
 
-    if(!m_emuHost.rollbackToFrame(*rollbackFrame)) {
+    const std::optional<std::vector<uint8_t>> snapshotData =
+        m_emuHost.netplaySnapshotForFrame(*rollbackFrame);
+    if(!snapshotData.has_value()) {
         m_coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
         return;
     }
 
     const uint32_t rollbackFromFrame = currentFrame;
 
+    emu.loadStateFromMemoryWithAudioPolicy(
+        *snapshotData,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+    if(!emu.valid()) {
+        m_coordinator.appendNetplayLog("Netplay rollback failed: snapshot load failed");
+        return;
+    }
+
     const uint32_t rollbackCanonicalCrc32 = emu.canonicalNetplayStateCrc32();
-    (void)m_emuHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
+    m_emuHost.seedNetplaySnapshot(*rollbackFrame, *snapshotData, rollbackCanonicalCrc32);
     m_coordinator.setLocalSimulationFrame(*rollbackFrame);
     m_coordinator.discardTimelineAfter(*rollbackFrame, true);
     m_coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);

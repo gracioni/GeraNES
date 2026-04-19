@@ -139,7 +139,7 @@ private:
     {
         uint32_t frame = 0;
         uint32_t crc32 = 0;
-        std::shared_ptr<std::vector<uint8_t>> data;
+        std::vector<uint8_t> data;
     };
 
     mutable std::mutex m_netplaySnapshotMutex;
@@ -641,9 +641,8 @@ public:
     uint32_t lastFrameReadyFrame() const;
     uint32_t lastFrameReadyNetplayCrc32() const;
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32);
-    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const;
+    std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const;
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const;
-    bool updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32);
     void seedNetplaySnapshot(uint32_t frame,
                              const std::vector<uint8_t>& data,
                              std::optional<uint32_t> canonicalCrc32 = std::nullopt);

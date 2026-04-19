@@ -2166,20 +2166,6 @@ bool NetplayCoordinator::preserveConfirmedInputsAcrossRealignment(ResyncReason r
     }
 }
 
-static bool shouldResetInputSequencesAcrossRealignment(ResyncReason reason, bool initialSessionSync)
-{
-    if(initialSessionSync) {
-        return true;
-    }
-
-    switch(reason) {
-        case ResyncReason::InitialSessionSync:
-            return true;
-        default:
-            return false;
-    }
-}
-
 void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                                                    bool resetInputSequences,
                                                    uint32_t inputSequenceBase,
@@ -2743,12 +2729,11 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
         pushLog(oss.str());
     }
     m_pendingResyncApply.reset();
-    const bool resetInputSequences =
-        shouldResetInputSequencesAcrossRealignment(data.reason, false);
+    const bool preserveInputSequences = data.reason == ResyncReason::ObserverVisibilityRestore;
 
     realignAuthoritativeState(
         data.targetFrame,
-        resetInputSequences,
+        !preserveInputSequences,
         data.inputSequenceBase,
         preserveConfirmedInputsAcrossRealignment(data.reason)
     );
@@ -5349,9 +5334,6 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     if(!m_hosting || payload.empty()) return false;
 
     const bool initialSessionSync = m_session.roomState().state == SessionState::Starting;
-    const bool resetInputSequences =
-        shouldResetInputSequencesAcrossRealignment(reason, initialSessionSync);
-    const uint32_t inputSequenceBase = 0u;
     const bool targetedResync = targetParticipantId != kInvalidParticipantId;
     const SessionState resumeState = m_session.roomState().state;
     NetTransport::PeerHandle targetPeer = NetTransport::kInvalidPeerHandle;
@@ -5371,14 +5353,14 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         ++m_session.roomState().timelineEpoch;
         realignAuthoritativeState(
             targetFrame,
-            resetInputSequences,
-            inputSequenceBase,
+            true,
+            0u,
             initialSessionSync || preserveConfirmedInputsAcrossRealignment(reason)
         );
-        if(resetInputSequences) {
-            m_localInputSequence = inputSequenceBase;
+        if(initialSessionSync) {
+            m_localInputSequence = 0;
             for(ParticipantInfo& participant : m_session.roomState().participants) {
-                participant.lastReceivedInputSequence = inputSequenceBase;
+                participant.lastReceivedInputSequence = 0;
             }
         }
     }
@@ -5399,7 +5381,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_session.roomState().resyncPayloadSize = static_cast<uint32_t>(payload.size());
         m_session.roomState().resyncPayloadCrc32 = payloadCrc32;
         m_session.roomState().resyncFrameReadyCrc32 = stateCrc32;
-        m_session.roomState().resyncInputSequenceBase = inputSequenceBase;
+        m_session.roomState().resyncInputSequenceBase = 0;
         m_session.roomState().activeResyncReason = reason;
     }
     m_activeResyncExpectedStateCrc32 = targetedResync ? 0 : stateCrc32;
@@ -5542,8 +5524,6 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
     ack.success = success ? 1 : 0;
 
     if(success) {
-        const bool resetInputSequences =
-            shouldResetInputSequencesAcrossRealignment(m_session.roomState().activeResyncReason, false);
         {
             std::ostringstream oss;
             oss << "Acknowledging authoritative resync"
@@ -5555,7 +5535,7 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
         }
         realignAuthoritativeState(
             loadedFrame,
-            resetInputSequences,
+            true,
             m_session.roomState().resyncInputSequenceBase,
             preserveConfirmedInputsAcrossRealignment(m_session.roomState().activeResyncReason)
         );

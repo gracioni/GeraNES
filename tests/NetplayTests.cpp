@@ -2995,13 +2995,8 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
         REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     }
 
-    const uint32_t sequenceBeforeResync = hostRemote->lastReceivedInputSequence;
-    REQUIRE(sequenceBeforeResync > 0u);
-
     const std::vector<uint8_t> payload{0x01, 0x23, 0x45};
     REQUIRE(host.beginResync(pendingResync->frame, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
-    REQUIRE(hostRemote->lastReceivedInputSequence == sequenceBeforeResync);
-    REQUIRE_FALSE(hostRemote->sequenceRebasePending);
     Netplay::ResyncAckData successAck{};
     successAck.resyncId = host.session().roomState().activeResyncId;
     successAck.participantId = hostRemote->id;
@@ -3010,26 +3005,6 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     successAck.success = 1u;
     REQUIRE(host.injectResyncAckForTests(successAck));
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
-
-    const auto countRebaseLogs = [](const std::vector<std::string>& logs) -> size_t {
-        return static_cast<size_t>(std::count_if(logs.begin(), logs.end(), [](const std::string& line) {
-            return line.find("Accepted input rebase from") != std::string::npos;
-        }));
-    };
-    const size_t rebaseLogsBefore = countRebaseLogs(host.eventLog());
-
-    Netplay::InputFrameData resumedInput = baselineRemoteInput;
-    resumedInput.timelineEpoch = host.session().roomState().timelineEpoch;
-    resumedInput.frame = pendingResync->frame + 1u;
-    resumedInput.sequence = sequenceBeforeResync + 1u;
-    InputFrame resumedContribution = baselineContribution;
-    resumedContribution.frame = resumedInput.frame;
-    resumedContribution.timelineEpoch = resumedInput.timelineEpoch;
-    resumedContribution.p2Left = true;
-    resumedContribution.p2Right = false;
-    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
-    REQUIRE(hostRemote->lastReceivedInputSequence == resumedInput.sequence);
-    REQUIRE(countRebaseLogs(host.eventLog()) == rebaseLogsBefore);
 
     host.disconnect();
     client.disconnect();

@@ -139,7 +139,7 @@ private:
     {
         uint32_t frame = 0;
         uint32_t crc32 = 0;
-        std::shared_ptr<std::vector<uint8_t>> data;
+        std::vector<uint8_t> data;
     };
 
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
@@ -531,9 +531,8 @@ public:
     uint32_t lastFrameReadyFrame() const override;
     uint32_t lastFrameReadyNetplayCrc32() const override;
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) override;
-    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const override;
+    std::optional<std::vector<uint8_t>> netplaySnapshotForFrame(uint32_t frame) const override;
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const override;
-    bool updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32) override;
     void seedNetplaySnapshot(uint32_t frame,
                              const std::vector<uint8_t>& data,
                              std::optional<uint32_t> canonicalCrc32 = std::nullopt) override;
