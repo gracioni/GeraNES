@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <sstream>
 
@@ -301,6 +302,7 @@ void NetplayCoordinator::resetSessionState()
     m_localInputs.clear();
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
+    m_confirmedFrameIndex.clear();
     m_loggedAdvertisedIceServers.clear();
     m_lastError.clear();
     m_hosting = false;
@@ -2241,6 +2243,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     m_localInputs.clear();
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
+    m_confirmedFrameIndex.clear();
     for(const TimelineInputEntry& entry : preservedLocalInputs) {
         m_localInputs.push(entry);
     }
@@ -2374,6 +2377,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_localInputs.clear();
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
+    m_confirmedFrameIndex.clear();
     m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
@@ -2430,6 +2434,7 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
     m_remoteInputs.eraseFramesAfter(frame);
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
+        m_confirmedFrameIndex.erase(m_confirmedFrames.back().frame);
         m_confirmedFrames.pop_back();
     }
 
@@ -3204,6 +3209,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
          previousState != SessionState::Resyncing);
     if(shouldResetConfirmedState) {
         m_confirmedFrames.clear();
+        m_confirmedFrameIndex.clear();
         m_lastBroadcastConfirmedFrame = 0;
         m_session.roomState().lastConfirmedFrame = 0;
     }
@@ -4858,6 +4864,7 @@ void NetplayCoordinator::discardTimelineAfter(FrameNumber frame, bool preserveLo
     }
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
+        m_confirmedFrameIndex.erase(m_confirmedFrames.back().frame);
         m_confirmedFrames.pop_back();
     }
 
@@ -4908,15 +4915,12 @@ const InputTimeline& NetplayCoordinator::remoteInputs() const
 
 const NetplayCoordinator::ConfirmedFrameInputs* NetplayCoordinator::findConfirmedFrame(FrameNumber frame) const
 {
-    size_t scannedEntries = 0;
-    for(auto it = m_confirmedFrames.rbegin(); it != m_confirmedFrames.rend(); ++it) {
-        ++scannedEntries;
-        if(it->frame == frame) {
-            m_performanceDiagnostics.confirmedFrameFind.record(true, scannedEntries);
-            return &(*it);
-        }
+    const auto indexIt = m_confirmedFrameIndex.find(frame);
+    if(indexIt != m_confirmedFrameIndex.end()) {
+        m_performanceDiagnostics.confirmedFrameFind.record(true, 1);
+        return &(*indexIt->second);
     }
-    m_performanceDiagnostics.confirmedFrameFind.record(false, scannedEntries);
+    m_performanceDiagnostics.confirmedFrameFind.record(false, 0);
     return nullptr;
 }
 
@@ -4947,22 +4951,21 @@ void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
         m_session.roomState().lastAuthoritativeClockMicros = frame.authoritativeFrameStartClockMicros;
     }
 
-    size_t scannedEntries = 0;
-    for(auto& existing : m_confirmedFrames) {
-        ++scannedEntries;
-        if(existing.frame == frame.frame) {
-            existing = frame;
-            m_performanceDiagnostics.confirmedFrameStore.record(true, scannedEntries);
-            return;
-        }
+    if(const auto existingIt = m_confirmedFrameIndex.find(frame.frame);
+       existingIt != m_confirmedFrameIndex.end()) {
+        *existingIt->second = frame;
+        m_performanceDiagnostics.confirmedFrameStore.record(true, 1);
+        return;
     }
-    m_performanceDiagnostics.confirmedFrameStore.record(false, scannedEntries);
+    m_performanceDiagnostics.confirmedFrameStore.record(false, 0);
 
     if(m_confirmedFrames.size() >= kConfirmedFrameHistoryCapacity) {
+        m_confirmedFrameIndex.erase(m_confirmedFrames.front().frame);
         m_confirmedFrames.pop_front();
     }
 
     m_confirmedFrames.push_back(frame);
+    m_confirmedFrameIndex[frame.frame] = std::prev(m_confirmedFrames.end());
 }
 
 bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const

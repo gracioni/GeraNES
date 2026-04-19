@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <chrono>
 #include <deque>
+#include <list>
 #include <optional>
 #include <span>
 #include <string>
@@ -131,7 +132,8 @@ private:
     NetSession m_session;
     InputTimeline m_localInputs;
     InputTimeline m_remoteInputs;
-    std::deque<ConfirmedFrameInputs> m_confirmedFrames;
+    std::list<ConfirmedFrameInputs> m_confirmedFrames;
+    std::unordered_map<FrameNumber, std::list<ConfirmedFrameInputs>::iterator> m_confirmedFrameIndex;
     std::vector<std::string> m_eventLog;
     std::vector<std::string> m_loggedAdvertisedIceServers;
     NetTransport::PeerHandle m_serverPeer = NetTransport::kInvalidPeerHandle;
