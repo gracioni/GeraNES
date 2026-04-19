@@ -1,11 +1,30 @@
 #include "GeraNESNetplay/InputTimeline.h"
 
+#include <iterator>
+
 namespace Netplay {
+
+InputTimeline::EntryKey InputTimeline::makeKey(FrameNumber frame,
+                                               ParticipantId participantId,
+                                               PlayerSlot slot)
+{
+    EntryKey key;
+    key.frame = frame;
+    key.participantId = participantId;
+    key.playerSlot = slot;
+    return key;
+}
+
+InputTimeline::EntryKey InputTimeline::makeKey(const TimelineInputEntry& entry)
+{
+    return makeKey(entry.frame, entry.participantId, entry.playerSlot);
+}
 
 void InputTimeline::configure(size_t capacity)
 {
     m_capacity = capacity;
     while(m_entries.size() > m_capacity) {
+        m_index.erase(makeKey(m_entries.front()));
         m_entries.pop_front();
     }
 }
@@ -13,6 +32,7 @@ void InputTimeline::configure(size_t capacity)
 void InputTimeline::clear()
 {
     m_entries.clear();
+    m_index.clear();
 }
 
 size_t InputTimeline::capacity() const
@@ -25,7 +45,7 @@ size_t InputTimeline::size() const
     return m_entries.size();
 }
 
-const std::deque<TimelineInputEntry>& InputTimeline::entries() const
+const InputTimeline::EntryList& InputTimeline::entries() const
 {
     return m_entries;
 }
@@ -37,33 +57,23 @@ InputTimeline::LookupStats InputTimeline::lookupStats() const
 
 const TimelineInputEntry* InputTimeline::find(FrameNumber frame, ParticipantId participantId, PlayerSlot slot) const
 {
-    size_t scannedEntries = 0;
-    for(const TimelineInputEntry& entry : m_entries) {
-        ++scannedEntries;
-        if(entry.frame == frame &&
-           entry.participantId == participantId &&
-           entry.playerSlot == slot) {
-            m_lookupStats.record(false, true, scannedEntries);
-            return &entry;
-        }
+    const auto indexIt = m_index.find(makeKey(frame, participantId, slot));
+    if(indexIt != m_index.end()) {
+        m_lookupStats.record(false, true, 1);
+        return &(*indexIt->second);
     }
-    m_lookupStats.record(false, false, scannedEntries);
+    m_lookupStats.record(false, false, 0);
     return nullptr;
 }
 
 TimelineInputEntry* InputTimeline::findMutable(FrameNumber frame, ParticipantId participantId, PlayerSlot slot)
 {
-    size_t scannedEntries = 0;
-    for(TimelineInputEntry& entry : m_entries) {
-        ++scannedEntries;
-        if(entry.frame == frame &&
-           entry.participantId == participantId &&
-           entry.playerSlot == slot) {
-            m_lookupStats.record(true, true, scannedEntries);
-            return &entry;
-        }
+    const auto indexIt = m_index.find(makeKey(frame, participantId, slot));
+    if(indexIt != m_index.end()) {
+        m_lookupStats.record(true, true, 1);
+        return &(*indexIt->second);
     }
-    m_lookupStats.record(true, false, scannedEntries);
+    m_lookupStats.record(true, false, 0);
     return nullptr;
 }
 
@@ -71,26 +81,26 @@ void InputTimeline::push(const TimelineInputEntry& entry)
 {
     if(m_capacity == 0) return;
 
-    for(TimelineInputEntry& existing : m_entries) {
-        if(existing.frame == entry.frame &&
-           existing.participantId == entry.participantId &&
-           existing.playerSlot == entry.playerSlot) {
-            existing = entry;
-            return;
-        }
+    const EntryKey key = makeKey(entry);
+    if(const auto existingIt = m_index.find(key); existingIt != m_index.end()) {
+        *existingIt->second = entry;
+        return;
     }
 
     if(m_entries.size() >= m_capacity) {
+        m_index.erase(makeKey(m_entries.front()));
         m_entries.pop_front();
     }
 
     m_entries.push_back(entry);
+    m_index[key] = std::prev(m_entries.end());
 }
 
 void InputTimeline::eraseFramesAfter(FrameNumber frame)
 {
     for(auto it = m_entries.begin(); it != m_entries.end();) {
         if(it->frame > frame) {
+            m_index.erase(makeKey(*it));
             it = m_entries.erase(it);
         } else {
             ++it;

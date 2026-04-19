@@ -2,7 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <list>
+#include <unordered_map>
 
 #include "GeraNES/InputBuffer.h"
 #include "NetProtocol.h"
@@ -57,9 +58,44 @@ public:
     };
 
 private:
+    struct EntryKey
+    {
+        FrameNumber frame = 0;
+        ParticipantId participantId = kInvalidParticipantId;
+        PlayerSlot playerSlot = kObserverPlayerSlot;
+
+        bool operator==(const EntryKey& other) const
+        {
+            return frame == other.frame &&
+                   participantId == other.participantId &&
+                   playerSlot == other.playerSlot;
+        }
+    };
+
+    struct EntryKeyHash
+    {
+        size_t operator()(const EntryKey& key) const
+        {
+            // Compact tuple hash for (frame, participant, slot).
+            const uint64_t mixed =
+                (static_cast<uint64_t>(key.frame) << 16) ^
+                (static_cast<uint64_t>(key.participantId) << 8) ^
+                static_cast<uint64_t>(key.playerSlot);
+            return std::hash<uint64_t>{}(mixed);
+        }
+    };
+
+    using EntryList = std::list<TimelineInputEntry>;
+    using EntryIterator = EntryList::iterator;
+    using ConstEntryIterator = EntryList::const_iterator;
+
     size_t m_capacity = 0;
-    std::deque<TimelineInputEntry> m_entries;
+    EntryList m_entries;
+    std::unordered_map<EntryKey, EntryIterator, EntryKeyHash> m_index;
     mutable LookupStats m_lookupStats;
+
+    static EntryKey makeKey(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
+    static EntryKey makeKey(const TimelineInputEntry& entry);
 
 public:
     void configure(size_t capacity);
@@ -68,7 +104,7 @@ public:
     size_t capacity() const;
     size_t size() const;
 
-    const std::deque<TimelineInputEntry>& entries() const;
+    const EntryList& entries() const;
     LookupStats lookupStats() const;
 
     const TimelineInputEntry* find(FrameNumber frame, ParticipantId participantId, PlayerSlot slot) const;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 
 #include <vector>
 #include <fstream>
@@ -30,6 +31,15 @@ class SerializationBase
 
         void array(uint8_t* pointer, size_t typeSize, size_t nelements)
         {
+            if(nelements == 0 || typeSize == 0) return;
+
+            // Fast path: contiguous byte copy preserves layout on little-endian
+            // hosts for raw/trivial payloads that are already byte-oriented.
+            if(littleEndian()) {
+                single(pointer, typeSize * nelements);
+                return;
+            }
+
             for(size_t i = 0; i < nelements; i++) {
                 single(pointer, typeSize);
                 pointer += typeSize;
@@ -52,16 +62,18 @@ class Serialize : public SerializationBase
 
         void single(uint8_t* pointer, size_t size) override
         {
-            int step = 1;
+            if(size == 0) return;
 
-            if(!littleEndian()) {
-                step = -1;
-                pointer += size-1;
+            if(littleEndian()) {
+                const size_t offset = _data.size();
+                _data.resize(offset + size);
+                std::memcpy(_data.data() + offset, pointer, size);
+                return;
             }
 
-            for(size_t i = 0; i < size; i++){
-                _data.push_back(*pointer);
-                pointer += step;
+            // Big-endian fallback: emit bytes in reverse memory order.
+            for(size_t i = 0; i < size; ++i) {
+                _data.push_back(pointer[size - 1 - i]);
             }
         }
 
@@ -112,25 +124,30 @@ class Deserialize : public SerializationBase
 
         void single(uint8_t* pointer, size_t size) override
         {
-            int step = 1;
+            if(size == 0) return;
 
-            if(!littleEndian()) {
-                step = -1;
-                pointer += size-1;
+            const size_t dataSize = _useDataView ? _dataViewSize : _data.size();
+            if(_index + size > dataSize){
+                _error = true;
+                return;
             }
 
-            for(size_t i = 0; i < size; i++) {
-
-                const size_t dataSize = _useDataView ? _dataViewSize : _data.size();
-                if(_index >= dataSize){
-                    _error = true;
-                    break;
+            if(littleEndian()) {
+                if(_useDataView) {
+                    std::memcpy(pointer, _dataView + _index, size);
+                } else {
+                    std::memcpy(pointer, _data.data() + _index, size);
                 }
-
-                *pointer = _useDataView ? _dataView[_index] : _data[_index];
-                pointer += step;
-                _index++;
+                _index += size;
+                return;
             }
+
+            const uint8_t* source = _useDataView ? (_dataView + _index) : (_data.data() + _index);
+            // Big-endian fallback: restore bytes in reverse memory order.
+            for(size_t i = 0; i < size; ++i) {
+                pointer[size - 1 - i] = source[i];
+            }
+            _index += size;
         }
 
         bool loadFromFile(const std::string& fileName)
