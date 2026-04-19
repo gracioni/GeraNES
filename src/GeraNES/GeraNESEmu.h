@@ -2152,6 +2152,11 @@ public:
         return m_inputBuffer;
     }
 
+    void configureInputBufferCapacity(size_t capacity)
+    {
+        m_inputBuffer.reconfigureCapacity(capacity);
+    }
+
     InputBuffer::EnqueueCounters inputEnqueueCounters() const
     {
         return m_inputBuffer.enqueueCounters();

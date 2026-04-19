@@ -376,6 +376,22 @@ public:
         m_enqueueCounters = {};
     }
 
+    void reconfigureCapacity(size_t capacity)
+    {
+        const size_t targetCapacity = std::max<size_t>(1, capacity);
+        if(targetCapacity == m_capacity) {
+            return;
+        }
+
+        CircularBuffer<Entry> rebuilt(targetCapacity, CircularBuffer<Entry>::REPLACE);
+        const size_t frameCount = m_frames.size();
+        for(size_t i = 0; i < frameCount; ++i) {
+            rebuilt.write(m_frames.peakAt(i));
+        }
+        m_capacity = targetCapacity;
+        m_frames = std::move(rebuilt);
+    }
+
     EnqueueCounters enqueueCounters() const
     {
         return m_enqueueCounters;

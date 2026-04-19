@@ -13,6 +13,16 @@ NetplayAppRuntime::NetplayAppRuntime(IEmulationHost& emuHost)
 {
 }
 
+static size_t computeInputBufferCapacityForNetplay(uint32_t prebufferFrames, uint32_t predictFrames)
+{
+    // Keep a comfortable margin above the actively queued playback horizon.
+    // Horizon is roughly prebuffer + predict; we budget additional slack for
+    // transient jitter, staging, and frame-boundary transitions.
+    const size_t horizon = static_cast<size_t>(prebufferFrames) + static_cast<size_t>(predictFrames);
+    const size_t capacity = (horizon * 4u) + 16u;
+    return std::max<size_t>(64u, capacity);
+}
+
 std::string NetplayAppRuntime::buildRomKey(const std::optional<RomSelection>& selection)
 {
     if(!selection.has_value() || !selection->loaded) return "none";
@@ -315,8 +325,13 @@ void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
     m_autoSettings.setEnabled(cfg.autoGameplayTuning);
 
     if(!m_coordinator.isActive()) {
-        m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames)));
-        m_inputDriver.setPredictFrames(static_cast<uint32_t>(std::max(0, cfg.predictFrames)));
+        const uint32_t prebufferFrames = static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames));
+        const uint32_t predictFrames = static_cast<uint32_t>(std::max(0, cfg.predictFrames));
+        m_inputDriver.setPrebufferFrames(prebufferFrames);
+        m_inputDriver.setPredictFrames(predictFrames);
+        emu.configureInputBufferCapacity(
+            computeInputBufferCapacityForNetplay(prebufferFrames, predictFrames)
+        );
         return;
     }
 
@@ -352,6 +367,9 @@ void NetplayAppRuntime::syncInputDelayFromSettings(GeraNESEmu& emu)
     const auto& effectiveRoom = m_coordinator.session().roomState();
     m_inputDriver.setPrebufferFrames(static_cast<uint32_t>(effectiveRoom.inputDelayFrames));
     m_inputDriver.setPredictFrames(static_cast<uint32_t>(effectiveRoom.predictFrames));
+    emu.configureInputBufferCapacity(
+        computeInputBufferCapacityForNetplay(effectiveRoom.inputDelayFrames, effectiveRoom.predictFrames)
+    );
 
     cfg.inputDelayFrames = static_cast<int>(effectiveRoom.inputDelayFrames);
     cfg.predictFrames = static_cast<int>(effectiveRoom.predictFrames);

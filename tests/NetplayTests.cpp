@@ -3223,6 +3223,25 @@ TEST_CASE("InputBuffer enforces sequential frame enqueue per timeline epoch", "[
     REQUIRE(buffer.findByFrame(0u, 8u) != nullptr);
 }
 
+TEST_CASE("Offline emulation advances with input buffer capacity one", "[emu][input-buffer][offline]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu emu(DummyAudioOutput::instance());
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    emu.configureInputBufferCapacity(1);
+
+    constexpr uint32_t kFramesToRun = 120u;
+    for(uint32_t i = 0; i < kFramesToRun; ++i) {
+        const uint32_t frame = emu.frameCount();
+        InputFrame input = emu.createInputFrame(frame);
+        input.p1A = ((i & 1u) != 0u);
+        REQUIRE(emu.queueInputFrame(input) == InputBuffer::EnqueueResult::Inserted);
+        REQUIRE(emu.updateUntilFrame(16u, false));
+        REQUIRE(emu.frameCount() == frame + 1u);
+    }
+}
+
 TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets from previous epochs", "[netplay][epoch][stale-packets][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
