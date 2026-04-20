@@ -461,7 +461,7 @@ behavior-sensitive areas such as pacing and audio.
 ## Verification Checklist
 
 - [x] Build completes with the project CMake flow.
-- [ ] Existing unit tests pass.
+- [x] Existing unit tests pass.
 - [x] Netplay start, rollback, resync and spectator sync still work.
 - [x] Save-state compatibility is unchanged for existing states.
 - [x] Baseline metrics are updated after each phase.
@@ -471,6 +471,8 @@ Notes:
 - validado por build `cmake --build build --target GeraNESTests -j 4` e pelos
   casos de runtime/spectator/resync/rollback/state-replay listados acima.
 - nesta fase nao houve alteracao de payload/protocolo de pacotes netplay.
+- validacao completa atualizada com `build\GeraNESTests`:
+  `All tests passed (19779 assertions in 115 test cases)`.
 - execucao completa atual de `build\GeraNESTests` (115 casos):
   `109 passed / 6 failed`.
   - 3 falhas de host ENet no run completo passaram quando executadas isoladas
