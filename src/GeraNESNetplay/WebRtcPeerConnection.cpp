@@ -828,7 +828,9 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
         const state = {
             pc: pc,
             dc: null,
-            connectionPathCode: 0
+            connectionPathCode: 0,
+            connectionPathPollInFlight: false,
+            lastConnectionPathPollMs: 0
         };
         scope.peers[handle] = state;
 
@@ -847,7 +849,16 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
             return 0; // Unknown
         }
 
-        async function refreshConnectionPath() {
+        async function refreshConnectionPath(force) {
+            const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if(!force && (nowMs - state.lastConnectionPathPollMs) < 2000) {
+                return;
+            }
+            if(state.connectionPathPollInFlight) {
+                return;
+            }
+            state.connectionPathPollInFlight = true;
+            state.lastConnectionPathPollMs = nowMs;
             try {
                 const stats = await pc.getStats();
                 let selectedPair = null;
@@ -879,6 +890,8 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
                     scope.callExportConnectionPath(self, pathCode);
                 }
             } catch(_) {
+            } finally {
+                state.connectionPathPollInFlight = false;
             }
         }
 
@@ -887,7 +900,7 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
             dc.binaryType = 'arraybuffer';
             dc.onopen = function() {
                 callExport('geranes_rtc_on_channel_open', [self]);
-                refreshConnectionPath();
+                refreshConnectionPath(true);
             };
             dc.onclose = function() {
                 callExport('geranes_rtc_on_channel_close', [self]);
@@ -929,9 +942,9 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
             } else if(pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
                 callExport('geranes_rtc_on_channel_close', [self]);
             }
-            refreshConnectionPath();
+            refreshConnectionPath(false);
         };
-        pc.oniceconnectionstatechange = function() { refreshConnectionPath(); };
+        pc.oniceconnectionstatechange = function() { refreshConnectionPath(false); };
         pc.onsignalingstatechange = function() {};
         pc.ondatachannel = function(event) {
             if(event && event.channel) {
@@ -942,7 +955,7 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
         if($2) {
             attachChannel(pc.createDataChannel('geranes', { ordered: true }));
         }
-        refreshConnectionPath();
+        refreshConnectionPath(true);
         } catch(err) {
             try {
                 reportError($3, err);
