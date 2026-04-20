@@ -18,7 +18,7 @@ void TouchControls::testDownButton(std::string_view id, glm::vec2 point, const s
     }
 }
 
-void TouchControls::updateDigitalPad(int eventFingerIndex, glm::vec2 point)
+void TouchControls::updateDigitalPad(SDL_FingerID eventFingerIndex, glm::vec2 point)
 {
     float digitalPadThreshold = 0;
 
@@ -28,7 +28,7 @@ void TouchControls::updateDigitalPad(int eventFingerIndex, glm::vec2 point)
         return;
     }
 
-    if(thumbIndex >= 0 && eventFingerIndex == thumbIndex) {
+    if(thumbIndex != kInvalidFingerId && eventFingerIndex == thumbIndex) {
         glm::vec2 dir = point - thumbCenter;
 
         if(glm::length(dir) > digitalPadThreshold) {
@@ -141,7 +141,7 @@ void TouchControls::onEvent(SDL_Event& ev)
         return;
     }
 
-    int index = 0;
+    SDL_FingerID index = kInvalidFingerId;
     bool evtDown = false;
     bool evtUp = false;
     bool evtDrag = false;
@@ -149,14 +149,17 @@ void TouchControls::onEvent(SDL_Event& ev)
 
     if(emulateTouch && ev.type == SDL_MOUSEBUTTONDOWN) {
         evtDown = true;
+        index = 0;
         point.x = ev.button.x;
         point.y = ev.button.y;
     } else if(emulateTouch && ev.type == SDL_MOUSEBUTTONUP) {
         evtUp = true;
+        index = 0;
         point.x = ev.button.x;
         point.y = ev.button.y;
     } else if(emulateTouch && ev.type == SDL_MOUSEMOTION) {
         evtDrag = true;
+        index = 0;
         point.x = ev.button.x;
         point.y = ev.button.y;
     } else if(ev.type == SDL_FINGERDOWN) {
@@ -211,25 +214,25 @@ void TouchControls::onEvent(SDL_Event& ev)
         updateDigitalPad(index, point);
     } else if(evtUp) {
         if(index == thumbIndex) {
-            thumbIndex = -1;
+            thumbIndex = kInvalidFingerId;
             m_buttons.up = false;
             m_buttons.right = false;
             m_buttons.down = false;
             m_buttons.left = false;
         } else if(index == selectFingerId) {
-            selectFingerId = -1;
+            selectFingerId = kInvalidFingerId;
             m_buttons.select = false;
         } else if(index == startFingerId) {
-            startFingerId = -1;
+            startFingerId = kInvalidFingerId;
             m_buttons.start = false;
         } else if(index == aFingerId) {
-            aFingerId = -1;
+            aFingerId = kInvalidFingerId;
             m_buttons.a = false;
         } else if(index == bFingerId) {
-            bFingerId = -1;
+            bFingerId = kInvalidFingerId;
             m_buttons.b = false;
         } else if(index == rewindFingerId) {
-            rewindFingerId = -1;
+            rewindFingerId = kInvalidFingerId;
             m_buttons.rewind = false;
         }
     }

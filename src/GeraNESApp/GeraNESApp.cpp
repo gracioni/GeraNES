@@ -1799,7 +1799,11 @@ bool GeraNESApp::onEvent(SDL_Event& event)
             break;
     }
 
-    if(!m_imGuiWantsMouse) m_touch->onEvent(event);
+    const bool isFingerEvent =
+        event.type == SDL_FINGERDOWN ||
+        event.type == SDL_FINGERUP ||
+        event.type == SDL_FINGERMOTION;
+    if(isFingerEvent || !m_imGuiWantsMouse) m_touch->onEvent(event);
 
     return SDLOpenGLWindow::onEvent(event);
 }

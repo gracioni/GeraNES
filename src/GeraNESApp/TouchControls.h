@@ -25,13 +25,15 @@ class TouchControls {
 
 private:
 
-    int thumbIndex = -1;
+    static constexpr SDL_FingerID kInvalidFingerId = static_cast<SDL_FingerID>(-1);
+
+    SDL_FingerID thumbIndex = kInvalidFingerId;
     glm::vec2 thumbCenter;
-    int aFingerId = -1;
-    int bFingerId = -1;
-    int selectFingerId = -1;
-    int startFingerId = -1;
-    int rewindFingerId = -1;
+    SDL_FingerID aFingerId = kInvalidFingerId;
+    SDL_FingerID bFingerId = kInvalidFingerId;
+    SDL_FingerID selectFingerId = kInvalidFingerId;
+    SDL_FingerID startFingerId = kInvalidFingerId;
+    SDL_FingerID rewindFingerId = kInvalidFingerId;
 
     struct Buttons {
         bool up = false;
@@ -87,7 +89,7 @@ private:
     std::shared_ptr<GLTexture> m_rightButtonPressedTexture;
 
     void testDownButton(std::string_view id, glm::vec2 point, const std::function<void()>& callback);
-    void updateDigitalPad(int eventFingerIndex, glm::vec2 point );
+    void updateDigitalPad(SDL_FingerID eventFingerIndex, glm::vec2 point );
 
 public:
 
