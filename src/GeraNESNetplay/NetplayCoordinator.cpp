@@ -4492,15 +4492,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         } else if(m_session.roomState().activeResyncId != 0u) {
             std::vector<ParticipantId> stalledParticipants;
             std::vector<ParticipantId> stalledObservers;
-            std::vector<ParticipantId> unknownParticipants;
             stalledParticipants.reserve(m_pendingResyncAcks.size());
             stalledObservers.reserve(m_pendingResyncAcks.size());
-            unknownParticipants.reserve(m_pendingResyncAcks.size());
             for(const ParticipantId participantId : m_pendingResyncAcks) {
                 if(participantId == m_localParticipantId) continue;
                 const ParticipantInfo* participant = m_session.findParticipant(participantId);
                 if(participant == nullptr) {
-                    unknownParticipants.push_back(participantId);
                     continue;
                 }
                 if(participantIsObserver(*participant)) {
@@ -4524,24 +4521,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 for(size_t i = 0; i < stalledObservers.size(); ++i) {
                     if(i != 0) oss << ", ";
                     oss << static_cast<int>(stalledObservers[i]);
-                }
-                pushLog(oss.str());
-            }
-
-            if(!unknownParticipants.empty()) {
-                for(const ParticipantId participantId : unknownParticipants) {
-                    m_pendingResyncAcks.erase(
-                        std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
-                        m_pendingResyncAcks.end()
-                    );
-                }
-                m_session.roomState().pendingResyncAckCount = static_cast<uint32_t>(m_pendingResyncAcks.size());
-                m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
-                std::ostringstream oss;
-                oss << "Resync ACK wait list contained unknown participant(s); removed from pending ACK list: ";
-                for(size_t i = 0; i < unknownParticipants.size(); ++i) {
-                    if(i != 0) oss << ", ";
-                    oss << static_cast<int>(unknownParticipants[i]);
                 }
                 pushLog(oss.str());
             }
