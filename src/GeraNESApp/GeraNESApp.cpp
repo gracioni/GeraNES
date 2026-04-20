@@ -1935,7 +1935,9 @@ void GeraNESApp::mainLoop()
             netplayPacingOverrideActive,
             false
         );
-        render();
+        if(framesToAdvance > 0u) {
+            render();
+        }
     }
     m_frameCounter++;
 }
