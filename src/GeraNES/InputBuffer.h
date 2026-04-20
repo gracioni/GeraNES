@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -353,6 +354,45 @@ private:
     size_t m_capacity = 1000;
     CircularBuffer<Entry> m_frames;
     EnqueueCounters m_enqueueCounters;
+    mutable bool m_indexDirty = true;
+    mutable std::unordered_map<uint64_t, size_t> m_indexByFrameEpoch;
+    mutable std::unordered_map<uint32_t, size_t> m_latestIndexByFrame;
+    mutable std::unordered_map<uint32_t, uint32_t> m_latestFrameByEpoch;
+
+    static uint64_t makeFrameEpochKey(uint32_t frame, uint32_t timelineEpoch)
+    {
+        return (static_cast<uint64_t>(timelineEpoch) << 32) | static_cast<uint64_t>(frame);
+    }
+
+    void markIndexDirty()
+    {
+        m_indexDirty = true;
+    }
+
+    void rebuildIndexIfNeeded() const
+    {
+        if(!m_indexDirty) {
+            return;
+        }
+
+        m_indexByFrameEpoch.clear();
+        m_latestIndexByFrame.clear();
+        m_latestFrameByEpoch.clear();
+
+        const size_t frameCount = m_frames.size();
+        m_indexByFrameEpoch.reserve(frameCount);
+        for(size_t i = 0; i < frameCount; ++i) {
+            const Entry& entry = m_frames.peakAt(i);
+            m_indexByFrameEpoch[makeFrameEpochKey(entry.frame.frame, entry.frame.timelineEpoch)] = i;
+            m_latestIndexByFrame[entry.frame.frame] = i;
+
+            const auto latestIt = m_latestFrameByEpoch.find(entry.frame.timelineEpoch);
+            if(latestIt == m_latestFrameByEpoch.end() || latestIt->second < entry.frame.frame) {
+                m_latestFrameByEpoch[entry.frame.timelineEpoch] = entry.frame.frame;
+            }
+        }
+        m_indexDirty = false;
+    }
 
 public:
     explicit InputBuffer(size_t capacity = 1000)
@@ -377,6 +417,10 @@ public:
     {
         m_frames.clear();
         m_enqueueCounters = {};
+        m_indexByFrameEpoch.clear();
+        m_latestIndexByFrame.clear();
+        m_latestFrameByEpoch.clear();
+        markIndexDirty();
     }
 
     void reconfigureCapacity(size_t capacity)
@@ -393,6 +437,7 @@ public:
         }
         m_capacity = targetCapacity;
         m_frames = std::move(rebuilt);
+        markIndexDirty();
     }
 
     EnqueueCounters enqueueCounters() const
@@ -411,6 +456,7 @@ public:
             }
         }
         m_frames = rebuilt;
+        markIndexDirty();
     }
 
     void eraseFramesNotMatchingTimelineEpoch(uint32_t timelineEpoch)
@@ -424,72 +470,56 @@ public:
             }
         }
         m_frames = rebuilt;
+        markIndexDirty();
     }
 
     const InputFrame* findByFrame(uint32_t targetFrame) const
     {
-        for(size_t i = m_frames.size(); i > 0; --i) {
-            const Entry& frame = m_frames.peakAt(i - 1);
-            if(frame.frame.frame == targetFrame) return &frame.frame;
-            if(frame.frame.frame < targetFrame) break;
+        rebuildIndexIfNeeded();
+        const auto it = m_latestIndexByFrame.find(targetFrame);
+        if(it != m_latestIndexByFrame.end()) {
+            return &m_frames.peakAt(it->second).frame;
         }
         return nullptr;
     }
 
     const InputFrame* findByFrame(uint32_t targetFrame, uint32_t targetTimelineEpoch) const
     {
-        for(size_t i = m_frames.size(); i > 0; --i) {
-            const Entry& frame = m_frames.peakAt(i - 1);
-            if(frame.frame.frame > targetFrame) {
-                continue;
-            }
-            if(frame.frame.frame < targetFrame) {
-                break;
-            }
-            if(frame.frame.timelineEpoch == targetTimelineEpoch) {
-                return &frame.frame;
-            }
+        rebuildIndexIfNeeded();
+        const auto it = m_indexByFrameEpoch.find(makeFrameEpochKey(targetFrame, targetTimelineEpoch));
+        if(it != m_indexByFrameEpoch.end()) {
+            return &m_frames.peakAt(it->second).frame;
         }
         return nullptr;
     }
 
     std::optional<uint32_t> latestFrameForTimelineEpoch(uint32_t timelineEpoch) const
     {
-        std::optional<uint32_t> latest;
-        const size_t frameCount = m_frames.size();
-        for(size_t i = 0; i < frameCount; ++i) {
-            const Entry& existing = m_frames.peakAt(i);
-            if(existing.frame.timelineEpoch != timelineEpoch) continue;
-            if(!latest.has_value() || existing.frame.frame > *latest) {
-                latest = existing.frame.frame;
-            }
+        rebuildIndexIfNeeded();
+        const auto latestIt = m_latestFrameByEpoch.find(timelineEpoch);
+        if(latestIt == m_latestFrameByEpoch.end()) {
+            return std::nullopt;
         }
-        return latest;
+        return latestIt->second;
     }
 
     bool markConsumed(uint32_t frame, uint32_t timelineEpoch)
     {
-        const size_t frameCount = m_frames.size();
-        for(size_t i = 0; i < frameCount; ++i) {
-            Entry& existing = m_frames.peakAt(i);
-            if(existing.frame.frame == frame &&
-               existing.frame.timelineEpoch == timelineEpoch) {
-                existing.consumed = true;
-                return true;
-            }
+        rebuildIndexIfNeeded();
+        const auto it = m_indexByFrameEpoch.find(makeFrameEpochKey(frame, timelineEpoch));
+        if(it != m_indexByFrameEpoch.end()) {
+            m_frames.peakAt(it->second).consumed = true;
+            return true;
         }
         return false;
     }
 
     bool isConsumed(uint32_t frame, uint32_t timelineEpoch) const
     {
-        const size_t frameCount = m_frames.size();
-        for(size_t i = 0; i < frameCount; ++i) {
-            const Entry& existing = m_frames.peakAt(i);
-            if(existing.frame.frame == frame &&
-               existing.frame.timelineEpoch == timelineEpoch) {
-                return existing.consumed;
-            }
+        rebuildIndexIfNeeded();
+        const auto it = m_indexByFrameEpoch.find(makeFrameEpochKey(frame, timelineEpoch));
+        if(it != m_indexByFrameEpoch.end()) {
+            return m_frames.peakAt(it->second).consumed;
         }
         return false;
     }
@@ -501,30 +531,26 @@ public:
             return EnqueueResult::RejectedEpoch;
         }
 
+        rebuildIndexIfNeeded();
         const size_t frameCount = m_frames.size();
-
-        for(size_t i = 0; i < frameCount; ++i) {
-            Entry& existing = m_frames.peakAt(i);
-            if(existing.frame.frame == frame.frame &&
-               existing.frame.timelineEpoch == frame.timelineEpoch) {
-                if(existing.consumed) {
-                    ++m_enqueueCounters.rejectedConsumed;
-                    return EnqueueResult::RejectedConsumed;
-                }
-                existing.frame = frame;
-                ++m_enqueueCounters.updatedPending;
-                return EnqueueResult::UpdatedPending;
+        const auto existingIt = m_indexByFrameEpoch.find(makeFrameEpochKey(frame.frame, frame.timelineEpoch));
+        if(existingIt != m_indexByFrameEpoch.end()) {
+            Entry& existing = m_frames.peakAt(existingIt->second);
+            if(existing.consumed) {
+                ++m_enqueueCounters.rejectedConsumed;
+                return EnqueueResult::RejectedConsumed;
             }
+            existing.frame = frame;
+            ++m_enqueueCounters.updatedPending;
+            markIndexDirty();
+            return EnqueueResult::UpdatedPending;
         }
 
-        std::optional<uint32_t> latestFrameInEpoch;
-        for(size_t i = 0; i < frameCount; ++i) {
-            const Entry& existing = m_frames.peakAt(i);
-            if(existing.frame.timelineEpoch != frame.timelineEpoch) continue;
-            if(!latestFrameInEpoch.has_value() || existing.frame.frame > *latestFrameInEpoch) {
-                latestFrameInEpoch = existing.frame.frame;
-            }
-        }
+        const auto latestIt = m_latestFrameByEpoch.find(frame.timelineEpoch);
+        const std::optional<uint32_t> latestFrameInEpoch =
+            latestIt == m_latestFrameByEpoch.end()
+                ? std::nullopt
+                : std::optional<uint32_t>(latestIt->second);
         if(latestFrameInEpoch.has_value() && frame.frame != (*latestFrameInEpoch + 1u)) {
             ++m_enqueueCounters.rejectedOutOfSequence;
             return EnqueueResult::RejectedOutOfSequence;
@@ -533,6 +559,7 @@ public:
         if(frameCount == 0) {
             m_frames.write(Entry{frame, false});
             ++m_enqueueCounters.inserted;
+            markIndexDirty();
             return EnqueueResult::Inserted;
         }
 
@@ -540,6 +567,7 @@ public:
         if(frame.frame > latest.frame.frame) {
             m_frames.write(Entry{frame, false});
             ++m_enqueueCounters.inserted;
+            markIndexDirty();
             return EnqueueResult::Inserted;
         }
 
@@ -556,6 +584,7 @@ public:
         if(!inserted) rebuilt.write(Entry{frame, false});
         m_frames = rebuilt;
         ++m_enqueueCounters.inserted;
+        markIndexDirty();
         return EnqueueResult::Inserted;
     }
 
@@ -566,12 +595,20 @@ public:
         if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
             m_capacity = std::max<size_t>(1, capacity);
             m_frames = CircularBuffer<Entry>(m_capacity, CircularBuffer<Entry>::REPLACE);
+            m_indexByFrameEpoch.clear();
+            m_latestIndexByFrame.clear();
+            m_latestFrameByEpoch.clear();
+            markIndexDirty();
         }
 
         uint32_t frameCount = static_cast<uint32_t>(m_frames.size());
         SERIALIZEDATA(s, frameCount);
         if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
             m_frames.clear();
+            m_indexByFrameEpoch.clear();
+            m_latestIndexByFrame.clear();
+            m_latestFrameByEpoch.clear();
+            markIndexDirty();
         }
 
         for(uint32_t i = 0; i < frameCount; ++i) {
@@ -587,5 +624,6 @@ public:
                 SERIALIZEDATA(s, entry.consumed);
             }
         }
+        markIndexDirty();
     }
 };

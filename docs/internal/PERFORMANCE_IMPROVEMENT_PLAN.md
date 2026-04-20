@@ -316,7 +316,7 @@ netplay snapshots are active.
 
 ## Phase 4 - Core Input Buffer
 
-- [ ] Replace repeated linear `InputBuffer` scans with frame/epoch indexed access.
+- [x] Replace repeated linear `InputBuffer` scans with frame/epoch indexed access.
   - Why: `findByFrame`, `latestFrameForTimelineEpoch`, `markConsumed` and `push`
     scan the buffer. Rollback/resimulation can call these paths repeatedly in
     sequential frame order.
@@ -329,8 +329,13 @@ netplay snapshots are active.
     scan the full retained buffer.
   - Verify: run input buffer tests, rollback/resync tests and long-session
     retention tests.
+  - Notes:
+    `InputBuffer` ganhou indice interno lazy por `(frame, timelineEpoch)` e
+    caches auxiliares de latest por epoch/frame. `findByFrame`, `markConsumed`,
+    `isConsumed` e `latestFrameForTimelineEpoch` usam lookup indexado; mutacoes
+    marcam o indice como dirty e reconstroem sob demanda.
 
-- [ ] Preserve the existing input contract.
+- [x] Preserve the existing input contract.
   - Why: input behavior is correctness-critical, and performance changes here can
     silently corrupt rollback.
   - Start in: `docs/internal/INPUT_BUFFER.md` and corresponding tests.
@@ -341,6 +346,11 @@ netplay snapshots are active.
     enqueue results and playback behavior.
   - Verify: all input buffer contract tests pass before and after each internal
     storage change.
+  - Notes:
+    validado com testes automatizados de contrato e runtime netplay:
+    - `InputBuffer enforces sequential frame enqueue per timeline epoch`
+    - `Netplay core advances only when the exact next numbered input frame exists`
+    - `Netplay runtime flow hard-resyncs after an injected desync`
 
 ## Phase 5 - App Snapshot, Render And Threading
 
