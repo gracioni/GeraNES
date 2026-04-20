@@ -1249,6 +1249,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     if(!reader.readBytes(payload, input.payloadSize)) return false;
     InputFrame inputFrame;
     if(!deserializeInputFrame(payload.data(), payload.size(), inputFrame)) return false;
+    ParticipantInfo* participant = m_session.findParticipant(input.participantId);
+    if(m_hosting && participant != nullptr && participant->id != m_localParticipantId) {
+        // Count any incoming remote input packet as activity, including stale
+        // packets from a previous timeline epoch, to avoid false timeout/recovery loops.
+        m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+    }
     if(!m_hosting &&
        input.authoritativeFrameStartClockMicros != 0u &&
        input.frame >= m_session.roomState().lastAuthoritativeClockFrame) {
@@ -1283,14 +1289,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         return true;
     }
 
-    ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
-        if(m_hosting && participant->id != m_localParticipantId) {
-            // Any incoming packet from the remote participant (even stale) is
-            // activity and should prevent suspend-timeout resync loops.
-            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
-        }
         previousReceivedSequence = participant->lastReceivedInputSequence;
         if(!participantHasAssignment(*participant, input.playerSlot)) {
             if(participantIsObserver(*participant)) {
