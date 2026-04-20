@@ -448,6 +448,8 @@ private:
         bool connected = false;
         bool disconnectEmitted = false;
         bool closeRequested = false;
+        IWebRtcPeerConnection::ConnectionPath lastLoggedConnectionPath =
+            IWebRtcPeerConnection::ConnectionPath::Unknown;
         PeerHandshakeState handshakeState = PeerHandshakeState::Idle;
         std::optional<std::chrono::steady_clock::time_point> handshakeDeadline;
         std::optional<std::chrono::steady_clock::time_point> closeDeadline;
@@ -817,6 +819,42 @@ private:
         }
     }
 
+    static const char* connectionPathLabel(IWebRtcPeerConnection::ConnectionPath path)
+    {
+        switch(path) {
+            case IWebRtcPeerConnection::ConnectionPath::Direct:
+                return "direct";
+            case IWebRtcPeerConnection::ConnectionPath::TurnRelay:
+                return "turn_relay";
+            case IWebRtcPeerConnection::ConnectionPath::Unknown:
+            default:
+                return "unknown";
+        }
+    }
+
+    void logPeerConnectionPathIfChanged(WebRtcPeerState& peer)
+    {
+        if(!peer.connection) {
+            return;
+        }
+
+        const IWebRtcPeerConnection::ConnectionPath path = peer.connection->connectionPath();
+        if(path == peer.lastLoggedConnectionPath) {
+            return;
+        }
+
+        peer.lastLoggedConnectionPath = path;
+        if(path == IWebRtcPeerConnection::ConnectionPath::Unknown) {
+            return;
+        }
+
+        logTrace(
+            std::string("connection path for ") +
+            peer.remotePeerId +
+            ": " +
+            connectionPathLabel(path));
+    }
+
     bool shouldCreateOfferForPeer(const std::string& remotePeerId) const
     {
         if(remotePeerId.empty() || remotePeerId == m_localPeerId) {
@@ -1055,6 +1093,11 @@ private:
     void updateHandshakeTimeout()
     {
         flushQueuedPeerPackets();
+        for(WebRtcPeerState& peer : m_peers) {
+            if(peer.connected) {
+                logPeerConnectionPathIfChanged(peer);
+            }
+        }
 
         if(m_bootstrapPending &&
            m_bootstrapDeadline.has_value() &&
@@ -1553,6 +1596,7 @@ private:
                     logTrace("data channel opened for " + peer->remotePeerId);
                     peer->connected = true;
                     markPeerConnected(*peer);
+                    logPeerConnectionPathIfChanged(*peer);
                     stopInitialOfferWait();
                     Event connected;
                     connected.type = Event::Type::Connected;

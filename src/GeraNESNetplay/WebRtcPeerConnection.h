@@ -18,6 +18,13 @@ struct WebRtcPeerConnectionOptions
 class IWebRtcPeerConnection
 {
 public:
+    enum class ConnectionPath : uint8_t
+    {
+        Unknown = 0,
+        Direct = 1,
+        TurnRelay = 2
+    };
+
     struct Event
     {
         enum class Type : uint8_t
@@ -54,6 +61,7 @@ public:
     virtual bool sendDataReliable(const std::vector<uint8_t>& payload) = 0;
     virtual bool sendDataUnreliable(const std::vector<uint8_t>& payload) = 0;
     virtual size_t bufferedAmount() const = 0;
+    virtual ConnectionPath connectionPath() const = 0;
     virtual std::vector<Event> poll() = 0;
     virtual bool isOpen() const = 0;
     virtual bool isDataChannelOpen() const = 0;

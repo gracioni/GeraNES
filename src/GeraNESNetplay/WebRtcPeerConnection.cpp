@@ -573,6 +573,11 @@ public:
         return amount > 0 ? static_cast<size_t>(amount) : 0u;
     }
 
+    ConnectionPath connectionPath() const override
+    {
+        return ConnectionPath::Unknown;
+    }
+
     std::vector<Event> poll() override
     {
         std::vector<Event> events;
@@ -614,6 +619,7 @@ EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_channel_open(intptr_t selfPtr);
 EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_channel_close(intptr_t selfPtr);
 EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_data_message(intptr_t selfPtr, const uint8_t* data, int size);
 EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_error(intptr_t selfPtr, const char* text);
+EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_connection_path(intptr_t selfPtr, int pathCode);
 }
 
 void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host, intptr_t self)
@@ -663,11 +669,15 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
                 });
             });
         }
+        function callExportConnectionPath(selfPtr, pathCode) {
+            callExport('geranes_rtc_on_connection_path', [selfPtr, pathCode | 0]);
+        }
 
         scope.callExport = scope.callExport || callExport;
         scope.callExportString = scope.callExportString || callExportString;
         scope.callExportLocalDescription = scope.callExportLocalDescription || callExportLocalDescription;
         scope.callExportIceCandidate = scope.callExportIceCandidate || callExportIceCandidate;
+        scope.callExportConnectionPath = scope.callExportConnectionPath || callExportConnectionPath;
 
         function callBytes(selfPtr, data) {
             const view = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -817,15 +827,67 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
         const pc = new RTCPeerConnection({ iceServers: iceServers });
         const state = {
             pc: pc,
-            dc: null
+            dc: null,
+            connectionPathCode: 0
         };
         scope.peers[handle] = state;
+
+        function classifyConnectionPath(stats, pair) {
+            if(!pair) return 0;
+            const local = pair.localCandidateId ? stats.get(pair.localCandidateId) : null;
+            const remote = pair.remoteCandidateId ? stats.get(pair.remoteCandidateId) : null;
+            const localType = local && typeof local.candidateType === 'string' ? local.candidateType : '';
+            const remoteType = remote && typeof remote.candidateType === 'string' ? remote.candidateType : '';
+            if(localType === 'relay' || remoteType === 'relay') {
+                return 2; // TurnRelay
+            }
+            if(localType || remoteType) {
+                return 1; // Direct
+            }
+            return 0; // Unknown
+        }
+
+        async function refreshConnectionPath() {
+            try {
+                const stats = await pc.getStats();
+                let selectedPair = null;
+
+                stats.forEach(function(report) {
+                    if(selectedPair) return;
+                    if(report.type === 'transport' && report.selectedCandidatePairId) {
+                        const pair = stats.get(report.selectedCandidatePairId);
+                        if(pair) {
+                            selectedPair = pair;
+                        }
+                    }
+                });
+
+                if(!selectedPair) {
+                    stats.forEach(function(report) {
+                        if(selectedPair) return;
+                        if(report.type !== 'candidate-pair') return;
+                        const selected = report.selected === true || report.nominated === true;
+                        if(selected && report.state === 'succeeded') {
+                            selectedPair = report;
+                        }
+                    });
+                }
+
+                const pathCode = classifyConnectionPath(stats, selectedPair);
+                if(pathCode !== state.connectionPathCode) {
+                    state.connectionPathCode = pathCode;
+                    scope.callExportConnectionPath(self, pathCode);
+                }
+            } catch(_) {
+            }
+        }
 
         function attachChannel(dc) {
             state.dc = dc;
             dc.binaryType = 'arraybuffer';
             dc.onopen = function() {
                 callExport('geranes_rtc_on_channel_open', [self]);
+                refreshConnectionPath();
             };
             dc.onclose = function() {
                 callExport('geranes_rtc_on_channel_close', [self]);
@@ -867,8 +929,9 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
             } else if(pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
                 callExport('geranes_rtc_on_channel_close', [self]);
             }
+            refreshConnectionPath();
         };
-        pc.oniceconnectionstatechange = function() {};
+        pc.oniceconnectionstatechange = function() { refreshConnectionPath(); };
         pc.onsignalingstatechange = function() {};
         pc.ondatachannel = function(event) {
             if(event && event.channel) {
@@ -879,6 +942,7 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
         if($2) {
             attachChannel(pc.createDataChannel('geranes', { ordered: true }));
         }
+        refreshConnectionPath();
         } catch(err) {
             try {
                 reportError($3, err);
@@ -1113,6 +1177,7 @@ private:
     int m_handle = 0;
     bool m_open = false;
     bool m_dataChannelOpen = false;
+    ConnectionPath m_connectionPath = ConnectionPath::Unknown;
     std::string m_lastError;
     std::deque<Event> m_events;
     mutable std::mutex m_mutex;
@@ -1181,6 +1246,19 @@ public:
         setLastError(error);
         pushEvent(Event{Event::Type::Error, {}, false, {}, {}, -1, {}, error});
     }
+
+    void onConnectionPath(int pathCode)
+    {
+        ConnectionPath path = ConnectionPath::Unknown;
+        if(pathCode == 1) {
+            path = ConnectionPath::Direct;
+        } else if(pathCode == 2) {
+            path = ConnectionPath::TurnRelay;
+        }
+        std::scoped_lock lock(m_mutex);
+        m_connectionPath = path;
+    }
+
     ~WebEmscriptenWebRtcPeerConnection() override
     {
         close();
@@ -1211,6 +1289,7 @@ public:
 
         m_open = true;
         m_dataChannelOpen = false;
+        m_connectionPath = ConnectionPath::Unknown;
         m_lastError.clear();
         return true;
     }
@@ -1223,6 +1302,7 @@ public:
         }
         m_open = false;
         m_dataChannelOpen = false;
+        m_connectionPath = ConnectionPath::Unknown;
 
         std::scoped_lock lock(m_mutex);
         m_events.clear();
@@ -1321,6 +1401,12 @@ public:
         return static_cast<size_t>(geranes_rtc_buffered_amount_bridge(m_handle));
     }
 
+    ConnectionPath connectionPath() const override
+    {
+        std::scoped_lock lock(m_mutex);
+        return m_connectionPath;
+    }
+
     std::vector<Event> poll() override
     {
         std::vector<Event> events;
@@ -1384,6 +1470,12 @@ EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_error(intptr_t selfPtr, const char* tex
 {
     auto* self = reinterpret_cast<WebEmscriptenWebRtcPeerConnection*>(selfPtr);
     if(self != nullptr) self->onError(text);
+}
+
+EMSCRIPTEN_KEEPALIVE void geranes_rtc_on_connection_path(intptr_t selfPtr, int pathCode)
+{
+    auto* self = reinterpret_cast<WebEmscriptenWebRtcPeerConnection*>(selfPtr);
+    if(self != nullptr) self->onConnectionPath(pathCode);
 }
 }
 #endif
@@ -1460,6 +1552,11 @@ public:
     size_t bufferedAmount() const override
     {
         return 0u;
+    }
+
+    ConnectionPath connectionPath() const override
+    {
+        return ConnectionPath::Unknown;
     }
 
     std::vector<Event> poll() override
