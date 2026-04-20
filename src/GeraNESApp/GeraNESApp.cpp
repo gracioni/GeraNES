@@ -1914,16 +1914,14 @@ void GeraNESApp::mainLoop()
         const uint64_t pacingScaleDenominator = std::max<uint64_t>(1u, m_mainLoopCounterFrequency);
         m_presenterFrameAccumScaled += counterDelta * static_cast<uint64_t>(emuFps);
 
+        const int MAX_FRAMES_TO_ADVANCE = 30;
         uint32_t framesToAdvance = 0u;
-        while(m_presenterFrameAccumScaled >= pacingScaleDenominator && framesToAdvance < 3u) {
+        while(m_presenterFrameAccumScaled >= pacingScaleDenominator && framesToAdvance < MAX_FRAMES_TO_ADVANCE) {
             ++framesToAdvance;
             m_presenterFrameAccumScaled -= pacingScaleDenominator;
         }
-        if(netplayPacingOverrideActive && framesToAdvance > 1u) {
-            framesToAdvance = 1u;
-            m_presenterFrameAccumScaled = std::min<uint64_t>(m_presenterFrameAccumScaled, pacingScaleDenominator);
-        }
-        if(framesToAdvance == 3u && m_presenterFrameAccumScaled > pacingScaleDenominator) {
+
+        if(framesToAdvance == MAX_FRAMES_TO_ADVANCE && m_presenterFrameAccumScaled > pacingScaleDenominator) {
             m_presenterFrameAccumScaled = pacingScaleDenominator;
         }
 
