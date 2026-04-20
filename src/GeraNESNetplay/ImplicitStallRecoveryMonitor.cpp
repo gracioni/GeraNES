@@ -15,8 +15,16 @@ ImplicitStallRecoveryMonitor::StallUpdate ImplicitStallRecoveryMonitor::noteStal
     StallUpdate update;
     if(m_pending.has_value() &&
        m_pending->participantId == participantId &&
-       m_pending->playerSlot == slot &&
-       m_pending->stalledFrame == frame) {
+       m_pending->playerSlot == slot) {
+        // Keep tracking window anchored to the first observed stall for this
+        // participant/slot. Do not reset timeout just because newer missing
+        // frames are observed while the same stall condition persists.
+        if(frame < m_pending->stalledFrame) {
+            m_pending->stalledFrame = frame;
+        }
+        if(observedPeerHealthSerial < m_pending->observedPeerHealthSerial) {
+            m_pending->observedPeerHealthSerial = observedPeerHealthSerial;
+        }
         update.recovery = *m_pending;
         return update;
     }

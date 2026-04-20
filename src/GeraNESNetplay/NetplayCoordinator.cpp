@@ -2006,32 +2006,7 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             }
         }
         if(!hasBaselineInput) {
-            // If a participant times out before any confirmed contribution was
-            // recorded for an assigned slot, seed a neutral baseline at the
-            // participant's contiguous frame so host simulation can keep moving.
-            const FrameNumber baselineFrame = participant.lastContiguousInputFrame;
-            for(PlayerSlot slot : participantAssignments(participant)) {
-                if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
-                    seedNeutralInputBaseline(participant.id, slot, baselineFrame);
-                }
-            }
-            hasBaselineInput = true;
-            for(PlayerSlot slot : participantAssignments(participant)) {
-                if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
-                    hasBaselineInput = false;
-                    break;
-                }
-            }
-            if(hasBaselineInput) {
-                std::ostringstream baselineLog;
-                baselineLog << "Seeded neutral input baseline for timed-out participant: "
-                            << participant.displayName
-                            << " baselineFrame=" << baselineFrame
-                            << " classification=suspended_input_baseline_seed";
-                pushLog(baselineLog.str());
-            } else {
-                continue;
-            }
+            continue;
         }
 
         participant.inputSuspended = true;
