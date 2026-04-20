@@ -2,6 +2,7 @@
 #include "GeraNESNetplay/NetplayWindowUI.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <fstream>
 
@@ -1645,7 +1646,14 @@ void GeraNESApp::updateBuffers()
         m_vbo.create();
     }
 
-    std::vector<GLfloat> data;
+    std::array<GLfloat, 16> data = {};
+    auto setVertex = [&data](size_t vertexIndex, GLfloat x, GLfloat y, GLfloat u, GLfloat v) {
+        const size_t base = vertexIndex * 4u;
+        data[base + 0u] = x;
+        data[base + 1u] = y;
+        data[base + 2u] = u;
+        data[base + 3u] = v;
+    };
     SDL_Rect clientArea = {0, m_menuBarHeight, this->width(), std::max(0, this->height() - m_menuBarHeight)};
 
     if(this->width() / 256.0 >= this->height() / (240.0 - 2 * m_clipHeightValue)) {
@@ -1655,25 +1663,18 @@ void GeraNESApp::updateBuffers()
         m_nesScreenRect.min = glm::vec2(clientArea.x + offsetX, clientArea.y);
         m_nesScreenRect.max = glm::vec2(m_nesScreenRect.min.x + drawWidth, m_nesScreenRect.min.y + clientArea.h);
 
-        data.push_back(clientArea.x + offsetX);
-        data.push_back(clientArea.y);
-        data.push_back(0.0);
-        data.push_back(m_clipHeightValue / 256.0);
-
-        data.push_back(clientArea.x + offsetX);
-        data.push_back(clientArea.y + clientArea.h);
-        data.push_back(0.0);
-        data.push_back(240.0 / 256.0 - m_clipHeightValue / 256.0);
-
-        data.push_back(clientArea.x + offsetX + drawWidth);
-        data.push_back(clientArea.y);
-        data.push_back(1.0);
-        data.push_back(m_clipHeightValue / 256.0);
-
-        data.push_back(clientArea.x + offsetX + drawWidth);
-        data.push_back(clientArea.y + clientArea.h);
-        data.push_back(1.0);
-        data.push_back(240.0 / 256.0 - m_clipHeightValue / 256.0);
+        setVertex(0u, clientArea.x + offsetX, clientArea.y, 0.0f, m_clipHeightValue / 256.0f);
+        setVertex(1u,
+                  clientArea.x + offsetX,
+                  clientArea.y + clientArea.h,
+                  0.0f,
+                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
+        setVertex(2u, clientArea.x + offsetX + drawWidth, clientArea.y, 1.0f, m_clipHeightValue / 256.0f);
+        setVertex(3u,
+                  clientArea.x + offsetX + drawWidth,
+                  clientArea.y + clientArea.h,
+                  1.0f,
+                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
     } else {
         GLfloat drawHeight = (240.0 - 2 * m_clipHeightValue) / 256.0 * clientArea.w;
         GLfloat offsetY = (clientArea.h - drawHeight) / 2.0;
@@ -1681,32 +1682,29 @@ void GeraNESApp::updateBuffers()
         m_nesScreenRect.min = glm::vec2(clientArea.x, clientArea.y + offsetY);
         m_nesScreenRect.max = glm::vec2(m_nesScreenRect.min.x + clientArea.w, m_nesScreenRect.min.y + drawHeight);
 
-        data.push_back(clientArea.x);
-        data.push_back(clientArea.y + offsetY);
-        data.push_back(0.0);
-        data.push_back(m_clipHeightValue / 256.0);
-
-        data.push_back(clientArea.x);
-        data.push_back(clientArea.y + offsetY + drawHeight);
-        data.push_back(0.0);
-        data.push_back(240.0 / 256.0 - m_clipHeightValue / 256.0);
-
-        data.push_back(clientArea.x + clientArea.w);
-        data.push_back(clientArea.y + offsetY);
-        data.push_back(1.0);
-        data.push_back(0.0 + m_clipHeightValue / 256.0);
-
-        data.push_back(clientArea.x + clientArea.w);
-        data.push_back(clientArea.y + offsetY + drawHeight);
-        data.push_back(1.0);
-        data.push_back(240.0 / 256.0 - m_clipHeightValue / 256.0);
+        setVertex(0u, clientArea.x, clientArea.y + offsetY, 0.0f, m_clipHeightValue / 256.0f);
+        setVertex(1u,
+                  clientArea.x,
+                  clientArea.y + offsetY + drawHeight,
+                  0.0f,
+                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
+        setVertex(2u,
+                  clientArea.x + clientArea.w,
+                  clientArea.y + offsetY,
+                  1.0f,
+                  m_clipHeightValue / 256.0f);
+        setVertex(3u,
+                  clientArea.x + clientArea.w,
+                  clientArea.y + offsetY + drawHeight,
+                  1.0f,
+                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
     }
 
     m_vbo.bind();
-    if((size_t)m_vbo.size() != data.size() * sizeof(GLfloat)) {
-        m_vbo.allocate(&data[0], data.size() * sizeof(GLfloat));
+    if(static_cast<size_t>(m_vbo.size()) != sizeof(data)) {
+        m_vbo.allocate(data.data(), sizeof(data));
     } else {
-        m_vbo.write(0, &data[0], data.size() * sizeof(GLfloat));
+        m_vbo.write(0, data.data(), sizeof(data));
     }
     m_vbo.release();
 

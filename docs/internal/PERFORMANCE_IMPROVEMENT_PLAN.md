@@ -380,7 +380,7 @@ netplay snapshots are active.
   - Verify: instrumentation shows fewer framebuffer copies while presentation
     remains visually correct during pause, run, reset and netplay resync.
 
-- [ ] Replace small heap allocation in `GeraNESApp::updateBuffers()`.
+- [x] Replace small heap allocation in `GeraNESApp::updateBuffers()`.
   - Why: layout data is small and fixed-size, but currently built with
     `std::vector<GLfloat>`.
   - Start in: `GeraNESApp.cpp`, `GeraNESApp::updateBuffers()`.
@@ -388,6 +388,10 @@ netplay snapshots are active.
     fixed-size stack buffer matching the VBO layout.
   - Done when: VBO layout data generation performs no heap allocation.
   - Verify: build and visually confirm screen layout/aspect handling still works.
+  - Notes:
+    `updateBuffers()` trocou `std::vector<GLfloat>` por
+    `std::array<GLfloat, 16>` com preenchimento direto dos 4 vertices
+    (posicao+UV), removendo `push_back` e alocacao heap por update.
 
 - [ ] Review presenter-locked pacing under hitch/catchup.
   - Why: presenter cadence and catchup paths can introduce delay under hitch,
