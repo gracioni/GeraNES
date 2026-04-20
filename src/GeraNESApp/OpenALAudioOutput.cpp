@@ -195,9 +195,6 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
         m_bufferData.clear();
     }
 
-    ALint state;
-    alGetSourcei(m_source, AL_SOURCE_STATE, &state);
-
     ALint queued = 0;    
     alGetSourcei(m_source, AL_BUFFERS_QUEUED, &queued);
 
