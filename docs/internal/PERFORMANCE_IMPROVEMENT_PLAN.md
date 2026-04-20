@@ -354,7 +354,7 @@ netplay snapshots are active.
 
 ## Phase 5 - App Snapshot, Render And Threading
 
-- [ ] Reduce work inside `refreshSnapshotLocked()`.
+- [x] Reduce work inside `refreshSnapshotLocked()`.
   - Why: this method copies UI/config strings/vectors and framebuffer data
     frequently in the worker loop, mixing slow-changing configuration with
     per-frame presentation state.
@@ -367,6 +367,13 @@ netplay snapshots are active.
     and strings.
   - Verify: run the app, change audio/config settings, and confirm UI still
     updates while normal frame refresh copies less data.
+  - Notes:
+    `ThreadedEmulationHost::refreshSnapshotLocked()` foi dividido em:
+    - campos rapidos atualizados em todo refresh;
+    - campos lentos de audio/UI (`audioDevices`, `audioDeviceName`,
+      `audioChannelsJson`, volume) atualizados apenas quando dirty
+      (`configAudioDevice`, `restartAudio`, volume/channel changes) ou em
+      refresh periodico (250 ms).
 
 - [x] Copy framebuffer only when a new frame is ready or presentation requires it.
   - Why: framebuffer memcpy can dominate refresh work if it happens on state

@@ -165,38 +165,53 @@ void ThreadedEmulationHost::onCommand(std::function<void(GeraNESEmu&)> command)
 
 void ThreadedEmulationHost::refreshSnapshotLocked()
 {
-    Snapshot snapshot;
-    snapshot.valid = m_emu.valid();
-    snapshot.paused = m_emu.paused();
-    snapshot.rewinding = m_emu.isRewinding();
-    snapshot.spriteLimitDisabled = m_emu.spriteLimitDisabled();
-    snapshot.overclocked = m_emu.overclocked();
-    snapshot.nsfLoaded = m_emu.isNsfLoaded();
-    snapshot.nsfPlaying = m_emu.nsfIsPlaying();
-    snapshot.nsfPaused = m_emu.nsfIsPaused();
-    snapshot.nsfEnded = m_emu.nsfHasEnded();
-    snapshot.frameCount = m_emu.frameCount();
-    snapshot.regionFps = m_emu.getRegionFPS();
-    snapshot.manualResetGeneration = m_emu.manualResetGeneration();
-    snapshot.manualLoadStateGeneration = m_emu.manualLoadStateGeneration();
-    snapshot.region = m_emu.region();
-    snapshot.cartridgeSystem =
-        m_emu.valid()
+    const bool valid = m_emu.valid();
+    const bool paused = m_emu.paused();
+    const bool rewinding = m_emu.isRewinding();
+    const bool spriteLimitDisabled = m_emu.spriteLimitDisabled();
+    const bool overclocked = m_emu.overclocked();
+    const bool nsfLoaded = m_emu.isNsfLoaded();
+    const bool nsfPlaying = m_emu.nsfIsPlaying();
+    const bool nsfPaused = m_emu.nsfIsPaused();
+    const bool nsfEnded = m_emu.nsfHasEnded();
+    const uint32_t frameCount = m_emu.frameCount();
+    const uint32_t regionFps = m_emu.getRegionFPS();
+    const uint32_t manualResetGeneration = m_emu.manualResetGeneration();
+    const uint32_t manualLoadStateGeneration = m_emu.manualLoadStateGeneration();
+    const Settings::Region region = m_emu.region();
+    const GameDatabase::System cartridgeSystem =
+        valid
             ? m_emu.getConsole().cartridge().system()
             : GameDatabase::System::Unknown;
-    snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
-    snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
-    snapshot.expansionDevice = m_emu.getExpansionDevice();
-    snapshot.nesMultitapDevice = m_emu.getNesMultitapDevice();
-    snapshot.famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
-    snapshot.nsfTotalSongs = m_emu.nsfTotalSongs();
-    snapshot.nsfCurrentSong = m_emu.nsfCurrentSong();
-    snapshot.audioDeviceName = m_audioOutput.currentDeviceName();
-    snapshot.audioDevices = m_audioOutput.getAudioList();
-    snapshot.audioVolume = m_audioOutput.getVolume();
-    snapshot.audioChannelsJson = m_audioOutput.getAudioChannelsJson();
-    snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
-    snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+    const std::optional<Settings::Device> port1Device = m_emu.getPortDevice(Settings::Port::P_1);
+    const std::optional<Settings::Device> port2Device = m_emu.getPortDevice(Settings::Port::P_2);
+    const Settings::ExpansionDevice expansionDevice = m_emu.getExpansionDevice();
+    const Settings::NesMultitapDevice nesMultitapDevice = m_emu.getNesMultitapDevice();
+    const Settings::FamicomMultitapDevice famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
+    const int nsfTotalSongs = m_emu.nsfTotalSongs();
+    const int nsfCurrentSong = m_emu.nsfCurrentSong();
+    const uint32_t lastFrameReadyFrame = m_lastFrameReadyFrameValue;
+    const uint32_t lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+
+    constexpr auto kSlowSnapshotRefreshInterval = std::chrono::milliseconds(250);
+    const auto now = std::chrono::steady_clock::now();
+    const bool refreshSlowFields =
+        m_snapshotConfigDirty ||
+        m_lastSlowSnapshotRefresh.time_since_epoch().count() == 0 ||
+        (now - m_lastSlowSnapshotRefresh) >= kSlowSnapshotRefreshInterval;
+
+    std::string audioDeviceName;
+    std::vector<std::string> audioDevices;
+    float audioVolume = 1.0f;
+    std::string audioChannelsJson;
+    if(refreshSlowFields) {
+        audioDeviceName = m_audioOutput.currentDeviceName();
+        audioDevices = m_audioOutput.getAudioList();
+        audioVolume = m_audioOutput.getVolume();
+        audioChannelsJson = m_audioOutput.getAudioChannelsJson();
+        m_snapshotConfigDirty = false;
+        m_lastSlowSnapshotRefresh = now;
+    }
 
     const bool holdPresentedFramebuffer =
         m_holdPresentedFramebufferUntilFrameReady.load(std::memory_order_acquire);
@@ -213,7 +228,36 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
 
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        m_snapshot = snapshot;
+        m_snapshot.valid = valid;
+        m_snapshot.paused = paused;
+        m_snapshot.rewinding = rewinding;
+        m_snapshot.spriteLimitDisabled = spriteLimitDisabled;
+        m_snapshot.overclocked = overclocked;
+        m_snapshot.nsfLoaded = nsfLoaded;
+        m_snapshot.nsfPlaying = nsfPlaying;
+        m_snapshot.nsfPaused = nsfPaused;
+        m_snapshot.nsfEnded = nsfEnded;
+        m_snapshot.frameCount = frameCount;
+        m_snapshot.regionFps = regionFps;
+        m_snapshot.manualResetGeneration = manualResetGeneration;
+        m_snapshot.manualLoadStateGeneration = manualLoadStateGeneration;
+        m_snapshot.region = region;
+        m_snapshot.cartridgeSystem = cartridgeSystem;
+        m_snapshot.port1Device = port1Device;
+        m_snapshot.port2Device = port2Device;
+        m_snapshot.expansionDevice = expansionDevice;
+        m_snapshot.nesMultitapDevice = nesMultitapDevice;
+        m_snapshot.famicomMultitapDevice = famicomMultitapDevice;
+        m_snapshot.nsfTotalSongs = nsfTotalSongs;
+        m_snapshot.nsfCurrentSong = nsfCurrentSong;
+        m_snapshot.lastFrameReadyFrame = lastFrameReadyFrame;
+        m_snapshot.lastFrameReadyNetplayCrc32 = lastFrameReadyNetplayCrc32;
+        if(refreshSlowFields) {
+            m_snapshot.audioDeviceName = std::move(audioDeviceName);
+            m_snapshot.audioDevices = std::move(audioDevices);
+            m_snapshot.audioVolume = audioVolume;
+            m_snapshot.audioChannelsJson = std::move(audioChannelsJson);
+        }
     }
 }
 

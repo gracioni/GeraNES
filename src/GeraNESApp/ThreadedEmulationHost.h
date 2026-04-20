@@ -200,6 +200,8 @@ private:
     std::atomic<bool> m_allowPresenterTimeoutAdvance{true};
     mutable std::mutex m_preAdvanceHookMutex;
     std::function<void(GeraNESEmu&)> m_preAdvanceHook;
+    bool m_snapshotConfigDirty = true;
+    std::chrono::steady_clock::time_point m_lastSlowSnapshotRefresh = {};
 
     void runPreAdvanceHookLocked();
     void applyPendingInputLocked();
@@ -316,6 +318,7 @@ public:
     {
         postCommand([deviceName, this](GeraNESEmu&) {
             m_audioOutput.config(deviceName);
+            m_snapshotConfigDirty = true;
         });
     }
 
@@ -323,6 +326,7 @@ public:
     {
         postCommand([this](GeraNESEmu&) {
             m_audioOutput.restart();
+            m_snapshotConfigDirty = true;
         });
     }
 
@@ -354,6 +358,7 @@ public:
     {
         postCommand([volume, this](GeraNESEmu&) {
             m_audioOutput.setVolume(volume);
+            m_snapshotConfigDirty = true;
         });
     }
 
@@ -361,6 +366,7 @@ public:
     {
         postCommand([id, volume, this](GeraNESEmu&) {
             m_audioOutput.setAudioChannelVolumeById(id, volume);
+            m_snapshotConfigDirty = true;
         });
         return true;
     }
