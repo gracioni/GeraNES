@@ -1866,19 +1866,32 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     const auto update = m_implicitRecoveryMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
     if(!update.shouldScheduleResync) return;
 
-    const FrameNumber resyncFrame =
-        m_session.roomState().lastConfirmedFrame > 0
-            ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
-            : m_localSimulationFrame;
+    bool hasBaselineInput = true;
+    for(PlayerSlot slot : participantAssignments(participant)) {
+        if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
+            hasBaselineInput = false;
+            break;
+        }
+    }
 
-    queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+    if(hasBaselineInput) {
+        participant.inputSuspended = true;
+        participant.inputResumeAwaitingResync = false;
+        synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
 
-    std::ostringstream oss;
-    oss << "Fresh peer health received from " << participant.displayName
-        << " after implicit input stall; scheduling recovery resync from frame "
-        << resyncFrame
-        << " classification=stall_based_recovery";
-    pushLog(oss.str());
+        std::ostringstream oss;
+        oss << "Fresh peer health received from " << participant.displayName
+            << " after implicit input stall; suspending participant input and continuing with synthesized input"
+            << " lastFrame=" << participant.lastContiguousInputFrame
+            << " classification=stall_based_suspended";
+        pushLog(oss.str());
+    } else {
+        std::ostringstream oss;
+        oss << "Fresh peer health received from " << participant.displayName
+            << " after implicit input stall without baseline input; waiting for participant resume before resync"
+            << " classification=stall_based_wait_resume";
+        pushLog(oss.str());
+    }
 }
 
 void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame)
@@ -2080,7 +2093,16 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
 
         if(m_hosting &&
            m_session.roomState().state != SessionState::Resyncing) {
-            queuePendingHostResync(inputFrame, ResyncReason::ConfirmedDesync);
+            const bool participantInRecovery =
+                participant != nullptr &&
+                (participant->inputSuspended ||
+                 participant->inputResumeAwaitingResync ||
+                 participant->pendingMissingInputFrom.has_value());
+            if(participantInRecovery) {
+                pushLog("Deferred hard resync escalation while participant input recovery is in progress");
+            } else {
+                queuePendingHostResync(inputFrame, ResyncReason::ConfirmedDesync);
+            }
         }
         return;
     }
@@ -2192,7 +2214,9 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
         if(!participant.connected || participantIsObserver(participant)) continue;
-        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+        if(participant.inputSuspended ||
+           participant.inputResumeAwaitingResync ||
+           participant.pendingMissingInputFrom.has_value()) {
             pushLog("Deferred hard resync escalation while participant input recovery is in progress");
             return;
         }
