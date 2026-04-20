@@ -471,3 +471,19 @@ Notes:
 - validado por build `cmake --build build --target GeraNESTests -j 4` e pelos
   casos de runtime/spectator/resync/rollback/state-replay listados acima.
 - nesta fase nao houve alteracao de payload/protocolo de pacotes netplay.
+- execucao completa atual de `build\GeraNESTests` (115 casos):
+  `109 passed / 6 failed`.
+  - 3 falhas de host ENet no run completo passaram quando executadas isoladas
+    (intermitencia no setup de rede local/porta):
+    - `Kicked netplay participant does not auto reconnect`
+    - `Reconnect token match replaces active peer instead of creating duplicate participant`
+    - `ENet coordinator supports host plus two participants`
+  - 3 falhas reproduziveis/ativas:
+    - `Netplay runtime retries resync after dropped resync packets`
+      (`failureReason`: never returned to running after forced resync)
+    - `Netplay directed speculative mismatch rolls back and reconverges`
+      (log esperado `classification=speculative_mismatch_corrected_by_rollback`
+      ausente)
+    - `Netplay robust matrix stays green`
+      (falha em caso interno `reconnect_during_resync_asymmetric` por timeout de
+      reclaim de reservation/assignment)
