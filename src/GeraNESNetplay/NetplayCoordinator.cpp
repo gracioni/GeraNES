@@ -1966,18 +1966,33 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             kImplicitStallRecoveryTimeout
         );
         if(implicitRecoveryTimeoutUpdate.shouldScheduleResync) {
-            const FrameNumber resyncFrame =
-                m_session.roomState().lastConfirmedFrame > 0
-                    ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
-                    : m_localSimulationFrame;
-            queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+            bool hasBaselineInput = true;
+            for(PlayerSlot slot : participantAssignments(participant)) {
+                if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
+                    hasBaselineInput = false;
+                    break;
+                }
+            }
+            if(hasBaselineInput) {
+                participant.inputSuspended = true;
+                participant.inputResumeAwaitingResync = false;
 
-            std::ostringstream oss;
-            oss << "Implicit stall recovery timeout reached for " << participant.displayName
-                << " (no fresh peer health); scheduling recovery resync from frame "
-                << resyncFrame
-                << " classification=stall_timeout_recovery";
-            pushLog(oss.str());
+                std::ostringstream oss;
+                oss << "Implicit stall recovery timeout reached for " << participant.displayName
+                    << " (no fresh peer health); suspending participant input"
+                    << " lastFrame=" << participant.lastContiguousInputFrame
+                    << " classification=stall_timeout_suspended";
+                pushLog(oss.str());
+
+                // Keep the authoritative input stream contiguous immediately.
+                synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
+            } else {
+                std::ostringstream oss;
+                oss << "Implicit stall recovery timeout reached for " << participant.displayName
+                    << " without baseline input; waiting for participant resume before resync"
+                    << " classification=stall_timeout_wait_resume";
+                pushLog(oss.str());
+            }
             continue;
         }
 
