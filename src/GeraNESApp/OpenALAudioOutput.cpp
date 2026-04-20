@@ -175,14 +175,11 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
         std::vector<ALuint> processedBuffers(static_cast<size_t>(numProcessed));
         alSourceUnqueueBuffers(m_source, numProcessed, processedBuffers.data());
         m_buffersAvailable = std::min<int>(static_cast<int>(N_BUFFERS), m_buffersAvailable + numProcessed);
-    }
+    }    
 
-    ALint state;
-    alGetSourcei(m_source, AL_SOURCE_STATE, &state);
+    const size_t prebufferChunkSamples = sampleRate() * BUFFER_TIME / N_BUFFERS;
 
-    const size_t prebufferChunkSamples = sampleRate() * (sampleSize() / 8) * BUFFER_TIME / N_BUFFERS;
-
-    if(m_buffersAvailable > 0 && (m_bufferData.size() >= prebufferChunkSamples || state == AL_PLAYING)) {
+    if(m_buffersAvailable > 0 && (m_bufferData.size() >= prebufferChunkSamples)) {
         alBufferData(m_buffer[m_currentBufferIndex],
                      AL_FORMAT_MONO16,
                      m_bufferData.data(),
@@ -194,6 +191,9 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
         m_buffersAvailable--;
         m_bufferData.clear();
     }
+
+    ALint state;
+    alGetSourcei(m_source, AL_SOURCE_STATE, &state);
 
     ALint queued = 0;    
     alGetSourcei(m_source, AL_BUFFERS_QUEUED, &queued);

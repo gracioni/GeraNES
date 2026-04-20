@@ -11,7 +11,7 @@
 class OpenALAudioOutput : public AudioOutputBase
 {
 private:
-    static const size_t N_BUFFERS = 2;
+    static const size_t N_BUFFERS = 3;
     static constexpr float BUFFER_TIME = 0.1f;
 
     ALCdevice* m_device = nullptr;
