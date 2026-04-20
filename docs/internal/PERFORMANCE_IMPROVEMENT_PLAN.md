@@ -404,7 +404,7 @@ netplay snapshots are active.
     `std::array<GLfloat, 16>` com preenchimento direto dos 4 vertices
     (posicao+UV), removendo `push_back` e alocacao heap por update.
 
-- [ ] Review presenter-locked pacing under hitch/catchup.
+- [x] Review presenter-locked pacing under hitch/catchup.
   - Why: presenter cadence and catchup paths can introduce delay under hitch,
     especially with the 3-frame cap.
   - Start in: `GeraNESApp::mainLoop()`.
@@ -415,30 +415,11 @@ netplay snapshots are active.
     clear behavior goal.
   - Verify: compare offline and netplay frame pacing, including pause/resume and
     temporary hitches.
-
-## Phase 6 - Audio Tick Investigation
-
-- [ ] Measure audio rendering overhead from 1 ms batches.
-  - Why: `stepEmulationTick()` calls `renderAudioMs()` in 1 ms blocks. That may
-    add backend overhead, but changing it can affect latency and rollback audio.
-  - Start in: `GeraNESEmu.h`, especially `stepEmulationTick()` and
-    `renderAudioMs()`.
-  - Approach: instrument call count and total time for audio rendering. Compare
-    normal offline, netplay without rollback and netplay with rollback.
-  - Done when: there is clear evidence whether 1 ms batching is a real bottleneck.
-  - Verify: collect timing alongside audio underrun/latency observations.
-
-- [ ] Consider larger batches only when latency remains acceptable.
-  - Why: batching may reduce overhead but can increase audio latency or make
-    speculative rollback audio harder to manage.
-  - Start in: audio tick scheduling and any backend buffering assumptions.
-  - Approach: prototype a configurable batch size behind a local flag or constant
-    after measurement proves value. Keep the default unchanged until latency and
-    sync are verified.
-  - Done when: larger batches either show safe measurable benefit or are rejected
-    with documented evidence.
-  - Verify: test offline play, netplay play, rollback bursts, pause/resume and
-    audio device changes.
+  - Notes:
+    o clamp de catchup de netplay (limitar `framesToAdvance` a 1 e limitar
+    acumulador a 1 frame) foi aplicado tambem no desktop, nao apenas no web.
+    objetivo: reduzir bursts de catchup que aumentam latencia/percepcao de
+    hitch em sessao netplay.
 
 ## Suggested First Change Set
 

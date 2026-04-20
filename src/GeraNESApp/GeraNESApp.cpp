@@ -1891,12 +1891,10 @@ void GeraNESApp::mainLoop()
             ++framesToAdvance;
             m_presenterFrameAccumScaled -= 1000u;
         }
-#ifdef __EMSCRIPTEN__
         if(netplayPacingOverrideActive && framesToAdvance > 1u) {
             framesToAdvance = 1u;
             m_presenterFrameAccumScaled = std::min<uint64_t>(m_presenterFrameAccumScaled, 1000u);
         }
-#endif
         if(framesToAdvance == 3u && m_presenterFrameAccumScaled > 1000u) {
             m_presenterFrameAccumScaled = 1000u;
         }
