@@ -1839,8 +1839,9 @@ void GeraNESApp::mainLoop()
     Uint64 dt = scaledMs / m_mainLoopCounterFrequency;
     m_mainLoopCounterRemainder = scaledMs % m_mainLoopCounterFrequency;
 
-    if(dt == 0) return;
-    m_lastMainLoopDtMs = dt;
+    if(dt > 0) {
+        m_lastMainLoopDtMs = dt;
+    }
 
     m_touch->update(dt);
     dispatch_queued_calls();
