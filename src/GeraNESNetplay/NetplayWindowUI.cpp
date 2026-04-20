@@ -759,18 +759,11 @@ void drawNetplayWindow(bool& showWindow,
         drawTimingStats("Rollback Snapshot Save", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSaveTiming);
         drawTimingStats("Netplay CRC", snapshot.runtimeDiagnostics.netplayCrcTiming);
         drawTimingStats("Rollback Load", snapshot.runtimeDiagnostics.rollbackLoadTiming);
-        drawTimingStats("Audio Render (1ms)", snapshot.runtimeDiagnostics.audioRender1msTiming);
         drawByteStats("Netplay State Serialized", snapshot.runtimeDiagnostics.netplayStateSerializedBytes);
         drawByteStats("Rollback Snapshot Serialized", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSerializedBytes);
         drawByteStats("Snapshot Lookup Copies", snapshot.runtimeDiagnostics.snapshotLookupCopyBytes);
         drawByteStats("Rollback Snapshot Copies", snapshot.runtimeDiagnostics.rollbackSnapshotCopyBytes);
         drawByteStats("Seeded Snapshot Copies", snapshot.runtimeDiagnostics.seededSnapshotCopyBytes);
-        ImGui::Text("Audio Render Calls: %llu, requested %llu ms, skipped %llu, silent %llu, audible %llu",
-                    static_cast<unsigned long long>(snapshot.runtimeDiagnostics.audioRender1msCalls),
-                    static_cast<unsigned long long>(snapshot.runtimeDiagnostics.audioRender1msRequestedMs),
-                    static_cast<unsigned long long>(snapshot.runtimeDiagnostics.audioRender1msSkippedCalls),
-                    static_cast<unsigned long long>(snapshot.runtimeDiagnostics.audioRender1msSilentCalls),
-                    static_cast<unsigned long long>(snapshot.runtimeDiagnostics.audioRender1msAudibleCalls));
         ImGui::Text("Frame Pacing: samples %llu, dt last/max %u/%u ms, advanced last/max %u/%u, catchup last/max %u/%u",
                     static_cast<unsigned long long>(snapshot.framePacingDiagnostics.sampleCount),
                     snapshot.framePacingDiagnostics.lastDtMs,

@@ -40,7 +40,6 @@
 #include "Rewind.h"
 
 #include <filesystem>
-#include <chrono>
 #include <memory>
 #include <utility>
 
@@ -71,38 +70,6 @@ public:
         uint32_t cpuCycle = 0;
         uint32_t cpuCyclesRemaining = 0;
         uint64_t emulationTick = 0;
-    };
-
-    struct AudioRenderDiagnostics
-    {
-        uint64_t callCount = 0;
-        uint64_t totalUs = 0;
-        uint64_t maxUs = 0;
-        uint64_t lastUs = 0;
-        uint64_t recentAverageUs = 0;
-        uint64_t requestedMsTotal = 0;
-        uint64_t skippedCallCount = 0;
-        uint64_t silentCallCount = 0;
-        uint64_t audibleCallCount = 0;
-
-        void record(uint64_t elapsedUs, uint32_t requestedMs, bool skipped, bool silent)
-        {
-            lastUs = elapsedUs;
-            totalUs += elapsedUs;
-            maxUs = std::max(maxUs, elapsedUs);
-            recentAverageUs = callCount == 0
-                ? elapsedUs
-                : ((recentAverageUs * 7u) + elapsedUs) / 8u;
-            requestedMsTotal += requestedMs;
-            ++callCount;
-            if(skipped) {
-                ++skippedCallCount;
-            } else if(silent) {
-                ++silentCallCount;
-            } else {
-                ++audibleCallCount;
-            }
-        }
     };
 
     enum class StateLoadAudioPolicy
@@ -176,7 +143,6 @@ private:
     bool m_forceSilentAudio = false;
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
-    AudioRenderDiagnostics m_audioRenderDiagnostics;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
     bool m_currentFrameInputLocked = false;
@@ -987,17 +953,10 @@ private:
     GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender = false, bool forceSilence = false)
     {
         if(ms == 0) return false;
-        const auto renderStart = std::chrono::steady_clock::now();
         if(skipRender) {
             // Predicted replay must not render anything or touch the live
             // output device. Drop only the transient generated sample buffers.
             m_audioOutput.clearAudioBuffers();
-            const uint64_t elapsedUs = static_cast<uint64_t>(
-                std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - renderStart
-                ).count()
-            );
-            m_audioRenderDiagnostics.record(elapsedUs, ms, true, true);
             return false;
         }
 
@@ -1006,12 +965,6 @@ private:
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
         const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
         m_audioOutput.render(ms, silentRender);
-        const uint64_t elapsedUs = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - renderStart
-            ).count()
-        );
-        m_audioRenderDiagnostics.record(elapsedUs, ms, false, silentRender);
         return !silentRender;
     }
 
@@ -2212,11 +2165,6 @@ public:
     void discardQueuedInputFramesAfter(uint32_t frame)
     {
         m_inputBuffer.eraseFramesAfter(frame);
-    }
-
-    const AudioRenderDiagnostics& audioRenderDiagnostics() const
-    {
-        return m_audioRenderDiagnostics;
     }
 
     void fdsSwitchDiskSide()
