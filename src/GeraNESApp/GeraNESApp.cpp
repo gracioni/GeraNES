@@ -1882,10 +1882,15 @@ void GeraNESApp::mainLoop()
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
         const bool vsyncEnabled = m_vsyncMode != OFF;
         const int displayFrameRate = vsyncEnabled ? this->getDisplayFrameRate() : 0;
-        const bool monitorCadenceMatchesEmu =
+        bool monitorCadenceMatchesEmu =
             vsyncEnabled &&
             displayFrameRate > 0 &&
             std::abs(displayFrameRate - static_cast<int>(emuFps)) <= 1;
+#ifdef __EMSCRIPTEN__
+        // On mobile web, refresh rate can jump (e.g. 60 <-> 120) during touch.
+        // Keep pacing time-driven to avoid cadence-path oscillation jitter.
+        monitorCadenceMatchesEmu = false;
+#endif
 
         if(monitorCadenceMatchesEmu) {
             const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
@@ -1906,19 +1911,20 @@ void GeraNESApp::mainLoop()
             return;
         }
 
-        m_presenterFrameAccumScaled += static_cast<uint64_t>(dt) * static_cast<uint64_t>(emuFps);
+        const uint64_t pacingScaleDenominator = std::max<uint64_t>(1u, m_mainLoopCounterFrequency);
+        m_presenterFrameAccumScaled += counterDelta * static_cast<uint64_t>(emuFps);
 
         uint32_t framesToAdvance = 0u;
-        while(m_presenterFrameAccumScaled >= 1000u && framesToAdvance < 3u) {
+        while(m_presenterFrameAccumScaled >= pacingScaleDenominator && framesToAdvance < 3u) {
             ++framesToAdvance;
-            m_presenterFrameAccumScaled -= 1000u;
+            m_presenterFrameAccumScaled -= pacingScaleDenominator;
         }
         if(netplayPacingOverrideActive && framesToAdvance > 1u) {
             framesToAdvance = 1u;
-            m_presenterFrameAccumScaled = std::min<uint64_t>(m_presenterFrameAccumScaled, 1000u);
+            m_presenterFrameAccumScaled = std::min<uint64_t>(m_presenterFrameAccumScaled, pacingScaleDenominator);
         }
-        if(framesToAdvance == 3u && m_presenterFrameAccumScaled > 1000u) {
-            m_presenterFrameAccumScaled = 1000u;
+        if(framesToAdvance == 3u && m_presenterFrameAccumScaled > pacingScaleDenominator) {
+            m_presenterFrameAccumScaled = pacingScaleDenominator;
         }
 
         for(uint32_t i = 0u; i < framesToAdvance; ++i) {
