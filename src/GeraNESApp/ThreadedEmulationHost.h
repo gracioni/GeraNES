@@ -186,6 +186,7 @@ private:
     std::atomic<bool> m_workerWakeRequested{false};
     std::atomic<int> m_frontFramebufferIndex{0};
     std::atomic<bool> m_holdPresentedFramebufferUntilFrameReady{false};
+    bool m_framebufferDirty = true;
     std::array<std::vector<uint32_t>, 2> m_framebuffers{
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0),
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)

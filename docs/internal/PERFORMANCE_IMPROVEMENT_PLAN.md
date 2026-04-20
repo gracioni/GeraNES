@@ -368,7 +368,7 @@ netplay snapshots are active.
   - Verify: run the app, change audio/config settings, and confirm UI still
     updates while normal frame refresh copies less data.
 
-- [ ] Copy framebuffer only when a new frame is ready or presentation requires it.
+- [x] Copy framebuffer only when a new frame is ready or presentation requires it.
   - Why: framebuffer memcpy can dominate refresh work if it happens on state
     refreshes that do not produce a presentable frame.
   - Start in: `ThreadedEmulationHost.cpp` frame-ready/presentation paths and
@@ -379,6 +379,10 @@ netplay snapshots are active.
   - Done when: non-frame-ready refreshes avoid framebuffer memcpy.
   - Verify: instrumentation shows fewer framebuffer copies while presentation
     remains visually correct during pause, run, reset and netplay resync.
+  - Notes:
+    `ThreadedEmulationHost` agora usa flag interna `m_framebufferDirty`.
+    `refreshSnapshotLocked()` so copia framebuffer quando nao esta em hold e a
+    flag esta suja; `onFrameReadyLocked()` marca a flag para o proximo publish.
 
 - [x] Replace small heap allocation in `GeraNESApp::updateBuffers()`.
   - Why: layout data is small and fixed-size, but currently built with

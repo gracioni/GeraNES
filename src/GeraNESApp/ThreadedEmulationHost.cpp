@@ -200,7 +200,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
 
     const bool holdPresentedFramebuffer =
         m_holdPresentedFramebufferUntilFrameReady.load(std::memory_order_acquire);
-    if(!holdPresentedFramebuffer) {
+    if(!holdPresentedFramebuffer && m_framebufferDirty) {
         const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
         std::memcpy(
             m_framebuffers[backIndex].data(),
@@ -208,6 +208,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
             m_framebuffers[backIndex].size() * sizeof(uint32_t)
         );
         m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+        m_framebufferDirty = false;
     }
 
     {
@@ -220,6 +221,7 @@ void ThreadedEmulationHost::onFrameReadyLocked()
 {
     recordFrameReadyNetplayState(m_emu);
     m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
+    m_framebufferDirty = true;
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
