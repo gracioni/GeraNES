@@ -322,7 +322,9 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     for(const ParticipantInfo& participant : room.participants) {
         if(participant.id == kInvalidParticipantId || !participant.connected) continue;
         if(participantIsObserver(participant)) continue;
-        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+        if(participant.inputSuspended ||
+           participant.inputResumeAwaitingResync ||
+           participant.pendingMissingInputFrom.has_value()) {
             recoveringAssignedPeer = true;
             break;
         }

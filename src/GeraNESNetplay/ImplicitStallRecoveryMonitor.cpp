@@ -21,7 +21,13 @@ ImplicitStallRecoveryMonitor::StallUpdate ImplicitStallRecoveryMonitor::noteStal
         return update;
     }
 
-    m_pending = PendingRecovery{participantId, slot, frame, observedPeerHealthSerial};
+    m_pending = PendingRecovery{
+        participantId,
+        slot,
+        frame,
+        observedPeerHealthSerial,
+        std::chrono::steady_clock::now()
+    };
     update.newlyTracked = true;
     update.recovery = *m_pending;
     return update;
@@ -48,6 +54,23 @@ ImplicitStallRecoveryMonitor::PeerHealthUpdate ImplicitStallRecoveryMonitor::onP
     if(!m_pending.has_value()) return update;
     if(m_pending->participantId != participantId) return update;
     if(peerHealthSerial <= m_pending->observedPeerHealthSerial) return update;
+
+    update.shouldScheduleResync = true;
+    update.recovery = *m_pending;
+    m_pending.reset();
+    return update;
+}
+
+ImplicitStallRecoveryMonitor::TimeoutUpdate ImplicitStallRecoveryMonitor::onTimeout(
+    ParticipantId participantId,
+    const std::chrono::steady_clock::time_point& now,
+    const std::chrono::milliseconds& timeout)
+{
+    TimeoutUpdate update;
+    if(!m_pending.has_value()) return update;
+    if(m_pending->participantId != participantId) return update;
+    if(m_pending->trackedAt == std::chrono::steady_clock::time_point{}) return update;
+    if(now - m_pending->trackedAt < timeout) return update;
 
     update.shouldScheduleResync = true;
     update.recovery = *m_pending;

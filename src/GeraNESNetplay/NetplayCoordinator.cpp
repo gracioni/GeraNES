@@ -28,6 +28,7 @@ constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
+constexpr auto kImplicitStallRecoveryTimeout = std::chrono::milliseconds(750);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
@@ -1959,6 +1960,27 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             continue;
         }
 
+        const auto implicitRecoveryTimeoutUpdate = m_implicitRecoveryMonitor.onTimeout(
+            participant.id,
+            now,
+            kImplicitStallRecoveryTimeout
+        );
+        if(implicitRecoveryTimeoutUpdate.shouldScheduleResync) {
+            const FrameNumber resyncFrame =
+                m_session.roomState().lastConfirmedFrame > 0
+                    ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                    : m_localSimulationFrame;
+            queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+
+            std::ostringstream oss;
+            oss << "Implicit stall recovery timeout reached for " << participant.displayName
+                << " (no fresh peer health); scheduling recovery resync from frame "
+                << resyncFrame
+                << " classification=stall_timeout_recovery";
+            pushLog(oss.str());
+            continue;
+        }
+
         std::chrono::steady_clock::time_point latestActivity = {};
         if(inputIt != m_lastRemoteInputAt.end()) {
             latestActivity = inputIt->second;
@@ -1984,7 +2006,32 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             }
         }
         if(!hasBaselineInput) {
-            continue;
+            // If a participant times out before any confirmed contribution was
+            // recorded for an assigned slot, seed a neutral baseline at the
+            // participant's contiguous frame so host simulation can keep moving.
+            const FrameNumber baselineFrame = participant.lastContiguousInputFrame;
+            for(PlayerSlot slot : participantAssignments(participant)) {
+                if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
+                    seedNeutralInputBaseline(participant.id, slot, baselineFrame);
+                }
+            }
+            hasBaselineInput = true;
+            for(PlayerSlot slot : participantAssignments(participant)) {
+                if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
+                    hasBaselineInput = false;
+                    break;
+                }
+            }
+            if(hasBaselineInput) {
+                std::ostringstream baselineLog;
+                baselineLog << "Seeded neutral input baseline for timed-out participant: "
+                            << participant.displayName
+                            << " baselineFrame=" << baselineFrame
+                            << " classification=suspended_input_baseline_seed";
+                pushLog(baselineLog.str());
+            } else {
+                continue;
+            }
         }
 
         participant.inputSuspended = true;
