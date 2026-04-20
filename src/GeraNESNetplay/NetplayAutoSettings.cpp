@@ -334,12 +334,20 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         (predictionLimitStopDelta * 4u) +
         (missingInputStopDelta * 5u) +
         (rollbackScheduledDelta * 2u) +
-        (unresolvedPredictedRemoteFrameCount > 0u ? 1u + (unresolvedPredictedRemoteFrameCount / 2u) : 0u) +
-        (recoveringAssignedPeer ? 4u : 0u);
+        (unresolvedPredictedRemoteFrameCount > 0u ? 1u + (unresolvedPredictedRemoteFrameCount / 2u) : 0u);
 
     const FrameNumber framesSinceAdjustment = currentFrame - m_lastAdjustmentFrame;
     const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
-    const bool shouldIncrease = stressScore >= 4u;
+    const bool shouldIncrease = stressScore >= 4u && !recoveringAssignedPeer;
+
+    if(recoveringAssignedPeer) {
+        // During suspended-input recovery windows, remote input is intentionally
+        // synthesized/rebased. Treat this as a hold state for delay tuning so
+        // auto-adjust does not ratchet upward indefinitely.
+        m_stableFrameCount = 0u;
+        m_lastDecisionReason = "Participant input recovery in progress; holding delay";
+        return recommendations;
+    }
 
     if(shouldIncrease && !cooldownActive) {
         const uint8_t increaseStep =
