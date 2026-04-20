@@ -1950,8 +1950,7 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
         }
 
         const auto inputIt = m_lastRemoteInputAt.find(participant.id);
-        const auto healthIt = m_lastPeerHealthAt.find(participant.id);
-        if(inputIt == m_lastRemoteInputAt.end() && healthIt == m_lastPeerHealthAt.end()) {
+        if(inputIt == m_lastRemoteInputAt.end()) {
             continue;
         }
 
@@ -1959,19 +1958,7 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
             continue;
         }
 
-        std::chrono::steady_clock::time_point latestActivity = {};
-        if(inputIt != m_lastRemoteInputAt.end()) {
-            latestActivity = inputIt->second;
-        }
-        if(healthIt != m_lastPeerHealthAt.end() &&
-           (latestActivity.time_since_epoch().count() == 0 || healthIt->second > latestActivity)) {
-            latestActivity = healthIt->second;
-        }
-        if(latestActivity.time_since_epoch().count() == 0) {
-            continue;
-        }
-
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - latestActivity);
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - inputIt->second);
         if(elapsed < m_remoteInputSuspendTimeout) {
             continue;
         }
@@ -3169,7 +3156,6 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         m_lastPeerHealthAt[participant->id] = std::chrono::steady_clock::now();
-        const FrameNumber previousReportedCurrentFrame = participant->lastReportedCurrentFrame;
         participant->pingMs = data.pingMs;
         participant->jitterMs = data.jitterMs;
         participant->lastReportedCurrentFrame = data.currentFrame;
@@ -3180,15 +3166,6 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
         participant->sharedClockSampledAtLocalMicros =
             static_cast<uint64_t>(std::max<int64_t>(0, monotonicNowMicros()));
         ++participant->peerHealthSerial;
-        if(m_hosting &&
-           participant->connected &&
-           !participantIsObserver(*participant) &&
-           data.currentFrame > previousReportedCurrentFrame) {
-            // If peer health reports forward simulation progress, treat this as
-            // fresh activity so input-timeout suspension does not false-trigger
-            // during temporary packet ordering/duplication anomalies.
-            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
-        }
         tryScheduleImplicitRecoveryResync(*participant);
     }
 

@@ -2978,10 +2978,16 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     }
     host.setLocalSimulationFrame(110);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    // Simulate a threaded/minimized web client that still sends peer health
+    // while gameplay input has stopped. Peer health must not keep resetting
+    // the host-side input suspension timeout.
+    clientRoom.currentFrame = 110;
+    std::this_thread::sleep_for(std::chrono::milliseconds(520));
+    client.update(0);
     host.update(0);
 
     REQUIRE(hostRemote->inputSuspended);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_timeout"));
 
     // Ensure suspended synthesis can replace unresolved predicted inputs.
     host.predictRemoteInputsForFrame(111u);
