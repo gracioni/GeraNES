@@ -163,6 +163,12 @@ struct EmulationHostTypes
         TimingStats netplayRollbackSnapshotSaveTiming;
         TimingStats netplayCrcTiming;
         TimingStats rollbackLoadTiming;
+        TimingStats audioRender1msTiming;
+        uint64_t audioRender1msCalls = 0;
+        uint64_t audioRender1msRequestedMs = 0;
+        uint64_t audioRender1msSkippedCalls = 0;
+        uint64_t audioRender1msSilentCalls = 0;
+        uint64_t audioRender1msAudibleCalls = 0;
         ByteStats netplayStateSerializedBytes;
         ByteStats netplayRollbackSnapshotSerializedBytes;
         ByteStats snapshotLookupCopyBytes;

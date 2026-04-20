@@ -418,7 +418,7 @@ netplay snapshots are active.
 
 ## Phase 6 - Audio Tick Investigation
 
-- [ ] Measure audio rendering overhead from 1 ms batches.
+- [x] Measure audio rendering overhead from 1 ms batches.
   - Why: `stepEmulationTick()` calls `renderAudioMs()` in 1 ms blocks. That may
     add backend overhead, but changing it can affect latency and rollback audio.
   - Start in: `GeraNESEmu.h`, especially `stepEmulationTick()` and
@@ -427,6 +427,12 @@ netplay snapshots are active.
     normal offline, netplay without rollback and netplay with rollback.
   - Done when: there is clear evidence whether 1 ms batching is a real bottleneck.
   - Verify: collect timing alongside audio underrun/latency observations.
+  - Notes:
+    adicionado `AudioRenderDiagnostics` em `GeraNESEmu` com contadores e timing
+    por chamada de `renderAudioMs()`, incluindo total/max/last/EMA, ms
+    solicitados e distribuicao de chamadas skipped/silent/audible; os hosts
+    publicam esses dados em `NetplayDiagnosticsSnapshot` e a UI de netplay exibe
+    os valores para comparacao baseline/after.
 
 - [ ] Consider larger batches only when latency remains acceptable.
   - Why: batching may reduce overhead but can increase audio latency or make

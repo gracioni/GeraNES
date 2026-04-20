@@ -14,6 +14,21 @@ uint64_t elapsedMicrosSince(HostTimingClock::time_point start)
         ).count()
     );
 }
+
+void copyAudioRenderDiagnostics(IEmulationHost::NetplayDiagnosticsSnapshot& target,
+                                const GeraNESEmu::AudioRenderDiagnostics& source)
+{
+    target.audioRender1msTiming.count = source.callCount;
+    target.audioRender1msTiming.totalUs = source.totalUs;
+    target.audioRender1msTiming.maxUs = source.maxUs;
+    target.audioRender1msTiming.lastUs = source.lastUs;
+    target.audioRender1msTiming.recentAverageUs = source.recentAverageUs;
+    target.audioRender1msCalls = source.callCount;
+    target.audioRender1msRequestedMs = source.requestedMsTotal;
+    target.audioRender1msSkippedCalls = source.skippedCallCount;
+    target.audioRender1msSilentCalls = source.silentCallCount;
+    target.audioRender1msAudibleCalls = source.audibleCallCount;
+}
 }
 
 std::optional<size_t> SingleThreadEmulationHost::snapshotIndexForFrame(uint32_t frame) const
@@ -49,6 +64,7 @@ void SingleThreadEmulationHost::onLoadExecutedLocked(uint32_t frame)
 
 void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 {
+    copyAudioRenderDiagnostics(m_netplayDiagnostics, emu.audioRenderDiagnostics());
     const uint32_t frame = emu.frameCount();
     const auto snapshotSaveStart = HostTimingClock::now();
     GeraNESEmu::NetplaySnapshotWithCrc32 snapshot = emu.saveNetplaySnapshotWithCrc32();
