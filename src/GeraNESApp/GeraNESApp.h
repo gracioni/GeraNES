@@ -192,7 +192,9 @@ private:
     } m_romDbEditor;
     RomDatabaseEditorData m_romDbSaved;
 
-    Uint64 m_mainLoopLastTime = 0;
+    Uint64 m_mainLoopLastCounter = 0;
+    Uint64 m_mainLoopCounterFrequency = 0;
+    Uint64 m_mainLoopCounterRemainder = 0;
 
     Rect m_nesScreenRect = {{0,0}, {1,1}};
 

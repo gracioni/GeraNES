@@ -939,7 +939,9 @@ void GeraNESApp::restartAudioModule()
 
 void GeraNESApp::onWebVisibilityChanged(bool visible)
 {
-    m_mainLoopLastTime = SDL_GetTicks64();
+    m_mainLoopLastCounter = SDL_GetPerformanceCounter();
+    m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+    m_mainLoopCounterRemainder = 0;
     m_lastMainLoopDtMs = 0;
     m_hasLastMousePosition = false;
     m_forceImGuiMouseResync = true;
@@ -1817,8 +1819,25 @@ void GeraNESApp::mainLoop()
 {
     updateCursor();
 
-    Uint64 tempTime = SDL_GetTicks64();
-    Uint64 dt = tempTime - m_mainLoopLastTime;
+    const Uint64 counterNow = SDL_GetPerformanceCounter();
+    Uint64 counterFreq = SDL_GetPerformanceFrequency();
+    if(counterFreq == 0) {
+        counterFreq = 1;
+    }
+    if(m_mainLoopCounterFrequency != counterFreq) {
+        m_mainLoopCounterFrequency = counterFreq;
+        m_mainLoopCounterRemainder = 0;
+    }
+    if(m_mainLoopLastCounter == 0) {
+        m_mainLoopLastCounter = counterNow;
+        return;
+    }
+
+    const Uint64 counterDelta = counterNow - m_mainLoopLastCounter;
+    m_mainLoopLastCounter = counterNow;
+    const Uint64 scaledMs = counterDelta * 1000u + m_mainLoopCounterRemainder;
+    Uint64 dt = scaledMs / m_mainLoopCounterFrequency;
+    m_mainLoopCounterRemainder = scaledMs % m_mainLoopCounterFrequency;
 
     if(dt == 0) return;
     m_lastMainLoopDtMs = dt;
@@ -1828,7 +1847,6 @@ void GeraNESApp::mainLoop()
     applyEffectiveRewindSettings();
     pollAndPrepareInput();
 
-    m_mainLoopLastTime = tempTime;
     m_fpsTimer += dt;
 
     if(m_fpsTimer >= 1000) {
