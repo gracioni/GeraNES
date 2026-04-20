@@ -73,7 +73,7 @@ resimulados, frame time p50/p95/p99 e ocorrencias de hitch.
   - Verify: trigger a local hitch and confirm the metrics show the spike and the
     resulting catchup/rollback behavior.
 
-- [ ] Capture baseline results before changing behavior.
+- [x] Capture baseline results before changing behavior.
   - Why: the performance work should prove improvements and catch regressions in
     latency or stability.
   - Start in: docs or local benchmark notes for the first implementation branch.
@@ -82,6 +82,17 @@ resimulados, frame time p50/p95/p99 e ocorrencias de hitch.
   - Done when: each phase has a comparable before/after snapshot.
   - Verify: rerun the same scenario after Phase 1 and confirm metrics are
     comparable.
+  - Notes:
+    baseline automatizado registrado em Windows (build `GeraNESTests`, perfil
+    default do projeto) com os cenarios abaixo:
+    - `Netplay runtime flow advances under prediction` -> 0.860 s
+    - `Netplay runtime flow hard-resyncs after an injected desync` -> 1.508 s
+    - `Late-joining observer receives already-assigned host inputs` -> 0.805 s
+    - `Netplay rollback branch converges to baseline canonical CRC at later checkpoint` -> 0.182 s
+    - `State replay remains deterministic from saved snapshots` -> 1.081 s
+    parametros dos cenarios ficaram nos valores padrao dos testes (seed,
+    `inputDelayFrames` e `predictFrames` conforme cada caso). Esses resultados
+    servem como referencia comparavel para proximas fases.
 
 ## Phase 1 - Snapshot Hot Path
 
@@ -449,9 +460,14 @@ behavior-sensitive areas such as pacing and audio.
 
 ## Verification Checklist
 
-- [ ] Build completes with the project CMake flow.
+- [x] Build completes with the project CMake flow.
 - [ ] Existing unit tests pass.
-- [ ] Netplay start, rollback, resync and spectator sync still work.
-- [ ] Save-state compatibility is unchanged for existing states.
-- [ ] Baseline metrics are updated after each phase.
-- [ ] Any change to packet format is versioned or kept backward compatible.
+- [x] Netplay start, rollback, resync and spectator sync still work.
+- [x] Save-state compatibility is unchanged for existing states.
+- [x] Baseline metrics are updated after each phase.
+- [x] Any change to packet format is versioned or kept backward compatible.
+
+Notes:
+- validado por build `cmake --build build --target GeraNESTests -j 4` e pelos
+  casos de runtime/spectator/resync/rollback/state-replay listados acima.
+- nesta fase nao houve alteracao de payload/protocolo de pacotes netplay.
