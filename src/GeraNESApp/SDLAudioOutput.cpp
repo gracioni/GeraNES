@@ -160,6 +160,8 @@ bool SDLAudioOutput::config(const std::string& deviceName)
     Logger::instance().log(std::string("Sample rate: ") + std::to_string(spec.freq), Logger::Type::INFO);
     Logger::instance().log(std::string("Sample size: ") + std::to_string(spec.format & 0xFF), Logger::Type::INFO);
 
+    m_sampleFormatScale = std::exp2(static_cast<float>(sampleSize()));
+
     SDL_PauseAudioDevice(m_device, 0);
     initChannels(spec.freq);
 
@@ -182,21 +184,23 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
 
     sampleAcc += dt * sampleRate();
 
+    const int bitsPerSample = sampleSize();
+    const int bytesPerSample = bitsPerSample / 8;
     float vol = std::pow(m_volume, 2.0f);
     while(sampleAcc >= 1000)
     {
         float value = silenceFlag ? 0.0f : mix() * vol;
         captureMixedSample(value);
 
-        if(sampleSize() == 8) {
+        if(bitsPerSample == 8) {
             int temp = static_cast<int>((value / 2.0f + 0.5f) * 255.0f);
             if(temp < 0) temp = 0;
             else if(temp > 255) temp = 255;
             m_buffer.push_back(static_cast<char>(temp));
         }
         else {
-            uint64_t temp = static_cast<uint64_t>(value / 2.0f * std::exp2(static_cast<float>(sampleSize())));
-            for(int i = 0; i < sampleSize() / 8; i++ ){
+            uint64_t temp = static_cast<uint64_t>(value / 2.0f * m_sampleFormatScale);
+            for(int i = 0; i < bytesPerSample; i++ ){
                 m_buffer.push_back(static_cast<char>(temp & 0xFF));
                 temp >>= 8;
             }
@@ -206,7 +210,7 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
     }
 
     bool playFlag = SDL_GetQueuedAudioSize(m_device) != 0;
-    if(playFlag || m_buffer.size() >= sampleRate() * (sampleSize() / 8) * BUFFER_TIME)
+    if(playFlag || m_buffer.size() >= sampleRate() * bytesPerSample * BUFFER_TIME)
     {
         SDL_QueueAudio(m_device, static_cast<void*>(m_buffer.data()), static_cast<Uint32>(m_buffer.size()));
         m_buffer.clear();
