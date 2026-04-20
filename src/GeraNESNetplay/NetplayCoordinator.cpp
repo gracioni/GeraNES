@@ -124,6 +124,14 @@ std::vector<uint8_t> serializeInputFrame(const InputFrame& inputFrame)
     return data;
 }
 
+size_t serializedInputFrameSize(const InputFrame& inputFrame)
+{
+    SerializationSize serializer;
+    InputFrame copy = inputFrame;
+    copy.serialization(serializer);
+    return serializer.size();
+}
+
 
 bool deserializeInputFrame(const uint8_t* data, size_t size, InputFrame& inputFrame)
 {
@@ -136,7 +144,7 @@ bool deserializeInputFrame(const uint8_t* data, size_t size, InputFrame& inputFr
 
 bool inputFramesEqual(const InputFrame& a, const InputFrame& b)
 {
-    return serializeInputFrame(a) == serializeInputFrame(b);
+    return a == b;
 }
 
 bool isPlayableSlot(Netplay::PlayerSlot slot)
@@ -1115,11 +1123,8 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
 {
     PacketWriter writer;
     size_t estimatedPayloadSize = sizeof(PacketHeader) + sizeof(ConfirmedInputFramesData);
-    std::vector<std::vector<uint8_t>> serializedPayloads;
-    serializedPayloads.reserve(frames.size());
     for(const auto& frame : frames) {
-        serializedPayloads.push_back(serializeInputFrame(frame.inputFrame));
-        estimatedPayloadSize += sizeof(ConfirmedInputFrameEntry) + serializedPayloads.back().size();
+        estimatedPayloadSize += sizeof(ConfirmedInputFrameEntry) + serializedInputFrameSize(frame.inputFrame);
     }
     writer.reserve(estimatedPayloadSize);
 
@@ -1128,9 +1133,18 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
     header.sessionId = sessionId;
     writer.writePod(header);
     writer.writePod(data);
-    for(size_t i = 0; i < frames.size(); ++i) {
-        const auto& frame = frames[i];
-        const auto& payload = serializedPayloads[i];
+    static thread_local Serialize serializer;
+    static thread_local size_t serializerReserveHint = 0;
+    for(const auto& frame : frames) {
+        serializer.clear();
+        if(serializerReserveHint > 0) {
+            serializer.reserve(serializerReserveHint);
+        }
+        InputFrame copy = frame.inputFrame;
+        copy.serialization(serializer);
+        const std::vector<uint8_t>& payload = serializer.getData();
+        serializerReserveHint = payload.size();
+
         ConfirmedInputFrameEntry entry;
         entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
         entry.buttonMaskLo = frame.buttonMaskLo;

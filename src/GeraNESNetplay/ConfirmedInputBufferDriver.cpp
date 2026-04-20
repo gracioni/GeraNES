@@ -479,25 +479,58 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     const uint32_t predictedThroughFrame = confirmedFrame + m_predictFrames;
     const uint32_t playableThroughFrame = std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
-    std::deque<NetplayCoordinator::ConfirmedFrameInputs> rebuiltPendingFrames;
-    uint32_t preparedThroughFrame = emulationFrame;
+    const uint32_t firstFrame = emulationFrame + 1u;
+    const uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
 
-    for(uint32_t frame = emulationFrame + 1u;
-        frame <= playableThroughFrame && frame <= queueHorizonFrame;
-        ++frame) {
+    std::scoped_lock pendingLock(m_pendingFramesMutex);
+    while(!m_pendingFrames.empty() && m_pendingFrames.front().frame < firstFrame) {
+        m_pendingFrames.pop_front();
+    }
+
+    if(targetThroughFrame < firstFrame) {
+        m_pendingFrames.clear();
+        m_queuedThroughFrame = emulationFrame;
+        m_playbackQueueStats.record(0, m_queuedThroughFrame);
+        return;
+    }
+
+    while(!m_pendingFrames.empty() && m_pendingFrames.back().frame > targetThroughFrame) {
+        m_pendingFrames.pop_back();
+    }
+
+    // Refresh existing frames in-place so confirmed updates can replace older
+    // predicted payloads without rebuilding the entire deque.
+    for(auto it = m_pendingFrames.begin(); it != m_pendingFrames.end();) {
+        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        const bool allowPrediction = it->frame > confirmedFrame;
+        if(!coordinator.tryBuildPlaybackFrame(it->frame, allowPrediction, playbackFrame)) {
+            m_pendingFrames.erase(it, m_pendingFrames.end());
+            break;
+        }
+        *it = std::move(playbackFrame);
+        ++it;
+    }
+
+    uint32_t nextFrame = firstFrame;
+    if(!m_pendingFrames.empty()) {
+        if(m_pendingFrames.front().frame != firstFrame) {
+            m_pendingFrames.clear();
+        } else {
+            nextFrame = m_pendingFrames.back().frame + 1u;
+        }
+    }
+
+    for(uint32_t frame = nextFrame; frame <= targetThroughFrame; ++frame) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = frame > confirmedFrame;
         if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, playbackFrame)) {
             break;
         }
-        rebuiltPendingFrames.push_back(playbackFrame);
-        preparedThroughFrame = frame;
+        m_pendingFrames.push_back(std::move(playbackFrame));
     }
 
-    std::scoped_lock pendingLock(m_pendingFramesMutex);
-    m_pendingFrames = std::move(rebuiltPendingFrames);
-    m_queuedThroughFrame = preparedThroughFrame;
-    m_playbackQueueStats.record(m_pendingFrames.size(), preparedThroughFrame);
+    m_queuedThroughFrame = m_pendingFrames.empty() ? emulationFrame : m_pendingFrames.back().frame;
+    m_playbackQueueStats.record(m_pendingFrames.size(), m_queuedThroughFrame);
 }
 
 void ConfirmedInputBufferDriver::prepareConfirmedFramesForEmulationThread(NetplayCoordinator& coordinator,
@@ -512,21 +545,20 @@ void ConfirmedInputBufferDriver::prepareConfirmedFramesForEmulationThread(Netpla
 void ConfirmedInputBufferDriver::queuePendingFramesToEmu(GeraNESEmu& emu)
 {
     std::scoped_lock pendingLock(m_pendingFramesMutex);
-    while(!m_pendingFrames.empty()) {
-        const uint32_t currentFrame = emu.frameCount();
-        const NetplayCoordinator::ConfirmedFrameInputs& confirmed = m_pendingFrames.front();
-        if(confirmed.frame < currentFrame) {
-            m_pendingFrames.pop_front();
-            continue;
-        }
-        if(confirmed.frame > currentFrame + m_prebufferFrames + m_predictFrames) {
+    const uint32_t currentFrame = emu.frameCount();
+    while(!m_pendingFrames.empty() && m_pendingFrames.front().frame < currentFrame) {
+        m_pendingFrames.pop_front();
+    }
+
+    const uint32_t queueLimitFrame = currentFrame + m_prebufferFrames + m_predictFrames;
+    for(const NetplayCoordinator::ConfirmedFrameInputs& confirmed : m_pendingFrames) {
+        if(confirmed.frame > queueLimitFrame) {
             break;
         }
         InputFrame inputFrame = confirmed.inputFrame;
         inputFrame.speculative = confirmed.predicted;
         inputFrame.timelineEpoch = emu.inputTimelineEpoch();
         (void)emu.queueInputFrame(inputFrame);
-        m_pendingFrames.pop_front();
     }
 }
 

@@ -154,6 +154,9 @@ struct InputFrame
     std::array<bool, 12> powerPadP1Buttons = {};
     std::array<bool, 12> powerPadP2Buttons = {};
 
+    bool operator==(const InputFrame&) const = default;
+    bool operator!=(const InputFrame&) const = default;
+
     static InputFrame repeatedFrom(const InputFrame& previous, uint32_t targetFrame)
     {
         InputFrame repeated = previous;

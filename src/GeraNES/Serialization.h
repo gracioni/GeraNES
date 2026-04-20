@@ -82,6 +82,11 @@ class Serialize : public SerializationBase
             _data.reserve(size);
         }
 
+        void clear()
+        {
+            _data.clear();
+        }
+
         const std::vector<uint8_t>& getData() const
         {
             return _data;
