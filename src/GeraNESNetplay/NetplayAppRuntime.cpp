@@ -914,18 +914,9 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         }
     }
 
-    if(estimatedLagFrames > maxFrames) {
-        if(m_coordinator.requestHostResync(ResyncReason::ConfirmedDesync)) {
-            std::ostringstream oss;
-            oss << "Netplay shared-clock catchup skipped; lag "
-                << estimatedLagFrames
-                << " frame(s) exceeds catchup budget "
-                << maxFrames
-                << ", requested authoritative resync";
-            m_coordinator.appendNetplayLog(oss.str());
-        }
-        return 0u;
-    }
+    // The catch-up budget is a per-update cap, not desync evidence. Browser
+    // minimize/throttle can create a large clock lag while gameplay state is
+    // still recoverable through confirmed frames.
 
     uint32_t advancedFrames = 0u;
 
