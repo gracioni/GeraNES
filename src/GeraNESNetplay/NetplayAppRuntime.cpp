@@ -886,35 +886,45 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     FrameNumber estimatedHostFrameFromClock = 0u;
     FrameNumber estimatedLagFrames = 0u;
 
-    if(requireLagTrigger) {
-        constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 10u;
-        const RoomState& room = m_coordinator.session().roomState();
-        if(room.lastAuthoritativeClockFrame == 0u ||
-           room.lastAuthoritativeClockMicros == 0u ||
-           !room.sharedClockSynchronized) {
-            return 0u;
-        }
-
+    constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 10u;
+    const RoomState& room = m_coordinator.session().roomState();
+    if(room.lastAuthoritativeClockFrame != 0u &&
+       room.lastAuthoritativeClockMicros != 0u &&
+       room.sharedClockSynchronized) {
         const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
-        if(nowSharedClockMicros == 0u || nowSharedClockMicros <= room.lastAuthoritativeClockMicros) {
-            return 0u;
+        if(nowSharedClockMicros != 0u && nowSharedClockMicros > room.lastAuthoritativeClockMicros) {
+            const uint64_t elapsedSinceAuthoritativeMicros =
+                nowSharedClockMicros - room.lastAuthoritativeClockMicros;
+            estimatedHostFrameFromClock =
+                room.lastAuthoritativeClockFrame +
+                static_cast<FrameNumber>(elapsedSinceAuthoritativeMicros / frameDtMicros);
+            const FrameNumber localFrame = emu.frameCount();
+            estimatedLagFrames =
+                estimatedHostFrameFromClock > localFrame ? (estimatedHostFrameFromClock - localFrame) : 0u;
         }
+    }
 
-        const uint64_t elapsedSinceAuthoritativeMicros =
-            nowSharedClockMicros - room.lastAuthoritativeClockMicros;
-        const FrameNumber estimatedHostFrame =
-            room.lastAuthoritativeClockFrame +
-            static_cast<FrameNumber>(elapsedSinceAuthoritativeMicros / frameDtMicros);
-        estimatedHostFrameFromClock = estimatedHostFrame;
-        const FrameNumber localFrame = emu.frameCount();
-        if(estimatedHostFrame < localFrame + kContinuousCatchupLagTriggerFrames) {
+    if(requireLagTrigger) {
+        if(estimatedLagFrames < kContinuousCatchupLagTriggerFrames) {
             return 0u;
         }
         lagTriggerActivated = true;
-        estimatedLagFrames = estimatedHostFrame > localFrame ? (estimatedHostFrame - localFrame) : 0u;
-        if(localFrame >= confirmedThroughFrame) {
+        if(emu.frameCount() >= confirmedThroughFrame) {
             return 0u;
         }
+    }
+
+    if(estimatedLagFrames > maxFrames) {
+        if(m_coordinator.requestHostResync(ResyncReason::ConfirmedDesync)) {
+            std::ostringstream oss;
+            oss << "Netplay shared-clock catchup skipped; lag "
+                << estimatedLagFrames
+                << " frame(s) exceeds catchup budget "
+                << maxFrames
+                << ", requested authoritative resync";
+            m_coordinator.appendNetplayLog(oss.str());
+        }
+        return 0u;
     }
 
     uint32_t advancedFrames = 0u;

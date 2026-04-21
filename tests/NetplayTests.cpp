@@ -2991,6 +2991,39 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit and targ
     REQUIRE(pendingResync->participantId == hostRemote->id);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
 
+    hostLocal->controllerAssignments.clear();
+    hostLocal->controllerAssignment = Netplay::kObserverPlayerSlot;
+    hostLocal->normalizeControllerAssignments();
+
+    Netplay::ConfirmedInputBufferDriver observerHostPlaybackDriver;
+    observerHostPlaybackDriver.setPrebufferFrames(2);
+    observerHostPlaybackDriver.setPredictFrames(8);
+    observerHostPlaybackDriver.reanchor(112);
+    observerHostPlaybackDriver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        std::vector<Netplay::PlayerSlot>{},
+        0,
+        uint64_t{0},
+        60,
+        112,
+        observerHostPlaybackDriver.confirmedThroughFrame(host)
+    );
+    observerHostPlaybackDriver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        112
+    );
+    REQUIRE(observerHostPlaybackDriver.queuedThroughFrame() > 114u);
+    REQUIRE(host.remoteInputs().find(115u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+
+    hostLocal->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    hostLocal->normalizeControllerAssignments();
+
     // Subsequent frames keep using synthetic confirmed input while the client is
     // gated waiting for its targeted authoritative resync.
     host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);

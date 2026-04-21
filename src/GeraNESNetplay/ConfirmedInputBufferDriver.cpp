@@ -251,6 +251,7 @@ void ConfirmedInputBufferDriver::reset()
     m_inputProductionAccumulatorMs = 0.0;
     m_producedThroughFrame = 0;
     m_queuedThroughFrame = 0;
+    m_lastProduceHadLocalSlots = false;
     std::scoped_lock pendingLock(m_pendingFramesMutex);
     m_pendingFrames.clear();
 }
@@ -260,6 +261,7 @@ void ConfirmedInputBufferDriver::reanchor(uint32_t frame)
     m_inputProductionAccumulatorMs = 0.0;
     m_producedThroughFrame = frame;
     m_queuedThroughFrame = frame;
+    m_lastProduceHadLocalSlots = false;
     std::scoped_lock pendingLock(m_pendingFramesMutex);
     m_pendingFrames.clear();
 }
@@ -336,6 +338,8 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
         reset();
         return;
     }
+
+    m_lastProduceHadLocalSlots = !localSlots.empty();
 
     if(localSlots.empty()) {
         // Input production horizon must follow configured delay only.
@@ -477,8 +481,15 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
 
     const uint32_t confirmedFrame = confirmedThroughFrame(coordinator);
     const uint32_t predictedThroughFrame = confirmedFrame + m_predictFrames;
-    const uint32_t playableThroughFrame = std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
+    const uint32_t hostFallbackThroughFrame =
+        coordinator.isHosting() && !m_lastProduceHadLocalSlots
+            ? queueHorizonFrame
+            : m_producedThroughFrame;
+    const uint32_t playableThroughFrame =
+        coordinator.isHosting()
+            ? hostFallbackThroughFrame
+            : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t firstFrame = emulationFrame + 1u;
     const uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
 
