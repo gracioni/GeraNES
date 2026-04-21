@@ -28,6 +28,8 @@ constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
+constexpr auto kSuspendedInputResumeBurstWindow = std::chrono::milliseconds(250);
+constexpr uint32_t kSuspendedInputResumeBurstCount = 3;
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
@@ -338,6 +340,8 @@ void NetplayCoordinator::resetSessionState()
     m_reconnectReservationDeadlines.clear();
     m_lastRemoteInputAt.clear();
     m_lastPeerHealthAt.clear();
+    m_suspendedResumeLastInputAt.clear();
+    m_suspendedResumeInputBurstCount.clear();
     m_lastTransportError.clear();
     clearReconnectAttemptState();
     m_delayedPacketEvents.clear();
@@ -458,6 +462,8 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
     m_reconnectReservationDeadlines.erase(participantId);
     m_lastRemoteInputAt.erase(participantId);
     m_lastPeerHealthAt.erase(participantId);
+    m_suspendedResumeLastInputAt.erase(participantId);
+    m_suspendedResumeInputBurstCount.erase(participantId);
     m_pendingResyncAcks.erase(
         std::remove(m_pendingResyncAcks.begin(), m_pendingResyncAcks.end(), participantId),
         m_pendingResyncAcks.end()
@@ -1318,10 +1324,35 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             }
 
             if(participant->inputSuspended) {
+                const auto now = std::chrono::steady_clock::now();
+                auto lastBurstInputIt = m_suspendedResumeLastInputAt.find(participant->id);
+                uint32_t resumeBurstCount = m_suspendedResumeInputBurstCount[participant->id];
+                if(lastBurstInputIt == m_suspendedResumeLastInputAt.end() ||
+                   now - lastBurstInputIt->second > kSuspendedInputResumeBurstWindow) {
+                    resumeBurstCount = 0;
+                }
+                ++resumeBurstCount;
+                m_suspendedResumeInputBurstCount[participant->id] = resumeBurstCount;
+                m_suspendedResumeLastInputAt[participant->id] = now;
+                m_lastRemoteInputAt[participant->id] = now;
+
+                if(resumeBurstCount < kSuspendedInputResumeBurstCount) {
+                    if(resumeBurstCount == 1u) {
+                        std::ostringstream oss;
+                        oss << "Deferred suspended input resume for " << participant->displayName
+                            << " frame " << input.frame
+                            << " seq " << input.sequence
+                            << "; waiting for stable resumed input burst";
+                        pushLog(oss.str());
+                    }
+                    return true;
+                }
+
+                m_suspendedResumeInputBurstCount.erase(participant->id);
+                m_suspendedResumeLastInputAt.erase(participant->id);
                 participant->inputSuspended = false;
                 participant->inputResumeAwaitingResync = true;
                 participant->sequenceRebasePending = true;
-                m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
 
                 const FrameNumber resyncFrame =
                     std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
@@ -1976,6 +2007,8 @@ void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_
 
         participant.inputSuspended = true;
         participant.inputResumeAwaitingResync = false;
+        m_suspendedResumeInputBurstCount.erase(participant.id);
+        m_suspendedResumeLastInputAt.erase(participant.id);
 
         std::ostringstream oss;
         oss << "Participant input suspended due to timeout: " << participant.displayName

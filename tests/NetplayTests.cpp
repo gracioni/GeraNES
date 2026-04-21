@@ -3042,8 +3042,30 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
 
     host.setLocalSimulationFrame(112);
     Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
-    staleResumedInput.frame = 102;
+    staleResumedInput.frame = 114;
     staleResumedInput.sequence = 2;
+    REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+    REQUIRE(hostRemote->inputSuspended);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    staleResumedInput.frame = 115;
+    staleResumedInput.sequence = 3;
+    REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+    REQUIRE(hostRemote->inputSuspended);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    staleResumedInput.frame = 116;
+    staleResumedInput.sequence = 4;
+    REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+    REQUIRE(hostRemote->inputSuspended);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    staleResumedInput.frame = 117;
+    staleResumedInput.sequence = 5;
     REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
 
     REQUIRE_FALSE(hostRemote->inputSuspended);
