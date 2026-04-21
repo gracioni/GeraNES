@@ -45,6 +45,7 @@ private:
     uint32_t m_queuedThroughFrame = 0;
     uint32_t m_prebufferFrames = 10;
     uint32_t m_predictFrames = 0;
+    bool m_lastProduceHadLocalSlots = false;
     mutable std::mutex m_pendingFramesMutex;
     std::deque<NetplayCoordinator::ConfirmedFrameInputs> m_pendingFrames;
     PlaybackQueueStats m_playbackQueueStats;

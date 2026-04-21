@@ -3020,6 +3020,39 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     REQUIRE(playbackDriver.queuedThroughFrame() >= 113u);
     REQUIRE(host.remoteInputs().find(113u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
 
+    hostLocal->controllerAssignments.clear();
+    hostLocal->controllerAssignment = Netplay::kObserverPlayerSlot;
+    hostLocal->normalizeControllerAssignments();
+
+    Netplay::ConfirmedInputBufferDriver observerHostPlaybackDriver;
+    observerHostPlaybackDriver.setPrebufferFrames(2);
+    observerHostPlaybackDriver.setPredictFrames(8);
+    observerHostPlaybackDriver.reanchor(113);
+    observerHostPlaybackDriver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        std::vector<Netplay::PlayerSlot>{},
+        0,
+        uint64_t{0},
+        60,
+        113,
+        observerHostPlaybackDriver.confirmedThroughFrame(host)
+    );
+    observerHostPlaybackDriver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        113
+    );
+    REQUIRE(observerHostPlaybackDriver.queuedThroughFrame() > 115u);
+    REQUIRE(host.remoteInputs().find(116u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+
+    hostLocal->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    hostLocal->normalizeControllerAssignments();
+
     // The host may already be blocked waiting for the next playback frame when
     // the timeout flips the participant into suspended-input mode. Building
     // that frame must synthesize suspended remote input through the requested
