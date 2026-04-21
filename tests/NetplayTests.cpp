@@ -2461,7 +2461,7 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
     host.disconnect();
 }
 
-TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer health", "[netplay][implicit-stall][unit]")
+TEST_CASE("Netplay host prediction-limit fallback does not wait for fresh peer health", "[netplay][prediction-limit][unit]")
 {
     Netplay::NetplayCoordinator host;
     Netplay::NetplayCoordinator client;
@@ -2539,27 +2539,21 @@ TEST_CASE("Netplay host schedules implicit recovery resync only after fresh peer
     host.recordLocalInputFrame(181, Netplay::kPort1PlayerSlot, 0);
 
     Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-    REQUIRE_FALSE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
-    host.recordPlaybackStop(181, false);
-    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
+    REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(host.remoteInputs().find(181u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(hostRemote->inputResumeAwaitingResync);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(550));
-    for(int step = 0; step < 120; ++step) {
-        client.update(0);
-        host.update(0);
-        const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending = host.consumePendingHostResyncFrame();
-        if(pending.has_value()) {
-            REQUIRE(pending->frame == 180u);
-            REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
-            REQUIRE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
-            host.disconnect();
-            client.disconnect();
-            return;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
+    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending =
+        host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->frame == 180u);
+    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->participantId == hostRemote->id);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
 
-    FAIL("Host never scheduled an implicit recovery resync after the client sent fresh peer health.");
+    host.disconnect();
+    client.disconnect();
 }
 
 TEST_CASE("Netplay observer can request host resync without reconnect side effects",
@@ -2872,8 +2866,8 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
     client.disconnect();
 }
 
-TEST_CASE("Netplay host keeps confirmed input flow during suspended client input and resyncs on resume",
-          "[netplay][suspend][unit]")
+TEST_CASE("Netplay host synthesizes confirmed input at prediction limit and targets resync",
+          "[netplay][prediction-limit][unit]")
 {
     Netplay::NetplayCoordinator host;
     Netplay::NetplayCoordinator client;
@@ -2887,7 +2881,6 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
         started = true;
     }
     REQUIRE(started);
-    host.setRemoteInputSuspendTimeoutForTests(20);
 
     bool connected = false;
     for(int step = 0; step < 400 && !connected; ++step) {
@@ -2973,69 +2966,49 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     baselineContribution.p2Right = true;
     REQUIRE(host.injectInputFrameForTests(baselineRemoteInput, baselineContribution));
 
-    for(Netplay::FrameNumber frame = 101; frame <= 110; ++frame) {
+    for(Netplay::FrameNumber frame = 101; frame <= 111; ++frame) {
         host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0);
     }
     host.setLocalSimulationFrame(110);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(30));
-    host.update(0);
-
-    REQUIRE(hostRemote->inputSuspended);
-
-    // Ensure suspended synthesis can replace unresolved predicted inputs.
-    host.predictRemoteInputsForFrame(111u);
-    REQUIRE(host.remoteInputs().find(111u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
-
-    host.recordLocalInputFrame(111, Netplay::kPort1PlayerSlot, 0);
+    // The client stopped after frame 101. When playback reaches a frame where
+    // prediction is no longer allowed, the host must synthesize confirmed input
+    // from the last known contribution and schedule a targeted resync instead
+    // of returning false and stopping simulation.
     Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(playbackFrame.inputFrame.p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
-    REQUIRE(host.session().roomState().lastConfirmedFrame >= 111u);
-
-    host.setLocalSimulationFrame(111);
-    Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
-    staleResumedInput.frame = 102;
-    staleResumedInput.sequence = 2;
-    REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
-
-    REQUIRE_FALSE(hostRemote->inputSuspended);
     REQUIRE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE(host.remoteInputs().find(111u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
 
-    // The host must keep advancing using synthetic suspended input while the
-    // resumed participant is gated waiting for authoritative resync.
+    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
+        host.consumePendingHostResyncFrame();
+    REQUIRE(pendingResync.has_value());
+    REQUIRE(pendingResync->frame == 110u);
+    REQUIRE(pendingResync->reason == Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pendingResync->participantId == hostRemote->id);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
+
+    // Subsequent frames keep using synthetic confirmed input while the client is
+    // gated waiting for its targeted authoritative resync.
     host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);
     Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
     REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
     REQUIRE_FALSE(resumedWindowPlayback.predicted);
+    REQUIRE(resumedWindowPlayback.inputFrame.p2Right);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
-    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync = host.consumePendingHostResyncFrame();
-    REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 111u);
-    REQUIRE(pendingResync->reason == Netplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_resume"));
-
-    // Repeated stale packets must count as activity and must not trigger
-    // additional suspend-timeout resync scheduling loops.
+    Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
+    staleResumedInput.frame = 102;
+    staleResumedInput.sequence = 2;
     for(int i = 0; i < 4; ++i) {
         staleResumedInput.sequence += 1u;
         REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
-        std::this_thread::sleep_for(std::chrono::milliseconds(15));
         host.update(0);
         REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     }
-
-    const std::vector<uint8_t> payload{0x01, 0x23, 0x45};
-    REQUIRE(host.beginResync(pendingResync->frame, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
-    Netplay::ResyncAckData successAck{};
-    successAck.resyncId = host.session().roomState().activeResyncId;
-    successAck.participantId = hostRemote->id;
-    successAck.loadedFrame = pendingResync->frame;
-    successAck.crc32 = 0x22222222u;
-    successAck.success = 1u;
-    REQUIRE(host.injectResyncAckForTests(successAck));
-    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
 
     host.disconnect();
     client.disconnect();

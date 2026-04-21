@@ -292,8 +292,8 @@ private:
     void noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
-    void processRemoteInputSuspension(const std::chrono::steady_clock::time_point& now);
     void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
+    bool synthesizePredictionLimitFallbackInput(FrameNumber targetFrame, ParticipantInfo& participant, PlayerSlot slot);
     bool tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
     // Frame terminology used by the coordinator:
     // - local simulation frame: last frame this peer has actually simulated.

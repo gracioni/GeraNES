@@ -1317,25 +1317,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 return true;
             }
 
-            if(participant->inputSuspended) {
-                participant->inputSuspended = false;
-                participant->inputResumeAwaitingResync = true;
-                participant->sequenceRebasePending = true;
-                m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
-
-                const FrameNumber resyncFrame =
-                    std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
-                queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
-
-                std::ostringstream oss;
-                oss << "Participant input resumed after suspension: " << participant->displayName
-                    << " frame " << input.frame
-                    << " seq " << input.sequence
-                    << "; scheduling authoritative resync from frame " << resyncFrame
-                    << " classification=suspended_input_resume";
-                pushLog(oss.str());
-                return true;
-            }
         }
 
         if(input.sequence <= participant->lastReceivedInputSequence) {
@@ -1929,77 +1910,86 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
     }
 }
 
-void NetplayCoordinator::processRemoteInputSuspension(const std::chrono::steady_clock::time_point& now)
+bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targetFrame,
+                                                                ParticipantInfo& participant,
+                                                                PlayerSlot slot)
 {
-    if(!m_hosting || m_session.roomState().state != SessionState::Running) {
-        return;
+    if(!m_hosting || m_session.roomState().state != SessionState::Running) return false;
+    if(participant.id == m_localParticipantId ||
+       !participant.connected ||
+       participantIsObserver(participant) ||
+       !isPlayableSlot(slot) ||
+       !participantHasAssignment(participant, slot)) {
+        return false;
     }
 
-    const bool resyncBusy =
-        m_session.roomState().activeResyncId != 0u ||
-        m_session.roomState().pendingResyncAckCount != 0u;
-    if(resyncBusy) {
-        return;
-    }
+    if(!participant.inputResumeAwaitingResync) {
+        participant.inputSuspended = false;
+        participant.inputResumeAwaitingResync = true;
+        participant.sequenceRebasePending = true;
 
-    for(ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.id == m_localParticipantId ||
-           !participant.connected ||
-           participantIsObserver(participant)) {
-            continue;
-        }
-
-        const auto inputIt = m_lastRemoteInputAt.find(participant.id);
-        const auto healthIt = m_lastPeerHealthAt.find(participant.id);
-        if(inputIt == m_lastRemoteInputAt.end() && healthIt == m_lastPeerHealthAt.end()) {
-            continue;
-        }
-
-        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
-            continue;
-        }
-
-        std::chrono::steady_clock::time_point latestActivity = {};
-        if(inputIt != m_lastRemoteInputAt.end()) {
-            latestActivity = inputIt->second;
-        }
-        if(healthIt != m_lastPeerHealthAt.end() &&
-           (latestActivity.time_since_epoch().count() == 0 || healthIt->second > latestActivity)) {
-            latestActivity = healthIt->second;
-        }
-        if(latestActivity.time_since_epoch().count() == 0) {
-            continue;
-        }
-
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - latestActivity);
-        if(elapsed < m_remoteInputSuspendTimeout) {
-            continue;
-        }
-
-        bool hasBaselineInput = true;
-        for(PlayerSlot slot : participantAssignments(participant)) {
-            if(m_remoteInputs.latestConfirmedFor(participant.id, slot) == nullptr) {
-                hasBaselineInput = false;
-                break;
-            }
-        }
-        if(!hasBaselineInput) {
-            continue;
-        }
-
-        participant.inputSuspended = true;
-        participant.inputResumeAwaitingResync = false;
+        const FrameNumber resyncFrame = m_localSimulationFrame;
+        queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant.id);
 
         std::ostringstream oss;
-        oss << "Participant input suspended due to timeout: " << participant.displayName
-            << " timeoutMs=" << m_remoteInputSuspendTimeout.count()
-            << " lastFrame=" << participant.lastContiguousInputFrame
-            << " classification=suspended_input_timeout";
+        oss << "Prediction limit fallback for " << participant.displayName
+            << " frame " << targetFrame
+            << " slot " << static_cast<unsigned>(slot) + 1u
+            << "; synthesized confirmed input and scheduled targeted resync from frame "
+            << resyncFrame
+            << " classification=prediction_limit_fallback";
         pushLog(oss.str());
-
-        // Keep the authoritative input stream contiguous for everyone else.
-        synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
     }
+
+    const TimelineInputEntry* latestConfirmed = m_remoteInputs.latestConfirmedFor(participant.id, slot);
+    FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
+    if(nextFrame > targetFrame) {
+        nextFrame = targetFrame;
+    }
+
+    bool synthesizedAny = false;
+    while(nextFrame <= targetFrame) {
+        const TimelineInputEntry* existing = m_remoteInputs.find(nextFrame, participant.id, slot);
+        if(existing != nullptr && existing->confirmed) {
+            latestConfirmed = existing;
+            ++nextFrame;
+            continue;
+        }
+
+        TimelineInputEntry synthetic{};
+        if(latestConfirmed != nullptr) {
+            synthetic = *latestConfirmed;
+            synthetic.inputFrame = InputFrame::repeatedFrom(latestConfirmed->inputFrame, nextFrame);
+            synthetic.sequence = latestConfirmed->sequence;
+        } else {
+            synthetic.participantId = participant.id;
+            synthetic.playerSlot = slot;
+            synthetic.buttonMaskLo = 0;
+            synthetic.buttonMaskHi = 0;
+            synthetic.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(nextFrame, m_session.roomState()));
+            synthetic.sequence = 0;
+        }
+
+        synthetic.frame = nextFrame;
+        synthetic.participantId = participant.id;
+        synthetic.playerSlot = slot;
+        synthetic.predicted = false;
+        synthetic.confirmed = true;
+        if(existing != nullptr) {
+            synthetic.sequence = existing->sequence;
+        }
+
+        m_remoteInputs.push(synthetic);
+        latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
+        synthesizedAny = true;
+        ++nextFrame;
+    }
+
+    for(PlayerSlot assignedSlot : participantAssignments(participant)) {
+        advanceParticipantContiguousInputFrame(participant, assignedSlot);
+    }
+    clearImplicitRemoteInputStall(participant.id, participant.lastContiguousInputFrame);
+    return synthesizedAny || m_remoteInputs.find(targetFrame, participant.id, slot) != nullptr;
 }
 
 void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
@@ -4557,7 +4547,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     updatePeerHealthFromTransport();
     processClockSyncIfNeeded(now);
     updateReconnectReservations();
-    processRemoteInputSuspension(now);
     if(m_hosting && m_session.roomState().state == SessionState::Running) {
         synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
         publishConfirmedFramesIfReady();
@@ -5048,6 +5037,13 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
                     return false;
                 }
                 entry = m_remoteInputs.find(frame, participant.id, slot);
+            }
+            if(entry == nullptr && m_hosting && !allowPrediction && !isLocalParticipant) {
+                ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
+                if(mutableParticipant != nullptr &&
+                   synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
+                    entry = m_remoteInputs.find(frame, participant.id, slot);
+                }
             }
 
             if(entry == nullptr) {
