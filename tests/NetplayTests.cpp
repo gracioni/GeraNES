@@ -19,7 +19,7 @@
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/DesyncMonitor.h"
 #include "GeraNESNetplay/ImplicitStallRecoveryMonitor.h"
-#include "GeraNESNetplay/NetplayAutoSettings.h"
+#include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/WebRtcPeerConnection.h"
@@ -352,7 +352,7 @@ TEST_CASE("Netplay implicit stall recovery monitor only schedules after fresh pe
 TEST_CASE("Netplay auto delay decays faster from high values after stable playback",
           "[netplay][auto-settings][delay]")
 {
-    Netplay::NetplayAutoSettings autoSettings;
+    Netplay::NetplayAutoTune autoSettings;
     Netplay::RoomState room;
     room.sessionId = 1;
     room.timelineEpoch = 1;
@@ -391,6 +391,48 @@ TEST_CASE("Netplay auto delay decays faster from high values after stable playba
     recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 6);
+}
+
+TEST_CASE("Netplay auto delay ignores correction-only pressure for increases",
+          "[netplay][auto-settings][delay]")
+{
+    Netplay::NetplayAutoTune autoSettings;
+    Netplay::RoomState room;
+    room.sessionId = 2;
+    room.timelineEpoch = 1;
+    room.state = Netplay::SessionState::Running;
+    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.inputDelayFrames = 2;
+    room.predictFrames = 8;
+
+    Netplay::ParticipantInfo owner;
+    owner.id = 0;
+    owner.connected = true;
+    owner.role = Netplay::ParticipantRole::SessionOwner;
+    owner.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    owner.normalizeControllerAssignments();
+
+    Netplay::ParticipantInfo participant;
+    participant.id = 1;
+    participant.connected = true;
+    participant.role = Netplay::ParticipantRole::SessionParticipant;
+    participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    participant.pingMs = 20;
+    participant.jitterMs = 1;
+    participant.normalizeControllerAssignments();
+
+    room.participants = {owner, participant};
+
+    Netplay::RollbackStats stats;
+    auto recommendations = autoSettings.update(room, stats, 0, 60);
+    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+
+    stats.predictionMissCount += 3;
+    stats.rollbackScheduledCount += 3;
+    room.currentFrame = 120;
+    recommendations = autoSettings.update(room, stats, 0, 60);
+    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("correction") != std::string::npos);
 }
 
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")

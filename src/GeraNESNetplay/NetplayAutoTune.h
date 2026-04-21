@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-class NetplayAutoSettings
+class NetplayAutoTune
 {
 public:
     struct Snapshot
@@ -66,6 +66,7 @@ private:
     uint32_t m_lastRecoveryModeTransitionCount = 0;
     uint64_t m_lastActiveParticipantSignature = 0;
     FrameNumber m_delayRetuneBlockedUntilFrame = 0;
+    FrameNumber m_arrivalPressureStableFrames = 0;
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;

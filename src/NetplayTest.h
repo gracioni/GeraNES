@@ -18,7 +18,7 @@
 #include "GeraNESApp/SingleThreadEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayAppRuntime.h"
-#include "GeraNESNetplay/NetplayAutoSettings.h"
+#include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 
 class NetplayTest
@@ -3592,7 +3592,7 @@ private:
     static RunArtifacts runAutoSettingsProbe(const Options& /*options*/)
     {
         RunArtifacts result;
-        Netplay::NetplayAutoSettings autoSettings;
+        Netplay::NetplayAutoTune autoSettings;
         autoSettings.setEnabled(true);
 
         auto makeParticipant = [](Netplay::ParticipantId id,
@@ -3623,8 +3623,8 @@ private:
         nlohmann::json scenarios = nlohmann::json::array();
 
         auto appendScenario = [&](const std::string& name,
-                                  const Netplay::NetplayAutoSettings::Recommendations& recommendations,
-                                  const Netplay::NetplayAutoSettings::Snapshot& snapshot) {
+                                  const Netplay::NetplayAutoTune::Recommendations& recommendations,
+                                  const Netplay::NetplayAutoTune::Snapshot& snapshot) {
             scenarios.push_back({
                 {"scenario", name},
                 {"recommendedDelay", recommendations.inputDelayFrames.has_value()

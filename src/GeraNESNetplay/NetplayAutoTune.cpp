@@ -1,4 +1,4 @@
-#include "GeraNESNetplay/NetplayAutoSettings.h"
+#include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 
 #include <algorithm>
@@ -9,7 +9,7 @@ namespace Netplay {
 
 #ifdef __EMSCRIPTEN__
 
-void NetplayAutoSettings::setEnabled(bool enabled)
+void NetplayAutoTune::setEnabled(bool enabled)
 {
     m_enabled = enabled;
     if(!m_enabled) {
@@ -17,12 +17,12 @@ void NetplayAutoSettings::setEnabled(bool enabled)
     }
 }
 
-bool NetplayAutoSettings::enabled() const
+bool NetplayAutoTune::enabled() const
 {
     return m_enabled;
 }
 
-NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState& room,
+NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
                                                                  const RollbackStats&,
                                                                  uint32_t,
                                                                  uint32_t)
@@ -50,14 +50,14 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     return recommendations;
 }
 
-NetplayAutoSettings::Snapshot NetplayAutoSettings::snapshot() const
+NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
 {
     return m_snapshot;
 }
 
 #else
 
-bool NetplayAutoSettings::isAssignedActiveParticipant(const ParticipantInfo& participant)
+bool NetplayAutoTune::isAssignedActiveParticipant(const ParticipantInfo& participant)
 {
     return participant.connected &&
            !participant.inputSuspended &&
@@ -66,17 +66,17 @@ bool NetplayAutoSettings::isAssignedActiveParticipant(const ParticipantInfo& par
             participant.controllerAssignment != kObserverPlayerSlot);
 }
 
-uint8_t NetplayAutoSettings::clampDelay(uint32_t frames)
+uint8_t NetplayAutoTune::clampDelay(uint32_t frames)
 {
     return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoDelayFrames, frames));
 }
 
-uint8_t NetplayAutoSettings::clampPredict(uint32_t frames)
+uint8_t NetplayAutoTune::clampPredict(uint32_t frames)
 {
     return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoPredictFrames, frames));
 }
 
-uint8_t NetplayAutoSettings::jitterFramesForRoom(const RoomState& room, uint32_t fps)
+uint8_t NetplayAutoTune::jitterFramesForRoom(const RoomState& room, uint32_t fps)
 {
     const double fpsDouble = static_cast<double>(std::max<uint32_t>(1u, fps));
     const double frameDurationMs = 1000.0 / fpsDouble;
@@ -91,7 +91,7 @@ uint8_t NetplayAutoSettings::jitterFramesForRoom(const RoomState& room, uint32_t
     return worstJitterFrames;
 }
 
-uint8_t NetplayAutoSettings::predictionBaselineForRoom(const RoomState& room, uint32_t fps)
+uint8_t NetplayAutoTune::predictionBaselineForRoom(const RoomState& room, uint32_t fps)
 {
     const double fpsDouble = static_cast<double>(std::max<uint32_t>(1u, fps));
     const double frameDurationMs = 1000.0 / fpsDouble;
@@ -119,7 +119,7 @@ uint8_t NetplayAutoSettings::predictionBaselineForRoom(const RoomState& room, ui
     return clampPredict(baseline);
 }
 
-uint64_t NetplayAutoSettings::activeParticipantSignature(const RoomState& room)
+uint64_t NetplayAutoTune::activeParticipantSignature(const RoomState& room)
 {
     uint64_t hash = 1469598103934665603ull;
     auto mix = [&hash](uint64_t value) {
@@ -141,10 +141,11 @@ uint64_t NetplayAutoSettings::activeParticipantSignature(const RoomState& room)
     return hash;
 }
 
-void NetplayAutoSettings::resetRunningWindow(const RollbackStats& stats, FrameNumber frame)
+void NetplayAutoTune::resetRunningWindow(const RollbackStats& stats, FrameNumber frame)
 {
     m_runningWindowInitialized = true;
     m_lastEvaluationFrame = frame;
+    m_arrivalPressureStableFrames = 0;
     m_lastPredictionMissCount = stats.predictionMissCount;
     m_lastPlaybackStopCount = stats.playbackStopCount;
     m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
@@ -153,7 +154,7 @@ void NetplayAutoSettings::resetRunningWindow(const RollbackStats& stats, FrameNu
     m_lastPredictedFrameUseCount = stats.predictedFrameUseCount;
 }
 
-void NetplayAutoSettings::resetForSession(uint32_t sessionId, uint32_t timelineEpoch, SessionState state)
+void NetplayAutoTune::resetForSession(uint32_t sessionId, uint32_t timelineEpoch, SessionState state)
 {
     m_lastSessionId = sessionId;
     m_lastTimelineEpoch = timelineEpoch;
@@ -172,10 +173,11 @@ void NetplayAutoSettings::resetForSession(uint32_t sessionId, uint32_t timelineE
     m_lastRecoveryModeTransitionCount = 0;
     m_lastActiveParticipantSignature = 0;
     m_delayRetuneBlockedUntilFrame = 0;
+    m_arrivalPressureStableFrames = 0;
     m_lastDecisionReason.clear();
 }
 
-void NetplayAutoSettings::setEnabled(bool enabled)
+void NetplayAutoTune::setEnabled(bool enabled)
 {
     m_enabled = enabled;
     if(!m_enabled) {
@@ -183,12 +185,12 @@ void NetplayAutoSettings::setEnabled(bool enabled)
     }
 }
 
-bool NetplayAutoSettings::enabled() const
+bool NetplayAutoTune::enabled() const
 {
     return m_enabled;
 }
 
-NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState& room,
+NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
                                                                  const RollbackStats& stats,
                                                                  uint32_t unresolvedPredictedRemoteFrameCount,
                                                                  uint32_t fps)
@@ -203,6 +205,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         m_predictLocked = false;
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_arrivalPressureStableFrames = 0;
         m_delayRetuneBlockedUntilFrame = 0;
         m_lastDecisionReason = "Automatic gameplay tuning disabled";
         return recommendations;
@@ -231,6 +234,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
        participantSignature != m_lastActiveParticipantSignature) {
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_arrivalPressureStableFrames = 0;
         m_delayRetuneBlockedUntilFrame = 0;
         const uint8_t rebasedDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
         if(room.inputDelayFrames != rebasedDelay) {
@@ -251,6 +255,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     if(room.state != SessionState::Running) {
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_arrivalPressureStableFrames = 0;
         m_lastDecisionReason = "Waiting for running session";
         return recommendations;
     }
@@ -260,6 +265,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
        room.pendingResyncAckCount != 0u) {
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_arrivalPressureStableFrames = 0;
         m_lastDecisionReason = "Recovery/resync active; delaying auto-tune";
         return recommendations;
     }
@@ -269,6 +275,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         m_delayRetuneBlockedUntilFrame = currentFrame + kPostRecoveryRetuneDelayFrames;
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_arrivalPressureStableFrames = 0;
         m_lastDecisionReason = "Recovery transition detected; waiting for stability before retune";
         return recommendations;
     }
@@ -316,6 +323,7 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     if(!evaluationWindowReached && !severePressureNow) {
         return recommendations;
     }
+    const FrameNumber evaluationFrameSpan = std::max<FrameNumber>(1u, currentFrame - m_lastEvaluationFrame);
     m_lastEvaluationFrame = currentFrame;
 
     bool recoveringAssignedPeer = false;
@@ -328,22 +336,36 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         }
     }
 
-    const uint32_t stressScore =
-        (predictionMissDelta * 2u) +
-        (playbackStopDelta * 2u) +
-        (predictionLimitStopDelta * 4u) +
+    const uint32_t arrivalPressureScore =
+        (predictionLimitStopDelta * 3u) +
         (missingInputStopDelta * 5u) +
+        (unresolvedPredictedRemoteFrameCount >= 4u
+             ? 3u + (unresolvedPredictedRemoteFrameCount / 2u)
+             : 0u) +
+        (recoveringAssignedPeer ? 3u : 0u);
+    const uint32_t correctionPressureScore =
+        (predictionMissDelta * 2u) +
         (rollbackScheduledDelta * 2u) +
-        (unresolvedPredictedRemoteFrameCount > 0u ? 1u + (unresolvedPredictedRemoteFrameCount / 2u) : 0u) +
-        (recoveringAssignedPeer ? 4u : 0u);
+        (playbackStopDelta > 0u ? 1u : 0u);
+    const bool severeArrivalPressure =
+        missingInputStopDelta > 0u ||
+        predictionLimitStopDelta > 0u ||
+        unresolvedPredictedRemoteFrameCount >= 6u;
 
     const FrameNumber framesSinceAdjustment = currentFrame - m_lastAdjustmentFrame;
     const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
-    const bool shouldIncrease = stressScore >= 4u;
+    if(arrivalPressureScore >= 4u) {
+        m_arrivalPressureStableFrames += evaluationFrameSpan;
+    } else {
+        m_arrivalPressureStableFrames = 0;
+    }
+    const bool shouldIncrease =
+        severeArrivalPressure ||
+        m_arrivalPressureStableFrames >= kEvaluationWindowFrames * 2u;
 
     if(shouldIncrease && !cooldownActive) {
         const uint8_t increaseStep =
-            (stressScore >= 10u || recoveringAssignedPeer || missingInputStopDelta > 0u) ? 2u : 1u;
+            (arrivalPressureScore >= 8u || missingInputStopDelta > 0u) ? 2u : 1u;
         const uint8_t targetDelay =
             clampDelay(static_cast<uint32_t>(std::max<uint8_t>(room.inputDelayFrames, m_currentRecommendedDelay)) +
                        static_cast<uint32_t>(increaseStep));
@@ -352,9 +374,11 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
             m_currentRecommendedDelay = targetDelay;
             m_lastAdjustmentFrame = currentFrame;
             m_stableFrameCount = 0;
+            m_arrivalPressureStableFrames = 0;
             m_lastDecisionReason =
-                "Increased delay to absorb prediction/rollback pressure (" +
-                std::to_string(static_cast<unsigned>(stressScore)) + ")";
+                "Increased delay to absorb sustained input-arrival pressure (" +
+                std::to_string(static_cast<unsigned>(arrivalPressureScore)) +
+                ", correction " + std::to_string(static_cast<unsigned>(correctionPressureScore)) + ")";
             return recommendations;
         }
     }
@@ -362,20 +386,19 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     if(inPostRecoverySettleWindow) {
         m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
+        m_arrivalPressureStableFrames = 0;
         m_lastDecisionReason = "Post-recovery settle window active";
         return recommendations;
     }
 
     const bool healthyWindow =
-        stressScore == 0u &&
+        arrivalPressureScore == 0u &&
+        correctionPressureScore == 0u &&
         unresolvedPredictedRemoteFrameCount == 0u &&
-        predictionMissDelta == 0u &&
-        playbackStopDelta == 0u &&
-        rollbackScheduledDelta == 0u &&
         !recoveringAssignedPeer;
 
     if(healthyWindow) {
-        m_stableFrameCount += (currentFrame - m_lastEvaluationFrame + kEvaluationWindowFrames);
+        m_stableFrameCount += evaluationFrameSpan;
     } else {
         m_stableFrameCount = 0u;
     }
@@ -410,13 +433,16 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
     if(healthyWindow) {
         m_lastDecisionReason = "Stable window; monitoring for gradual delay reduction";
     } else {
-        m_lastDecisionReason = "Within tolerance; keeping current delay";
+        m_lastDecisionReason =
+            "Within tolerance; keeping current delay (arrival " +
+            std::to_string(static_cast<unsigned>(arrivalPressureScore)) +
+            ", correction " + std::to_string(static_cast<unsigned>(correctionPressureScore)) + ")";
     }
 
     return recommendations;
 }
 
-NetplayAutoSettings::Snapshot NetplayAutoSettings::snapshot() const
+NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
 {
     Snapshot snapshot;
     snapshot.enabled = m_enabled;

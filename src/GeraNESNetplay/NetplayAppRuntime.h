@@ -16,7 +16,7 @@
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
-#include "GeraNESNetplay/NetplayAutoSettings.h"
+#include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
 
@@ -91,7 +91,7 @@ public:
         FrameNumber lastRollbackTargetFrame = 0;
         FrameNumber lastLoadedAuthoritativeFrame = 0;
         FrameNumber lastRecoveryReanchorFrame = 0;
-        NetplayAutoSettings::Snapshot autoSettings;
+        NetplayAutoTune::Snapshot autoSettings;
         FramePacingDiagnostics framePacingDiagnostics;
         uint32_t unresolvedPredictedRemoteFrameCount = 0;
         FrameNumber latestPredictedRemoteFrame = 0;
@@ -133,7 +133,7 @@ private:
     IEmulationHost& m_emuHost;
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
-    NetplayAutoSettings m_autoSettings;
+    NetplayAutoTune m_autoSettings;
     FramePacingDiagnostics m_framePacingDiagnostics;
 
     mutable std::mutex m_stateMutex;
