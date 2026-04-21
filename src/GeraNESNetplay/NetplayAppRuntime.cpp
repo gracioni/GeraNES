@@ -888,6 +888,12 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
 
     constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 2u;
     const RoomState& room = m_coordinator.session().roomState();
+    if(m_sharedClockResyncRequestPending &&
+       room.timelineEpoch != m_sharedClockResyncRequestEpoch) {
+        m_sharedClockResyncRequestPending = false;
+        m_sharedClockLagOverBudgetSince = {};
+        m_sharedClockLagOverBudgetSinceFrame = 0;
+    }
     if(room.lastAuthoritativeClockFrame != 0u &&
        room.lastAuthoritativeClockMicros != 0u &&
        room.sharedClockSynchronized) {
@@ -915,17 +921,49 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     }
 
     if(estimatedLagFrames > maxFrames) {
+        constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
+        constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
+        const auto now = std::chrono::steady_clock::now();
+        const FrameNumber localFrame = emu.frameCount();
+
+        if(m_sharedClockLagOverBudgetSince.time_since_epoch().count() == 0 ||
+           estimatedLagFrames <= maxFrames) {
+            m_sharedClockLagOverBudgetSince = now;
+            m_sharedClockLagOverBudgetSinceFrame = localFrame;
+        }
+
+        const bool lagPersisted =
+            now - m_sharedClockLagOverBudgetSince >= kLargeLagPersistence;
+        if(!lagPersisted) {
+            return 0u;
+        }
+
+        if(m_lastSharedClockResyncRequestAt.time_since_epoch().count() != 0 &&
+           now - m_lastSharedClockResyncRequestAt < kSharedClockResyncRequestCooldown) {
+            return 0u;
+        }
+        m_sharedClockResyncRequestPending = false;
+
         if(m_coordinator.requestHostResync(ResyncReason::ConfirmedDesync)) {
+            m_sharedClockResyncRequestPending = true;
+            m_sharedClockResyncRequestEpoch = room.timelineEpoch;
+            m_lastSharedClockResyncRequestAt = now;
+            m_lastSharedClockResyncRequestFrame = localFrame;
             std::ostringstream oss;
             oss << "Netplay shared-clock catchup skipped; lag "
                 << estimatedLagFrames
                 << " frame(s) exceeds catchup budget "
                 << maxFrames
+                << " since local frame "
+                << m_sharedClockLagOverBudgetSinceFrame
                 << ", requested authoritative resync";
             m_coordinator.appendNetplayLog(oss.str());
         }
         return 0u;
     }
+
+    m_sharedClockLagOverBudgetSince = {};
+    m_sharedClockLagOverBudgetSinceFrame = 0;
 
     uint32_t advancedFrames = 0u;
 

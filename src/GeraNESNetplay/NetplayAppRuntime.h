@@ -158,6 +158,12 @@ private:
     FrameNumber m_lastRollbackTargetFrame = 0;
     FrameNumber m_lastLoadedAuthoritativeFrame = 0;
     FrameNumber m_lastRecoveryReanchorFrame = 0;
+    FrameNumber m_sharedClockLagOverBudgetSinceFrame = 0;
+    FrameNumber m_lastSharedClockResyncRequestFrame = 0;
+    uint32_t m_sharedClockResyncRequestEpoch = 0;
+    std::chrono::steady_clock::time_point m_sharedClockLagOverBudgetSince = {};
+    std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
+    bool m_sharedClockResyncRequestPending = false;
     bool m_forceNextConfirmedCrcSubmission = false;
     bool m_waitingPostResyncDelayBuffer = false;
     std::chrono::steady_clock::time_point m_waitingPostResyncDelayBufferSince = {};

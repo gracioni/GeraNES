@@ -3081,6 +3081,12 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
         data.reason == ResyncReason::ObserverVisibilityRestore && participantIsObserver(*participant)
             ? participant->id
             : kInvalidParticipantId;
+    if(m_pendingHostResyncFrame.has_value() &&
+       m_pendingHostResyncFrame->frame == resyncFrame &&
+       m_pendingHostResyncFrame->reason == data.reason &&
+       m_pendingHostResyncFrame->participantId == targetParticipantId) {
+        return true;
+    }
     if(data.reason == ResyncReason::ConfirmedDesync) {
         m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
             std::max<FrameNumber>(
