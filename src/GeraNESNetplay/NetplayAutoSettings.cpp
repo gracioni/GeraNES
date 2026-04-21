@@ -380,11 +380,17 @@ NetplayAutoSettings::Recommendations NetplayAutoSettings::update(const RoomState
         m_stableFrameCount = 0u;
     }
 
+    const FrameNumber requiredStableFramesForDelayDecrease =
+        room.inputDelayFrames >= 6u
+            ? FrameNumber{240}
+            : (room.inputDelayFrames >= 4u ? FrameNumber{360} : kDelayDecreaseStableFrames);
+
     if(!cooldownActive &&
-       m_stableFrameCount >= kDelayDecreaseStableFrames &&
+       m_stableFrameCount >= requiredStableFramesForDelayDecrease &&
        room.inputDelayFrames > 1u) {
         // After suspend/resume transitions, jitter telemetry can remain high for
-        // a while. Let delay recover downward gradually when runtime is stable.
+        // a while. Let large delay spikes recover faster while keeping low-delay
+        // reductions conservative.
         const uint8_t decreaseStep = room.inputDelayFrames >= 6u ? 2u : 1u;
         const uint8_t loweredDelay = static_cast<uint8_t>(
             room.inputDelayFrames > decreaseStep ? room.inputDelayFrames - decreaseStep : 1u
