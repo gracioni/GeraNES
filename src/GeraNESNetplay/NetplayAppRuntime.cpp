@@ -1336,13 +1336,12 @@ void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& emu, boo
             m_webVisibilityManagedPause = true;
         }
 
-        const bool observerNeedsVisibilityResync =
+        const bool clientNeedsVisibilityResync =
             m_coordinator.isActive() &&
             m_coordinator.isConnected() &&
             !m_coordinator.isHosting() &&
-            m_coordinator.session().roomState().state == SessionState::Running &&
-            localAssignedSlots().empty();
-        m_observerVisibilityResyncPending = observerNeedsVisibilityResync;
+            m_coordinator.session().roomState().state == SessionState::Running;
+        m_observerVisibilityResyncPending = clientNeedsVisibilityResync;
         return;
     }
 

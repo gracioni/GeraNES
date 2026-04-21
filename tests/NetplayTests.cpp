@@ -3110,22 +3110,32 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     staleResumedInput.frame = 118;
     staleResumedInput.sequence = 6;
     REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
-
-    REQUIRE_FALSE(hostRemote->inputSuspended);
-    REQUIRE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE(hostRemote->inputSuspended);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE(anyLogLineContains(host.eventLog(), "waiting for explicit recovery resync"));
 
     // The host must keep advancing using synthetic suspended input while the
-    // resumed participant is gated waiting for authoritative resync.
+    // suspended participant's hidden-tab gameplay packets are ignored.
     host.recordLocalInputFrame(113, Netplay::kPort1PlayerSlot, 0);
     Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
     REQUIRE(host.tryBuildPlaybackFrame(113, false, resumedWindowPlayback));
     REQUIRE_FALSE(resumedWindowPlayback.predicted);
 
-    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync = host.consumePendingHostResyncFrame();
+    REQUIRE(client.requestHostResync(Netplay::ResyncReason::ObserverVisibilityRestore));
+    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync;
+    for(int step = 0; step < 200 && !pendingResync.has_value(); ++step) {
+        client.update(0);
+        host.update(0);
+        pendingResync = host.consumePendingHostResyncFrame();
+        if(!pendingResync.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
     REQUIRE(pendingResync.has_value());
     REQUIRE(pendingResync->frame == 112u);
-    REQUIRE(pendingResync->reason == Netplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_resume"));
+    REQUIRE(pendingResync->reason == Netplay::ResyncReason::ObserverVisibilityRestore);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Participant requested authoritative resync"));
 
     // Repeated stale packets must count as activity and must not trigger
     // additional suspend-timeout resync scheduling loops.
