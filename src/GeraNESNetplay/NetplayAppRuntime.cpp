@@ -886,7 +886,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     FrameNumber estimatedHostFrameFromClock = 0u;
     FrameNumber estimatedLagFrames = 0u;
 
-    constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 10u;
+    constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 2u;
     const RoomState& room = m_coordinator.session().roomState();
     if(room.lastAuthoritativeClockFrame != 0u &&
        room.lastAuthoritativeClockMicros != 0u &&
