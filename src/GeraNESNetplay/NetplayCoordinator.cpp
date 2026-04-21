@@ -328,7 +328,7 @@ void NetplayCoordinator::resetSessionState()
     m_incomingResync.reset();
     m_pendingResyncApply.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
-    m_implicitRecoveryMonitor.reset();
+    m_remoteInputStallMonitor.reset();
     m_pendingResyncAcks.clear();
     m_activeResyncTargetParticipantId = kInvalidParticipantId;
     m_activeResyncResumeState = SessionState::Lobby;
@@ -466,9 +466,9 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
     if(!m_pendingResyncAcks.empty()) {
         m_activeResyncAckDeadline = std::chrono::steady_clock::now() + kResyncAckTimeout;
     }
-    if(m_implicitRecoveryMonitor.pending().has_value() &&
-       m_implicitRecoveryMonitor.pending()->participantId == participantId) {
-        m_implicitRecoveryMonitor.reset();
+    if(m_remoteInputStallMonitor.pending().has_value() &&
+       m_remoteInputStallMonitor.pending()->participantId == participantId) {
+        m_remoteInputStallMonitor.reset();
     }
 
     if(m_activeResyncTargetParticipantId == participantId) {
@@ -1632,7 +1632,7 @@ void NetplayCoordinator::scheduleResyncRetry(FrameNumber targetFrame, const std:
     m_session.roomState().resyncInputSequenceBase = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
     m_activeResyncExpectedStateCrc32 = 0;
-    m_implicitRecoveryMonitor.reset();
+    m_remoteInputStallMonitor.reset();
     if(m_session.roomState().state == SessionState::Running ||
        m_session.roomState().state == SessionState::Resyncing) {
         m_session.roomState().state = SessionState::Running;
@@ -1804,7 +1804,7 @@ void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantI
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant == nullptr || !participant->connected || participantIsObserver(*participant)) return;
 
-    const auto update = m_implicitRecoveryMonitor.noteStall(
+    const auto update = m_remoteInputStallMonitor.noteStall(
         participantId,
         slot,
         frame,
@@ -1825,7 +1825,7 @@ void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantI
 
 void NetplayCoordinator::clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame)
 {
-    const auto update = m_implicitRecoveryMonitor.clearRecovered(participantId, recoveredThroughFrame);
+    const auto update = m_remoteInputStallMonitor.clearRecovered(participantId, recoveredThroughFrame);
     if(!update.cleared) return;
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
@@ -1843,7 +1843,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     if(m_session.roomState().state != SessionState::Running) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
-    const auto update = m_implicitRecoveryMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
+    const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
     if(!update.shouldScheduleResync) return;
 
     const FrameNumber resyncFrame =
@@ -2380,7 +2380,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
-    m_implicitRecoveryMonitor.reset();
+    m_remoteInputStallMonitor.reset();
     m_pendingResyncApply.reset();
     m_pendingResyncAcks.clear();
     m_activeResyncExpectedStateCrc32 = 0;
@@ -5394,7 +5394,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     }
     m_activeResyncExpectedStateCrc32 = targetedResync ? 0 : stateCrc32;
     if(!targetedResync) {
-        m_implicitRecoveryMonitor.reset();
+        m_remoteInputStallMonitor.reset();
     }
     m_pendingResyncAcks.clear();
     if(!targetedResync) {

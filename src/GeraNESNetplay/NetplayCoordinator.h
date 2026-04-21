@@ -13,7 +13,7 @@
 #include "GeraNES/InputBuffer.h"
 #include "GeraNES/Settings.h"
 #include "DesyncMonitor.h"
-#include "ImplicitStallRecoveryMonitor.h"
+#include "RemoteInputStallMonitor.h"
 #include "InputTimeline.h"
 #include "Diagnostics.h"
 #include "NetSerialization.h"
@@ -166,7 +166,7 @@ private:
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<PendingResyncApply> m_pendingResyncApply;
     std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
-    ImplicitStallRecoveryMonitor m_implicitRecoveryMonitor;
+    RemoteInputStallMonitor m_remoteInputStallMonitor;
     std::vector<ParticipantId> m_pendingResyncAcks;
     std::vector<ParticipantId> m_pendingSequenceResetParticipants;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};

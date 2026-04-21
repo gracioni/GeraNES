@@ -18,7 +18,7 @@
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/DesyncMonitor.h"
-#include "GeraNESNetplay/ImplicitStallRecoveryMonitor.h"
+#include "GeraNESNetplay/RemoteInputStallMonitor.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
@@ -334,9 +334,9 @@ TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives befor
     REQUIRE(mismatch.consecutiveMismatchCount == 1u);
 }
 
-TEST_CASE("Netplay implicit stall recovery monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
+TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
 {
-    Netplay::ImplicitStallRecoveryMonitor monitor;
+    Netplay::RemoteInputStallMonitor monitor;
 
     const auto stall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 181u, 4u);
     REQUIRE(stall.newlyTracked == true);

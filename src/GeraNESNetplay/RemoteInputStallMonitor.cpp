@@ -1,13 +1,13 @@
-#include "GeraNESNetplay/ImplicitStallRecoveryMonitor.h"
+#include "GeraNESNetplay/RemoteInputStallMonitor.h"
 
 namespace Netplay {
 
-void ImplicitStallRecoveryMonitor::reset()
+void RemoteInputStallMonitor::reset()
 {
     m_pending.reset();
 }
 
-ImplicitStallRecoveryMonitor::StallUpdate ImplicitStallRecoveryMonitor::noteStall(ParticipantId participantId,
+RemoteInputStallMonitor::StallUpdate RemoteInputStallMonitor::noteStall(ParticipantId participantId,
                                                                                   PlayerSlot slot,
                                                                                   FrameNumber frame,
                                                                                   uint32_t observedPeerHealthSerial)
@@ -27,7 +27,7 @@ ImplicitStallRecoveryMonitor::StallUpdate ImplicitStallRecoveryMonitor::noteStal
     return update;
 }
 
-ImplicitStallRecoveryMonitor::RecoveryUpdate ImplicitStallRecoveryMonitor::clearRecovered(ParticipantId participantId,
+RemoteInputStallMonitor::RecoveryUpdate RemoteInputStallMonitor::clearRecovered(ParticipantId participantId,
                                                                                           FrameNumber recoveredThroughFrame)
 {
     RecoveryUpdate update;
@@ -41,7 +41,7 @@ ImplicitStallRecoveryMonitor::RecoveryUpdate ImplicitStallRecoveryMonitor::clear
     return update;
 }
 
-ImplicitStallRecoveryMonitor::PeerHealthUpdate ImplicitStallRecoveryMonitor::onPeerHealth(ParticipantId participantId,
+RemoteInputStallMonitor::PeerHealthUpdate RemoteInputStallMonitor::onPeerHealth(ParticipantId participantId,
                                                                                           uint32_t peerHealthSerial)
 {
     PeerHealthUpdate update;
@@ -55,7 +55,7 @@ ImplicitStallRecoveryMonitor::PeerHealthUpdate ImplicitStallRecoveryMonitor::onP
     return update;
 }
 
-const std::optional<ImplicitStallRecoveryMonitor::PendingRecovery>& ImplicitStallRecoveryMonitor::pending() const
+const std::optional<RemoteInputStallMonitor::PendingRecovery>& RemoteInputStallMonitor::pending() const
 {
     return m_pending;
 }

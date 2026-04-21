@@ -6,7 +6,7 @@
 
 namespace Netplay {
 
-class ImplicitStallRecoveryMonitor
+class RemoteInputStallMonitor
 {
 public:
     struct PendingRecovery
