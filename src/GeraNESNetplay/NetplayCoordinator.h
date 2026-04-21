@@ -182,6 +182,7 @@ private:
     std::chrono::milliseconds m_remoteInputSuspendTimeout = std::chrono::milliseconds(1000);
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastRemoteInputAt;
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastPeerHealthAt;
+    std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_suspendedResumeFirstInputAt;
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_suspendedResumeLastInputAt;
     std::unordered_map<ParticipantId, uint32_t> m_suspendedResumeInputBurstCount;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;

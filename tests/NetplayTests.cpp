@@ -3057,6 +3057,7 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     staleResumedInput.frame = 116;
     staleResumedInput.sequence = 4;
     REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
@@ -3064,8 +3065,17 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     staleResumedInput.frame = 117;
     staleResumedInput.sequence = 5;
+    REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+    REQUIRE(hostRemote->inputSuspended);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    staleResumedInput.frame = 118;
+    staleResumedInput.sequence = 6;
     REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
 
     REQUIRE_FALSE(hostRemote->inputSuspended);
