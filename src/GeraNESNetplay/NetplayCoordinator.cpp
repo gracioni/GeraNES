@@ -3100,6 +3100,14 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
     oss << "Participant requested authoritative resync: " << participant->displayName
         << " reason " << resyncReasonLabel(data.reason)
         << " frame " << resyncFrame;
+    if(data.source != 0u) {
+        oss << " source " << data.source
+            << " localFrame " << data.localFrame
+            << " estimatedHostFrame " << data.estimatedHostFrame
+            << " lagFrames " << data.lagFrames
+            << " catchupBudget " << data.catchupBudgetFrames
+            << " confirmedThrough " << data.confirmedThroughFrame;
+    }
     pushLog(oss.str());
     return true;
 }
@@ -5593,6 +5601,13 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
 
 bool NetplayCoordinator::requestHostResync(ResyncReason reason)
 {
+    ResyncRequestData request;
+    request.reason = reason;
+    return requestHostResync(request);
+}
+
+bool NetplayCoordinator::requestHostResync(const ResyncRequestData& requestData)
+{
     if(m_hosting ||
        m_serverPeer == NetTransport::kInvalidPeerHandle ||
        !m_connected ||
@@ -5600,15 +5615,22 @@ bool NetplayCoordinator::requestHostResync(ResyncReason reason)
         return false;
     }
 
-    ResyncRequestData request;
+    ResyncRequestData request = requestData;
     request.participantId = m_localParticipantId;
-    request.reason = reason;
 
     {
         std::ostringstream oss;
         oss << "Requesting host resync"
-            << " reason " << resyncReasonLabel(reason)
+            << " reason " << resyncReasonLabel(request.reason)
             << " participant " << static_cast<unsigned>(m_localParticipantId);
+        if(request.source != 0u) {
+            oss << " source " << request.source
+                << " localFrame " << request.localFrame
+                << " estimatedHostFrame " << request.estimatedHostFrame
+                << " lagFrames " << request.lagFrames
+                << " catchupBudget " << request.catchupBudgetFrames
+                << " confirmedThrough " << request.confirmedThroughFrame;
+        }
         pushLog(oss.str());
     }
 

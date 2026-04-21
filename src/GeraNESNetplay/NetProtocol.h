@@ -283,6 +283,13 @@ struct ResyncRequestData
 {
     ParticipantId participantId = kInvalidParticipantId;
     ResyncReason reason = ResyncReason::Unspecified;
+    FrameNumber localFrame = 0;
+    FrameNumber estimatedHostFrame = 0;
+    FrameNumber confirmedThroughFrame = 0;
+    uint16_t lagFrames = 0;
+    uint16_t catchupBudgetFrames = 0;
+    uint16_t source = 0;
+    uint16_t flags = 0;
 };
 
 } // namespace Netplay

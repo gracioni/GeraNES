@@ -422,6 +422,7 @@ public:
     std::optional<PendingResyncApply> consumePendingResyncApply();
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
     bool requestHostResync(ResyncReason reason = ResyncReason::ObserverVisibilityRestore);
+    bool requestHostResync(const ResyncRequestData& request);
     bool selectRom(const std::string& gameName, const RomValidationData& romValidation);
     bool submitLocalRomValidation(bool romLoaded, bool romCompatible, const RomValidationData& romValidation);
     bool assignController(ParticipantId participantId, PlayerSlot slot);

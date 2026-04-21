@@ -944,7 +944,18 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         }
         m_sharedClockResyncRequestPending = false;
 
-        if(m_coordinator.requestHostResync(ResyncReason::ConfirmedDesync)) {
+        ResyncRequestData request;
+        request.reason = ResyncReason::ConfirmedDesync;
+        request.localFrame = localFrame;
+        request.estimatedHostFrame = estimatedHostFrameFromClock;
+        request.confirmedThroughFrame = confirmedThroughFrame;
+        request.lagFrames =
+            static_cast<uint16_t>(std::min<FrameNumber>(estimatedLagFrames, 0xffffu));
+        request.catchupBudgetFrames =
+            static_cast<uint16_t>(std::min<uint32_t>(maxFrames, 0xffffu));
+        request.source = 1u; // shared-clock catchup over budget
+
+        if(m_coordinator.requestHostResync(request)) {
             m_sharedClockResyncRequestPending = true;
             m_sharedClockResyncRequestEpoch = room.timelineEpoch;
             m_lastSharedClockResyncRequestAt = now;
