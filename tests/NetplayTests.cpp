@@ -2973,7 +2973,7 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     baselineContribution.p2Right = true;
     REQUIRE(host.injectInputFrameForTests(baselineRemoteInput, baselineContribution));
 
-    for(Netplay::FrameNumber frame = 101; frame <= 110; ++frame) {
+    for(Netplay::FrameNumber frame = 101; frame <= 111; ++frame) {
         host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0);
     }
     host.setLocalSimulationFrame(110);
@@ -2989,18 +2989,27 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
     REQUIRE(hostRemote->inputSuspended);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_timeout"));
 
-    // Ensure suspended synthesis can replace unresolved predicted inputs.
-    host.predictRemoteInputsForFrame(111u);
+    // The host may already be blocked waiting for the next playback frame when
+    // the timeout flips the participant into suspended-input mode. Building
+    // that frame must synthesize suspended remote input through the requested
+    // frame, not only through the previously observed simulation frame.
+    Netplay::NetplayCoordinator::ConfirmedFrameInputs firstSuspendedPlayback{};
+    REQUIRE(host.tryBuildPlaybackFrame(111, false, firstSuspendedPlayback));
+    REQUIRE_FALSE(firstSuspendedPlayback.predicted);
     REQUIRE(host.remoteInputs().find(111u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
 
-    host.recordLocalInputFrame(111, Netplay::kPort1PlayerSlot, 0);
+    // Ensure suspended synthesis can replace unresolved predicted inputs.
+    host.predictRemoteInputsForFrame(112u);
+    REQUIRE(host.remoteInputs().find(112u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+
+    host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);
     Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
-    REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
+    REQUIRE(host.tryBuildPlaybackFrame(112, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
-    REQUIRE(host.session().roomState().lastConfirmedFrame >= 111u);
+    REQUIRE(host.session().roomState().lastConfirmedFrame >= 112u);
 
-    host.setLocalSimulationFrame(111);
+    host.setLocalSimulationFrame(112);
     Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
     staleResumedInput.frame = 102;
     staleResumedInput.sequence = 2;
@@ -3011,14 +3020,14 @@ TEST_CASE("Netplay host keeps confirmed input flow during suspended client input
 
     // The host must keep advancing using synthetic suspended input while the
     // resumed participant is gated waiting for authoritative resync.
-    host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);
+    host.recordLocalInputFrame(113, Netplay::kPort1PlayerSlot, 0);
     Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
-    REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
+    REQUIRE(host.tryBuildPlaybackFrame(113, false, resumedWindowPlayback));
     REQUIRE_FALSE(resumedWindowPlayback.predicted);
 
     const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync = host.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 111u);
+    REQUIRE(pendingResync->frame == 112u);
     REQUIRE(pendingResync->reason == Netplay::ResyncReason::ConfirmedDesync);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_resume"));
 

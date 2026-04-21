@@ -4998,6 +4998,10 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
 
 bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame)
 {
+    if(m_hosting) {
+        synthesizeSuspendedRemoteInputsUpTo(frame);
+    }
+
     if(const ConfirmedFrameInputs* confirmed = findConfirmedFrame(frame)) {
         outFrame = *confirmed;
         outFrame.predicted = false;
