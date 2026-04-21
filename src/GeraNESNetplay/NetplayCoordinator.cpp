@@ -4838,6 +4838,31 @@ std::optional<ParticipantId> NetplayCoordinator::consumePendingHostLateJoinResyn
     return result;
 }
 
+bool NetplayCoordinator::hasRemoteInputRecoveryParticipant() const
+{
+    if(!m_hosting || m_session.roomState().state != SessionState::Running) {
+        return false;
+    }
+
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId || participantIsObserver(participant)) {
+            continue;
+        }
+
+        const bool participatesViaReservation =
+            !participant.connected && participant.reconnectReserved;
+        if(!participant.connected && !participatesViaReservation) {
+            continue;
+        }
+
+        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 const InputTimeline& NetplayCoordinator::localInputs() const
 {
     return m_localInputs;

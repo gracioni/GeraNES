@@ -396,6 +396,7 @@ public:
     void discardTimelineAfter(FrameNumber frame, bool preserveLocalInputs = false);
     std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
+    bool hasRemoteInputRecoveryParticipant() const;
     const InputTimeline& localInputs() const;
     const InputTimeline& remoteInputs() const;
     FrameNumber localSimulationFrame() const;

@@ -477,7 +477,10 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
 
     const uint32_t confirmedFrame = confirmedThroughFrame(coordinator);
     const uint32_t predictedThroughFrame = confirmedFrame + m_predictFrames;
-    const uint32_t playableThroughFrame = std::min(m_producedThroughFrame, predictedThroughFrame);
+    const uint32_t playableThroughFrame =
+        coordinator.hasRemoteInputRecoveryParticipant()
+            ? m_producedThroughFrame
+            : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
     const uint32_t firstFrame = emulationFrame + 1u;
     const uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
