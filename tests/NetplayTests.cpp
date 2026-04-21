@@ -2461,7 +2461,7 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
     host.disconnect();
 }
 
-TEST_CASE("Netplay host prediction-limit fallback does not wait for fresh peer health", "[netplay][prediction-limit][unit]")
+TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate resync", "[netplay][prediction-limit][unit]")
 {
     Netplay::NetplayCoordinator host;
     Netplay::NetplayCoordinator client;
@@ -2542,14 +2542,12 @@ TEST_CASE("Netplay host prediction-limit fallback does not wait for fresh peer h
     REQUIRE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
     REQUIRE(host.remoteInputs().find(181u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
-    REQUIRE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE(hostRemote->sequenceRebasePending);
 
     const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending =
         host.consumePendingHostResyncFrame();
-    REQUIRE(pending.has_value());
-    REQUIRE(pending->frame == 180u);
-    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(pending->participantId == hostRemote->id);
+    REQUIRE_FALSE(pending.has_value());
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
 
     host.disconnect();
@@ -2866,7 +2864,7 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
     client.disconnect();
 }
 
-TEST_CASE("Netplay host synthesizes confirmed input at prediction limit and targets resync",
+TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without immediate resync",
           "[netplay][prediction-limit][unit]")
 {
     Netplay::NetplayCoordinator host;
@@ -2973,22 +2971,20 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit and targ
 
     // The client stopped after frame 101. When playback reaches a frame where
     // prediction is no longer allowed, the host must synthesize confirmed input
-    // from the last known contribution and schedule a targeted resync instead
-    // of returning false and stopping simulation.
+    // from the last known contribution instead of returning false and stopping
+    // simulation. Desync detection can still request a resync later if needed.
     Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
     REQUIRE(playbackFrame.inputFrame.p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
-    REQUIRE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
+    REQUIRE(hostRemote->sequenceRebasePending);
     REQUIRE(host.remoteInputs().find(111u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
 
     const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         host.consumePendingHostResyncFrame();
-    REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 110u);
-    REQUIRE(pendingResync->reason == Netplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(pendingResync->participantId == hostRemote->id);
+    REQUIRE_FALSE(pendingResync.has_value());
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
 
     hostLocal->controllerAssignments.clear();
@@ -3024,8 +3020,8 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit and targ
     hostLocal->controllerAssignments = {Netplay::kPort1PlayerSlot};
     hostLocal->normalizeControllerAssignments();
 
-    // Subsequent frames keep using synthetic confirmed input while the client is
-    // gated waiting for its targeted authoritative resync.
+    // Subsequent frames keep using synthetic confirmed input without forcing a
+    // targeted authoritative resync for a brief background/minimize gap.
     host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);
     Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
     REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));

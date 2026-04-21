@@ -1923,20 +1923,15 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         return false;
     }
 
-    if(!participant.inputResumeAwaitingResync) {
+    if(!participant.sequenceRebasePending) {
         participant.inputSuspended = false;
-        participant.inputResumeAwaitingResync = true;
         participant.sequenceRebasePending = true;
-
-        const FrameNumber resyncFrame = m_localSimulationFrame;
-        queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant.id);
 
         std::ostringstream oss;
         oss << "Prediction limit fallback for " << participant.displayName
             << " frame " << targetFrame
             << " slot " << static_cast<unsigned>(slot) + 1u
-            << "; synthesized confirmed input and scheduled targeted resync from frame "
-            << resyncFrame
+            << "; synthesized confirmed input without immediate resync"
             << " classification=prediction_limit_fallback";
         pushLog(oss.str());
     }
