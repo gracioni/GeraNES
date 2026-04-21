@@ -354,7 +354,11 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
 
     const FrameNumber framesSinceAdjustment = currentFrame - m_lastAdjustmentFrame;
     const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
-    if(arrivalPressureScore >= 4u) {
+    const bool delayIncreaseSuppressed =
+        currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame;
+    if(delayIncreaseSuppressed) {
+        m_arrivalPressureStableFrames = 0;
+    } else if(arrivalPressureScore >= 4u) {
         m_arrivalPressureStableFrames += evaluationFrameSpan;
     } else {
         m_arrivalPressureStableFrames = 0;
@@ -363,7 +367,14 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
         severeArrivalPressure ||
         m_arrivalPressureStableFrames >= kEvaluationWindowFrames * 2u;
 
-    if(shouldIncrease && !cooldownActive) {
+    if(shouldIncrease && delayIncreaseSuppressed) {
+        m_lastDecisionReason =
+            "Suppressed delay increase during transient recovery window (arrival " +
+            std::to_string(static_cast<unsigned>(arrivalPressureScore)) +
+            ", blockedUntil " +
+            std::to_string(static_cast<unsigned>(room.autoTuneDelayIncreaseBlockedUntilFrame)) + ")";
+        return recommendations;
+    } else if(shouldIncrease && !cooldownActive) {
         const uint8_t increaseStep =
             (arrivalPressureScore >= 8u || missingInputStopDelta > 0u) ? 2u : 1u;
         const uint8_t targetDelay =

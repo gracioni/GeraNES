@@ -1851,6 +1851,11 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
             ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
             : m_localSimulationFrame;
 
+    m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
+        std::max<FrameNumber>(
+            m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
+            m_localSimulationFrame + 600u
+        );
     queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
 
     std::ostringstream oss;
@@ -1926,6 +1931,11 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     if(!participant.sequenceRebasePending) {
         participant.inputSuspended = false;
         participant.sequenceRebasePending = true;
+        m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
+            std::max<FrameNumber>(
+                m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
+                m_localSimulationFrame + 600u
+            );
 
         std::ostringstream oss;
         oss << "Prediction limit fallback for " << participant.displayName
@@ -3071,6 +3081,13 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
         data.reason == ResyncReason::ObserverVisibilityRestore && participantIsObserver(*participant)
             ? participant->id
             : kInvalidParticipantId;
+    if(data.reason == ResyncReason::ConfirmedDesync) {
+        m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
+            std::max<FrameNumber>(
+                m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
+                m_localSimulationFrame + 600u
+            );
+    }
     queuePendingHostResync(resyncFrame, data.reason, targetParticipantId);
 
     std::ostringstream oss;

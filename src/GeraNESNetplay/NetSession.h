@@ -85,6 +85,7 @@ struct RoomState
     uint64_t sharedClockRttMicros = 0;
     int64_t sharedClockOffsetMicros = 0;
     bool sharedClockSynchronized = false;
+    FrameNumber autoTuneDelayIncreaseBlockedUntilFrame = 0;
     RecoveryInputMode recoveryInputMode = RecoveryInputMode::Normal;
     uint32_t recoveryModeTransitionCount = 0;
     uint32_t inputsDroppedDuringRecovery = 0;
