@@ -337,20 +337,18 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
     }
 
     const uint32_t arrivalPressureScore =
-        (predictionLimitStopDelta * 3u) +
         (missingInputStopDelta * 5u) +
-        (unresolvedPredictedRemoteFrameCount >= 4u
-             ? 3u + (unresolvedPredictedRemoteFrameCount / 2u)
-             : 0u) +
         (recoveringAssignedPeer ? 3u : 0u);
     const uint32_t correctionPressureScore =
+        (predictionLimitStopDelta * 3u) +
         (predictionMissDelta * 2u) +
         (rollbackScheduledDelta * 2u) +
+        (unresolvedPredictedRemoteFrameCount >= 4u
+             ? 1u + (unresolvedPredictedRemoteFrameCount / 2u)
+             : 0u) +
         (playbackStopDelta > 0u ? 1u : 0u);
     const bool severeArrivalPressure =
-        missingInputStopDelta > 0u ||
-        predictionLimitStopDelta > 0u ||
-        unresolvedPredictedRemoteFrameCount >= 6u;
+        missingInputStopDelta > 0u;
 
     const FrameNumber framesSinceAdjustment = currentFrame - m_lastAdjustmentFrame;
     const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
