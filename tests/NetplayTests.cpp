@@ -3675,7 +3675,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay coordinator logs confirmed CRC mismatch classification before host resync scheduling", "[netplay][crc][classification][unit]")
+TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before host resync scheduling", "[netplay][crc][classification][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
     bool hosted = false;
@@ -3700,9 +3700,19 @@ TEST_CASE("Netplay coordinator logs confirmed CRC mismatch classification before
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
-    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "CRC mismatch below hard-resync threshold"));
+    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
+        coordinator.consumePendingHostResyncFrame();
+    REQUIRE_FALSE(pendingResync.has_value());
+
+    coordinator.submitLocalCrc(230u, 0x33333333u);
+    report.frame = 230u;
+    report.crc32 = 0x44444444u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    pendingResync = coordinator.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 200u);
+    REQUIRE(pendingResync->frame == 230u);
 
     coordinator.disconnect();
 }

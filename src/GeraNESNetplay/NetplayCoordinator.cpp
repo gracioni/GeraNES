@@ -31,6 +31,7 @@ constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 2;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
+constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 2;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -2191,6 +2192,16 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         return;
     }
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
+    if(update.consecutiveMismatchCount < kConfirmedDesyncResyncMismatchThreshold) {
+        std::ostringstream wait;
+        wait << "CRC mismatch below hard-resync threshold consecutive="
+             << static_cast<uint32_t>(update.consecutiveMismatchCount)
+             << " required="
+             << static_cast<uint32_t>(kConfirmedDesyncResyncMismatchThreshold)
+             << "; waiting for next confirmed CRC checkpoint";
+        pushLog(wait.str());
+        return;
+    }
     queuePendingHostResync(update.frame, ResyncReason::ConfirmedDesync);
 }
 
