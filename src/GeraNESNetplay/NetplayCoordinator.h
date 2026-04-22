@@ -157,6 +157,9 @@ private:
     RollbackStats m_predictionStats;
     std::optional<FrameNumber> m_pendingRollbackFrame;
     std::optional<PendingHostResyncRequest> m_pendingHostResyncFrame;
+    std::chrono::steady_clock::time_point m_lastHostResyncRequestSentAt = {};
+    ResyncReason m_lastHostResyncRequestSentReason = ResyncReason::Unspecified;
+    uint16_t m_lastHostResyncRequestSentSource = 0;
     FrameNumber m_lastBroadcastConfirmedFrame = 0;
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     DesyncMonitor m_desyncMonitor;

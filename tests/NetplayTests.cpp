@@ -18,7 +18,7 @@
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/DesyncMonitor.h"
-#include "GeraNESNetplay/HostStallDetector.h"
+#include "GeraNESNetplay/SelfStallDetector.h"
 #include "GeraNESNetplay/RemoteInputStallMonitor.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
@@ -352,10 +352,11 @@ TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer he
 
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
 {
-    Netplay::HostStallDetector detector;
-    Netplay::HostStallDetector::Snapshot snapshot;
+    Netplay::SelfStallDetector detector;
+    Netplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = true;
+    snapshot.role = Netplay::SelfStallDetector::Role::Host;
     snapshot.sessionState = Netplay::SessionState::Running;
     snapshot.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 4u;
@@ -374,7 +375,7 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
 
     update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
     REQUIRE(update.shouldResync);
-    REQUIRE(update.detail.find("host_progress_stall") != std::string::npos);
+    REQUIRE(update.detail.find("self_progress_stall") != std::string::npos);
 
     update = detector.update(snapshot, start + std::chrono::milliseconds(3000));
     REQUIRE_FALSE(update.shouldResync);
@@ -387,6 +388,32 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     REQUIRE_FALSE(update.shouldResync);
 
     update = detector.update(snapshot, start + std::chrono::milliseconds(8201));
+    REQUIRE(update.shouldResync);
+}
+
+TEST_CASE("Netplay self stall detector triggers on client freeze even if remote progress advances", "[netplay][host-stall][client][unit]")
+{
+    Netplay::SelfStallDetector detector;
+    Netplay::SelfStallDetector::Snapshot snapshot;
+    snapshot.active = true;
+    snapshot.hosting = false;
+    snapshot.role = Netplay::SelfStallDetector::Role::Client;
+    snapshot.sessionState = Netplay::SessionState::Running;
+    snapshot.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    snapshot.timelineEpoch = 2u;
+    snapshot.connectedRemoteParticipantCount = 1u;
+    snapshot.localSimulationFrame = 300u;
+    snapshot.confirmedFrame = 296u;
+    snapshot.maxRemoteReportedCurrentFrame = 305u;
+    snapshot.maxRemoteReportedConfirmedFrame = 304u;
+
+    const auto start = std::chrono::steady_clock::now();
+    auto update = detector.update(snapshot, start);
+    REQUIRE_FALSE(update.shouldResync);
+
+    snapshot.maxRemoteReportedCurrentFrame = 330u;
+    snapshot.maxRemoteReportedConfirmedFrame = 325u;
+    update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
     REQUIRE(update.shouldResync);
 }
 

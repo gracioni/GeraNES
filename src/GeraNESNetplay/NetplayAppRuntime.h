@@ -16,7 +16,7 @@
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
-#include "GeraNESNetplay/HostStallDetector.h"
+#include "GeraNESNetplay/SelfStallDetector.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
@@ -134,7 +134,7 @@ private:
     IEmulationHost& m_emuHost;
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
-    HostStallDetector m_hostStallDetector;
+    SelfStallDetector m_selfStallDetector;
     NetplayAutoTune m_autoSettings;
     FramePacingDiagnostics m_framePacingDiagnostics;
 

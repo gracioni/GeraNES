@@ -27,6 +27,7 @@ constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
 constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
+constexpr auto kClientResyncRequestCooldown = std::chrono::milliseconds(1500);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
@@ -278,6 +279,7 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
         case ResyncReason::HostReset: return "Owner reset the game";
         case ResyncReason::HostLoadedState: return "Owner loaded state";
         case ResyncReason::HostStallRecovery: return "Host stall recovery";
+        case ResyncReason::ClientStallRecovery: return "Client stall recovery";
         default: return {};
     }
 }
@@ -289,6 +291,7 @@ static const char* resyncReasonLabel(ResyncReason reason)
         case ResyncReason::InitialSessionSync: return "InitialSessionSync";
         case ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
         case ResyncReason::HostStallRecovery: return "HostStallRecovery";
+        case ResyncReason::ClientStallRecovery: return "ClientStallRecovery";
         case ResyncReason::AssignmentChanged: return "AssignmentChanged";
         case ResyncReason::ManualForce: return "ManualForce";
         case ResyncReason::HostReset: return "HostReset";
@@ -372,13 +375,21 @@ void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason 
         return;
     }
 
-    if(frame == m_pendingHostResyncFrame->frame &&
-       m_pendingHostResyncFrame->reason == ResyncReason::Unspecified) {
+    if(frame != m_pendingHostResyncFrame->frame) {
+        return;
+    }
+
+    if(m_pendingHostResyncFrame->reason == ResyncReason::Unspecified) {
+        m_pendingHostResyncFrame->reason = reason;
+    } else if(reason == ResyncReason::HostStallRecovery) {
+        m_pendingHostResyncFrame->reason = reason;
+    } else if(reason == ResyncReason::ClientStallRecovery &&
+              m_pendingHostResyncFrame->reason != ResyncReason::HostStallRecovery) {
         m_pendingHostResyncFrame->reason = reason;
     }
-    if(frame == m_pendingHostResyncFrame->frame &&
-       m_pendingHostResyncFrame->participantId == kInvalidParticipantId) {
-        m_pendingHostResyncFrame->participantId = participantId;
+
+    if(participantId == kInvalidParticipantId) {
+        m_pendingHostResyncFrame->participantId = kInvalidParticipantId;
     }
 }
 
@@ -5721,6 +5732,13 @@ bool NetplayCoordinator::requestHostResync(const ResyncRequestData& requestData)
 
     ResyncRequestData request = requestData;
     request.participantId = m_localParticipantId;
+    const auto now = std::chrono::steady_clock::now();
+    if(m_lastHostResyncRequestSentAt.time_since_epoch().count() != 0 &&
+       now - m_lastHostResyncRequestSentAt < kClientResyncRequestCooldown &&
+       m_lastHostResyncRequestSentReason == request.reason &&
+       m_lastHostResyncRequestSentSource == request.source) {
+        return true;
+    }
 
     {
         std::ostringstream oss;
@@ -5742,7 +5760,14 @@ bool NetplayCoordinator::requestHostResync(const ResyncRequestData& requestData)
         pushLog(oss.str());
     }
 
-    return m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncRequestPacket(request));
+    const bool sent =
+        m_transport.sendReliable(m_serverPeer, Channel::Control, buildResyncRequestPacket(request));
+    if(sent) {
+        m_lastHostResyncRequestSentAt = now;
+        m_lastHostResyncRequestSentReason = request.reason;
+        m_lastHostResyncRequestSentSource = request.source;
+    }
+    return sent;
 }
 
 bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlot slot)

@@ -781,9 +781,12 @@ void NetplayAppRuntime::processHostStallIfNeededOnWorker(GeraNESEmu& emu)
 {
     const auto& room = m_coordinator.session().roomState();
 
-    HostStallDetector::Snapshot snapshot;
+    SelfStallDetector::Snapshot snapshot;
     snapshot.active = m_coordinator.isActive();
     snapshot.hosting = m_coordinator.isHosting();
+    snapshot.role = m_coordinator.isHosting()
+        ? SelfStallDetector::Role::Host
+        : SelfStallDetector::Role::Client;
     snapshot.sessionState = room.state;
     snapshot.recoveryInputMode = room.recoveryInputMode;
     snapshot.timelineEpoch = room.timelineEpoch;
@@ -805,25 +808,49 @@ void NetplayAppRuntime::processHostStallIfNeededOnWorker(GeraNESEmu& emu)
             std::max(snapshot.maxRemoteReportedConfirmedFrame, participant.lastReportedConfirmedFrame);
     }
 
-    const HostStallDetector::UpdateResult update =
-        m_hostStallDetector.update(snapshot, std::chrono::steady_clock::now());
+    const SelfStallDetector::UpdateResult update =
+        m_selfStallDetector.update(snapshot, std::chrono::steady_clock::now());
     if(!update.shouldResync) {
         return;
     }
 
-    m_coordinator.appendNetplayLog(
-        "Host stall detector triggered authoritative resync " + update.detail
-    );
-    const FrameNumber authoritativeFrame = emu.frameCount();
-    const std::vector<uint8_t> statePayload =
-        buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
-    beginAuthoritativeResync(
-        emu,
-        authoritativeFrame,
-        statePayload,
-        false,
-        ResyncReason::HostStallRecovery
-    );
+    if(m_coordinator.isHosting()) {
+        m_coordinator.appendNetplayLog(
+            "Self stall detector triggered authoritative resync " + update.detail
+        );
+        const FrameNumber authoritativeFrame = emu.frameCount();
+        const std::vector<uint8_t> statePayload =
+            buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
+        beginAuthoritativeResync(
+            emu,
+            authoritativeFrame,
+            statePayload,
+            false,
+            ResyncReason::HostStallRecovery
+        );
+        return;
+    }
+
+    ResyncRequestData request;
+    request.reason = ResyncReason::ClientStallRecovery;
+    request.localFrame = emu.frameCount();
+    request.estimatedHostFrame = room.currentFrame;
+    request.confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    request.lagFrames =
+        static_cast<uint16_t>(
+            std::min<FrameNumber>(
+                room.currentFrame > request.localFrame ? (room.currentFrame - request.localFrame) : 0u,
+                0xffffu
+            )
+        );
+    request.catchupBudgetFrames = room.predictFrames;
+    request.source = 3u; // self stall detector
+
+    if(m_coordinator.requestHostResync(request)) {
+        m_coordinator.appendNetplayLog(
+            "Self stall detector requested host resync " + update.detail
+        );
+    }
 }
 
 void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
@@ -1697,7 +1724,7 @@ void NetplayAppRuntime::disconnect()
     enqueueCommand([](NetplayAppRuntime& self, GeraNESEmu& emu) {
         self.m_coordinator.disconnect();
         self.m_inputDriver.reset();
-        self.m_hostStallDetector.reset();
+        self.m_selfStallDetector.reset();
         self.ensureStandaloneInputBootstrapFrame(emu);
         self.m_runtimeLastTickTime = {};
         self.m_webVisibilityManagedPause = false;
@@ -1913,7 +1940,7 @@ void NetplayAppRuntime::shutdown()
     m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
-    m_hostStallDetector.reset();
+    m_selfStallDetector.reset();
     m_coordinator.disconnect();
 }
 
@@ -1927,7 +1954,7 @@ void NetplayAppRuntime::shutdownForUnload()
     m_webVisibilityManagedPause = false;
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
-    m_hostStallDetector.reset();
+    m_selfStallDetector.reset();
     m_coordinator.shutdownForUnload();
 }
 
@@ -1954,7 +1981,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_runtimeActive.store(false, std::memory_order_release);
         m_runtimeRunning.store(false, std::memory_order_release);
         m_inputDriver.reset();
-        m_hostStallDetector.reset();
+        m_selfStallDetector.reset();
         m_runtimeLastTickTime = {};
         m_lastSelectedRomKey.clear();
         m_lastSubmittedValidationKey.clear();

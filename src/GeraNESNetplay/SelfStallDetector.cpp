@@ -1,18 +1,18 @@
-#include "GeraNESNetplay/HostStallDetector.h"
+#include "GeraNESNetplay/SelfStallDetector.h"
 
 #include <algorithm>
 #include <sstream>
 
 namespace Netplay {
 
-void HostStallDetector::reset()
+void SelfStallDetector::reset()
 {
     m_progressBaseline.reset();
     m_lastProgressAt = {};
     m_cooldownUntil = {};
 }
 
-HostStallDetector::UpdateResult HostStallDetector::update(const Snapshot& snapshot,
+SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapshot,
                                                           std::chrono::steady_clock::time_point now)
 {
     UpdateResult result;
@@ -47,7 +47,7 @@ HostStallDetector::UpdateResult HostStallDetector::update(const Snapshot& snapsh
     }
 
     std::ostringstream oss;
-    oss << "host_progress_stall"
+    oss << "self_progress_stall"
         << " stalledMs=" << stalledFor.count()
         << " localFrame=" << current.localSimulationFrame
         << " confirmedFrame=" << current.confirmedFrame
@@ -67,10 +67,9 @@ HostStallDetector::UpdateResult HostStallDetector::update(const Snapshot& snapsh
     return result;
 }
 
-bool HostStallDetector::isEligible(const Snapshot& snapshot)
+bool SelfStallDetector::isEligible(const Snapshot& snapshot)
 {
     return snapshot.active &&
-           snapshot.hosting &&
            snapshot.sessionState == SessionState::Running &&
            snapshot.recoveryInputMode == RecoveryInputMode::Normal &&
            snapshot.activeResyncId == 0 &&
@@ -78,7 +77,7 @@ bool HostStallDetector::isEligible(const Snapshot& snapshot)
            snapshot.connectedRemoteParticipantCount > 0;
 }
 
-HostStallDetector::ProgressSample HostStallDetector::makeSample(const Snapshot& snapshot)
+SelfStallDetector::ProgressSample SelfStallDetector::makeSample(const Snapshot& snapshot)
 {
     return ProgressSample{
         snapshot.timelineEpoch,
@@ -91,15 +90,13 @@ HostStallDetector::ProgressSample HostStallDetector::makeSample(const Snapshot& 
     };
 }
 
-bool HostStallDetector::hasForwardProgress(const ProgressSample& baseline, const ProgressSample& current)
+bool SelfStallDetector::hasForwardProgress(const ProgressSample& baseline, const ProgressSample& current)
 {
     return current.localSimulationFrame > baseline.localSimulationFrame ||
-           current.confirmedFrame > baseline.confirmedFrame ||
-           current.maxRemoteReportedCurrentFrame > baseline.maxRemoteReportedCurrentFrame ||
-           current.maxRemoteReportedConfirmedFrame > baseline.maxRemoteReportedConfirmedFrame;
+           current.confirmedFrame > baseline.confirmedFrame;
 }
 
-uint32_t HostStallDetector::churnSince(const ProgressSample& baseline, const ProgressSample& current)
+uint32_t SelfStallDetector::churnSince(const ProgressSample& baseline, const ProgressSample& current)
 {
     const uint32_t playbackStopDelta = current.playbackStopCount - baseline.playbackStopCount;
     const uint32_t rollbackScheduledDelta =
