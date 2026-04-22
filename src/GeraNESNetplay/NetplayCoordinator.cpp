@@ -2277,8 +2277,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                 entry.sequence = inputSequenceBase;
             }
             preserved.push_back(std::move(entry));
-            break;
+            return true;
         }
+        return false;
     };
 
     if(preserveConfirmedInputs) {
@@ -2287,15 +2288,41 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
 
             for(PlayerSlot slot : participantAssignments(participant)) {
                 if(participant.id == m_localParticipantId) {
-                    preserveLatestConfirmedInput(m_localInputs,
-                                                 participant.id,
-                                                 slot,
-                                                 preservedLocalInputs);
+                    if(!preserveLatestConfirmedInput(m_localInputs,
+                                                     participant.id,
+                                                     slot,
+                                                     preservedLocalInputs)) {
+                        TimelineInputEntry entry;
+                        entry.frame = loadedFrame;
+                        entry.participantId = participant.id;
+                        entry.playerSlot = slot;
+                        entry.buttonMaskLo = 0;
+                        entry.buttonMaskHi = 0;
+                        entry.inputFrame =
+                            makeContributionBase(makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState()));
+                        entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
+                        entry.predicted = false;
+                        entry.confirmed = true;
+                        preservedLocalInputs.push_back(std::move(entry));
+                    }
                 } else {
-                    preserveLatestConfirmedInput(m_remoteInputs,
-                                                 participant.id,
-                                                 slot,
-                                                 preservedRemoteInputs);
+                    if(!preserveLatestConfirmedInput(m_remoteInputs,
+                                                     participant.id,
+                                                     slot,
+                                                     preservedRemoteInputs)) {
+                        TimelineInputEntry entry;
+                        entry.frame = loadedFrame;
+                        entry.participantId = participant.id;
+                        entry.playerSlot = slot;
+                        entry.buttonMaskLo = 0;
+                        entry.buttonMaskHi = 0;
+                        entry.inputFrame =
+                            makeContributionBase(makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState()));
+                        entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
+                        entry.predicted = false;
+                        entry.confirmed = true;
+                        preservedRemoteInputs.push_back(std::move(entry));
+                    }
                 }
             }
         }
