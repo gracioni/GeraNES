@@ -1759,7 +1759,13 @@ void NetplayAppRuntime::configureInputAssignments(ParticipantId participantId,
         const FrameNumber authoritativeFrame = emu.frameCount();
         const std::vector<uint8_t> statePayload =
             self.buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
-        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false);
+        self.beginAuthoritativeResync(
+            emu,
+            authoritativeFrame,
+            statePayload,
+            false,
+            ResyncReason::AssignmentChanged
+        );
     });
 }
 
@@ -1788,7 +1794,13 @@ void NetplayAppRuntime::requestForceResync()
         const FrameNumber authoritativeFrame = emu.frameCount();
         const std::vector<uint8_t> statePayload =
             self.buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
-        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false);
+        self.beginAuthoritativeResync(
+            emu,
+            authoritativeFrame,
+            statePayload,
+            false,
+            ResyncReason::ManualForce
+        );
     });
 }
 
