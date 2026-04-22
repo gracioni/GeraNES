@@ -74,6 +74,7 @@ enum class ResyncReason : uint8_t
     Unspecified = 0,
     InitialSessionSync,
     ConfirmedDesync,
+    HostStallRecovery,
     AssignmentChanged,
     ManualForce,
     HostReset,
