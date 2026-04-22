@@ -161,6 +161,16 @@ std::string controllerAssignmentToast(Netplay::PlayerSlot slot,
     return Netplay::inputAssignmentLabel(slot, room) + " assigned to " + participantName;
 }
 
+std::string participantJoinedToast(const Netplay::ParticipantInfo& participant)
+{
+    return participantLabel(participant) + " joined";
+}
+
+std::string participantReconnectedToast(const Netplay::ParticipantInfo& participant)
+{
+    return participantLabel(participant) + " reconnected";
+}
+
 Netplay::AssignControllerData makeAssignControllerData(const Netplay::ParticipantInfo& participant)
 {
     Netplay::AssignControllerData data;
@@ -2703,10 +2713,10 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
             seedNeutralInputBaseline(data.participantId, slot, assignmentBaselineFrame);
         }
         if(participant->controllerAssignments.empty()) {
-            pushLog(controllerAssignmentToast(kObserverPlayerSlot, m_session.roomState(), participantLabel(*participant)));
+            pushToast(controllerAssignmentToast(kObserverPlayerSlot, m_session.roomState(), participantLabel(*participant)));
         } else {
             for(PlayerSlot slot : participant->controllerAssignments) {
-                pushLog(controllerAssignmentToast(slot, m_session.roomState(), participantLabel(*participant)));
+                pushToast(controllerAssignmentToast(slot, m_session.roomState(), participantLabel(*participant)));
             }
         }
         return true;
@@ -3977,7 +3987,11 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         << " (id " << static_cast<int>(participant.id) << ")";
     pushLog(oss.str());
     if(reusedReconnectReservation || !replacingActivePeer) {
-        pushToast(participantLabel(participant) + " joined");
+        pushToast(
+            (reusedReconnectReservation || replacingActivePeer)
+                ? participantReconnectedToast(participant)
+                : participantJoinedToast(participant)
+        );
     }
     return true;
 }
@@ -4053,13 +4067,15 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
 
     if(isNewParticipant && participantId != m_localParticipantId) {
         if(!suppressPresenceToast) {
-            pushToast(participantLabel(participant) + " joined");
+            pushToast(participantJoinedToast(participant));
         }
         pushLog("Participant active: " + participant.displayName + " (id " + std::to_string(static_cast<int>(participant.id)) + ")");
     } else if((participant.connected != wasConnected || participant.reconnectReserved != wasReserved) &&
               participantId != m_localParticipantId) {
         if(!participant.connected && participant.reconnectReserved) {
             pushToast(participantLabel(participant) + " left (reserved)");
+        } else if(participant.connected && (wasReserved || !wasConnected)) {
+            pushToast(participantReconnectedToast(participant));
         } else {
             std::ostringstream oss;
             oss << (participant.connected ? "Participant active: " : "Participant inactive: ")
@@ -5876,7 +5892,7 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     }
 
     for(const auto& [assignedSlot, participantName] : assignmentToasts) {
-        pushLog(controllerAssignmentToast(assignedSlot, m_session.roomState(), participantName));
+        pushToast(controllerAssignmentToast(assignedSlot, m_session.roomState(), participantName));
     }
 
     return true;
@@ -5932,7 +5948,7 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         pushLog("Controller assignment changed; scheduling automatic resync");
     }
 
-    pushLog(controllerAssignmentToast(
+    pushToast(controllerAssignmentToast(
         participantIsObserver(*participant) ? kObserverPlayerSlot : participant->controllerAssignment,
         m_session.roomState(),
         participantLabel(*participant)
