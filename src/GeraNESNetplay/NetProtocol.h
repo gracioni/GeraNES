@@ -292,4 +292,8 @@ struct ResyncRequestData
     uint16_t flags = 0;
 };
 
+constexpr uint16_t kResyncRequestFlagRollbackReplayBuildFailure = 1u << 0;
+constexpr uint16_t kResyncRequestFlagRollbackReplayEnqueueFailure = 1u << 1;
+constexpr uint16_t kResyncRequestFlagRollbackReplayAdvanceFailure = 1u << 2;
+
 } // namespace Netplay

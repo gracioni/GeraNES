@@ -1085,7 +1085,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     }
 
     const uint32_t rollbackFromFrame = currentFrame;
-    const auto requestRollbackRecoveryResync = [&](const std::string& message) {
+    const auto requestRollbackRecoveryResync = [&](const std::string& message, uint16_t requestFlags = 0u) {
         m_coordinator.appendNetplayLog(message);
         if(m_coordinator.isHosting()) {
             return;
@@ -1099,6 +1099,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         request.lagFrames = 0;
         request.catchupBudgetFrames = 0;
         request.source = 2u; // rollback resimulation failed
+        request.flags = requestFlags;
         (void)m_coordinator.requestHostResync(request);
     };
 
@@ -1134,7 +1135,11 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = shouldAllowPredictionForFrame(nextFrame);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
-            requestRollbackRecoveryResync("Netplay resimulation failed");
+            requestRollbackRecoveryResync(
+                "Netplay resimulation failed: could not build playback frame " +
+                std::to_string(nextFrame),
+                kResyncRequestFlagRollbackReplayBuildFailure
+            );
             return;
         }
 
@@ -1146,14 +1151,16 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
            enqueueResult != InputBuffer::EnqueueResult::UpdatedPending) {
             requestRollbackRecoveryResync(
                 "Netplay resimulation failed: rejected playback enqueue at frame " +
-                std::to_string(nextFrame)
+                std::to_string(nextFrame),
+                kResyncRequestFlagRollbackReplayEnqueueFailure
             );
             return;
         }
         if(!emu.updateUntilFrame(frameDt, true)) {
             requestRollbackRecoveryResync(
                 "Netplay resimulation failed: emulator did not advance at frame " +
-                std::to_string(nextFrame)
+                std::to_string(nextFrame),
+                kResyncRequestFlagRollbackReplayAdvanceFailure
             );
             return;
         }

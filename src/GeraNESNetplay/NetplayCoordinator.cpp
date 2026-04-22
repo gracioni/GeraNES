@@ -1057,6 +1057,38 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncRequestPacket(const ResyncRe
     return writer.data();
 }
 
+namespace {
+std::string resyncRequestFlagsLabel(uint16_t flags)
+{
+    if(flags == 0u) {
+        return {};
+    }
+
+    std::string label;
+    const auto append = [&](const char* value) {
+        if(!label.empty()) {
+            label += ",";
+        }
+        label += value;
+    };
+
+    if((flags & kResyncRequestFlagRollbackReplayBuildFailure) != 0u) {
+        append("rollback_replay_build_failure");
+    }
+    if((flags & kResyncRequestFlagRollbackReplayEnqueueFailure) != 0u) {
+        append("rollback_replay_enqueue_failure");
+    }
+    if((flags & kResyncRequestFlagRollbackReplayAdvanceFailure) != 0u) {
+        append("rollback_replay_advance_failure");
+    }
+
+    if(label.empty()) {
+        label = "unknown_flags_" + std::to_string(flags);
+    }
+    return label;
+}
+}
+
 std::vector<uint8_t> NetplayCoordinator::buildClockSyncRequestPacket(const ClockSyncRequestData& data) const
 {
     PacketWriter writer;
@@ -3149,6 +3181,10 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
             << " lagFrames " << data.lagFrames
             << " catchupBudget " << data.catchupBudgetFrames
             << " confirmedThrough " << data.confirmedThroughFrame;
+        if(data.flags != 0u) {
+            oss << " flags " << data.flags
+                << " detail " << resyncRequestFlagsLabel(data.flags);
+        }
     }
     pushLog(oss.str());
     return true;
@@ -5669,6 +5705,10 @@ bool NetplayCoordinator::requestHostResync(const ResyncRequestData& requestData)
                 << " lagFrames " << request.lagFrames
                 << " catchupBudget " << request.catchupBudgetFrames
                 << " confirmedThrough " << request.confirmedThroughFrame;
+            if(request.flags != 0u) {
+                oss << " flags " << request.flags
+                    << " detail " << resyncRequestFlagsLabel(request.flags);
+            }
         }
         pushLog(oss.str());
     }

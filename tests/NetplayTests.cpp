@@ -2927,6 +2927,105 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
     client.disconnect();
 }
 
+TEST_CASE("Rollback recovery resync request detail reaches host log",
+          "[netplay][resync-request][rollback][detail][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 120 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.session().roomState().participants.size() >= 2u &&
+            client.session().roomState().participants.size() >= 2u &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.selectedGameName = "RollbackFailure";
+    clientRoom.selectedGameName = "RollbackFailure";
+    hostRoom.timelineEpoch = 3u;
+    clientRoom.timelineEpoch = 3u;
+    hostRoom.currentFrame = 240u;
+    clientRoom.currentFrame = 238u;
+    hostRoom.lastConfirmedFrame = 240u;
+    clientRoom.lastConfirmedFrame = 240u;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(242);
+    client.setLocalSimulationFrame(238);
+
+    Netplay::ResyncRequestData request;
+    request.reason = Netplay::ResyncReason::ConfirmedDesync;
+    request.localFrame = 238u;
+    request.confirmedThroughFrame = 240u;
+    request.source = 2u;
+    request.flags = Netplay::kResyncRequestFlagRollbackReplayEnqueueFailure;
+    REQUIRE(client.requestHostResync(request));
+
+    bool received = false;
+    for(int step = 0; step < 120 && !received; ++step) {
+        client.update(0);
+        host.update(0);
+        const auto pending = host.consumePendingHostResyncFrame();
+        if(pending.has_value()) {
+            REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+            REQUIRE(anyLogLineContains(host.eventLog(), "source 2"));
+            REQUIRE(anyLogLineContains(host.eventLog(), "detail rollback_replay_enqueue_failure"));
+            received = true;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(received);
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {
