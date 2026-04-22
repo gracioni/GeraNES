@@ -925,11 +925,29 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
         const auto now = std::chrono::steady_clock::now();
         const FrameNumber localFrame = emu.frameCount();
+        const FrameNumber confirmedLagFrames =
+            confirmedThroughFrame > localFrame ? (confirmedThroughFrame - localFrame) : 0u;
 
         if(m_sharedClockLagOverBudgetSince.time_since_epoch().count() == 0 ||
            estimatedLagFrames <= maxFrames) {
             m_sharedClockLagOverBudgetSince = now;
             m_sharedClockLagOverBudgetSinceFrame = localFrame;
+        }
+
+        if(confirmedLagFrames <= maxFrames) {
+            m_sharedClockLagOverBudgetSince = {};
+            m_sharedClockLagOverBudgetSinceFrame = 0;
+            if(localFrame >= m_lastSharedClockConfirmedLagWaitLogFrame + 300u) {
+                m_lastSharedClockConfirmedLagWaitLogFrame = localFrame;
+                std::ostringstream oss;
+                oss << "Netplay shared-clock catchup over budget but confirmed input is not far enough ahead"
+                    << " lag " << estimatedLagFrames
+                    << " confirmedLag " << confirmedLagFrames
+                    << " budget " << maxFrames
+                    << "; waiting instead of requesting resync";
+                m_coordinator.appendNetplayLog(oss.str());
+            }
+            return 0u;
         }
 
         const bool lagPersisted =

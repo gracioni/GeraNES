@@ -160,6 +160,7 @@ private:
     FrameNumber m_lastRecoveryReanchorFrame = 0;
     FrameNumber m_sharedClockLagOverBudgetSinceFrame = 0;
     FrameNumber m_lastSharedClockResyncRequestFrame = 0;
+    FrameNumber m_lastSharedClockConfirmedLagWaitLogFrame = 0;
     uint32_t m_sharedClockResyncRequestEpoch = 0;
     std::chrono::steady_clock::time_point m_sharedClockLagOverBudgetSince = {};
     std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
