@@ -1576,9 +1576,27 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId);
         if(localParticipant != nullptr && !participantIsObserver(*localParticipant)) {
             for(FrameNumber frame = data.startFrame; frame <= lastFrame; ++frame) {
+                const ConfirmedFrameInputs* confirmedFrame = findConfirmedFrame(frame);
+                if(confirmedFrame == nullptr) {
+                    continue;
+                }
                 for(PlayerSlot slot : participantAssignments(*localParticipant)) {
                     TimelineInputEntry* localEntry =
                         m_localInputs.findMutable(frame, m_localParticipantId, slot);
+                    if(localEntry == nullptr) {
+                        TimelineInputEntry reconstructedEntry{};
+                        reconstructedEntry.frame = frame;
+                        reconstructedEntry.participantId = m_localParticipantId;
+                        reconstructedEntry.playerSlot = slot;
+                        reconstructedEntry.buttonMaskLo = confirmedFrame->buttonMaskLo[slot];
+                        reconstructedEntry.buttonMaskHi = confirmedFrame->buttonMaskHi[slot];
+                        reconstructedEntry.inputFrame = confirmedFrame->inputFrame;
+                        reconstructedEntry.sequence = m_localInputSequence;
+                        reconstructedEntry.confirmed = true;
+                        reconstructedEntry.predicted = false;
+                        m_localInputs.push(reconstructedEntry);
+                        localEntry = m_localInputs.findMutable(frame, m_localParticipantId, slot);
+                    }
                     if(localEntry != nullptr) {
                         localEntry->confirmed = true;
                     }
@@ -5354,12 +5372,25 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
     if(latest != nullptr && frame != latest->frame + 1u) {
+        const bool allowConfirmedFrontierRebase =
+            !m_hosting &&
+            frame > latest->frame + 1u &&
+            m_session.roomState().lastConfirmedFrame >= frame - 1u;
+        if(allowConfirmedFrontierRebase) {
+            std::ostringstream oss;
+            oss << "Accepted local input rebase frame " << frame
+                << " for slot " << static_cast<unsigned>(slot) + 1u
+                << " expected " << (latest->frame + 1u)
+                << " confirmedThrough " << m_session.roomState().lastConfirmedFrame;
+            pushLog(oss.str());
+        } else {
         std::ostringstream oss;
         oss << "Rejected non-sequential local input frame " << frame
             << " for slot " << static_cast<unsigned>(slot) + 1u
             << " expected " << (latest->frame + 1u);
         pushLog(oss.str());
         return;
+        }
     }
 
     TimelineInputEntry entry;
