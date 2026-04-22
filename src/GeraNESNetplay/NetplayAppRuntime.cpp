@@ -569,8 +569,6 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
-        m_waitingPostResyncDelayBuffer = false;
-        m_waitingPostResyncDelayBufferSince = {};
         return;
     }
 
@@ -620,8 +618,6 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
         const uint32_t anchorFrame = m_coordinator.session().roomState().lastConfirmedFrame;
         reanchorInputDriver(anchorFrame, localAssignedSlots());
-        m_waitingPostResyncDelayBuffer = true;
-        m_waitingPostResyncDelayBufferSince = std::chrono::steady_clock::now();
         m_postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
         if(m_observerVisibilityResyncPending) {
             m_observerVisibilityResyncPending = false;
@@ -1872,8 +1868,6 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
-        m_waitingPostResyncDelayBuffer = false;
-        m_waitingPostResyncDelayBufferSince = {};
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;
         m_webPageVisible = true;
@@ -1982,62 +1976,22 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_inputDriver.confirmedThroughFrame(m_coordinator)
     );
 
-    bool holdForPostResyncDelayBuffer = false;
-    if(running && m_waitingPostResyncDelayBuffer) {
-        constexpr auto kMaxPostResyncDelayBufferWait = std::chrono::milliseconds(1500);
-        const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
-        const FrameNumber requiredConfirmedFrame =
-            emu.frameCount() + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
-        holdForPostResyncDelayBuffer = confirmedThroughFrame < requiredConfirmedFrame;
-        if(holdForPostResyncDelayBuffer && m_waitingPostResyncDelayBufferSince.time_since_epoch().count() != 0) {
-            const auto waited = std::chrono::steady_clock::now() - m_waitingPostResyncDelayBufferSince;
-            if(waited >= kMaxPostResyncDelayBufferWait) {
-                holdForPostResyncDelayBuffer = false;
-                m_waitingPostResyncDelayBuffer = false;
-                m_waitingPostResyncDelayBufferSince = {};
-                if(!m_observerVisibilityResyncPending) {
-                    m_emuHost.setSimulationSuspended(false);
-                }
-                std::ostringstream warning;
-                warning << "Post-resync delay buffer wait timed out after "
-                        << std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()
-                        << " ms; resuming simulation (confirmed="
-                        << static_cast<unsigned>(confirmedThroughFrame)
-                        << " required="
-                        << static_cast<unsigned>(requiredConfirmedFrame)
-                        << ")";
-                m_coordinator.appendNetplayLog(warning.str());
-            }
-        }
-        if(holdForPostResyncDelayBuffer) {
-            m_emuHost.setSimulationSuspended(true);
-        } else {
-            m_waitingPostResyncDelayBuffer = false;
-            m_waitingPostResyncDelayBufferSince = {};
-            if(!m_observerVisibilityResyncPending) {
-                m_emuHost.setSimulationSuspended(false);
-            }
-        }
-    }
-
     if(running) {
-        if(!holdForPostResyncDelayBuffer) {
-            constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
-            (void)advanceToSharedClockIfNeededOnWorker(emu, kMaxContinuousClockCatchupFrames);
+        constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
+        (void)advanceToSharedClockIfNeededOnWorker(emu, kMaxContinuousClockCatchupFrames);
 
-            m_inputDriver.preparePlaybackFramesForEmulationThread(
-                m_coordinator,
-                m_coordinator.isActive(),
-                false,
-                m_coordinator.session().roomState().state,
-                emu.frameCount()
-            );
-            m_inputDriver.queuePendingFramesToEmu(emu);
+        m_inputDriver.preparePlaybackFramesForEmulationThread(
+            m_coordinator,
+            m_coordinator.isActive(),
+            false,
+            m_coordinator.session().roomState().state,
+            emu.frameCount()
+        );
+        m_inputDriver.queuePendingFramesToEmu(emu);
 
-            const uint32_t currentFrame = emu.frameCount();
-            if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
-                tryQueuePlaybackFrameToEmu(emu, currentFrame);
-            }
+        const uint32_t currentFrame = emu.frameCount();
+        if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
+            tryQueuePlaybackFrameToEmu(emu, currentFrame);
         }
     }
 

@@ -166,8 +166,6 @@ private:
     std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
     bool m_sharedClockResyncRequestPending = false;
     bool m_forceNextConfirmedCrcSubmission = false;
-    bool m_waitingPostResyncDelayBuffer = false;
-    std::chrono::steady_clock::time_point m_waitingPostResyncDelayBufferSince = {};
     bool m_observerVisibilityResyncPending = false;
     bool m_webVisibilityManagedPause = false;
     bool m_webPageVisible = true;
