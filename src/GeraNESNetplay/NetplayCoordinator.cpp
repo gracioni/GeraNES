@@ -2803,7 +2803,6 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
 
     removeParticipant(data.participantId);
     if(hostLeft) {
-        pushLog("Owner left the room");
         pushToast("Owner left the room");
         m_serverPeer = NetTransport::kInvalidPeerHandle;
         m_connected = false;
@@ -2811,7 +2810,6 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_lastError = "Owner closed the room";
         clearReconnectAttemptState();
     } else if(localParticipantKicked) {
-        pushLog("Removed from room by host");
         pushToast("Removed from room by host");
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
@@ -2820,7 +2818,6 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         completeLocalDisconnect();
         m_lastError = "Removed from room by host";
     } else {
-        pushLog("Participant left: " + participantName);
         pushToast(participantName + " left");
     }
     return true;
@@ -2853,7 +2850,6 @@ bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketRe
     m_transport.broadcastReliable(Channel::Control, buildParticipantLeftPacket(participantId), peer);
     m_transport.flush();
     refreshHostRoomState();
-    pushLog("Participant left gracefully: " + name);
     pushToast(name + " left");
     return true;
 }
@@ -4394,7 +4390,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
             case NetTransport::Event::Type::Disconnected:
                 clearPendingKickDisconnect(event.peer);
                 if(event.peer == m_serverPeer) {
-                    pushLog("Disconnected from host");
                     pushToast("Disconnected from host");
                     m_serverPeer = NetTransport::kInvalidPeerHandle;
                     m_connected = false;
@@ -4444,7 +4439,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             participant != nullptr
                                 ? participantLabel(*participant)
                                 : std::to_string(static_cast<int>(participantId));
-                        pushLog(participantLeftLabel + " left");
                         const std::string participantLeftToast = participantLeftLabel + " left";
                         if(m_pendingHostLateJoinResyncParticipant.has_value() &&
                            *m_pendingHostLateJoinResyncParticipant == participantId) {
@@ -4477,7 +4471,6 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 finalizeActiveResyncIfReady();
                             }
                             m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), event.peer);
-                            pushLog(participantLabel(*participant) + " left (reserved)");
                             pushToast(participantLabel(*participant) + " left (reserved)");
                             if(hadAssignedInput) {
                                 // Keep the host authoritative timeline moving while this
@@ -4499,15 +4492,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         if(participantId != kInvalidParticipantId) {
                             if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
                                 const std::string participantLeftLabel = participantLabel(*participant);
-                                pushLog(participantLeftLabel + " left");
                                 pushToast(participantLeftLabel + " left");
                             } else {
                                 const std::string participantLeftLabel = std::to_string(static_cast<int>(participantId));
-                                pushLog(participantLeftLabel + " left");
                                 pushToast(participantLeftLabel + " left");
                             }
                         } else {
-                            pushLog("Participant left");
                             pushToast("Participant left");
                         }
                     }
@@ -4517,15 +4507,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                        participantId != m_localParticipantId) {
                         if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
                             const std::string participantLeftLabel = participantLabel(*participant);
-                            pushLog(participantLeftLabel + " left");
                             pushToast(participantLeftLabel + " left");
                         } else {
                             const std::string participantLeftLabel = std::to_string(static_cast<int>(participantId));
-                            pushLog(participantLeftLabel + " left");
                             pushToast(participantLeftLabel + " left");
                         }
                     } else {
-                        pushLog("Participant left");
                         pushToast("Participant left");
                     }
                 }
