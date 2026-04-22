@@ -1289,6 +1289,11 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         return true;
     }
 
+    InputTimeline* destinationTimeline = &m_remoteInputs;
+    if(!m_hosting && input.participantId == m_localParticipantId) {
+        destinationTimeline = &m_localInputs;
+    }
+
     uint32_t previousReceivedSequence = 0;
     if(participant != nullptr) {
         previousReceivedSequence = participant->lastReceivedInputSequence;
@@ -1350,6 +1355,31 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
 
+        const TimelineInputEntry* existingCommitted =
+            destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
+        if(existingCommitted != nullptr &&
+           existingCommitted->confirmed &&
+           !existingCommitted->predicted &&
+           input.frame < expectedFrame) {
+            participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
+            participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
+            participant->sequenceRebasePending = false;
+
+            std::ostringstream oss;
+            oss << "Ignored late input for already committed frame from " << participant->displayName
+                << " frame " << input.frame
+                << " expectedFrame " << expectedFrame
+                << " seq " << input.sequence;
+            if(existingCommitted->buttonMaskLo != input.buttonMaskLo ||
+               existingCommitted->buttonMaskHi != input.buttonMaskHi) {
+                oss << " classification=late_committed_input_mismatch";
+            } else {
+                oss << " classification=late_committed_input_duplicate";
+            }
+            pushLog(oss.str());
+            return true;
+        }
+
         if(input.frame != expectedFrame && !allowClientResyncRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
@@ -1376,11 +1406,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
         participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
         participant->sequenceRebasePending = false;
-    }
-
-    InputTimeline* destinationTimeline = &m_remoteInputs;
-    if(!m_hosting && input.participantId == m_localParticipantId) {
-        destinationTimeline = &m_localInputs;
     }
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
