@@ -277,6 +277,7 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
     switch(reason) {
         case ResyncReason::HostReset: return "Owner reset the game";
         case ResyncReason::HostLoadedState: return "Owner loaded state";
+        case ResyncReason::HostStallRecovery: return "Host stall recovery";
         default: return {};
     }
 }
@@ -287,6 +288,7 @@ static const char* resyncReasonLabel(ResyncReason reason)
         case ResyncReason::Unspecified: return "Unspecified";
         case ResyncReason::InitialSessionSync: return "InitialSessionSync";
         case ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
+        case ResyncReason::HostStallRecovery: return "HostStallRecovery";
         case ResyncReason::AssignmentChanged: return "AssignmentChanged";
         case ResyncReason::ManualForce: return "ManualForce";
         case ResyncReason::HostReset: return "HostReset";

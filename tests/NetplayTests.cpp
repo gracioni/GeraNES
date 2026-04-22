@@ -18,6 +18,7 @@
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/DesyncMonitor.h"
+#include "GeraNESNetplay/HostStallDetector.h"
 #include "GeraNESNetplay/RemoteInputStallMonitor.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
@@ -347,6 +348,46 @@ TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer he
     const auto freshHealth = monitor.onPeerHealth(2u, 5u);
     REQUIRE(freshHealth.shouldScheduleResync == true);
     REQUIRE(freshHealth.recovery.stalledFrame == 181u);
+}
+
+TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
+{
+    Netplay::HostStallDetector detector;
+    Netplay::HostStallDetector::Snapshot snapshot;
+    snapshot.active = true;
+    snapshot.hosting = true;
+    snapshot.sessionState = Netplay::SessionState::Running;
+    snapshot.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    snapshot.timelineEpoch = 4u;
+    snapshot.connectedRemoteParticipantCount = 1u;
+    snapshot.localSimulationFrame = 100u;
+    snapshot.confirmedFrame = 96u;
+    snapshot.maxRemoteReportedCurrentFrame = 98u;
+    snapshot.maxRemoteReportedConfirmedFrame = 94u;
+
+    const auto start = std::chrono::steady_clock::now();
+    auto update = detector.update(snapshot, start);
+    REQUIRE_FALSE(update.shouldResync);
+
+    update = detector.update(snapshot, start + std::chrono::milliseconds(1500));
+    REQUIRE_FALSE(update.shouldResync);
+
+    update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
+    REQUIRE(update.shouldResync);
+    REQUIRE(update.detail.find("host_progress_stall") != std::string::npos);
+
+    update = detector.update(snapshot, start + std::chrono::milliseconds(3000));
+    REQUIRE_FALSE(update.shouldResync);
+
+    snapshot.localSimulationFrame = 101u;
+    update = detector.update(snapshot, start + std::chrono::milliseconds(3200));
+    REQUIRE_FALSE(update.shouldResync);
+
+    update = detector.update(snapshot, start + std::chrono::milliseconds(5600));
+    REQUIRE_FALSE(update.shouldResync);
+
+    update = detector.update(snapshot, start + std::chrono::milliseconds(8201));
+    REQUIRE(update.shouldResync);
 }
 
 TEST_CASE("Netplay auto delay decays faster from high values after stable playback",

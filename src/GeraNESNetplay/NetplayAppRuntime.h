@@ -16,6 +16,7 @@
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/HostStallDetector.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayConfig.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
@@ -133,6 +134,7 @@ private:
     IEmulationHost& m_emuHost;
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
+    HostStallDetector m_hostStallDetector;
     NetplayAutoTune m_autoSettings;
     FramePacingDiagnostics m_framePacingDiagnostics;
 
@@ -235,6 +237,7 @@ private:
     bool beginInitialSessionSyncOnWorker(GeraNESEmu& emu);
     void processHostResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
+    void processHostStallIfNeededOnWorker(GeraNESEmu& emu);
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
     uint32_t advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu,
                                                   uint32_t maxFrames,
