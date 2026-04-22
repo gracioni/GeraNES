@@ -29,9 +29,9 @@ constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
 constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
-constexpr uint32_t kRecoveryStabilizationFrames = 2;
-constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 120;
-constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 2;
+constexpr uint32_t kRecoveryStabilizationFrames = 8;
+constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
+constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {

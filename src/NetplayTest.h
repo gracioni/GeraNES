@@ -44,6 +44,7 @@ public:
         uint32_t port = 27888;
         uint32_t startupTimeoutSteps = 10000;
         uint32_t frameStepLimit = 200000;
+        uint32_t wallClockTimeoutSeconds = 60;
         uint32_t settleStepLimit = 2048;
         uint32_t preSessionWarmupFrames = 0;
         uint32_t gameplayReceiveDelayMs = 0;
@@ -71,6 +72,8 @@ public:
         uint32_t reconnectReservationSecondsForTests = 0;
         uint32_t hostSaveStateFrame = 0;
         uint32_t hostDisconnectFrame = 0;
+        uint32_t clientRuntimePauseAfterFrames = 0;
+        uint32_t clientRuntimePauseDurationFrames = 0;
         uint32_t webObserverVisibilitySuspendAfterFrames = 0;
         uint32_t webObserverVisibilitySuspendDurationFrames = 0;
         bool spamHostInputDuringResync = false;
@@ -770,6 +773,7 @@ private:
             {"failureReason", failureReason},
             {"romPath", options.romPath},
             {"frames", options.frames},
+            {"wallClockTimeoutSeconds", options.wallClockTimeoutSeconds},
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
             {"networkPumpStride", options.networkPumpStride},
@@ -1487,6 +1491,8 @@ private:
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
             {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
             {"hostDisconnectFrame", options.hostDisconnectFrame},
+            {"clientRuntimePauseAfterFrames", options.clientRuntimePauseAfterFrames},
+            {"clientRuntimePauseDurationFrames", options.clientRuntimePauseDurationFrames},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"requireHostManualLoadDuringResync", options.requireHostManualLoadDuringResync},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
@@ -1539,6 +1545,14 @@ private:
         uint32_t stallSteps = 0;
         uint32_t sharedProgressStallSteps = 0;
         uint32_t maxStallSteps = 0;
+        bool wallClockTimedOut = false;
+        const auto wallClockStart = std::chrono::steady_clock::now();
+        const auto wallClockTimeout =
+            std::chrono::seconds(std::max<uint32_t>(1u, options.wallClockTimeoutSeconds));
+        const auto wallClockExpired = [&]() {
+            return options.wallClockTimeoutSeconds > 0u &&
+                   std::chrono::steady_clock::now() - wallClockStart >= wallClockTimeout;
+        };
 
         const auto cleanup = [&]() {
             clientPeer.runtime.shutdown();
@@ -1602,6 +1616,10 @@ private:
 
         auto waitFor = [&](auto&& predicate, uint32_t maxSteps, uint32_t sleepMs) -> bool {
             for(uint32_t i = 0; i < maxSteps; ++i) {
+                if(wallClockExpired()) {
+                    wallClockTimedOut = true;
+                    return false;
+                }
                 pumpPeerRuntime(hostPeer);
                 pumpPeerRuntime(clientPeer);
                 if(predicate()) return true;
@@ -1920,6 +1938,8 @@ private:
         bool manualResyncTriggered = false;
         bool hostResetTriggered = false;
         bool hostDisconnectTriggered = false;
+        bool clientRuntimePauseTriggered = false;
+        bool clientRuntimePauseRestored = false;
         bool manualResyncObserved = false;
         bool manualResyncCompleted = false;
         bool hostSaveStateCaptured = false;
@@ -1937,6 +1957,7 @@ private:
             std::max<uint32_t>(240u, std::min<uint32_t>(options.startupTimeoutSteps, 3000u));
         size_t hostManualLoadTriggerIndex = 0;
         std::vector<uint8_t> hostSavedManualLoadState;
+        uint32_t clientRuntimePauseHostFrame = 0;
         uint32_t observerVisibilitySuspendHostFrame = 0;
         const auto performRuntimeReconnect = [&](const char* triggerDescription) -> bool {
             const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
@@ -2041,7 +2062,53 @@ private:
             return true;
         };
 
+        const auto finalFrameReadyCrcMatches = [&]() -> bool {
+            const uint32_t hostReadyFrame = hostPeer.emu.lastFrameReadyFrame();
+            const uint32_t clientReadyFrame = clientPeer.emu.lastFrameReadyFrame();
+            const uint32_t commonReadyFrame = std::min(hostReadyFrame, clientReadyFrame);
+            if(commonReadyFrame == 0u) {
+                return false;
+            }
+            const auto hostReadyCrc =
+                commonReadyFrame == hostReadyFrame
+                    ? std::optional<uint32_t>(hostPeer.emu.lastFrameReadyNetplayCrc32())
+                    : hostPeer.emu.netplaySnapshotCrc32ForFrame(commonReadyFrame);
+            const auto clientReadyCrc =
+                commonReadyFrame == clientReadyFrame
+                    ? std::optional<uint32_t>(clientPeer.emu.lastFrameReadyNetplayCrc32())
+                    : clientPeer.emu.netplaySnapshotCrc32ForFrame(commonReadyFrame);
+            return hostReadyCrc.has_value() &&
+                   clientReadyCrc.has_value() &&
+                   *hostReadyCrc == *clientReadyCrc;
+        };
+
+        const auto settleRuntimeFinalCrc = [&]() {
+            for(uint32_t i = 0; i < options.settleStepLimit && !finalFrameReadyCrcMatches(); ++i) {
+                pumpPeerRuntime(hostPeer);
+                pumpPeerRuntime(clientPeer);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        };
+
         for(uint32_t step = 0; step < options.frameStepLimit; ++step) {
+            if(wallClockExpired()) {
+                wallClockTimedOut = true;
+                failureReason = "Runtime-flow netplay test exceeded wall-clock timeout.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "timeout", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                result.report["wallClockTimedOut"] = true;
+                result.report["startHostFrame"] = startHostFrame;
+                result.report["startClientFrame"] = startClientFrame;
+                result.report["targetHostFrame"] = targetHostFrame;
+                result.report["targetClientFrame"] = targetClientFrame;
+                result.report["desyncInjected"] = desyncInjected;
+                result.report["hardResyncObserved"] = hardResyncObserved;
+                result.report["reconnectTriggered"] = reconnectTriggered;
+                result.report["clientRuntimePauseTriggered"] = clientRuntimePauseTriggered;
+                result.report["clientRuntimePauseRestored"] = clientRuntimePauseRestored;
+                result.exitCode = RESULT_FAILED;
+                cleanup();
+                return result;
+            }
             const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
             const auto hostLoopSnapshot = hostPeer.runtime.uiSnapshot();
@@ -2070,6 +2137,16 @@ private:
             const bool clientInRecoveryWindow =
                 clientLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
                 clientLoopSnapshot.room.activeResyncId != 0u;
+            if(options.clientRuntimePauseAfterFrames > 0 &&
+               !clientRuntimePauseTriggered &&
+               hostFrame >= startHostFrame + options.clientRuntimePauseAfterFrames) {
+                clientRuntimePauseTriggered = true;
+                clientRuntimePauseHostFrame = hostFrame;
+                clientPeer.emu.setSimulationSuspended(true);
+            }
+            const bool clientRuntimePaused =
+                clientRuntimePauseTriggered &&
+                !clientRuntimePauseRestored;
             Buttons effectiveHostButtons = hostButtons;
             Buttons effectiveClientButtons = clientButtons;
             if(options.spamHostInputDuringResync && hostInRecoveryWindow) {
@@ -2102,7 +2179,7 @@ private:
                         : IEmulationHost::InputState{}
                 );
                 clientPeer.runtime.updateLatestInputState(
-                    options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
+                    clientRuntimePaused || options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
                         ? IEmulationHost::InputState{}
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, effectiveClientButtons)
                 );
@@ -2111,10 +2188,20 @@ private:
             if((step % hostStepStride) == 0u) {
                 hostPeer.emu.update(hostLoopDtMs);
             }
-            if((step % clientStepStride) == 0u) {
+            if(clientRuntimePaused) {
+                pumpPeerRuntime(clientPeer);
+            } else if((step % clientStepStride) == 0u) {
                 clientPeer.emu.update(clientLoopDtMs);
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+            if(clientRuntimePaused &&
+               options.clientRuntimePauseDurationFrames > 0 &&
+               hostPeer.emu.exactEmulationFrame() >=
+                   clientRuntimePauseHostFrame + options.clientRuntimePauseDurationFrames) {
+                clientPeer.emu.setSimulationSuspended(false);
+                clientRuntimePauseRestored = true;
+            }
 
             if(options.assignmentSwapAfterFrames > 0 &&
                !assignmentSwapTriggered &&
@@ -2417,6 +2504,8 @@ private:
                     result.report["hardResyncObserved"] = hardResyncObserved;
                     result.report["reconnectTriggered"] = reconnectTriggered;
                     result.report["hostDisconnectTriggered"] = hostDisconnectTriggered;
+                    result.report["clientRuntimePauseTriggered"] = clientRuntimePauseTriggered;
+                    result.report["clientRuntimePauseRestored"] = clientRuntimePauseRestored;
                     result.exitCode = EXIT_SUCCESS;
                     cleanup();
                     return result;
@@ -2698,7 +2787,30 @@ private:
                     }
                     continue;
                 }
+                if(options.clientRuntimePauseAfterFrames > 0 &&
+                   (!clientRuntimePauseTriggered ||
+                    (options.clientRuntimePauseDurationFrames > 0 && !clientRuntimePauseRestored))) {
+                    failureReason =
+                        !clientRuntimePauseTriggered
+                            ? "Client runtime pause scenario never triggered before reaching the target frame."
+                            : "Client runtime pause scenario never restored before reaching the target frame.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["hostDisconnectTriggered"] = hostDisconnectTriggered;
+                    result.report["clientRuntimePauseTriggered"] = clientRuntimePauseTriggered;
+                    result.report["clientRuntimePauseRestored"] = clientRuntimePauseRestored;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
 
+                settleRuntimeFinalCrc();
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
@@ -2711,6 +2823,8 @@ private:
                 result.report["manualResyncTriggered"] = manualResyncTriggered;
                 result.report["manualResyncObserved"] = manualResyncObserved;
                 result.report["manualResyncCompleted"] = manualResyncCompleted;
+                result.report["clientRuntimePauseTriggered"] = clientRuntimePauseTriggered;
+                result.report["clientRuntimePauseRestored"] = clientRuntimePauseRestored;
                 result.report["postResyncCrcCheckStartFrame"] = postResyncCrcCheckStartFrame;
                 result.report["postResyncCrcMismatchFrame"] = postResyncCrcMismatchFrame;
                 result.report["postResyncConsecutiveMismatchCount"] = postResyncConsecutiveMismatchCount;

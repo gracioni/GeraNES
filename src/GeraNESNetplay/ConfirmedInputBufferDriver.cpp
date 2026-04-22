@@ -334,8 +334,12 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
                                                             uint32_t exactFrame,
                                                             uint32_t confirmedThroughFrame)
 {
-    if(!active || awaitingSync || state != SessionState::Running) {
+    if(!active || awaitingSync) {
         reset();
+        return;
+    }
+    if(state != SessionState::Running) {
+        m_inputProductionAccumulatorMs = 0.0;
         return;
     }
 
@@ -358,7 +362,17 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
     (void)dtMs;
     (void)regionFps;
-    (void)confirmedThroughFrame;
+
+    // Rollback/resimulation can temporarily rewind the emulator behind the
+    // already-confirmed frontier. In that state, replay should consume the
+    // existing confirmed local timeline instead of generating new committed
+    // local inputs for those historical frames again.
+    if(m_producedThroughFrame < confirmedThroughFrame) {
+        m_producedThroughFrame = confirmedThroughFrame;
+    }
+    if(m_queuedThroughFrame < confirmedThroughFrame) {
+        m_queuedThroughFrame = confirmedThroughFrame;
+    }
 
     // Produce committed local inputs using delay-only horizon.
     const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
@@ -474,8 +488,13 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
                                                                          SessionState state,
                                                                          uint32_t emulationFrame)
 {
-    if(!active || awaitingSync || state != SessionState::Running) {
+    if(!active || awaitingSync) {
         reset();
+        return;
+    }
+    if(state != SessionState::Running) {
+        std::scoped_lock pendingLock(m_pendingFramesMutex);
+        m_pendingFrames.clear();
         return;
     }
 

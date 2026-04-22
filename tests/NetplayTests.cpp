@@ -1788,6 +1788,113 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
     }
 }
 
+TEST_CASE("Netplay mobile browser bad Wi-Fi acceptance keeps running without resync storm",
+          "[netplay][runtime][acceptance][mobile-wifi]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "mobile-bad-wifi-acceptance",
+        ""
+    };
+    options.frames = 360;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.frameStepLimit = 16000;
+    options.wallClockTimeoutSeconds = 45;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_mobile_bad_wifi_acceptance.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 180u);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Participant left"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential input from"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync delay buffer wait timed out"));
+}
+
+TEST_CASE("Netplay mobile browser normal gameplay sustained soak stays connected and converged",
+          "[netplay][runtime][acceptance][mobile-wifi][sustained-soak]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "mobile-normal-long-soak",
+        ""
+    };
+    options.frames = 2400;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 12;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 2;
+    options.clientLoopDtMs = 4;
+    options.hostStepStride = 4;
+    options.clientStepStride = 4;
+    options.frameStepLimit = 200000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_mobile_normal_long_soak_acceptance.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.value("wallClockTimedOut", false) == false);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 240u);
+    REQUIRE(report.at("host").at("playbackStopCount").get<uint32_t>() == 0u);
+    REQUIRE(report.at("client").at("playbackStopCount").get<uint32_t>() == 0u);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 6u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 6u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Participant left"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync delay buffer wait timed out"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential input from"));
+}
+
 TEST_CASE("Netplay web observer visibility restore requests host resync without reconnecting",
           "[netplay][runtime][observer][web][visibility][resync]")
 {
@@ -3678,6 +3785,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
 TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before host resync scheduling", "[netplay][crc][classification][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
@@ -3711,8 +3819,16 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     pendingResync = coordinator.consumePendingHostResyncFrame();
+    REQUIRE_FALSE(pendingResync.has_value());
+
+    coordinator.submitLocalCrc(260u, 0x55555555u);
+    report.frame = 260u;
+    report.crc32 = 0x66666666u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    pendingResync = coordinator.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 230u);
+    REQUIRE(pendingResync->frame == 260u);
 
     coordinator.disconnect();
 }
@@ -3720,6 +3836,7 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
 TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[netplay][crc][stabilization][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");

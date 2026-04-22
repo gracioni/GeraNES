@@ -1085,6 +1085,22 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     }
 
     const uint32_t rollbackFromFrame = currentFrame;
+    const auto requestRollbackRecoveryResync = [&](const std::string& message) {
+        m_coordinator.appendNetplayLog(message);
+        if(m_coordinator.isHosting()) {
+            return;
+        }
+
+        ResyncRequestData request;
+        request.reason = ResyncReason::ConfirmedDesync;
+        request.localFrame = emu.frameCount();
+        request.estimatedHostFrame = 0;
+        request.confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+        request.lagFrames = 0;
+        request.catchupBudgetFrames = 0;
+        request.source = 2u; // rollback resimulation failed
+        (void)m_coordinator.requestHostResync(request);
+    };
 
     emu.loadStateFromMemoryWithAudioPolicy(
         **snapshotData,
@@ -1118,7 +1134,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = shouldAllowPredictionForFrame(nextFrame);
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
-            m_coordinator.appendNetplayLog("Netplay resimulation failed");
+            requestRollbackRecoveryResync("Netplay resimulation failed");
             return;
         }
 
@@ -1128,14 +1144,14 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
         if(enqueueResult != InputBuffer::EnqueueResult::Inserted &&
            enqueueResult != InputBuffer::EnqueueResult::UpdatedPending) {
-            m_coordinator.appendNetplayLog(
+            requestRollbackRecoveryResync(
                 "Netplay resimulation failed: rejected playback enqueue at frame " +
                 std::to_string(nextFrame)
             );
             return;
         }
         if(!emu.updateUntilFrame(frameDt, true)) {
-            m_coordinator.appendNetplayLog(
+            requestRollbackRecoveryResync(
                 "Netplay resimulation failed: emulator did not advance at frame " +
                 std::to_string(nextFrame)
             );
