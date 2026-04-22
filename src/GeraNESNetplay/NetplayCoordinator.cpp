@@ -2134,6 +2134,12 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 
 void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source)
 {
+    if(update.compared && !update.mismatchDetected &&
+       m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
+       update.frame >= m_session.roomState().recoveryModeEnteredAtFrame) {
+        ++m_session.roomState().stabilizationCrcPassCount;
+    }
+
     if(!update.mismatchDetected) return;
 
     std::ostringstream oss;
@@ -5335,9 +5341,6 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 {
     if(!kDesyncMonitorEnabled) return;
     if(m_session.roomState().state != SessionState::Running) return;
-    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
-        ++m_session.roomState().stabilizationCrcPassCount;
-    }
 
     applyDesyncMonitorUpdate(m_desyncMonitor.submitLocalCrc(frame, crc32), "local CRC submission");
 

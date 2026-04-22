@@ -3642,6 +3642,38 @@ TEST_CASE("Netplay coordinator logs confirmed CRC mismatch classification before
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[netplay][crc][stabilization][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 7u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 240u;
+    room.lastConfirmedFrame = 240u;
+    room.recoveryInputMode = Netplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryModeEnteredAtFrame = 240u;
+    room.stabilizationCrcPassCount = 0u;
+
+    coordinator.submitLocalCrc(240u, 0x11111111u);
+    REQUIRE(room.stabilizationCrcPassCount == 0u);
+
+    Netplay::CrcReportData matchingReport;
+    matchingReport.timelineEpoch = room.timelineEpoch;
+    matchingReport.frame = 240u;
+    matchingReport.crc32 = 0x11111111u;
+    REQUIRE(coordinator.injectCrcReportForTests(matchingReport));
+    REQUIRE(room.stabilizationCrcPassCount == 1u);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery lock and stabilization",
           "[netplay][coordinator][recovery][epoch]")
 {

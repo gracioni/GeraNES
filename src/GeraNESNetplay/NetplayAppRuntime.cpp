@@ -1753,12 +1753,10 @@ void NetplayAppRuntime::requestForceResync()
         if(!emu.valid()) return;
         if(state != SessionState::Running && state != SessionState::Paused) return;
 
-        const FrameNumber requestedFrame = self.m_coordinator.session().roomState().lastConfirmedFrame;
-        const FrameNumber authoritativeFrame =
-            std::min<FrameNumber>(requestedFrame, emu.frameCount());
+        const FrameNumber authoritativeFrame = emu.frameCount();
         const std::vector<uint8_t> statePayload =
-            self.buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
-        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, true);
+            self.buildAuthoritativeStatePayload(emu, authoritativeFrame, false);
+        self.beginAuthoritativeResync(emu, authoritativeFrame, statePayload, false);
     });
 }
 
