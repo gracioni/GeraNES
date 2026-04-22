@@ -279,7 +279,7 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
         case ResyncReason::HostReset: return "Owner reset the game";
         case ResyncReason::HostLoadedState: return "Owner loaded state";
         case ResyncReason::HostStallRecovery: return "Host stall recovery";
-        case ResyncReason::ClientStallRecovery: return "Client stall recovery";
+        case ResyncReason::ClientStallRecovery: return {};
         default: return {};
     }
 }
