@@ -1133,7 +1133,20 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
     while(emu.frameCount() < currentFrame) {
         const uint32_t nextFrame = emu.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const bool allowPrediction = shouldAllowPredictionForFrame(nextFrame);
+        const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+        // Rollback replay must be able to rebuild the speculative tail that was
+        // already simulated beyond the confirmed frontier. The normal forward
+        // playback gate is stricter because it protects the live runtime from
+        // predicting too early inside the delay window, but replaying from a
+        // confirmed checkpoint back up to the current frame needs those
+        // predicted frames to exist again or playback-frame construction fails
+        // immediately after a resync/rollback.
+        const bool allowPrediction =
+            nextFrame > confirmedThroughFrame &&
+            nextFrame <= currentFrame &&
+            shouldAllowPredictionForFrame(
+                confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.prebufferFrames()) + 1u
+            );
         if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
             requestRollbackRecoveryResync(
                 "Netplay resimulation failed: could not build playback frame " +
