@@ -2008,15 +2008,10 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     if(!m_coordinator.isActive()) {
         (void)m_emuHost.consumeManualStateChanges();
-        const bool reconnecting = m_coordinator.reconnectPending();
-        const bool blockSimulationForReconnect =
-            reconnecting && m_coordinator.reconnectSecondsRemaining() > 0u;
-        m_emuHost.setAutoQueuePendingInputOnFrameStart(!blockSimulationForReconnect);
+        m_emuHost.setAutoQueuePendingInputOnFrameStart(true);
         m_emuHost.setFrameInputResolver({});
-        m_emuHost.setAllowPresenterTimeoutAdvance(!blockSimulationForReconnect);
-        if(!blockSimulationForReconnect) {
-            ensureStandaloneInputBootstrapFrame(emu);
-        }
+        m_emuHost.setAllowPresenterTimeoutAdvance(true);
+        ensureStandaloneInputBootstrapFrame(emu);
         m_runtimeActive.store(false, std::memory_order_release);
         m_runtimeRunning.store(false, std::memory_order_release);
         m_inputDriver.reset();
@@ -2038,7 +2033,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;
         m_webPageVisible = true;
-        m_emuHost.setSimulationSuspended(blockSimulationForReconnect);
+        m_emuHost.setSimulationSuspended(false);
         updateUiSnapshot(captureCurrentRomSelection(emu));
         return;
     }
