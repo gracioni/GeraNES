@@ -2291,6 +2291,48 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     host.disconnect();
 }
 
+TEST_CASE("Host disconnect toast uses participant display name",
+          "[netplay][disconnect][toast][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "NamedClient"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected = host.session().roomState().participants.size() >= 2 &&
+                    client.localParticipantId() != Netplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    client.disconnect();
+
+    bool sawNamedLeft = false;
+    for(int step = 0; step < 200 && !sawNamedLeft; ++step) {
+        host.update(0);
+        client.update(0);
+        sawNamedLeft = anyLogLineContains(host.eventLog(), "NamedClient left");
+        if(!sawNamedLeft) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(sawNamedLeft);
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "1 left"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",
           "[netplay][reconnect][replace-peer][unit]")
 {

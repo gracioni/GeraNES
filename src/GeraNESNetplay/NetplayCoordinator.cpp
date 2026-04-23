@@ -372,6 +372,7 @@ void NetplayCoordinator::resetSessionState()
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
     m_reconnectReservationDeadlines.clear();
+    m_participantDisplayNameCache.clear();
     m_lastRemoteInputAt.clear();
     m_lastPeerHealthAt.clear();
     m_lastTransportError.clear();
@@ -447,6 +448,7 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
 {
     if(ParticipantInfo* existing = m_session.findParticipant(id)) {
         if(!displayName.empty()) existing->displayName = displayName;
+        rememberParticipantDisplayName(*existing);
         return *existing;
     }
 
@@ -457,7 +459,35 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
     participant.inputResumeAwaitingResync = false;
     m_session.roomState().participants.push_back(participant);
     m_lastRemoteInputAt[id] = std::chrono::steady_clock::now();
+    rememberParticipantDisplayName(m_session.roomState().participants.back());
     return m_session.roomState().participants.back();
+}
+
+void NetplayCoordinator::rememberParticipantDisplayName(const ParticipantInfo& participant)
+{
+    if(participant.id == kInvalidParticipantId || participant.displayName.empty()) {
+        return;
+    }
+    m_participantDisplayNameCache[participant.id] = participant.displayName;
+}
+
+std::string NetplayCoordinator::participantLabelForDisconnect(ParticipantId participantId) const
+{
+    if(participantId == kInvalidParticipantId) {
+        return "Participant";
+    }
+
+    if(const ParticipantInfo* participant = m_session.findParticipant(participantId);
+       participant != nullptr && !participant->displayName.empty()) {
+        return participantLabel(*participant);
+    }
+
+    if(const auto cached = m_participantDisplayNameCache.find(participantId);
+       cached != m_participantDisplayNameCache.end() && !cached->second.empty()) {
+        return cached->second;
+    }
+
+    return std::to_string(static_cast<int>(participantId));
 }
 
 ParticipantInfo* NetplayCoordinator::findParticipantByReconnectToken(uint64_t reconnectToken)
@@ -2824,11 +2854,10 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
     ParticipantLeftData data;
     if(!reader.readPod(data)) return false;
 
-    const ParticipantInfo* participant = m_session.findParticipant(data.participantId);
-    const std::string participantName =
-        participant != nullptr && !participant->displayName.empty()
-            ? participant->displayName
-            : std::to_string(static_cast<int>(data.participantId));
+    if(const ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
+        rememberParticipantDisplayName(*participant);
+    }
+    const std::string participantName = participantLabelForDisconnect(data.participantId);
 
     const bool hostLeft =
         !m_hosting &&
@@ -2879,10 +2908,8 @@ bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketRe
         return true;
     }
 
-    const std::string name =
-        !participant->displayName.empty()
-            ? participant->displayName
-            : std::to_string(static_cast<int>(participantId));
+    rememberParticipantDisplayName(*participant);
+    const std::string name = participantLabelForDisconnect(participantId);
 
     removeParticipant(participantId);
     m_reconnectReservationDeadlines.erase(participantId);
@@ -3929,6 +3956,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
             ? *reconnectParticipant
             : ensureParticipant(m_nextAssignedParticipantId++, displayName);
     participant.displayName = displayName;
+    rememberParticipantDisplayName(participant);
     participant.connected = true;
     participant.reconnectReserved = false;
     participant.reservationSecondsRemaining = 0;
@@ -4075,6 +4103,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
          m_suppressReconnectPresenceToasts ||
          m_session.roomState().activeResyncReason == ResyncReason::ObserverVisibilityRestore);
     ParticipantInfo& participant = ensureParticipant(participantId, displayName);
+    rememberParticipantDisplayName(participant);
     if(reconnectToken != 0) {
         participant.reconnectToken = reconnectToken;
     }
@@ -4501,9 +4530,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             participant->reconnectToken != 0 &&
                             hasAssignedInput;
                         const std::string participantLeftLabel =
-                            participant != nullptr
-                                ? participantLabel(*participant)
-                                : std::to_string(static_cast<int>(participantId));
+                            participantLabelForDisconnect(participantId);
                         const std::string participantLeftToast = participantLeftLabel + " left";
                         if(m_pendingHostLateJoinResyncParticipant.has_value() &&
                            *m_pendingHostLateJoinResyncParticipant == participantId) {
@@ -4536,7 +4563,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 finalizeActiveResyncIfReady();
                             }
                             m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), event.peer);
-                            pushToast(participantLabel(*participant) + " left (reserved)");
+                            pushToast(participantLeftLabel + " left (reserved)");
                             if(hadAssignedInput) {
                                 // Keep the host authoritative timeline moving while this
                                 // participant is temporarily disconnected by replaying
@@ -4555,13 +4582,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             participantId = static_cast<ParticipantId>(event.data - 1u);
                         }
                         if(participantId != kInvalidParticipantId) {
-                            if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
-                                const std::string participantLeftLabel = participantLabel(*participant);
-                                pushToast(participantLeftLabel + " left");
-                            } else {
-                                const std::string participantLeftLabel = std::to_string(static_cast<int>(participantId));
-                                pushToast(participantLeftLabel + " left");
-                            }
+                            pushToast(participantLabelForDisconnect(participantId) + " left");
                         } else {
                             pushToast("Participant left");
                         }
@@ -4569,14 +4590,8 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                 } else {
                     ParticipantId participantId = participantIdFromPeer(event.peer);
                     if(participantId != kInvalidParticipantId &&
-                       participantId != m_localParticipantId) {
-                        if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
-                            const std::string participantLeftLabel = participantLabel(*participant);
-                            pushToast(participantLeftLabel + " left");
-                        } else {
-                            const std::string participantLeftLabel = std::to_string(static_cast<int>(participantId));
-                            pushToast(participantLeftLabel + " left");
-                        }
+                        participantId != m_localParticipantId) {
+                        pushToast(participantLabelForDisconnect(participantId) + " left");
                     } else {
                         pushToast("Participant left");
                     }

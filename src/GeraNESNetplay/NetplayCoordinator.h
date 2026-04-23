@@ -174,6 +174,7 @@ private:
     std::vector<ParticipantId> m_pendingSequenceResetParticipants;
     std::chrono::steady_clock::time_point m_lastPeerHealthBroadcast = {};
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_reconnectReservationDeadlines;
+    std::unordered_map<ParticipantId, std::string> m_participantDisplayNameCache;
     std::string m_lastJoinHostName;
     uint16_t m_lastJoinPort = 0;
     bool m_reconnectPending = false;
@@ -217,6 +218,8 @@ private:
     void pushLog(const std::string& message);
     void pushToast(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
+    void rememberParticipantDisplayName(const ParticipantInfo& participant);
+    std::string participantLabelForDisconnect(ParticipantId participantId) const;
     ParticipantId participantIdFromPeer(NetTransport::PeerHandle peer) const;
     NetTransport::PeerHandle peerFromParticipantId(ParticipantId participantId) const;
     ParticipantInfo* findParticipantByReconnectToken(uint64_t reconnectToken);
