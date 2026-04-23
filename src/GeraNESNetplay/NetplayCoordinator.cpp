@@ -864,6 +864,7 @@ void NetplayCoordinator::scheduleReconnectAttempt()
     if(!m_reconnectPending) {
         m_reconnectDeadline = now + m_reconnectReservationDuration;
         pushLog("Connection lost; attempting automatic reconnect");
+        pushToast("Reconnecting...");
     }
 
     m_reconnectPending = true;

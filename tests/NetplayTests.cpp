@@ -2158,6 +2158,7 @@ TEST_CASE("Passive host transport loss keeps client reconnecting after reservati
         }
     }
     REQUIRE(reconnecting);
+    REQUIRE(client.reconnectSecondsRemaining() > 0u);
 
     const auto waitUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(1300);
     while(std::chrono::steady_clock::now() < waitUntil) {
