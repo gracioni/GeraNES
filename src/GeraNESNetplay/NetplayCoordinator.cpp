@@ -3977,7 +3977,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     participant.reconnectReserved = false;
     participant.reservationSecondsRemaining = 0;
     participant.inputSuspended = false;
-    participant.inputResumeAwaitingResync = false;
+    participant.inputResumeAwaitingResync = reusedReconnectReservation;
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();

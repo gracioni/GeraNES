@@ -772,14 +772,23 @@ void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& em
     if(!participantId.has_value()) return;
     if(!emu.valid()) return;
 
-    const FrameNumber hostConfirmedFrame =
-        std::max(
-            m_coordinator.session().roomState().lastConfirmedFrame,
-            m_coordinator.hostConfirmedFrame()
-        );
-    FrameNumber authoritativeFrame =
-        std::min<FrameNumber>(hostConfirmedFrame, emu.frameCount());
-    bool preferConfirmedSnapshot = true;
+    const ParticipantInfo* participant =
+        m_coordinator.session().findParticipant(*participantId);
+    const bool reconnectResume =
+        participant != nullptr && participant->inputResumeAwaitingResync;
+
+    FrameNumber authoritativeFrame = emu.frameCount();
+    bool preferConfirmedSnapshot = false;
+    if(!reconnectResume) {
+        const FrameNumber hostConfirmedFrame =
+            std::max(
+                m_coordinator.session().roomState().lastConfirmedFrame,
+                m_coordinator.hostConfirmedFrame()
+            );
+        authoritativeFrame =
+            std::min<FrameNumber>(hostConfirmedFrame, emu.frameCount());
+        preferConfirmedSnapshot = true;
+    }
     std::vector<uint8_t> statePayload =
         buildAuthoritativeStatePayload(emu, authoritativeFrame, preferConfirmedSnapshot);
     if(statePayload.empty() && authoritativeFrame != emu.frameCount()) {
