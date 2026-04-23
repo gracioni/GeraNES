@@ -171,6 +171,11 @@ std::string participantReconnectedToast(const Netplay::ParticipantInfo& particip
     return participantLabel(participant) + " reconnected";
 }
 
+std::string localReconnectedToast()
+{
+    return "Reconnected";
+}
+
 Netplay::AssignControllerData makeAssignControllerData(const Netplay::ParticipantInfo& participant)
 {
     Netplay::AssignControllerData data;
@@ -288,7 +293,7 @@ std::string NetplayCoordinator::resyncReasonToast(ResyncReason reason)
     switch(reason) {
         case ResyncReason::HostReset: return "Owner reset the game";
         case ResyncReason::HostLoadedState: return "Owner loaded state";
-        case ResyncReason::HostStallRecovery: return "Host stall recovery";
+        case ResyncReason::HostStallRecovery: return {};
         case ResyncReason::ClientStallRecovery: return {};
         default: return {};
     }
@@ -356,6 +361,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastPeerHealthAt.clear();
     m_lastTransportError.clear();
     clearReconnectAttemptState();
+    m_suppressReconnectPresenceToasts = false;
     m_delayedPacketEvents.clear();
     m_pendingKickDisconnects.clear();
     m_activeResyncAckDeadline = {};
@@ -829,14 +835,13 @@ void NetplayCoordinator::processPendingReconnect()
     const auto now = std::chrono::steady_clock::now();
     if(m_reconnectDeadline != std::chrono::steady_clock::time_point{}) {
         if(now >= m_reconnectDeadline) {
-            pushLog("Reconnect window expired");
-            m_lastError = "Reconnect window expired";
-            clearReconnectAttemptState();
-            return;
+            pushLog("Reconnect reservation window expired; continuing automatic reconnect");
+            m_reconnectSecondsRemaining = 0;
+            m_reconnectDeadline = {};
+        } else {
+            const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(m_reconnectDeadline - now);
+            m_reconnectSecondsRemaining = static_cast<uint16_t>(std::max<int64_t>(1, remaining.count() + 1));
         }
-
-        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(m_reconnectDeadline - now);
-        m_reconnectSecondsRemaining = static_cast<uint16_t>(std::max<int64_t>(1, remaining.count() + 1));
     }
 
     if(m_reconnectAttemptInFlight || now < m_nextReconnectAttempt) return;
@@ -2181,6 +2186,9 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
 {
     FrameStatusData status;
     if(!reader.readPod(status)) return false;
+    if(!m_hosting) {
+        m_suppressReconnectPresenceToasts = false;
+    }
     if(status.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(status.timelineEpoch < m_session.roomState().timelineEpoch) {
             m_session.roomState().lastIgnoredStaleFrameStatusEpoch = status.timelineEpoch;
@@ -4031,6 +4039,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
         !m_hosting &&
         (m_reconnectPending ||
          m_reconnectAttemptInFlight ||
+         m_suppressReconnectPresenceToasts ||
          m_session.roomState().activeResyncReason == ResyncReason::ObserverVisibilityRestore);
     ParticipantInfo& participant = ensureParticipant(participantId, displayName);
     if(reconnectToken != 0) {
@@ -4056,6 +4065,9 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
 
     if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
+        const bool completedAutomaticReconnect =
+            m_reconnectPending ||
+            m_reconnectAttemptInFlight;
         m_localParticipantId = participantId;
         m_connected = true;
         if(participant.reconnectToken != 0) {
@@ -4063,6 +4075,10 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
         }
         m_lastError.clear();
         clearReconnectAttemptState();
+        if(completedAutomaticReconnect) {
+            m_suppressReconnectPresenceToasts = true;
+            pushToast(localReconnectedToast());
+        }
     }
 
     if(isNewParticipant && participantId != m_localParticipantId) {

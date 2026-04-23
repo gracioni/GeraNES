@@ -2117,6 +2117,61 @@ TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick]
     client.disconnect();
 }
 
+TEST_CASE("Passive host transport loss keeps client reconnecting after reservation window",
+          "[netplay][reconnect][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    client.setReconnectReservationDurationForTests(1);
+
+    uint16_t port = 0;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        port = reserveLoopbackPort();
+        hosted = host.host(port, 1, "Host");
+    }
+    REQUIRE(hosted);
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            client.localReconnectToken() != 0u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    host.shutdownForUnload();
+
+    bool reconnecting = false;
+    for(int step = 0; step < 400 && !reconnecting; ++step) {
+        client.update(0);
+        reconnecting = client.reconnectPending();
+        if(!reconnecting) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(reconnecting);
+
+    const auto waitUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(1300);
+    while(std::chrono::steady_clock::now() < waitUntil) {
+        client.update(0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    client.update(0);
+
+    REQUIRE(client.reconnectPending());
+    REQUIRE(client.reconnectSecondsRemaining() == 0u);
+
+    client.disconnect();
+}
+
 TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",
           "[netplay][reconnect][replace-peer][unit]")
 {
