@@ -5202,6 +5202,11 @@ FrameNumber NetplayCoordinator::latestConfirmedFrame() const
     return latestPublishedConfirmedFrame();
 }
 
+FrameNumber NetplayCoordinator::hostConfirmedFrame() const
+{
+    return computeHostConfirmedFrame();
+}
+
 FrameNumber NetplayCoordinator::authoritativeResyncTargetFrame() const
 {
     return m_session.roomState().resyncTargetFrame;

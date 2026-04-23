@@ -413,6 +413,7 @@ public:
     // Highest confirmed frame bundle already published/stored locally.
     FrameNumber latestPublishedConfirmedFrame() const;
     FrameNumber latestConfirmedFrame() const;
+    FrameNumber hostConfirmedFrame() const;
     uint64_t sharedClockNowMicros() const;
     uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     FrameNumber authoritativeResyncTargetFrame() const;
