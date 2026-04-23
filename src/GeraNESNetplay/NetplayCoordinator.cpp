@@ -1430,7 +1430,20 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 
         }
 
-        if(input.sequence <= participant->lastReceivedInputSequence) {
+        const uint32_t expectedSequence = participant->lastReceivedInputSequence + 1u;
+        const FrameNumber expectedFrame = participant->lastContiguousInputFrame + 1u;
+        const bool allowSequenceBaselineReset =
+            participant->sequenceRebasePending &&
+            input.frame >= expectedFrame &&
+            input.sequence > 0u;
+        const bool allowSequenceRebase =
+            allowSequenceBaselineReset &&
+            input.sequence != expectedSequence;
+        const bool allowClientResyncRebase =
+            !m_hosting &&
+            allowSequenceBaselineReset &&
+            input.sequence != expectedSequence;
+        if(input.sequence <= participant->lastReceivedInputSequence && !allowSequenceBaselineReset) {
             std::ostringstream oss;
             oss << "Ignored stale/duplicate input from " << participant->displayName
                 << " frame " << input.frame
@@ -1439,18 +1452,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             pushLog(oss.str());
             return true;
         }
-
-        const uint32_t expectedSequence = participant->lastReceivedInputSequence + 1u;
-        const FrameNumber expectedFrame = participant->lastContiguousInputFrame + 1u;
-        const bool allowSequenceRebase =
-            participant->sequenceRebasePending &&
-            input.frame >= expectedFrame &&
-            input.sequence > participant->lastReceivedInputSequence;
-        const bool allowClientResyncRebase =
-            !m_hosting &&
-            participant->sequenceRebasePending &&
-            input.frame >= expectedFrame &&
-            input.sequence > participant->lastReceivedInputSequence;
         if(input.sequence != expectedSequence && !allowSequenceRebase && !allowClientResyncRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input sequence from " << participant->displayName
@@ -1495,11 +1496,14 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             pushLog(oss.str());
             return true;
         }
-        if((allowSequenceRebase || allowClientResyncRebase) && input.frame > expectedFrame) {
+        if(allowSequenceRebase || allowClientResyncRebase) {
             // Re-anchor contiguous frame tracking when a participant resumes
-            // after a reset/recovery window and starts from a later frame.
-            participant->lastContiguousInputFrame = input.frame - 1u;
-            participant->pendingMissingInputFrom.reset();
+            // after a reset/recovery window and starts from a different
+            // frame/sequence baseline.
+            if(input.frame > expectedFrame) {
+                participant->lastContiguousInputFrame = input.frame - 1u;
+                participant->pendingMissingInputFrom.reset();
+            }
             std::ostringstream oss;
             oss << "Accepted input rebase from " << participant->displayName
                 << " frame " << input.frame
@@ -1510,7 +1514,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
 
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
-        participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
+        participant->lastReceivedInputSequence =
+            (allowSequenceRebase || allowClientResyncRebase)
+                ? input.sequence
+                : std::max(participant->lastReceivedInputSequence, input.sequence);
         participant->inputSuspended = false;
         participant->sequenceRebasePending = false;
     }
