@@ -3935,12 +3935,15 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         participant.role = ParticipantRole::Observer;
         participant.controllerAssignments.clear();
         participant.normalizeControllerAssignments();
-    } else if(std::find(
+    } else if(!reusedReconnectReservation &&
+              std::find(
                   m_pendingSequenceResetParticipants.begin(),
                   m_pendingSequenceResetParticipants.end(),
                   participant.id
               ) == m_pendingSequenceResetParticipants.end()) {
         m_pendingSequenceResetParticipants.push_back(participant.id);
+    } else if(reusedReconnectReservation) {
+        participant.sequenceRebasePending = true;
     }
 
     if(m_session.roomState().state == SessionState::Starting ||
