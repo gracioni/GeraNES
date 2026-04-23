@@ -2238,6 +2238,57 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
     host.disconnect();
 }
 
+TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
+          "[netplay][reconnect][input][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 11u;
+    room.currentFrame = 10894u;
+    room.lastConfirmedFrame = 10235u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Participant";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 10235u;
+    remote.lastContiguousInputFrame = 10235u;
+    remote.lastReceivedInputSequence = 1u;
+    remote.sequenceRebasePending = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    Netplay::InputFrameData resumedInput{};
+    resumedInput.timelineEpoch = room.timelineEpoch;
+    resumedInput.frame = 10895u;
+    resumedInput.participantId = remote.id;
+    resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
+    resumedInput.sequence = 660u;
+    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(10895u, room);
+    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+
+    const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->lastReceivedInputSequence == 660u);
+    REQUIRE(updated->lastContiguousInputFrame == 10895u);
+    REQUIRE_FALSE(updated->sequenceRebasePending);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Accepted input rebase from Participant frame 10895"));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",
           "[netplay][reconnect][replace-peer][unit]")
 {

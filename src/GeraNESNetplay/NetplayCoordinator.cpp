@@ -1456,7 +1456,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
 
-        if(input.frame != expectedFrame && !allowClientResyncRebase) {
+        if(input.frame != expectedFrame && !allowSequenceRebase && !allowClientResyncRebase) {
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
                 << " frame " << input.frame
