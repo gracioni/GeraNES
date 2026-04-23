@@ -2291,6 +2291,98 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     host.disconnect();
 }
 
+TEST_CASE("Client confirmed frame sync does not prefill future local inputs after reconnect-style catchup",
+          "[netplay][reconnect][input][client][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.session().roomState().participants.size() >= 2u &&
+            client.session().roomState().participants.size() >= 2u &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.currentFrame = 105u;
+    clientRoom.currentFrame = 100u;
+    hostRoom.lastConfirmedFrame = 100u;
+    clientRoom.lastConfirmedFrame = 100u;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    client.setLocalSimulationFrame(100u);
+
+    std::vector<Netplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
+    for(Netplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
+        Netplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
+        confirmed.frame = frame;
+        confirmed.inputFrame = Netplay::makeRoomTopologyBaseFrame(frame, clientRoom);
+        confirmed.buttonMaskLo[Netplay::kPort1PlayerSlot] = 0u;
+        confirmed.buttonMaskLo[Netplay::kPort2PlayerSlot] = (frame % 2u) == 0u ? 1u : 0u;
+        confirmed.inputFrame.p2A = (frame % 2u) == 0u;
+        confirmedFrames.push_back(confirmed);
+    }
+
+    Netplay::ConfirmedInputFramesData data{};
+    data.timelineEpoch = clientRoom.timelineEpoch;
+    data.startFrame = 101u;
+    data.frameCount = static_cast<uint16_t>(confirmedFrames.size());
+    REQUIRE(client.injectConfirmedPlaybackFramesForTests(data, confirmedFrames));
+
+    REQUIRE(client.findConfirmedFrame(105u) != nullptr);
+    REQUIRE(client.localInputs().find(105u, client.localParticipantId(), Netplay::kPort2PlayerSlot) == nullptr);
+
+    client.recordLocalInputFrame(105u, Netplay::kPort2PlayerSlot, 1u);
+    REQUIRE(client.localInputs().find(105u, client.localParticipantId(), Netplay::kPort2PlayerSlot) != nullptr);
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Host disconnect toast uses participant display name",
           "[netplay][disconnect][toast][unit]")
 {

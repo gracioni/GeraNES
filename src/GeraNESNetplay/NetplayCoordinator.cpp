@@ -1644,7 +1644,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
                 for(PlayerSlot slot : participantAssignments(*localParticipant)) {
                     TimelineInputEntry* localEntry =
                         m_localInputs.findMutable(frame, m_localParticipantId, slot);
-                    if(localEntry == nullptr) {
+                    if(localEntry == nullptr && frame <= m_localSimulationFrame) {
                         TimelineInputEntry reconstructedEntry{};
                         reconstructedEntry.frame = frame;
                         reconstructedEntry.participantId = m_localParticipantId;
@@ -4932,6 +4932,17 @@ bool NetplayCoordinator::injectConfirmedInputFramesForTests(const ConfirmedInput
     writer.writePod(data);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleConfirmedInputFrames(reader);
+}
+
+bool NetplayCoordinator::injectConfirmedPlaybackFramesForTests(const ConfirmedInputFramesData& data,
+                                                               const std::vector<ConfirmedFrameInputs>& frames)
+{
+    const std::vector<uint8_t> packet = buildConfirmedInputFramesPacket(
+        data,
+        std::span<const ConfirmedFrameInputs>(frames.data(), frames.size()),
+        m_session.roomState().sessionId
+    );
+    return handleControlPacket(NetTransport::kInvalidPeerHandle, packet);
 }
 
 bool NetplayCoordinator::injectInputAckForTests(const InputAckData& ack)

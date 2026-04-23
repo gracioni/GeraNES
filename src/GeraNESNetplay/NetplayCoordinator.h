@@ -381,6 +381,8 @@ public:
     void simulateTransportFailureForTests();
     bool injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution);
     bool injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data);
+    bool injectConfirmedPlaybackFramesForTests(const ConfirmedInputFramesData& data,
+                                               const std::vector<ConfirmedFrameInputs>& frames);
     bool injectInputAckForTests(const InputAckData& ack);
     bool injectFrameStatusForTests(const FrameStatusData& status);
     bool injectCrcReportForTests(const CrcReportData& report);
