@@ -1481,6 +1481,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 
         participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
         participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
+        participant->inputSuspended = false;
         participant->sequenceRebasePending = false;
     }
 
@@ -2048,7 +2049,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     }
 
     if(!participant.sequenceRebasePending) {
-        participant.inputSuspended = false;
+        participant.inputSuspended = true;
         participant.sequenceRebasePending = true;
         m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
             std::max<FrameNumber>(
@@ -2063,6 +2064,8 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
             << "; synthesized confirmed input without immediate resync"
             << " classification=prediction_limit_fallback";
         pushLog(oss.str());
+    } else {
+        participant.inputSuspended = true;
     }
 
     const TimelineInputEntry* latestConfirmed = m_remoteInputs.latestConfirmedFor(participant.id, slot);
@@ -3742,6 +3745,11 @@ bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantI
     if(participantId == kInvalidParticipantId || slot == kObserverPlayerSlot) return false;
     if(m_remoteInputs.find(frame, participantId, slot) != nullptr) return false;
 
+    const ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant != nullptr && (participant->inputSuspended || participant->inputResumeAwaitingResync)) {
+        return false;
+    }
+
     const TimelineInputEntry* lastKnown = m_remoteInputs.latestConfirmedFor(participantId, slot);
     if(lastKnown == nullptr) return false;
 
@@ -5237,6 +5245,13 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
             const bool isLocalParticipant = participant.id == m_localParticipantId;
             const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
             const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
+            if(entry == nullptr && m_hosting && !isLocalParticipant && participant.inputSuspended) {
+                ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
+                if(mutableParticipant != nullptr &&
+                   synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
+                    entry = m_remoteInputs.find(frame, participant.id, slot);
+                }
+            }
             if(entry == nullptr && allowPrediction && !isLocalParticipant) {
                 if(!predictRemoteInputFrame(frame, participant.id, slot)) {
                     noteImplicitRemoteInputStall(participant.id, slot, frame);

@@ -2265,6 +2265,7 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     remote.lastReceivedInputFrame = 10235u;
     remote.lastContiguousInputFrame = 10235u;
     remote.lastReceivedInputSequence = 1u;
+    remote.inputSuspended = true;
     remote.sequenceRebasePending = true;
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
@@ -2282,6 +2283,7 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     REQUIRE(updated != nullptr);
     REQUIRE(updated->lastReceivedInputSequence == 660u);
     REQUIRE(updated->lastContiguousInputFrame == 10895u);
+    REQUIRE_FALSE(updated->inputSuspended);
     REQUIRE_FALSE(updated->sequenceRebasePending);
     REQUIRE(anyLogLineContains(host.eventLog(), "Accepted input rebase from Participant frame 10895"));
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant"));
@@ -3059,6 +3061,7 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
     REQUIRE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
     REQUIRE(host.remoteInputs().find(181u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
     REQUIRE(hostRemote->sequenceRebasePending);
 
@@ -3580,7 +3583,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     baselineContribution.p2Right = true;
     REQUIRE(host.injectInputFrameForTests(baselineRemoteInput, baselineContribution));
 
-    for(Netplay::FrameNumber frame = 101; frame <= 111; ++frame) {
+    for(Netplay::FrameNumber frame = 101; frame <= 112; ++frame) {
         host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0);
     }
     host.setLocalSimulationFrame(110);
@@ -3594,9 +3597,16 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     REQUIRE_FALSE(playbackFrame.predicted);
     REQUIRE(playbackFrame.inputFrame.p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
+    REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
     REQUIRE(hostRemote->sequenceRebasePending);
     REQUIRE(host.remoteInputs().find(111u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+
+    Netplay::NetplayCoordinator::ConfirmedFrameInputs suspendedPlaybackFrame{};
+    REQUIRE(host.tryBuildPlaybackFrame(112, true, suspendedPlaybackFrame));
+    REQUIRE_FALSE(suspendedPlaybackFrame.predicted);
+    REQUIRE(suspendedPlaybackFrame.inputFrame.p2Right);
+    REQUIRE(host.remoteInputs().find(112u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
 
     const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         host.consumePendingHostResyncFrame();
