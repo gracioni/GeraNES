@@ -1,8 +1,6 @@
 #include "GeraNESNetplay/NetplayAutoTune.h"
-#include "GeraNESNetplay/NetplayInputAssignment.h"
 
 #include <algorithm>
-#include <cmath>
 #include <string>
 
 namespace Netplay {
@@ -23,9 +21,9 @@ bool NetplayAutoTune::enabled() const
 }
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                                 const RollbackStats&,
-                                                                 uint32_t,
-                                                                 uint32_t)
+                                                         const RollbackStats&,
+                                                         uint32_t,
+                                                         uint32_t)
 {
     constexpr uint8_t kFixedDelayFrames = 3;
     constexpr uint8_t kFixedPredictFrames = 8;
@@ -50,6 +48,11 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
     return recommendations;
 }
 
+NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(const RoomState&, ResyncReason)
+{
+    return {};
+}
+
 NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
 {
     return m_snapshot;
@@ -57,124 +60,36 @@ NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
 
 #else
 
-bool NetplayAutoTune::isAssignedActiveParticipant(const ParticipantInfo& participant)
-{
-    return participant.connected &&
-           !participant.inputSuspended &&
-           !participant.inputResumeAwaitingResync &&
-           (!participant.controllerAssignments.empty() ||
-            participant.controllerAssignment != kObserverPlayerSlot);
-}
-
 uint8_t NetplayAutoTune::clampDelay(uint32_t frames)
 {
-    return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoDelayFrames, frames));
+    return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoDelayFrames, std::max<uint32_t>(1u, frames)));
 }
 
 uint8_t NetplayAutoTune::clampPredict(uint32_t frames)
 {
-    return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoPredictFrames, frames));
+    return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoPredictFrames, std::max<uint32_t>(1u, frames)));
 }
 
-uint8_t NetplayAutoTune::jitterFramesForRoom(const RoomState& room, uint32_t fps)
-{
-    const double fpsDouble = static_cast<double>(std::max<uint32_t>(1u, fps));
-    const double frameDurationMs = 1000.0 / fpsDouble;
-
-    uint8_t worstJitterFrames = 0;
-    for(const ParticipantInfo& participant : room.participants) {
-        if(!isAssignedActiveParticipant(participant)) continue;
-        const uint32_t jitterMs = participant.jitterMs;
-        const uint32_t frames = static_cast<uint32_t>(std::ceil(static_cast<double>(jitterMs) / frameDurationMs));
-        worstJitterFrames = std::max<uint8_t>(worstJitterFrames, clampDelay(frames));
-    }
-    return worstJitterFrames;
-}
-
-uint8_t NetplayAutoTune::predictionBaselineForRoom(const RoomState& room, uint32_t fps)
-{
-    const double fpsDouble = static_cast<double>(std::max<uint32_t>(1u, fps));
-    const double frameDurationMs = 1000.0 / fpsDouble;
-
-    uint8_t worstTransitFrames = 0;
-    for(const ParticipantInfo& participant : room.participants) {
-        if(!isAssignedActiveParticipant(participant)) continue;
-
-        const double oneWayMs = static_cast<double>(participant.pingMs) * 0.5;
-        const double jitterMs = static_cast<double>(participant.jitterMs);
-        const uint32_t frames = static_cast<uint32_t>(
-            std::ceil((oneWayMs + jitterMs) / frameDurationMs)
-        );
-        worstTransitFrames = std::max<uint8_t>(worstTransitFrames, clampPredict(frames));
-    }
-
-    const uint32_t baseline =
-        std::max<uint32_t>(
-            1u,
-            std::max<uint32_t>(
-                static_cast<uint32_t>(room.inputDelayFrames) + 1u,
-                static_cast<uint32_t>(worstTransitFrames) + 1u
-            )
-        );
-    return clampPredict(baseline);
-}
-
-uint64_t NetplayAutoTune::activeParticipantSignature(const RoomState& room)
-{
-    uint64_t hash = 1469598103934665603ull;
-    auto mix = [&hash](uint64_t value) {
-        hash ^= value;
-        hash *= 1099511628211ull;
-    };
-
-    for(const ParticipantInfo& participant : room.participants) {
-        mix(static_cast<uint64_t>(participant.id));
-        mix(static_cast<uint64_t>(participant.connected ? 1u : 0u));
-        mix(static_cast<uint64_t>(participant.reconnectReserved ? 1u : 0u));
-        mix(static_cast<uint64_t>(participant.role));
-        mix(static_cast<uint64_t>(participant.controllerAssignments.size()));
-        for(PlayerSlot slot : participant.controllerAssignments) {
-            mix(static_cast<uint64_t>(slot) + 17ull);
-        }
-    }
-
-    return hash;
-}
-
-void NetplayAutoTune::resetRunningWindow(const RollbackStats& stats, FrameNumber frame)
-{
-    m_runningWindowInitialized = true;
-    m_lastEvaluationFrame = frame;
-    m_arrivalPressureStableFrames = 0;
-    m_lastPredictionMissCount = stats.predictionMissCount;
-    m_lastPlaybackStopCount = stats.playbackStopCount;
-    m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
-    m_lastMissingInputStopCount = stats.stopDueToMissingInputCount;
-    m_lastRollbackScheduledCount = stats.rollbackScheduledCount;
-    m_lastPredictedFrameUseCount = stats.predictedFrameUseCount;
-}
-
-void NetplayAutoTune::resetForSession(uint32_t sessionId, uint32_t timelineEpoch, SessionState state)
+void NetplayAutoTune::resetForSession(uint32_t sessionId, SessionState state)
 {
     m_lastSessionId = sessionId;
-    m_lastTimelineEpoch = timelineEpoch;
     m_lastState = state;
-    m_runningWindowInitialized = false;
-    m_predictLocked = false;
     m_stableFrameCount = 0;
-    m_lastEvaluationFrame = 0;
     m_lastAdjustmentFrame = 0;
-    m_lastPredictionMissCount = 0;
-    m_lastPlaybackStopCount = 0;
-    m_lastPredictionLimitStopCount = 0;
-    m_lastMissingInputStopCount = 0;
-    m_lastRollbackScheduledCount = 0;
-    m_lastPredictedFrameUseCount = 0;
-    m_lastRecoveryModeTransitionCount = 0;
-    m_lastActiveParticipantSignature = 0;
-    m_delayRetuneBlockedUntilFrame = 0;
-    m_arrivalPressureStableFrames = 0;
+    m_lastStableEvaluationFrame = 0;
     m_lastDecisionReason.clear();
+}
+
+bool NetplayAutoTune::shouldIncreaseDelayForResync(ResyncReason reason)
+{
+    switch(reason) {
+        case ResyncReason::ConfirmedDesync:
+        case ResyncReason::HostStallRecovery:
+        case ResyncReason::ClientStallRecovery:
+            return true;
+        default:
+            return false;
+    }
 }
 
 void NetplayAutoTune::setEnabled(bool enabled)
@@ -191,261 +106,113 @@ bool NetplayAutoTune::enabled() const
 }
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                                 const RollbackStats& stats,
-                                                                 uint32_t unresolvedPredictedRemoteFrameCount,
-                                                                 uint32_t fps)
+                                                         const RollbackStats&,
+                                                         uint32_t,
+                                                         uint32_t)
 {
-    const FrameNumber currentFrame = room.currentFrame;
-    constexpr uint8_t kFixedPredictFrames = 8;
-
     Recommendations recommendations;
+
     if(!m_enabled) {
         m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
         m_currentFixedPredict = static_cast<uint8_t>(room.predictFrames);
-        m_predictLocked = false;
-        m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
-        m_arrivalPressureStableFrames = 0;
-        m_delayRetuneBlockedUntilFrame = 0;
+        m_lastStableEvaluationFrame = room.currentFrame;
         m_lastDecisionReason = "Automatic gameplay tuning disabled";
         return recommendations;
     }
 
-    if(m_lastSessionId != room.sessionId ||
-       m_lastTimelineEpoch != room.timelineEpoch ||
-       m_lastState != room.state) {
-        resetForSession(room.sessionId, room.timelineEpoch, room.state);
+    if(m_lastSessionId != room.sessionId || m_lastState != room.state) {
+        resetForSession(room.sessionId, room.state);
     }
 
     m_lastSessionId = room.sessionId;
-    m_lastTimelineEpoch = room.timelineEpoch;
     m_lastState = room.state;
+    m_currentRecommendedDelay = clampDelay(room.inputDelayFrames);
+    m_currentFixedPredict = 8;
 
-    m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
-    m_currentFixedPredict = kFixedPredictFrames;
-    m_predictLocked = true;
-
-    if(room.predictFrames != kFixedPredictFrames) {
-        recommendations.predictFrames = kFixedPredictFrames;
+    if(room.predictFrames != m_currentFixedPredict) {
+        recommendations.predictFrames = m_currentFixedPredict;
     }
 
-    const uint64_t participantSignature = activeParticipantSignature(room);
-    if(m_lastActiveParticipantSignature != 0u &&
-       participantSignature != m_lastActiveParticipantSignature) {
-        m_runningWindowInitialized = false;
-        m_stableFrameCount = 0;
-        m_arrivalPressureStableFrames = 0;
-        m_delayRetuneBlockedUntilFrame = 0;
-        const uint8_t rebasedDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
-        if(room.inputDelayFrames != rebasedDelay) {
-            recommendations.inputDelayFrames = rebasedDelay;
-            m_currentRecommendedDelay = rebasedDelay;
-            m_lastAdjustmentFrame = currentFrame;
-            m_lastDecisionReason =
-                "Participant topology changed; rebased delay to " +
-                std::to_string(static_cast<unsigned>(rebasedDelay));
-        } else {
-            m_lastDecisionReason = "Participant topology changed; reset adaptive window";
-        }
-        m_lastActiveParticipantSignature = participantSignature;
-        return recommendations;
-    }
-    m_lastActiveParticipantSignature = participantSignature;
-
-    if(room.state != SessionState::Running) {
-        m_runningWindowInitialized = false;
-        m_stableFrameCount = 0;
-        m_arrivalPressureStableFrames = 0;
-        m_lastDecisionReason = "Waiting for running session";
-        return recommendations;
-    }
-
-    if(room.recoveryInputMode != RecoveryInputMode::Normal ||
+    if(room.state != SessionState::Running ||
+       room.recoveryInputMode != RecoveryInputMode::Normal ||
        room.activeResyncId != 0u ||
        room.pendingResyncAckCount != 0u) {
-        m_runningWindowInitialized = false;
         m_stableFrameCount = 0;
-        m_arrivalPressureStableFrames = 0;
-        m_lastDecisionReason = "Recovery/resync active; delaying auto-tune";
+        m_lastStableEvaluationFrame = room.currentFrame;
+        m_lastDecisionReason = "Waiting for stable running session";
         return recommendations;
     }
 
-    if(room.recoveryModeTransitionCount != m_lastRecoveryModeTransitionCount) {
-        m_lastRecoveryModeTransitionCount = room.recoveryModeTransitionCount;
-        m_delayRetuneBlockedUntilFrame = currentFrame + kPostRecoveryRetuneDelayFrames;
-        m_runningWindowInitialized = false;
-        m_stableFrameCount = 0;
-        m_arrivalPressureStableFrames = 0;
-        m_lastDecisionReason = "Recovery transition detected; waiting for stability before retune";
+    if(m_lastStableEvaluationFrame == 0u) {
+        m_lastStableEvaluationFrame = room.currentFrame;
+        m_lastDecisionReason = "Initialized reactive delay controller";
         return recommendations;
     }
 
-    const bool inPostRecoverySettleWindow = currentFrame < m_delayRetuneBlockedUntilFrame;
-
-    const uint8_t baselineDelay = std::max<uint8_t>(1u, jitterFramesForRoom(room, fps));
-
-    if(!m_runningWindowInitialized) {
-        resetRunningWindow(stats, currentFrame);
-        m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
-        m_lastDecisionReason = "Initialized adaptive delay controller";
+    if(room.currentFrame <= m_lastStableEvaluationFrame) {
         return recommendations;
     }
 
-    if(currentFrame <= m_lastEvaluationFrame) {
-        return recommendations;
-    }
+    m_stableFrameCount += room.currentFrame - m_lastStableEvaluationFrame;
+    m_lastStableEvaluationFrame = room.currentFrame;
 
-    const auto safeDelta = [](uint32_t current, uint32_t previous) {
-        return current >= previous ? (current - previous) : current;
-    };
-
-    const uint32_t predictionMissDelta = safeDelta(stats.predictionMissCount, m_lastPredictionMissCount);
-    const uint32_t playbackStopDelta = safeDelta(stats.playbackStopCount, m_lastPlaybackStopCount);
-    const uint32_t predictionLimitStopDelta =
-        safeDelta(stats.stopDueToPredictionLimitCount, m_lastPredictionLimitStopCount);
-    const uint32_t missingInputStopDelta =
-        safeDelta(stats.stopDueToMissingInputCount, m_lastMissingInputStopCount);
-    const uint32_t rollbackScheduledDelta =
-        safeDelta(stats.rollbackScheduledCount, m_lastRollbackScheduledCount);
-    m_lastPredictionMissCount = stats.predictionMissCount;
-    m_lastPlaybackStopCount = stats.playbackStopCount;
-    m_lastPredictionLimitStopCount = stats.stopDueToPredictionLimitCount;
-    m_lastMissingInputStopCount = stats.stopDueToMissingInputCount;
-    m_lastRollbackScheduledCount = stats.rollbackScheduledCount;
-    m_lastPredictedFrameUseCount = stats.predictedFrameUseCount;
-
-    const bool evaluationWindowReached =
-        (currentFrame - m_lastEvaluationFrame) >= kEvaluationWindowFrames;
-    const bool severePressureNow =
-        missingInputStopDelta > 0u ||
-        predictionLimitStopDelta > 0u ||
-        unresolvedPredictedRemoteFrameCount >= 4u;
-    if(!evaluationWindowReached && !severePressureNow) {
-        return recommendations;
-    }
-    const FrameNumber evaluationFrameSpan = std::max<FrameNumber>(1u, currentFrame - m_lastEvaluationFrame);
-    m_lastEvaluationFrame = currentFrame;
-
-    bool recoveringAssignedPeer = false;
-    for(const ParticipantInfo& participant : room.participants) {
-        if(participant.id == kInvalidParticipantId || !participant.connected) continue;
-        if(participantIsObserver(participant)) continue;
-        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
-            recoveringAssignedPeer = true;
-            break;
-        }
-    }
-
-    const uint32_t arrivalPressureScore =
-        (missingInputStopDelta * 5u) +
-        (recoveringAssignedPeer ? 3u : 0u);
-    const uint32_t correctionPressureScore =
-        (predictionLimitStopDelta * 3u) +
-        (predictionMissDelta * 2u) +
-        (rollbackScheduledDelta * 2u) +
-        (unresolvedPredictedRemoteFrameCount >= 4u
-             ? 1u + (unresolvedPredictedRemoteFrameCount / 2u)
-             : 0u) +
-        (playbackStopDelta > 0u ? 1u : 0u);
-    const bool severeArrivalPressure =
-        missingInputStopDelta > 0u;
-
-    const FrameNumber framesSinceAdjustment = currentFrame - m_lastAdjustmentFrame;
-    const bool cooldownActive = framesSinceAdjustment < kAdjustmentCooldownFrames;
-    const bool delayIncreaseSuppressed =
-        currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame;
-    if(delayIncreaseSuppressed) {
-        m_arrivalPressureStableFrames = 0;
-    } else if(arrivalPressureScore >= 4u) {
-        m_arrivalPressureStableFrames += evaluationFrameSpan;
-    } else {
-        m_arrivalPressureStableFrames = 0;
-    }
-    const bool shouldIncrease =
-        severeArrivalPressure ||
-        m_arrivalPressureStableFrames >= kEvaluationWindowFrames * 2u;
-
-    if(shouldIncrease && delayIncreaseSuppressed) {
-        m_lastDecisionReason =
-            "Suppressed delay increase during transient recovery window (arrival " +
-            std::to_string(static_cast<unsigned>(arrivalPressureScore)) +
-            ", blockedUntil " +
-            std::to_string(static_cast<unsigned>(room.autoTuneDelayIncreaseBlockedUntilFrame)) + ")";
-        return recommendations;
-    } else if(shouldIncrease && !cooldownActive) {
-        const uint8_t increaseStep =
-            (arrivalPressureScore >= 8u || missingInputStopDelta > 0u) ? 2u : 1u;
-        const uint8_t targetDelay =
-            clampDelay(static_cast<uint32_t>(std::max<uint8_t>(room.inputDelayFrames, m_currentRecommendedDelay)) +
-                       static_cast<uint32_t>(increaseStep));
-        if(targetDelay > room.inputDelayFrames) {
+    if(room.inputDelayFrames > 1u &&
+       m_stableFrameCount >= kDelayDecayStableFrames) {
+        const uint8_t targetDelay = clampDelay(static_cast<uint32_t>(room.inputDelayFrames - 1u));
+        if(targetDelay < room.inputDelayFrames) {
             recommendations.inputDelayFrames = targetDelay;
             m_currentRecommendedDelay = targetDelay;
-            m_lastAdjustmentFrame = currentFrame;
+            m_lastAdjustmentFrame = room.currentFrame;
             m_stableFrameCount = 0;
-            m_arrivalPressureStableFrames = 0;
             m_lastDecisionReason =
-                "Increased delay to absorb sustained input-arrival pressure (" +
-                std::to_string(static_cast<unsigned>(arrivalPressureScore)) +
-                ", correction " + std::to_string(static_cast<unsigned>(correctionPressureScore)) + ")";
+                "Reduced delay after sustained stable playback to " +
+                std::to_string(static_cast<unsigned>(targetDelay));
             return recommendations;
         }
     }
 
-    if(inPostRecoverySettleWindow) {
-        m_runningWindowInitialized = false;
-        m_stableFrameCount = 0;
-        m_arrivalPressureStableFrames = 0;
-        m_lastDecisionReason = "Post-recovery settle window active";
+    m_lastDecisionReason = "Stable session; holding current delay";
+    return recommendations;
+}
+
+NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(const RoomState& room,
+                                                                               ResyncReason reason)
+{
+    Recommendations recommendations;
+
+    if(!m_enabled) {
         return recommendations;
     }
 
-    const bool healthyWindow =
-        arrivalPressureScore == 0u &&
-        correctionPressureScore == 0u &&
-        unresolvedPredictedRemoteFrameCount == 0u &&
-        !recoveringAssignedPeer;
-
-    if(healthyWindow) {
-        m_stableFrameCount += evaluationFrameSpan;
-    } else {
-        m_stableFrameCount = 0u;
+    m_currentFixedPredict = 8;
+    if(room.predictFrames != m_currentFixedPredict) {
+        recommendations.predictFrames = m_currentFixedPredict;
     }
 
-    const FrameNumber requiredStableFramesForDelayDecrease =
-        room.inputDelayFrames >= 6u
-            ? FrameNumber{240}
-            : (room.inputDelayFrames >= 4u ? FrameNumber{360} : kDelayDecreaseStableFrames);
+    if(!shouldIncreaseDelayForResync(reason)) {
+        m_lastDecisionReason =
+            "Reactive tuning ignored non-pressure resync " + std::to_string(static_cast<unsigned>(reason));
+        return recommendations;
+    }
 
-    if(!cooldownActive &&
-       m_stableFrameCount >= requiredStableFramesForDelayDecrease &&
-       room.inputDelayFrames > 1u) {
-        // After suspend/resume transitions, jitter telemetry can remain high for
-        // a while. Let large delay spikes recover faster while keeping low-delay
-        // reductions conservative.
-        const uint8_t decreaseStep = room.inputDelayFrames >= 6u ? 2u : 1u;
-        const uint8_t loweredDelay = static_cast<uint8_t>(
-            room.inputDelayFrames > decreaseStep ? room.inputDelayFrames - decreaseStep : 1u
-        );
-        const uint8_t targetDelay = std::max<uint8_t>(1u, std::min<uint8_t>(loweredDelay, room.inputDelayFrames));
+    const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
+    const uint8_t targetDelay = clampDelay(static_cast<uint32_t>(currentDelay) + 1u);
+    m_stableFrameCount = 0;
+    m_lastStableEvaluationFrame = room.currentFrame;
+
+    if(targetDelay > currentDelay) {
         recommendations.inputDelayFrames = targetDelay;
         m_currentRecommendedDelay = targetDelay;
-        m_lastAdjustmentFrame = currentFrame;
-        m_stableFrameCount = 0u;
+        m_lastAdjustmentFrame = room.currentFrame;
         m_lastDecisionReason =
-            "Decreased delay after sustained stable playback to " +
-            std::to_string(static_cast<unsigned>(targetDelay)) +
-            " (jitter floor " + std::to_string(static_cast<unsigned>(baselineDelay)) + ")";
-        return recommendations;
-    }
-
-    if(healthyWindow) {
-        m_lastDecisionReason = "Stable window; monitoring for gradual delay reduction";
+            "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
+            " before reactive resync";
     } else {
+        m_currentRecommendedDelay = currentDelay;
         m_lastDecisionReason =
-            "Within tolerance; keeping current delay (arrival " +
-            std::to_string(static_cast<unsigned>(arrivalPressureScore)) +
-            ", correction " + std::to_string(static_cast<unsigned>(correctionPressureScore)) + ")";
+            "Reactive resync pressure detected but delay already at cap " +
+            std::to_string(static_cast<unsigned>(currentDelay));
     }
 
     return recommendations;

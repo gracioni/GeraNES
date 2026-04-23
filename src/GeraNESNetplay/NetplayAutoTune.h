@@ -37,6 +37,7 @@ public:
                            const RollbackStats& stats,
                            uint32_t unresolvedPredictedRemoteFrameCount,
                            uint32_t fps);
+    Recommendations recommendForImpendingResync(const RoomState& room, ResyncReason reason);
 
     Snapshot snapshot() const;
 
@@ -48,44 +49,22 @@ private:
 private:
     bool m_enabled = true;
     uint32_t m_lastSessionId = 0;
-    uint32_t m_lastTimelineEpoch = 0;
     SessionState m_lastState = SessionState::Lobby;
-    bool m_runningWindowInitialized = false;
-    bool m_predictLocked = false;
-    uint8_t m_currentRecommendedDelay = 2;
-    uint8_t m_currentFixedPredict = 1;
+    uint8_t m_currentRecommendedDelay = 1;
+    uint8_t m_currentFixedPredict = 8;
     uint32_t m_stableFrameCount = 0;
-    FrameNumber m_lastEvaluationFrame = 0;
     FrameNumber m_lastAdjustmentFrame = 0;
-    uint32_t m_lastPredictionMissCount = 0;
-    uint32_t m_lastPlaybackStopCount = 0;
-    uint32_t m_lastPredictionLimitStopCount = 0;
-    uint32_t m_lastMissingInputStopCount = 0;
-    uint32_t m_lastRollbackScheduledCount = 0;
-    uint32_t m_lastPredictedFrameUseCount = 0;
-    uint32_t m_lastRecoveryModeTransitionCount = 0;
-    uint64_t m_lastActiveParticipantSignature = 0;
-    FrameNumber m_delayRetuneBlockedUntilFrame = 0;
-    FrameNumber m_arrivalPressureStableFrames = 0;
+    FrameNumber m_lastStableEvaluationFrame = 0;
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;
     static constexpr uint8_t kMaxAutoPredictFrames = 8;
-    static constexpr FrameNumber kEvaluationWindowFrames = 120;
-    static constexpr FrameNumber kDelayDecreaseStableFrames = 600;
-    static constexpr FrameNumber kPredictDecreaseStableFrames = 900;
-    static constexpr FrameNumber kAdjustmentCooldownFrames = 180;
-    static constexpr FrameNumber kPostRecoveryRetuneDelayFrames = 300;
+    static constexpr FrameNumber kDelayDecayStableFrames = 3600;
 
-    static bool isAssignedActiveParticipant(const ParticipantInfo& participant);
     static uint8_t clampDelay(uint32_t frames);
     static uint8_t clampPredict(uint32_t frames);
-    static uint8_t jitterFramesForRoom(const RoomState& room, uint32_t fps);
-    static uint8_t predictionBaselineForRoom(const RoomState& room, uint32_t fps);
-    static uint64_t activeParticipantSignature(const RoomState& room);
-
-    void resetRunningWindow(const RollbackStats& stats, FrameNumber frame);
-    void resetForSession(uint32_t sessionId, uint32_t timelineEpoch, SessionState state);
+    void resetForSession(uint32_t sessionId, SessionState state);
+    static bool shouldIncreaseDelayForResync(ResyncReason reason);
 
 public:
     void setEnabled(bool enabled);
@@ -95,6 +74,7 @@ public:
                            const RollbackStats& stats,
                            uint32_t unresolvedPredictedRemoteFrameCount,
                            uint32_t fps);
+    Recommendations recommendForImpendingResync(const RoomState& room, ResyncReason reason);
 
     Snapshot snapshot() const;
 #endif

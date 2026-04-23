@@ -744,6 +744,18 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu)
 
     const ResyncReason reason =
         initialSessionSync ? ResyncReason::InitialSessionSync : pending->reason;
+    if(!initialSessionSync && AppSettings::instance().data.netplay.autoGameplayTuning) {
+        const auto tuningRecommendations =
+            m_autoSettings.recommendForImpendingResync(m_coordinator.session().roomState(), reason);
+        if(tuningRecommendations.predictFrames.has_value() &&
+           m_coordinator.session().roomState().predictFrames != *tuningRecommendations.predictFrames) {
+            m_coordinator.setPredictFrames(*tuningRecommendations.predictFrames);
+        }
+        if(tuningRecommendations.inputDelayFrames.has_value() &&
+           m_coordinator.session().roomState().inputDelayFrames != *tuningRecommendations.inputDelayFrames) {
+            m_coordinator.setInputDelayFrames(*tuningRecommendations.inputDelayFrames);
+        }
+    }
     if(beginAuthoritativeResync(
            emu,
            authoritativeFrame,

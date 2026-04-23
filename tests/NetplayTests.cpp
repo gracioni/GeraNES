@@ -417,173 +417,85 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     REQUIRE(update.shouldResync);
 }
 
-TEST_CASE("Netplay auto delay decays faster from high values after stable playback",
+TEST_CASE("Netplay reactive auto delay decays by one after one minute of stability",
           "[netplay][auto-settings][delay]")
 {
     Netplay::NetplayAutoTune autoSettings;
     Netplay::RoomState room;
     room.sessionId = 1;
-    room.timelineEpoch = 1;
     room.state = Netplay::SessionState::Running;
     room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 8;
+    room.inputDelayFrames = 4;
     room.predictFrames = 8;
-
-    Netplay::ParticipantInfo owner;
-    owner.id = 0;
-    owner.connected = true;
-    owner.role = Netplay::ParticipantRole::SessionOwner;
-    owner.controllerAssignments = {Netplay::kPort1PlayerSlot};
-    owner.normalizeControllerAssignments();
-
-    Netplay::ParticipantInfo participant;
-    participant.id = 1;
-    participant.connected = true;
-    participant.role = Netplay::ParticipantRole::SessionParticipant;
-    participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
-    participant.pingMs = 20;
-    participant.jitterMs = 1;
-    participant.normalizeControllerAssignments();
-
-    room.participants = {owner, participant};
 
     Netplay::RollbackStats stats;
     auto recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+    REQUIRE_FALSE(recommendations.predictFrames.has_value());
 
-    room.currentFrame = 120;
+    room.currentFrame = 1800;
     recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
 
-    room.currentFrame = 240;
+    room.currentFrame = 3600;
     recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(*recommendations.inputDelayFrames == 6);
+    REQUIRE(*recommendations.inputDelayFrames == 3);
 }
 
-TEST_CASE("Netplay auto delay ignores correction-only pressure for increases",
+TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
           "[netplay][auto-settings][delay]")
 {
     Netplay::NetplayAutoTune autoSettings;
     Netplay::RoomState room;
     room.sessionId = 2;
-    room.timelineEpoch = 1;
     room.state = Netplay::SessionState::Running;
     room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 2;
+    room.inputDelayFrames = 1;
     room.predictFrames = 8;
+    room.currentFrame = 900;
 
-    Netplay::ParticipantInfo owner;
-    owner.id = 0;
-    owner.connected = true;
-    owner.role = Netplay::ParticipantRole::SessionOwner;
-    owner.controllerAssignments = {Netplay::kPort1PlayerSlot};
-    owner.normalizeControllerAssignments();
-
-    Netplay::ParticipantInfo participant;
-    participant.id = 1;
-    participant.connected = true;
-    participant.role = Netplay::ParticipantRole::SessionParticipant;
-    participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
-    participant.pingMs = 20;
-    participant.jitterMs = 1;
-    participant.normalizeControllerAssignments();
-
-    room.participants = {owner, participant};
-
-    Netplay::RollbackStats stats;
-    auto recommendations = autoSettings.update(room, stats, 0, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-
-    stats.predictionMissCount += 3;
-    stats.rollbackScheduledCount += 3;
-    room.currentFrame = 120;
-    recommendations = autoSettings.update(room, stats, 0, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("correction") != std::string::npos);
+    auto recommendations =
+        autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 2);
+    REQUIRE_FALSE(recommendations.predictFrames.has_value());
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("Raised delay") != std::string::npos);
 }
 
-TEST_CASE("Netplay auto delay suppresses increases during transient recovery window",
+TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
           "[netplay][auto-settings][delay]")
 {
     Netplay::NetplayAutoTune autoSettings;
     Netplay::RoomState room;
     room.sessionId = 3;
-    room.timelineEpoch = 1;
     room.state = Netplay::SessionState::Running;
     room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
     room.predictFrames = 8;
-    room.autoTuneDelayIncreaseBlockedUntilFrame = 600;
+    room.currentFrame = 1200;
 
-    Netplay::ParticipantInfo owner;
-    owner.id = 0;
-    owner.connected = true;
-    owner.role = Netplay::ParticipantRole::SessionOwner;
-    owner.controllerAssignments = {Netplay::kPort1PlayerSlot};
-    owner.normalizeControllerAssignments();
-
-    Netplay::ParticipantInfo participant;
-    participant.id = 1;
-    participant.connected = true;
-    participant.role = Netplay::ParticipantRole::SessionParticipant;
-    participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
-    participant.pingMs = 20;
-    participant.jitterMs = 1;
-    participant.normalizeControllerAssignments();
-
-    room.participants = {owner, participant};
-
-    Netplay::RollbackStats stats;
-    auto recommendations = autoSettings.update(room, stats, 0, 60);
+    const auto recommendations =
+        autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::AssignmentChanged);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-
-    stats.stopDueToMissingInputCount += 1;
-    room.currentFrame = 120;
-    recommendations = autoSettings.update(room, stats, 0, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("Suppressed delay increase") != std::string::npos);
+    REQUIRE_FALSE(recommendations.predictFrames.has_value());
 }
 
-TEST_CASE("Netplay auto delay does not increase from prediction-limit pressure alone",
+TEST_CASE("Netplay reactive auto tuning keeps predict fixed at eight",
           "[netplay][auto-settings][delay]")
 {
     Netplay::NetplayAutoTune autoSettings;
     Netplay::RoomState room;
     room.sessionId = 4;
-    room.timelineEpoch = 1;
     room.state = Netplay::SessionState::Running;
     room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
-    room.predictFrames = 8;
-
-    Netplay::ParticipantInfo owner;
-    owner.id = 0;
-    owner.connected = true;
-    owner.role = Netplay::ParticipantRole::SessionOwner;
-    owner.controllerAssignments = {Netplay::kPort1PlayerSlot};
-    owner.normalizeControllerAssignments();
-
-    Netplay::ParticipantInfo participant;
-    participant.id = 1;
-    participant.connected = true;
-    participant.role = Netplay::ParticipantRole::SessionParticipant;
-    participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
-    participant.pingMs = 20;
-    participant.jitterMs = 1;
-    participant.normalizeControllerAssignments();
-
-    room.participants = {owner, participant};
+    room.predictFrames = 3;
 
     Netplay::RollbackStats stats;
-    auto recommendations = autoSettings.update(room, stats, 0, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-
-    stats.stopDueToPredictionLimitCount += 4;
-    room.currentFrame = 120;
-    recommendations = autoSettings.update(room, stats, 8, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("correction") != std::string::npos);
+    const auto recommendations = autoSettings.update(room, stats, 0, 60);
+    REQUIRE(recommendations.predictFrames.has_value());
+    REQUIRE(*recommendations.predictFrames == 8);
 }
 
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")
