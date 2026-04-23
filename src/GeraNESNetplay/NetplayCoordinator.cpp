@@ -377,6 +377,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastPeerHealthAt.clear();
     m_lastTransportError.clear();
     clearReconnectAttemptState();
+    m_awaitingReconnectInitialSync = false;
     m_suppressReconnectPresenceToasts = false;
     m_delayedPacketEvents.clear();
     m_pendingKickDisconnects.clear();
@@ -2251,7 +2252,7 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
             ++m_session.roomState().staleFrameStatusPacketCount;
             return true;
         }
-        return true;
+        m_session.roomState().timelineEpoch = status.timelineEpoch;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = status.timelineEpoch;
 
@@ -2948,6 +2949,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     const bool initialSessionSync =
         m_session.roomState().state == SessionState::Starting &&
         data.reason == ResyncReason::InitialSessionSync;
+    m_awaitingReconnectInitialSync = false;
     const bool preserveInputSequences =
         preserveInputSequencesForResync(data.reason, initialSessionSync, data.targetFrame);
 
@@ -3441,6 +3443,12 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
     m_session.roomState().predictFrames = data.predictFrames;
     applyTopologyData(m_session.roomState(), data.topology);
+    if(!m_hosting &&
+       data.state == SessionState::Running &&
+       m_awaitingReconnectInitialSync) {
+        pushLog("Deferred running session state until reconnect initial sync begins");
+        return true;
+    }
     m_session.roomState().state = data.state;
     const bool shouldResetConfirmedState =
         data.state == SessionState::Starting ||
@@ -4153,6 +4161,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
             m_lastError.clear();
             clearReconnectAttemptState();
             if(completedAutomaticReconnect) {
+                m_awaitingReconnectInitialSync = true;
                 m_suppressReconnectPresenceToasts = true;
                 pushToast(localReconnectedToast());
             }

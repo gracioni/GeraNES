@@ -179,6 +179,7 @@ private:
     uint16_t m_lastJoinPort = 0;
     bool m_reconnectPending = false;
     bool m_reconnectAttemptInFlight = false;
+    bool m_awaitingReconnectInitialSync = false;
     bool m_suppressReconnectPresenceToasts = false;
     uint16_t m_reconnectSecondsRemaining = 0;
     std::chrono::steady_clock::time_point m_nextReconnectAttempt = {};
