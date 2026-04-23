@@ -4134,20 +4134,28 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     }
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
 
-    if(m_localParticipantId == kInvalidParticipantId && !m_hosting) {
+    const bool isLocalParticipantUpdate =
+        !m_hosting &&
+        (participantId == m_localParticipantId ||
+         m_localParticipantId == kInvalidParticipantId);
+    if(isLocalParticipantUpdate) {
         const bool completedAutomaticReconnect =
             m_reconnectPending ||
             m_reconnectAttemptInFlight;
-        m_localParticipantId = participantId;
-        m_connected = true;
+        if(m_localParticipantId == kInvalidParticipantId) {
+            m_localParticipantId = participantId;
+        }
+        m_connected = participant.connected && !participant.reconnectReserved;
         if(participant.reconnectToken != 0) {
             m_localReconnectToken = participant.reconnectToken;
         }
-        m_lastError.clear();
-        clearReconnectAttemptState();
-        if(completedAutomaticReconnect) {
-            m_suppressReconnectPresenceToasts = true;
-            pushToast(localReconnectedToast());
+        if(m_connected) {
+            m_lastError.clear();
+            clearReconnectAttemptState();
+            if(completedAutomaticReconnect) {
+                m_suppressReconnectPresenceToasts = true;
+                pushToast(localReconnectedToast());
+            }
         }
     }
 
