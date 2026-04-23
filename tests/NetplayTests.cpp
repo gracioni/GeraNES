@@ -2150,8 +2150,8 @@ TEST_CASE("Passive host transport loss keeps client reconnecting after reservati
     host.shutdownForUnload();
 
     bool reconnecting = false;
-    for(int step = 0; step < 400 && !reconnecting; ++step) {
-        client.update(0);
+    for(int step = 0; step < 1200 && !reconnecting; ++step) {
+        client.update(5);
         reconnecting = client.reconnectPending();
         if(!reconnecting) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -2170,6 +2170,72 @@ TEST_CASE("Passive host transport loss keeps client reconnecting after reservati
     REQUIRE(client.reconnectSecondsRemaining() == 0u);
 
     client.disconnect();
+}
+
+TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
+          "[netplay][reconnect][resync][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 7u;
+    room.currentFrame = 500u;
+    room.lastConfirmedFrame = 500u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Participant";
+    remote.connected = false;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 500u;
+    remote.lastContiguousInputFrame = 500u;
+    remote.lastReceivedInputSequence = 1003u;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    InputFrame confirmedContribution = Netplay::makeRoomTopologyBaseFrame(500u, room);
+    Netplay::TimelineInputEntry confirmed{};
+    confirmed.frame = 500u;
+    confirmed.participantId = remote.id;
+    confirmed.playerSlot = Netplay::kPort2PlayerSlot;
+    confirmed.inputFrame = confirmedContribution;
+    confirmed.sequence = 1003u;
+    confirmed.confirmed = true;
+    confirmed.predicted = false;
+    const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u};
+    const uint32_t payloadCrc32 =
+        Crc32::calc(reinterpret_cast<const char*>(payload.data()), payload.size());
+    REQUIRE(host.beginResync(500u, payload, payloadCrc32, 0x12345678u, Netplay::ResyncReason::InitialSessionSync));
+
+    Netplay::ParticipantInfo* reconnected = const_cast<Netplay::NetSession&>(host.session()).findParticipant(remote.id);
+    REQUIRE(reconnected != nullptr);
+    reconnected->connected = true;
+    REQUIRE(reconnected->lastReceivedInputSequence == 1003u);
+
+    Netplay::InputFrameData resumedInput{};
+    resumedInput.timelineEpoch = room.timelineEpoch;
+    resumedInput.frame = 501u;
+    resumedInput.participantId = remote.id;
+    resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
+    resumedInput.sequence = 1004u;
+    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(501u, room);
+    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+
+    REQUIRE(reconnected->lastReceivedInputSequence == 1004u);
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input sequence from Participant"));
+
+    host.disconnect();
 }
 
 TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",

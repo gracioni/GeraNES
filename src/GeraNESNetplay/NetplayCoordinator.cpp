@@ -176,6 +176,21 @@ std::string localReconnectedToast()
     return "Reconnected";
 }
 
+bool preserveInputSequencesForResync(Netplay::ResyncReason reason,
+                                     bool initialSessionSync,
+                                     Netplay::FrameNumber targetFrame)
+{
+    if(reason == Netplay::ResyncReason::ObserverVisibilityRestore) {
+        return true;
+    }
+    if(reason == Netplay::ResyncReason::InitialSessionSync &&
+       !initialSessionSync &&
+       targetFrame > 0u) {
+        return true;
+    }
+    return false;
+}
+
 Netplay::AssignControllerData makeAssignControllerData(const Netplay::ParticipantInfo& participant)
 {
     Netplay::AssignControllerData data;
@@ -2494,10 +2509,13 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     }
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
+        const uint32_t latestSequence = latestSequenceForParticipant(participant.id);
         participant.lastReceivedInputFrame = loadedFrame;
         participant.lastContiguousInputFrame = loadedFrame;
-        participant.lastReceivedInputSequence = latestSequenceForParticipant(participant.id);
-        participant.sequenceRebasePending = resetInputSequences;
+        participant.lastReceivedInputSequence = latestSequence;
+        participant.sequenceRebasePending =
+            resetInputSequences ||
+            (!resetInputSequences && latestSequence == 0u && participant.id != m_localParticipantId);
         participant.pendingMissingInputFrom.reset();
         participant.lastDecisionFrame = loadedFrame;
         participant.lastDecisionSlot = kObserverPlayerSlot;
@@ -2889,7 +2907,11 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
         pushLog(oss.str());
     }
     m_pendingResyncApply.reset();
-    const bool preserveInputSequences = data.reason == ResyncReason::ObserverVisibilityRestore;
+    const bool initialSessionSync =
+        m_session.roomState().state == SessionState::Starting &&
+        data.reason == ResyncReason::InitialSessionSync;
+    const bool preserveInputSequences =
+        preserveInputSequencesForResync(data.reason, initialSessionSync, data.targetFrame);
 
     realignAuthoritativeState(
         data.targetFrame,
@@ -5553,11 +5575,13 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     }
     const uint32_t resyncId = m_nextResyncId++;
     const uint32_t previousEpoch = m_session.roomState().timelineEpoch;
+    const bool preserveInputSequences =
+        preserveInputSequencesForResync(reason, initialSessionSync, targetFrame);
     if(!targetedResync) {
         ++m_session.roomState().timelineEpoch;
         realignAuthoritativeState(
             targetFrame,
-            true,
+            !preserveInputSequences,
             0u,
             initialSessionSync || preserveConfirmedInputsAcrossRealignment(reason)
         );
@@ -5737,9 +5761,18 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
                 << " resyncId " << resyncId;
             pushLog(oss.str());
         }
+        const bool initialSessionSync =
+            m_session.roomState().activeResyncReason == ResyncReason::InitialSessionSync &&
+            loadedFrame == 0u;
+        const bool preserveInputSequences =
+            preserveInputSequencesForResync(
+                m_session.roomState().activeResyncReason,
+                initialSessionSync,
+                loadedFrame
+            );
         realignAuthoritativeState(
             loadedFrame,
-            true,
+            !preserveInputSequences,
             m_session.roomState().resyncInputSequenceBase,
             preserveConfirmedInputsAcrossRealignment(m_session.roomState().activeResyncReason)
         );
