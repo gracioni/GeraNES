@@ -112,6 +112,9 @@ std::vector<uint8_t> NetplayAppRuntime::buildAuthoritativeStatePayload(GeraNESEm
            snapshot.has_value()) {
             return **snapshot;
         }
+        if(!emu.valid() || emu.frameCount() != authoritativeFrame) {
+            return {};
+        }
     }
 
     return emu.saveNetplayStateToMemory();
@@ -719,11 +722,24 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu)
         initialSessionSync
             ? emu.frameCount()
             : pending->frame;
-    const FrameNumber authoritativeFrame =
+    FrameNumber authoritativeFrame =
         std::min<FrameNumber>(requestedFrame, emu.frameCount());
+    bool preferConfirmedSnapshot = !initialSessionSync;
 
-    const std::vector<uint8_t> statePayload =
-        buildAuthoritativeStatePayload(emu, authoritativeFrame, !initialSessionSync);
+    std::vector<uint8_t> statePayload =
+        buildAuthoritativeStatePayload(emu, authoritativeFrame, preferConfirmedSnapshot);
+    if(statePayload.empty() && preferConfirmedSnapshot && authoritativeFrame != emu.frameCount()) {
+        m_coordinator.appendNetplayLog(
+            "Netplay authoritative snapshot unavailable at frame " +
+            std::to_string(authoritativeFrame) +
+            "; using current host frame " +
+            std::to_string(emu.frameCount()) +
+            " for resync"
+        );
+        authoritativeFrame = emu.frameCount();
+        preferConfirmedSnapshot = false;
+        statePayload = buildAuthoritativeStatePayload(emu, authoritativeFrame, preferConfirmedSnapshot);
+    }
     if(statePayload.empty()) return;
 
     const ResyncReason reason =
@@ -732,7 +748,7 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu)
            emu,
            authoritativeFrame,
            statePayload,
-           !initialSessionSync,
+           preferConfirmedSnapshot,
            reason,
            pending->participantId
        )) {
@@ -756,17 +772,29 @@ void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& em
     if(!participantId.has_value()) return;
     if(!emu.valid()) return;
 
-    const FrameNumber authoritativeFrame =
+    FrameNumber authoritativeFrame =
         std::min<FrameNumber>(m_coordinator.session().roomState().lastConfirmedFrame, emu.frameCount());
-    const std::vector<uint8_t> statePayload =
-        buildAuthoritativeStatePayload(emu, authoritativeFrame, true);
+    bool preferConfirmedSnapshot = true;
+    std::vector<uint8_t> statePayload =
+        buildAuthoritativeStatePayload(emu, authoritativeFrame, preferConfirmedSnapshot);
+    if(statePayload.empty() && authoritativeFrame != emu.frameCount()) {
+        m_coordinator.appendNetplayLog(
+            "Netplay late-join snapshot unavailable at frame " +
+            std::to_string(authoritativeFrame) +
+            "; using current host frame " +
+            std::to_string(emu.frameCount())
+        );
+        authoritativeFrame = emu.frameCount();
+        preferConfirmedSnapshot = false;
+        statePayload = buildAuthoritativeStatePayload(emu, authoritativeFrame, preferConfirmedSnapshot);
+    }
     if(statePayload.empty()) return;
 
     if(beginAuthoritativeResync(
            emu,
            authoritativeFrame,
            statePayload,
-           true,
+           preferConfirmedSnapshot,
            ResyncReason::InitialSessionSync,
            *participantId
        )) {
