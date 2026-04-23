@@ -499,7 +499,8 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     }
 
     const uint32_t confirmedFrame = confirmedThroughFrame(coordinator);
-    const uint32_t predictedThroughFrame = confirmedFrame + m_predictFrames;
+    const uint32_t delaySlackFrame = confirmedFrame + m_prebufferFrames;
+    const uint32_t predictedThroughFrame = delaySlackFrame + m_predictFrames;
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
     const uint32_t hostFallbackThroughFrame =
         coordinator.isHosting() && !m_lastProduceHadLocalSlots
@@ -511,8 +512,11 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
             : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t firstFrame = emulationFrame + 1u;
     const uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
-    const auto allowPredictionForFrame = [confirmedFrame, predictedThroughFrame](uint32_t frame) {
-        return frame > confirmedFrame && frame <= predictedThroughFrame;
+    const auto allowPredictionForFrame = [delaySlackFrame, predictedThroughFrame](uint32_t frame) {
+        return frame > delaySlackFrame && frame <= predictedThroughFrame;
+    };
+    const auto allowHostFallbackForFrame = [predictedThroughFrame](uint32_t frame) {
+        return frame > predictedThroughFrame;
     };
 
     std::scoped_lock pendingLock(m_pendingFramesMutex);
@@ -536,7 +540,12 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     for(auto it = m_pendingFrames.begin(); it != m_pendingFrames.end();) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = allowPredictionForFrame(it->frame);
-        if(!coordinator.tryBuildPlaybackFrame(it->frame, allowPrediction, playbackFrame)) {
+        if(!coordinator.tryBuildPlaybackFrame(
+               it->frame,
+               allowPrediction,
+               playbackFrame,
+               allowHostFallbackForFrame(it->frame)
+           )) {
             m_pendingFrames.erase(it, m_pendingFrames.end());
             break;
         }
@@ -556,7 +565,12 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     for(uint32_t frame = nextFrame; frame <= targetThroughFrame; ++frame) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const bool allowPrediction = allowPredictionForFrame(frame);
-        if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, playbackFrame)) {
+        if(!coordinator.tryBuildPlaybackFrame(
+               frame,
+               allowPrediction,
+               playbackFrame,
+               allowHostFallbackForFrame(frame)
+           )) {
             break;
         }
         m_pendingFrames.push_back(std::move(playbackFrame));

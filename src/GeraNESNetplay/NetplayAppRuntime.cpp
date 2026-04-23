@@ -1138,7 +1138,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         }
 
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame)) {
+        if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) {
             break;
         }
         if(playbackFrame.predicted) {
@@ -1277,7 +1277,17 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
             shouldAllowPredictionForFrame(
                 confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.prebufferFrames()) + 1u
             );
-        if(!m_coordinator.tryBuildPlaybackFrame(nextFrame, allowPrediction, playbackFrame)) {
+        const FrameNumber predictionCapFrame =
+            confirmedThroughFrame +
+            static_cast<FrameNumber>(m_inputDriver.prebufferFrames()) +
+            static_cast<FrameNumber>(m_inputDriver.predictFrames());
+        const bool allowHostFallback = nextFrame > predictionCapFrame;
+        if(!m_coordinator.tryBuildPlaybackFrame(
+               nextFrame,
+               allowPrediction,
+               playbackFrame,
+               allowHostFallback
+           )) {
             requestRollbackRecoveryResync(
                 "Netplay resimulation failed: could not build playback frame " +
                 std::to_string(nextFrame),
@@ -1396,7 +1406,13 @@ bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
                                                               NetplayCoordinator::ConfirmedFrameInputs& outFrame)
 {
     const bool allowPrediction = shouldAllowPredictionForFrame(frame);
-    if(!m_coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame)) {
+    const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    const FrameNumber predictionCapFrame =
+        confirmedThroughFrame +
+        static_cast<FrameNumber>(m_inputDriver.prebufferFrames()) +
+        static_cast<FrameNumber>(m_inputDriver.predictFrames());
+    const bool allowHostFallback = frame > predictionCapFrame;
+    if(!m_coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame, allowHostFallback)) {
         recordPlaybackStop(frame);
         return false;
     }

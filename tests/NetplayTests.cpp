@@ -3800,6 +3800,282 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     client.disconnect();
 }
 
+TEST_CASE("Netplay client post-resync startup honors input delay before prediction",
+          "[netplay][resync][delay][client][unit]")
+{
+    constexpr Netplay::FrameNumber kResyncFrame = 1000u;
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    bool started = false;
+    for(int attempt = 0; attempt < 3 && !started; ++attempt) {
+        host.disconnect();
+        client.disconnect();
+        const uint16_t port = reserveLoopbackPort();
+        if(!host.host(port, 1, "Host")) continue;
+        if(!client.join("127.0.0.1", port, "Client")) continue;
+        started = true;
+    }
+    REQUIRE(started);
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        const auto& hostRoom = host.session().roomState();
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            hostRoom.participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.selectedGameName = "ResyncDelay";
+    clientRoom.selectedGameName = "ResyncDelay";
+    hostRoom.currentFrame = kResyncFrame;
+    clientRoom.currentFrame = kResyncFrame;
+    hostRoom.lastConfirmedFrame = kResyncFrame;
+    clientRoom.lastConfirmedFrame = kResyncFrame;
+    hostRoom.inputDelayFrames = 3;
+    clientRoom.inputDelayFrames = 3;
+    hostRoom.predictFrames = 8;
+    clientRoom.predictFrames = 8;
+
+    Netplay::ParticipantId clientRemoteId = Netplay::kInvalidParticipantId;
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            clientRemoteId = participant.id;
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+    REQUIRE(clientRemoteId != Netplay::kInvalidParticipantId);
+
+    host.setLocalSimulationFrame(kResyncFrame);
+    client.setLocalSimulationFrame(kResyncFrame);
+
+    Netplay::ConfirmedInputBufferDriver driver;
+    driver.setPrebufferFrames(3);
+    driver.setPredictFrames(8);
+    driver.reanchor(kResyncFrame);
+    const uint64_t clientInputMask =
+        Netplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, true, false, false, true, false);
+    driver.produceLocalBufferedInputs(
+        client,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        std::vector<Netplay::PlayerSlot>{Netplay::kPort2PlayerSlot},
+        0,
+        clientInputMask,
+        60,
+        kResyncFrame,
+        driver.confirmedThroughFrame(client)
+    );
+
+    const Netplay::TimelineInputEntry* local101 =
+        client.localInputs().find(kResyncFrame + 1u, client.localParticipantId(), Netplay::kPort2PlayerSlot);
+    const Netplay::TimelineInputEntry* local102 =
+        client.localInputs().find(kResyncFrame + 2u, client.localParticipantId(), Netplay::kPort2PlayerSlot);
+    const Netplay::TimelineInputEntry* local103 =
+        client.localInputs().find(kResyncFrame + 3u, client.localParticipantId(), Netplay::kPort2PlayerSlot);
+    REQUIRE(local101 != nullptr);
+    REQUIRE(local102 != nullptr);
+    REQUIRE(local103 != nullptr);
+    REQUIRE(local101->buttonMaskLo == clientInputMask);
+    REQUIRE(local102->buttonMaskLo == clientInputMask);
+    REQUIRE(local103->buttonMaskLo == clientInputMask);
+
+    driver.preparePlaybackFramesForEmulationThread(
+        client,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        kResyncFrame
+    );
+
+    REQUIRE(driver.queuedThroughFrame() == kResyncFrame);
+    REQUIRE(client.remoteInputs().find(kResyncFrame + 1u, clientRemoteId, Netplay::kPort1PlayerSlot) == nullptr);
+    REQUIRE(client.remoteInputs().find(kResyncFrame + 2u, clientRemoteId, Netplay::kPort1PlayerSlot) == nullptr);
+    REQUIRE(client.remoteInputs().find(kResyncFrame + 3u, clientRemoteId, Netplay::kPort1PlayerSlot) == nullptr);
+
+    host.disconnect();
+    client.disconnect();
+}
+
+TEST_CASE("Netplay host post-resync startup honors input delay before remote prediction",
+          "[netplay][resync][delay][host][unit]")
+{
+    constexpr Netplay::FrameNumber kResyncFrame = 1000u;
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    bool started = false;
+    for(int attempt = 0; attempt < 3 && !started; ++attempt) {
+        host.disconnect();
+        client.disconnect();
+        const uint16_t port = reserveLoopbackPort();
+        if(!host.host(port, 1, "Host")) continue;
+        if(!client.join("127.0.0.1", port, "Client")) continue;
+        started = true;
+    }
+    REQUIRE(started);
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        const auto& hostRoom = host.session().roomState();
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            hostRoom.participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.selectedGameName = "ResyncDelay";
+    clientRoom.selectedGameName = "ResyncDelay";
+    hostRoom.currentFrame = kResyncFrame;
+    clientRoom.currentFrame = kResyncFrame;
+    hostRoom.lastConfirmedFrame = kResyncFrame;
+    clientRoom.lastConfirmedFrame = kResyncFrame;
+    hostRoom.inputDelayFrames = 3;
+    clientRoom.inputDelayFrames = 3;
+    hostRoom.predictFrames = 8;
+    clientRoom.predictFrames = 8;
+
+    Netplay::ParticipantId hostRemoteId = Netplay::kInvalidParticipantId;
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            hostRemoteId = participant.id;
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.lastReceivedInputFrame = kResyncFrame;
+            participant.lastContiguousInputFrame = kResyncFrame;
+            participant.lastReceivedInputSequence = 0u;
+            participant.inputSuspended = false;
+            participant.inputResumeAwaitingResync = false;
+        }
+        participant.normalizeControllerAssignments();
+    }
+    REQUIRE(hostRemoteId != Netplay::kInvalidParticipantId);
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(kResyncFrame);
+    client.setLocalSimulationFrame(kResyncFrame);
+
+    Netplay::ConfirmedInputBufferDriver driver;
+    driver.setPrebufferFrames(3);
+    driver.setPredictFrames(8);
+    driver.reanchor(kResyncFrame);
+    const uint64_t hostInputMask =
+        Netplay::ConfirmedInputBufferDriver::buildPadMask(false, true, true, false, true, false, false, true);
+    driver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        std::vector<Netplay::PlayerSlot>{Netplay::kPort1PlayerSlot},
+        0,
+        hostInputMask,
+        60,
+        kResyncFrame,
+        driver.confirmedThroughFrame(host)
+    );
+
+    const Netplay::TimelineInputEntry* local101 =
+        host.localInputs().find(kResyncFrame + 1u, host.localParticipantId(), Netplay::kPort1PlayerSlot);
+    const Netplay::TimelineInputEntry* local102 =
+        host.localInputs().find(kResyncFrame + 2u, host.localParticipantId(), Netplay::kPort1PlayerSlot);
+    const Netplay::TimelineInputEntry* local103 =
+        host.localInputs().find(kResyncFrame + 3u, host.localParticipantId(), Netplay::kPort1PlayerSlot);
+    REQUIRE(local101 != nullptr);
+    REQUIRE(local102 != nullptr);
+    REQUIRE(local103 != nullptr);
+    REQUIRE(local101->buttonMaskLo == hostInputMask);
+    REQUIRE(local102->buttonMaskLo == hostInputMask);
+    REQUIRE(local103->buttonMaskLo == hostInputMask);
+
+    driver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        kResyncFrame
+    );
+
+    REQUIRE(driver.queuedThroughFrame() <= kResyncFrame + 3u);
+    for(Netplay::FrameNumber frame = kResyncFrame + 1u; frame <= kResyncFrame + 3u; ++frame) {
+        const Netplay::TimelineInputEntry* remote =
+            host.remoteInputs().find(frame, hostRemoteId, Netplay::kPort2PlayerSlot);
+        if(remote != nullptr) {
+            REQUIRE_FALSE(remote->predicted);
+        }
+    }
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Netplay host accepts late input for already committed post-resync frame",
           "[netplay][input][resync][unit]")
 {

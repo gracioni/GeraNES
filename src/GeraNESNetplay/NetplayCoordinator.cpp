@@ -5278,7 +5278,10 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
     );
 }
 
-bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame)
+bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
+                                                       bool allowPrediction,
+                                                       bool allowHostFallback,
+                                                       ConfirmedFrameInputs& outFrame)
 {
     if(const ConfirmedFrameInputs* confirmed = findConfirmedFrame(frame)) {
         outFrame = *confirmed;
@@ -5315,7 +5318,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
                 }
                 entry = m_remoteInputs.find(frame, participant.id, slot);
             }
-            if(entry == nullptr && m_hosting && !allowPrediction && !isLocalParticipant) {
+            if(entry == nullptr && m_hosting && allowHostFallback && !allowPrediction && !isLocalParticipant) {
                 ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
                 if(mutableParticipant != nullptr &&
                    synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
@@ -5350,9 +5353,12 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, bool a
     );
 }
 
-bool NetplayCoordinator::tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame)
+bool NetplayCoordinator::tryBuildPlaybackFrame(FrameNumber frame,
+                                               bool allowPrediction,
+                                               ConfirmedFrameInputs& outFrame,
+                                               bool allowHostFallback)
 {
-    return tryBuildPlaybackFrameInternal(frame, allowPrediction, outFrame);
+    return tryBuildPlaybackFrameInternal(frame, allowPrediction, allowHostFallback, outFrame);
 }
 
 void NetplayCoordinator::publishConfirmedFramesIfReady()

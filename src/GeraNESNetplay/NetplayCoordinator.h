@@ -302,7 +302,10 @@ private:
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
     void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
     bool synthesizePredictionLimitFallbackInput(FrameNumber targetFrame, ParticipantInfo& participant, PlayerSlot slot);
-    bool tryBuildPlaybackFrameInternal(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
+    bool tryBuildPlaybackFrameInternal(FrameNumber frame,
+                                       bool allowPrediction,
+                                       bool allowHostFallback,
+                                       ConfirmedFrameInputs& outFrame);
     // Frame terminology used by the coordinator:
     // - local simulation frame: last frame this peer has actually simulated.
     // - host input-confirmed frame: highest frame for which the host has
@@ -421,7 +424,10 @@ public:
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution);
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
     void predictRemoteInputsForFrame(FrameNumber frame);
-    bool tryBuildPlaybackFrame(FrameNumber frame, bool allowPrediction, ConfirmedFrameInputs& outFrame);
+    bool tryBuildPlaybackFrame(FrameNumber frame,
+                               bool allowPrediction,
+                               ConfirmedFrameInputs& outFrame,
+                               bool allowHostFallback = true);
     void submitLocalCrc(FrameNumber frame, uint32_t crc32);
     void invalidateLocalCrcHistoryAfter(FrameNumber frame);
     bool beginResync(FrameNumber targetFrame,
