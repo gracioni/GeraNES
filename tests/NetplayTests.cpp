@@ -3625,10 +3625,40 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     baselineContribution.p2Right = true;
     REQUIRE(host.injectInputFrameForTests(baselineRemoteInput, baselineContribution));
 
-    for(Netplay::FrameNumber frame = 101; frame <= 112; ++frame) {
-        host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0);
-    }
+    Netplay::ConfirmedInputBufferDriver hostPlaybackDriver;
+    hostPlaybackDriver.setPrebufferFrames(12);
+    hostPlaybackDriver.setPredictFrames(8);
+    hostPlaybackDriver.reanchor(100);
+    hostPlaybackDriver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        std::vector<Netplay::PlayerSlot>{Netplay::kPort1PlayerSlot},
+        0,
+        uint64_t{0},
+        60,
+        100,
+        hostPlaybackDriver.confirmedThroughFrame(host)
+    );
+    hostPlaybackDriver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        Netplay::SessionState::Running,
+        100
+    );
     host.setLocalSimulationFrame(110);
+
+    const Netplay::TimelineInputEntry* predictedRemote =
+        host.remoteInputs().find(108u, hostRemote->id, Netplay::kPort2PlayerSlot);
+    REQUIRE(predictedRemote != nullptr);
+    const Netplay::TimelineInputEntry* synthesizedRemote =
+        host.remoteInputs().find(109u, hostRemote->id, Netplay::kPort2PlayerSlot);
+    REQUIRE(synthesizedRemote != nullptr);
+    REQUIRE(synthesizedRemote->confirmed);
+    REQUIRE_FALSE(synthesizedRemote->predicted);
+    REQUIRE(hostRemote->inputSuspended);
 
     // The client stopped after frame 101. When playback reaches a frame where
     // prediction is no longer allowed, the host must synthesize confirmed input

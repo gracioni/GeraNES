@@ -511,6 +511,9 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
             : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t firstFrame = emulationFrame + 1u;
     const uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
+    const auto allowPredictionForFrame = [confirmedFrame, predictedThroughFrame](uint32_t frame) {
+        return frame > confirmedFrame && frame <= predictedThroughFrame;
+    };
 
     std::scoped_lock pendingLock(m_pendingFramesMutex);
     while(!m_pendingFrames.empty() && m_pendingFrames.front().frame < firstFrame) {
@@ -532,7 +535,7 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     // predicted payloads without rebuilding the entire deque.
     for(auto it = m_pendingFrames.begin(); it != m_pendingFrames.end();) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const bool allowPrediction = it->frame > confirmedFrame;
+        const bool allowPrediction = allowPredictionForFrame(it->frame);
         if(!coordinator.tryBuildPlaybackFrame(it->frame, allowPrediction, playbackFrame)) {
             m_pendingFrames.erase(it, m_pendingFrames.end());
             break;
@@ -552,7 +555,7 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
 
     for(uint32_t frame = nextFrame; frame <= targetThroughFrame; ++frame) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const bool allowPrediction = frame > confirmedFrame;
+        const bool allowPrediction = allowPredictionForFrame(frame);
         if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, playbackFrame)) {
             break;
         }
