@@ -5362,6 +5362,38 @@ TEST_CASE("Netplay speculative playback produces no audio render", "[netplay][au
     REQUIRE(audio.audibleRenderCalls > audibleBeforeConfirmedReplay);
 }
 
+TEST_CASE("Netplay pending speculative playback becomes audible when confirmed before consumption",
+          "[netplay][audio][prediction]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.speculative = false;
+    emu.queueInputFrame(frame0);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    InputFrame speculativeFrame = emu.createInputFrame(1u);
+    speculativeFrame.speculative = true;
+    REQUIRE(emu.queueInputFrame(speculativeFrame) == InputBuffer::EnqueueResult::Inserted);
+
+    InputFrame confirmedFrame = speculativeFrame;
+    confirmedFrame.speculative = false;
+    REQUIRE(emu.queueInputFrame(confirmedFrame) == InputBuffer::EnqueueResult::UpdatedPending);
+
+    const uint32_t audibleBeforeConfirmedFrame = audio.audibleRenderCalls;
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 2u);
+    REQUIRE(audio.audibleRenderCalls > audibleBeforeConfirmedFrame);
+}
+
 TEST_CASE("Netplay rollback does not replay audio for frames that were already emitted", "[netplay][audio][rollback][dedupe]")
 {
     GeraNESTestSupport::requireRomFixture();

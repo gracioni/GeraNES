@@ -1454,7 +1454,8 @@ void NetplayAppRuntime::ensureStandaloneInputBootstrapFrame(GeraNESEmu& emu)
 
 bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame)
 {
-    if(emu.inputBuffer().findByFrame(frame, emu.inputTimelineEpoch()) != nullptr) {
+    const InputFrame* existingFrame = emu.inputBuffer().findByFrame(frame, emu.inputTimelineEpoch());
+    if(existingFrame != nullptr && !existingFrame->speculative) {
         return true;
     }
 
@@ -1463,12 +1464,17 @@ bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t fra
         return false;
     }
 
+    if(existingFrame != nullptr && existingFrame->speculative && playbackFrame.predicted) {
+        return true;
+    }
+
     InputFrame inputFrame = playbackFrame.inputFrame;
     inputFrame.speculative = playbackFrame.predicted;
     inputFrame.timelineEpoch = emu.inputTimelineEpoch();
     const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
     return enqueueResult == InputBuffer::EnqueueResult::Inserted ||
-           enqueueResult == InputBuffer::EnqueueResult::UpdatedPending;
+           enqueueResult == InputBuffer::EnqueueResult::UpdatedPending ||
+           (existingFrame != nullptr && enqueueResult == InputBuffer::EnqueueResult::RejectedConsumed);
 }
 
 void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)
@@ -2147,9 +2153,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_inputDriver.queuePendingFramesToEmu(emu);
 
         const uint32_t currentFrame = emu.frameCount();
-        if(emu.inputBuffer().findByFrame(currentFrame, emu.inputTimelineEpoch()) == nullptr) {
-            tryQueuePlaybackFrameToEmu(emu, currentFrame);
-        }
+        tryQueuePlaybackFrameToEmu(emu, currentFrame);
     }
 
     processPeriodicLocalCrcIfNeeded(emu);
