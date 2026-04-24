@@ -1422,8 +1422,12 @@ bool NetplayAppRuntime::tryBuildPlaybackConfirmedFrame(uint32_t frame,
 bool NetplayAppRuntime::shouldAllowPredictionForFrame(FrameNumber frame) const
 {
     const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    const bool hostBypassesDelayDuringNormalPlay =
+        m_coordinator.isHosting() &&
+        m_coordinator.session().roomState().recoveryInputMode == RecoveryInputMode::Normal;
     const FrameNumber delaySlackFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.prebufferFrames());
+        confirmedThroughFrame +
+        static_cast<FrameNumber>(hostBypassesDelayDuringNormalPlay ? 0u : m_inputDriver.prebufferFrames());
     if(frame <= delaySlackFrame) {
         return false;
     }
@@ -1522,8 +1526,13 @@ bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t fra
 void NetplayAppRuntime::recordPlaybackStop(FrameNumber frame)
 {
     const FrameNumber confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+    const bool hostBypassesDelayDuringNormalPlay =
+        m_coordinator.isHosting() &&
+        m_coordinator.session().roomState().recoveryInputMode == RecoveryInputMode::Normal;
     const FrameNumber predictedThroughFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(m_inputDriver.predictFrames());
+        confirmedThroughFrame +
+        static_cast<FrameNumber>(hostBypassesDelayDuringNormalPlay ? 0u : m_inputDriver.prebufferFrames()) +
+        static_cast<FrameNumber>(m_inputDriver.predictFrames());
     const bool predictionLimitReached = frame > predictedThroughFrame;
     m_coordinator.recordPlaybackStop(frame, predictionLimitReached);
 }

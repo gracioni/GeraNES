@@ -3794,7 +3794,23 @@ bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantI
     }
 
     const TimelineInputEntry* lastKnown = m_remoteInputs.latestConfirmedFor(participantId, slot);
-    if(lastKnown == nullptr) return false;
+    if(lastKnown == nullptr) {
+        if(!m_hosting || m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) {
+            return false;
+        }
+
+        TimelineInputEntry predicted{};
+        predicted.frame = frame;
+        predicted.participantId = participantId;
+        predicted.playerSlot = slot;
+        predicted.buttonMaskLo = 0;
+        predicted.buttonMaskHi = 0;
+        predicted.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(frame, m_session.roomState()));
+        predicted.predicted = true;
+        predicted.confirmed = false;
+        m_remoteInputs.push(predicted);
+        return true;
+    }
 
     TimelineInputEntry predicted = *lastKnown;
     predicted.frame = frame;

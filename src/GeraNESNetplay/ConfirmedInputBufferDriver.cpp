@@ -499,7 +499,11 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     }
 
     const uint32_t confirmedFrame = confirmedThroughFrame(coordinator);
-    const uint32_t delaySlackFrame = confirmedFrame + m_prebufferFrames;
+    const bool hostBypassesDelayDuringNormalPlay =
+        coordinator.isHosting() &&
+        coordinator.session().roomState().recoveryInputMode == RecoveryInputMode::Normal;
+    const uint32_t delaySlackFrame =
+        confirmedFrame + (hostBypassesDelayDuringNormalPlay ? 0u : m_prebufferFrames);
     const uint32_t predictedThroughFrame = delaySlackFrame + m_predictFrames;
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
     const uint32_t hostFallbackThroughFrame =
