@@ -4538,6 +4538,70 @@ TEST_CASE("Netplay host preserves rebase state after late committed inputs while
     host.disconnect();
 }
 
+TEST_CASE("Netplay host continues synthesizing for reserved disconnected participant",
+          "[netplay][disconnect][reserved][host][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.sessionId = 13u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 9u;
+    room.currentFrame = 101u;
+    room.lastConfirmedFrame = 100u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = false;
+    remote.reconnectReserved = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 100u;
+    remote.lastContiguousInputFrame = 100u;
+    remote.lastReceivedInputSequence = 7u;
+    remote.inputSuspended = true;
+    remote.sequenceRebasePending = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(100u);
+    host.recordLocalInputFrame(101u, Netplay::kPort1PlayerSlot, 0x2u);
+
+    Netplay::TimelineInputEntry committedRemote{};
+    committedRemote.frame = 100u;
+    committedRemote.participantId = remote.id;
+    committedRemote.playerSlot = Netplay::kPort2PlayerSlot;
+    committedRemote.buttonMaskLo = 0x4u;
+    committedRemote.buttonMaskHi = 0u;
+    committedRemote.inputFrame = Netplay::makeRoomTopologyBaseFrame(100u, room);
+    committedRemote.inputFrame.p2B = true;
+    committedRemote.sequence = 7u;
+    committedRemote.confirmed = true;
+    committedRemote.predicted = false;
+    const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(committedRemote);
+
+    Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
+    REQUIRE(host.tryBuildPlaybackFrame(101u, false, playbackFrame, true));
+    REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(playbackFrame.inputFrame.p2B);
+
+    const Netplay::TimelineInputEntry* synthesized =
+        host.remoteInputs().find(101u, remote.id, Netplay::kPort2PlayerSlot);
+    REQUIRE(synthesized != nullptr);
+    REQUIRE(synthesized->confirmed);
+    REQUIRE_FALSE(synthesized->predicted);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay core advances only when the exact next numbered input frame exists", "[netplay][core][frames]")
 {
     GeraNESTestSupport::requireRomFixture();

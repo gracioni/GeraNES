@@ -1,0 +1,217 @@
+{
+    "audio": {
+        "audioDevice": "",
+        "volume": 0.800000011920929
+    },
+    "debug": {
+        "showFps": false
+    },
+    "improvements": {
+        "disableSpritesLimit": false,
+        "maxRewindTime": 10,
+        "overclock": false
+    },
+    "input": {
+        "arkanoid": {
+            "sensitivity": 0.5
+        },
+        "controller": {
+            "0": {
+                "a": "X",
+                "b": "Z",
+                "down": "Down",
+                "left": "Left",
+                "right": "Right",
+                "select": "Space",
+                "start": "Return",
+                "up": "Up"
+            },
+            "1": {
+                "a": "H",
+                "b": "G",
+                "down": "K",
+                "left": "J",
+                "right": "L",
+                "select": "T",
+                "start": "Y",
+                "up": "I"
+            },
+            "2": {
+                "a": "",
+                "b": "",
+                "down": "",
+                "left": "",
+                "right": "",
+                "select": "",
+                "start": "",
+                "up": ""
+            },
+            "3": {
+                "a": "",
+                "b": "",
+                "down": "",
+                "left": "",
+                "right": "",
+                "select": "",
+                "start": "",
+                "up": ""
+            }
+        },
+        "konamiHyperShot": {
+            "p1Jump": "Left Ctrl",
+            "p1Run": "Left Alt",
+            "p2Jump": "G",
+            "p2Run": "H"
+        },
+        "powerPad": {
+            "bindings": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "Q",
+                "W",
+                "E",
+                "R",
+                "A",
+                "S",
+                "D",
+                "F"
+            ]
+        },
+        "snesController": {
+            "0": {
+                "a": "Z",
+                "b": "X",
+                "down": "Down",
+                "l": "Q",
+                "left": "Left",
+                "r": "W",
+                "right": "Right",
+                "select": "Space",
+                "start": "Return",
+                "up": "Up",
+                "x": "S",
+                "y": "A"
+            },
+            "1": {
+                "a": "G",
+                "b": "H",
+                "down": "K",
+                "l": "Y",
+                "left": "J",
+                "r": "U",
+                "right": "L",
+                "select": "N",
+                "start": "M",
+                "up": "I",
+                "x": "T",
+                "y": "R"
+            },
+            "2": {
+                "a": "",
+                "b": "",
+                "down": "",
+                "l": "",
+                "left": "",
+                "r": "",
+                "right": "",
+                "select": "",
+                "start": "",
+                "up": "",
+                "x": "",
+                "y": ""
+            },
+            "3": {
+                "a": "",
+                "b": "",
+                "down": "",
+                "l": "",
+                "left": "",
+                "r": "",
+                "right": "",
+                "select": "",
+                "start": "",
+                "up": "",
+                "x": "",
+                "y": ""
+            }
+        },
+        "snesMouse": {
+            "sensitivity": 0.25
+        },
+        "system": {
+            "loadState": "F6",
+            "rewind": "Backspace",
+            "saveState": "F5",
+            "speed": "+"
+        },
+        "touchControls": {
+            "enabled": false,
+            "target": 0,
+            "transparency": 0.5
+        },
+        "virtualBoyController": {
+            "0": {
+                "a": "Z",
+                "b": "X",
+                "down": "Down",
+                "down2": "S",
+                "l": "A",
+                "left": "Left",
+                "left2": "A",
+                "r": "S",
+                "right": "Right",
+                "right2": "D",
+                "select": "Space",
+                "start": "Return",
+                "up": "Up",
+                "up2": "W"
+            },
+            "1": {
+                "a": "H",
+                "b": "G",
+                "down": "K",
+                "down2": "Keypad 5",
+                "l": "U",
+                "left": "J",
+                "left2": "Keypad 4",
+                "r": "O",
+                "right": "L",
+                "right2": "Keypad 6",
+                "select": "T",
+                "start": "Y",
+                "up": "I",
+                "up2": "Keypad 8"
+            }
+        }
+    },
+    "lastFolder": "C:\\Users\\geral\\Desktop\\pacman\\GeraNES",
+    "netplay": {
+        "autoGameplayTuning": true,
+        "displayName": "Participant",
+        "embeddedSignalingPort": 27990,
+        "gameplayReceiveDelayMs": 0,
+        "hostName": "127.0.0.1",
+        "inputDelayFrames": 1,
+        "maxPeers": 4,
+        "port": 27888,
+        "predictFrames": 8,
+        "rollbackWindowFrames": 600,
+        "showNetplayDebugLog": false,
+        "signalingPassword": "",
+        "signalingRoomId": "default",
+        "signalingUrl": "ws://127.0.0.1:27990",
+        "transportBackend": 0,
+        "useEmbeddedSignalingServer": false
+    },
+    "recentFiles": [],
+    "saveStateSlot": 0,
+    "video": {
+        "filterMode": 0,
+        "fullScreen": false,
+        "horizontalStretch": false,
+        "shaderName": "",
+        "vsyncMode": 1
+    }
+}
