@@ -3460,6 +3460,16 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
         data.inputSequenceBase,
         preserveConfirmedInputsAcrossRealignment(data.reason)
     );
+    if(!m_hosting &&
+       data.reason == ResyncReason::InitialSessionSync &&
+       data.targetFrame > 0u) {
+        for(ParticipantInfo& participant : m_session.roomState().participants) {
+            if(participant.id == m_localParticipantId || participantIsObserver(participant)) {
+                continue;
+            }
+            participant.sequenceRebasePending = true;
+        }
+    }
     m_incomingResync = IncomingResyncTransfer{};
     m_incomingResync->resyncId = data.resyncId;
     m_incomingResync->targetFrame = data.targetFrame;
