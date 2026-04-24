@@ -5145,6 +5145,65 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay coordinator escalates sustained CRC mismatch into targeted resync during input recovery",
+          "[netplay][crc][classification][targeted-recovery][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 8u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 4u;
+    room.currentFrame = 73230u;
+    room.lastConfirmedFrame = 73230u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.inputSuspended = true;
+    remote.inputResumeAwaitingResync = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    coordinator.submitLocalCrc(73200u, 0x11111111u);
+    Netplay::CrcReportData report{};
+    report.timelineEpoch = room.timelineEpoch;
+    report.frame = 73200u;
+    report.crc32 = 0x22222222u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(73230u, 0x33333333u);
+    report.frame = 73230u;
+    report.crc32 = 0x44444444u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(73260u, 0x55555555u);
+    report.frame = 73260u;
+    report.crc32 = 0x66666666u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    const auto pending = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->participantId == remote.id);
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "Escalating confirmed CRC mismatch into targeted recovery resync"));
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[netplay][crc][stabilization][unit]")
 {
     Netplay::NetplayCoordinator coordinator;

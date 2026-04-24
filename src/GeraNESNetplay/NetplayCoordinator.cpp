@@ -2405,7 +2405,27 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
         if(!participant.connected || participantIsObserver(participant)) continue;
-        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+        if(participant.inputResumeAwaitingResync) {
+            if(update.consecutiveMismatchCount >= kConfirmedDesyncResyncMismatchThreshold) {
+                const FrameNumber targetedResyncFrame =
+                    std::min<FrameNumber>(
+                        update.frame,
+                        m_session.roomState().lastConfirmedFrame > 0
+                            ? m_session.roomState().lastConfirmedFrame
+                            : update.frame
+                    );
+                queuePendingHostResync(targetedResyncFrame, ResyncReason::ConfirmedDesync, participant.id);
+                std::ostringstream targeted;
+                targeted << "Escalating confirmed CRC mismatch into targeted recovery resync for "
+                         << participant.displayName
+                         << " frame " << targetedResyncFrame;
+                pushLog(targeted.str());
+            } else {
+                pushLog("Deferred hard resync escalation while participant input recovery is in progress");
+            }
+            return;
+        }
+        if(participant.inputSuspended) {
             pushLog("Deferred hard resync escalation while participant input recovery is in progress");
             return;
         }
