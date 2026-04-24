@@ -56,6 +56,13 @@ struct ParticipantInfo
     bool predictionLimitFallbackActive = false;
     uint32_t lateCommittedDuplicateBurstCount = 0;
     FrameNumber lastLateCommittedDuplicateFrame = 0;
+    bool gameplayRecoveryValidationPendingStart = false;
+    bool gameplayRecoveryValidationActive = false;
+    FrameNumber gameplayRecoveryValidationStartFrame = 0;
+    FrameNumber gameplayRecoveryValidationDeadlineFrame = 0;
+    FrameNumber gameplayRecoveryLastAcceptedFrame = 0;
+    uint32_t gameplayRecoveryAcceptedFrameStreak = 0;
+    bool gameplayRecoverySawFailure = false;
 
     void normalizeControllerAssignments();
     bool hasControllerAssignment(PlayerSlot slot) const;

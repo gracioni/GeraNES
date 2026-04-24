@@ -33,6 +33,8 @@ constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
+constexpr uint32_t kGameplayRecoveryValidationWindowFrames = 60;
+constexpr uint32_t kGameplayRecoveryHealthyInputStreak = 8;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -461,6 +463,7 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
     participant.predictionLimitFallbackActive = false;
     participant.lateCommittedDuplicateBurstCount = 0;
     participant.lastLateCommittedDuplicateFrame = 0;
+    clearGameplayRecoveryValidation(participant);
     m_session.roomState().participants.push_back(participant);
     m_lastRemoteInputAt[id] = std::chrono::steady_clock::now();
     rememberParticipantDisplayName(m_session.roomState().participants.back());
@@ -762,9 +765,15 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
         participant.predictionLimitFallbackActive = false;
         participant.lateCommittedDuplicateBurstCount = 0;
         participant.lastLateCommittedDuplicateFrame = 0;
+        clearGameplayRecoveryValidation(participant);
     }
 
     if(targeted) {
+        if(ParticipantInfo* targetParticipant = m_session.findParticipant(targetParticipantId);
+           targetParticipant != nullptr &&
+           targetParticipant->gameplayRecoveryValidationPendingStart) {
+            startGameplayRecoveryValidation(*targetParticipant, recoveryFrame);
+        }
         (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
         (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
         return;
@@ -790,6 +799,9 @@ void NetplayCoordinator::cancelTargetedResync(const std::string& reason)
 
     pushLog(reason);
     const ParticipantId targetParticipantId = m_activeResyncTargetParticipantId;
+    if(ParticipantInfo* participant = m_session.findParticipant(targetParticipantId)) {
+        clearGameplayRecoveryValidation(*participant);
+    }
     clearTargetedResyncTracking();
     (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
 }
@@ -1515,6 +1527,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             const bool lateCommittedMismatch =
                 existingCommitted->buttonMaskLo != input.buttonMaskLo ||
                 existingCommitted->buttonMaskHi != input.buttonMaskHi;
+            noteGameplayRecoveryFailure(*participant);
             if(!preserveResumeRebaseState) {
                 participant->sequenceRebasePending = false;
             }
@@ -1605,6 +1618,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         participant->predictionLimitFallbackActive = false;
         participant->lateCommittedDuplicateBurstCount = 0;
         participant->lastLateCommittedDuplicateFrame = 0;
+        noteGameplayRecoveryAcceptedInput(*participant, input.frame);
     }
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
@@ -2144,6 +2158,106 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     pushLog(oss.str());
 }
 
+void NetplayCoordinator::clearGameplayRecoveryValidation(ParticipantInfo& participant)
+{
+    participant.gameplayRecoveryValidationPendingStart = false;
+    participant.gameplayRecoveryValidationActive = false;
+    participant.gameplayRecoveryValidationStartFrame = 0;
+    participant.gameplayRecoveryValidationDeadlineFrame = 0;
+    participant.gameplayRecoveryLastAcceptedFrame = 0;
+    participant.gameplayRecoveryAcceptedFrameStreak = 0;
+    participant.gameplayRecoverySawFailure = false;
+}
+
+void NetplayCoordinator::startGameplayRecoveryValidation(ParticipantInfo& participant, FrameNumber recoveryFrame)
+{
+    participant.gameplayRecoveryValidationPendingStart = false;
+    participant.gameplayRecoveryValidationActive = true;
+    participant.gameplayRecoveryValidationStartFrame = recoveryFrame + 1u;
+    participant.gameplayRecoveryValidationDeadlineFrame = recoveryFrame + kGameplayRecoveryValidationWindowFrames;
+    participant.gameplayRecoveryLastAcceptedFrame = recoveryFrame;
+    participant.gameplayRecoveryAcceptedFrameStreak = 0;
+    participant.gameplayRecoverySawFailure = false;
+
+    std::ostringstream oss;
+    oss << "Tracking gameplay recovery for " << participant.displayName
+        << " startFrame " << participant.gameplayRecoveryValidationStartFrame
+        << " deadlineFrame " << participant.gameplayRecoveryValidationDeadlineFrame
+        << " classification=targeted_recovery_validation";
+    pushLog(oss.str());
+}
+
+void NetplayCoordinator::noteGameplayRecoveryAcceptedInput(ParticipantInfo& participant, FrameNumber frame)
+{
+    if(!participant.gameplayRecoveryValidationActive ||
+       frame < participant.gameplayRecoveryValidationStartFrame) {
+        return;
+    }
+
+    if(frame == participant.gameplayRecoveryLastAcceptedFrame + 1u) {
+        ++participant.gameplayRecoveryAcceptedFrameStreak;
+    } else if(frame > participant.gameplayRecoveryLastAcceptedFrame) {
+        participant.gameplayRecoveryAcceptedFrameStreak = 1u;
+    }
+    participant.gameplayRecoveryLastAcceptedFrame = std::max(participant.gameplayRecoveryLastAcceptedFrame, frame);
+
+    if(participant.gameplayRecoveryAcceptedFrameStreak >= kGameplayRecoveryHealthyInputStreak) {
+        std::ostringstream oss;
+        oss << "Gameplay recovery validated for " << participant.displayName
+            << " through frame " << participant.gameplayRecoveryLastAcceptedFrame
+            << " classification=targeted_recovery_validated";
+        pushLog(oss.str());
+        clearGameplayRecoveryValidation(participant);
+    }
+}
+
+void NetplayCoordinator::noteGameplayRecoveryFailure(ParticipantInfo& participant)
+{
+    if(!participant.gameplayRecoveryValidationActive) return;
+    participant.gameplayRecoverySawFailure = true;
+}
+
+void NetplayCoordinator::processGameplayRecoveryValidation()
+{
+    if(!m_hosting) return;
+    if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().activeResyncId != 0 || m_activeTargetedResyncId != 0) return;
+    if(m_pendingHostResyncFrame.has_value()) return;
+
+    for(ParticipantInfo& participant : m_session.roomState().participants) {
+        if(!participant.gameplayRecoveryValidationActive) {
+            continue;
+        }
+        if(m_localSimulationFrame < participant.gameplayRecoveryValidationDeadlineFrame) {
+            continue;
+        }
+        const bool healthy =
+            !participant.inputSuspended &&
+            !participant.inputResumeAwaitingResync &&
+            !participant.predictionLimitFallbackActive &&
+            !participant.gameplayRecoverySawFailure &&
+            participant.gameplayRecoveryAcceptedFrameStreak >= kGameplayRecoveryHealthyInputStreak;
+        if(!healthy) {
+            const FrameNumber resyncFrame =
+                m_session.roomState().lastConfirmedFrame > 0
+                    ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                    : m_localSimulationFrame;
+            std::ostringstream oss;
+            oss << "Gameplay recovery validation timed out for " << participant.displayName
+                << " deadlineFrame " << participant.gameplayRecoveryValidationDeadlineFrame
+                << " acceptedStreak " << participant.gameplayRecoveryAcceptedFrameStreak
+                << " sawFailure " << (participant.gameplayRecoverySawFailure ? 1 : 0)
+                << "; escalating to room hard resync";
+            pushLog(oss.str());
+            clearGameplayRecoveryValidation(participant);
+            queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+            return;
+        }
+
+        clearGameplayRecoveryValidation(participant);
+    }
+}
+
 void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame)
 {
     if(!m_hosting || m_session.roomState().state != SessionState::Running) return;
@@ -2214,6 +2328,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         participant.predictionLimitFallbackActive = true;
         participant.lateCommittedDuplicateBurstCount = 0;
         participant.lastLateCommittedDuplicateFrame = 0;
+        noteGameplayRecoveryFailure(participant);
         m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
             std::max<FrameNumber>(
                 m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
@@ -2230,6 +2345,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     } else {
         participant.inputSuspended = true;
         participant.predictionLimitFallbackActive = true;
+        noteGameplayRecoveryFailure(participant);
     }
 
     const TimelineInputEntry* latestConfirmed = m_remoteInputs.latestConfirmedFor(participant.id, slot);
@@ -2712,6 +2828,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         participant.predictionLimitFallbackActive = false;
         participant.lateCommittedDuplicateBurstCount = 0;
         participant.lastLateCommittedDuplicateFrame = 0;
+        clearGameplayRecoveryValidation(participant);
         m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 
@@ -2795,6 +2912,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
         participant.predictionLimitFallbackActive = false;
         participant.lateCommittedDuplicateBurstCount = 0;
         participant.lastLateCommittedDuplicateFrame = 0;
+        clearGameplayRecoveryValidation(participant);
         m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 }
@@ -3454,6 +3572,7 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
         return true;
     }
     if(data.reason == ResyncReason::ConfirmedDesync) {
+        noteGameplayRecoveryFailure(*participant);
         m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
             std::max<FrameNumber>(
                 m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
@@ -4155,6 +4274,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     participant.predictionLimitFallbackActive = false;
     participant.lateCommittedDuplicateBurstCount = 0;
     participant.lastLateCommittedDuplicateFrame = 0;
+    clearGameplayRecoveryValidation(participant);
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
@@ -4311,6 +4431,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.predictionLimitFallbackActive = false;
     participant.lateCommittedDuplicateBurstCount = 0;
     participant.lastLateCommittedDuplicateFrame = 0;
+    clearGameplayRecoveryValidation(participant);
     if(!m_hosting &&
        participantId != m_localParticipantId &&
        participant.connected &&
@@ -4750,6 +4871,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             participant->predictionLimitFallbackActive = false;
                             participant->lateCommittedDuplicateBurstCount = 0;
                             participant->lastLateCommittedDuplicateFrame = 0;
+                            clearGameplayRecoveryValidation(*participant);
                             participant->reservationSecondsRemaining =
                                 static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
                             m_reconnectReservationDeadlines[participantId] =
@@ -4987,6 +5109,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     if(m_hosting && m_session.roomState().state == SessionState::Running) {
         synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
         publishConfirmedFramesIfReady();
+        processGameplayRecoveryValidation();
     }
     broadcastFrameStatusIfNeeded();
     broadcastPeerHealthIfNeeded();
@@ -5836,6 +5959,23 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         if(targetPeer == NetTransport::kInvalidPeerHandle) {
             return false;
         }
+        if(ParticipantInfo* mutableTargetParticipant = m_session.findParticipant(targetParticipantId);
+           mutableTargetParticipant != nullptr) {
+            const bool armGameplayRecoveryValidation =
+                reason == ResyncReason::ConfirmedDesync &&
+                (mutableTargetParticipant->inputSuspended ||
+                 mutableTargetParticipant->inputResumeAwaitingResync ||
+                 mutableTargetParticipant->predictionLimitFallbackActive);
+            if(armGameplayRecoveryValidation) {
+                mutableTargetParticipant->gameplayRecoveryValidationPendingStart = true;
+                mutableTargetParticipant->gameplayRecoveryValidationActive = false;
+                mutableTargetParticipant->gameplayRecoveryAcceptedFrameStreak = 0;
+                mutableTargetParticipant->gameplayRecoveryLastAcceptedFrame = 0;
+                mutableTargetParticipant->gameplayRecoverySawFailure = false;
+            } else {
+                clearGameplayRecoveryValidation(*mutableTargetParticipant);
+            }
+        }
     }
     const uint32_t resyncId = m_nextResyncId++;
     const uint32_t previousEpoch = m_session.roomState().timelineEpoch;
@@ -5928,6 +6068,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
             participant.predictionLimitFallbackActive = false;
             participant.lateCommittedDuplicateBurstCount = 0;
             participant.lastLateCommittedDuplicateFrame = 0;
+            clearGameplayRecoveryValidation(participant);
         }
         setRecoveryInputMode(RecoveryInputMode::Normal, "resync-skipped-no-peers", targetFrame);
         pushLog("Resync skipped: no remote peers");

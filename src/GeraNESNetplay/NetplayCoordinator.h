@@ -307,6 +307,11 @@ private:
     void noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
+    void clearGameplayRecoveryValidation(ParticipantInfo& participant);
+    void startGameplayRecoveryValidation(ParticipantInfo& participant, FrameNumber recoveryFrame);
+    void noteGameplayRecoveryAcceptedInput(ParticipantInfo& participant, FrameNumber frame);
+    void noteGameplayRecoveryFailure(ParticipantInfo& participant);
+    void processGameplayRecoveryValidation();
     void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
     bool synthesizePredictionLimitFallbackInput(FrameNumber targetFrame, ParticipantInfo& participant, PlayerSlot slot);
     bool tryBuildPlaybackFrameInternal(FrameNumber frame,
