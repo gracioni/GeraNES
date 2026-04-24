@@ -4467,6 +4467,80 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     host.disconnect();
 }
 
+TEST_CASE("Netplay host escalates late committed input mismatch into targeted resync",
+          "[netplay][input][late-committed][mismatch][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.sessionId = 14u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 11u;
+    room.currentFrame = 61715u;
+    room.lastConfirmedFrame = 61715u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 61705u;
+    remote.lastContiguousInputFrame = 61715u;
+    remote.lastReceivedInputSequence = 18u;
+    remote.inputSuspended = true;
+    remote.sequenceRebasePending = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    for(Netplay::FrameNumber frame = 61706u; frame <= 61715u; ++frame) {
+        Netplay::TimelineInputEntry committed{};
+        committed.frame = frame;
+        committed.participantId = remote.id;
+        committed.playerSlot = Netplay::kPort1PlayerSlot;
+        committed.buttonMaskLo = 0u;
+        committed.buttonMaskHi = 0u;
+        committed.inputFrame = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        committed.sequence = 18u;
+        committed.confirmed = true;
+        committed.predicted = false;
+        const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(committed);
+    }
+
+    Netplay::InputFrameData lateInput{};
+    lateInput.timelineEpoch = room.timelineEpoch;
+    lateInput.frame = 61706u;
+    lateInput.participantId = remote.id;
+    lateInput.playerSlot = Netplay::kPort1PlayerSlot;
+    lateInput.sequence = 19u;
+    lateInput.buttonMaskLo = 0x1u;
+    lateInput.buttonMaskHi = 0u;
+    InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(61706u, room);
+    contribution.p1A = true;
+    REQUIRE(host.injectInputFrameForTests(lateInput, contribution));
+
+    const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->inputSuspended);
+    REQUIRE(updated->inputResumeAwaitingResync);
+    REQUIRE(updated->sequenceRebasePending);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_mismatch"));
+
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->participantId == remote.id);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host preserves rebase state after late committed inputs while suspended",
           "[netplay][input][resync][rebase][unit]")
 {

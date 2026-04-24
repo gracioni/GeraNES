@@ -1506,8 +1506,20 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
             const bool preserveResumeRebaseState =
                 participant->inputSuspended || participant->sequenceRebasePending;
+            const bool lateCommittedMismatch =
+                existingCommitted->buttonMaskLo != input.buttonMaskLo ||
+                existingCommitted->buttonMaskHi != input.buttonMaskHi;
             if(!preserveResumeRebaseState) {
                 participant->sequenceRebasePending = false;
+            }
+            if(m_hosting && lateCommittedMismatch && participant->id != m_localParticipantId) {
+                participant->inputSuspended = true;
+                participant->inputResumeAwaitingResync = true;
+                const FrameNumber resyncFrame =
+                    m_session.roomState().lastConfirmedFrame > 0
+                        ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                        : m_localSimulationFrame;
+                queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
             }
 
             std::ostringstream oss;
@@ -1515,8 +1527,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " frame " << input.frame
                 << " expectedFrame " << expectedFrame
                 << " seq " << input.sequence;
-            if(existingCommitted->buttonMaskLo != input.buttonMaskLo ||
-               existingCommitted->buttonMaskHi != input.buttonMaskHi) {
+            if(lateCommittedMismatch) {
                 oss << " classification=late_committed_input_mismatch";
             } else {
                 oss << " classification=late_committed_input_duplicate";
