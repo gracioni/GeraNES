@@ -2565,46 +2565,30 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
         if(!participant.connected || participantIsObserver(participant)) continue;
-        if((participant.gameplayRecoveryValidationActive ||
-            participant.gameplayRecoveryValidationPendingStart) &&
-           update.consecutiveMismatchCount >= kConfirmedDesyncResyncMismatchThreshold) {
-            const FrameNumber resyncFrame =
-                std::min<FrameNumber>(
-                    update.frame,
-                    m_session.roomState().lastConfirmedFrame > 0
-                        ? m_session.roomState().lastConfirmedFrame
-                        : update.frame
-                );
-            queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
-            std::ostringstream recovery;
-            recovery << "Escalating confirmed CRC mismatch during gameplay recovery validation for "
-                     << participant.displayName
-                     << " into room hard resync frame " << resyncFrame;
-            pushLog(recovery.str());
-            return;
-        }
-        if(participant.inputResumeAwaitingResync) {
+        const bool participantRecoveryInProgress =
+            participant.gameplayRecoveryValidationActive ||
+            participant.gameplayRecoveryValidationPendingStart ||
+            participant.inputResumeAwaitingResync ||
+            participant.inputSuspended ||
+            participant.predictionLimitFallbackActive;
+        if(participantRecoveryInProgress) {
             if(update.consecutiveMismatchCount >= kConfirmedDesyncResyncMismatchThreshold) {
-                const FrameNumber targetedResyncFrame =
+                const FrameNumber resyncFrame =
                     std::min<FrameNumber>(
                         update.frame,
                         m_session.roomState().lastConfirmedFrame > 0
                             ? m_session.roomState().lastConfirmedFrame
                             : update.frame
                     );
-                queuePendingHostResync(targetedResyncFrame, ResyncReason::ConfirmedDesync, participant.id);
-                std::ostringstream targeted;
-                targeted << "Escalating confirmed CRC mismatch into targeted recovery resync for "
+                queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+                std::ostringstream recovery;
+                recovery << "Escalating confirmed CRC mismatch during participant input recovery for "
                          << participant.displayName
-                         << " frame " << targetedResyncFrame;
-                pushLog(targeted.str());
+                         << " into room hard resync frame " << resyncFrame;
+                pushLog(recovery.str());
             } else {
                 pushLog("Deferred hard resync escalation while participant input recovery is in progress");
             }
-            return;
-        }
-        if(participant.inputSuspended) {
-            pushLog("Deferred hard resync escalation while participant input recovery is in progress");
             return;
         }
     }

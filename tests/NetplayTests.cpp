@@ -5238,8 +5238,8 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay coordinator escalates sustained CRC mismatch into targeted resync during input recovery",
-          "[netplay][crc][classification][targeted-recovery][unit]")
+TEST_CASE("Netplay coordinator escalates sustained CRC mismatch into room resync during input recovery",
+          "[netplay][crc][classification][room-recovery][unit]")
 {
     Netplay::NetplayCoordinator coordinator;
     REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
@@ -5291,8 +5291,8 @@ TEST_CASE("Netplay coordinator escalates sustained CRC mismatch into targeted re
     const auto pending = coordinator.consumePendingHostResyncFrame();
     REQUIRE(pending.has_value());
     REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(pending->participantId == remote.id);
-    REQUIRE(anyLogLineContains(coordinator.eventLog(), "Escalating confirmed CRC mismatch into targeted recovery resync"));
+    REQUIRE(pending->participantId == Netplay::kInvalidParticipantId);
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "Escalating confirmed CRC mismatch during participant input recovery"));
 
     coordinator.disconnect();
 }
@@ -7938,6 +7938,37 @@ TEST_CASE("Netplay runtime host reset performs authoritative bootstrap recovery"
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
+TEST_CASE("Netplay runtime host maintains frame lead over slower client", "[netplay][runtime][host-authority][slow-client]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 180;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.networkPumpStride = 1;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 1;
+    options.clientRuntimePauseAfterFrames = 40;
+    options.clientRuntimePauseDurationFrames = 80;
+    options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_host_speed_vs_slow_client.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("clientRuntimePauseTriggered") == true);
+    REQUIRE(report.at("clientRuntimePauseRestored") == true);
+    REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >= 40u);
+    REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >
+            report.at("maxClientFrameLead").get<uint32_t>());
 }
 
 TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical future canonical state", "[netplay][state][clean-boot]")
