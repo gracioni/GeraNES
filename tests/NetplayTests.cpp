@@ -3579,6 +3579,112 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
     client.disconnect();
 }
 
+TEST_CASE("Netplay host converts far-behind synthesized-input client request into fresh targeted bootstrap",
+          "[netplay][resync-request][fresh-bootstrap][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 120 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.session().roomState().participants.size() >= 2u &&
+            client.session().roomState().participants.size() >= 2u &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.timelineEpoch = 8u;
+    clientRoom.timelineEpoch = 8u;
+    hostRoom.currentFrame = 1000u;
+    hostRoom.lastConfirmedFrame = 1000u;
+    clientRoom.currentFrame = 850u;
+    clientRoom.lastConfirmedFrame = 1000u;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.lastContiguousInputFrame = 800u;
+            participant.lastReceivedInputFrame = 800u;
+            participant.lastReportedCurrentFrame = 850u;
+            participant.inputSuspended = true;
+            participant.predictionLimitFallbackActive = true;
+            participant.sequenceRebasePending = true;
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(1000u);
+    client.setLocalSimulationFrame(850u);
+
+    Netplay::ResyncRequestData request;
+    request.reason = Netplay::ResyncReason::ConfirmedDesync;
+    request.localFrame = 850u;
+    request.estimatedHostFrame = 1000u;
+    request.confirmedThroughFrame = 1000u;
+    request.lagFrames = 150u;
+    request.catchupBudgetFrames = 120u;
+    request.source = 1u;
+    REQUIRE(client.requestHostResync(request));
+
+    bool received = false;
+    for(int step = 0; step < 120 && !received; ++step) {
+        client.update(0);
+        host.update(0);
+        const auto pending = host.consumePendingHostResyncFrame();
+        if(pending.has_value()) {
+            REQUIRE(pending->reason == Netplay::ResyncReason::InitialSessionSync);
+            REQUIRE(pending->participantId == client.localParticipantId());
+            REQUIRE(anyLogLineContains(host.eventLog(), "classification=fresh_participant_bootstrap"));
+            REQUIRE(anyLogLineContains(host.eventLog(), "scheduledReason InitialSessionSync"));
+            received = true;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(received);
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {
@@ -4647,7 +4753,7 @@ TEST_CASE("Netplay host escalates repeated late committed fallback duplicates in
     REQUIRE(updated->lateCommittedDuplicateBurstCount == 0u);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
     REQUIRE(anyLogLineContains(host.eventLog(),
-                               "Escalating repeated late committed fallback duplicates into targeted recovery resync"));
+                               "Escalating repeated late committed fallback duplicates into targeted recovery"));
 
     const auto pending = host.consumePendingHostResyncFrame();
     REQUIRE(pending.has_value());

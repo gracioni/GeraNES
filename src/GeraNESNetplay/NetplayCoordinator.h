@@ -307,6 +307,8 @@ private:
     void noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
+    bool participantNeedsFreshBootstrap(const ParticipantInfo& participant, const ResyncRequestData* request = nullptr) const;
+    void queueFreshBootstrapForParticipant(ParticipantInfo& participant, FrameNumber frame, const char* detail);
     void clearGameplayRecoveryValidation(ParticipantInfo& participant);
     void startGameplayRecoveryValidation(ParticipantInfo& participant, FrameNumber recoveryFrame);
     void noteGameplayRecoveryAcceptedInput(ParticipantInfo& participant, FrameNumber frame);

@@ -34,6 +34,7 @@ constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
 constexpr uint32_t kGameplayRecoveryValidationWindowFrames = 60;
+constexpr Netplay::FrameNumber kFreshBootstrapMinimumLagFrames = 90;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -404,12 +405,27 @@ void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason 
 {
     if(!m_hosting) return;
 
+    const auto priority = [](ResyncReason resyncReason, ParticipantId targetParticipantId) {
+        if(resyncReason == ResyncReason::HostStallRecovery) return 5;
+        if(resyncReason == ResyncReason::ClientStallRecovery) return 4;
+        if(resyncReason == ResyncReason::InitialSessionSync &&
+           targetParticipantId != kInvalidParticipantId) return 3;
+        if(resyncReason == ResyncReason::ConfirmedDesync) return 2;
+        return 1;
+    };
+
     if(!m_pendingHostResyncFrame.has_value() || frame < m_pendingHostResyncFrame->frame) {
         m_pendingHostResyncFrame = PendingHostResyncRequest{frame, reason, participantId};
         return;
     }
 
     if(frame != m_pendingHostResyncFrame->frame) {
+        return;
+    }
+
+    if(priority(reason, participantId) >
+       priority(m_pendingHostResyncFrame->reason, m_pendingHostResyncFrame->participantId)) {
+        m_pendingHostResyncFrame = PendingHostResyncRequest{frame, reason, participantId};
         return;
     }
 
@@ -1549,7 +1565,15 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                     m_session.roomState().lastConfirmedFrame > 0
                         ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
                         : m_localSimulationFrame;
-                queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
+                if(participantNeedsFreshBootstrap(*participant)) {
+                    queueFreshBootstrapForParticipant(
+                        *participant,
+                        resyncFrame,
+                        "late committed input mismatch while synthesized-input recovery was active"
+                    );
+                } else {
+                    queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
+                }
             } else if(m_hosting &&
                       participant->id != m_localParticipantId &&
                       participant->predictionLimitFallbackActive) {
@@ -1567,9 +1591,17 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                         m_session.roomState().lastConfirmedFrame > 0
                             ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
                             : m_localSimulationFrame;
-                    queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
+                    if(participantNeedsFreshBootstrap(*participant)) {
+                        queueFreshBootstrapForParticipant(
+                            *participant,
+                            resyncFrame,
+                            "repeated late committed fallback duplicates left participant too far behind"
+                        );
+                    } else {
+                        queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
+                    }
                     std::ostringstream escalation;
-                    escalation << "Escalating repeated late committed fallback duplicates into targeted recovery resync for "
+                    escalation << "Escalating repeated late committed fallback duplicates into targeted recovery for "
                                << participant->displayName
                                << " after " << 3u << " duplicate frames";
                     pushLog(escalation.str());
@@ -2158,6 +2190,19 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     }
     if(participant.lastReceivedInputFrame < update.recovery.stalledFrame &&
        participant.lastContiguousInputFrame < update.recovery.stalledFrame) {
+        if(participantNeedsFreshBootstrap(participant)) {
+            const FrameNumber bootstrapFrame =
+                m_session.roomState().lastConfirmedFrame > 0
+                    ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                    : m_localSimulationFrame;
+            m_remoteInputStallMonitor.clearPendingRecovery(participant.id);
+            queueFreshBootstrapForParticipant(
+                participant,
+                bootstrapFrame,
+                "peer health resumed but usable input did not catch up after synthesized-input recovery"
+            );
+            return;
+        }
         std::ostringstream oss;
         oss << "Peer health for " << participant.displayName
             << " advanced after implicit input stall but no usable input reached stalled frame "
@@ -2185,6 +2230,81 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
         << " after implicit input stall; scheduling recovery resync from frame "
         << resyncFrame
         << " classification=stall_based_recovery";
+    pushLog(oss.str());
+}
+
+bool NetplayCoordinator::participantNeedsFreshBootstrap(const ParticipantInfo& participant,
+                                                        const ResyncRequestData* request) const
+{
+    if(participant.id == m_localParticipantId ||
+       !participant.connected ||
+       participant.reconnectReserved ||
+       participantIsObserver(participant)) {
+        return false;
+    }
+
+    const bool synthesizedRecoveryActive =
+        participant.inputSuspended ||
+        participant.inputResumeAwaitingResync ||
+        participant.predictionLimitFallbackActive ||
+        participant.sequenceRebasePending ||
+        participant.gameplayRecoveryValidationActive ||
+        participant.gameplayRecoveryValidationPendingStart;
+
+    const FrameNumber hostReferenceFrame =
+        std::max(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
+    const FrameNumber reportedLag =
+        participant.lastReportedCurrentFrame > 0u &&
+        hostReferenceFrame > participant.lastReportedCurrentFrame
+            ? (hostReferenceFrame - participant.lastReportedCurrentFrame)
+            : 0u;
+    const FrameNumber inputLag =
+        hostReferenceFrame > participant.lastContiguousInputFrame
+            ? (hostReferenceFrame - participant.lastContiguousInputFrame)
+            : 0u;
+
+    bool requestSaysCannotCatchUp = false;
+    if(request != nullptr) {
+        const FrameNumber requestLag =
+            request->estimatedHostFrame > request->localFrame
+                ? (request->estimatedHostFrame - request->localFrame)
+                : static_cast<FrameNumber>(request->lagFrames);
+        const FrameNumber requestBudget = request->catchupBudgetFrames;
+        requestSaysCannotCatchUp =
+            request->reason == ResyncReason::ConfirmedDesync &&
+            request->source == 1u &&
+            requestBudget > 0u &&
+            requestLag > requestBudget;
+    }
+
+    return (synthesizedRecoveryActive &&
+            (reportedLag >= kFreshBootstrapMinimumLagFrames ||
+             inputLag >= kFreshBootstrapMinimumLagFrames ||
+             requestSaysCannotCatchUp)) ||
+           (requestSaysCannotCatchUp &&
+            inputLag >= kFreshBootstrapMinimumLagFrames);
+}
+
+void NetplayCoordinator::queueFreshBootstrapForParticipant(ParticipantInfo& participant,
+                                                           FrameNumber frame,
+                                                           const char* detail)
+{
+    participant.inputSuspended = true;
+    participant.inputResumeAwaitingResync = true;
+    participant.predictionLimitFallbackActive = false;
+    participant.sequenceRebasePending = true;
+    participant.lateCommittedDuplicateBurstCount = 0;
+    participant.lastLateCommittedDuplicateFrame = 0;
+    clearGameplayRecoveryValidation(participant);
+    queuePendingHostResync(frame, ResyncReason::InitialSessionSync, participant.id);
+
+    std::ostringstream oss;
+    oss << "Scheduling fresh participant bootstrap for " << participant.displayName
+        << " frame " << frame;
+    if(detail != nullptr && detail[0] != '\0') {
+        oss << " reason " << detail;
+    }
+    oss << " classification=fresh_participant_bootstrap";
     pushLog(oss.str());
 }
 
@@ -3592,10 +3712,18 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
     const ParticipantId targetParticipantId =
         data.reason == ResyncReason::ObserverVisibilityRestore && participantIsObserver(*participant)
             ? participant->id
-            : kInvalidParticipantId;
+            : participantNeedsFreshBootstrap(*participant, &data)
+                ? participant->id
+                : kInvalidParticipantId;
+    const ResyncReason scheduledReason =
+        targetParticipantId == participant->id &&
+        data.reason == ResyncReason::ConfirmedDesync &&
+        !participantIsObserver(*participant)
+            ? ResyncReason::InitialSessionSync
+            : data.reason;
     if(m_pendingHostResyncFrame.has_value() &&
        m_pendingHostResyncFrame->frame == resyncFrame &&
-       m_pendingHostResyncFrame->reason == data.reason &&
+       m_pendingHostResyncFrame->reason == scheduledReason &&
        m_pendingHostResyncFrame->participantId == targetParticipantId) {
         return true;
     }
@@ -3607,12 +3735,26 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
                 m_localSimulationFrame + 600u
             );
     }
-    queuePendingHostResync(resyncFrame, data.reason, targetParticipantId);
+    if(scheduledReason == ResyncReason::InitialSessionSync &&
+       targetParticipantId == participant->id &&
+       !participantIsObserver(*participant)) {
+        queueFreshBootstrapForParticipant(
+            *participant,
+            resyncFrame,
+            "client requested resync while too far behind synthesized-input recovery"
+        );
+    } else {
+        queuePendingHostResync(resyncFrame, scheduledReason, targetParticipantId);
+    }
 
     std::ostringstream oss;
     oss << "Participant requested authoritative resync: " << participant->displayName
         << " reason " << resyncReasonLabel(data.reason)
         << " frame " << resyncFrame;
+    if(scheduledReason != data.reason) {
+        oss << " scheduledReason " << resyncReasonLabel(scheduledReason)
+            << " targetParticipantId " << static_cast<int>(targetParticipantId);
+    }
     if(data.source != 0u) {
         oss << " source " << data.source
             << " localFrame " << data.localFrame
