@@ -3685,6 +3685,117 @@ TEST_CASE("Netplay host converts far-behind synthesized-input client request int
     client.disconnect();
 }
 
+TEST_CASE("Netplay targeted fresh bootstrap resets synthesized input baseline before resumed input",
+          "[netplay][resync][fresh-bootstrap][input][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 120 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.session().roomState().participants.size() >= 2u &&
+            client.session().roomState().participants.size() >= 2u &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 8u;
+    room.currentFrame = 1010u;
+    room.lastConfirmedFrame = 1010u;
+
+    Netplay::ParticipantInfo* remote = const_cast<Netplay::NetSession&>(host.session()).findParticipant(client.localParticipantId());
+    REQUIRE(remote != nullptr);
+    remote->connected = true;
+    remote->romLoaded = true;
+    remote->romCompatible = true;
+    remote->role = Netplay::ParticipantRole::SessionParticipant;
+    remote->controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote->lastReceivedInputFrame = 1010u;
+    remote->lastContiguousInputFrame = 1010u;
+    remote->lastReceivedInputSequence = 99u;
+    remote->inputSuspended = true;
+    remote->inputResumeAwaitingResync = true;
+    remote->predictionLimitFallbackActive = true;
+    remote->sequenceRebasePending = true;
+    remote->normalizeControllerAssignments();
+
+    for(Netplay::FrameNumber frame = 1000u; frame <= 1010u; ++frame) {
+        Netplay::TimelineInputEntry synthetic{};
+        synthetic.frame = frame;
+        synthetic.participantId = remote->id;
+        synthetic.playerSlot = Netplay::kPort2PlayerSlot;
+        synthetic.inputFrame = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        synthetic.sequence = 99u;
+        synthetic.confirmed = true;
+        synthetic.predicted = false;
+        const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(synthetic);
+    }
+
+    const std::vector<uint8_t> payload{4u, 5u, 6u};
+    const uint32_t payloadCrc32 =
+        Crc32::calc(reinterpret_cast<const char*>(payload.data()), payload.size());
+    REQUIRE(host.beginResync(
+        1000u,
+        payload,
+        payloadCrc32,
+        0u,
+        Netplay::ResyncReason::InitialSessionSync,
+        remote->id
+    ));
+
+    Netplay::ResyncAckData ack{};
+    ack.resyncId = 1u;
+    ack.participantId = remote->id;
+    ack.loadedFrame = 1000u;
+    ack.crc32 = 0u;
+    ack.success = 1u;
+    REQUIRE(host.injectResyncAckForTests(ack));
+
+    remote = const_cast<Netplay::NetSession&>(host.session()).findParticipant(client.localParticipantId());
+    REQUIRE(remote != nullptr);
+    REQUIRE(remote->lastContiguousInputFrame == 1000u);
+    REQUIRE(remote->lastReceivedInputSequence == 0u);
+    REQUIRE(remote->sequenceRebasePending);
+    REQUIRE_FALSE(remote->inputSuspended);
+    REQUIRE_FALSE(remote->inputResumeAwaitingResync);
+    REQUIRE(host.remoteInputs().find(1008u, remote->id, Netplay::kPort2PlayerSlot) == nullptr);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=fresh_participant_bootstrap_baseline"));
+
+    Netplay::InputFrameData resumedInput{};
+    resumedInput.timelineEpoch = room.timelineEpoch;
+    resumedInput.frame = 1008u;
+    resumedInput.participantId = remote->id;
+    resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
+    resumedInput.sequence = 1u;
+    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(1008u, room);
+    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+
+    remote = const_cast<Netplay::NetSession&>(host.session()).findParticipant(client.localParticipantId());
+    REQUIRE(remote != nullptr);
+    REQUIRE(remote->lastContiguousInputFrame == 1008u);
+    REQUIRE(remote->lastReceivedInputSequence == 1u);
+    REQUIRE_FALSE(remote->sequenceRebasePending);
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from"));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Ignored late input for already committed frame"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {

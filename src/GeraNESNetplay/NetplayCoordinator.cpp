@@ -736,6 +736,7 @@ void NetplayCoordinator::clearActiveResyncTracking(SessionState resumeState)
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeTargetedResyncReason = ResyncReason::Unspecified;
     m_activeResyncAckDeadline = {};
 }
 
@@ -747,6 +748,7 @@ void NetplayCoordinator::clearTargetedResyncTracking()
     m_activeTargetedResyncId = 0;
     m_activeTargetedResyncFrame = 0;
     m_activeTargetedResyncExpectedStateCrc32 = 0;
+    m_activeTargetedResyncReason = ResyncReason::Unspecified;
     m_activeResyncAckDeadline = {};
 }
 
@@ -757,6 +759,8 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
 
     const bool targeted = activeResyncIsTargeted();
     const ParticipantId targetParticipantId = m_activeResyncTargetParticipantId;
+    const bool targetedFreshBootstrap =
+        targeted && m_activeTargetedResyncReason == ResyncReason::InitialSessionSync;
     const SessionState resumeState = targeted ? m_activeResyncResumeState : SessionState::Running;
     const FrameNumber recoveryFrame =
         targeted ? m_activeTargetedResyncFrame : m_session.roomState().resyncTargetFrame;
@@ -777,12 +781,22 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
         );
     }
     if(targeted) {
+        if(targetedFreshBootstrap) {
+            if(ParticipantInfo* participant = m_session.findParticipant(targetParticipantId)) {
+                resetParticipantAfterFreshBootstrap(*participant, recoveryFrame);
+            }
+        }
         clearTargetedResyncTracking();
     } else {
         clearActiveResyncTracking(resumeState);
     }
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
+        if(targeted &&
+           participant.id == targetParticipantId &&
+           targetedFreshBootstrap) {
+            continue;
+        }
         participant.inputSuspended = false;
         participant.inputResumeAwaitingResync = false;
         participant.predictionLimitFallbackActive = false;
@@ -1514,7 +1528,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             input.sequence > 0u;
         const bool allowSequenceRebase =
             allowSequenceBaselineReset &&
-            input.sequence != expectedSequence;
+            (input.sequence != expectedSequence || input.frame != expectedFrame);
         const bool allowClientResyncRebase =
             !m_hosting &&
             allowSequenceBaselineReset &&
@@ -2402,6 +2416,49 @@ void NetplayCoordinator::processGameplayRecoveryValidation()
         pushLog(oss.str());
         clearGameplayRecoveryValidation(participant);
     }
+}
+
+void NetplayCoordinator::resetParticipantAfterFreshBootstrap(ParticipantInfo& participant, FrameNumber frame)
+{
+    if(participant.id == m_localParticipantId || participantIsObserver(participant)) return;
+
+    m_remoteInputs.eraseParticipantFramesAfter(participant.id, frame);
+    for(PlayerSlot slot : participantAssignments(participant)) {
+        if(!isPlayableSlot(slot)) continue;
+        if(m_remoteInputs.find(frame, participant.id, slot) != nullptr) continue;
+
+        TimelineInputEntry anchor{};
+        anchor.frame = frame;
+        anchor.participantId = participant.id;
+        anchor.playerSlot = slot;
+        anchor.buttonMaskLo = 0;
+        anchor.buttonMaskHi = 0;
+        anchor.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(frame, m_session.roomState()));
+        anchor.sequence = 0;
+        anchor.predicted = false;
+        anchor.confirmed = true;
+        m_remoteInputs.push(anchor);
+    }
+
+    participant.lastReceivedInputFrame = frame;
+    participant.lastContiguousInputFrame = frame;
+    participant.lastReceivedInputSequence = 0;
+    participant.sequenceRebasePending = true;
+    participant.pendingMissingInputFrom.reset();
+    participant.inputSuspended = false;
+    participant.inputResumeAwaitingResync = false;
+    participant.predictionLimitFallbackActive = false;
+    participant.lateCommittedDuplicateBurstCount = 0;
+    participant.lastLateCommittedDuplicateFrame = 0;
+    clearGameplayRecoveryValidation(participant);
+    m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
+
+    std::ostringstream oss;
+    oss << "Fresh participant bootstrap reset input baseline for "
+        << participant.displayName
+        << " frame " << frame
+        << " classification=fresh_participant_bootstrap_baseline";
+    pushLog(oss.str());
 }
 
 void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame)
@@ -6211,6 +6268,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
         m_activeTargetedResyncId = resyncId;
         m_activeTargetedResyncFrame = targetFrame;
         m_activeTargetedResyncExpectedStateCrc32 = stateCrc32;
+        m_activeTargetedResyncReason = reason;
     }
     if(!targetedResync) {
         m_session.roomState().activeResyncId = resyncId;

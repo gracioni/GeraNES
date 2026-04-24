@@ -200,6 +200,7 @@ private:
     uint32_t m_activeTargetedResyncId = 0;
     FrameNumber m_activeTargetedResyncFrame = 0;
     uint32_t m_activeTargetedResyncExpectedStateCrc32 = 0;
+    ResyncReason m_activeTargetedResyncReason = ResyncReason::Unspecified;
     std::chrono::steady_clock::time_point m_lastClockSyncRequestAt = {};
     uint32_t m_nextClockSyncSequence = 1;
     std::unordered_map<uint32_t, PendingClockSyncRequest> m_pendingClockSyncRequests;
@@ -314,6 +315,7 @@ private:
     void noteGameplayRecoveryAcceptedInput(ParticipantInfo& participant, FrameNumber frame);
     void noteGameplayRecoveryFailure(ParticipantInfo& participant);
     void processGameplayRecoveryValidation();
+    void resetParticipantAfterFreshBootstrap(ParticipantInfo& participant, FrameNumber frame);
     void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
     bool synthesizePredictionLimitFallbackInput(FrameNumber targetFrame, ParticipantInfo& participant, PlayerSlot slot);
     bool tryBuildPlaybackFrameInternal(FrameNumber frame,

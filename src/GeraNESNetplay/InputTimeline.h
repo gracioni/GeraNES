@@ -112,6 +112,7 @@ public:
 
     void push(const TimelineInputEntry& entry);
     void eraseFramesAfter(FrameNumber frame);
+    void eraseParticipantFramesAfter(ParticipantId participantId, FrameNumber frame);
 
     const TimelineInputEntry* latest() const;
     const TimelineInputEntry* latestFor(PlayerSlot slot) const;

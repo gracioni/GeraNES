@@ -108,6 +108,18 @@ void InputTimeline::eraseFramesAfter(FrameNumber frame)
     }
 }
 
+void InputTimeline::eraseParticipantFramesAfter(ParticipantId participantId, FrameNumber frame)
+{
+    for(auto it = m_entries.begin(); it != m_entries.end();) {
+        if(it->participantId == participantId && it->frame > frame) {
+            m_index.erase(makeKey(*it));
+            it = m_entries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 const TimelineInputEntry* InputTimeline::latest() const
 {
     return m_entries.empty() ? nullptr : &m_entries.back();
