@@ -663,6 +663,38 @@ bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer
     return true;
 }
 
+bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer,
+                                                   const std::vector<ConfirmedFrameInputs>& frames,
+                                                   Channel channel)
+{
+    if(peer == NetTransport::kInvalidPeerHandle || frames.empty()) return false;
+
+    PacketWriter writer;
+    PacketHeader header;
+    header.type = MessageType::ConfirmedInputFrames;
+    header.sessionId = m_session.roomState().sessionId;
+    writer.writePod(header);
+
+    ConfirmedInputFramesData data;
+    data.timelineEpoch = m_session.roomState().timelineEpoch;
+    data.startFrame = frames.front().frame;
+    data.frameCount = static_cast<uint16_t>(frames.size());
+    writer.writePod(data);
+
+    for(const auto& frame : frames) {
+        ConfirmedInputFrameEntry entry;
+        entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
+        entry.buttonMaskLo = frame.buttonMaskLo;
+        entry.buttonMaskHi = frame.buttonMaskHi;
+        const std::vector<uint8_t> payload = serializeInputFrame(frame.inputFrame);
+        entry.payloadSize = static_cast<uint16_t>(payload.size());
+        writer.writePod(entry);
+        writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
+    }
+
+    return m_transport.sendReliable(peer, channel, writer.data());
+}
+
 void NetplayCoordinator::clearActiveResyncTracking(SessionState resumeState)
 {
     m_session.roomState().state = resumeState;
@@ -1610,16 +1642,8 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         return false;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = data.timelineEpoch;
-    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
-        noteDroppedGameplayInputDuringRecovery(
-            "confirmed_input_frames",
-            data.startFrame,
-            m_localParticipantId,
-            kObserverPlayerSlot
-        );
-        return true;
-    }
-
+    std::vector<ConfirmedFrameInputs> frames;
+    frames.reserve(data.frameCount);
     for(uint16_t i = 0; i < data.frameCount; ++i) {
         ConfirmedInputFrameEntry entry;
         if(!reader.readPod(entry)) return false;
@@ -1632,6 +1656,50 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         frame.buttonMaskLo = entry.buttonMaskLo;
         frame.buttonMaskHi = entry.buttonMaskHi;
         if(!deserializeInputFrame(payload.data(), payload.size(), frame.inputFrame)) return false;
+        frames.push_back(std::move(frame));
+    }
+
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
+        if(!m_hosting &&
+           m_session.roomState().activeResyncId != 0 &&
+           data.startFrame > m_session.roomState().resyncTargetFrame &&
+           !frames.empty()) {
+            if(m_pendingResyncApply.has_value() &&
+               m_pendingResyncApply->resyncId == m_session.roomState().activeResyncId) {
+                m_pendingResyncApply->runwayFrames.insert(
+                    m_pendingResyncApply->runwayFrames.end(),
+                    frames.begin(),
+                    frames.end()
+                );
+            } else {
+                m_pendingResyncRunwayFrames.insert(
+                    m_pendingResyncRunwayFrames.end(),
+                    frames.begin(),
+                    frames.end()
+                );
+            }
+        } else {
+            noteDroppedGameplayInputDuringRecovery(
+                "confirmed_input_frames",
+                data.startFrame,
+                m_localParticipantId,
+                kObserverPlayerSlot
+            );
+        }
+        return true;
+    }
+
+    applyConfirmedFrames(frames, false);
+
+    return true;
+}
+
+void NetplayCoordinator::applyConfirmedFrames(const std::vector<ConfirmedFrameInputs>& frames,
+                                              bool rebuildFutureLocalEntries)
+{
+    if(frames.empty()) return;
+
+    for(const ConfirmedFrameInputs& frame : frames) {
         storeConfirmedFrame(frame);
         if(frame.authoritativeFrameStartClockMicros != 0u) {
             m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
@@ -1639,46 +1707,45 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         }
     }
 
-    if(data.frameCount > 0) {
-        const FrameNumber lastFrame = data.startFrame + static_cast<FrameNumber>(data.frameCount - 1u);
-        m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, lastFrame);
+    const FrameNumber lastFrame = frames.back().frame;
+    m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, lastFrame);
 
-        ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId);
-        if(localParticipant != nullptr && !participantIsObserver(*localParticipant)) {
-            for(FrameNumber frame = data.startFrame; frame <= lastFrame; ++frame) {
-                const ConfirmedFrameInputs* confirmedFrame = findConfirmedFrame(frame);
-                if(confirmedFrame == nullptr) {
-                    continue;
-                }
-                for(PlayerSlot slot : participantAssignments(*localParticipant)) {
-                    TimelineInputEntry* localEntry =
-                        m_localInputs.findMutable(frame, m_localParticipantId, slot);
-                    if(localEntry == nullptr && frame <= m_localSimulationFrame) {
-                        TimelineInputEntry reconstructedEntry{};
-                        reconstructedEntry.frame = frame;
-                        reconstructedEntry.participantId = m_localParticipantId;
-                        reconstructedEntry.playerSlot = slot;
-                        reconstructedEntry.buttonMaskLo = confirmedFrame->buttonMaskLo[slot];
-                        reconstructedEntry.buttonMaskHi = confirmedFrame->buttonMaskHi[slot];
-                        reconstructedEntry.inputFrame = confirmedFrame->inputFrame;
-                        reconstructedEntry.sequence = m_localInputSequence;
-                        reconstructedEntry.confirmed = true;
-                        reconstructedEntry.predicted = false;
-                        m_localInputs.push(reconstructedEntry);
-                        localEntry = m_localInputs.findMutable(frame, m_localParticipantId, slot);
-                    }
-                    if(localEntry != nullptr) {
-                        localEntry->confirmed = true;
-                    }
-                }
-            }
-            localParticipant->lastContiguousInputFrame = std::max(localParticipant->lastContiguousInputFrame, lastFrame);
-            localParticipant->lastReceivedInputFrame = std::max(localParticipant->lastReceivedInputFrame, lastFrame);
-        }
-
+    ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId);
+    if(localParticipant == nullptr || participantIsObserver(*localParticipant)) {
+        return;
     }
 
-    return true;
+    for(const ConfirmedFrameInputs& confirmedFrame : frames) {
+        for(PlayerSlot slot : participantAssignments(*localParticipant)) {
+            TimelineInputEntry* localEntry =
+                m_localInputs.findMutable(confirmedFrame.frame, m_localParticipantId, slot);
+            if(localEntry == nullptr &&
+               (rebuildFutureLocalEntries || confirmedFrame.frame <= m_localSimulationFrame)) {
+                TimelineInputEntry reconstructedEntry{};
+                reconstructedEntry.frame = confirmedFrame.frame;
+                reconstructedEntry.participantId = m_localParticipantId;
+                reconstructedEntry.playerSlot = slot;
+                reconstructedEntry.buttonMaskLo = confirmedFrame.buttonMaskLo[slot];
+                reconstructedEntry.buttonMaskHi = confirmedFrame.buttonMaskHi[slot];
+                reconstructedEntry.inputFrame = confirmedFrame.inputFrame;
+                reconstructedEntry.sequence = m_localInputSequence;
+                reconstructedEntry.confirmed = true;
+                reconstructedEntry.predicted = false;
+                m_localInputs.push(reconstructedEntry);
+                localEntry = m_localInputs.findMutable(confirmedFrame.frame, m_localParticipantId, slot);
+            }
+            if(localEntry != nullptr) {
+                localEntry->confirmed = true;
+                localEntry->buttonMaskLo = confirmedFrame.buttonMaskLo[slot];
+                localEntry->buttonMaskHi = confirmedFrame.buttonMaskHi[slot];
+                localEntry->inputFrame = confirmedFrame.inputFrame;
+                localEntry->predicted = false;
+            }
+        }
+    }
+
+    localParticipant->lastContiguousInputFrame = std::max(localParticipant->lastContiguousInputFrame, lastFrame);
+    localParticipant->lastReceivedInputFrame = std::max(localParticipant->lastReceivedInputFrame, lastFrame);
 }
 
 bool NetplayCoordinator::handleInputAck(PacketReader& reader)
@@ -2600,6 +2667,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
+    m_pendingResyncRunwayFrames.clear();
     m_remoteInputStallMonitor.reset();
     m_pendingResyncApply.reset();
     m_pendingResyncAcks.clear();
@@ -2946,6 +3014,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
         pushLog(oss.str());
     }
     m_pendingResyncApply.reset();
+    m_pendingResyncRunwayFrames.clear();
     const bool initialSessionSync =
         m_session.roomState().state == SessionState::Starting &&
         data.reason == ResyncReason::InitialSessionSync;
@@ -3062,6 +3131,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
     pending.inputSequenceBase = m_session.roomState().resyncInputSequenceBase;
     pending.reason = m_session.roomState().activeResyncReason;
     pending.payload = std::move(m_incomingResync->payload);
+    pending.runwayFrames = std::move(m_pendingResyncRunwayFrames);
     m_pendingResyncApply = std::move(pending);
     {
         std::ostringstream oss;
@@ -3073,6 +3143,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
         pushLog(oss.str());
     }
     m_incomingResync.reset();
+    m_pendingResyncRunwayFrames.clear();
     return true;
 }
 
@@ -5659,6 +5730,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     const bool targetedResync = targetParticipantId != kInvalidParticipantId;
     const SessionState resumeState = m_session.roomState().state;
     NetTransport::PeerHandle targetPeer = NetTransport::kInvalidPeerHandle;
+    std::vector<ConfirmedFrameInputs> targetedRunwayFrames;
     if(targetedResync) {
         const ParticipantInfo* targetParticipant = m_session.findParticipant(targetParticipantId);
         if(targetParticipant == nullptr || !targetParticipant->connected || targetParticipant->reconnectReserved) {
@@ -5800,7 +5872,30 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     ResyncCompleteData completeData;
     completeData.resyncId = resyncId;
     const std::vector<uint8_t> completePacket = buildResyncCompletePacket(completeData);
+
+    if(targetedResync && m_session.roomState().inputDelayFrames > 0u) {
+        const FrameNumber runwayEndFrame =
+            targetFrame + static_cast<FrameNumber>(m_session.roomState().inputDelayFrames);
+        targetedRunwayFrames.reserve(static_cast<size_t>(runwayEndFrame - targetFrame));
+        for(FrameNumber frame = targetFrame + 1u; frame <= runwayEndFrame; ++frame) {
+            ConfirmedFrameInputs runwayFrame;
+            if(!tryBuildPlaybackFrame(frame, false, runwayFrame, true)) {
+                break;
+            }
+            runwayFrame.predicted = false;
+            storeConfirmedFrame(runwayFrame);
+            targetedRunwayFrames.push_back(runwayFrame);
+        }
+        if(!targetedRunwayFrames.empty()) {
+            m_session.roomState().lastConfirmedFrame =
+                std::max(m_session.roomState().lastConfirmedFrame, targetedRunwayFrames.back().frame);
+        }
+    }
+
     if(targetedResync) {
+        if(!targetedRunwayFrames.empty()) {
+            sendConfirmedFramesToPeer(targetPeer, targetedRunwayFrames, Channel::Control);
+        }
         m_transport.sendReliable(targetPeer, Channel::Control, completePacket);
     } else {
         m_transport.broadcastReliable(Channel::Control, completePacket);
@@ -5834,6 +5929,11 @@ std::optional<NetplayCoordinator::PendingResyncApply> NetplayCoordinator::consum
     std::optional<PendingResyncApply> result = std::move(m_pendingResyncApply);
     m_pendingResyncApply.reset();
     return result;
+}
+
+void NetplayCoordinator::applyResyncRunwayFrames(const std::vector<ConfirmedFrameInputs>& frames)
+{
+    applyConfirmedFrames(frames, true);
 }
 
 bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success)

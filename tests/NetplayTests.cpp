@@ -2263,12 +2263,24 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
 {
     Netplay::NetplayCoordinator host;
     Netplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
 
     REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
     REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(host.host(port, 2, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
+    bool started = false;
+    for(int attempt = 0; attempt < 8 && !started; ++attempt) {
+        const uint16_t port = reserveLoopbackPort();
+        host.disconnect();
+        client.disconnect();
+        if(!host.host(port, 2, "Host")) {
+            continue;
+        }
+        if(!client.join("127.0.0.1", port, "Client")) {
+            host.disconnect();
+            continue;
+        }
+        started = true;
+    }
+    REQUIRE(started);
 
     bool connected = false;
     for(int step = 0; step < 400 && !connected; ++step) {
@@ -2345,6 +2357,159 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
 
     client.recordLocalInputFrame(105u, Netplay::kPort2PlayerSlot, 1u);
     REQUIRE(client.localInputs().find(105u, client.localParticipantId(), Netplay::kPort2PlayerSlot) != nullptr);
+
+    host.disconnect();
+    client.disconnect();
+}
+
+TEST_CASE("Targeted resync carries authoritative runway frames to the client",
+          "[netplay][resync][targeted][runway][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    auto pump = [&](uint32_t timeoutMs = 0u) {
+        host.update(timeoutMs);
+        client.update(timeoutMs);
+    };
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        pump(0);
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.session().roomState().participants.size() >= 2u &&
+            client.session().roomState().participants.size() >= 2u &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto findParticipantIdByName = [](const Netplay::RoomState& room, const std::string& name)
+        -> std::optional<Netplay::ParticipantId> {
+        for(const auto& participant : room.participants) {
+            if(participant.displayName == name) {
+                return participant.id;
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto hostId = findParticipantIdByName(host.session().roomState(), "Host");
+    const auto clientId = findParticipantIdByName(host.session().roomState(), "Client");
+    REQUIRE(hostId.has_value());
+    REQUIRE(clientId.has_value());
+
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.inputDelayFrames = 3u;
+    clientRoom.inputDelayFrames = 3u;
+
+    for(auto& participant : hostRoom.participants) {
+        if(participant.id == *hostId) {
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else if(participant.id == *clientId) {
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+    for(auto& participant : clientRoom.participants) {
+        if(participant.id == client.localParticipantId()) {
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else if(participant.displayName == "Host") {
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    constexpr Netplay::FrameNumber kTargetFrame = 120u;
+    hostRoom.currentFrame = 123u;
+    clientRoom.currentFrame = kTargetFrame;
+    hostRoom.lastConfirmedFrame = kTargetFrame;
+    clientRoom.lastConfirmedFrame = kTargetFrame;
+    host.setLocalSimulationFrame(123u);
+    client.setLocalSimulationFrame(kTargetFrame);
+
+    Netplay::ParticipantInfo* hostRemoteParticipant =
+        const_cast<Netplay::NetSession&>(host.session()).findParticipant(*clientId);
+    REQUIRE(hostRemoteParticipant != nullptr);
+    hostRemoteParticipant->connected = true;
+    hostRemoteParticipant->lastReceivedInputFrame = kTargetFrame;
+    hostRemoteParticipant->lastContiguousInputFrame = kTargetFrame;
+    hostRemoteParticipant->normalizeControllerAssignments();
+
+    Netplay::TimelineInputEntry confirmedRemote{};
+    confirmedRemote.frame = kTargetFrame;
+    confirmedRemote.participantId = *clientId;
+    confirmedRemote.playerSlot = Netplay::kPort1PlayerSlot;
+    confirmedRemote.buttonMaskLo = 0x5u;
+    confirmedRemote.buttonMaskHi = 0u;
+    confirmedRemote.inputFrame = Netplay::makeRoomTopologyBaseFrame(kTargetFrame, hostRoom);
+    confirmedRemote.inputFrame.p1A = true;
+    confirmedRemote.confirmed = true;
+    confirmedRemote.predicted = false;
+    const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(confirmedRemote);
+
+    host.recordLocalInputFrame(kTargetFrame + 1u, Netplay::kPort2PlayerSlot, 0x10u);
+    host.recordLocalInputFrame(kTargetFrame + 2u, Netplay::kPort2PlayerSlot, 0x20u);
+    host.recordLocalInputFrame(kTargetFrame + 3u, Netplay::kPort2PlayerSlot, 0x40u);
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
+    const uint32_t payloadCrc32 =
+        Crc32::calc(reinterpret_cast<const char*>(payload.data()), payload.size());
+    REQUIRE(host.beginResync(
+        kTargetFrame,
+        payload,
+        payloadCrc32,
+        0x12345678u,
+        Netplay::ResyncReason::InitialSessionSync,
+        *clientId
+    ));
+
+    std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending;
+    for(int step = 0; step < 400 && !pending.has_value(); ++step) {
+        pump(0);
+        pending = client.consumePendingResyncApply();
+        if(!pending.has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->targetFrame == kTargetFrame);
+    REQUIRE(pending->runwayFrames.size() == 3u);
+    REQUIRE(pending->runwayFrames[0].frame == kTargetFrame + 1u);
+    REQUIRE(pending->runwayFrames[1].frame == kTargetFrame + 2u);
+    REQUIRE(pending->runwayFrames[2].frame == kTargetFrame + 3u);
+    REQUIRE(pending->runwayFrames[0].buttonMaskLo[Netplay::kPort1PlayerSlot] == 0x5u);
+    REQUIRE(pending->runwayFrames[1].buttonMaskLo[Netplay::kPort1PlayerSlot] == 0x5u);
+    REQUIRE(pending->runwayFrames[2].buttonMaskLo[Netplay::kPort1PlayerSlot] == 0x5u);
+    REQUIRE(pending->runwayFrames[0].buttonMaskLo[Netplay::kPort2PlayerSlot] == 0x10u);
+    REQUIRE(pending->runwayFrames[1].buttonMaskLo[Netplay::kPort2PlayerSlot] == 0x20u);
+    REQUIRE(pending->runwayFrames[2].buttonMaskLo[Netplay::kPort2PlayerSlot] == 0x40u);
+
+    client.applyResyncRunwayFrames(pending->runwayFrames);
+
+    for(Netplay::FrameNumber frame = kTargetFrame + 1u; frame <= kTargetFrame + 3u; ++frame) {
+        const Netplay::NetplayCoordinator::ConfirmedFrameInputs* confirmed = client.findConfirmedFrame(frame);
+        REQUIRE(confirmed != nullptr);
+        const Netplay::TimelineInputEntry* local =
+            client.localInputs().find(frame, client.localParticipantId(), Netplay::kPort1PlayerSlot);
+        REQUIRE(local != nullptr);
+        REQUIRE(local->confirmed);
+        REQUIRE(local->predicted == false);
+        REQUIRE(local->buttonMaskLo == 0x5u);
+    }
 
     host.disconnect();
     client.disconnect();

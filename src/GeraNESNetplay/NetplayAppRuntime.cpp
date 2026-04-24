@@ -930,6 +930,7 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame,
             pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
         );
+        m_coordinator.applyResyncRunwayFrames(pending->runwayFrames);
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
         alignResyncPlaybackToSharedClockOnWorker(emu, pending->targetFrame);
         std::ostringstream oss;
@@ -937,7 +938,8 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             << " targetFrame " << pending->targetFrame
             << " loadedCrc32 " << loadedCrc32
             << " frameReadyFrame "
-            << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
+            << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame)
+            << " runwayFrames " << pending->runwayFrames.size();
         m_coordinator.appendNetplayLog(oss.str());
     }
     m_coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);

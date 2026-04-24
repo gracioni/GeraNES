@@ -91,6 +91,7 @@ public:
         uint32_t inputSequenceBase = 0;
         ResyncReason reason = ResyncReason::Unspecified;
         std::vector<uint8_t> payload;
+        std::vector<ConfirmedFrameInputs> runwayFrames;
     };
 
     struct PendingHostResyncRequest
@@ -168,6 +169,7 @@ private:
     uint32_t m_activeResyncExpectedStateCrc32 = 0;
     std::optional<IncomingResyncTransfer> m_incomingResync;
     std::optional<PendingResyncApply> m_pendingResyncApply;
+    std::vector<ConfirmedFrameInputs> m_pendingResyncRunwayFrames;
     std::optional<ParticipantId> m_pendingHostLateJoinResyncParticipant;
     RemoteInputStallMonitor m_remoteInputStallMonitor;
     std::vector<ParticipantId> m_pendingResyncAcks;
@@ -228,6 +230,9 @@ private:
     bool activeResyncIsTargeted() const;
     bool sendCurrentSessionStateToPeer(NetTransport::PeerHandle peer);
     bool sendConfirmedFramesToPeer(NetTransport::PeerHandle peer, FrameNumber startFrame);
+    bool sendConfirmedFramesToPeer(NetTransport::PeerHandle peer,
+                                   const std::vector<ConfirmedFrameInputs>& frames,
+                                   Channel channel = Channel::Gameplay);
     void clearActiveResyncTracking(SessionState resumeState);
     void clearTargetedResyncTracking();
     void finalizeActiveResyncIfReady();
@@ -289,6 +294,8 @@ private:
                                    bool resetInputSequences = false,
                                    uint32_t inputSequenceBase = 0,
                                    bool preserveConfirmedInputs = true);
+    void applyConfirmedFrames(const std::vector<ConfirmedFrameInputs>& frames,
+                              bool rebuildFutureLocalEntries);
     static bool preserveConfirmedInputsAcrossRealignment(ResyncReason reason);
     void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
@@ -437,6 +444,7 @@ public:
                      ResyncReason reason = ResyncReason::Unspecified,
                      ParticipantId targetParticipantId = kInvalidParticipantId);
     std::optional<PendingResyncApply> consumePendingResyncApply();
+    void applyResyncRunwayFrames(const std::vector<ConfirmedFrameInputs>& frames);
     bool acknowledgeResync(uint32_t resyncId, FrameNumber loadedFrame, uint32_t crc32, bool success);
     bool requestHostResync(ResyncReason reason = ResyncReason::ObserverVisibilityRestore);
     bool requestHostResync(const ResyncRequestData& request);
