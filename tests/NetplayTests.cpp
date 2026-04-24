@@ -4446,6 +4446,98 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     host.disconnect();
 }
 
+TEST_CASE("Netplay host preserves rebase state after late committed inputs while suspended",
+          "[netplay][input][resync][rebase][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.sessionId = 12u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 7u;
+    room.currentFrame = 16524u;
+    room.lastConfirmedFrame = 16523u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 16511u;
+    remote.lastContiguousInputFrame = 16523u;
+    remote.lastReceivedInputSequence = 3308u;
+    remote.inputSuspended = true;
+    remote.sequenceRebasePending = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    for(Netplay::FrameNumber frame = 16512u; frame <= 16523u; ++frame) {
+        Netplay::TimelineInputEntry committed{};
+        committed.frame = frame;
+        committed.participantId = remote.id;
+        committed.playerSlot = Netplay::kPort1PlayerSlot;
+        committed.buttonMaskLo = 0u;
+        committed.buttonMaskHi = 0u;
+        committed.inputFrame = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        committed.sequence = 3308u;
+        committed.confirmed = true;
+        committed.predicted = false;
+        const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(committed);
+    }
+
+    for(uint32_t seq = 3309u; seq <= 3320u; ++seq) {
+        const Netplay::FrameNumber frame = 16512u + static_cast<Netplay::FrameNumber>(seq - 3309u);
+        Netplay::InputFrameData lateInput{};
+        lateInput.timelineEpoch = room.timelineEpoch;
+        lateInput.frame = frame;
+        lateInput.participantId = remote.id;
+        lateInput.playerSlot = Netplay::kPort1PlayerSlot;
+        lateInput.sequence = seq;
+        lateInput.buttonMaskLo = 0u;
+        lateInput.buttonMaskHi = 0u;
+        InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(host.injectInputFrameForTests(lateInput, contribution));
+    }
+
+    const Netplay::ParticipantInfo* suspended = host.session().findParticipant(remote.id);
+    REQUIRE(suspended != nullptr);
+    REQUIRE(suspended->inputSuspended);
+    REQUIRE(suspended->sequenceRebasePending);
+    REQUIRE(suspended->lastReceivedInputSequence == 3320u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
+
+    Netplay::InputFrameData resumedInput{};
+    resumedInput.timelineEpoch = room.timelineEpoch;
+    resumedInput.frame = 16524u;
+    resumedInput.participantId = remote.id;
+    resumedInput.playerSlot = Netplay::kPort1PlayerSlot;
+    resumedInput.sequence = 3321u;
+    resumedInput.buttonMaskLo = 0x1u;
+    resumedInput.buttonMaskHi = 0u;
+    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(16524u, room);
+    resumedContribution.p1A = true;
+    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+
+    const Netplay::ParticipantInfo* resumed = host.session().findParticipant(remote.id);
+    REQUIRE(resumed != nullptr);
+    REQUIRE_FALSE(resumed->inputSuspended);
+    REQUIRE_FALSE(resumed->sequenceRebasePending);
+    REQUIRE(resumed->lastContiguousInputFrame == 16524u);
+    REQUIRE(resumed->lastReceivedInputSequence == 3321u);
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant frame 16524"));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input from Participant frame 16524"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay core advances only when the exact next numbered input frame exists", "[netplay][core][frames]")
 {
     GeraNESTestSupport::requireRomFixture();

@@ -1504,7 +1504,11 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
            input.frame < expectedFrame) {
             participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
             participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
-            participant->sequenceRebasePending = false;
+            const bool preserveResumeRebaseState =
+                participant->inputSuspended || participant->sequenceRebasePending;
+            if(!preserveResumeRebaseState) {
+                participant->sequenceRebasePending = false;
+            }
 
             std::ostringstream oss;
             oss << "Ignored late input for already committed frame from " << participant->displayName
