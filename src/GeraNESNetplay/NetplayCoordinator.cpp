@@ -2143,8 +2143,29 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
-    const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
+    const auto update = m_remoteInputStallMonitor.peekPeerHealth(participant.id, participant.peerHealthSerial);
     if(!update.shouldScheduleResync) return;
+    if(participant.lastReportedCurrentFrame <= update.recovery.stalledFrame) {
+        std::ostringstream oss;
+        oss << "Peer health for " << participant.displayName
+            << " advanced after implicit input stall but reported frame "
+            << participant.lastReportedCurrentFrame
+            << " has not passed stalled frame "
+            << update.recovery.stalledFrame
+            << "; waiting for gameplay progress before recovery resync";
+        pushLog(oss.str());
+        return;
+    }
+    if(participant.lastReceivedInputFrame < update.recovery.stalledFrame &&
+       participant.lastContiguousInputFrame < update.recovery.stalledFrame) {
+        std::ostringstream oss;
+        oss << "Peer health for " << participant.displayName
+            << " advanced after implicit input stall but no usable input reached stalled frame "
+            << update.recovery.stalledFrame
+            << "; waiting before recovery resync";
+        pushLog(oss.str());
+        return;
+    }
 
     const FrameNumber resyncFrame =
         m_session.roomState().lastConfirmedFrame > 0
@@ -2156,6 +2177,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
             m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
             m_localSimulationFrame + 600u
         );
+    m_remoteInputStallMonitor.clearPendingRecovery(participant.id);
     queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
 
     std::ostringstream oss;
@@ -5296,6 +5318,21 @@ bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
     writer.writePod(report);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleCrcReport(reader);
+}
+
+bool NetplayCoordinator::injectPeerHealthForTests(const PeerHealthData& health)
+{
+    PacketWriter writer;
+    writer.writePod(health);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handlePeerHealth(NetTransport::kInvalidPeerHandle, reader);
+}
+
+void NetplayCoordinator::noteImplicitRemoteInputStallForTests(ParticipantId participantId,
+                                                             PlayerSlot slot,
+                                                             FrameNumber frame)
+{
+    noteImplicitRemoteInputStall(participantId, slot, frame);
 }
 
 bool NetplayCoordinator::injectResyncAckForTests(const ResyncAckData& ack)

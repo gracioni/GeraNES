@@ -402,6 +402,8 @@ public:
     bool injectInputAckForTests(const InputAckData& ack);
     bool injectFrameStatusForTests(const FrameStatusData& status);
     bool injectCrcReportForTests(const CrcReportData& report);
+    bool injectPeerHealthForTests(const PeerHealthData& health);
+    void noteImplicitRemoteInputStallForTests(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     bool injectResyncAckForTests(const ResyncAckData& ack);
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;

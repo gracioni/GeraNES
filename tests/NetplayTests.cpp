@@ -342,12 +342,15 @@ TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer he
     const auto stall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 181u, 4u);
     REQUIRE(stall.newlyTracked == true);
 
-    const auto staleHealth = monitor.onPeerHealth(2u, 4u);
+    const auto staleHealth = monitor.peekPeerHealth(2u, 4u);
     REQUIRE(staleHealth.shouldScheduleResync == false);
 
-    const auto freshHealth = monitor.onPeerHealth(2u, 5u);
+    const auto freshHealth = monitor.peekPeerHealth(2u, 5u);
     REQUIRE(freshHealth.shouldScheduleResync == true);
     REQUIRE(freshHealth.recovery.stalledFrame == 181u);
+    REQUIRE(monitor.pending().has_value());
+    monitor.clearPendingRecovery(2u);
+    REQUIRE_FALSE(monitor.pending().has_value());
 }
 
 TEST_CASE("Netplay remote input stall monitor coalesces repeated same-health stalls", "[netplay][implicit-stall][monitor]")
@@ -366,9 +369,29 @@ TEST_CASE("Netplay remote input stall monitor coalesces repeated same-health sta
     REQUIRE(repeatedAgain.newlyTracked == false);
     REQUIRE(repeatedAgain.recovery.stalledFrame == 55442u);
 
-    const auto freshHealth = monitor.onPeerHealth(2u, 10u);
+    const auto freshHealth = monitor.peekPeerHealth(2u, 10u);
     REQUIRE(freshHealth.shouldScheduleResync == true);
     REQUIRE(freshHealth.recovery.stalledFrame == 55442u);
+    REQUIRE(monitor.pending().has_value());
+}
+
+TEST_CASE("Netplay remote input stall monitor keeps pending stall until explicitly cleared", "[netplay][implicit-stall][monitor]")
+{
+    Netplay::RemoteInputStallMonitor monitor;
+
+    REQUIRE(monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 27931u, 18u).newlyTracked);
+
+    const auto freshHealth = monitor.peekPeerHealth(2u, 19u);
+    REQUIRE(freshHealth.shouldScheduleResync);
+    REQUIRE(freshHealth.recovery.stalledFrame == 27931u);
+    REQUIRE(monitor.pending().has_value());
+
+    const auto stillFreshHealth = monitor.peekPeerHealth(2u, 20u);
+    REQUIRE(stillFreshHealth.shouldScheduleResync);
+    REQUIRE(stillFreshHealth.recovery.stalledFrame == 27931u);
+
+    monitor.clearPendingRecovery(2u);
+    REQUIRE_FALSE(monitor.pending().has_value());
 }
 
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
@@ -4634,6 +4657,78 @@ TEST_CASE("Netplay host escalates repeated late committed fallback duplicates in
     host.disconnect();
 }
 
+TEST_CASE("Netplay implicit stall health requires gameplay progress before recovery resync",
+          "[netplay][implicit-stall][recovery][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.sessionId = 16u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 13u;
+    room.currentFrame = 27931u;
+    room.lastConfirmedFrame = 27931u;
+    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 27920u;
+    remote.lastContiguousInputFrame = 27920u;
+    remote.lastReceivedInputSequence = 20u;
+    remote.lastReportedCurrentFrame = 27920u;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+    host.setLocalSimulationFrame(27931u);
+
+    host.noteImplicitRemoteInputStallForTests(remote.id, Netplay::kPort1PlayerSlot, 27931u);
+
+    Netplay::PeerHealthData health{};
+    health.participantId = remote.id;
+    health.currentFrame = 27930u;
+    health.lastConfirmedFrame = 27930u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE(anyLogLineContains(host.eventLog(), "has not passed stalled frame"));
+
+    health.currentFrame = 27940u;
+    health.lastConfirmedFrame = 27940u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE(anyLogLineContains(host.eventLog(), "no usable input reached stalled frame"));
+
+    for(Netplay::FrameNumber frame = 27921u; frame <= 27931u; ++frame) {
+        Netplay::InputFrameData resumedInput{};
+        resumedInput.timelineEpoch = room.timelineEpoch;
+        resumedInput.frame = frame;
+        resumedInput.participantId = remote.id;
+        resumedInput.playerSlot = Netplay::kPort1PlayerSlot;
+        resumedInput.sequence = 20u + (frame - 27920u);
+        resumedInput.buttonMaskLo = 0u;
+        resumedInput.buttonMaskHi = 0u;
+        InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+    }
+
+    health.currentFrame = 27941u;
+    health.lastConfirmedFrame = 27941u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE(anyLogLineContains(host.eventLog(), "Implicit input stall recovered"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host preserves rebase state after late committed inputs while suspended",
           "[netplay][input][resync][rebase][unit]")
 {
@@ -5466,7 +5561,7 @@ TEST_CASE("Netplay gameplay recovery validation escalates room resync on CRC thr
     REQUIRE(pending.has_value());
     REQUIRE(pending->participantId == Netplay::kInvalidParticipantId);
     REQUIRE(anyLogLineContains(coordinator.eventLog(),
-                               "Escalating confirmed CRC mismatch during gameplay recovery validation"));
+                               "Escalating confirmed CRC mismatch during participant input recovery"));
 
     coordinator.disconnect();
 }

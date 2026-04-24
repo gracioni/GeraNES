@@ -57,8 +57,8 @@ RemoteInputStallMonitor::RecoveryUpdate RemoteInputStallMonitor::clearRecovered(
     return update;
 }
 
-RemoteInputStallMonitor::PeerHealthUpdate RemoteInputStallMonitor::onPeerHealth(ParticipantId participantId,
-                                                                                          uint32_t peerHealthSerial)
+RemoteInputStallMonitor::PeerHealthUpdate RemoteInputStallMonitor::peekPeerHealth(ParticipantId participantId,
+                                                                                  uint32_t peerHealthSerial) const
 {
     PeerHealthUpdate update;
     if(!m_pending.has_value()) return update;
@@ -67,8 +67,14 @@ RemoteInputStallMonitor::PeerHealthUpdate RemoteInputStallMonitor::onPeerHealth(
 
     update.shouldScheduleResync = true;
     update.recovery = *m_pending;
-    m_pending.reset();
     return update;
+}
+
+void RemoteInputStallMonitor::clearPendingRecovery(ParticipantId participantId)
+{
+    if(!m_pending.has_value()) return;
+    if(m_pending->participantId != participantId) return;
+    m_pending.reset();
 }
 
 const std::optional<RemoteInputStallMonitor::PendingRecovery>& RemoteInputStallMonitor::pending() const

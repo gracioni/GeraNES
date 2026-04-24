@@ -38,7 +38,8 @@ public:
     void reset();
     StallUpdate noteStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame, uint32_t observedPeerHealthSerial);
     RecoveryUpdate clearRecovered(ParticipantId participantId, FrameNumber recoveredThroughFrame);
-    PeerHealthUpdate onPeerHealth(ParticipantId participantId, uint32_t peerHealthSerial);
+    PeerHealthUpdate peekPeerHealth(ParticipantId participantId, uint32_t peerHealthSerial) const;
+    void clearPendingRecovery(ParticipantId participantId);
     const std::optional<PendingRecovery>& pending() const;
 
 private:
