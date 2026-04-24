@@ -717,14 +717,20 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu)
 
     const bool initialSessionSync =
         m_coordinator.session().roomState().state == SessionState::Starting;
+    const ResyncReason reason =
+        initialSessionSync ? ResyncReason::InitialSessionSync : pending->reason;
+    const bool targetedActiveBootstrap =
+        !initialSessionSync &&
+        reason == ResyncReason::InitialSessionSync &&
+        pending->participantId != kInvalidParticipantId;
 
     const FrameNumber requestedFrame =
-        initialSessionSync
+        initialSessionSync || targetedActiveBootstrap
             ? emu.frameCount()
             : pending->frame;
     FrameNumber authoritativeFrame =
         std::min<FrameNumber>(requestedFrame, emu.frameCount());
-    bool preferConfirmedSnapshot = !initialSessionSync;
+    bool preferConfirmedSnapshot = !initialSessionSync && !targetedActiveBootstrap;
 
     std::vector<uint8_t> statePayload =
         buildAuthoritativeStatePayload(emu, authoritativeFrame, preferConfirmedSnapshot);
@@ -742,8 +748,6 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu)
     }
     if(statePayload.empty()) return;
 
-    const ResyncReason reason =
-        initialSessionSync ? ResyncReason::InitialSessionSync : pending->reason;
     if(!initialSessionSync && AppSettings::instance().data.netplay.autoGameplayTuning) {
         const auto tuningRecommendations =
             m_autoSettings.recommendForImpendingResync(m_coordinator.session().roomState(), reason);
