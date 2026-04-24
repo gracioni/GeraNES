@@ -3796,6 +3796,60 @@ TEST_CASE("Netplay targeted fresh bootstrap resets synthesized input baseline be
     client.disconnect();
 }
 
+TEST_CASE("Netplay awaiting-resync participant does not keep synthesizing remote input",
+          "[netplay][input][suspend][resync][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 9u;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 100u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Participant";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 100u;
+    remote.lastContiguousInputFrame = 100u;
+    remote.lastReceivedInputSequence = 40u;
+    remote.inputSuspended = true;
+    remote.inputResumeAwaitingResync = true;
+    remote.sequenceRebasePending = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    Netplay::TimelineInputEntry anchor{};
+    anchor.frame = 100u;
+    anchor.participantId = remote.id;
+    anchor.playerSlot = Netplay::kPort2PlayerSlot;
+    anchor.inputFrame = Netplay::makeRoomTopologyBaseFrame(100u, room);
+    anchor.sequence = 40u;
+    anchor.confirmed = true;
+    anchor.predicted = false;
+    const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(anchor);
+
+    host.setLocalSimulationFrame(120u);
+    host.update(0);
+
+    const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->lastContiguousInputFrame == 100u);
+    REQUIRE(host.remoteInputs().find(101u, remote.id, Netplay::kPort2PlayerSlot) == nullptr);
+
+    host.disconnect();
+}
+
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {

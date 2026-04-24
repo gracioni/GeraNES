@@ -812,7 +812,9 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     }
 
     if(targeted) {
-        (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
+        if(!targetedFreshBootstrap) {
+            (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
+        }
         (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
         return;
     }
@@ -1575,17 +1577,19 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 participant->predictionLimitFallbackActive = false;
                 participant->lateCommittedDuplicateBurstCount = 0;
                 participant->lastLateCommittedDuplicateFrame = 0;
-                const FrameNumber resyncFrame =
-                    m_session.roomState().lastConfirmedFrame > 0
-                        ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
-                        : m_localSimulationFrame;
                 if(participantNeedsFreshBootstrap(*participant)) {
+                    const FrameNumber resyncFrame =
+                        std::max(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
                     queueFreshBootstrapForParticipant(
                         *participant,
                         resyncFrame,
                         "late committed input mismatch while synthesized-input recovery was active"
                     );
                 } else {
+                    const FrameNumber resyncFrame =
+                        m_session.roomState().lastConfirmedFrame > 0
+                            ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                            : m_localSimulationFrame;
                     queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
                 }
             } else if(m_hosting &&
@@ -1601,17 +1605,19 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                     participant->predictionLimitFallbackActive = false;
                     participant->lateCommittedDuplicateBurstCount = 0;
                     participant->lastLateCommittedDuplicateFrame = 0;
-                    const FrameNumber resyncFrame =
-                        m_session.roomState().lastConfirmedFrame > 0
-                            ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
-                            : m_localSimulationFrame;
                     if(participantNeedsFreshBootstrap(*participant)) {
+                        const FrameNumber resyncFrame =
+                            std::max(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
                         queueFreshBootstrapForParticipant(
                             *participant,
                             resyncFrame,
                             "repeated late committed fallback duplicates left participant too far behind"
                         );
                     } else {
+                        const FrameNumber resyncFrame =
+                            m_session.roomState().lastConfirmedFrame > 0
+                                ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                                : m_localSimulationFrame;
                         queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
                     }
                     std::ostringstream escalation;
@@ -2206,9 +2212,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
        participant.lastContiguousInputFrame < update.recovery.stalledFrame) {
         if(participantNeedsFreshBootstrap(participant)) {
             const FrameNumber bootstrapFrame =
-                m_session.roomState().lastConfirmedFrame > 0
-                    ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
-                    : m_localSimulationFrame;
+                std::max(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
             m_remoteInputStallMonitor.clearPendingRecovery(participant.id);
             queueFreshBootstrapForParticipant(
                 participant,
@@ -2471,7 +2475,8 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
         if(participant.id == m_localParticipantId ||
            (!participant.connected && !participatesViaReservation) ||
            participantIsObserver(participant) ||
-           (!participant.inputSuspended && !participant.inputResumeAwaitingResync)) {
+           !participant.inputSuspended ||
+           participant.inputResumeAwaitingResync) {
             continue;
         }
 
@@ -2520,6 +2525,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     if(participant.id == m_localParticipantId ||
        (!participant.connected && !participatesViaReservation) ||
        participantIsObserver(participant) ||
+       participant.inputResumeAwaitingResync ||
        !isPlayableSlot(slot) ||
        !participantHasAssignment(participant, slot)) {
         return false;
@@ -3764,12 +3770,15 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
         return true;
     }
 
+    const bool needsFreshBootstrap = participantNeedsFreshBootstrap(*participant, &data);
     const FrameNumber resyncFrame =
-        std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
+        needsFreshBootstrap
+            ? std::max(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+            : std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
     const ParticipantId targetParticipantId =
         data.reason == ResyncReason::ObserverVisibilityRestore && participantIsObserver(*participant)
             ? participant->id
-            : participantNeedsFreshBootstrap(*participant, &data)
+            : needsFreshBootstrap
                 ? participant->id
                 : kInvalidParticipantId;
     const ResyncReason scheduledReason =
@@ -5852,7 +5861,11 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
             const bool isLocalParticipant = participant.id == m_localParticipantId;
             const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
             const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
-            if(entry == nullptr && m_hosting && !isLocalParticipant && participant.inputSuspended) {
+            if(entry == nullptr &&
+               m_hosting &&
+               !isLocalParticipant &&
+               participant.inputSuspended &&
+               !participant.inputResumeAwaitingResync) {
                 ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
                 if(mutableParticipant != nullptr &&
                    synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
