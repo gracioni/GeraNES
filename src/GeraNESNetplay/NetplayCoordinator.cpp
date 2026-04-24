@@ -34,7 +34,6 @@ constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
 constexpr uint32_t kGameplayRecoveryValidationWindowFrames = 60;
-constexpr uint32_t kGameplayRecoveryHealthyInputStreak = 8;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -2209,15 +2208,6 @@ void NetplayCoordinator::noteGameplayRecoveryAcceptedInput(ParticipantInfo& part
         participant.gameplayRecoveryAcceptedFrameStreak = 1u;
     }
     participant.gameplayRecoveryLastAcceptedFrame = std::max(participant.gameplayRecoveryLastAcceptedFrame, frame);
-
-    if(participant.gameplayRecoveryAcceptedFrameStreak >= kGameplayRecoveryHealthyInputStreak) {
-        std::ostringstream oss;
-        oss << "Gameplay recovery validated for " << participant.displayName
-            << " through frame " << participant.gameplayRecoveryLastAcceptedFrame
-            << " classification=targeted_recovery_validated";
-        pushLog(oss.str());
-        clearGameplayRecoveryValidation(participant);
-    }
 }
 
 void NetplayCoordinator::noteGameplayRecoveryFailure(ParticipantInfo& participant)
@@ -2245,7 +2235,7 @@ void NetplayCoordinator::processGameplayRecoveryValidation()
             !participant.inputResumeAwaitingResync &&
             !participant.predictionLimitFallbackActive &&
             !participant.gameplayRecoverySawFailure &&
-            participant.gameplayRecoveryAcceptedFrameStreak >= kGameplayRecoveryHealthyInputStreak;
+            participant.gameplayRecoveryLastAcceptedFrame >= participant.gameplayRecoveryValidationDeadlineFrame;
         if(!healthy) {
             const FrameNumber resyncFrame =
                 m_session.roomState().lastConfirmedFrame > 0
@@ -2263,6 +2253,11 @@ void NetplayCoordinator::processGameplayRecoveryValidation()
             return;
         }
 
+        std::ostringstream oss;
+        oss << "Gameplay recovery validated for " << participant.displayName
+            << " through frame " << participant.gameplayRecoveryLastAcceptedFrame
+            << " classification=targeted_recovery_validated";
+        pushLog(oss.str());
         clearGameplayRecoveryValidation(participant);
     }
 }
@@ -2570,6 +2565,24 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
         if(!participant.connected || participantIsObserver(participant)) continue;
+        if((participant.gameplayRecoveryValidationActive ||
+            participant.gameplayRecoveryValidationPendingStart) &&
+           update.consecutiveMismatchCount >= kConfirmedDesyncResyncMismatchThreshold) {
+            const FrameNumber resyncFrame =
+                std::min<FrameNumber>(
+                    update.frame,
+                    m_session.roomState().lastConfirmedFrame > 0
+                        ? m_session.roomState().lastConfirmedFrame
+                        : update.frame
+                );
+            queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+            std::ostringstream recovery;
+            recovery << "Escalating confirmed CRC mismatch during gameplay recovery validation for "
+                     << participant.displayName
+                     << " into room hard resync frame " << resyncFrame;
+            pushLog(recovery.str());
+            return;
+        }
         if(participant.inputResumeAwaitingResync) {
             if(update.consecutiveMismatchCount >= kConfirmedDesyncResyncMismatchThreshold) {
                 const FrameNumber targetedResyncFrame =

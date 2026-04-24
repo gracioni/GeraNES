@@ -5362,8 +5362,8 @@ TEST_CASE("Netplay targeted recovery validation clears after sustained accepted 
     room.sessionId = 16u;
     room.state = Netplay::SessionState::Running;
     room.timelineEpoch = 13u;
-    room.currentFrame = 2008u;
-    room.lastConfirmedFrame = 2008u;
+    room.currentFrame = 2060u;
+    room.lastConfirmedFrame = 2060u;
 
     Netplay::ParticipantInfo remote;
     remote.id = 1u;
@@ -5383,7 +5383,7 @@ TEST_CASE("Netplay targeted recovery validation clears after sustained accepted 
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    for(uint32_t seq = 1u; seq <= 8u; ++seq) {
+    for(uint32_t seq = 1u; seq <= 60u; ++seq) {
         const Netplay::FrameNumber frame = 2000u + seq;
         Netplay::InputFrameData input{};
         input.timelineEpoch = room.timelineEpoch;
@@ -5398,6 +5398,9 @@ TEST_CASE("Netplay targeted recovery validation clears after sustained accepted 
         REQUIRE(host.injectInputFrameForTests(input, contribution));
     }
 
+    host.setLocalSimulationFrame(2060u);
+    host.update(0);
+
     const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
     REQUIRE_FALSE(updated->gameplayRecoveryValidationActive);
@@ -5406,6 +5409,66 @@ TEST_CASE("Netplay targeted recovery validation clears after sustained accepted 
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
     host.disconnect();
+}
+
+TEST_CASE("Netplay gameplay recovery validation escalates room resync on CRC threshold",
+          "[netplay][recovery-validation][crc][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 19u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 6u;
+    room.currentFrame = 13710u;
+    room.lastConfirmedFrame = 13710u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.gameplayRecoveryValidationActive = true;
+    remote.gameplayRecoveryValidationStartFrame = 13651u;
+    remote.gameplayRecoveryValidationDeadlineFrame = 13710u;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    coordinator.submitLocalCrc(13650u, 0x11111111u);
+    Netplay::CrcReportData report{};
+    report.timelineEpoch = room.timelineEpoch;
+    report.frame = 13650u;
+    report.crc32 = 0x22222222u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(13680u, 0x33333333u);
+    report.frame = 13680u;
+    report.crc32 = 0x44444444u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(13710u, 0x55555555u);
+    report.frame = 13710u;
+    report.crc32 = 0x66666666u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    const auto pending = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->participantId == Netplay::kInvalidParticipantId);
+    REQUIRE(anyLogLineContains(coordinator.eventLog(),
+                               "Escalating confirmed CRC mismatch during gameplay recovery validation"));
+
+    coordinator.disconnect();
 }
 
 TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[netplay][crc][stabilization][unit]")
