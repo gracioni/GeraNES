@@ -3796,7 +3796,7 @@ TEST_CASE("Netplay targeted fresh bootstrap resets synthesized input baseline be
     client.disconnect();
 }
 
-TEST_CASE("Netplay awaiting-resync participant does not keep synthesizing remote input",
+TEST_CASE("Netplay awaiting-resync suspended participant keeps synthesizing remote input",
           "[netplay][input][suspend][resync][unit]")
 {
     Netplay::NetplayCoordinator host;
@@ -3844,8 +3844,12 @@ TEST_CASE("Netplay awaiting-resync participant does not keep synthesizing remote
 
     const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
-    REQUIRE(updated->lastContiguousInputFrame == 100u);
-    REQUIRE(host.remoteInputs().find(101u, remote.id, Netplay::kPort2PlayerSlot) == nullptr);
+    REQUIRE(updated->lastContiguousInputFrame == 120u);
+    const Netplay::TimelineInputEntry* synthesized =
+        host.remoteInputs().find(120u, remote.id, Netplay::kPort2PlayerSlot);
+    REQUIRE(synthesized != nullptr);
+    REQUIRE(synthesized->confirmed);
+    REQUIRE_FALSE(synthesized->predicted);
 
     host.disconnect();
 }
@@ -4825,11 +4829,11 @@ TEST_CASE("Netplay host escalates late committed input mismatch into targeted re
     REQUIRE(updated->inputSuspended);
     REQUIRE(updated->inputResumeAwaitingResync);
     REQUIRE(updated->sequenceRebasePending);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_mismatch"));
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_reanchor"));
 
     const auto pending = host.consumePendingHostResyncFrame();
     REQUIRE(pending.has_value());
-    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->reason == Netplay::ResyncReason::InitialSessionSync);
     REQUIRE(pending->participantId == remote.id);
 
     host.disconnect();
@@ -4895,7 +4899,14 @@ TEST_CASE("Netplay host escalates repeated late committed fallback duplicates in
         lateInput.buttonMaskHi = 0u;
         InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
         REQUIRE(host.injectInputFrameForTests(lateInput, contribution));
-        REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+        const auto pending = host.consumePendingHostResyncFrame();
+        if(seq == 10u) {
+            REQUIRE(pending.has_value());
+            REQUIRE(pending->reason == Netplay::ResyncReason::InitialSessionSync);
+            REQUIRE(pending->participantId == remote.id);
+        } else {
+            REQUIRE_FALSE(pending.has_value());
+        }
     }
 
     Netplay::InputFrameData lateInput{};
@@ -4916,14 +4927,9 @@ TEST_CASE("Netplay host escalates repeated late committed fallback duplicates in
     REQUIRE(updated->sequenceRebasePending);
     REQUIRE_FALSE(updated->predictionLimitFallbackActive);
     REQUIRE(updated->lateCommittedDuplicateBurstCount == 0u);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
-    REQUIRE(anyLogLineContains(host.eventLog(),
-                               "Escalating repeated late committed fallback duplicates into targeted recovery"));
-
-    const auto pending = host.consumePendingHostResyncFrame();
-    REQUIRE(pending.has_value());
-    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(pending->participantId == remote.id);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_reanchor"));
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignoring resumed participant input until authoritative resync completes"));
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
     host.disconnect();
 }
@@ -5000,8 +5006,8 @@ TEST_CASE("Netplay implicit stall health requires gameplay progress before recov
     host.disconnect();
 }
 
-TEST_CASE("Netplay host preserves rebase state after late committed inputs while suspended",
-          "[netplay][input][resync][rebase][unit]")
+TEST_CASE("Netplay host schedules targeted reanchor on first input after suspension",
+          "[netplay][input][suspend][reanchor][unit]")
 {
     Netplay::NetplayCoordinator host;
     bool hosted = false;
@@ -5016,6 +5022,7 @@ TEST_CASE("Netplay host preserves rebase state after late committed inputs while
     room.timelineEpoch = 7u;
     room.currentFrame = 16524u;
     room.lastConfirmedFrame = 16523u;
+    host.setLocalSimulationFrame(16524u);
 
     Netplay::ParticipantInfo remote;
     remote.id = 1u;
@@ -5047,47 +5054,34 @@ TEST_CASE("Netplay host preserves rebase state after late committed inputs while
         const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(committed);
     }
 
-    for(uint32_t seq = 3309u; seq <= 3320u; ++seq) {
-        const Netplay::FrameNumber frame = 16512u + static_cast<Netplay::FrameNumber>(seq - 3309u);
-        Netplay::InputFrameData lateInput{};
-        lateInput.timelineEpoch = room.timelineEpoch;
-        lateInput.frame = frame;
-        lateInput.participantId = remote.id;
-        lateInput.playerSlot = Netplay::kPort1PlayerSlot;
-        lateInput.sequence = seq;
-        lateInput.buttonMaskLo = 0u;
-        lateInput.buttonMaskHi = 0u;
-        InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
-        REQUIRE(host.injectInputFrameForTests(lateInput, contribution));
-    }
+    Netplay::InputFrameData resumedInput{};
+    resumedInput.timelineEpoch = room.timelineEpoch;
+    resumedInput.frame = 16512u;
+    resumedInput.participantId = remote.id;
+    resumedInput.playerSlot = Netplay::kPort1PlayerSlot;
+    resumedInput.sequence = 3309u;
+    resumedInput.buttonMaskLo = 0x1u;
+    resumedInput.buttonMaskHi = 0u;
+    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(16512u, room);
+    resumedContribution.p1A = true;
+    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
 
     const Netplay::ParticipantInfo* suspended = host.session().findParticipant(remote.id);
     REQUIRE(suspended != nullptr);
     REQUIRE(suspended->inputSuspended);
+    REQUIRE(suspended->inputResumeAwaitingResync);
     REQUIRE(suspended->sequenceRebasePending);
-    REQUIRE(suspended->lastReceivedInputSequence == 3320u);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
+    REQUIRE(suspended->lastReceivedInputSequence == 3308u);
+    REQUIRE(suspended->lastContiguousInputFrame == 16523u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=suspended_input_reanchor"));
 
-    Netplay::InputFrameData resumedInput{};
-    resumedInput.timelineEpoch = room.timelineEpoch;
-    resumedInput.frame = 16524u;
-    resumedInput.participantId = remote.id;
-    resumedInput.playerSlot = Netplay::kPort1PlayerSlot;
-    resumedInput.sequence = 3321u;
-    resumedInput.buttonMaskLo = 0x1u;
-    resumedInput.buttonMaskHi = 0u;
-    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(16524u, room);
-    resumedContribution.p1A = true;
-    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
-
-    const Netplay::ParticipantInfo* resumed = host.session().findParticipant(remote.id);
-    REQUIRE(resumed != nullptr);
-    REQUIRE_FALSE(resumed->inputSuspended);
-    REQUIRE_FALSE(resumed->sequenceRebasePending);
-    REQUIRE(resumed->lastContiguousInputFrame == 16524u);
-    REQUIRE(resumed->lastReceivedInputSequence == 3321u);
-    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant frame 16524"));
-    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input from Participant frame 16524"));
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->reason == Netplay::ResyncReason::InitialSessionSync);
+    REQUIRE(pending->participantId == remote.id);
+    REQUIRE(pending->frame == 16524u);
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant frame 16512"));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Ignored late input for already committed frame"));
 
     host.disconnect();
 }

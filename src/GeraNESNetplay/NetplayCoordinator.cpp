@@ -1520,6 +1520,24 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 return true;
             }
 
+            if(participant->inputSuspended) {
+                const FrameNumber resyncFrame =
+                    std::max(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame);
+                queueFreshBootstrapForParticipant(
+                    *participant,
+                    resyncFrame,
+                    "first input received after synthesized-input suspension"
+                );
+                std::ostringstream oss;
+                oss << "Suspended input received from " << participant->displayName
+                    << " frame " << input.frame
+                    << " seq " << input.sequence
+                    << "; scheduling targeted reanchor at frame " << resyncFrame
+                    << " classification=suspended_input_reanchor";
+                pushLog(oss.str());
+                return true;
+            }
+
         }
 
         const uint32_t expectedSequence = participant->lastReceivedInputSequence + 1u;
@@ -2475,8 +2493,7 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
         if(participant.id == m_localParticipantId ||
            (!participant.connected && !participatesViaReservation) ||
            participantIsObserver(participant) ||
-           !participant.inputSuspended ||
-           participant.inputResumeAwaitingResync) {
+           !participant.inputSuspended) {
             continue;
         }
 
@@ -2525,7 +2542,6 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     if(participant.id == m_localParticipantId ||
        (!participant.connected && !participatesViaReservation) ||
        participantIsObserver(participant) ||
-       participant.inputResumeAwaitingResync ||
        !isPlayableSlot(slot) ||
        !participantHasAssignment(participant, slot)) {
         return false;
@@ -5864,8 +5880,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
             if(entry == nullptr &&
                m_hosting &&
                !isLocalParticipant &&
-               participant.inputSuspended &&
-               !participant.inputResumeAwaitingResync) {
+               participant.inputSuspended) {
                 ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
                 if(mutableParticipant != nullptr &&
                    synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
