@@ -350,6 +350,27 @@ TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer he
     REQUIRE(freshHealth.recovery.stalledFrame == 181u);
 }
 
+TEST_CASE("Netplay remote input stall monitor coalesces repeated same-health stalls", "[netplay][implicit-stall][monitor]")
+{
+    Netplay::RemoteInputStallMonitor monitor;
+
+    const auto first = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 55443u, 9u);
+    REQUIRE(first.newlyTracked == true);
+    REQUIRE(first.recovery.stalledFrame == 55443u);
+
+    const auto repeated = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 55442u, 9u);
+    REQUIRE(repeated.newlyTracked == false);
+    REQUIRE(repeated.recovery.stalledFrame == 55442u);
+
+    const auto repeatedAgain = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 55443u, 9u);
+    REQUIRE(repeatedAgain.newlyTracked == false);
+    REQUIRE(repeatedAgain.recovery.stalledFrame == 55442u);
+
+    const auto freshHealth = monitor.onPeerHealth(2u, 10u);
+    REQUIRE(freshHealth.shouldScheduleResync == true);
+    REQUIRE(freshHealth.recovery.stalledFrame == 55442u);
+}
+
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
 {
     Netplay::SelfStallDetector detector;

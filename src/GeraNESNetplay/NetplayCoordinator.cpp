@@ -2071,6 +2071,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
 {
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
     const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
@@ -2150,8 +2151,10 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
                                                                 PlayerSlot slot)
 {
     if(!m_hosting || m_session.roomState().state != SessionState::Running) return false;
+    const bool participatesViaReservation =
+        !participant.connected && participant.reconnectReserved;
     if(participant.id == m_localParticipantId ||
-       !participant.connected ||
+       (!participant.connected && !participatesViaReservation) ||
        participantIsObserver(participant) ||
        !isPlayableSlot(slot) ||
        !participantHasAssignment(participant, slot)) {

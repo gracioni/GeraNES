@@ -15,6 +15,22 @@ RemoteInputStallMonitor::StallUpdate RemoteInputStallMonitor::noteStall(Particip
     StallUpdate update;
     if(m_pending.has_value() &&
        m_pending->participantId == participantId &&
+       m_pending->playerSlot == slot) {
+        if(m_pending->observedPeerHealthSerial == observedPeerHealthSerial) {
+            if(frame < m_pending->stalledFrame) {
+                m_pending->stalledFrame = frame;
+            }
+            update.recovery = *m_pending;
+            return update;
+        }
+        if(m_pending->stalledFrame == frame) {
+            update.recovery = *m_pending;
+            return update;
+        }
+    }
+
+    if(m_pending.has_value() &&
+       m_pending->participantId == participantId &&
        m_pending->playerSlot == slot &&
        m_pending->stalledFrame == frame) {
         update.recovery = *m_pending;
