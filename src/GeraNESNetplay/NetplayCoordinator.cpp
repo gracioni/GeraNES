@@ -745,6 +745,14 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     const SessionState resumeState = targeted ? m_activeResyncResumeState : SessionState::Running;
     const FrameNumber recoveryFrame =
         targeted ? m_activeTargetedResyncFrame : m_session.roomState().resyncTargetFrame;
+    std::vector<ParticipantId> gameplayRecoveryValidationParticipants;
+    gameplayRecoveryValidationParticipants.reserve(m_session.roomState().participants.size());
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId) continue;
+        if(participant.gameplayRecoveryValidationPendingStart) {
+            gameplayRecoveryValidationParticipants.push_back(participant.id);
+        }
+    }
     if(!targeted) {
         setRecoveryInputMode(
             RecoveryInputMode::PostResyncStabilizing,
@@ -768,12 +776,13 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
         clearGameplayRecoveryValidation(participant);
     }
 
-    if(targeted) {
-        if(ParticipantInfo* targetParticipant = m_session.findParticipant(targetParticipantId);
-           targetParticipant != nullptr &&
-           targetParticipant->gameplayRecoveryValidationPendingStart) {
-            startGameplayRecoveryValidation(*targetParticipant, recoveryFrame);
+    for(const ParticipantId participantId : gameplayRecoveryValidationParticipants) {
+        if(ParticipantInfo* participant = m_session.findParticipant(participantId)) {
+            startGameplayRecoveryValidation(*participant, recoveryFrame);
         }
+    }
+
+    if(targeted) {
         (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
         (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
         return;
@@ -5974,6 +5983,28 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
                 mutableTargetParticipant->gameplayRecoverySawFailure = false;
             } else {
                 clearGameplayRecoveryValidation(*mutableTargetParticipant);
+            }
+        }
+    } else if(reason == ResyncReason::ConfirmedDesync) {
+        for(ParticipantInfo& participant : m_session.roomState().participants) {
+            if(participant.id == m_localParticipantId ||
+               !participant.connected ||
+               participant.reconnectReserved ||
+               participantIsObserver(participant)) {
+                continue;
+            }
+            const bool armGameplayRecoveryValidation =
+                participant.inputSuspended ||
+                participant.inputResumeAwaitingResync ||
+                participant.predictionLimitFallbackActive;
+            if(armGameplayRecoveryValidation) {
+                participant.gameplayRecoveryValidationPendingStart = true;
+                participant.gameplayRecoveryValidationActive = false;
+                participant.gameplayRecoveryAcceptedFrameStreak = 0;
+                participant.gameplayRecoveryLastAcceptedFrame = 0;
+                participant.gameplayRecoverySawFailure = false;
+            } else {
+                clearGameplayRecoveryValidation(participant);
             }
         }
     }
