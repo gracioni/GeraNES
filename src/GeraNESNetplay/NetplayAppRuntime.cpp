@@ -1062,25 +1062,23 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             m_sharedClockLagOverBudgetSinceFrame = localFrame;
         }
 
-        if(confirmedLagFrames <= maxFrames) {
-            m_sharedClockLagOverBudgetSince = {};
-            m_sharedClockLagOverBudgetSinceFrame = 0;
-            if(localFrame >= m_lastSharedClockConfirmedLagWaitLogFrame + 300u) {
+        const bool lagPersisted =
+            now - m_sharedClockLagOverBudgetSince >= kLargeLagPersistence;
+        const bool severeSimulationLag =
+            estimatedLagFrames > static_cast<FrameNumber>(maxFrames * 2u);
+        const bool confirmedCatchupAvailable = confirmedLagFrames > maxFrames;
+        if(!lagPersisted && !severeSimulationLag) {
+            if(!confirmedCatchupAvailable &&
+               localFrame >= m_lastSharedClockConfirmedLagWaitLogFrame + 300u) {
                 m_lastSharedClockConfirmedLagWaitLogFrame = localFrame;
                 std::ostringstream oss;
                 oss << "Netplay shared-clock catchup over budget but confirmed input is not far enough ahead"
                     << " lag " << estimatedLagFrames
                     << " confirmedLag " << confirmedLagFrames
                     << " budget " << maxFrames
-                    << "; waiting instead of requesting resync";
+                    << "; waiting briefly before resync";
                 m_coordinator.appendNetplayLog(oss.str());
             }
-            return 0u;
-        }
-
-        const bool lagPersisted =
-            now - m_sharedClockLagOverBudgetSince >= kLargeLagPersistence;
-        if(!lagPersisted) {
             return 0u;
         }
 
@@ -1111,9 +1109,14 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
                 << estimatedLagFrames
                 << " frame(s) exceeds catchup budget "
                 << maxFrames
+                << " confirmedLag "
+                << confirmedLagFrames
                 << " since local frame "
                 << m_sharedClockLagOverBudgetSinceFrame
                 << ", requested authoritative resync";
+            if(!confirmedCatchupAvailable) {
+                oss << " because simulation lag stayed too large";
+            }
             m_coordinator.appendNetplayLog(oss.str());
         }
         return 0u;
