@@ -53,6 +53,9 @@ struct ParticipantInfo
     std::string lastDecision;
     bool inputSuspended = false;
     bool inputResumeAwaitingResync = false;
+    bool predictionLimitFallbackActive = false;
+    uint32_t lateCommittedDuplicateBurstCount = 0;
+    FrameNumber lastLateCommittedDuplicateFrame = 0;
 
     void normalizeControllerAssignments();
     bool hasControllerAssignment(PlayerSlot slot) const;

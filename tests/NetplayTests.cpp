@@ -4541,6 +4541,99 @@ TEST_CASE("Netplay host escalates late committed input mismatch into targeted re
     host.disconnect();
 }
 
+TEST_CASE("Netplay host escalates repeated late committed fallback duplicates into targeted resync",
+          "[netplay][input][late-committed][duplicate][targeted-recovery][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    room.sessionId = 15u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 12u;
+    room.currentFrame = 2107u;
+    room.lastConfirmedFrame = 2107u;
+
+    Netplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.displayName = "Participant";
+    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 2096u;
+    remote.lastContiguousInputFrame = 2107u;
+    remote.lastReceivedInputSequence = 9u;
+    remote.inputSuspended = true;
+    remote.sequenceRebasePending = true;
+    remote.predictionLimitFallbackActive = true;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    for(Netplay::FrameNumber frame = 2097u; frame <= 2107u; ++frame) {
+        Netplay::TimelineInputEntry committed{};
+        committed.frame = frame;
+        committed.participantId = remote.id;
+        committed.playerSlot = Netplay::kPort1PlayerSlot;
+        committed.buttonMaskLo = 0u;
+        committed.buttonMaskHi = 0u;
+        committed.inputFrame = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        committed.sequence = 9u;
+        committed.confirmed = true;
+        committed.predicted = false;
+        const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(committed);
+    }
+
+    for(uint32_t seq = 10u; seq <= 11u; ++seq) {
+        const Netplay::FrameNumber frame = 2097u + static_cast<Netplay::FrameNumber>(seq - 10u);
+        Netplay::InputFrameData lateInput{};
+        lateInput.timelineEpoch = room.timelineEpoch;
+        lateInput.frame = frame;
+        lateInput.participantId = remote.id;
+        lateInput.playerSlot = Netplay::kPort1PlayerSlot;
+        lateInput.sequence = seq;
+        lateInput.buttonMaskLo = 0u;
+        lateInput.buttonMaskHi = 0u;
+        InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(host.injectInputFrameForTests(lateInput, contribution));
+        REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    }
+
+    Netplay::InputFrameData lateInput{};
+    lateInput.timelineEpoch = room.timelineEpoch;
+    lateInput.frame = 2099u;
+    lateInput.participantId = remote.id;
+    lateInput.playerSlot = Netplay::kPort1PlayerSlot;
+    lateInput.sequence = 12u;
+    lateInput.buttonMaskLo = 0u;
+    lateInput.buttonMaskHi = 0u;
+    InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(2099u, room);
+    REQUIRE(host.injectInputFrameForTests(lateInput, contribution));
+
+    const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->inputSuspended);
+    REQUIRE(updated->inputResumeAwaitingResync);
+    REQUIRE(updated->sequenceRebasePending);
+    REQUIRE_FALSE(updated->predictionLimitFallbackActive);
+    REQUIRE(updated->lateCommittedDuplicateBurstCount == 0u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
+    REQUIRE(anyLogLineContains(host.eventLog(),
+                               "Escalating repeated late committed fallback duplicates into targeted recovery resync"));
+
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->participantId == remote.id);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host preserves rebase state after late committed inputs while suspended",
           "[netplay][input][resync][rebase][unit]")
 {

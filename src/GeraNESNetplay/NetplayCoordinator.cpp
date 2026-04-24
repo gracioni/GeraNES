@@ -458,6 +458,9 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
     participant.displayName = displayName;
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
+    participant.predictionLimitFallbackActive = false;
+    participant.lateCommittedDuplicateBurstCount = 0;
+    participant.lastLateCommittedDuplicateFrame = 0;
     m_session.roomState().participants.push_back(participant);
     m_lastRemoteInputAt[id] = std::chrono::steady_clock::now();
     rememberParticipantDisplayName(m_session.roomState().participants.back());
@@ -756,6 +759,9 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
         if(participant.id == m_localParticipantId) continue;
         participant.inputSuspended = false;
         participant.inputResumeAwaitingResync = false;
+        participant.predictionLimitFallbackActive = false;
+        participant.lateCommittedDuplicateBurstCount = 0;
+        participant.lastLateCommittedDuplicateFrame = 0;
     }
 
     if(targeted) {
@@ -1515,11 +1521,38 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             if(m_hosting && lateCommittedMismatch && participant->id != m_localParticipantId) {
                 participant->inputSuspended = true;
                 participant->inputResumeAwaitingResync = true;
+                participant->predictionLimitFallbackActive = false;
+                participant->lateCommittedDuplicateBurstCount = 0;
+                participant->lastLateCommittedDuplicateFrame = 0;
                 const FrameNumber resyncFrame =
                     m_session.roomState().lastConfirmedFrame > 0
                         ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
                         : m_localSimulationFrame;
                 queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
+            } else if(m_hosting &&
+                      participant->id != m_localParticipantId &&
+                      participant->predictionLimitFallbackActive) {
+                if(input.frame > participant->lastLateCommittedDuplicateFrame) {
+                    ++participant->lateCommittedDuplicateBurstCount;
+                    participant->lastLateCommittedDuplicateFrame = input.frame;
+                }
+                if(participant->lateCommittedDuplicateBurstCount >= 3u) {
+                    participant->inputSuspended = true;
+                    participant->inputResumeAwaitingResync = true;
+                    participant->predictionLimitFallbackActive = false;
+                    participant->lateCommittedDuplicateBurstCount = 0;
+                    participant->lastLateCommittedDuplicateFrame = 0;
+                    const FrameNumber resyncFrame =
+                        m_session.roomState().lastConfirmedFrame > 0
+                            ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+                            : m_localSimulationFrame;
+                    queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync, participant->id);
+                    std::ostringstream escalation;
+                    escalation << "Escalating repeated late committed fallback duplicates into targeted recovery resync for "
+                               << participant->displayName
+                               << " after " << 3u << " duplicate frames";
+                    pushLog(escalation.str());
+                }
             }
 
             std::ostringstream oss;
@@ -1569,6 +1602,9 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 : std::max(participant->lastReceivedInputSequence, input.sequence);
         participant->inputSuspended = false;
         participant->sequenceRebasePending = false;
+        participant->predictionLimitFallbackActive = false;
+        participant->lateCommittedDuplicateBurstCount = 0;
+        participant->lastLateCommittedDuplicateFrame = 0;
     }
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
@@ -2175,6 +2211,9 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     if(!participant.sequenceRebasePending) {
         participant.inputSuspended = true;
         participant.sequenceRebasePending = true;
+        participant.predictionLimitFallbackActive = true;
+        participant.lateCommittedDuplicateBurstCount = 0;
+        participant.lastLateCommittedDuplicateFrame = 0;
         m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
             std::max<FrameNumber>(
                 m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
@@ -2190,6 +2229,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         pushLog(oss.str());
     } else {
         participant.inputSuspended = true;
+        participant.predictionLimitFallbackActive = true;
     }
 
     const TimelineInputEntry* latestConfirmed = m_remoteInputs.latestConfirmedFor(participant.id, slot);
@@ -2669,6 +2709,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         participant.lastDecision.clear();
         participant.inputSuspended = false;
         participant.inputResumeAwaitingResync = false;
+        participant.predictionLimitFallbackActive = false;
+        participant.lateCommittedDuplicateBurstCount = 0;
+        participant.lastLateCommittedDuplicateFrame = 0;
         m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 
@@ -2749,6 +2792,9 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
         participant.lastDecisionSlot = kObserverPlayerSlot;
         participant.inputSuspended = false;
         participant.inputResumeAwaitingResync = false;
+        participant.predictionLimitFallbackActive = false;
+        participant.lateCommittedDuplicateBurstCount = 0;
+        participant.lastLateCommittedDuplicateFrame = 0;
         m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 }
@@ -2808,6 +2854,9 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
         participant.pendingMissingInputFrom.reset();
         participant.inputSuspended = false;
         participant.inputResumeAwaitingResync = false;
+        participant.predictionLimitFallbackActive = false;
+        participant.lateCommittedDuplicateBurstCount = 0;
+        participant.lastLateCommittedDuplicateFrame = 0;
         m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     }
 }
@@ -4103,6 +4152,9 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     participant.reservationSecondsRemaining = 0;
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = reusedReconnectReservation;
+    participant.predictionLimitFallbackActive = false;
+    participant.lateCommittedDuplicateBurstCount = 0;
+    participant.lastLateCommittedDuplicateFrame = 0;
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
     m_reconnectReservationDeadlines.erase(participant.id);
     participant.reconnectToken = joinData.reconnectToken != 0 ? joinData.reconnectToken : generateReconnectToken();
@@ -4256,6 +4308,9 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.normalizeControllerAssignments();
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
+    participant.predictionLimitFallbackActive = false;
+    participant.lateCommittedDuplicateBurstCount = 0;
+    participant.lastLateCommittedDuplicateFrame = 0;
     if(!m_hosting &&
        participantId != m_localParticipantId &&
        participant.connected &&
@@ -4692,6 +4747,9 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             const bool hadAssignedInput = hasAssignedInput;
                             participant->inputSuspended = hadAssignedInput;
                             participant->inputResumeAwaitingResync = false;
+                            participant->predictionLimitFallbackActive = false;
+                            participant->lateCommittedDuplicateBurstCount = 0;
+                            participant->lastLateCommittedDuplicateFrame = 0;
                             participant->reservationSecondsRemaining =
                                 static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
                             m_reconnectReservationDeadlines[participantId] =
@@ -5867,6 +5925,9 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
             if(participant.id == m_localParticipantId) continue;
             participant.inputSuspended = false;
             participant.inputResumeAwaitingResync = false;
+            participant.predictionLimitFallbackActive = false;
+            participant.lateCommittedDuplicateBurstCount = 0;
+            participant.lastLateCommittedDuplicateFrame = 0;
         }
         setRecoveryInputMode(RecoveryInputMode::Normal, "resync-skipped-no-peers", targetFrame);
         pushLog("Resync skipped: no remote peers");
