@@ -401,7 +401,10 @@ void NetplayCoordinator::resetSessionState()
     m_session.roomState().lastAuthoritativeClockMicros = 0;
 }
 
-void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId)
+void NetplayCoordinator::queuePendingHostResync(FrameNumber frame,
+                                                ResyncReason reason,
+                                                ParticipantId participantId,
+                                                bool preferCurrentFrame)
 {
     if(!m_hosting) return;
 
@@ -415,7 +418,7 @@ void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason 
     };
 
     if(!m_pendingHostResyncFrame.has_value() || frame < m_pendingHostResyncFrame->frame) {
-        m_pendingHostResyncFrame = PendingHostResyncRequest{frame, reason, participantId};
+        m_pendingHostResyncFrame = PendingHostResyncRequest{frame, reason, participantId, preferCurrentFrame};
         return;
     }
 
@@ -425,7 +428,7 @@ void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason 
 
     if(priority(reason, participantId) >
        priority(m_pendingHostResyncFrame->reason, m_pendingHostResyncFrame->participantId)) {
-        m_pendingHostResyncFrame = PendingHostResyncRequest{frame, reason, participantId};
+        m_pendingHostResyncFrame = PendingHostResyncRequest{frame, reason, participantId, preferCurrentFrame};
         return;
     }
 
@@ -441,6 +444,8 @@ void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason 
     if(participantId == kInvalidParticipantId) {
         m_pendingHostResyncFrame->participantId = kInvalidParticipantId;
     }
+    m_pendingHostResyncFrame->preferCurrentFrame =
+        m_pendingHostResyncFrame->preferCurrentFrame || preferCurrentFrame;
 }
 
 void NetplayCoordinator::pushLog(const std::string& message)
@@ -3838,11 +3843,26 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
     if(scheduledReason == ResyncReason::InitialSessionSync &&
        targetParticipantId == participant->id &&
        !participantIsObserver(*participant)) {
-        queueFreshBootstrapForParticipant(
-            *participant,
+        participant->inputSuspended = true;
+        participant->inputResumeAwaitingResync = true;
+        participant->predictionLimitFallbackActive = true;
+        participant->sequenceRebasePending = true;
+        queuePendingHostResync(
             resyncFrame,
-            "client requested resync while too far behind synthesized-input recovery"
+            ResyncReason::InitialSessionSync,
+            participant->id,
+            true
         );
+        {
+            std::ostringstream bootstrapLog;
+            bootstrapLog << "Scheduling fresh participant bootstrap for "
+                         << participant->displayName
+                         << " frame " << resyncFrame
+                         << " reason client requested resync while too far behind synthesized-input recovery"
+                         << " preferCurrentFrame 1"
+                         << " classification=fresh_participant_bootstrap";
+            pushLog(bootstrapLog.str());
+        }
     } else {
         queuePendingHostResync(resyncFrame, scheduledReason, targetParticipantId);
     }

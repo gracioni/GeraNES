@@ -99,6 +99,7 @@ public:
         FrameNumber frame = 0;
         ResyncReason reason = ResyncReason::Unspecified;
         ParticipantId participantId = kInvalidParticipantId;
+        bool preferCurrentFrame = false;
     };
 
 private:
@@ -218,7 +219,10 @@ private:
     static std::string messageTypeLabel(MessageType type);
 
     void resetSessionState();
-    void queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId = kInvalidParticipantId);
+    void queuePendingHostResync(FrameNumber frame,
+                                ResyncReason reason,
+                                ParticipantId participantId = kInvalidParticipantId,
+                                bool preferCurrentFrame = false);
     void pushLog(const std::string& message);
     void pushToast(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);

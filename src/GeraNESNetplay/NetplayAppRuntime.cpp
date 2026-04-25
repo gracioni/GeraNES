@@ -725,7 +725,7 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(GeraNESEmu& emu)
         pending->participantId != kInvalidParticipantId;
 
     const FrameNumber requestedFrame =
-        initialSessionSync || targetedActiveBootstrap
+        initialSessionSync || targetedActiveBootstrap || pending->preferCurrentFrame
             ? emu.frameCount()
             : pending->frame;
     FrameNumber authoritativeFrame =

@@ -3671,7 +3671,9 @@ TEST_CASE("Netplay host converts far-behind synthesized-input client request int
         if(pending.has_value()) {
             REQUIRE(pending->reason == Netplay::ResyncReason::InitialSessionSync);
             REQUIRE(pending->participantId == client.localParticipantId());
+            REQUIRE(pending->preferCurrentFrame);
             REQUIRE(anyLogLineContains(host.eventLog(), "classification=fresh_participant_bootstrap"));
+            REQUIRE(anyLogLineContains(host.eventLog(), "preferCurrentFrame 1"));
             REQUIRE(anyLogLineContains(host.eventLog(), "scheduledReason InitialSessionSync"));
             received = true;
         } else {
@@ -8450,6 +8452,46 @@ TEST_CASE("Netplay runtime host maintains frame lead over slower client", "[netp
         report.at("host").at("eventLogTail"),
         "client requested resync while too far behind synthesized-input recovery"
     ));
+}
+
+TEST_CASE("Netplay runtime recovers stalled client with current-frame targeted bootstrap",
+          "[netplay][runtime][host-authority][stall-recovery]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 360;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.networkPumpStride = 1;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 1;
+    options.clientRuntimePauseAfterFrames = 60;
+    options.clientRuntimePauseDurationFrames = 150;
+    options.frameStepLimit = 30000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath =
+        GeraNESTestSupport::reportPath("netplay_runtime_stalled_client_current_bootstrap.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("clientRuntimePauseTriggered") == true);
+    REQUIRE(report.at("clientRuntimePauseRestored") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >= 100u);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Participant left"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential input from"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Input sequence gap from"));
 }
 
 TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical future canonical state", "[netplay][state][clean-boot]")
