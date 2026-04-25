@@ -6515,6 +6515,15 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
             m_session.roomState().resyncInputSequenceBase,
             preserveConfirmedInputsAcrossRealignment(m_session.roomState().activeResyncReason)
         );
+        if(m_session.roomState().activeResyncReason == ResyncReason::InitialSessionSync &&
+           loadedFrame > 0u) {
+            for(ParticipantInfo& participant : m_session.roomState().participants) {
+                if(participant.id == m_localParticipantId || participantIsObserver(participant)) {
+                    continue;
+                }
+                participant.sequenceRebasePending = true;
+            }
+        }
         m_session.roomState().activeResyncId = 0;
         m_session.roomState().resyncTargetFrame = 0;
         m_session.roomState().resyncConfirmedFrame = 0;

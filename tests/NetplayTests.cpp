@@ -3877,6 +3877,12 @@ TEST_CASE("Netplay client rebases host input sequence after targeted fresh boots
         const_cast<Netplay::NetSession&>(client.session()).findParticipant(host.localParticipantId());
     REQUIRE(hostOnClient != nullptr);
     REQUIRE(hostOnClient->sequenceRebasePending);
+    REQUIRE(client.acknowledgeResync(1u, 11734u, 0u, true));
+
+    hostOnClient =
+        const_cast<Netplay::NetSession&>(client.session()).findParticipant(host.localParticipantId());
+    REQUIRE(hostOnClient != nullptr);
+    REQUIRE(hostOnClient->sequenceRebasePending);
     clientRoom.state = Netplay::SessionState::Running;
     clientRoom.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
     clientRoom.activeResyncId = 0u;
