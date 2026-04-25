@@ -1943,6 +1943,7 @@ private:
         bool assignmentSwapTriggered = false;
         bool assignmentSwapVerified = false;
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
+        bool reconnectInputPatternVerified = !options.assignmentPatternCheck || options.reconnectAfterFrames == 0u;
         bool manualResyncTriggered = false;
         bool hostResetTriggered = false;
         bool hostDisconnectTriggered = false;
@@ -2488,6 +2489,30 @@ private:
                                            options,
                                            true);
             }
+            if(options.assignmentPatternCheck && reconnectTriggered && !reconnectInputPatternVerified) {
+                const uint32_t probeStartFrame =
+                    std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame()) + 1u;
+                const uint32_t probeEndFrame = probeStartFrame + 24u;
+                reconnectInputPatternVerified =
+                    peerHasBufferedPattern(hostPeer,
+                                           hostPeer.generator,
+                                           clientPeer.generator,
+                                           probeStartFrame,
+                                           probeEndFrame,
+                                           Netplay::kPort1PlayerSlot,
+                                           Netplay::kPort2PlayerSlot,
+                                           options,
+                                           false) &&
+                    peerHasBufferedPattern(clientPeer,
+                                           hostPeer.generator,
+                                           clientPeer.generator,
+                                           probeStartFrame,
+                                           probeEndFrame,
+                                           Netplay::kPort1PlayerSlot,
+                                           Netplay::kPort2PlayerSlot,
+                                           options,
+                                           false);
+            }
 
             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
@@ -2704,7 +2729,9 @@ private:
                     cleanup();
                     return result;
                 }
-                if(options.assignmentPatternCheck && !assignmentPatternVerified) {
+                if(options.assignmentSwapAfterFrames > 0u &&
+                   options.assignmentPatternCheck &&
+                   !assignmentPatternVerified) {
                     failureReason = "Assignment swap completed, but the expected post-swap input pattern was not observed in queued netplay frames.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
@@ -2824,6 +2851,21 @@ private:
                     cleanup();
                     return result;
                 }
+                if(options.reconnectAfterFrames > 0u && !reconnectInputPatternVerified) {
+                    failureReason = "Reconnect completed, but the expected post-reconnect client input pattern was not observed in queued netplay frames.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report["startHostFrame"] = startHostFrame;
+                    result.report["startClientFrame"] = startClientFrame;
+                    result.report["targetHostFrame"] = targetHostFrame;
+                    result.report["targetClientFrame"] = targetClientFrame;
+                    result.report["desyncInjected"] = desyncInjected;
+                    result.report["hardResyncObserved"] = hardResyncObserved;
+                    result.report["reconnectTriggered"] = reconnectTriggered;
+                    result.report["reconnectInputPatternVerified"] = reconnectInputPatternVerified;
+                    result.exitCode = RESULT_FAILED;
+                    cleanup();
+                    return result;
+                }
 
                 settleRuntimeFinalCrc();
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified, maxHostFrameLead, maxClientFrameLead);
@@ -2834,6 +2876,7 @@ private:
                 result.report["desyncInjected"] = desyncInjected;
                 result.report["hardResyncObserved"] = hardResyncObserved;
                 result.report["reconnectTriggered"] = reconnectTriggered;
+                result.report["reconnectInputPatternVerified"] = reconnectInputPatternVerified;
                 result.report["hostDisconnectTriggered"] = hostDisconnectTriggered;
                 result.report["manualResyncTriggered"] = manualResyncTriggered;
                 result.report["manualResyncObserved"] = manualResyncObserved;

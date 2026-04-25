@@ -817,9 +817,7 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     }
 
     if(targeted) {
-        if(!targetedFreshBootstrap) {
-            (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
-        }
+        (void)sendConfirmedFramesToPeer(peerFromParticipantId(targetParticipantId), recoveryFrame + 1u);
         (void)sendCurrentSessionStateToPeer(peerFromParticipantId(targetParticipantId));
         return;
     }

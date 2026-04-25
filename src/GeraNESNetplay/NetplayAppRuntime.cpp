@@ -939,14 +939,19 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         if(!m_coordinator.isHosting() &&
            pending->reason == ResyncReason::InitialSessionSync &&
            pending->targetFrame > 0u) {
+            const auto recoveryNow = std::chrono::steady_clock::now();
             m_sharedClockResyncSuppressUntil =
-                std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+                recoveryNow + std::chrono::milliseconds(2500);
             m_sharedClockResyncSuppressEpoch = m_coordinator.session().roomState().timelineEpoch;
             m_sharedClockResyncRequestPending = false;
             m_sharedClockLagOverBudgetSince = {};
             m_sharedClockLagOverBudgetSinceFrame = 0;
             m_sharedClockRecoveryLastLoadedFrame = pending->targetFrame;
-            m_sharedClockRecoveryLoadedAt = std::chrono::steady_clock::now();
+            m_sharedClockRecoveryLoadedAt = recoveryNow;
+            const auto reconnectGraceUntil = recoveryNow + std::chrono::seconds(8);
+            if(m_forcedRecoveryReconnectSuppressUntil < reconnectGraceUntil) {
+                m_forcedRecoveryReconnectSuppressUntil = reconnectGraceUntil;
+            }
         }
         alignResyncPlaybackToSharedClockOnWorker(emu, pending->targetFrame);
         std::ostringstream oss;
@@ -1137,7 +1142,15 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     }
 
     if(requireLagTrigger) {
-        if(estimatedLagFrames < kContinuousCatchupLagTriggerFrames) {
+        const FrameNumber confirmedBacklogFrames =
+            confirmedThroughFrame > emu.frameCount()
+                ? (confirmedThroughFrame - emu.frameCount())
+                : 0u;
+        const bool recoveryConfirmedBacklog =
+            m_sharedClockRecoveryLastLoadedFrame != 0u &&
+            confirmedBacklogFrames > maxFrames;
+        if(estimatedLagFrames < kContinuousCatchupLagTriggerFrames &&
+           !recoveryConfirmedBacklog) {
             return 0u;
         }
         lagTriggerActivated = true;
@@ -1147,6 +1160,13 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     }
 
     uint32_t catchupFrameLimit = maxFrames;
+    bool allowConfirmedCatchupWithoutFrameClock = false;
+    if(m_sharedClockRecoveryLastLoadedFrame != 0u &&
+       confirmedThroughFrame > emu.frameCount() + maxFrames) {
+        allowConfirmedCatchupWithoutFrameClock = true;
+        m_sharedClockLagOverBudgetSince = {};
+        m_sharedClockLagOverBudgetSinceFrame = 0;
+    }
     if(estimatedLagFrames > maxFrames) {
         constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
         constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
@@ -1167,6 +1187,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
                     confirmedLagFrames,
                     static_cast<FrameNumber>(maxFrames)
                 ));
+            allowConfirmedCatchupWithoutFrameClock = true;
             m_sharedClockLagOverBudgetSince = {};
             m_sharedClockLagOverBudgetSinceFrame = 0;
         } else {
@@ -1285,12 +1306,14 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         }
         const uint64_t nextFrameClockMicros = m_coordinator.authoritativeFrameStartClockMicros(nextFrame);
         if(nextFrameClockMicros == 0u) {
-            break;
-        }
-
-        const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
-        if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) {
-            break;
+            if(!allowConfirmedCatchupWithoutFrameClock) {
+                break;
+            }
+        } else {
+            const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
+            if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) {
+                break;
+            }
         }
 
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
@@ -2258,7 +2281,6 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_sharedClockRecoveryLastLoadedFrame = 0;
         m_sharedClockRecoveryRequestBurst = 0;
         m_sharedClockRecoveryLoadedAt = {};
-        m_forcedRecoveryReconnectSuppressUntil = {};
         m_forceNextConfirmedCrcSubmission = false;
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;

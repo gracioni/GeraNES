@@ -1998,6 +1998,7 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     options.inputDelayFrames = 1;
     options.predictFrames = 2;
     options.reconnectAfterFrames = 24;
+    options.assignmentPatternCheck = true;
     options.startupTimeoutSteps = 30000;
     options.reportPath = GeraNESTestSupport::reportPath("netplay_runtime_reconnect.json").string();
 
@@ -2006,6 +2007,7 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("reconnectTriggered") == true);
+    REQUIRE(report.at("reconnectInputPatternVerified") == true);
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
 }
@@ -8492,8 +8494,17 @@ TEST_CASE("Netplay runtime recovers stalled client with current-frame targeted b
     REQUIRE(report.at("clientRuntimePauseRestored") == true);
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >= 100u);
+    REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >
+            report.at("maxClientFrameLead").get<uint32_t>());
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(anyJsonLogLineContains(
+        report.at("host").at("eventLogTail"),
+        "Fresh participant bootstrap reset input baseline"
+    ));
+    REQUIRE(anyJsonLogLineContains(
+        report.at("host").at("eventLogTail"),
+        "Accepted input rebase from Client"
+    ));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Participant left"));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential input from"));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Input sequence gap from"));
