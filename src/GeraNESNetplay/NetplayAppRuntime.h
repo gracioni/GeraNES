@@ -164,8 +164,10 @@ private:
     FrameNumber m_lastSharedClockResyncRequestFrame = 0;
     FrameNumber m_lastSharedClockConfirmedLagWaitLogFrame = 0;
     uint32_t m_sharedClockResyncRequestEpoch = 0;
+    uint32_t m_sharedClockResyncSuppressEpoch = 0;
     std::chrono::steady_clock::time_point m_sharedClockLagOverBudgetSince = {};
     std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
+    std::chrono::steady_clock::time_point m_sharedClockResyncSuppressUntil = {};
     bool m_sharedClockResyncRequestPending = false;
     bool m_forceNextConfirmedCrcSubmission = false;
     bool m_observerVisibilityResyncPending = false;

@@ -936,6 +936,16 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         );
         m_coordinator.applyResyncRunwayFrames(pending->runwayFrames);
         reanchorInputDriver(pending->targetFrame, localAssignedSlots());
+        if(!m_coordinator.isHosting() &&
+           pending->reason == ResyncReason::InitialSessionSync &&
+           pending->targetFrame > 0u) {
+            m_sharedClockResyncSuppressUntil =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+            m_sharedClockResyncSuppressEpoch = m_coordinator.session().roomState().timelineEpoch;
+            m_sharedClockResyncRequestPending = false;
+            m_sharedClockLagOverBudgetSince = {};
+            m_sharedClockLagOverBudgetSinceFrame = 0;
+        }
         alignResyncPlaybackToSharedClockOnWorker(emu, pending->targetFrame);
         std::ostringstream oss;
         oss << "Netplay resync post-load validation accepted"
@@ -973,13 +983,10 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
         return;
     }
 
-    // A targeted bootstrap can arrive more than the normal continuous catchup
-    // budget behind the host on bad Wi-Fi. If we leave the client behind here,
-    // the shared-clock path immediately asks for another bootstrap and creates
-    // a resync loop. This one-shot alignment budget is intentionally larger
-    // than the steady-state catchup budget below; it runs only after loading an
-    // authoritative state and only over already-confirmed frames.
-    constexpr uint32_t kMaxPostResyncCatchupFrames = 240u;
+    // Keep post-load catchup bounded. The authoritative state is the real jump;
+    // replay here is only a small smoothing step so the UI does not freeze
+    // after a bad-network peak.
+    constexpr uint32_t kMaxPostResyncCatchupFrames = 48u;
     const uint32_t advancedFrames = advanceToSharedClockIfNeededOnWorker(
         emu,
         kMaxPostResyncCatchupFrames,
@@ -1032,6 +1039,11 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         m_sharedClockLagOverBudgetSince = {};
         m_sharedClockLagOverBudgetSinceFrame = 0;
     }
+    if(m_sharedClockResyncSuppressUntil.time_since_epoch().count() != 0 &&
+       room.timelineEpoch != m_sharedClockResyncSuppressEpoch) {
+        m_sharedClockResyncSuppressUntil = {};
+        m_sharedClockResyncSuppressEpoch = 0;
+    }
     if(room.lastAuthoritativeClockFrame != 0u &&
        room.lastAuthoritativeClockMicros != 0u &&
        room.sharedClockSynchronized) {
@@ -1062,14 +1074,23 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     if(estimatedLagFrames > maxFrames) {
         constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
         constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
+        constexpr FrameNumber kHardConfirmedCatchupFrames = 240u;
         const auto now = std::chrono::steady_clock::now();
         const FrameNumber localFrame = emu.frameCount();
         const FrameNumber confirmedLagFrames =
             confirmedThroughFrame > localFrame ? (confirmedThroughFrame - localFrame) : 0u;
+        const bool sharedClockResyncSuppressed =
+            m_sharedClockResyncSuppressUntil.time_since_epoch().count() != 0 &&
+            now < m_sharedClockResyncSuppressUntil &&
+            room.timelineEpoch == m_sharedClockResyncSuppressEpoch;
 
-        if(confirmedLagFrames > 0u && confirmedLagFrames <= maxFrames) {
+        if(confirmedLagFrames > 0u &&
+           (sharedClockResyncSuppressed || confirmedLagFrames <= kHardConfirmedCatchupFrames)) {
             catchupFrameLimit =
-                static_cast<uint32_t>(std::min<FrameNumber>(confirmedLagFrames, 0xffffu));
+                static_cast<uint32_t>(std::min<FrameNumber>(
+                    confirmedLagFrames,
+                    static_cast<FrameNumber>(maxFrames)
+                ));
             m_sharedClockLagOverBudgetSince = {};
             m_sharedClockLagOverBudgetSinceFrame = 0;
         } else {
@@ -1094,6 +1115,20 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
                         << " confirmedLag " << confirmedLagFrames
                         << " budget " << maxFrames
                         << "; waiting briefly before resync";
+                    m_coordinator.appendNetplayLog(oss.str());
+                }
+                return 0u;
+            }
+
+            if(sharedClockResyncSuppressed) {
+                if(localFrame >= m_lastSharedClockConfirmedLagWaitLogFrame + 300u) {
+                    m_lastSharedClockConfirmedLagWaitLogFrame = localFrame;
+                    std::ostringstream oss;
+                    oss << "Netplay shared-clock catchup over budget after targeted bootstrap"
+                        << " lag " << estimatedLagFrames
+                        << " confirmedLag " << confirmedLagFrames
+                        << " budget " << maxFrames
+                        << "; suppressing immediate resync request";
                     m_coordinator.appendNetplayLog(oss.str());
                 }
                 return 0u;
@@ -2214,7 +2249,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     );
 
     if(running) {
-        constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
+        constexpr uint32_t kMaxContinuousClockCatchupFrames = 16u;
         (void)advanceToSharedClockIfNeededOnWorker(emu, kMaxContinuousClockCatchupFrames);
 
         m_inputDriver.preparePlaybackFramesForEmulationThread(
