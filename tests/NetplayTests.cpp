@@ -8442,6 +8442,14 @@ TEST_CASE("Netplay runtime host maintains frame lead over slower client", "[netp
     REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >= 40u);
     REQUIRE(report.at("maxHostFrameLead").get<uint32_t>() >
             report.at("maxClientFrameLead").get<uint32_t>());
+    REQUIRE_FALSE(anyJsonLogLineContains(
+        report.at("client").at("eventLogTail"),
+        "Netplay shared-clock catchup skipped"
+    ));
+    REQUIRE_FALSE(anyJsonLogLineContains(
+        report.at("host").at("eventLogTail"),
+        "client requested resync while too far behind synthesized-input recovery"
+    ));
 }
 
 TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical future canonical state", "[netplay][state][clean-boot]")

@@ -973,10 +973,16 @@ void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu
         return;
     }
 
-    constexpr uint32_t kMaxSilentCatchupFrames = 120u;
+    // A targeted bootstrap can arrive more than the normal continuous catchup
+    // budget behind the host on bad Wi-Fi. If we leave the client behind here,
+    // the shared-clock path immediately asks for another bootstrap and creates
+    // a resync loop. This one-shot alignment budget is intentionally larger
+    // than the steady-state catchup budget below; it runs only after loading an
+    // authoritative state and only over already-confirmed frames.
+    constexpr uint32_t kMaxPostResyncCatchupFrames = 240u;
     const uint32_t advancedFrames = advanceToSharedClockIfNeededOnWorker(
         emu,
-        kMaxSilentCatchupFrames,
+        kMaxPostResyncCatchupFrames,
         false
     );
 
@@ -1052,6 +1058,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         }
     }
 
+    uint32_t catchupFrameLimit = maxFrames;
     if(estimatedLagFrames > maxFrames) {
         constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
         constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
@@ -1060,70 +1067,77 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         const FrameNumber confirmedLagFrames =
             confirmedThroughFrame > localFrame ? (confirmedThroughFrame - localFrame) : 0u;
 
-        if(m_sharedClockLagOverBudgetSince.time_since_epoch().count() == 0 ||
-           estimatedLagFrames <= maxFrames) {
-            m_sharedClockLagOverBudgetSince = now;
-            m_sharedClockLagOverBudgetSinceFrame = localFrame;
-        }
+        if(confirmedLagFrames > 0u && confirmedLagFrames <= maxFrames) {
+            catchupFrameLimit =
+                static_cast<uint32_t>(std::min<FrameNumber>(confirmedLagFrames, 0xffffu));
+            m_sharedClockLagOverBudgetSince = {};
+            m_sharedClockLagOverBudgetSinceFrame = 0;
+        } else {
+            if(m_sharedClockLagOverBudgetSince.time_since_epoch().count() == 0 ||
+               estimatedLagFrames <= maxFrames) {
+                m_sharedClockLagOverBudgetSince = now;
+                m_sharedClockLagOverBudgetSinceFrame = localFrame;
+            }
 
-        const bool lagPersisted =
-            now - m_sharedClockLagOverBudgetSince >= kLargeLagPersistence;
-        const bool severeSimulationLag =
-            estimatedLagFrames > static_cast<FrameNumber>(maxFrames * 2u);
-        const bool confirmedCatchupAvailable = confirmedLagFrames > maxFrames;
-        if(!lagPersisted && !severeSimulationLag) {
-            if(!confirmedCatchupAvailable &&
-               localFrame >= m_lastSharedClockConfirmedLagWaitLogFrame + 300u) {
-                m_lastSharedClockConfirmedLagWaitLogFrame = localFrame;
+            const bool lagPersisted =
+                now - m_sharedClockLagOverBudgetSince >= kLargeLagPersistence;
+            const bool severeSimulationLag =
+                estimatedLagFrames > static_cast<FrameNumber>(maxFrames * 2u);
+            const bool confirmedCatchupAvailable = confirmedLagFrames > maxFrames;
+            if(!lagPersisted && !severeSimulationLag) {
+                if(!confirmedCatchupAvailable &&
+                   localFrame >= m_lastSharedClockConfirmedLagWaitLogFrame + 300u) {
+                    m_lastSharedClockConfirmedLagWaitLogFrame = localFrame;
+                    std::ostringstream oss;
+                    oss << "Netplay shared-clock catchup over budget but confirmed input is not far enough ahead"
+                        << " lag " << estimatedLagFrames
+                        << " confirmedLag " << confirmedLagFrames
+                        << " budget " << maxFrames
+                        << "; waiting briefly before resync";
+                    m_coordinator.appendNetplayLog(oss.str());
+                }
+                return 0u;
+            }
+
+            if(m_lastSharedClockResyncRequestAt.time_since_epoch().count() != 0 &&
+               now - m_lastSharedClockResyncRequestAt < kSharedClockResyncRequestCooldown) {
+                return 0u;
+            }
+            m_sharedClockResyncRequestPending = false;
+
+            ResyncRequestData request;
+            request.reason = ResyncReason::ConfirmedDesync;
+            request.localFrame = localFrame;
+            request.estimatedHostFrame = estimatedHostFrameFromClock;
+            request.confirmedThroughFrame = confirmedThroughFrame;
+            request.lagFrames =
+                static_cast<uint16_t>(std::min<FrameNumber>(estimatedLagFrames, 0xffffu));
+            request.catchupBudgetFrames =
+                static_cast<uint16_t>(std::min<uint32_t>(maxFrames, 0xffffu));
+            request.source = 1u; // shared-clock catchup over budget
+
+            if(m_coordinator.requestHostResync(request)) {
+                m_sharedClockResyncRequestPending = true;
+                m_sharedClockResyncRequestEpoch = room.timelineEpoch;
+                m_lastSharedClockResyncRequestAt = now;
+                m_lastSharedClockResyncRequestFrame = localFrame;
                 std::ostringstream oss;
-                oss << "Netplay shared-clock catchup over budget but confirmed input is not far enough ahead"
-                    << " lag " << estimatedLagFrames
-                    << " confirmedLag " << confirmedLagFrames
-                    << " budget " << maxFrames
-                    << "; waiting briefly before resync";
+                oss << "Netplay shared-clock catchup skipped; lag "
+                    << estimatedLagFrames
+                    << " frame(s) exceeds catchup budget "
+                    << maxFrames
+                    << " confirmedLag "
+                    << confirmedLagFrames
+                    << " since local frame "
+                    << m_sharedClockLagOverBudgetSinceFrame
+                    << ", requested authoritative resync";
+                if(!confirmedCatchupAvailable) {
+                    oss << " because simulation lag stayed too large";
+                }
                 m_coordinator.appendNetplayLog(oss.str());
             }
             return 0u;
         }
-
-        if(m_lastSharedClockResyncRequestAt.time_since_epoch().count() != 0 &&
-           now - m_lastSharedClockResyncRequestAt < kSharedClockResyncRequestCooldown) {
-            return 0u;
-        }
-        m_sharedClockResyncRequestPending = false;
-
-        ResyncRequestData request;
-        request.reason = ResyncReason::ConfirmedDesync;
-        request.localFrame = localFrame;
-        request.estimatedHostFrame = estimatedHostFrameFromClock;
-        request.confirmedThroughFrame = confirmedThroughFrame;
-        request.lagFrames =
-            static_cast<uint16_t>(std::min<FrameNumber>(estimatedLagFrames, 0xffffu));
-        request.catchupBudgetFrames =
-            static_cast<uint16_t>(std::min<uint32_t>(maxFrames, 0xffffu));
-        request.source = 1u; // shared-clock catchup over budget
-
-        if(m_coordinator.requestHostResync(request)) {
-            m_sharedClockResyncRequestPending = true;
-            m_sharedClockResyncRequestEpoch = room.timelineEpoch;
-            m_lastSharedClockResyncRequestAt = now;
-            m_lastSharedClockResyncRequestFrame = localFrame;
-            std::ostringstream oss;
-            oss << "Netplay shared-clock catchup skipped; lag "
-                << estimatedLagFrames
-                << " frame(s) exceeds catchup budget "
-                << maxFrames
-                << " confirmedLag "
-                << confirmedLagFrames
-                << " since local frame "
-                << m_sharedClockLagOverBudgetSinceFrame
-                << ", requested authoritative resync";
-            if(!confirmedCatchupAvailable) {
-                oss << " because simulation lag stayed too large";
-            }
-            m_coordinator.appendNetplayLog(oss.str());
-        }
-        return 0u;
     }
 
     m_sharedClockLagOverBudgetSince = {};
@@ -1131,7 +1145,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
 
     uint32_t advancedFrames = 0u;
 
-    while(advancedFrames < maxFrames) {
+    while(advancedFrames < catchupFrameLimit) {
         const FrameNumber nextFrame = emu.frameCount() + 1u;
         if(nextFrame > confirmedThroughFrame) {
             break;
