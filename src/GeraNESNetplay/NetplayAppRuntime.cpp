@@ -945,6 +945,8 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
             m_sharedClockResyncRequestPending = false;
             m_sharedClockLagOverBudgetSince = {};
             m_sharedClockLagOverBudgetSinceFrame = 0;
+            m_sharedClockRecoveryLastLoadedFrame = pending->targetFrame;
+            m_sharedClockRecoveryLoadedAt = std::chrono::steady_clock::now();
         }
         alignResyncPlaybackToSharedClockOnWorker(emu, pending->targetFrame);
         std::ostringstream oss;
@@ -971,6 +973,72 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
         m_coordinator.appendNetplayLog("Netplay resync post-load validation rejected");
         m_coordinator.appendNetplayLog("Netplay resync failed");
     }
+}
+
+void NetplayAppRuntime::processClientRecoveryWatchdogOnWorker(GeraNESEmu& emu)
+{
+    if(m_coordinator.isHosting() ||
+       !m_coordinator.isActive() ||
+       m_coordinator.session().roomState().state != SessionState::Running ||
+       !emu.valid() ||
+       m_sharedClockRecoveryLastLoadedFrame == 0u ||
+       m_sharedClockRecoveryLoadedAt.time_since_epoch().count() == 0) {
+        return;
+    }
+
+    constexpr FrameNumber kRecoveredProgressFrames = 8u;
+    if(emu.frameCount() > m_sharedClockRecoveryLastLoadedFrame + kRecoveredProgressFrames) {
+        m_sharedClockRecoveryLastLoadedFrame = 0;
+        m_sharedClockRecoveryRequestBurst = 0;
+        m_sharedClockRecoveryLoadedAt = {};
+        return;
+    }
+
+    constexpr auto kNoProgressReconnectDelay = std::chrono::milliseconds(1200);
+    const auto now = std::chrono::steady_clock::now();
+    if(now - m_sharedClockRecoveryLoadedAt < kNoProgressReconnectDelay) {
+        return;
+    }
+
+    const RoomState& room = m_coordinator.session().roomState();
+    if(room.lastAuthoritativeClockFrame == 0u ||
+       room.lastAuthoritativeClockMicros == 0u ||
+       !room.sharedClockSynchronized) {
+        return;
+    }
+
+    const uint64_t frameDtMicros =
+        std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, static_cast<uint64_t>(emu.getRegionFPS())));
+    const uint64_t nowSharedClockMicros = m_coordinator.sharedClockNowMicros();
+    if(nowSharedClockMicros == 0u || nowSharedClockMicros <= room.lastAuthoritativeClockMicros) {
+        return;
+    }
+
+    const FrameNumber estimatedHostFrame =
+        room.lastAuthoritativeClockFrame +
+        static_cast<FrameNumber>((nowSharedClockMicros - room.lastAuthoritativeClockMicros) / frameDtMicros);
+    const FrameNumber localFrame = emu.frameCount();
+    const FrameNumber lagFrames = estimatedHostFrame > localFrame ? (estimatedHostFrame - localFrame) : 0u;
+    constexpr FrameNumber kReconnectLagFrames = 120u;
+    if(lagFrames <= kReconnectLagFrames) {
+        return;
+    }
+
+    std::ostringstream oss;
+    oss << "Escalating shared-clock recovery to reconnect after targeted bootstrap made no local progress"
+        << " loadedFrame=" << m_sharedClockRecoveryLastLoadedFrame
+        << " localFrame=" << localFrame
+        << " estimatedHostFrame=" << estimatedHostFrame
+        << " lagFrames=" << lagFrames;
+    m_coordinator.appendNetplayLog(oss.str());
+
+    m_sharedClockRecoveryLastLoadedFrame = 0;
+    m_sharedClockRecoveryRequestBurst = 0;
+    m_sharedClockRecoveryLoadedAt = {};
+    m_sharedClockResyncRequestPending = false;
+    m_sharedClockLagOverBudgetSince = {};
+    m_sharedClockLagOverBudgetSinceFrame = 0;
+    m_coordinator.forceReconnect();
 }
 
 void NetplayAppRuntime::alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu, FrameNumber loadedFrame)
@@ -1152,6 +1220,25 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             request.source = 1u; // shared-clock catchup over budget
 
             if(m_coordinator.requestHostResync(request)) {
+                constexpr uint32_t kSharedClockRecoveryReconnectThreshold = 3u;
+                if(m_sharedClockRecoveryLastLoadedFrame != 0u &&
+                   localFrame <= m_sharedClockRecoveryLastLoadedFrame + maxFrames + 4u) {
+                    ++m_sharedClockRecoveryRequestBurst;
+                } else {
+                    m_sharedClockRecoveryRequestBurst = 1u;
+                }
+                if(m_sharedClockRecoveryRequestBurst >= kSharedClockRecoveryReconnectThreshold) {
+                    m_coordinator.appendNetplayLog(
+                        "Escalating shared-clock recovery to reconnect after repeated stale targeted bootstraps"
+                    );
+                    m_sharedClockRecoveryRequestBurst = 0;
+                    m_sharedClockRecoveryLastLoadedFrame = 0;
+                    m_sharedClockResyncRequestPending = false;
+                    m_sharedClockLagOverBudgetSince = {};
+                    m_sharedClockLagOverBudgetSinceFrame = 0;
+                    m_coordinator.forceReconnect();
+                    return 0u;
+                }
                 m_sharedClockResyncRequestPending = true;
                 m_sharedClockResyncRequestEpoch = room.timelineEpoch;
                 m_lastSharedClockResyncRequestAt = now;
@@ -1221,6 +1308,11 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     }
 
     if(advancedFrames > 0u) {
+        if(m_sharedClockRecoveryLastLoadedFrame != 0u &&
+           emu.frameCount() > m_sharedClockRecoveryLastLoadedFrame + maxFrames) {
+            m_sharedClockRecoveryRequestBurst = 0;
+        }
+
         std::ostringstream oss;
         oss << "Netplay continuous shared-clock catchup advanced "
             << advancedFrames
@@ -1868,6 +1960,9 @@ void NetplayAppRuntime::disconnect()
         self.m_coordinator.disconnect();
         self.m_inputDriver.reset();
         self.m_selfStallDetector.reset();
+        self.m_sharedClockRecoveryLastLoadedFrame = 0;
+        self.m_sharedClockRecoveryRequestBurst = 0;
+        self.m_sharedClockRecoveryLoadedAt = {};
         self.ensureStandaloneInputBootstrapFrame(emu);
         self.m_runtimeLastTickTime = {};
         self.m_webVisibilityManagedPause = false;
@@ -2084,6 +2179,9 @@ void NetplayAppRuntime::shutdown()
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
     m_selfStallDetector.reset();
+    m_sharedClockRecoveryLastLoadedFrame = 0;
+    m_sharedClockRecoveryRequestBurst = 0;
+    m_sharedClockRecoveryLoadedAt = {};
     m_coordinator.disconnect();
 }
 
@@ -2098,6 +2196,9 @@ void NetplayAppRuntime::shutdownForUnload()
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
     m_selfStallDetector.reset();
+    m_sharedClockRecoveryLastLoadedFrame = 0;
+    m_sharedClockRecoveryRequestBurst = 0;
+    m_sharedClockRecoveryLoadedAt = {};
     m_coordinator.shutdownForUnload();
 }
 
@@ -2138,6 +2239,9 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_lastRollbackTargetFrame = 0;
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
+        m_sharedClockRecoveryLastLoadedFrame = 0;
+        m_sharedClockRecoveryRequestBurst = 0;
+        m_sharedClockRecoveryLoadedAt = {};
         m_forceNextConfirmedCrcSubmission = false;
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;
@@ -2197,6 +2301,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     processAutoResumeIfNeeded(localRom);
     processRollbackIfNeededOnWorker(emu);
     processHostStallIfNeededOnWorker(emu);
+    processClientRecoveryWatchdogOnWorker(emu);
 
     // Keep pause authoritative even if another runtime path touched the host
     // suspension flag earlier in the frame.

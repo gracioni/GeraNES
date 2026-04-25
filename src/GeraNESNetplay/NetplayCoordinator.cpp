@@ -970,6 +970,26 @@ void NetplayCoordinator::scheduleReconnectAttempt()
     m_lastError = "Disconnected from host; reconnecting...";
 }
 
+void NetplayCoordinator::forceReconnect()
+{
+    if(m_hosting ||
+       m_localReconnectToken == 0 ||
+       !hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
+        return;
+    }
+
+    pushLog("Forcing reconnect after stalled authoritative recovery");
+    if(m_transport.isActive()) {
+        if(m_serverPeer != NetTransport::kInvalidPeerHandle && m_localParticipantId != kInvalidParticipantId) {
+            m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
+            m_transport.flush();
+        }
+        m_transport.disconnectAll();
+    }
+    scheduleReconnectAttempt();
+    processPendingReconnect();
+}
+
 void NetplayCoordinator::processPendingReconnect()
 {
     if(m_hosting || !m_reconnectPending) return;

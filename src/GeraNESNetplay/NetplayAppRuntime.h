@@ -163,9 +163,12 @@ private:
     FrameNumber m_sharedClockLagOverBudgetSinceFrame = 0;
     FrameNumber m_lastSharedClockResyncRequestFrame = 0;
     FrameNumber m_lastSharedClockConfirmedLagWaitLogFrame = 0;
+    FrameNumber m_sharedClockRecoveryLastLoadedFrame = 0;
+    uint32_t m_sharedClockRecoveryRequestBurst = 0;
     uint32_t m_sharedClockResyncRequestEpoch = 0;
     uint32_t m_sharedClockResyncSuppressEpoch = 0;
     std::chrono::steady_clock::time_point m_sharedClockLagOverBudgetSince = {};
+    std::chrono::steady_clock::time_point m_sharedClockRecoveryLoadedAt = {};
     std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
     std::chrono::steady_clock::time_point m_sharedClockResyncSuppressUntil = {};
     bool m_sharedClockResyncRequestPending = false;
@@ -241,6 +244,7 @@ private:
     void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
     void processHostStallIfNeededOnWorker(GeraNESEmu& emu);
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
+    void processClientRecoveryWatchdogOnWorker(GeraNESEmu& emu);
     uint32_t advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu,
                                                   uint32_t maxFrames,
                                                   bool requireLagTrigger = true);

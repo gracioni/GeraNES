@@ -394,6 +394,7 @@ public:
     bool isConnected() const;
     bool reconnectPending() const;
     uint16_t reconnectSecondsRemaining() const;
+    void forceReconnect();
     void setPendingJoinRomValidation(bool romLoaded, const RomValidationData& romValidation);
     uint32_t gameplayReceiveDelayMs() const;
     void setGameplayReceiveDelayMs(uint32_t delayMs);
