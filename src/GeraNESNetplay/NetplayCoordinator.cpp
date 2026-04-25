@@ -3451,14 +3451,22 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
         m_session.roomState().state == SessionState::Starting &&
         data.reason == ResyncReason::InitialSessionSync;
     m_awaitingReconnectInitialSync = false;
+    const bool activeInitialSessionBootstrap =
+        !initialSessionSync &&
+        data.reason == ResyncReason::InitialSessionSync &&
+        data.targetFrame > 0u;
     const bool preserveInputSequences =
-        preserveInputSequencesForResync(data.reason, initialSessionSync, data.targetFrame);
+        activeInitialSessionBootstrap
+            ? false
+            : preserveInputSequencesForResync(data.reason, initialSessionSync, data.targetFrame);
 
     realignAuthoritativeState(
         data.targetFrame,
         !preserveInputSequences,
         data.inputSequenceBase,
-        preserveConfirmedInputsAcrossRealignment(data.reason)
+        activeInitialSessionBootstrap
+            ? false
+            : preserveConfirmedInputsAcrossRealignment(data.reason)
     );
     if(!m_hosting &&
        data.reason == ResyncReason::InitialSessionSync &&
@@ -6503,17 +6511,24 @@ bool NetplayCoordinator::acknowledgeResync(uint32_t resyncId, FrameNumber loaded
         const bool initialSessionSync =
             m_session.roomState().activeResyncReason == ResyncReason::InitialSessionSync &&
             loadedFrame == 0u;
+        const bool activeInitialSessionBootstrap =
+            m_session.roomState().activeResyncReason == ResyncReason::InitialSessionSync &&
+            loadedFrame > 0u;
         const bool preserveInputSequences =
-            preserveInputSequencesForResync(
-                m_session.roomState().activeResyncReason,
-                initialSessionSync,
-                loadedFrame
-            );
+            activeInitialSessionBootstrap
+                ? false
+                : preserveInputSequencesForResync(
+                    m_session.roomState().activeResyncReason,
+                    initialSessionSync,
+                    loadedFrame
+                );
         realignAuthoritativeState(
             loadedFrame,
             !preserveInputSequences,
             m_session.roomState().resyncInputSequenceBase,
-            preserveConfirmedInputsAcrossRealignment(m_session.roomState().activeResyncReason)
+            activeInitialSessionBootstrap
+                ? false
+                : preserveConfirmedInputsAcrossRealignment(m_session.roomState().activeResyncReason)
         );
         if(m_session.roomState().activeResyncReason == ResyncReason::InitialSessionSync &&
            loadedFrame > 0u) {

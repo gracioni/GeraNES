@@ -1074,7 +1074,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
     if(estimatedLagFrames > maxFrames) {
         constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
         constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
-        constexpr FrameNumber kHardConfirmedCatchupFrames = 240u;
+        constexpr FrameNumber kHardConfirmedCatchupFrames = 480u;
         const auto now = std::chrono::steady_clock::now();
         const FrameNumber localFrame = emu.frameCount();
         const FrameNumber confirmedLagFrames =
@@ -2249,7 +2249,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     );
 
     if(running) {
-        constexpr uint32_t kMaxContinuousClockCatchupFrames = 16u;
+        constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
         (void)advanceToSharedClockIfNeededOnWorker(emu, kMaxContinuousClockCatchupFrames);
 
         m_inputDriver.preparePlaybackFramesForEmulationThread(
