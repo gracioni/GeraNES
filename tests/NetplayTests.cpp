@@ -2655,6 +2655,11 @@ TEST_CASE("Reconnect token match replaces active peer instead of creating duplic
 
     REQUIRE(replaced);
     REQUIRE(host.session().roomState().participants.size() == 2u);
+    const Netplay::ParticipantInfo* replacedParticipant =
+        host.session().findParticipant(originalClientParticipantId);
+    REQUIRE(replacedParticipant != nullptr);
+    REQUIRE(replacedParticipant->inputResumeAwaitingResync);
+    REQUIRE(replacedParticipant->sequenceRebasePending);
 
     host.disconnect();
     client.disconnect();

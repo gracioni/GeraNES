@@ -986,16 +986,22 @@ void NetplayAppRuntime::processClientRecoveryWatchdogOnWorker(GeraNESEmu& emu)
         return;
     }
 
+    const auto now = std::chrono::steady_clock::now();
+    if(m_forcedRecoveryReconnectSuppressUntil.time_since_epoch().count() != 0 &&
+       now < m_forcedRecoveryReconnectSuppressUntil) {
+        return;
+    }
+
     constexpr FrameNumber kRecoveredProgressFrames = 8u;
     if(emu.frameCount() > m_sharedClockRecoveryLastLoadedFrame + kRecoveredProgressFrames) {
         m_sharedClockRecoveryLastLoadedFrame = 0;
         m_sharedClockRecoveryRequestBurst = 0;
         m_sharedClockRecoveryLoadedAt = {};
+        m_forcedRecoveryReconnectSuppressUntil = {};
         return;
     }
 
     constexpr auto kNoProgressReconnectDelay = std::chrono::milliseconds(1200);
-    const auto now = std::chrono::steady_clock::now();
     if(now - m_sharedClockRecoveryLoadedAt < kNoProgressReconnectDelay) {
         return;
     }
@@ -1038,6 +1044,8 @@ void NetplayAppRuntime::processClientRecoveryWatchdogOnWorker(GeraNESEmu& emu)
     m_sharedClockResyncRequestPending = false;
     m_sharedClockLagOverBudgetSince = {};
     m_sharedClockLagOverBudgetSinceFrame = 0;
+    m_forcedRecoveryReconnectSuppressUntil = now + std::chrono::seconds(8);
+    m_inputDriver.reset();
     m_coordinator.forceReconnect();
 }
 
@@ -1233,9 +1241,12 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
                     );
                     m_sharedClockRecoveryRequestBurst = 0;
                     m_sharedClockRecoveryLastLoadedFrame = 0;
+                    m_sharedClockRecoveryLoadedAt = {};
                     m_sharedClockResyncRequestPending = false;
                     m_sharedClockLagOverBudgetSince = {};
                     m_sharedClockLagOverBudgetSinceFrame = 0;
+                    m_forcedRecoveryReconnectSuppressUntil = now + std::chrono::seconds(8);
+                    m_inputDriver.reset();
                     m_coordinator.forceReconnect();
                     return 0u;
                 }
@@ -1311,6 +1322,8 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
         if(m_sharedClockRecoveryLastLoadedFrame != 0u &&
            emu.frameCount() > m_sharedClockRecoveryLastLoadedFrame + maxFrames) {
             m_sharedClockRecoveryRequestBurst = 0;
+            m_sharedClockRecoveryLoadedAt = {};
+            m_forcedRecoveryReconnectSuppressUntil = {};
         }
 
         std::ostringstream oss;
@@ -1963,6 +1976,7 @@ void NetplayAppRuntime::disconnect()
         self.m_sharedClockRecoveryLastLoadedFrame = 0;
         self.m_sharedClockRecoveryRequestBurst = 0;
         self.m_sharedClockRecoveryLoadedAt = {};
+        self.m_forcedRecoveryReconnectSuppressUntil = {};
         self.ensureStandaloneInputBootstrapFrame(emu);
         self.m_runtimeLastTickTime = {};
         self.m_webVisibilityManagedPause = false;
@@ -2182,6 +2196,7 @@ void NetplayAppRuntime::shutdown()
     m_sharedClockRecoveryLastLoadedFrame = 0;
     m_sharedClockRecoveryRequestBurst = 0;
     m_sharedClockRecoveryLoadedAt = {};
+    m_forcedRecoveryReconnectSuppressUntil = {};
     m_coordinator.disconnect();
 }
 
@@ -2199,6 +2214,7 @@ void NetplayAppRuntime::shutdownForUnload()
     m_sharedClockRecoveryLastLoadedFrame = 0;
     m_sharedClockRecoveryRequestBurst = 0;
     m_sharedClockRecoveryLoadedAt = {};
+    m_forcedRecoveryReconnectSuppressUntil = {};
     m_coordinator.shutdownForUnload();
 }
 
@@ -2242,6 +2258,7 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_sharedClockRecoveryLastLoadedFrame = 0;
         m_sharedClockRecoveryRequestBurst = 0;
         m_sharedClockRecoveryLoadedAt = {};
+        m_forcedRecoveryReconnectSuppressUntil = {};
         m_forceNextConfirmedCrcSubmission = false;
         m_observerVisibilityResyncPending = false;
         m_webVisibilityManagedPause = false;

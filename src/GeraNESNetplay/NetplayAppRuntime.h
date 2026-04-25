@@ -171,6 +171,7 @@ private:
     std::chrono::steady_clock::time_point m_sharedClockRecoveryLoadedAt = {};
     std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
     std::chrono::steady_clock::time_point m_sharedClockResyncSuppressUntil = {};
+    std::chrono::steady_clock::time_point m_forcedRecoveryReconnectSuppressUntil = {};
     bool m_sharedClockResyncRequestPending = false;
     bool m_forceNextConfirmedCrcSubmission = false;
     bool m_observerVisibilityResyncPending = false;

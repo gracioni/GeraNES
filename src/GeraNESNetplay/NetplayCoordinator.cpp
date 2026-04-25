@@ -4580,7 +4580,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     participant.reconnectReserved = false;
     participant.reservationSecondsRemaining = 0;
     participant.inputSuspended = false;
-    participant.inputResumeAwaitingResync = reusedReconnectReservation;
+    participant.inputResumeAwaitingResync = reusedReconnectReservation || replacingActivePeer;
     participant.predictionLimitFallbackActive = false;
     participant.lateCommittedDuplicateBurstCount = 0;
     participant.lastLateCommittedDuplicateFrame = 0;
@@ -4595,13 +4595,14 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         participant.controllerAssignments.clear();
         participant.normalizeControllerAssignments();
     } else if(!reusedReconnectReservation &&
+              !replacingActivePeer &&
               std::find(
                   m_pendingSequenceResetParticipants.begin(),
                   m_pendingSequenceResetParticipants.end(),
                   participant.id
               ) == m_pendingSequenceResetParticipants.end()) {
         m_pendingSequenceResetParticipants.push_back(participant.id);
-    } else if(reusedReconnectReservation) {
+    } else if(reusedReconnectReservation || replacingActivePeer) {
         participant.sequenceRebasePending = true;
     }
 
@@ -4613,7 +4614,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         if(reusedReconnectReservation) {
             pushLog("Reconnect reservation claimed; waiting for ROM validation before automatic resync");
         } else if(replacingActivePeer) {
-            pushLog("Reconnect token matched active participant; replacing peer before automatic resync");
+            pushLog("Reconnect token matched active participant; replacing peer before fresh automatic resync");
         }
     }
 
