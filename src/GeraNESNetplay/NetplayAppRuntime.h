@@ -175,6 +175,7 @@ private:
     bool m_sharedClockResyncRequestPending = false;
     bool m_forceNextConfirmedCrcSubmission = false;
     bool m_observerVisibilityResyncPending = false;
+    bool m_assignedVisibilityReconnectPending = false;
     bool m_webVisibilityManagedPause = false;
     bool m_webPageVisible = true;
     std::atomic<bool> m_runtimeActive{false};

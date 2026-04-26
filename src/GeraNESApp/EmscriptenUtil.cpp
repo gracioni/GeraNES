@@ -428,12 +428,35 @@ void emcriptenRegisterVisibilityHandler(intptr_t handler)
             }
         }
 
-        // Register only once
         if (!window.__geranes_visibility_handler_registered) {
             window.__geranes_visibility_handler_registered = true;
+            window.__geranes_visibility_last_visible = (document.visibilityState === 'visible');
+
+            function setVisibility(visible) {
+                visible = !!visible;
+                if (window.__geranes_visibility_last_visible === visible) return;
+                window.__geranes_visibility_last_visible = visible;
+                notifyVisibility(visible);
+            }
 
             document.addEventListener('visibilitychange', function () {
-                notifyVisibility(document.visibilityState === 'visible');
+                setVisibility(document.visibilityState === 'visible');
+            });
+
+            window.addEventListener('pagehide', function () {
+                setVisibility(false);
+            });
+
+            window.addEventListener('pageshow', function () {
+                setVisibility(document.visibilityState === 'visible');
+            });
+
+            window.addEventListener('blur', function () {
+                setVisibility(false);
+            });
+
+            window.addEventListener('focus', function () {
+                setVisibility(document.visibilityState === 'visible');
             });
 
             console.log("Web visibility listeners installed for handler:", handler);

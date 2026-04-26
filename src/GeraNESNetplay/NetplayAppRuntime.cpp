@@ -165,6 +165,7 @@ bool NetplayAppRuntime::beginAuthoritativeResync(GeraNESEmu& emu,
         return false;
     }
 
+    m_selfStallDetector.reset();
     if(targetParticipantId == kInvalidParticipantId) {
         applyAuthoritativeStateLocally(emu, authoritativeFrame, statePayload);
     }
@@ -187,6 +188,7 @@ bool NetplayAppRuntime::beginAuthoritativeResyncWithoutLocalReload(GeraNESEmu& e
         return false;
     }
 
+    m_selfStallDetector.reset();
     syncEmuInputTimelineEpoch(emu);
     m_coordinator.invalidateLocalCrcHistoryAfter(authoritativeFrame);
     m_coordinator.setLocalSimulationFrame(authoritativeFrame);
@@ -572,6 +574,7 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
+        m_assignedVisibilityReconnectPending = false;
         return;
     }
 
@@ -940,15 +943,26 @@ void NetplayAppRuntime::processResyncIfNeededOnWorker(GeraNESEmu& emu)
            pending->reason == ResyncReason::InitialSessionSync &&
            pending->targetFrame > 0u) {
             const auto recoveryNow = std::chrono::steady_clock::now();
+            const bool assignedVisibilityReconnect = m_assignedVisibilityReconnectPending;
+            m_assignedVisibilityReconnectPending = false;
             m_sharedClockResyncSuppressUntil =
-                recoveryNow + std::chrono::milliseconds(2500);
+                recoveryNow + (assignedVisibilityReconnect
+                    ? std::chrono::milliseconds(20000)
+                    : std::chrono::milliseconds(2500));
             m_sharedClockResyncSuppressEpoch = m_coordinator.session().roomState().timelineEpoch;
             m_sharedClockResyncRequestPending = false;
             m_sharedClockLagOverBudgetSince = {};
             m_sharedClockLagOverBudgetSinceFrame = 0;
-            m_sharedClockRecoveryLastLoadedFrame = pending->targetFrame;
-            m_sharedClockRecoveryLoadedAt = recoveryNow;
-            const auto reconnectGraceUntil = recoveryNow + std::chrono::seconds(8);
+            if(assignedVisibilityReconnect) {
+                m_sharedClockRecoveryLastLoadedFrame = 0;
+                m_sharedClockRecoveryLoadedAt = {};
+                m_sharedClockRecoveryRequestBurst = 0;
+            } else {
+                m_sharedClockRecoveryLastLoadedFrame = pending->targetFrame;
+                m_sharedClockRecoveryLoadedAt = recoveryNow;
+            }
+            const auto reconnectGraceUntil =
+                recoveryNow + (assignedVisibilityReconnect ? std::chrono::seconds(20) : std::chrono::seconds(8));
             if(m_forcedRecoveryReconnectSuppressUntil < reconnectGraceUntil) {
                 m_forcedRecoveryReconnectSuppressUntil = reconnectGraceUntil;
             }
@@ -1806,8 +1820,16 @@ void NetplayAppRuntime::notifyWebVisibilityChanged(bool visible)
 void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& emu, bool visible)
 {
     m_runtimeLastTickTime = {};
+    const bool wasHidden = !m_webPageVisible;
     m_webPageVisible = visible;
     if(!visible) {
+        m_coordinator.resetSharedClockForDiscontinuity();
+        m_sharedClockLagOverBudgetSince = {};
+        m_sharedClockLagOverBudgetSinceFrame = 0;
+        m_sharedClockResyncRequestPending = false;
+        m_sharedClockRecoveryLastLoadedFrame = 0;
+        m_sharedClockRecoveryRequestBurst = 0;
+        m_sharedClockRecoveryLoadedAt = {};
         if(m_coordinator.isActive() &&
            m_coordinator.isConnected() &&
            m_coordinator.isHosting() &&
@@ -1823,6 +1845,36 @@ void NetplayAppRuntime::notifyWebVisibilityChangedImmediate(GeraNESEmu& emu, boo
             m_coordinator.session().roomState().state == SessionState::Running &&
             localAssignedSlots().empty();
         m_observerVisibilityResyncPending = observerNeedsVisibilityResync;
+        return;
+    }
+
+    const SessionState restoreState = m_coordinator.session().roomState().state;
+    const bool assignedClientVisibilityRestore =
+        wasHidden &&
+        m_coordinator.isActive() &&
+        m_coordinator.isConnected() &&
+        !m_coordinator.isHosting() &&
+        (restoreState == SessionState::Running ||
+         restoreState == SessionState::Resyncing ||
+         restoreState == SessionState::Paused) &&
+        !localAssignedSlots().empty();
+    if(assignedClientVisibilityRestore) {
+        m_coordinator.resetSharedClockForDiscontinuity();
+        m_inputDriver.reset();
+        emu.discardQueuedInputFramesAfter(emu.frameCount());
+        m_emuHost.discardQueuedNetplayInputsAfter(emu.frameCount());
+        m_emuHost.setSimulationSuspended(false);
+        const auto visibilityRecoveryNow = std::chrono::steady_clock::now();
+        const auto visibilityReconnectGraceUntil = visibilityRecoveryNow + std::chrono::seconds(20);
+        if(m_forcedRecoveryReconnectSuppressUntil < visibilityReconnectGraceUntil) {
+            m_forcedRecoveryReconnectSuppressUntil = visibilityReconnectGraceUntil;
+        }
+        m_sharedClockLagOverBudgetSince = {};
+        m_sharedClockLagOverBudgetSinceFrame = 0;
+        m_sharedClockResyncRequestPending = false;
+        m_assignedVisibilityReconnectPending = true;
+        m_coordinator.appendNetplayLog("Web visibility restored for assigned participant; forcing reconnect to reset input stream");
+        m_coordinator.forceReconnect();
         return;
     }
 
@@ -2027,6 +2079,7 @@ void NetplayAppRuntime::disconnect()
         self.ensureStandaloneInputBootstrapFrame(emu);
         self.m_runtimeLastTickTime = {};
         self.m_webVisibilityManagedPause = false;
+        self.m_assignedVisibilityReconnectPending = false;
         self.m_webPageVisible = true;
         self.m_lastSelectedRomKey.clear();
         self.m_lastSubmittedValidationKey.clear();
@@ -2237,6 +2290,7 @@ void NetplayAppRuntime::shutdown()
     m_runtimeRunning.store(false, std::memory_order_release);
     m_uiSnapshot = UiSnapshot{};
     m_webVisibilityManagedPause = false;
+    m_assignedVisibilityReconnectPending = false;
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
     m_selfStallDetector.reset();
@@ -2255,6 +2309,7 @@ void NetplayAppRuntime::shutdownForUnload()
     m_runtimeRunning.store(false, std::memory_order_release);
     m_uiSnapshot = UiSnapshot{};
     m_webVisibilityManagedPause = false;
+    m_assignedVisibilityReconnectPending = false;
     m_webPageVisible = true;
     m_emuHost.setSimulationSuspended(false);
     m_selfStallDetector.reset();

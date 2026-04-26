@@ -39,6 +39,14 @@ SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapsh
         return result;
     }
 
+    if(snapshot.role == Role::Host &&
+       current.maxRemoteReportedCurrentFrame >= current.localSimulationFrame &&
+       current.confirmedFrame >= current.localSimulationFrame) {
+        m_progressBaseline = current;
+        m_lastProgressAt = now;
+        return result;
+    }
+
     const auto stalledFor =
         std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastProgressAt);
     const uint32_t churn = churnSince(*m_progressBaseline, current);

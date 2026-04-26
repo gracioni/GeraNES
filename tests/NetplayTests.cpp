@@ -1957,6 +1957,51 @@ TEST_CASE("Netplay web observer visibility restore requests host resync without 
     REQUIRE(report.at("reconnectTriggered") == false);
 }
 
+TEST_CASE("Netplay web assigned visibility restore reconnects and keeps input control",
+          "[netplay][runtime][web][visibility][reconnect]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.frames = 620;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.networkPumpStride = 1;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.assignmentPatternCheck = true;
+    options.frameStepLimit = 30000;
+    options.webObserverVisibilitySuspendAfterFrames = 48;
+    options.webObserverVisibilitySuspendDurationFrames = 140;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_assigned_visibility_restore_reconnect.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeActive") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("reconnectInputPatternVerified") == true);
+    REQUIRE(anyJsonLogLineContains(
+        report.at("client").at("eventLogTail"),
+        "Web visibility restored for assigned participant; forcing reconnect"
+    ));
+    REQUIRE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Accepted input rebase from Client"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential input from"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Input sequence gap from"));
+}
+
 TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay][runtime][multitap][late-join]")
 {
     GeraNESTestSupport::requireRomFixture();

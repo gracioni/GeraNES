@@ -441,6 +441,7 @@ public:
     FrameNumber latestConfirmedFrame() const;
     FrameNumber hostConfirmedFrame() const;
     uint64_t sharedClockNowMicros() const;
+    void resetSharedClockForDiscontinuity();
     uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     FrameNumber authoritativeResyncTargetFrame() const;
     uint8_t predictFrames() const;

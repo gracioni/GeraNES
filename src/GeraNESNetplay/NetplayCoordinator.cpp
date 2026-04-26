@@ -256,6 +256,24 @@ uint64_t NetplayCoordinator::sharedClockNowMicros() const
     return adjusted > 0 ? static_cast<uint64_t>(adjusted) : 0u;
 }
 
+void NetplayCoordinator::resetSharedClockForDiscontinuity()
+{
+    if(m_hosting) {
+        return;
+    }
+
+    m_lastClockSyncRequestAt = {};
+    m_pendingClockSyncRequests.clear();
+    m_sharedClockOffsetMicros = 0;
+    m_sharedClockRttMicros = 0;
+    m_bestClockSyncDelayMicros = std::numeric_limits<uint64_t>::max();
+    m_sharedClockSynchronized = false;
+    m_session.roomState().sharedClockMicros = 0;
+    m_session.roomState().sharedClockRttMicros = 0;
+    m_session.roomState().sharedClockOffsetMicros = 0;
+    m_session.roomState().sharedClockSynchronized = false;
+}
+
 uint64_t NetplayCoordinator::authoritativeFrameStartClockMicros(FrameNumber frame) const
 {
     const auto it = m_authoritativeFrameStartClockMicros.find(frame);

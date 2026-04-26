@@ -2315,7 +2315,6 @@ private:
             }
 
             if(options.webObserverVisibilitySuspendAfterFrames > 0 &&
-               options.hostAssignedBeforeJoinOnly &&
                !observerVisibilitySuspendTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.webObserverVisibilitySuspendAfterFrames) {
                 clientPeer.runtime.notifyWebVisibilityChanged(false);
