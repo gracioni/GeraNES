@@ -1179,6 +1179,30 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             m_sharedClockResyncSuppressUntil.time_since_epoch().count() != 0 &&
             now < m_sharedClockResyncSuppressUntil &&
             room.timelineEpoch == m_sharedClockResyncSuppressEpoch;
+        const bool severeReconnectLag =
+            estimatedLagFrames > static_cast<FrameNumber>(maxFrames * 2u) &&
+            (confirmedLagFrames <= kHardConfirmedCatchupFrames ||
+             confirmedLagFrames > static_cast<FrameNumber>(maxFrames * 2u));
+
+        if(severeReconnectLag && !sharedClockResyncSuppressed) {
+            std::ostringstream reconnectLog;
+            reconnectLog << "Escalating shared-clock recovery to reconnect after severe confirmed lag"
+                         << " lag " << estimatedLagFrames
+                         << " confirmedLag " << confirmedLagFrames
+                         << " budget " << maxFrames
+                         << " localFrame " << localFrame
+                         << " estimatedHostFrame " << estimatedHostFrameFromClock;
+            m_coordinator.appendNetplayLog(reconnectLog.str());
+            m_sharedClockRecoveryRequestBurst = 0;
+            m_sharedClockRecoveryLastLoadedFrame = 0;
+            m_sharedClockRecoveryLoadedAt = {};
+            m_sharedClockLagOverBudgetSince = {};
+            m_sharedClockLagOverBudgetSinceFrame = 0;
+            m_forcedRecoveryReconnectSuppressUntil = now + std::chrono::seconds(8);
+            m_inputDriver.reset();
+            m_coordinator.forceReconnect();
+            return 0u;
+        }
 
         if(confirmedLagFrames > 0u &&
            (sharedClockResyncSuppressed || confirmedLagFrames <= kHardConfirmedCatchupFrames)) {

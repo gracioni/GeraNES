@@ -978,10 +978,6 @@ void NetplayCoordinator::forceReconnect()
 
     pushLog("Forcing reconnect after stalled authoritative recovery");
     if(m_transport.isActive()) {
-        if(m_serverPeer != NetTransport::kInvalidPeerHandle && m_localParticipantId != kInvalidParticipantId) {
-            m_transport.sendReliable(m_serverPeer, Channel::Control, buildLeaveRoomPacket(m_localParticipantId));
-            m_transport.flush();
-        }
         m_transport.disconnectAll();
     }
     scheduleReconnectAttempt();

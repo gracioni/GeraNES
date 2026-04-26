@@ -8510,6 +8510,45 @@ TEST_CASE("Netplay runtime recovers stalled client with current-frame targeted b
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Input sequence gap from"));
 }
 
+TEST_CASE("Netplay runtime reconnects after severe client lag instead of repeating stale bootstrap",
+          "[netplay][runtime][host-authority][stall-recovery]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.frames = 1000;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.networkPumpStride = 1;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 100;
+    options.hostStepStride = 1;
+    options.clientStepStride = 1;
+    options.clientRuntimePauseAfterFrames = 60;
+    options.clientRuntimePauseDurationFrames = 700;
+    options.frameStepLimit = 50000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath =
+        GeraNESTestSupport::reportPath("netplay_runtime_severe_lag_reconnect.json").string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("clientRuntimePauseTriggered") == true);
+    REQUIRE(report.at("clientRuntimePauseRestored") == true);
+    REQUIRE(anyJsonLogLineContains(
+        report.at("client").at("eventLogTail"),
+        "Escalating shared-clock recovery to reconnect after severe confirmed lag"
+    ));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Input sequence gap from"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential input from"));
+}
+
 TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical future canonical state", "[netplay][state][clean-boot]")
 {
     GeraNESTestSupport::requireRomFixture();

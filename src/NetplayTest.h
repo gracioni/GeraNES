@@ -2641,14 +2641,24 @@ private:
                 }
             }
 
-            if(newHostFrame == hostFrame && newClientFrame == clientFrame) {
+            const bool runtimeReconnectInProgress =
+                hostSnap.reconnecting ||
+                clientSnap.reconnecting ||
+                (!clientSnap.connected && clientSnap.reconnecting);
+
+            if(runtimeReconnectInProgress) {
+                stallSteps = 0;
+                sharedProgressStallSteps = 0;
+            } else if(newHostFrame == hostFrame && newClientFrame == clientFrame) {
                 ++stallSteps;
             } else {
                 stallSteps = 0;
             }
             const uint32_t previousLastCheckedFrame = lastCheckedFrame;
             lastCheckedFrame = std::min(newHostFrame, newClientFrame);
-            if(lastCheckedFrame == previousLastCheckedFrame) {
+            if(runtimeReconnectInProgress) {
+                sharedProgressStallSteps = 0;
+            } else if(lastCheckedFrame == previousLastCheckedFrame) {
                 ++sharedProgressStallSteps;
             } else {
                 sharedProgressStallSteps = 0;
