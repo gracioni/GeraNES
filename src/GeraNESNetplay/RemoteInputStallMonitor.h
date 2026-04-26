@@ -15,6 +15,7 @@ public:
         PlayerSlot playerSlot = kObserverPlayerSlot;
         FrameNumber stalledFrame = 0;
         uint32_t observedPeerHealthSerial = 0;
+        bool loggable = true;
     };
 
     struct StallUpdate
@@ -42,7 +43,15 @@ public:
     const std::optional<PendingRecovery>& pending() const;
 
 private:
+    struct LastRecoveredStall
+    {
+        ParticipantId participantId = kInvalidParticipantId;
+        PlayerSlot playerSlot = kObserverPlayerSlot;
+        FrameNumber recoveredThroughFrame = 0;
+    };
+
     std::optional<PendingRecovery> m_pending;
+    std::optional<LastRecoveredStall> m_lastRecovered;
 };
 
 } // namespace Netplay
