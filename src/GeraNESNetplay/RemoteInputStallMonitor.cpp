@@ -20,12 +20,18 @@ RemoteInputStallMonitor::StallUpdate RemoteInputStallMonitor::noteStall(Particip
                                                                                   uint32_t observedPeerHealthSerial)
 {
     StallUpdate update;
-    if(m_pending.has_value() &&
-       m_pending->participantId == participantId &&
-       m_pending->playerSlot == slot &&
-       m_pending->stalledFrame == frame) {
-        update.recovery = *m_pending;
-        return update;
+    if(m_pending.has_value() && m_pending->participantId == participantId) {
+        const FrameNumber pendingFrame = m_pending->stalledFrame;
+        const FrameNumber frameDistance =
+            frame > pendingFrame ? (frame - pendingFrame) : (pendingFrame - frame);
+        if(frameDistance <= kTransientStallLogCoalesceFrames) {
+            if(frame < m_pending->stalledFrame) {
+                m_pending->stalledFrame = frame;
+                m_pending->playerSlot = slot;
+            }
+            update.recovery = *m_pending;
+            return update;
+        }
     }
 
     const FrameNumber framesSinceRecovery =
@@ -35,7 +41,6 @@ RemoteInputStallMonitor::StallUpdate RemoteInputStallMonitor::noteStall(Particip
     const bool coalescedWithRecentRecovery =
         m_lastRecovered.has_value() &&
         m_lastRecovered->participantId == participantId &&
-        m_lastRecovered->playerSlot == slot &&
         framesSinceRecovery > 0u &&
         framesSinceRecovery <= kTransientStallLogCoalesceFrames;
 
@@ -77,6 +82,11 @@ RemoteInputStallMonitor::PeerHealthUpdate RemoteInputStallMonitor::onPeerHealth(
     if(!m_pending.has_value()) return update;
     if(m_pending->participantId != participantId) return update;
     if(peerHealthSerial <= m_pending->observedPeerHealthSerial) return update;
+
+    if(!m_pending->loggable) {
+        m_pending.reset();
+        return update;
+    }
 
     update.shouldScheduleResync = true;
     update.recovery = *m_pending;

@@ -1866,6 +1866,9 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
         room.stabilizationRetryIssued = false;
+        if(previousMode == RecoveryInputMode::PostResyncStabilizing) {
+            m_remoteInputStallMonitor.reset();
+        }
     }
 
     std::ostringstream oss;

@@ -364,12 +364,38 @@ TEST_CASE("Netplay remote input stall monitor coalesces transient repeated stall
     const auto coalescedStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 182u, 4u);
     REQUIRE(coalescedStall.newlyTracked == false);
 
-    const auto freshHealth = monitor.onPeerHealth(2u, 5u);
-    REQUIRE(freshHealth.shouldScheduleResync == true);
-    REQUIRE(freshHealth.recovery.stalledFrame == 182u);
+    const auto coalescedFreshHealth = monitor.onPeerHealth(2u, 5u);
+    REQUIRE(coalescedFreshHealth.shouldScheduleResync == false);
 
     const auto laterStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 199u, 5u);
     REQUIRE(laterStall.newlyTracked == true);
+
+    const auto laterFreshHealth = monitor.onPeerHealth(2u, 6u);
+    REQUIRE(laterFreshHealth.shouldScheduleResync == true);
+    REQUIRE(laterFreshHealth.recovery.stalledFrame == 199u);
+}
+
+TEST_CASE("Netplay remote input stall monitor coalesces alternating adjacent pending stalls",
+          "[netplay][implicit-stall][monitor]")
+{
+    Netplay::RemoteInputStallMonitor monitor;
+
+    const auto firstStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 3386u, 4u);
+    REQUIRE(firstStall.newlyTracked == true);
+
+    for(int i = 0; i < 8; ++i) {
+        const auto adjacentStall = monitor.noteStall(
+            2u,
+            (i % 2) == 0 ? Netplay::kPort1PlayerSlot : Netplay::kPort2PlayerSlot,
+            (i % 2) == 0 ? 3385u : 3386u,
+            4u
+        );
+        REQUIRE(adjacentStall.newlyTracked == false);
+    }
+
+    const auto freshHealth = monitor.onPeerHealth(2u, 5u);
+    REQUIRE(freshHealth.shouldScheduleResync == true);
+    REQUIRE(freshHealth.recovery.stalledFrame == 3385u);
 }
 
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
@@ -483,6 +509,31 @@ TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
     REQUIRE(*recommendations.inputDelayFrames == 2);
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
     REQUIRE(autoSettings.snapshot().lastDecisionReason.find("Raised delay") != std::string::npos);
+}
+
+TEST_CASE("Netplay reactive auto delay respects temporary increase block",
+          "[netplay][auto-settings][delay]")
+{
+    Netplay::NetplayAutoTune autoSettings;
+    Netplay::RoomState room;
+    room.sessionId = 5;
+    room.state = Netplay::SessionState::Running;
+    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.inputDelayFrames = 1;
+    room.predictFrames = 8;
+    room.currentFrame = 900;
+    room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
+
+    auto recommendations =
+        autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+    REQUIRE_FALSE(recommendations.predictFrames.has_value());
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("blocked until frame 1500") != std::string::npos);
+
+    room.currentFrame = 1500;
+    recommendations = autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 2);
 }
 
 TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",

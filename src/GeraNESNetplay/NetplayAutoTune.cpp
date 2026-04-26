@@ -146,16 +146,19 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
 
     if(m_lastStableEvaluationFrame == 0u) {
         m_lastStableEvaluationFrame = room.currentFrame;
-        m_lastDecisionReason = "Initialized reactive delay controller";
+        if(room.currentFrame == 0u) {
+            m_lastDecisionReason = "Initialized reactive delay controller";
+            return recommendations;
+        }
+        m_stableFrameCount += room.currentFrame;
+    }
+    else if(room.currentFrame <= m_lastStableEvaluationFrame) {
         return recommendations;
     }
-
-    if(room.currentFrame <= m_lastStableEvaluationFrame) {
-        return recommendations;
+    else {
+        m_stableFrameCount += room.currentFrame - m_lastStableEvaluationFrame;
+        m_lastStableEvaluationFrame = room.currentFrame;
     }
-
-    m_stableFrameCount += room.currentFrame - m_lastStableEvaluationFrame;
-    m_lastStableEvaluationFrame = room.currentFrame;
 
     if(room.inputDelayFrames > 1u &&
        m_stableFrameCount >= kDelayDecayStableFrames) {
@@ -193,6 +196,13 @@ NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(co
     if(!shouldIncreaseDelayForResync(reason)) {
         m_lastDecisionReason =
             "Reactive tuning ignored non-pressure resync " + std::to_string(static_cast<unsigned>(reason));
+        return recommendations;
+    }
+
+    if(room.currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame) {
+        m_lastDecisionReason =
+            "Reactive delay increase blocked until frame " +
+            std::to_string(room.autoTuneDelayIncreaseBlockedUntilFrame);
         return recommendations;
     }
 
