@@ -27,7 +27,7 @@ inline void GeraNESApp::menuBar() {
                     emcriptenExportSession();
                 }
 
-                if(ImGui::MenuItem("Import")) {
+                if(ImGui::MenuItem("Import", nullptr, false, !netplayRomChangeRestricted)) {
                     emcriptenImportSession(reinterpret_cast<intptr_t>(this));
                 }
 
@@ -136,8 +136,8 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem("Reset", nullptr, false, hasRomLoaded)) {
-                m_emu.reset();
+            if(ImGui::MenuItem("Reset", nullptr, false, hasRomLoaded && !netplayClientRestricted)) {
+                resetAction();
             }
 
             ImGui::EndMenu();

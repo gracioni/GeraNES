@@ -54,22 +54,14 @@ void GeraNESApp::onLog(const std::string& msg, Logger::Type type)
 
 bool GeraNESApp::isNetplayClientRestricted() const
 {
-#ifndef __EMSCRIPTEN__
     const auto snapshot = m_netplayRuntime.menuSnapshot();
     return snapshot.inputManaged && !snapshot.hosting;
-#else
-    return false;
-#endif
 }
 
 bool GeraNESApp::isNetplayRomChangeRestricted() const
 {
-#ifndef __EMSCRIPTEN__
     const auto snapshot = m_netplayRuntime.uiSnapshot();
     return snapshot.hosting || snapshot.connected || snapshot.reconnecting;
-#else
-    return false;
-#endif
 }
 
 void GeraNESApp::notifyNetplayClientRestrictedAction(const char* action)
@@ -133,6 +125,16 @@ void GeraNESApp::togglePauseAction()
         return;
     }
     m_emu.togglePaused();
+}
+
+void GeraNESApp::resetAction()
+{
+    if(!m_emu.valid()) return;
+    if(isNetplayClientRestricted()) {
+        notifyNetplayClientRestrictedAction("Reset");
+        return;
+    }
+    m_emu.reset();
 }
 
 bool GeraNESApp::shouldSuppressRewindForNetplay() const
