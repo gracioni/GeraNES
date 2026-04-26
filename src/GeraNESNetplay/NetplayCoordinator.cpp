@@ -42,6 +42,24 @@ std::string participantLabel(const Netplay::ParticipantInfo& participant)
     return std::to_string(static_cast<int>(participant.id));
 }
 
+std::string participantDebugLabel(const Netplay::ParticipantInfo& participant)
+{
+    std::ostringstream oss;
+    oss << participantLabel(participant)
+        << "(id=" << static_cast<int>(participant.id);
+    if(participant.controllerAssignments.empty()) {
+        oss << " slot=observer";
+    } else {
+        oss << " slots=";
+        for(size_t i = 0; i < participant.controllerAssignments.size(); ++i) {
+            if(i != 0) oss << ",";
+            oss << static_cast<unsigned>(participant.controllerAssignments[i]) + 1u;
+        }
+    }
+    oss << ")";
+    return oss.str();
+}
+
 std::string controllerAssignmentToast(Netplay::PlayerSlot slot, const std::string& participantName)
 {
     return Netplay::inputAssignmentLabel(slot, Netplay::RoomState{}) + " assigned to " + participantName;
@@ -1868,6 +1886,7 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         room.stabilizationRetryIssued = false;
         if(previousMode == RecoveryInputMode::PostResyncStabilizing) {
             m_remoteInputStallMonitor.reset();
+            m_desyncMonitor.reset();
         }
     }
 
@@ -1979,8 +1998,9 @@ void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantI
     participant->lastDecision = "Implicit stall detected; waiting for peer health";
 
     std::ostringstream oss;
-    oss << "Implicit input stall detected for " << participant->displayName
+    oss << "Implicit input stall detected for " << participantDebugLabel(*participant)
         << " at frame " << frame
+        << " slot " << static_cast<unsigned>(slot) + 1u
         << "; waiting for fresh peer health before recovery resync";
     pushLog(oss.str());
 }
@@ -1993,7 +2013,7 @@ void NetplayCoordinator::clearImplicitRemoteInputStall(ParticipantId participant
     ParticipantInfo* participant = m_session.findParticipant(participantId);
     if(participant != nullptr) {
         std::ostringstream oss;
-        oss << "Implicit input stall recovered for " << participant->displayName
+        oss << "Implicit input stall recovered for " << participantDebugLabel(*participant)
             << " by input frame " << recoveredThroughFrame;
         pushLog(oss.str());
     }
@@ -2021,7 +2041,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
 
     std::ostringstream oss;
-    oss << "Fresh peer health received from " << participant.displayName
+    oss << "Fresh peer health received from " << participantDebugLabel(participant)
         << " after implicit input stall; scheduling recovery resync from frame "
         << resyncFrame
         << " classification=stall_based_recovery";
@@ -2309,6 +2329,20 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(!update.mismatchDetected) return;
 
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
+       update.frame >= m_session.roomState().recoveryModeEnteredAtFrame) {
+        std::ostringstream oss;
+        oss << "CRC mismatch observed during post-resync stabilization on frame " << update.frame;
+        if(source != nullptr && *source != '\0') {
+            oss << " via " << source;
+        }
+        oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
+            << " classification=post_resync_stabilizing_crc_mismatch"
+            << " action=ignored_for_resync_pressure";
+        pushLog(oss.str());
+        return;
+    }
+
     std::ostringstream oss;
     oss << "CRC mismatch detected on frame " << update.frame;
     if(source != nullptr && *source != '\0') {
@@ -2327,10 +2361,6 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
             pushLog("Deferred hard resync escalation while participant input recovery is in progress");
             return;
         }
-    }
-    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
-        pushLog("Deferred hard resync escalation during post-resync stabilization");
-        return;
     }
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(update.consecutiveMismatchCount < kConfirmedDesyncResyncMismatchThreshold) {
@@ -4071,8 +4101,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
 
     std::ostringstream oss;
     oss << ((reusedReconnectReservation || replacingActivePeer) ? "Participant reconnected: " : "Participant joined as observer: ")
-        << participant.displayName
-        << " (id " << static_cast<int>(participant.id) << ")";
+        << participantDebugLabel(participant);
     pushLog(oss.str());
     if(reusedReconnectReservation || !replacingActivePeer) {
         pushToast(
@@ -4175,7 +4204,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
         if(!suppressPresenceToast) {
             pushToast(participantJoinedToast(participant));
         }
-        pushLog("Participant active: " + participant.displayName + " (id " + std::to_string(static_cast<int>(participant.id)) + ")");
+        pushLog("Participant active: " + participantDebugLabel(participant));
     } else if((participant.connected != wasConnected || participant.reconnectReserved != wasReserved) &&
               participantId != m_localParticipantId) {
         if(!participant.connected && participant.reconnectReserved) {
@@ -4185,7 +4214,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
         } else {
             std::ostringstream oss;
             oss << (participant.connected ? "Participant active: " : "Participant inactive: ")
-                << participant.displayName << " (id " << static_cast<int>(participant.id) << ")";
+                << participantDebugLabel(participant);
             pushToast(oss.str());
         }
     }
@@ -4632,7 +4661,56 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         const char* channelLabel =
                             event.channel == Channel::Control ? "control" :
                             event.channel == Channel::Gameplay ? "gameplay" : "diagnostics";
-                        pushLog(std::string("Failed to handle ") + channelLabel + " packet");
+                        std::ostringstream oss;
+                        oss << "Failed to handle " << channelLabel << " packet"
+                            << " bytes " << event.payload.size();
+                        PacketReader diagnosticReader(event.payload.data(), event.payload.size());
+                        PacketHeader diagnosticHeader;
+                        if(diagnosticReader.readPod(diagnosticHeader)) {
+                            oss << " type " << messageTypeLabel(diagnosticHeader.type)
+                                << " sessionId " << diagnosticHeader.sessionId
+                                << " localSessionId " << m_session.roomState().sessionId
+                                << " protocol " << static_cast<unsigned>(diagnosticHeader.protocolVersion)
+                                << "/" << static_cast<unsigned>(kProtocolVersion);
+                            if(diagnosticHeader.type == MessageType::InputFrame) {
+                                InputFrameData input{};
+                                if(diagnosticReader.readPod(input)) {
+                                    oss << " epoch " << input.timelineEpoch
+                                        << " currentEpoch " << m_session.roomState().timelineEpoch
+                                        << " frame " << input.frame
+                                        << " seq " << input.sequence
+                                        << " participant " << static_cast<int>(input.participantId)
+                                        << " slot " << static_cast<unsigned>(input.playerSlot) + 1u;
+                                }
+                            } else if(diagnosticHeader.type == MessageType::ConfirmedInputFrames) {
+                                ConfirmedInputFramesData confirmed{};
+                                if(diagnosticReader.readPod(confirmed)) {
+                                    oss << " epoch " << confirmed.timelineEpoch
+                                        << " currentEpoch " << m_session.roomState().timelineEpoch
+                                        << " startFrame " << confirmed.startFrame
+                                        << " frameCount " << confirmed.frameCount;
+                                }
+                            } else if(diagnosticHeader.type == MessageType::FrameStatus) {
+                                FrameStatusData status{};
+                                if(diagnosticReader.readPod(status)) {
+                                    oss << " epoch " << status.timelineEpoch
+                                        << " currentEpoch " << m_session.roomState().timelineEpoch
+                                        << " currentFrame " << status.currentFrame
+                                        << " confirmedFrame " << status.lastConfirmedFrame;
+                                }
+                            } else if(diagnosticHeader.type == MessageType::CrcReport) {
+                                CrcReportData report{};
+                                if(diagnosticReader.readPod(report)) {
+                                    oss << " epoch " << report.timelineEpoch
+                                        << " currentEpoch " << m_session.roomState().timelineEpoch
+                                        << " frame " << report.frame;
+                                }
+                            }
+                        } else {
+                            oss << " reason header_decode_failed";
+                        }
+                        oss << " reason handler_rejected_or_decode_failed";
+                        pushLog(oss.str());
                     }
                 } else {
                     pushLog("Received packet on channel " + std::to_string(static_cast<int>(event.channel)) + " (" + std::to_string(event.payload.size()) + " bytes)");
@@ -5967,7 +6045,7 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
         pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
         return false;
     }
-    pushLog("Applying assignment update for " + participantLabel(*participant));
+    pushLog("Applying assignment update for " + participantDebugLabel(*participant));
     if(participantHasAssignment(*participant, slot)) return true;
 
     std::vector<ParticipantId> changedParticipants;
@@ -6045,7 +6123,7 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         pushLog("Rejected assignment update for inactive participant " + participantLabel(*participant));
         return false;
     }
-    pushLog("Applying assignment update for " + participantLabel(*participant));
+    pushLog("Applying assignment update for " + participantDebugLabel(*participant));
     if(!participantHasAssignment(*participant, slot)) return true;
 
     const FrameNumber assignmentBaselineFrame =

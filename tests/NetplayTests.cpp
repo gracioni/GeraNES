@@ -4695,6 +4695,49 @@ TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay post-resync stabilization CRC mismatch is provisional pressure",
+          "[netplay][crc][stabilization][unit]")
+{
+    Netplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 7u;
+    room.state = Netplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 240u;
+    room.lastConfirmedFrame = 240u;
+    room.recoveryInputMode = Netplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryModeEnteredAtFrame = 240u;
+
+    Netplay::CrcReportData report;
+    report.timelineEpoch = room.timelineEpoch;
+    report.frame = 241u;
+    report.crc32 = 0x22222222u;
+
+    coordinator.submitLocalCrc(241u, 0x11111111u);
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    coordinator.submitLocalCrc(242u, 0x33333333u);
+    report.frame = 242u;
+    report.crc32 = 0x44444444u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    coordinator.submitLocalCrc(243u, 0x55555555u);
+    report.frame = 243u;
+    report.crc32 = 0x66666666u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=post_resync_stabilizing_crc_mismatch"));
+    REQUIRE_FALSE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery lock and stabilization",
           "[netplay][coordinator][recovery][epoch]")
 {
