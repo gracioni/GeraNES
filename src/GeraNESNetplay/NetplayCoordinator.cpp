@@ -779,6 +779,7 @@ void NetplayCoordinator::clearReconnectAttemptState()
 {
     m_reconnectPending = false;
     m_reconnectAttemptInFlight = false;
+    m_reconnectFailureToastShown = false;
     m_reconnectSecondsRemaining = 0;
     m_nextReconnectAttempt = {};
     m_reconnectDeadline = {};
@@ -883,6 +884,7 @@ void NetplayCoordinator::scheduleReconnectAttempt()
     const auto now = std::chrono::steady_clock::now();
     if(!m_reconnectPending) {
         m_reconnectDeadline = now + m_reconnectReservationDuration;
+        m_reconnectFailureToastShown = false;
         pushLog("Connection lost; attempting automatic reconnect");
         pushToast("Reconnecting...");
     }
@@ -892,6 +894,19 @@ void NetplayCoordinator::scheduleReconnectAttempt()
     m_nextReconnectAttempt = now;
     m_reconnectSecondsRemaining = static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
     m_lastError = "Disconnected from host; reconnecting...";
+}
+
+void NetplayCoordinator::notifyReconnectFailure(const std::string& message)
+{
+    const std::string failure = message.empty() ? std::string("Failed to reconnect") : message;
+    m_lastError = failure;
+    if(m_reconnectFailureToastShown) {
+        pushLog(failure);
+        return;
+    }
+
+    m_reconnectFailureToastShown = true;
+    pushToast(failure);
 }
 
 void NetplayCoordinator::processPendingReconnect()
@@ -918,6 +933,7 @@ void NetplayCoordinator::processPendingReconnect()
     const uint16_t port = m_lastJoinPort;
     const bool pendingJoinRomLoaded = m_pendingJoinRomLoaded;
     const RomValidationData pendingJoinRomValidation = m_pendingJoinRomValidation;
+    const bool reconnectFailureToastShown = m_reconnectFailureToastShown;
     const auto reconnectDeadline = m_reconnectDeadline;
     const uint16_t reconnectSecondsRemaining = m_reconnectSecondsRemaining;
 
@@ -930,6 +946,7 @@ void NetplayCoordinator::processPendingReconnect()
     m_lastJoinPort = port;
     m_reconnectPending = true;
     m_reconnectAttemptInFlight = true;
+    m_reconnectFailureToastShown = reconnectFailureToastShown;
     m_reconnectDeadline = reconnectDeadline;
     m_reconnectSecondsRemaining = reconnectSecondsRemaining;
     m_nextReconnectAttempt = now + kReconnectRetryDelay;
@@ -937,8 +954,11 @@ void NetplayCoordinator::processPendingReconnect()
 
     if(!m_transport.connectToHost(hostName, port)) {
         m_reconnectAttemptInFlight = false;
-        m_lastError = "Failed to reconnect";
-        pushLog(m_lastError);
+        std::string failure = "Failed to reconnect";
+        if(!m_transport.lastError().empty()) {
+            failure += ": " + m_transport.lastError();
+        }
+        notifyReconnectFailure(failure);
         return;
     }
 
@@ -4827,7 +4847,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
         if(m_disconnectExpectedAfterJoinReject && !m_lastError.empty()) {
             pushLog("Transport closed after join rejection: " + transportError);
         } else {
-            m_lastError = transportError;
+            const bool reconnecting = m_reconnectPending || m_reconnectAttemptInFlight;
+            if(reconnecting) {
+                notifyReconnectFailure(transportError);
+            } else {
+                m_lastError = transportError;
+            }
             pushLog("Transport error: " + transportError);
             const std::string preservedError = m_lastError;
             completeLocalDisconnect();

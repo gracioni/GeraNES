@@ -31,6 +31,7 @@
 #include "GeraNESApp/AudioOutputBase.h"
 #include "NetplayTest.h"
 #include "TestSupport.h"
+#include "logger/logger.h"
 
 namespace
 {
@@ -346,6 +347,19 @@ bool anyJsonLogLineContains(const nlohmann::json& lines, const std::string& need
     }
     return false;
 }
+
+class UserLogCapture : public SigSlot::SigSlotBase
+{
+public:
+    void onLog(const std::string& message, Logger::Type type)
+    {
+        if(type == Logger::Type::USER) {
+            messages.push_back(message);
+        }
+    }
+
+    std::vector<std::string> messages;
+};
 }
 
 TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
@@ -2337,6 +2351,64 @@ TEST_CASE("Passive host transport loss keeps client reconnecting after reservati
     REQUIRE(client.reconnectPending());
     REQUIRE(client.reconnectSecondsRemaining() == 0u);
 
+    client.disconnect();
+}
+
+TEST_CASE("WebRTC reconnect failure shows room missing toast", "[netplay][reconnect][webrtc][unit]")
+{
+    const uint16_t port = reserveLoopbackPort();
+    LocalWebSocketSignalingServer server(port);
+
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+
+    Netplay::NetTransportOptions options;
+    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(port),
+        "room",
+        ""
+    };
+
+    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    host.setTransportOptions(options);
+    client.setTransportOptions(options);
+    client.setReconnectReservationDurationForTests(2);
+
+    UserLogCapture userLog;
+    Logger::instance().signalLog.bind(&UserLogCapture::onLog, &userLog);
+
+    REQUIRE(host.host(0, 1, "Host"));
+    REQUIRE(client.join("", 0, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 1200 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            client.localReconnectToken() != 0u;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    host.simulateTransportFailureForTests();
+
+    bool sawRoomMissingToast = false;
+    for(int step = 0; step < 1600 && !sawRoomMissingToast; ++step) {
+        client.update(5);
+        sawRoomMissingToast =
+            client.lastError() == "Room does not exist" &&
+            anyLogLineContains(userLog.messages, "Room does not exist");
+        if(!sawRoomMissingToast) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(sawRoomMissingToast);
     client.disconnect();
 }
 

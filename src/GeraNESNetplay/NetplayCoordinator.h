@@ -179,6 +179,7 @@ private:
     uint16_t m_lastJoinPort = 0;
     bool m_reconnectPending = false;
     bool m_reconnectAttemptInFlight = false;
+    bool m_reconnectFailureToastShown = false;
     bool m_awaitingReconnectInitialSync = false;
     bool m_suppressReconnectPresenceToasts = false;
     uint16_t m_reconnectSecondsRemaining = 0;
@@ -239,6 +240,7 @@ private:
     void processPendingKickDisconnects();
     void clearPendingKickDisconnect(NetTransport::PeerHandle peer);
     void scheduleReconnectAttempt();
+    void notifyReconnectFailure(const std::string& message);
     void processPendingReconnect();
     std::vector<uint8_t> buildJoinRoomPacket() const;
     std::vector<uint8_t> buildJoinRejectedPacket(JoinRejectReason reason,
