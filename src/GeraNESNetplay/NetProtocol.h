@@ -9,7 +9,7 @@
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 6;
+constexpr uint8_t kProtocolVersion = 7;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -189,6 +189,7 @@ struct AssignControllerData
 struct ParticipantLeftData
 {
     ParticipantId participantId = kInvalidParticipantId;
+    uint32_t disconnectReason = 0;
 };
 
 struct LeaveRoomData

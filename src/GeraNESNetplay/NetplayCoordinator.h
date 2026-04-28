@@ -248,7 +248,7 @@ private:
     std::vector<uint8_t> buildParticipantJoinedPacket(const ParticipantInfo& participant, uint64_t reconnectToken) const;
     std::vector<uint8_t> buildSelectRomPacket(const std::string& gameName, const RomValidationData& romValidation) const;
     std::vector<uint8_t> buildRomValidationResultPacket(const RomValidationResultData& result) const;
-    std::vector<uint8_t> buildParticipantLeftPacket(ParticipantId participantId) const;
+    std::vector<uint8_t> buildParticipantLeftPacket(ParticipantId participantId, uint32_t disconnectReason = 0) const;
     std::vector<uint8_t> buildLeaveRoomPacket(ParticipantId participantId) const;
     std::vector<uint8_t> buildResyncBeginPacket(const ResyncBeginData& data) const;
     std::vector<uint8_t> buildResyncChunkPacket(const ResyncChunkData& data, std::span<const uint8_t> payloadChunk) const;

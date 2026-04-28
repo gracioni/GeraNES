@@ -30,6 +30,7 @@ constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kClientResyncRequestCooldown = std::chrono::milliseconds(1500);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
 constexpr uint32_t kDisconnectReasonKicked = 1u;
+constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
@@ -1039,7 +1040,8 @@ std::vector<uint8_t> NetplayCoordinator::buildRomValidationResultPacket(const Ro
     return writer.data();
 }
 
-std::vector<uint8_t> NetplayCoordinator::buildParticipantLeftPacket(ParticipantId participantId) const
+std::vector<uint8_t> NetplayCoordinator::buildParticipantLeftPacket(ParticipantId participantId,
+                                                                    uint32_t disconnectReason) const
 {
     PacketWriter writer;
 
@@ -1050,6 +1052,7 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantLeftPacket(ParticipantI
 
     ParticipantLeftData data;
     data.participantId = participantId;
+    data.disconnectReason = disconnectReason;
     writer.writePod(data);
 
     return writer.data();
@@ -1832,6 +1835,34 @@ bool NetplayCoordinator::ejectParticipantForResyncFailure(ParticipantId particip
     pushLog(reason);
     if(participant->reconnectReserved) {
         (void)removeReconnectReservation(participantId);
+    } else if(participant->connected && participant->reconnectToken != 0) {
+        NetTransport::PeerHandle peer = peerFromParticipantId(participantId);
+        participant->connected = false;
+        participant->reconnectReserved = true;
+        participant->reservationSecondsRemaining =
+            static_cast<uint16_t>(std::clamp<int64_t>(m_reconnectReservationDuration.count(), 1, 65535));
+        participant->inputSuspended = !participantIsObserver(*participant);
+        participant->inputResumeAwaitingResync = false;
+        m_reconnectReservationDeadlines[participantId] =
+            std::chrono::steady_clock::now() + m_reconnectReservationDuration;
+        m_transport.broadcastReliable(Channel::Control, buildParticipantJoinedPacket(*participant, 0), peer);
+        refreshHostRoomState();
+        if(peer != NetTransport::kInvalidPeerHandle) {
+            m_transport.sendReliable(
+                peer,
+                Channel::Control,
+                buildParticipantLeftPacket(participantId, kDisconnectReasonRecoverableResyncFailure)
+            );
+            m_transport.flush();
+            m_transport.disconnectPeer(peer, kDisconnectReasonRecoverableResyncFailure);
+        }
+        pushLog(
+            "Recoverable resync failure reserved reconnect slot for participant " +
+            std::to_string(static_cast<int>(participantId))
+        );
+        if(participant->inputSuspended) {
+            synthesizeSuspendedRemoteInputsUpTo(m_localSimulationFrame);
+        }
     } else {
         (void)kickParticipant(participantId);
     }
@@ -2920,6 +2951,16 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
         m_lastError = "Owner closed the room";
         clearReconnectAttemptState();
     } else if(localParticipantKicked) {
+        if(data.disconnectReason == kDisconnectReasonRecoverableResyncFailure &&
+           m_localReconnectToken != 0 &&
+           hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
+            pushToast("Connection lost during recovery; reconnecting...");
+            pushLog("Host removed local participant after recoverable resync failure; attempting automatic reconnect");
+            m_connected = false;
+            m_session.roomState().state = SessionState::Ended;
+            scheduleReconnectAttempt();
+            return true;
+        }
         pushToast("Removed from room by host");
         m_connected = false;
         m_session.roomState().state = SessionState::Ended;
@@ -4558,6 +4599,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                         m_disconnectExpectedAfterHostShutdown = false;
                         completeLocalDisconnect(false);
                         m_lastError = preservedError;
+                    } else if(event.data == kDisconnectReasonRecoverableResyncFailure &&
+                              m_localParticipantId != kInvalidParticipantId &&
+                              m_localReconnectToken != 0 &&
+                              hasReconnectTarget(m_transport.backend(), m_transport.options(), m_lastJoinHostName, m_lastJoinPort)) {
+                        pushLog("Disconnected during host recovery; attempting automatic reconnect");
+                        scheduleReconnectAttempt();
                     } else if(event.data == kDisconnectReasonKicked) {
                         const std::string preservedError = m_lastError.empty() ? std::string("Removed from room by host") : m_lastError;
                         completeLocalDisconnect(false);
@@ -6254,7 +6301,11 @@ bool NetplayCoordinator::kickParticipant(ParticipantId participantId)
 
     removeParticipant(participantId);
     if(kickedPeer != NetTransport::kInvalidPeerHandle) {
-        m_transport.sendReliable(kickedPeer, Channel::Control, buildParticipantLeftPacket(participantId));
+        m_transport.sendReliable(
+            kickedPeer,
+            Channel::Control,
+            buildParticipantLeftPacket(participantId, kDisconnectReasonKicked)
+        );
         m_transport.flush();
         PendingKickDisconnect pending;
         pending.peer = kickedPeer;

@@ -2102,6 +2102,109 @@ TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick]
     client.disconnect();
 }
 
+TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[netplay][kick][reconnect][unit]")
+{
+    Netplay::NetplayCoordinator host;
+    Netplay::NetplayCoordinator client;
+    uint16_t port = 0;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        port = reserveLoopbackPort();
+        hosted = host.host(port, 1, "Host");
+    }
+    REQUIRE(hosted);
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != Netplay::kInvalidParticipantId &&
+            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    const Netplay::ParticipantId clientId = client.localParticipantId();
+    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
+    hostRoom.state = Netplay::SessionState::Running;
+    clientRoom.state = Netplay::SessionState::Running;
+    hostRoom.currentFrame = 500;
+    hostRoom.lastConfirmedFrame = 500;
+    clientRoom.currentFrame = 500;
+    clientRoom.lastConfirmedFrame = 500;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = Netplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+        } else {
+            participant.role = Netplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(500);
+    const std::vector<uint8_t> payload = {1u, 2u, 3u, 4u};
+    REQUIRE(host.beginResync(500u, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ConfirmedDesync));
+    REQUIRE(host.session().roomState().pendingResyncAckCount > 0u);
+
+    Netplay::ResyncAckData failedAck{};
+    failedAck.resyncId = host.session().roomState().activeResyncId;
+    failedAck.participantId = clientId;
+    failedAck.loadedFrame = 500u;
+    failedAck.crc32 = 0u;
+    failedAck.success = 0u;
+    REQUIRE(host.injectResyncAckForTests(failedAck));
+
+    const Netplay::ParticipantInfo* reserved = host.session().findParticipant(clientId);
+    REQUIRE(reserved != nullptr);
+    REQUIRE_FALSE(reserved->connected);
+    REQUIRE(reserved->reconnectReserved);
+
+    bool reconnecting = false;
+    for(int step = 0; step < 200 && !reconnecting; ++step) {
+        host.update(0);
+        client.update(0);
+        reconnecting = client.reconnectPending() || client.isConnected();
+        if(!reconnecting) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(reconnecting);
+    REQUIRE(client.lastError() != "Removed from room by host");
+    REQUIRE(anyLogLineContains(host.eventLog(), "Recoverable resync failure reserved reconnect slot"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Passive host transport loss keeps client reconnecting after reservation window",
           "[netplay][reconnect][unit]")
 {
