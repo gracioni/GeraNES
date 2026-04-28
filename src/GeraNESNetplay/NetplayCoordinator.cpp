@@ -1613,7 +1613,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         InputFrameData relayedInput = input;
         relayedInput.authoritativeFrameStartClockMicros =
             authoritativeFrameStartClockMicros(input.frame);
-        m_transport.broadcastReliable(Channel::Gameplay, buildInputFramePacket(relayedInput, inputFrame), peer);
+        m_transport.broadcastUnreliable(Channel::Gameplay, buildInputFramePacket(relayedInput, inputFrame), peer);
         publishConfirmedFramesIfReady();
     }
 
@@ -5673,7 +5673,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     if(m_hosting) {
         synthesizeSuspendedRemoteInputsUpTo(frame);
-        m_transport.broadcastReliable(Channel::Gameplay, payload);
+        m_transport.broadcastUnreliable(Channel::Gameplay, payload);
         publishConfirmedFramesIfReady();
         return;
     }
