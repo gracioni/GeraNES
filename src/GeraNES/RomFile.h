@@ -30,8 +30,11 @@ private:
     enum class Patch {NONE, IPS, UPS, BPS};
 
     // Real filesystem path used to reopen the ROM source. For direct ROMs this
-    // is the ROM file itself; for archives this is the .zip path.
+    // is the ROM file itself; for patches this is the patch file so clean-boot
+    // state loads can reapply the same effective ROM image.
     std::string m_sourcePath;
+    // Base ROM path used when loading a patch file. Empty for direct ROM files.
+    std::string m_patchBasePath;
     // Selected entry inside an archive source. Empty for direct ROM files.
     std::string m_archiveEntryPath;
     // Effective ROM filename presented to the rest of the emulator/UI.
@@ -112,12 +115,12 @@ private:
 
     bool isPatchFile(const std::string& path) {
         std::vector<std::string> patches = {".ips", ".ups", ".bps"};
-        std::string ext = fs::path(path).extension().string();
+        std::string ext = toLower(fs::path(path).extension().string());
         return std::find(patches.begin(), patches.end(), ext) != patches.end();
     }
 
     Patch getPatchType(const std::string& path) {
-        std::string ext = fs::path(path).extension().string();
+        std::string ext = toLower(fs::path(path).extension().string());
         if(ext == ".ips") return Patch::IPS;
         if(ext == ".bps") return Patch::BPS;
         if(ext == ".ups") return Patch::UPS;
@@ -138,6 +141,7 @@ public:
         bool isPatch = isPatchFile(path);
         m_error.clear();
         m_sourcePath.clear();
+        m_patchBasePath.clear();
         m_archiveEntryPath.clear();
         m_fileName.clear();
         m_data.clear();
@@ -171,8 +175,13 @@ public:
                 return false;
             }
 
-            m_fileName = basename(realRomPath);
-            m_sourcePath = realRomPath;
+            m_fileName = basename(isPatch ? path : realRomPath);
+            if(isPatch) {
+                m_sourcePath = path;
+                m_patchBasePath = realRomPath;
+            } else {
+                m_sourcePath = realRomPath;
+            }
         }
 
         if(isPatch) {
@@ -190,6 +199,7 @@ public:
     GERANES_INLINE std::string fileName() const { return m_fileName; }
     GERANES_INLINE std::string fullPath() const { return m_sourcePath; }
     GERANES_INLINE std::string sourcePath() const { return m_sourcePath; }
+    GERANES_INLINE std::string patchBasePath() const { return m_patchBasePath; }
     GERANES_INLINE std::string archiveEntryPath() const { return m_archiveEntryPath; }
     GERANES_INLINE std::string error() const { return m_error; }
     GERANES_INLINE std::string displayPath() const {
@@ -276,6 +286,9 @@ public:
         aux << "(ROM) File name: "<< fileName() << std::endl;
         if(!m_archiveEntryPath.empty()) {
             aux << "(ROM) Source archive: " << sourcePath() << std::endl;
+        } else if(!m_patchBasePath.empty()) {
+            aux << "(ROM) Source patch: " << sourcePath() << std::endl;
+            aux << "(ROM) Patch base: " << patchBasePath() << std::endl;
         } else {
             aux << "(ROM) Source path: "<< sourcePath() << std::endl;
         }

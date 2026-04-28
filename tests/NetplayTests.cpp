@@ -66,6 +66,40 @@ uint16_t reserveLoopbackPort()
     return port;
 }
 
+std::vector<uint8_t> currentRomBytes(GeraNESEmu& emu)
+{
+    Cartridge& cart = emu.getConsole().cartridge();
+    const RomFile& romFile = cart.romFile();
+    std::vector<uint8_t> data;
+    data.reserve(romFile.size());
+    for(size_t i = 0; i < romFile.size(); ++i) {
+        data.push_back(romFile.data(i));
+    }
+    return data;
+}
+
+void writeBinaryFileForTest(const std::filesystem::path& path, const std::vector<uint8_t>& data)
+{
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(static_cast<bool>(out));
+    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    REQUIRE(static_cast<bool>(out));
+}
+
+void writeSingleByteIpsPatchForTest(const std::filesystem::path& path, uint32_t offset, uint8_t value)
+{
+    std::vector<uint8_t> patch;
+    patch.insert(patch.end(), {'P', 'A', 'T', 'C', 'H'});
+    patch.push_back(static_cast<uint8_t>((offset >> 16) & 0xFFu));
+    patch.push_back(static_cast<uint8_t>((offset >> 8) & 0xFFu));
+    patch.push_back(static_cast<uint8_t>(offset & 0xFFu));
+    patch.push_back(0x00u);
+    patch.push_back(0x01u);
+    patch.push_back(value);
+    patch.insert(patch.end(), {'E', 'O', 'F'});
+    writeBinaryFileForTest(path, patch);
+}
+
 class LocalWebSocketSignalingServer
 {
 private:
@@ -5928,6 +5962,52 @@ TEST_CASE("Netplay rollback state restore preserves live audio output", "[netpla
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     REQUIRE(audio.discardQueuedAudioCalls == 0);
     REQUIRE(audio.clearAudioBuffersCalls == 0);
+}
+
+TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][state][patch]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu sourceFixture;
+    REQUIRE(sourceFixture.open(GeraNESTestSupport::romPath().string()));
+    std::vector<uint8_t> baseRom = currentRomBytes(sourceFixture);
+    REQUIRE(baseRom.size() > 32u);
+
+    const std::filesystem::path patchDir = GeraNESTestSupport::reportPath("ips_reload_fixture").parent_path();
+    const std::filesystem::path basePath = patchDir / "netplay_ips_reload_fixture.nes";
+    const std::filesystem::path patchPath = patchDir / "netplay_ips_reload_fixture.ips";
+    constexpr uint32_t patchOffset = 16u;
+    const uint8_t patchedValue = static_cast<uint8_t>(baseRom[patchOffset] ^ 0x01u);
+
+    writeBinaryFileForTest(basePath, baseRom);
+    writeSingleByteIpsPatchForTest(patchPath, patchOffset, patchedValue);
+
+    GeraNESEmu patchedSource;
+    REQUIRE(patchedSource.open(patchPath.string()));
+    REQUIRE(patchedSource.getConsole().cartridge().romFile().fullPath() == patchPath.string());
+    REQUIRE(patchedSource.getConsole().cartridge().romFile().patchBasePath() == basePath.string());
+    REQUIRE(patchedSource.getConsole().cartridge().romFile().fileCrc32() != Crc32::calc(
+        reinterpret_cast<const char*>(baseRom.data()),
+        baseRom.size()
+    ));
+
+    patchedSource.queueInputFrame(patchedSource.createInputFrame(0));
+    patchedSource.queueInputFrame(patchedSource.createInputFrame(1));
+    patchedSource.queueInputFrame(patchedSource.createInputFrame(2));
+    patchedSource.updateUntilFrame(2u);
+    REQUIRE(patchedSource.frameCount() > 0u);
+
+    const uint32_t savedFrame = patchedSource.frameCount();
+    const std::vector<uint8_t> state = patchedSource.saveNetplayStateToMemory();
+    REQUIRE_FALSE(state.empty());
+
+    GeraNESEmu cleanBoot;
+    REQUIRE(cleanBoot.open(patchPath.string()));
+    REQUIRE(cleanBoot.loadStateFromMemoryOnCleanBoot(state));
+    REQUIRE(cleanBoot.frameCount() == savedFrame);
+    REQUIRE(cleanBoot.getConsole().cartridge().romFile().fullPath() == patchPath.string());
+    REQUIRE(cleanBoot.getConsole().cartridge().romFile().fileCrc32() ==
+            patchedSource.getConsole().cartridge().romFile().fileCrc32());
 }
 
 TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitch]")
