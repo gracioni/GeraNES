@@ -1819,6 +1819,54 @@ TEST_CASE("Host-input observer sessions stay advancing on runtime and web-style 
     }
 }
 
+TEST_CASE("Late-joining assigned client remains deterministic after assignment resync",
+          "[netplay][runtime][late-join][assignment][crc][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "late-join-assigned-determinism",
+        ""
+    };
+    options.hostAssignedBeforeJoinOnly = true;
+    options.assignLateJoinClientAfterJoin = true;
+    options.frames = 80;
+    options.inputDelayFrames = 2;
+    options.predictFrames = 8;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.frameStepLimit = 40000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_late_join_assigned_determinism.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
+}
+
 TEST_CASE("Netplay web runtime keeps advancing when host and client both have inputs", "[netplay][runtime][web][regression]")
 {
     GeraNESTestSupport::requireRomFixture();

@@ -350,8 +350,15 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
                                                             uint32_t exactFrame,
                                                             uint32_t confirmedThroughFrame)
 {
-    if(!active || awaitingSync) {
+    if(!active) {
         reset();
+        return;
+    }
+    if(awaitingSync) {
+        m_inputProductionAccumulatorMs = 0.0;
+        m_lastProduceHadLocalSlots = false;
+        std::scoped_lock pendingLock(m_pendingFramesMutex);
+        m_pendingFrames.clear();
         return;
     }
     if(state != SessionState::Running) {
@@ -375,7 +382,6 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
         return;
     }
 
-    seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
     (void)dtMs;
     (void)regionFps;
 
@@ -389,6 +395,8 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     if(m_queuedThroughFrame < confirmedThroughFrame) {
         m_queuedThroughFrame = confirmedThroughFrame;
     }
+
+    seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
 
     // Produce committed local inputs using delay-only horizon.
     const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
@@ -504,8 +512,13 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
                                                                          SessionState state,
                                                                          uint32_t emulationFrame)
 {
-    if(!active || awaitingSync) {
+    if(!active) {
         reset();
+        return;
+    }
+    if(awaitingSync) {
+        std::scoped_lock pendingLock(m_pendingFramesMutex);
+        m_pendingFrames.clear();
         return;
     }
     if(state != SessionState::Running) {

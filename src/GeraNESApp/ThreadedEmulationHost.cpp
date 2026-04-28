@@ -37,6 +37,23 @@ std::optional<size_t> ThreadedEmulationHost::snapshotIndexForFrameLocked(uint32_
     return index;
 }
 
+void ThreadedEmulationHost::discardNetplaySnapshotsAfter(uint32_t frame)
+{
+    std::scoped_lock netplayLock(m_netplaySnapshotMutex);
+    while(!m_netplaySnapshots.empty() && m_netplaySnapshots.back().frame > frame) {
+        m_netplaySnapshotIndexByFrame.erase(m_netplaySnapshots.back().frame);
+        m_netplaySnapshots.pop_back();
+        if(m_netplaySnapshotNextPosition > m_netplaySnapshotHeadPosition) {
+            --m_netplaySnapshotNextPosition;
+        }
+    }
+    if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame > frame) {
+        m_hasCachedNetplayCrc = false;
+    }
+    m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
+    m_netplayDiagnostics.currentFrame = frame;
+}
+
 void ThreadedEmulationHost::onResetExecutedLocked(uint32_t frame)
 {
     std::scoped_lock eventLock(m_manualStateChangeMutex);

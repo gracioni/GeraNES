@@ -160,6 +160,7 @@ private:
     void onLoadExecutedLocked(uint32_t frame);
     void recordFrameReadyNetplayState(GeraNESEmu& emu);
     std::optional<size_t> snapshotIndexForFrame(uint32_t frame) const;
+    void discardNetplaySnapshotsAfter(uint32_t frame);
 
     enum class FramePacingMode : uint8_t
     {
@@ -270,6 +271,7 @@ public:
      override{
         dispatchQueuedCommands();
         m_emu.discardQueuedInputFramesAfter(frame);
+        discardNetplaySnapshotsAfter(frame);
     }
 
     std::vector<ManualStateChangeRecord> consumeManualStateChanges()

@@ -88,6 +88,7 @@ public:
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
+        bool assignLateJoinClientAfterJoin = false;
         bool hostMultitapAssignedBeforeJoinOnly = false;
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
@@ -792,6 +793,7 @@ private:
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
             {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
+            {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
             {"lastCheckedFrame", lastCheckedFrame},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
@@ -1496,6 +1498,7 @@ private:
             {"clientRuntimePauseDurationFrames", options.clientRuntimePauseDurationFrames},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"requireHostManualLoadDuringResync", options.requireHostManualLoadDuringResync},
+            {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
@@ -1855,6 +1858,36 @@ private:
                 cleanup();
                 return result;
             }
+
+            if(options.assignLateJoinClientAfterJoin) {
+                hostPeer.runtime.assignController(*clientId, Netplay::kPort2PlayerSlot);
+                if(!waitFor([&]() {
+                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                        const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                        const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                        if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                        const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                        const auto* clientParticipantHostView = findParticipantInRoom(hostSnap.room, *clientId);
+                        const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                        return hostParticipant != nullptr &&
+                               clientParticipantHostView != nullptr &&
+                               clientLocalParticipant != nullptr &&
+                               hostParticipant->controllerAssignment == Netplay::kPort1PlayerSlot &&
+                               clientParticipantHostView->controllerAssignment == Netplay::kPort2PlayerSlot &&
+                               clientLocalParticipant->controllerAssignment == Netplay::kPort2PlayerSlot &&
+                               hostSnap.room.state == Netplay::SessionState::Running &&
+                               clientSnap.room.state == Netplay::SessionState::Running &&
+                               hostSnap.room.activeResyncId == 0 &&
+                               clientSnap.room.activeResyncId == 0;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for late-joining client assignment and automatic post-assignment resync.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+            }
         } else if(options.hostControllerAndZapperObserverScenario) {
             hostPeer.runtime.clearControllerAssignments(*clientId);
             hostPeer.runtime.configureInputAssignments(
@@ -2180,7 +2213,9 @@ private:
                         : IEmulationHost::InputState{}
                 );
                 clientPeer.runtime.updateLatestInputState(
-                    clientRuntimePaused || options.hostAssignedBeforeJoinOnly || !clientLocalSlot.has_value()
+                    clientRuntimePaused ||
+                            (options.hostAssignedBeforeJoinOnly && !options.assignLateJoinClientAfterJoin) ||
+                            !clientLocalSlot.has_value()
                         ? IEmulationHost::InputState{}
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, effectiveClientButtons)
                 );

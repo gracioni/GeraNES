@@ -160,6 +160,7 @@ private:
     void onLoadExecutedLocked(uint32_t frame);
     void recordFrameReadyNetplayState(GeraNESEmu& emu);
     std::optional<size_t> snapshotIndexForFrameLocked(uint32_t frame) const;
+    void discardNetplaySnapshotsAfter(uint32_t frame);
 
     enum class FramePacingMode : uint8_t
     {
@@ -340,8 +341,9 @@ public:
 
     void discardQueuedNetplayInputsAfter(uint32_t frame)
     {
-        postCommand([frame](GeraNESEmu& emu) {
+        postCommand([this, frame](GeraNESEmu& emu) {
             emu.discardQueuedInputFramesAfter(frame);
+            discardNetplaySnapshotsAfter(frame);
         });
     }
 
