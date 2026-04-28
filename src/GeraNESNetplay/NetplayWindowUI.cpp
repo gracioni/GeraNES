@@ -143,10 +143,21 @@ void drawNetplayWindow(bool& showWindow,
 
     auto& cfg = AppSettings::instance().data.netplay;
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const float maxInitialHeight = viewport != nullptr ? viewport->WorkSize.y * 0.8f : 680.0f;
+    const ImVec2 workSize = viewport != nullptr ? viewport->WorkSize : ImGui::GetIO().DisplaySize;
+    const float maxInitialHeight = std::max(80.0f, workSize.y - 16.0f);
     const float estimatedInitialHeight = 610.0f;
-    ImGui::SetNextWindowSize(ImVec2(760, std::min(estimatedInitialHeight, maxInitialHeight)), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(620.0f, 420.0f), ImVec2(FLT_MAX, maxInitialHeight));
+    SetNextWindowSizeClamped(
+        ImVec2(760.0f, std::min(estimatedInitialHeight, maxInitialHeight)),
+        ImGuiCond_FirstUseEver,
+        16.0f,
+        ImVec2(160.0f, 80.0f)
+    );
+    SetNextWindowSizeConstraintsClamped(
+        ImVec2(620.0f, 420.0f),
+        ImVec2(FLT_MAX, maxInitialHeight),
+        16.0f,
+        ImVec2(160.0f, 80.0f)
+    );
     ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
     if(!ImGui::Begin("Netplay", &showWindow)) {

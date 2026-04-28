@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "imgui_include.h"
+#include "imgui_util.h"
 #include "util/sdl_util.h"
 
 #include "GeraNESApp/InputManager.h"
@@ -90,7 +91,7 @@ void PowerPadConfigWindow::update()
         }
     }
 
-    ImGui::SetNextWindowSize(ImVec2(WINDOW_WIDTH, 0.0f), ImGuiCond_Appearing);
+    SetNextWindowSizeClamped(ImVec2(WINDOW_WIDTH, 0.0f), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
     if(ImGui::Begin(m_windowTitle.c_str(), &m_show, ImGuiWindowFlags_NoResize)) {

@@ -19,7 +19,7 @@ inline void GeraNESApp::showGui()
     m_powerPadConfigWindow.update();
 
     if(m_showImprovementsWindow) {
-        ImGui::SetNextWindowSize(ImVec2(320, 0));
+        SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_NoResize)) {
@@ -57,7 +57,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showAboutWindow) {
-        ImGui::SetNextWindowSize(ImVec2(320, 0));
+        SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_NoResize)) {
@@ -81,7 +81,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showArkanoidNesConfigWindow) {
-        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Arkanoid Controller Config (NES)", &m_showArkanoidNesConfigWindow, ImGuiWindowFlags_NoResize)) {
@@ -100,7 +100,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showArkanoidFamicomConfigWindow) {
-        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Arkanoid Controller Config (Famicom)", &m_showArkanoidFamicomConfigWindow, ImGuiWindowFlags_NoResize)) {
@@ -119,7 +119,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showSnesMouseConfigWindow) {
-        ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+        SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Mouse Config", &m_showSnesMouseConfigWindow, ImGuiWindowFlags_NoResize)) {
@@ -146,7 +146,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showRomDatabaseWindow) {
-        ImGui::SetNextWindowSize(ImVec2(720, 0), ImGuiCond_Appearing);
+        SetNextWindowSizeClamped(ImVec2(720.0f, 0.0f), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         ImGui::OpenPopup("Rom Database");
     }
@@ -463,7 +463,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showErrorWindow) {
-        ImGui::SetNextWindowSize(ImVec2(320, 0));
+        SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         bool lastState = m_showErrorWindow;
@@ -495,7 +495,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showLogWindow) {
-        ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Once);
+        SetNextWindowSizeClamped(ImVec2(600.0f, 0.0f), ImGuiCond_Once);
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Log", &m_showLogWindow)) {

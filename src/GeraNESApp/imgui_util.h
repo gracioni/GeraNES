@@ -2,6 +2,7 @@
 
 #include "imgui_include.h"
 #include <algorithm>
+#include <cfloat>
 #include <unordered_map>
 
 #ifdef __cplusplus
@@ -53,6 +54,67 @@ extern "C" {
         }
         // main text on top
         drawList->AddText(font, font_size, pos, col, text);
+    }
+
+    static ImVec2 MainViewportWorkSizeOrFallback()
+    {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        if(viewport == nullptr) {
+            return ImGui::GetIO().DisplaySize;
+        }
+        return viewport->WorkSize;
+    }
+
+    static ImVec2 ClampWindowSizeToMainViewport(const ImVec2& requestedSize,
+                                                float padding = 16.0f,
+                                                const ImVec2& minimumSize = ImVec2(160.0f, 80.0f))
+    {
+        const ImVec2 workSize = MainViewportWorkSizeOrFallback();
+        const float maxWidth = std::max(minimumSize.x, workSize.x - padding);
+        const float maxHeight = std::max(minimumSize.y, workSize.y - padding);
+
+        ImVec2 size = requestedSize;
+        if(size.x > 0.0f) {
+            size.x = std::clamp(size.x, minimumSize.x, maxWidth);
+        }
+        if(size.y > 0.0f) {
+            size.y = std::clamp(size.y, minimumSize.y, maxHeight);
+        }
+        return size;
+    }
+
+    static void SetNextWindowSizeClamped(const ImVec2& requestedSize,
+                                         ImGuiCond cond = ImGuiCond_Always,
+                                         float padding = 16.0f,
+                                         const ImVec2& minimumSize = ImVec2(160.0f, 80.0f))
+    {
+        ImGui::SetNextWindowSize(
+            ClampWindowSizeToMainViewport(requestedSize, padding, minimumSize),
+            cond
+        );
+    }
+
+    static void SetNextWindowSizeConstraintsClamped(const ImVec2& requestedMin,
+                                                    const ImVec2& requestedMax,
+                                                    float padding = 16.0f,
+                                                    const ImVec2& fallbackMin = ImVec2(160.0f, 80.0f))
+    {
+        const ImVec2 workSize = MainViewportWorkSizeOrFallback();
+        const float maxAllowedX = std::max(fallbackMin.x, workSize.x - padding);
+        const float maxAllowedY = std::max(fallbackMin.y, workSize.y - padding);
+
+        ImVec2 minSize(
+            std::min(std::max(requestedMin.x, 1.0f), maxAllowedX),
+            std::min(std::max(requestedMin.y, 1.0f), maxAllowedY)
+        );
+        ImVec2 maxSize(
+            requestedMax.x >= FLT_MAX ? maxAllowedX : std::min(std::max(requestedMax.x, minSize.x), maxAllowedX),
+            requestedMax.y >= FLT_MAX ? maxAllowedY : std::min(std::max(requestedMax.y, minSize.y), maxAllowedY)
+        );
+
+        maxSize.x = std::max(maxSize.x, minSize.x);
+        maxSize.y = std::max(maxSize.y, minSize.y);
+        ImGui::SetNextWindowSizeConstraints(minSize, maxSize);
     }
 
     static void InputTextMultilineLog(const char* wrapper_id,
