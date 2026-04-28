@@ -350,6 +350,7 @@ private:
         validation.chrRomSize = static_cast<uint32_t>(std::max(0, cart.chrSize()));
         validation.chrRamSize = static_cast<uint32_t>(std::max(0, cart.chrRamSize()));
         validation.fileSize = static_cast<uint32_t>(cart.romFile().size());
+        validation.contentHash = cart.romFile().contentHash32();
         return validation;
     }
 

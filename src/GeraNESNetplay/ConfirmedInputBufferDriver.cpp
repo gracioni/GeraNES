@@ -6,6 +6,52 @@
 namespace Netplay
 {
 
+namespace {
+
+struct PadButtons
+{
+    bool a = false;
+    bool b = false;
+    bool select = false;
+    bool start = false;
+    bool up = false;
+    bool down = false;
+    bool left = false;
+    bool right = false;
+    bool x = false;
+    bool y = false;
+    bool l = false;
+    bool r = false;
+    bool up2 = false;
+    bool down2 = false;
+    bool left2 = false;
+    bool right2 = false;
+};
+
+PadButtons decodePadMask(uint64_t mask)
+{
+    PadButtons buttons;
+    buttons.a = (mask & (1ull << 0)) != 0;
+    buttons.b = (mask & (1ull << 1)) != 0;
+    buttons.select = (mask & (1ull << 2)) != 0;
+    buttons.start = (mask & (1ull << 3)) != 0;
+    buttons.up = (mask & (1ull << 4)) != 0;
+    buttons.down = (mask & (1ull << 5)) != 0;
+    buttons.left = (mask & (1ull << 6)) != 0;
+    buttons.right = (mask & (1ull << 7)) != 0;
+    buttons.x = (mask & (1ull << 8)) != 0;
+    buttons.y = (mask & (1ull << 9)) != 0;
+    buttons.l = (mask & (1ull << 10)) != 0;
+    buttons.r = (mask & (1ull << 11)) != 0;
+    buttons.up2 = (mask & (1ull << 12)) != 0;
+    buttons.down2 = (mask & (1ull << 13)) != 0;
+    buttons.left2 = (mask & (1ull << 14)) != 0;
+    buttons.right2 = (mask & (1ull << 15)) != 0;
+    return buttons;
+}
+
+} // namespace
+
 void ConfirmedInputBufferDriver::seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
                                                                const std::vector<PlayerSlot>& localSlots,
                                                                const EmulationHost::InputState& localInputState,
@@ -25,45 +71,30 @@ void ConfirmedInputBufferDriver::seedInitialPrebufferIfNeeded(NetplayCoordinator
 
 void ConfirmedInputBufferDriver::applyPadMaskToInputState(EmulationHost::InputState& state, PlayerSlot slot, uint64_t mask)
 {
-    const bool a = (mask & (1ull << 0)) != 0;
-    const bool b = (mask & (1ull << 1)) != 0;
-    const bool select = (mask & (1ull << 2)) != 0;
-    const bool start = (mask & (1ull << 3)) != 0;
-    const bool up = (mask & (1ull << 4)) != 0;
-    const bool down = (mask & (1ull << 5)) != 0;
-    const bool left = (mask & (1ull << 6)) != 0;
-    const bool right = (mask & (1ull << 7)) != 0;
-    const bool x = (mask & (1ull << 8)) != 0;
-    const bool y = (mask & (1ull << 9)) != 0;
-    const bool l = (mask & (1ull << 10)) != 0;
-    const bool r = (mask & (1ull << 11)) != 0;
-    const bool up2 = (mask & (1ull << 12)) != 0;
-    const bool down2 = (mask & (1ull << 13)) != 0;
-    const bool left2 = (mask & (1ull << 14)) != 0;
-    const bool right2 = (mask & (1ull << 15)) != 0;
+    const PadButtons buttons = decodePadMask(mask);
     switch(slot) {
         case kPort1PlayerSlot:
         case kMultitapP1PlayerSlot:
-            state.p1A = a; state.p1B = b; state.p1Select = select; state.p1Start = start;
-            state.p1Up = up; state.p1Down = down; state.p1Left = left; state.p1Right = right;
-            state.p1X = x; state.p1Y = y; state.p1L = l; state.p1R = r;
-            state.p1Up2 = up2; state.p1Down2 = down2; state.p1Left2 = left2; state.p1Right2 = right2;
+            state.p1A = buttons.a; state.p1B = buttons.b; state.p1Select = buttons.select; state.p1Start = buttons.start;
+            state.p1Up = buttons.up; state.p1Down = buttons.down; state.p1Left = buttons.left; state.p1Right = buttons.right;
+            state.p1X = buttons.x; state.p1Y = buttons.y; state.p1L = buttons.l; state.p1R = buttons.r;
+            state.p1Up2 = buttons.up2; state.p1Down2 = buttons.down2; state.p1Left2 = buttons.left2; state.p1Right2 = buttons.right2;
             break;
         case kPort2PlayerSlot:
         case kMultitapP2PlayerSlot:
-            state.p2A = a; state.p2B = b; state.p2Select = select; state.p2Start = start;
-            state.p2Up = up; state.p2Down = down; state.p2Left = left; state.p2Right = right;
-            state.p2X = x; state.p2Y = y; state.p2L = l; state.p2R = r;
-            state.p2Up2 = up2; state.p2Down2 = down2; state.p2Left2 = left2; state.p2Right2 = right2;
+            state.p2A = buttons.a; state.p2B = buttons.b; state.p2Select = buttons.select; state.p2Start = buttons.start;
+            state.p2Up = buttons.up; state.p2Down = buttons.down; state.p2Left = buttons.left; state.p2Right = buttons.right;
+            state.p2X = buttons.x; state.p2Y = buttons.y; state.p2L = buttons.l; state.p2R = buttons.r;
+            state.p2Up2 = buttons.up2; state.p2Down2 = buttons.down2; state.p2Left2 = buttons.left2; state.p2Right2 = buttons.right2;
             break;
         case kExpansionPlayerSlot:
         case kMultitapP3PlayerSlot:
-            state.p3A = a; state.p3B = b; state.p3Select = select; state.p3Start = start;
-            state.p3Up = up; state.p3Down = down; state.p3Left = left; state.p3Right = right;
+            state.p3A = buttons.a; state.p3B = buttons.b; state.p3Select = buttons.select; state.p3Start = buttons.start;
+            state.p3Up = buttons.up; state.p3Down = buttons.down; state.p3Left = buttons.left; state.p3Right = buttons.right;
             break;
         case kMultitapP4PlayerSlot:
-            state.p4A = a; state.p4B = b; state.p4Select = select; state.p4Start = start;
-            state.p4Up = up; state.p4Down = down; state.p4Left = left; state.p4Right = right;
+            state.p4A = buttons.a; state.p4B = buttons.b; state.p4Select = buttons.select; state.p4Start = buttons.start;
+            state.p4Up = buttons.up; state.p4Down = buttons.down; state.p4Left = buttons.left; state.p4Right = buttons.right;
             break;
         default:
             break;
@@ -72,46 +103,31 @@ void ConfirmedInputBufferDriver::applyPadMaskToInputState(EmulationHost::InputSt
 
 void ConfirmedInputBufferDriver::applyPadMaskToInputFrame(InputFrame& inputFrame, PlayerSlot slot, uint64_t mask)
 {
-    const bool a = (mask & (1ull << 0)) != 0;
-    const bool b = (mask & (1ull << 1)) != 0;
-    const bool select = (mask & (1ull << 2)) != 0;
-    const bool start = (mask & (1ull << 3)) != 0;
-    const bool up = (mask & (1ull << 4)) != 0;
-    const bool down = (mask & (1ull << 5)) != 0;
-    const bool left = (mask & (1ull << 6)) != 0;
-    const bool right = (mask & (1ull << 7)) != 0;
-    const bool x = (mask & (1ull << 8)) != 0;
-    const bool y = (mask & (1ull << 9)) != 0;
-    const bool l = (mask & (1ull << 10)) != 0;
-    const bool r = (mask & (1ull << 11)) != 0;
-    const bool up2 = (mask & (1ull << 12)) != 0;
-    const bool down2 = (mask & (1ull << 13)) != 0;
-    const bool left2 = (mask & (1ull << 14)) != 0;
-    const bool right2 = (mask & (1ull << 15)) != 0;
+    const PadButtons buttons = decodePadMask(mask);
 
     switch(slot) {
         case kPort1PlayerSlot:
         case kMultitapP1PlayerSlot:
-            inputFrame.p1A = a; inputFrame.p1B = b; inputFrame.p1Select = select; inputFrame.p1Start = start;
-            inputFrame.p1Up = up; inputFrame.p1Down = down; inputFrame.p1Left = left; inputFrame.p1Right = right;
-            inputFrame.p1X = x; inputFrame.p1Y = y; inputFrame.p1L = l; inputFrame.p1R = r;
-            inputFrame.vbP1Up1 = up2; inputFrame.vbP1Down1 = down2; inputFrame.vbP1Left1 = left2; inputFrame.vbP1Right1 = right2;
+            inputFrame.p1A = buttons.a; inputFrame.p1B = buttons.b; inputFrame.p1Select = buttons.select; inputFrame.p1Start = buttons.start;
+            inputFrame.p1Up = buttons.up; inputFrame.p1Down = buttons.down; inputFrame.p1Left = buttons.left; inputFrame.p1Right = buttons.right;
+            inputFrame.p1X = buttons.x; inputFrame.p1Y = buttons.y; inputFrame.p1L = buttons.l; inputFrame.p1R = buttons.r;
+            inputFrame.vbP1Up1 = buttons.up2; inputFrame.vbP1Down1 = buttons.down2; inputFrame.vbP1Left1 = buttons.left2; inputFrame.vbP1Right1 = buttons.right2;
             break;
         case kPort2PlayerSlot:
         case kMultitapP2PlayerSlot:
-            inputFrame.p2A = a; inputFrame.p2B = b; inputFrame.p2Select = select; inputFrame.p2Start = start;
-            inputFrame.p2Up = up; inputFrame.p2Down = down; inputFrame.p2Left = left; inputFrame.p2Right = right;
-            inputFrame.p2X = x; inputFrame.p2Y = y; inputFrame.p2L = l; inputFrame.p2R = r;
-            inputFrame.vbP2Up1 = up2; inputFrame.vbP2Down1 = down2; inputFrame.vbP2Left1 = left2; inputFrame.vbP2Right1 = right2;
+            inputFrame.p2A = buttons.a; inputFrame.p2B = buttons.b; inputFrame.p2Select = buttons.select; inputFrame.p2Start = buttons.start;
+            inputFrame.p2Up = buttons.up; inputFrame.p2Down = buttons.down; inputFrame.p2Left = buttons.left; inputFrame.p2Right = buttons.right;
+            inputFrame.p2X = buttons.x; inputFrame.p2Y = buttons.y; inputFrame.p2L = buttons.l; inputFrame.p2R = buttons.r;
+            inputFrame.vbP2Up1 = buttons.up2; inputFrame.vbP2Down1 = buttons.down2; inputFrame.vbP2Left1 = buttons.left2; inputFrame.vbP2Right1 = buttons.right2;
             break;
         case kExpansionPlayerSlot:
         case kMultitapP3PlayerSlot:
-            inputFrame.p3A = a; inputFrame.p3B = b; inputFrame.p3Select = select; inputFrame.p3Start = start;
-            inputFrame.p3Up = up; inputFrame.p3Down = down; inputFrame.p3Left = left; inputFrame.p3Right = right;
+            inputFrame.p3A = buttons.a; inputFrame.p3B = buttons.b; inputFrame.p3Select = buttons.select; inputFrame.p3Start = buttons.start;
+            inputFrame.p3Up = buttons.up; inputFrame.p3Down = buttons.down; inputFrame.p3Left = buttons.left; inputFrame.p3Right = buttons.right;
             break;
         case kMultitapP4PlayerSlot:
-            inputFrame.p4A = a; inputFrame.p4B = b; inputFrame.p4Select = select; inputFrame.p4Start = start;
-            inputFrame.p4Up = up; inputFrame.p4Down = down; inputFrame.p4Left = left; inputFrame.p4Right = right;
+            inputFrame.p4A = buttons.a; inputFrame.p4B = buttons.b; inputFrame.p4Select = buttons.select; inputFrame.p4Start = buttons.start;
+            inputFrame.p4Up = buttons.up; inputFrame.p4Down = buttons.down; inputFrame.p4Left = buttons.left; inputFrame.p4Right = buttons.right;
             break;
         default:
             break;

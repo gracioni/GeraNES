@@ -3854,7 +3854,8 @@ bool NetplayCoordinator::romValidationMatches(const RomValidationData& a, const 
            a.prgRomSize == b.prgRomSize &&
            a.chrRomSize == b.chrRomSize &&
            a.chrRamSize == b.chrRamSize &&
-           a.fileSize == b.fileSize;
+           a.fileSize == b.fileSize &&
+           a.contentHash == b.contentHash;
 }
 
 bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot)

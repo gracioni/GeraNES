@@ -6,6 +6,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <array>
 
 #include "util/Crc32.h"
 
@@ -42,6 +43,7 @@ private:
     uint32_t m_crc32;
     std::string m_error;
     std::vector<uint8_t> m_data;
+    std::array<uint8_t, 32> m_contentHash = {};
 
     static std::string toLower(std::string value) {
         std::transform(value.begin(), value.end(), value.begin(),
@@ -64,6 +66,37 @@ private:
         }
 
         return entries.front();
+    }
+
+    static std::array<uint8_t, 32> calcContentHash32(const std::vector<uint8_t>& data) {
+        std::array<uint8_t, 32> hash = {};
+        constexpr std::array<uint64_t, 4> offsets = {
+            1469598103934665603ull,
+            1099511628211ull,
+            7809847782465536322ull,
+            1609587929392839161ull
+        };
+        constexpr std::array<uint64_t, 4> primes = {
+            1099511628211ull,
+            14029467366897019727ull,
+            1609587929392839161ull,
+            9650029242287828579ull
+        };
+
+        for(size_t lane = 0; lane < offsets.size(); ++lane) {
+            uint64_t value = offsets[lane] ^ (static_cast<uint64_t>(data.size()) << (lane * 7u));
+            for(uint8_t byte : data) {
+                value ^= static_cast<uint64_t>(byte) + (static_cast<uint64_t>(lane) << 8u);
+                value *= primes[lane];
+                value ^= value >> 32u;
+            }
+
+            for(size_t byteIndex = 0; byteIndex < 8u; ++byteIndex) {
+                hash[(lane * 8u) + byteIndex] = static_cast<uint8_t>((value >> (byteIndex * 8u)) & 0xFFu);
+            }
+        }
+
+        return hash;
     }
 
     static const std::vector<std::string> getZpFileEntries(const std::string& filename) {
@@ -145,6 +178,7 @@ public:
         m_archiveEntryPath.clear();
         m_fileName.clear();
         m_data.clear();
+        m_contentHash = {};
 
         auto zipEntries = getZpFileEntries(path);
 
@@ -189,6 +223,7 @@ public:
         }
 
         m_crc32 = Crc32::calc((const char*)&m_data[0], m_data.size());
+        m_contentHash = calcContentHash32(m_data);
 
         log();
 
@@ -196,6 +231,7 @@ public:
     }
 
     GERANES_INLINE uint32_t fileCrc32() const { return m_crc32; }
+    GERANES_INLINE std::array<uint8_t, 32> contentHash32() const { return m_contentHash; }
     GERANES_INLINE std::string fileName() const { return m_fileName; }
     GERANES_INLINE std::string fullPath() const { return m_sourcePath; }
     GERANES_INLINE std::string sourcePath() const { return m_sourcePath; }

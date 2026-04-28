@@ -8,6 +8,20 @@
 
 namespace Netplay {
 
+namespace {
+
+std::string contentHashKey(const RomValidationData& validation)
+{
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for(uint8_t byte : validation.contentHash) {
+        oss << std::setw(2) << static_cast<unsigned>(byte);
+    }
+    return oss.str();
+}
+
+} // namespace
+
 NetplayAppRuntime::NetplayAppRuntime(IEmulationHost& emuHost)
     : m_emuHost(emuHost)
 {
@@ -35,7 +49,8 @@ std::string NetplayAppRuntime::buildRomKey(const std::optional<RomSelection>& se
            std::to_string(v.prgRomSize) + "|" +
            std::to_string(v.chrRomSize) + "|" +
            std::to_string(v.chrRamSize) + "|" +
-           std::to_string(v.fileSize);
+           std::to_string(v.fileSize) + "|" +
+           contentHashKey(v);
 }
 
 std::optional<NetplayAppRuntime::RomSelection> NetplayAppRuntime::captureCurrentRomSelection(GeraNESEmu& emu)
@@ -53,6 +68,7 @@ std::optional<NetplayAppRuntime::RomSelection> NetplayAppRuntime::captureCurrent
     selection.validation.chrRomSize = static_cast<uint32_t>(std::max(0, cart.chrSize()));
     selection.validation.chrRamSize = static_cast<uint32_t>(std::max(0, cart.chrRamSize()));
     selection.validation.fileSize = static_cast<uint32_t>(cart.romFile().size());
+    selection.validation.contentHash = cart.romFile().contentHash32();
     return selection;
 }
 
@@ -282,6 +298,7 @@ void NetplayAppRuntime::syncRomValidation(const std::optional<RomSelection>& loc
     const std::string validationKey =
         std::to_string(room.sessionId) + "|" +
         std::to_string(room.romValidation.romCrc32) + "|" +
+        contentHashKey(room.romValidation) + "|" +
         localRomKey + "|" +
         (romLoaded ? "1" : "0") + "|" +
         (romCompatible ? "1" : "0");
