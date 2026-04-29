@@ -2,9 +2,12 @@
 
 inline void GeraNESApp::render()
 {
+    m_emu.copyFramebuffer(m_framebufferUploadCopy);
+    if(m_framebufferUploadCopy.size() < PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) return;
+
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240 - 2 * m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_emu.getFramebuffer() + m_clipHeightValue * 256);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240 - 2 * m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_framebufferUploadCopy.data() + m_clipHeightValue * 256);
 }
 
 inline void GeraNESApp::paintGL()

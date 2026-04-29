@@ -239,13 +239,16 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const bool holdPresentedFramebuffer =
         m_holdPresentedFramebufferUntilFrameReady.load(std::memory_order_acquire);
     if(!holdPresentedFramebuffer && m_framebufferDirty) {
-        const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
-        std::memcpy(
-            m_framebuffers[backIndex].data(),
-            m_emu.getFramebuffer(),
-            m_framebuffers[backIndex].size() * sizeof(uint32_t)
-        );
-        m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+        {
+            std::scoped_lock framebufferLock(m_framebufferMutex);
+            const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
+            std::memcpy(
+                m_framebuffers[backIndex].data(),
+                m_emu.getFramebuffer(),
+                m_framebuffers[backIndex].size() * sizeof(uint32_t)
+            );
+            m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+        }
         m_framebufferDirty = false;
     }
 
@@ -534,6 +537,13 @@ uint32_t ThreadedEmulationHost::getRegionFPS() const
 const uint32_t* ThreadedEmulationHost::getFramebuffer() const
 {
     return m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)].data();
+}
+
+void ThreadedEmulationHost::copyFramebuffer(std::vector<uint32_t>& out) const
+{
+    std::scoped_lock framebufferLock(m_framebufferMutex);
+    const auto& framebuffer = m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)];
+    out.assign(framebuffer.begin(), framebuffer.end());
 }
 
 void ThreadedEmulationHost::beginPresentationHoldUntilNextFrameReady()

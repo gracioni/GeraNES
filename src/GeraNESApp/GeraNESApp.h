@@ -100,8 +100,10 @@ private:
     bool m_updateObjectsFlag = true;
 
     GLuint m_texture = 0;
+    std::vector<uint32_t> m_framebufferUploadCopy;
 
     bool m_fullScreen = false;
+    int m_fullScreenMode = 0;
 
     glm::mat4x4 m_mvp = glm::mat4x4(1.0f);
 
@@ -236,6 +238,10 @@ private:
         "Pixel Perfect",
         "Best Fit"
     };
+    static constexpr std::array<const char*, 2> FULLSCREEN_MODE_LABELS {
+        "Desktop",
+        "Exclusive"
+    };
 
     struct AudioChannelControl {
         std::string source;
@@ -339,6 +345,7 @@ public:
     virtual bool onEvent(SDL_Event& event) override;
 
     virtual void onWindowsTitleBarInteractionChanged(bool active) override;
+    virtual void onWindowDisplayChanged(int displayIndex) override;
 
     void mainLoop();
 

@@ -243,6 +243,26 @@ inline void GeraNESApp::menuBar() {
                     }
                 }
 
+                if (ImGui::BeginMenu("Fullscreen Mode")) {
+                    for(int i = 0; i < static_cast<int>(FULLSCREEN_MODE_LABELS.size()); ++i) {
+                        if(ImGui::MenuItem(FULLSCREEN_MODE_LABELS[static_cast<size_t>(i)], nullptr, m_fullScreenMode == i)) {
+                            m_fullScreenMode = i;
+                            AppSettings::instance().data.video.fullScreenMode = i;
+                            if(isFullScreen()) {
+                                setFullScreen(false);
+                                setFullScreen(true, m_fullScreenMode == 1);
+                                updateVSyncConfig();
+                                m_mainLoopLastCounter = SDL_GetPerformanceCounter();
+                                m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+                                m_mainLoopCounterRemainder = 0;
+                                m_presenterFrameAccumScaled = 0;
+                                m_presenterStepRemainder = 0;
+                            }
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+
                 ImGui::Separator();
                 if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
                 {

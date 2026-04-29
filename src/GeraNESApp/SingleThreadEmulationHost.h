@@ -513,6 +513,7 @@ public:
     uint32_t exactEmulationFrame() const override;
     uint32_t getRegionFPS() const override;
     const uint32_t* getFramebuffer() const override;
+    void copyFramebuffer(std::vector<uint32_t>& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
     void setPresenterLockActive(bool active) override;
     void setSimulationSuspended(bool suspended) override;

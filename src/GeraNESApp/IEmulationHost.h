@@ -278,6 +278,7 @@ public:
     virtual uint32_t exactEmulationFrame() const = 0;
     virtual uint32_t getRegionFPS() const = 0;
     virtual const uint32_t* getFramebuffer() const = 0;
+    virtual void copyFramebuffer(std::vector<uint32_t>& out) const = 0;
     virtual void beginPresentationHoldUntilNextFrameReady() = 0;
     virtual void setPresenterLockActive(bool active) = 0;
     virtual void setSimulationSuspended(bool suspended) = 0;

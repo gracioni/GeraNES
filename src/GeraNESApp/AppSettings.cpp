@@ -322,6 +322,7 @@ void AppSettings::sanitizeDefaults()
     data.video.scaleMode = std::clamp(data.video.scaleMode, 0, 3);
     data.video.pixelPerfectScale = std::clamp(data.video.pixelPerfectScale, 1, 16);
     data.video.horizontalStretch = data.video.scaleMode == 1;
+    data.video.fullScreenMode = std::clamp(data.video.fullScreenMode, 0, 1);
     data.audio.sampleRate = std::max(0, data.audio.sampleRate);
     data.audio.sampleSize = std::max(0, data.audio.sampleSize);
     data.input.sanitizeDefaults();

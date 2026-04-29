@@ -731,13 +731,20 @@ void GeraNESApp::syncSettings()
     );
     m_pixelPerfectScale = std::clamp(cfg.video.pixelPerfectScale, 1, 16);
     m_fullScreen = cfg.video.fullScreen;
+    m_fullScreenMode = std::clamp(cfg.video.fullScreenMode, 0, 1);
 }
 
 void GeraNESApp::createShortcuts()
 {
     m_shortcuts.add(ShortcutManager::Data{"fullscreen", "Fullscreen", "Alt+F", [this]() {
         m_fullScreen = !this->isFullScreen();
-        this->setFullScreen(m_fullScreen);
+        this->setFullScreen(m_fullScreen, m_fullScreenMode == 1);
+        updateVSyncConfig();
+        m_mainLoopLastCounter = SDL_GetPerformanceCounter();
+        m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+        m_mainLoopCounterRemainder = 0;
+        m_presenterFrameAccumScaled = 0;
+        m_presenterStepRemainder = 0;
         AppSettings::instance().data.video.fullScreen = m_fullScreen;
     }});
 
@@ -1479,7 +1486,7 @@ bool GeraNESApp::initGL()
     m_crossCursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
     m_sizeWECursor = SdlCursor::createSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
 
-    this->setFullScreen(m_fullScreen);
+    this->setFullScreen(m_fullScreen, m_fullScreenMode == 1);
 
     if(SDL_Init(SDL_INIT_TIMER) < 0) {
         Logger::instance().log("SDL_Init error", Logger::Type::ERROR);
@@ -1830,6 +1837,17 @@ bool GeraNESApp::onEvent(SDL_Event& event)
 void GeraNESApp::onWindowsTitleBarInteractionChanged(bool active)
 {
     m_emu.setPresenterLockActive(!active);
+}
+
+void GeraNESApp::onWindowDisplayChanged(int displayIndex)
+{
+    (void)displayIndex;
+    updateVSyncConfig();
+    m_mainLoopLastCounter = SDL_GetPerformanceCounter();
+    m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+    m_mainLoopCounterRemainder = 0;
+    m_presenterFrameAccumScaled = 0;
+    m_presenterStepRemainder = 0;
 }
 
 void GeraNESApp::mainLoop()

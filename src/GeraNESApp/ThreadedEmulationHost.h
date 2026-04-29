@@ -189,6 +189,7 @@ private:
     std::atomic<uint32_t> m_pendingPresenterTicks{0};
     std::atomic<bool> m_workerWakeRequested{false};
     std::atomic<int> m_frontFramebufferIndex{0};
+    mutable std::mutex m_framebufferMutex;
     std::atomic<bool> m_holdPresentedFramebufferUntilFrameReady{false};
     bool m_framebufferDirty = true;
     std::array<std::vector<uint32_t>, 2> m_framebuffers{
@@ -632,6 +633,7 @@ public:
     uint32_t exactEmulationFrame() const;
     uint32_t getRegionFPS() const;
     const uint32_t* getFramebuffer() const;
+    void copyFramebuffer(std::vector<uint32_t>& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
     void setPresenterLockActive(bool active);
     void setSimulationSuspended(bool suspended);

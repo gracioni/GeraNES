@@ -2,6 +2,8 @@
 
 #include "logger/logger.h"
 
+#include <algorithm>
+
 #ifdef __EMSCRIPTEN__
 SDLOpenGLWindow* instance = NULL;
 #endif
@@ -43,6 +45,18 @@ void SDLOpenGLWindow::syncDrawableSize(bool emitResizeEvent)
     SDL_PushEvent(&resizeEvent);
 }
 
+void SDLOpenGLWindow::syncDisplayIndex()
+{
+    if(m_window == NULL) return;
+
+    const int displayIndex = SDL_GetWindowDisplayIndex(m_window);
+    if(displayIndex < 0) return;
+    if(displayIndex == m_lastDisplayIndex) return;
+
+    m_lastDisplayIndex = displayIndex;
+    onWindowDisplayChanged(displayIndex);
+}
+
 void SDLOpenGLWindow::notifyWindowsTitleBarInteractionChanged()
 {
 #ifdef _WIN32
@@ -80,6 +94,7 @@ void SDLOpenGLWindow::mainLoop()
 
     // Fullscreen transitions don't always arrive as SIZE_CHANGED in SDL web.
     syncDrawableSize(true);
+    syncDisplayIndex();
 
     paintGL();
 
@@ -175,6 +190,7 @@ void SDLOpenGLWindow::nativeMoveSizeLoopStep(bool force)
     m_lastNativeMoveSizePumpTick = now;
     SDL_GL_MakeCurrent(m_window, m_context);
     syncDrawableSize(true);
+    syncDisplayIndex();
     paintGL();
     swapBuffers();
 }
@@ -255,6 +271,7 @@ bool SDLOpenGLWindow::create(const std::string& title, int x, int y, int w, int 
     SDL_GL_MakeCurrent(m_window, m_context);
 
     syncDrawableSize(false);
+    m_lastDisplayIndex = SDL_GetWindowDisplayIndex(m_window);
 
     initGL();
 
@@ -321,6 +338,11 @@ bool SDLOpenGLWindow::onEvent(SDL_Event& e)
 void SDLOpenGLWindow::onWindowsTitleBarInteractionChanged(bool active)
 {
     (void)active;
+}
+
+void SDLOpenGLWindow::onWindowDisplayChanged(int displayIndex)
+{
+    (void)displayIndex;
 }
 
 void SDLOpenGLWindow::paintGL()
@@ -406,9 +428,10 @@ bool SDLOpenGLWindow::isFullScreen()
 #endif
 }
 
-bool SDLOpenGLWindow::setFullScreen(bool state)
+bool SDLOpenGLWindow::setFullScreen(bool state, bool exclusive)
 {
 #ifdef __EMSCRIPTEN__
+    (void)exclusive;
     int requested = EM_ASM_INT({
         var desired = !!arguments[0];
 
@@ -443,8 +466,36 @@ bool SDLOpenGLWindow::setFullScreen(bool state)
 
     return requested != 0;
 #else
-    int flags = state ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
-    return SDL_SetWindowFullscreen(m_window, flags) == 0;
+    if(state) {
+        int displayIndex = SDL_GetWindowDisplayIndex(m_window);
+        if(displayIndex < 0) displayIndex = 0;
+
+        SDL_Rect displayBounds{};
+        if(SDL_GetDisplayBounds(displayIndex, &displayBounds) == 0) {
+            int windowW = 0;
+            int windowH = 0;
+            SDL_GetWindowSize(m_window, &windowW, &windowH);
+            SDL_SetWindowPosition(
+                m_window,
+                displayBounds.x + std::max(0, (displayBounds.w - windowW) / 2),
+                displayBounds.y + std::max(0, (displayBounds.h - windowH) / 2)
+            );
+        }
+
+        if(exclusive) {
+            SDL_DisplayMode mode{};
+            if(SDL_GetDesktopDisplayMode(displayIndex, &mode) == 0) {
+                SDL_SetWindowDisplayMode(m_window, &mode);
+            } else {
+                Logger::instance().log(std::string("SDL_GetDesktopDisplayMode error: ") + SDL_GetError(), Logger::Type::WARNING);
+                SDL_SetWindowDisplayMode(m_window, nullptr);
+            }
+        }
+
+        return SDL_SetWindowFullscreen(m_window, exclusive ? SDL_WINDOW_FULLSCREEN : SDL_WINDOW_FULLSCREEN_DESKTOP) == 0;
+    }
+
+    return SDL_SetWindowFullscreen(m_window, 0) == 0;
 #endif
 }
 
@@ -478,12 +529,19 @@ void SDLOpenGLWindow::setVSync(int vsync) const
 {
     if(m_context == nullptr) return;
 
-    SDL_GL_SetSwapInterval(vsync);
+    if(SDL_GL_SetSwapInterval(vsync) != 0) {
+        Logger::instance().log(std::string("SDL_GL_SetSwapInterval error: ") + SDL_GetError(), Logger::Type::WARNING);
+    }
 
     // Check if adaptive vsync was requested but not supported, and fall back
     // to regular vsync if so.
-    if(vsync == -1 && SDL_GL_GetSwapInterval() != -1)
-        SDL_GL_SetSwapInterval(1);
+    if(vsync == -1 && SDL_GL_GetSwapInterval() != -1) {
+        if(SDL_GL_SetSwapInterval(1) != 0) {
+            Logger::instance().log(std::string("SDL_GL_SetSwapInterval fallback error: ") + SDL_GetError(), Logger::Type::WARNING);
+        }
+    }
+
+    Logger::instance().log(std::string("Effective GL swap interval: ") + std::to_string(SDL_GL_GetSwapInterval()), Logger::Type::INFO);
 }
 
 int SDLOpenGLWindow::getDisplayFrameRate()

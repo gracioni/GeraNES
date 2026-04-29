@@ -38,6 +38,7 @@ private:
     bool m_quit = false;
     int m_lastDrawableW = 0;
     int m_lastDrawableH = 0;
+    int m_lastDisplayIndex = -1;
 #ifdef _WIN32
     HWND m_hwnd = nullptr;
     WNDPROC m_prevWndProc = nullptr;
@@ -51,6 +52,7 @@ private:
 
     void swapBuffers();
     void syncDrawableSize(bool emitResizeEvent);
+    void syncDisplayIndex();
     void notifyWindowsTitleBarInteractionChanged();
     void mainLoop();
 
@@ -80,6 +82,7 @@ public:
 
     virtual bool onEvent(SDL_Event& e);
     virtual void onWindowsTitleBarInteractionChanged(bool active);
+    virtual void onWindowDisplayChanged(int displayIndex);
     virtual void paintGL();
 
     virtual ~SDLOpenGLWindow();
@@ -100,7 +103,7 @@ public:
 #endif
 
     bool isFullScreen();
-    bool setFullScreen(bool state);
+    bool setFullScreen(bool state, bool exclusive = false);
 
     void minimizeWindow();
     void restoreWindow();

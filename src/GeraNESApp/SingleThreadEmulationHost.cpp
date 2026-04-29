@@ -354,6 +354,11 @@ const uint32_t* SingleThreadEmulationHost::getFramebuffer() const
     return m_presentedFramebuffer.data();
 }
 
+void SingleThreadEmulationHost::copyFramebuffer(std::vector<uint32_t>& out) const
+{
+    out = m_presentedFramebuffer;
+}
+
 void SingleThreadEmulationHost::beginPresentationHoldUntilNextFrameReady()
 {
     m_holdPresentedFramebufferUntilFrameReady = true;

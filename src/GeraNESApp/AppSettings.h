@@ -109,6 +109,7 @@ public:
         int pixelPerfectScale = 3;
         bool horizontalStretch = false;
         bool fullScreen = false;
+        int fullScreenMode = 0;
 
         friend void to_json(nlohmann::json& j, const Video& value)
         {
@@ -119,7 +120,8 @@ public:
                 {"scaleMode", value.scaleMode},
                 {"pixelPerfectScale", value.pixelPerfectScale},
                 {"horizontalStretch", value.horizontalStretch},
-                {"fullScreen", value.fullScreen}
+                {"fullScreen", value.fullScreen},
+                {"fullScreenMode", value.fullScreenMode}
             };
         }
 
@@ -142,6 +144,7 @@ public:
                 }
             }
             value.fullScreen = j.value("fullScreen", defaults.fullScreen);
+            value.fullScreenMode = j.value("fullScreenMode", defaults.fullScreenMode);
         }
     };    
 
