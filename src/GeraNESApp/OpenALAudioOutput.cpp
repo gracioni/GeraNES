@@ -60,18 +60,17 @@ OpenALAudioOutput::~OpenALAudioOutput()
 
 int OpenALAudioOutput::sampleRate()
 {
-    // OpenAL assumes a sample rate of 44100 by default
-    return 44100;
+    return m_sampleRate;
 }
 
 int OpenALAudioOutput::sampleSize()
 {
-    return 16; // OpenAL typically uses 16-bit samples
+    return m_sampleSize;
 }
 
 void OpenALAudioOutput::restart()
 {
-    config(m_currentDeviceName);
+    config(m_currentDeviceName, m_sampleRate, m_sampleSize);
 }
 
 const std::string& OpenALAudioOutput::currentDeviceName() const
@@ -91,7 +90,21 @@ std::vector<std::string> OpenALAudioOutput::getAudioList() const
     return ret;
 }
 
+IAudioOutput::AudioFormatOptions OpenALAudioOutput::getAudioFormatOptions(const std::string& deviceName) const
+{
+    (void)deviceName;
+    return AudioFormatOptions{
+        {22050, 32000, 44100, 48000, 88200, 96000},
+        {16}
+    };
+}
+
 bool OpenALAudioOutput::config(const std::string& deviceName)
+{
+    return config(deviceName, 0, 0);
+}
+
+bool OpenALAudioOutput::config(const std::string& deviceName, int requestedSampleRate, int requestedSampleSize)
 {
     turnOff();
 
@@ -117,6 +130,9 @@ bool OpenALAudioOutput::config(const std::string& deviceName)
         selectedName = "default";
     }
 
+    m_sampleRate = requestedSampleRate > 0 ? requestedSampleRate : 44100;
+    m_sampleSize = requestedSampleSize == 16 ? requestedSampleSize : 16;
+
     m_context = alcCreateContext(m_device, nullptr);
     if(!alcMakeContextCurrent(m_context))
     {
@@ -139,6 +155,16 @@ bool OpenALAudioOutput::config(const std::string& deviceName)
     initChannels(sampleRate());
 
     return true;
+}
+
+int OpenALAudioOutput::currentSampleRate() const
+{
+    return m_sampleRate;
+}
+
+int OpenALAudioOutput::currentSampleSize() const
+{
+    return m_sampleSize;
 }
 
 bool OpenALAudioOutput::init()

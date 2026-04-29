@@ -217,10 +217,14 @@ public:
     virtual void postCommand(std::function<void(GeraNESEmu&)> command) = 0;
     virtual bool open(const std::string& path) = 0;
     virtual std::vector<std::string> getAudioList() const = 0;
+    virtual IAudioOutput::AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const = 0;
     virtual std::string currentAudioDeviceName() const = 0;
+    virtual int currentAudioSampleRate() const = 0;
+    virtual int currentAudioSampleSize() const = 0;
     virtual float getAudioVolume() const = 0;
     virtual std::string getAudioChannelsJson() const = 0;
     virtual void configAudioDevice(const std::string& deviceName) = 0;
+    virtual void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize) = 0;
     virtual void restartAudio() = 0;
     virtual void discardQueuedAudio() = 0;
     virtual void discardQueuedNetplayInputsAfter(uint32_t frame) = 0;

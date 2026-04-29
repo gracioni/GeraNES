@@ -219,11 +219,17 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
 
     std::string audioDeviceName;
     std::vector<std::string> audioDevices;
+    IAudioOutput::AudioFormatOptions audioFormatOptions;
+    int audioSampleRate = 44100;
+    int audioSampleSize = 16;
     float audioVolume = 1.0f;
     std::string audioChannelsJson;
     if(refreshSlowFields) {
         audioDeviceName = m_audioOutput.currentDeviceName();
         audioDevices = m_audioOutput.getAudioList();
+        audioFormatOptions = m_audioOutput.getAudioFormatOptions(audioDeviceName);
+        audioSampleRate = m_audioOutput.currentSampleRate();
+        audioSampleSize = m_audioOutput.currentSampleSize();
         audioVolume = m_audioOutput.getVolume();
         audioChannelsJson = m_audioOutput.getAudioChannelsJson();
         m_snapshotConfigDirty = false;
@@ -272,6 +278,9 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         if(refreshSlowFields) {
             m_snapshot.audioDeviceName = std::move(audioDeviceName);
             m_snapshot.audioDevices = std::move(audioDevices);
+            m_snapshot.audioFormatOptions = std::move(audioFormatOptions);
+            m_snapshot.audioSampleRate = audioSampleRate;
+            m_snapshot.audioSampleSize = audioSampleSize;
             m_snapshot.audioVolume = audioVolume;
             m_snapshot.audioChannelsJson = std::move(audioChannelsJson);
         }

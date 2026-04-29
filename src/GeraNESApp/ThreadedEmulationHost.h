@@ -131,6 +131,9 @@ private:
         int nsfCurrentSong = 0;
         std::string audioDeviceName;
         std::vector<std::string> audioDevices;
+        IAudioOutput::AudioFormatOptions audioFormatOptions;
+        int audioSampleRate = 44100;
+        int audioSampleSize = 16;
         float audioVolume = 1.0f;
         std::string audioChannelsJson = "{\"channels\":[]}";
     };
@@ -297,10 +300,29 @@ public:
         return m_snapshot.audioDevices;
     }
 
+    IAudioOutput::AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const
+    {
+        (void)deviceName;
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.audioFormatOptions;
+    }
+
     std::string currentAudioDeviceName() const
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioDeviceName;
+    }
+
+    int currentAudioSampleRate() const
+    {
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.audioSampleRate;
+    }
+
+    int currentAudioSampleSize() const
+    {
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.audioSampleSize;
     }
 
     float getAudioVolume() const
@@ -319,6 +341,14 @@ public:
     {
         postCommand([deviceName, this](GeraNESEmu&) {
             m_audioOutput.config(deviceName);
+            m_snapshotConfigDirty = true;
+        });
+    }
+
+    void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize)
+    {
+        postCommand([deviceName, sampleRate, sampleSize, this](GeraNESEmu&) {
+            m_audioOutput.config(deviceName, sampleRate, sampleSize);
             m_snapshotConfigDirty = true;
         });
     }

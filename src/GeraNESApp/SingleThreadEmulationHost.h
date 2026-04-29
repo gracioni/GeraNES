@@ -236,9 +236,24 @@ public:
         return m_audioOutput.getAudioList();
     }
 
+    IAudioOutput::AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const override
+    {
+        return m_audioOutput.getAudioFormatOptions(deviceName);
+    }
+
     std::string currentAudioDeviceName() const override
     {
         return m_audioOutput.currentDeviceName();
+    }
+
+    int currentAudioSampleRate() const override
+    {
+        return m_audioOutput.currentSampleRate();
+    }
+
+    int currentAudioSampleSize() const override
+    {
+        return m_audioOutput.currentSampleSize();
     }
 
     float getAudioVolume() const override
@@ -254,6 +269,11 @@ public:
     void configAudioDevice(const std::string& deviceName)
      override{
         m_audioOutput.config(deviceName);
+    }
+
+    void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize)
+     override{
+        m_audioOutput.config(deviceName, sampleRate, sampleSize);
     }
 
     void restartAudio()

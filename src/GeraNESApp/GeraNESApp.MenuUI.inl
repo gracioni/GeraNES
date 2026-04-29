@@ -260,8 +260,48 @@ inline void GeraNESApp::menuBar() {
                         bool checked = m_emu.currentAudioDeviceName() == m_audioDevices[i];
 
                         if(ImGui::MenuItem(m_audioDevices[i].c_str(), nullptr, checked)) {
-                            m_emu.configAudioDevice(m_audioDevices[i]);
                             AppSettings::instance().data.audio.audioDevice = m_audioDevices[i];
+                            m_emu.configAudioDevice(
+                                m_audioDevices[i],
+                                AppSettings::instance().data.audio.sampleRate,
+                                AppSettings::instance().data.audio.sampleSize
+                            );
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+
+                const auto audioFormatOptions = m_emu.getAudioFormatOptions(m_emu.currentAudioDeviceName());
+                const int currentSampleRate = m_emu.currentAudioSampleRate();
+                const int currentSampleSize = m_emu.currentAudioSampleSize();
+
+                if(ImGui::BeginMenu("Sample Rate", !audioFormatOptions.sampleRates.empty())) {
+                    for(int rate : audioFormatOptions.sampleRates) {
+                        const std::string label = std::to_string(rate) + " Hz";
+                        const bool checked = currentSampleRate == rate;
+                        if(ImGui::MenuItem(label.c_str(), nullptr, checked)) {
+                            AppSettings::instance().data.audio.sampleRate = rate;
+                            m_emu.configAudioDevice(
+                                AppSettings::instance().data.audio.audioDevice,
+                                AppSettings::instance().data.audio.sampleRate,
+                                AppSettings::instance().data.audio.sampleSize
+                            );
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+
+                if(ImGui::BeginMenu("Sample Size", !audioFormatOptions.sampleSizes.empty())) {
+                    for(int size : audioFormatOptions.sampleSizes) {
+                        const std::string label = std::to_string(size) + "-bit";
+                        const bool checked = currentSampleSize == size;
+                        if(ImGui::MenuItem(label.c_str(), nullptr, checked)) {
+                            AppSettings::instance().data.audio.sampleSize = size;
+                            m_emu.configAudioDevice(
+                                AppSettings::instance().data.audio.audioDevice,
+                                AppSettings::instance().data.audio.sampleRate,
+                                AppSettings::instance().data.audio.sampleSize
+                            );
                         }
                     }
                     ImGui::EndMenu();

@@ -1,8 +1,10 @@
 #include "GeraNESApp/SDLAudioOutput.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "logger/logger.h"
 
@@ -69,12 +71,57 @@ std::vector<std::string> SDLAudioOutput::getAudioList() const
     return ret;
 }
 
+IAudioOutput::AudioFormatOptions SDLAudioOutput::getAudioFormatOptions(const std::string& deviceName) const
+{
+    AudioFormatOptions options;
+    auto addUnique = [](std::vector<int>& values, int value) {
+        if(value <= 0) return;
+        if(std::find(values.begin(), values.end(), value) == values.end()) values.push_back(value);
+    };
+
+    std::string selectedDeviceName = deviceName == "default" ? "" : deviceName;
+    if(selectedDeviceName.empty()) {
+        char* name = nullptr;
+        SDL_AudioSpec defaultSpec{};
+        if(SDL_GetDefaultAudioInfo(&name, &defaultSpec, 0) == 0) {
+            addUnique(options.sampleRates, defaultSpec.freq);
+            addUnique(options.sampleSizes, defaultSpec.format & 0xFF);
+        }
+        if(name) SDL_free(name);
+    } else {
+        auto deviceList = getAudioList();
+        for(int i = 0; i < static_cast<int>(deviceList.size()); ++i) {
+            if(selectedDeviceName == deviceList[i]) {
+                SDL_AudioSpec deviceSpec{};
+                if(SDL_GetAudioDeviceSpec(i, 0, &deviceSpec) == 0) {
+                    addUnique(options.sampleRates, deviceSpec.freq);
+                    addUnique(options.sampleSizes, deviceSpec.format & 0xFF);
+                }
+                break;
+            }
+        }
+    }
+
+    for(int rate : {22050, 32000, 44100, 48000, 88200, 96000}) addUnique(options.sampleRates, rate);
+    for(int size : {8, 16, 32}) addUnique(options.sampleSizes, size);
+
+    std::sort(options.sampleRates.begin(), options.sampleRates.end());
+    std::sort(options.sampleSizes.begin(), options.sampleSizes.end());
+
+    return options;
+}
+
 void SDLAudioOutput::restart()
 {
-    config(m_currentDeviceName);
+    config(m_currentDeviceName, spec.freq, spec.format & 0xFF);
 }
 
 bool SDLAudioOutput::config(const std::string& deviceName)
+{
+    return config(deviceName, 0, 0);
+}
+
+bool SDLAudioOutput::config(const std::string& deviceName, int requestedSampleRate, int requestedSampleSize)
 {
     turnOff();
 
@@ -119,12 +166,16 @@ bool SDLAudioOutput::config(const std::string& deviceName)
         preferredSpec.channels = 1;
     }
 
-    int newSampleRate = preferredSpec.freq;
+    int newSampleRate = requestedSampleRate > 0 ? requestedSampleRate : preferredSpec.freq;
     int newSampleSize = 8;
-    switch(preferredSpec.format) {
-        case AUDIO_U8: newSampleSize = 8; break;
-        case AUDIO_S16: newSampleSize = 16; break;
-        case AUDIO_S32: newSampleSize = 32; break;
+    if(requestedSampleSize > 0) {
+        newSampleSize = requestedSampleSize;
+    } else {
+        switch(preferredSpec.format) {
+            case AUDIO_U8: newSampleSize = 8; break;
+            case AUDIO_S16: newSampleSize = 16; break;
+            case AUDIO_S32: newSampleSize = 32; break;
+        }
     }
 
     spec.freq = newSampleRate;
@@ -166,6 +217,16 @@ bool SDLAudioOutput::config(const std::string& deviceName)
     initChannels(spec.freq);
 
     return true;
+}
+
+int SDLAudioOutput::currentSampleRate() const
+{
+    return sampleRate();
+}
+
+int SDLAudioOutput::currentSampleSize() const
+{
+    return sampleSize();
 }
 
 bool SDLAudioOutput::init()

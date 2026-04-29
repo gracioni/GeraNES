@@ -11,6 +11,11 @@ class IAudioOutput
     enum class Channel { Pulse_1, Pulse_2, Triangle, Noise, Sample, Expansion };
     enum class PulseChannel { Pulse_1, Pulse_2 };
 
+    struct AudioFormatOptions {
+        std::vector<int> sampleRates;
+        std::vector<int> sampleSizes;
+    };
+
     virtual bool init(){return true;}
     virtual void render(uint32_t /*dt*/, bool /*silenceFlag*/){}
 
@@ -30,8 +35,12 @@ class IAudioOutput
     virtual std::vector<float> getRecentMixedSamples(size_t /*maxSamples*/ = 0) const { return {}; }
     virtual int outputSampleRate() const { return 44100; }
     virtual std::vector<std::string> getAudioList() const { return {}; }
+    virtual AudioFormatOptions getAudioFormatOptions(const std::string& /*deviceName*/) const { return {}; }
     virtual const std::string& currentDeviceName() const { static const std::string empty; return empty; }
     virtual bool config(const std::string& /*deviceName*/) { return true; }
+    virtual bool config(const std::string& deviceName, int /*sampleRate*/, int /*sampleSize*/) { return config(deviceName); }
+    virtual int currentSampleRate() const { return outputSampleRate(); }
+    virtual int currentSampleSize() const { return 16; }
     virtual void restart() {}
     virtual void setVolume(float /*volume*/) {}
     virtual float getVolume() const { return 1.0f; }

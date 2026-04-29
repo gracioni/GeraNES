@@ -679,7 +679,7 @@ void GeraNESApp::syncSettings()
 
     auto cfg = AppSettings::instance().data;
 
-    m_emu.configAudioDevice(cfg.audio.audioDevice);
+    m_emu.configAudioDevice(cfg.audio.audioDevice, cfg.audio.sampleRate, cfg.audio.sampleSize);
     m_emu.setAudioVolume(cfg.audio.volume);
     m_audioDevices = m_emu.getAudioList();
     cfg.audio.audioDevice = m_emu.currentAudioDeviceName();

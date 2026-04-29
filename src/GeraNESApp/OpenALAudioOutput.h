@@ -25,6 +25,8 @@ private:
     std::string m_currentDeviceName = "";
     std::vector<ALshort> m_bufferData;
 
+    int m_sampleRate = 44100;
+    int m_sampleSize = 16;
     uint32_t sampleAcc = 0;
     float m_volume = 1.0f;
 
@@ -41,7 +43,11 @@ public:
     void restart() override;
     const std::string& currentDeviceName() const override;
     std::vector<std::string> getAudioList() const override;
+    AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const override;
     bool config(const std::string& deviceName) override;
+    bool config(const std::string& deviceName, int sampleRate, int sampleSize) override;
+    int currentSampleRate() const override;
+    int currentSampleSize() const override;
     bool init() override;
     void render(uint32_t dt, bool silenceFlag) override;
     void discardQueuedAudio() override;

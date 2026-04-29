@@ -35,8 +35,12 @@ public:
 
     const std::string& currentDeviceName() const override;
     std::vector<std::string> getAudioList() const override;
+    AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const override;
     void restart() override;
     bool config(const std::string& deviceName) override;
+    bool config(const std::string& deviceName, int sampleRate, int sampleSize) override;
+    int currentSampleRate() const override;
+    int currentSampleSize() const override;
     bool init() override;
     void render(uint32_t dt, bool silenceFlag) override;
     void discardQueuedAudio() override;

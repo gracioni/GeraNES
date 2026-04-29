@@ -220,9 +220,11 @@ public:
     struct Audio {
 
         std::string audioDevice = "";
+        int sampleRate = 0;
+        int sampleSize = 0;
         float volume = 0.8f;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice, volume)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Audio, audioDevice, sampleRate, sampleSize, volume)
     };
 
     struct Debug {
