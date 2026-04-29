@@ -132,14 +132,14 @@ public:
             value.horizontalStretch = j.value("horizontalStretch", defaults.horizontalStretch);
             value.scaleMode = j.value("scaleMode", value.horizontalStretch ? 1 : defaults.scaleMode);
             value.pixelPerfectScale = j.value("pixelPerfectScale", defaults.pixelPerfectScale);
-            if(!j.contains("pixelPerfectScale") && value.scaleMode >= 2 && value.scaleMode <= 7) {
-                static constexpr std::array<int, 6> oldScaleModeValues{1, 2, 3, 4, 8, 16};
-                value.pixelPerfectScale = oldScaleModeValues[static_cast<size_t>(value.scaleMode - 2)];
-                value.scaleMode = 2;
-            } else if(value.scaleMode >= 3 && value.scaleMode <= 7) {
-                value.scaleMode = 2;
-            } else if(value.scaleMode == 8) {
-                value.scaleMode = 3;
+            if(!j.contains("pixelPerfectScale")) {
+                if(value.scaleMode >= 2 && value.scaleMode <= 7) {
+                    static constexpr std::array<int, 6> oldScaleModeValues{1, 2, 3, 4, 8, 16};
+                    value.pixelPerfectScale = oldScaleModeValues[static_cast<size_t>(value.scaleMode - 2)];
+                    value.scaleMode = 2;
+                } else if(value.scaleMode == 8) {
+                    value.scaleMode = 3;
+                }
             }
             value.fullScreen = j.value("fullScreen", defaults.fullScreen);
         }

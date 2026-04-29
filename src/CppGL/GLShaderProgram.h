@@ -2,6 +2,10 @@
 
 #include "GLHeaders.h"
 
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -13,6 +17,16 @@ private:
     GLuint m_shaderProgram = 0;
     bool m_linked = false;
     std::string m_lastError;
+    std::unordered_map<std::string, GLint> m_uniformLocations;
+
+    GLint uniformLocation(const char* name) {
+        auto it = m_uniformLocations.find(name);
+        if(it != m_uniformLocations.end()) return it->second;
+
+        const GLint location = glGetUniformLocation(m_shaderProgram, name);
+        m_uniformLocations[name] = location;
+        return location;
+    }
 
 public:
 
@@ -32,6 +46,8 @@ public:
             glDeleteShader(m_programs[i]);
 
         m_programs.clear();
+        m_uniformLocations.clear();
+        m_linked = false;
 
         if(m_shaderProgram)
             glDeleteProgram(m_shaderProgram);
@@ -128,6 +144,7 @@ public:
         }
 
         m_linked = true;
+        m_uniformLocations.clear();
 
         return true;
     }
@@ -148,12 +165,7 @@ public:
         if(m_shaderProgram == 0) return false;
 
         glUseProgram(m_shaderProgram);
-
-        // Check if the shader program was successfully activated
-        GLint currentProgram;
-        glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
-
-        return static_cast<GLint>(m_shaderProgram) == currentProgram;
+        return true;
     }
 
     void release() {
@@ -161,33 +173,27 @@ public:
     }
 
     void setUniformValue(const char* name, GLint value) {
-        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniform1i(uniformLocation, value);
+        glUniform1i(uniformLocation(name), value);
     }
 
     void setUniformValue(const char* name, GLuint value) {
-        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniform1i(uniformLocation, value);
+        glUniform1i(uniformLocation(name), value);
     }
 
     void setUniformValue(const char* name, GLfloat value) {
-        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniform1f(uniformLocation, value);
+        glUniform1f(uniformLocation(name), value);
     }
 
     void setUniformValue(const char* name, const glm::vec2 value) {
-        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniform2f(uniformLocation, value[0], value[1]);
+        glUniform2f(uniformLocation(name), value[0], value[1]);
     }
 
     void setUniformValue(const char* name, const glm::vec3 value) {
-        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniform3f(uniformLocation, value[0], value[1], value[2]);
+        glUniform3f(uniformLocation(name), value[0], value[1], value[2]);
     }
 
     void setUniformValue(const char* name, const glm::mat4x4 value) {
-        GLint uniformLocation = glGetUniformLocation(m_shaderProgram, name);
-        glUniformMatrix4fv(uniformLocation, 1, GL_FALSE, glm::value_ptr(value));
+        glUniformMatrix4fv(uniformLocation(name), 1, GL_FALSE, glm::value_ptr(value));
     }
 
     const std::string& lastError() {
