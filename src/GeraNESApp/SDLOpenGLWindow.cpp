@@ -529,19 +529,36 @@ void SDLOpenGLWindow::setVSync(int vsync) const
 {
     if(m_context == nullptr) return;
 
+    bool requestedAdaptive = vsync == -1;
+    bool requestFailed = false;
     if(SDL_GL_SetSwapInterval(vsync) != 0) {
-        Logger::instance().log(std::string("SDL_GL_SetSwapInterval error: ") + SDL_GetError(), Logger::Type::WARNING);
+        requestFailed = true;
     }
 
     // Check if adaptive vsync was requested but not supported, and fall back
     // to regular vsync if so.
     if(vsync == -1 && SDL_GL_GetSwapInterval() != -1) {
         if(SDL_GL_SetSwapInterval(1) != 0) {
-            Logger::instance().log(std::string("SDL_GL_SetSwapInterval fallback error: ") + SDL_GetError(), Logger::Type::WARNING);
+            requestFailed = true;
         }
     }
 
-    Logger::instance().log(std::string("Effective GL swap interval: ") + std::to_string(SDL_GL_GetSwapInterval()), Logger::Type::INFO);
+    const int effectiveSwapInterval = SDL_GL_GetSwapInterval();
+    if(vsync == 0) {
+        Logger::instance().log("VSync disabled", Logger::Type::INFO);
+    } else if(effectiveSwapInterval == -1) {
+        Logger::instance().log("Adaptive VSync enabled", Logger::Type::INFO);
+    } else if(effectiveSwapInterval == 1) {
+        if(requestedAdaptive) {
+            Logger::instance().log("Adaptive VSync is not available; using regular VSync", Logger::Type::WARNING);
+        } else {
+            Logger::instance().log("VSync enabled", Logger::Type::INFO);
+        }
+    } else if(requestFailed) {
+        Logger::instance().log("VSync could not be enabled by the current display driver", Logger::Type::WARNING);
+    } else {
+        Logger::instance().log("VSync state could not be confirmed", Logger::Type::WARNING);
+    }
 }
 
 int SDLOpenGLWindow::getDisplayFrameRate()
