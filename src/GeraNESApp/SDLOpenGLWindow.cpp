@@ -488,9 +488,22 @@ void SDLOpenGLWindow::setVSync(int vsync) const
 
 int SDLOpenGLWindow::getDisplayFrameRate()
 {
+    int displayIndex = 0;
+    if(m_window != NULL) {
+        displayIndex = SDL_GetWindowDisplayIndex(m_window);
+        if(displayIndex < 0) {
+            Logger::instance().log(std::string("SDL_GetWindowDisplayIndex error: ") + SDL_GetError(), Logger::Type::WARNING);
+            displayIndex = 0;
+        }
+    }
+
     SDL_DisplayMode mode;
-    if(SDL_GetCurrentDisplayMode(0, &mode) != 0) {
-        Logger::instance().log(std::string("SDL_CreateWindow error: ") + SDL_GetError(), Logger::Type::ERROR);
+    if(SDL_GetCurrentDisplayMode(displayIndex, &mode) != 0) {
+        Logger::instance().log(std::string("SDL_GetCurrentDisplayMode error: ") + SDL_GetError(), Logger::Type::WARNING);
+        if(displayIndex != 0 && SDL_GetCurrentDisplayMode(0, &mode) != 0) {
+            Logger::instance().log(std::string("SDL_GetCurrentDisplayMode fallback error: ") + SDL_GetError(), Logger::Type::ERROR);
+            return 0;
+        }
     }
 
     return mode.refresh_rate;
