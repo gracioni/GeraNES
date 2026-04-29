@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <vector>
 #include <string>
@@ -104,11 +105,44 @@ public:
         int vsyncMode = 1;
         int filterMode = 0;
         std::string shaderName = "";  
+        int scaleMode = 0;
+        int pixelPerfectScale = 3;
         bool horizontalStretch = false;
         bool fullScreen = false;
-        
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Video, vsyncMode, filterMode, shaderName, horizontalStretch, fullScreen)
+        friend void to_json(nlohmann::json& j, const Video& value)
+        {
+            j = nlohmann::json{
+                {"vsyncMode", value.vsyncMode},
+                {"filterMode", value.filterMode},
+                {"shaderName", value.shaderName},
+                {"scaleMode", value.scaleMode},
+                {"pixelPerfectScale", value.pixelPerfectScale},
+                {"horizontalStretch", value.horizontalStretch},
+                {"fullScreen", value.fullScreen}
+            };
+        }
+
+        friend void from_json(const nlohmann::json& j, Video& value)
+        {
+            const Video defaults;
+            value.vsyncMode = j.value("vsyncMode", defaults.vsyncMode);
+            value.filterMode = j.value("filterMode", defaults.filterMode);
+            value.shaderName = j.value("shaderName", defaults.shaderName);
+            value.horizontalStretch = j.value("horizontalStretch", defaults.horizontalStretch);
+            value.scaleMode = j.value("scaleMode", value.horizontalStretch ? 1 : defaults.scaleMode);
+            value.pixelPerfectScale = j.value("pixelPerfectScale", defaults.pixelPerfectScale);
+            if(!j.contains("pixelPerfectScale") && value.scaleMode >= 2 && value.scaleMode <= 7) {
+                static constexpr std::array<int, 6> oldScaleModeValues{1, 2, 3, 4, 8, 16};
+                value.pixelPerfectScale = oldScaleModeValues[static_cast<size_t>(value.scaleMode - 2)];
+                value.scaleMode = 2;
+            } else if(value.scaleMode >= 3 && value.scaleMode <= 7) {
+                value.scaleMode = 2;
+            } else if(value.scaleMode == 8) {
+                value.scaleMode = 3;
+            }
+            value.fullScreen = j.value("fullScreen", defaults.fullScreen);
+        }
     };    
 
     struct TouchControls {

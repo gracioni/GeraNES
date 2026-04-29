@@ -189,16 +189,52 @@ inline void GeraNESApp::menuBar() {
                     ImGui::EndMenu();
                 }
 
-                auto sc = m_shortcuts.get("horizontalStretch");
-                if( sc != nullptr) {
+                if (ImGui::BeginMenu("Scale Mode")) {
+                    auto setScaleMode = [this](VideoScaleMode mode) {
+                        m_videoScaleMode = mode;
+                        AppSettings::instance().data.video.scaleMode = static_cast<int>(mode);
+                        AppSettings::instance().data.video.horizontalStretch = m_videoScaleMode == STRETCH_TO_FILL;
+                        m_updateObjectsFlag = true;
+                    };
 
-                    if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), m_horizontalStretch))
-                    {
-                        sc->action();
+                    if(ImGui::MenuItem(VIDEO_SCALE_MODE_LABELS[ASPECT_FIT], nullptr, m_videoScaleMode == ASPECT_FIT)) {
+                        setScaleMode(ASPECT_FIT);
                     }
+                    if(ImGui::MenuItem(VIDEO_SCALE_MODE_LABELS[STRETCH_TO_FILL], nullptr, m_videoScaleMode == STRETCH_TO_FILL)) {
+                        setScaleMode(STRETCH_TO_FILL);
+                    }
+                    if (ImGui::BeginMenu("Pixel Perfect")) {
+                        if(ImGui::MenuItem(VIDEO_SCALE_MODE_LABELS[PIXEL_PERFECT_BEST_FIT], nullptr, m_videoScaleMode == PIXEL_PERFECT_BEST_FIT)) {
+                            setScaleMode(PIXEL_PERFECT_BEST_FIT);
+                        }
+
+                        ImGui::Separator();
+
+                        ImGui::TextUnformatted("Scale");
+                        ImGui::SameLine();
+                        if(ImGui::Button("-")) {
+                            m_pixelPerfectScale = std::max(1, m_pixelPerfectScale - 1);
+                            AppSettings::instance().data.video.pixelPerfectScale = m_pixelPerfectScale;
+                            setScaleMode(PIXEL_PERFECT);
+                        }
+                        ImGui::SameLine();
+                        const std::string selectedScaleLabel = std::to_string(m_pixelPerfectScale) + "x";
+                        if(ImGui::Button(selectedScaleLabel.c_str())) {
+                            AppSettings::instance().data.video.pixelPerfectScale = m_pixelPerfectScale;
+                            setScaleMode(PIXEL_PERFECT);
+                        }
+                        ImGui::SameLine();
+                        if(ImGui::Button("+")) {
+                            m_pixelPerfectScale = std::min(16, m_pixelPerfectScale + 1);
+                            AppSettings::instance().data.video.pixelPerfectScale = m_pixelPerfectScale;
+                            setScaleMode(PIXEL_PERFECT);
+                        }
+                        ImGui::EndMenu();
+                    }
+                    ImGui::EndMenu();
                 }
 
-                sc = m_shortcuts.get("fullscreen");
+                auto sc = m_shortcuts.get("fullscreen");
                 if( sc != nullptr) {
 
                     if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), isFullScreen()))

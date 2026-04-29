@@ -319,6 +319,9 @@ void AppSettings::sanitizeDefaults()
        static_cast<int>(data.input.touchControls.target) > static_cast<int>(TouchControlsTarget::MultitapP4)) {
         data.input.touchControls.target = TouchControlsTarget::Port1Controller;
     }
+    data.video.scaleMode = std::clamp(data.video.scaleMode, 0, 3);
+    data.video.pixelPerfectScale = std::clamp(data.video.pixelPerfectScale, 1, 16);
+    data.video.horizontalStretch = data.video.scaleMode == 1;
     data.input.sanitizeDefaults();
     data.sanitizeDefaults();
 }

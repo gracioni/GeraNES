@@ -90,7 +90,6 @@ private:
 
     std::vector<std::string> m_audioDevices;
 
-    bool m_horizontalStretch = false;
     int m_clipHeightValue = 8;
 
     GLVertexArrayObject m_vao;
@@ -129,6 +128,15 @@ private:
 
     enum FilterMode {NEAREST, BILINEAR};
     FilterMode m_filterMode = NEAREST;
+
+    enum VideoScaleMode {
+        ASPECT_FIT,
+        STRETCH_TO_FILL,
+        PIXEL_PERFECT,
+        PIXEL_PERFECT_BEST_FIT
+    };
+    VideoScaleMode m_videoScaleMode = ASPECT_FIT;
+    int m_pixelPerfectScale = 3;
 
     bool m_showImprovementsWindow = false;
     bool m_showAboutWindow = false;
@@ -222,6 +230,12 @@ private:
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
+    static constexpr std::array<const char*, 4> VIDEO_SCALE_MODE_LABELS {
+        "Aspect Fit",
+        "Stretch to Fill",
+        "Pixel Perfect",
+        "Best Fit"
+    };
 
     struct AudioChannelControl {
         std::string source;

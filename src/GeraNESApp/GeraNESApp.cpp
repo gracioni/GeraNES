@@ -726,7 +726,10 @@ void GeraNESApp::syncSettings()
 
     m_vsyncMode = static_cast<VSyncMode>(cfg.video.vsyncMode);
     m_filterMode = static_cast<FilterMode>(cfg.video.filterMode);
-    m_horizontalStretch = cfg.video.horizontalStretch;
+    m_videoScaleMode = static_cast<VideoScaleMode>(
+        std::clamp(cfg.video.scaleMode, static_cast<int>(ASPECT_FIT), static_cast<int>(PIXEL_PERFECT_BEST_FIT))
+    );
+    m_pixelPerfectScale = std::clamp(cfg.video.pixelPerfectScale, 1, 16);
     m_fullScreen = cfg.video.fullScreen;
 }
 
@@ -752,9 +755,10 @@ void GeraNESApp::createShortcuts()
     }});
 #endif
 
-    m_shortcuts.add(ShortcutManager::Data{"horizontalStretch", "Horizontal Stretch", "Alt+H", [this]() {
-        m_horizontalStretch = !m_horizontalStretch;
-        AppSettings::instance().data.video.horizontalStretch = m_horizontalStretch;
+    m_shortcuts.add(ShortcutManager::Data{"horizontalStretch", "Stretch to Fill", "Alt+H", [this]() {
+        m_videoScaleMode = m_videoScaleMode == STRETCH_TO_FILL ? ASPECT_FIT : STRETCH_TO_FILL;
+        AppSettings::instance().data.video.scaleMode = static_cast<int>(m_videoScaleMode);
+        AppSettings::instance().data.video.horizontalStretch = m_videoScaleMode == STRETCH_TO_FILL;
         m_updateObjectsFlag = true;
     }});
 
@@ -1659,50 +1663,61 @@ void GeraNESApp::updateBuffers()
         data[base + 3u] = v;
     };
     SDL_Rect clientArea = {0, m_menuBarHeight, this->width(), std::max(0, this->height() - m_menuBarHeight)};
+    const GLfloat sourceWidth = static_cast<GLfloat>(PPU::SCREEN_WIDTH);
+    const GLfloat sourceHeight = static_cast<GLfloat>(PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
+    GLfloat drawWidth = 0.0f;
+    GLfloat drawHeight = 0.0f;
 
-    if(this->width() / 256.0 >= this->height() / (240.0 - 2 * m_clipHeightValue)) {
-        GLfloat drawWidth = m_horizontalStretch ? clientArea.w : 256.0 / (240.0 - 2 * m_clipHeightValue) * clientArea.h;
-        GLfloat offsetX = (clientArea.w - drawWidth) / 2.0;
+    auto pixelPerfectScale = [this, &clientArea](int fixedScale) {
+        if(fixedScale > 0) return fixedScale;
+        const int maxScaleX = clientArea.w / PPU::SCREEN_WIDTH;
+        const int maxScaleY = clientArea.h / (PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
+        return std::max(1, std::min(maxScaleX, maxScaleY));
+    };
 
-        m_nesScreenRect.min = glm::vec2(clientArea.x + offsetX, clientArea.y);
-        m_nesScreenRect.max = glm::vec2(m_nesScreenRect.min.x + drawWidth, m_nesScreenRect.min.y + clientArea.h);
-
-        setVertex(0u, clientArea.x + offsetX, clientArea.y, 0.0f, m_clipHeightValue / 256.0f);
-        setVertex(1u,
-                  clientArea.x + offsetX,
-                  clientArea.y + clientArea.h,
-                  0.0f,
-                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
-        setVertex(2u, clientArea.x + offsetX + drawWidth, clientArea.y, 1.0f, m_clipHeightValue / 256.0f);
-        setVertex(3u,
-                  clientArea.x + offsetX + drawWidth,
-                  clientArea.y + clientArea.h,
-                  1.0f,
-                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
-    } else {
-        GLfloat drawHeight = (240.0 - 2 * m_clipHeightValue) / 256.0 * clientArea.w;
-        GLfloat offsetY = (clientArea.h - drawHeight) / 2.0;
-
-        m_nesScreenRect.min = glm::vec2(clientArea.x, clientArea.y + offsetY);
-        m_nesScreenRect.max = glm::vec2(m_nesScreenRect.min.x + clientArea.w, m_nesScreenRect.min.y + drawHeight);
-
-        setVertex(0u, clientArea.x, clientArea.y + offsetY, 0.0f, m_clipHeightValue / 256.0f);
-        setVertex(1u,
-                  clientArea.x,
-                  clientArea.y + offsetY + drawHeight,
-                  0.0f,
-                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
-        setVertex(2u,
-                  clientArea.x + clientArea.w,
-                  clientArea.y + offsetY,
-                  1.0f,
-                  m_clipHeightValue / 256.0f);
-        setVertex(3u,
-                  clientArea.x + clientArea.w,
-                  clientArea.y + offsetY + drawHeight,
-                  1.0f,
-                  240.0f / 256.0f - m_clipHeightValue / 256.0f);
+    switch(m_videoScaleMode) {
+        case ASPECT_FIT:
+            if(clientArea.w / sourceWidth >= clientArea.h / sourceHeight) {
+                drawHeight = static_cast<GLfloat>(clientArea.h);
+                drawWidth = sourceWidth / sourceHeight * drawHeight;
+            } else {
+                drawWidth = static_cast<GLfloat>(clientArea.w);
+                drawHeight = sourceHeight / sourceWidth * drawWidth;
+            }
+            break;
+        case STRETCH_TO_FILL:
+            if(clientArea.w / sourceWidth >= clientArea.h / sourceHeight) {
+                drawWidth = static_cast<GLfloat>(clientArea.w);
+                drawHeight = static_cast<GLfloat>(clientArea.h);
+            } else {
+                drawWidth = static_cast<GLfloat>(clientArea.w);
+                drawHeight = sourceHeight / sourceWidth * drawWidth;
+            }
+            break;
+        case PIXEL_PERFECT:
+        case PIXEL_PERFECT_BEST_FIT: {
+            const int fixedScale = m_videoScaleMode == PIXEL_PERFECT ? m_pixelPerfectScale : 0;
+            const int scale = pixelPerfectScale(fixedScale);
+            drawWidth = sourceWidth * scale;
+            drawHeight = sourceHeight * scale;
+            break;
+        }
     }
+
+    const GLfloat offsetX = (clientArea.w - drawWidth) / 2.0f;
+    const GLfloat offsetY = (clientArea.h - drawHeight) / 2.0f;
+    const GLfloat minX = clientArea.x + offsetX;
+    const GLfloat minY = clientArea.y + offsetY;
+    const GLfloat maxX = minX + drawWidth;
+    const GLfloat maxY = minY + drawHeight;
+
+    m_nesScreenRect.min = glm::vec2(minX, minY);
+    m_nesScreenRect.max = glm::vec2(maxX, maxY);
+
+    setVertex(0u, minX, minY, 0.0f, m_clipHeightValue / 256.0f);
+    setVertex(1u, minX, maxY, 0.0f, 240.0f / 256.0f - m_clipHeightValue / 256.0f);
+    setVertex(2u, maxX, minY, 1.0f, m_clipHeightValue / 256.0f);
+    setVertex(3u, maxX, maxY, 1.0f, 240.0f / 256.0f - m_clipHeightValue / 256.0f);
 
     m_vbo.bind();
     if(static_cast<size_t>(m_vbo.size()) != sizeof(data)) {
