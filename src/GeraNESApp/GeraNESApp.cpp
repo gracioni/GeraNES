@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdlib>
 #include <fstream>
+#include <cmath>
 
 void GeraNESApp::updateMVP()
 {
@@ -1670,15 +1671,24 @@ void GeraNESApp::updateBuffers()
         data[base + 3u] = v;
     };
     SDL_Rect clientArea = {0, m_menuBarHeight, this->width(), std::max(0, this->height() - m_menuBarHeight)};
+    int drawableW = 0;
+    int drawableH = 0;
+    SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
+    const GLfloat drawableScaleX = this->width() > 0 ? static_cast<GLfloat>(drawableW) / static_cast<GLfloat>(this->width()) : 1.0f;
+    const GLfloat drawableScaleY = this->height() > 0 ? static_cast<GLfloat>(drawableH) / static_cast<GLfloat>(this->height()) : 1.0f;
+    const int clientDrawableX = static_cast<int>(std::round(clientArea.x * drawableScaleX));
+    const int clientDrawableY = static_cast<int>(std::round(clientArea.y * drawableScaleY));
+    const int clientDrawableW = std::max(0, static_cast<int>(std::round(clientArea.w * drawableScaleX)));
+    const int clientDrawableH = std::max(0, static_cast<int>(std::round(clientArea.h * drawableScaleY)));
     const GLfloat sourceWidth = static_cast<GLfloat>(PPU::SCREEN_WIDTH);
     const GLfloat sourceHeight = static_cast<GLfloat>(PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
     GLfloat drawWidth = 0.0f;
     GLfloat drawHeight = 0.0f;
 
-    auto pixelPerfectScale = [this, &clientArea](int fixedScale) {
+    auto pixelPerfectScale = [this, clientDrawableW, clientDrawableH](int fixedScale) {
         if(fixedScale > 0) return fixedScale;
-        const int maxScaleX = clientArea.w / PPU::SCREEN_WIDTH;
-        const int maxScaleY = clientArea.h / (PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
+        const int maxScaleX = clientDrawableW / PPU::SCREEN_WIDTH;
+        const int maxScaleY = clientDrawableH / (PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
         return std::max(1, std::min(maxScaleX, maxScaleY));
     };
 
@@ -1705,18 +1715,27 @@ void GeraNESApp::updateBuffers()
         case PIXEL_PERFECT_BEST_FIT: {
             const int fixedScale = m_videoScaleMode == PIXEL_PERFECT ? m_pixelPerfectScale : 0;
             const int scale = pixelPerfectScale(fixedScale);
-            drawWidth = sourceWidth * scale;
-            drawHeight = sourceHeight * scale;
+            drawWidth = sourceWidth * static_cast<GLfloat>(scale) / drawableScaleX;
+            drawHeight = sourceHeight * static_cast<GLfloat>(scale) / drawableScaleY;
             break;
         }
     }
 
-    const GLfloat offsetX = (clientArea.w - drawWidth) / 2.0f;
-    const GLfloat offsetY = (clientArea.h - drawHeight) / 2.0f;
-    const GLfloat minX = clientArea.x + offsetX;
-    const GLfloat minY = clientArea.y + offsetY;
-    const GLfloat maxX = minX + drawWidth;
-    const GLfloat maxY = minY + drawHeight;
+    GLfloat minX = clientArea.x + (clientArea.w - drawWidth) / 2.0f;
+    GLfloat minY = clientArea.y + (clientArea.h - drawHeight) / 2.0f;
+    GLfloat maxX = minX + drawWidth;
+    GLfloat maxY = minY + drawHeight;
+
+    if(m_videoScaleMode == PIXEL_PERFECT || m_videoScaleMode == PIXEL_PERFECT_BEST_FIT) {
+        const int minDrawableX = clientDrawableX + (clientDrawableW - static_cast<int>(std::round(drawWidth * drawableScaleX))) / 2;
+        const int minDrawableY = clientDrawableY + (clientDrawableH - static_cast<int>(std::round(drawHeight * drawableScaleY))) / 2;
+        const int maxDrawableX = minDrawableX + static_cast<int>(std::round(drawWidth * drawableScaleX));
+        const int maxDrawableY = minDrawableY + static_cast<int>(std::round(drawHeight * drawableScaleY));
+        minX = static_cast<GLfloat>(minDrawableX) / drawableScaleX;
+        minY = static_cast<GLfloat>(minDrawableY) / drawableScaleY;
+        maxX = static_cast<GLfloat>(maxDrawableX) / drawableScaleX;
+        maxY = static_cast<GLfloat>(maxDrawableY) / drawableScaleY;
+    }
 
     m_nesScreenRect.min = glm::vec2(minX, minY);
     m_nesScreenRect.max = glm::vec2(maxX, maxY);
