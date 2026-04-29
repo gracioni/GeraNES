@@ -2,6 +2,7 @@
 
 inline void GeraNESApp::render()
 {
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240 - 2 * m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_emu.getFramebuffer() + m_clipHeightValue * 256);
 }
@@ -41,15 +42,20 @@ inline void GeraNESApp::paintGL()
        true
 #endif
     ) {
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
         if(m_shaderProgram.bind()) {
+            int drawableW = 0;
+            int drawableH = 0;
+            SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
+
             m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
             m_shaderProgram.setUniformValue("Texture", 0);
 
             m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
             m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
-            m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)width(), (float)height()));
+            m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)drawableW, (float)drawableH));
             m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256, 256));
             m_shaderProgram.setUniformValue("InputSize", glm::vec2(256, 256));
 
