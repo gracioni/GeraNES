@@ -7,6 +7,9 @@
 
 #include "Serialization.h"
 
+#include <array>
+#include <algorithm>
+
 const int VBLANK_CYCLE = 1;
 
 //0xAABBGGRR
@@ -76,6 +79,7 @@ private:
 
     uint32_t m_framebuffer[SCREEN_WIDTH*SCREEN_HEIGHT];
     uint32_t m_framebufferFriendly[SCREEN_WIDTH*SCREEN_HEIGHT];
+    std::array<uint32_t, 64> m_colorPalette = {};
 
     uint8_t m_currentPixelColorIndex;
 
@@ -596,7 +600,18 @@ public:
 
     PPU(Settings& settings, Cartridge& cartridge) : m_settings(settings), m_cartridge(cartridge)
     {
+        std::copy(std::begin(NES_PALETTE), std::end(NES_PALETTE), m_colorPalette.begin());
         init();
+    }
+
+    void setColorPalette(const std::array<uint32_t, 64>& palette)
+    {
+        m_colorPalette = palette;
+    }
+
+    const std::array<uint32_t, 64>& colorPalette() const
+    {
+        return m_colorPalette;
     }
 
     void init()
@@ -1771,7 +1786,7 @@ yyy NN YYYYY XXXXX
             break;
         }
 
-        uint32_t color = NES_PALETTE[index];
+        uint32_t color = m_colorPalette[index];
 
         if(m_colorEmphasis != 0) color =  getEmphasisColor(color);
         if(m_monochromeDisplay) color = getMonochromeColor(color);

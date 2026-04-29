@@ -110,6 +110,7 @@ public:
         bool horizontalStretch = false;
         bool fullScreen = false;
         int fullScreenMode = 0;
+        std::string paletteName = "";
 
         friend void to_json(nlohmann::json& j, const Video& value)
         {
@@ -121,7 +122,8 @@ public:
                 {"pixelPerfectScale", value.pixelPerfectScale},
                 {"horizontalStretch", value.horizontalStretch},
                 {"fullScreen", value.fullScreen},
-                {"fullScreenMode", value.fullScreenMode}
+                {"fullScreenMode", value.fullScreenMode},
+                {"paletteName", value.paletteName}
             };
         }
 
@@ -145,6 +147,7 @@ public:
             }
             value.fullScreen = j.value("fullScreen", defaults.fullScreen);
             value.fullScreenMode = j.value("fullScreenMode", defaults.fullScreenMode);
+            value.paletteName = j.value("paletteName", defaults.paletteName);
         }
     };    
 

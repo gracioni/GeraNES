@@ -4,8 +4,11 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <cctype>
 #include <fstream>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 
 void GeraNESApp::updateMVP()
 {
@@ -873,6 +876,15 @@ GeraNESApp::GeraNESApp()
     syncSettings();
     createShortcuts();
     loadShaderList();
+    loadPaletteList();
+    const std::string configuredPalette = AppSettings::instance().data.video.paletteName;
+    auto paletteIt = std::find_if(m_paletteList.begin(), m_paletteList.end(), [&configuredPalette](const PaletteItem& item) {
+        return item.name == configuredPalette || (configuredPalette.empty() && item.builtIn);
+    });
+    if(paletteIt == m_paletteList.end()) paletteIt = m_paletteList.begin();
+    if(paletteIt != m_paletteList.end()) {
+        applyPalette(paletteIt->colors, paletteIt->name);
+    }
 
 #ifdef __EMSCRIPTEN__
     emcriptenRegisterVisibilityHandler(reinterpret_cast<intptr_t>(this));
@@ -897,6 +909,173 @@ void GeraNESApp::loadShaderList()
     std::sort(shaderList.begin(), shaderList.end(), [](const ShaderItem& a, const ShaderItem& b) {
         return a.label < b.label;
     });
+}
+
+namespace
+{
+    fs::path palettesDirectory()
+    {
+        return AppSettings::storageDirectory() / "palettes";
+    }
+
+    std::string paletteColorToHex(uint32_t color)
+    {
+        std::ostringstream out;
+        out << "#"
+            << std::uppercase << std::hex << std::setfill('0')
+            << std::setw(2) << (color & 0xFF)
+            << std::setw(2) << ((color >> 8) & 0xFF)
+            << std::setw(2) << ((color >> 16) & 0xFF);
+        return out.str();
+    }
+
+    bool paletteColorFromHex(const std::string& text, uint32_t& outColor)
+    {
+        std::string hex = text;
+        if(!hex.empty() && hex[0] == '#') hex.erase(hex.begin());
+        if(hex.size() != 6) return false;
+
+        char* end = nullptr;
+        const unsigned long value = std::strtoul(hex.c_str(), &end, 16);
+        if(end == hex.c_str() || (end != nullptr && *end != '\0')) return false;
+
+        const uint32_t r = value >> 16;
+        const uint32_t g = (value >> 8) & 0xFF;
+        const uint32_t b = value & 0xFF;
+        outColor = 0xFF000000u | r | (g << 8) | (b << 16);
+        return true;
+    }
+
+    fs::path palettePathForName(const std::string& name)
+    {
+        std::string safeName;
+        for(char c : name) {
+            if(std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') {
+                safeName += c;
+            } else if(c == ' ') {
+                safeName += '_';
+            }
+        }
+        if(safeName.empty()) safeName = "palette";
+        return palettesDirectory() / (safeName + ".json");
+    }
+}
+
+void GeraNESApp::loadPaletteList()
+{
+    m_paletteList.clear();
+
+    PaletteItem defaultPalette;
+    defaultPalette.name = "Default";
+    defaultPalette.builtIn = true;
+    std::copy(std::begin(NES_PALETTE), std::end(NES_PALETTE), defaultPalette.colors.begin());
+    m_paletteList.push_back(defaultPalette);
+
+    std::error_code ec;
+    fs::create_directories(palettesDirectory(), ec);
+
+    if(fs::exists(palettesDirectory())) {
+        for(const auto& entry : fs::directory_iterator(palettesDirectory())) {
+            if(!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+
+            try {
+                std::ifstream file(entry.path());
+                const nlohmann::json j = nlohmann::json::parse(file);
+                if(!j.contains("colors") || !j["colors"].is_array() || j["colors"].size() != 64) continue;
+
+                PaletteItem item;
+                item.name = j.value("name", entry.path().stem().string());
+                item.path = entry.path();
+                item.builtIn = false;
+                for(size_t i = 0; i < item.colors.size(); ++i) {
+                    uint32_t color = defaultPalette.colors[i];
+                    paletteColorFromHex(j["colors"][i].get<std::string>(), color);
+                    item.colors[i] = color;
+                }
+                m_paletteList.push_back(std::move(item));
+            }
+            catch(...) {
+                Logger::instance().log("Failed to load palette: " + entry.path().string(), Logger::Type::WARNING);
+            }
+        }
+    }
+
+    std::sort(m_paletteList.begin() + 1, m_paletteList.end(), [](const PaletteItem& a, const PaletteItem& b) {
+        return a.name < b.name;
+    });
+}
+
+void GeraNESApp::applyPalette(const std::array<uint32_t, 64>& colors, const std::string& name)
+{
+    m_editPalette = colors;
+    m_selectedPaletteName = name;
+    m_paletteNameInput = name;
+    AppSettings::instance().data.video.paletteName = name == "Default" ? "" : name;
+    m_emu.setColorPalette(colors);
+}
+
+void GeraNESApp::saveCurrentPalette()
+{
+    std::string name = m_paletteNameInput.empty() ? "Palette" : m_paletteNameInput;
+    if(name == "Default") name = "Custom Default";
+
+    fs::create_directories(palettesDirectory());
+    const fs::path path = palettePathForName(name);
+
+    nlohmann::json colors = nlohmann::json::array();
+    for(uint32_t color : m_editPalette) {
+        colors.push_back(paletteColorToHex(color));
+    }
+
+    nlohmann::json j{
+        {"name", name},
+        {"colors", colors}
+    };
+
+    std::ofstream file(path);
+    file << std::setw(4) << j;
+    file.close();
+
+    loadPaletteList();
+    auto saved = std::find_if(m_paletteList.begin(), m_paletteList.end(), [&name](const PaletteItem& item) {
+        return item.name == name;
+    });
+    if(saved != m_paletteList.end()) {
+        applyPalette(saved->colors, saved->name);
+    } else {
+        applyPalette(m_editPalette, name);
+    }
+    Logger::instance().log("Palette saved: " + name, Logger::Type::USER);
+}
+
+void GeraNESApp::createNewPalette()
+{
+    m_paletteNameInput = "New Palette";
+    std::copy(std::begin(NES_PALETTE), std::end(NES_PALETTE), m_editPalette.begin());
+    applyPalette(m_editPalette, m_paletteNameInput);
+}
+
+void GeraNESApp::deleteCurrentPalette()
+{
+    if(m_selectedPaletteName.empty() || m_selectedPaletteName == "Default") return;
+
+    auto it = std::find_if(m_paletteList.begin(), m_paletteList.end(), [this](const PaletteItem& item) {
+        return item.name == m_selectedPaletteName;
+    });
+    if(it == m_paletteList.end() || it->builtIn || it->path.empty()) return;
+
+    std::error_code ec;
+    fs::remove(it->path, ec);
+    if(ec) {
+        Logger::instance().log("Failed to delete palette: " + it->path.string(), Logger::Type::WARNING);
+        return;
+    }
+
+    loadPaletteList();
+    if(!m_paletteList.empty()) {
+        applyPalette(m_paletteList.front().colors, m_paletteList.front().name);
+    }
+    Logger::instance().log("Palette deleted", Logger::Type::USER);
 }
 
 #ifdef __EMSCRIPTEN__

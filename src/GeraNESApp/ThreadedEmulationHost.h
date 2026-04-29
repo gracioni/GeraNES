@@ -404,6 +404,14 @@ public:
         return true;
     }
 
+    void setColorPalette(const std::array<uint32_t, 64>& palette)
+    {
+        postCommand([palette, this](GeraNESEmu& emu) {
+            emu.getConsole().ppu().setColorPalette(palette);
+            m_framebufferDirty = true;
+        });
+    }
+
     bool valid() const
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);

@@ -144,6 +144,7 @@ private:
     bool m_showAboutWindow = false;
     bool m_showRomDatabaseWindow = false;
     bool m_showNetplayWindow = false;
+    bool m_showPaletteWindow = false;
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
     bool m_showSnesMouseConfigWindow = false;
@@ -257,7 +258,18 @@ private:
         std::string path;
     };
 
+    struct PaletteItem {
+        std::string name;
+        fs::path path;
+        std::array<uint32_t, 64> colors = {};
+        bool builtIn = false;
+    };
+
     std::vector<ShaderItem> shaderList;
+    std::vector<PaletteItem> m_paletteList;
+    std::array<uint32_t, 64> m_editPalette = {};
+    std::string m_selectedPaletteName = "";
+    std::string m_paletteNameInput = "";
 
     std::unique_ptr<TouchControls> m_touch;
 
@@ -289,6 +301,12 @@ private:
     void loadRomDatabaseEditorFromCurrentRom();
     void saveRomDatabaseEditor();
     void removeRomDatabaseEditor();
+    void loadPaletteList();
+    void applyPalette(const std::array<uint32_t, 64>& colors, const std::string& name);
+    void saveCurrentPalette();
+    void createNewPalette();
+    void deleteCurrentPalette();
+    void drawPaletteWindow();
 
     void updateMVP();
     void onLog(const std::string& msg, Logger::Type type);

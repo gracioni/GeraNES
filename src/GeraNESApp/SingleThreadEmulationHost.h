@@ -312,6 +312,12 @@ public:
         return m_audioOutput.setAudioChannelVolumeById(id, volume);
     }
 
+    void setColorPalette(const std::array<uint32_t, 64>& palette) override
+    {
+        m_emu.getConsole().ppu().setColorPalette(palette);
+        refreshPresentedFramebuffer();
+    }
+
     bool valid() const override
     {
         return m_emu.valid();

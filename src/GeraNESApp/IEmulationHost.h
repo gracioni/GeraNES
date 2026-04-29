@@ -231,6 +231,7 @@ public:
     virtual std::vector<ManualStateChangeRecord> consumeManualStateChanges() = 0;
     virtual void setAudioVolume(float volume) = 0;
     virtual bool setAudioChannelVolumeById(const std::string& id, float volume) = 0;
+    virtual void setColorPalette(const std::array<uint32_t, 64>& palette) = 0;
     virtual bool valid() const = 0;
     virtual void setupRewindSystem(bool enabled, int maxSeconds) = 0;
     virtual void disableSpriteLimit(bool disabled) = 0;

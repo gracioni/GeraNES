@@ -56,6 +56,10 @@ inline void GeraNESApp::showGui()
         ImGui::End();
     }
 
+    if(m_showPaletteWindow) {
+        drawPaletteWindow();
+    }
+
     if(m_showAboutWindow) {
         SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
