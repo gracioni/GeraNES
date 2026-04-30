@@ -125,11 +125,16 @@ struct RomValidationResultData
 
 struct InputTopologyData
 {
-    PortDevice port1Device = PortDevice::NONE;
-    PortDevice port2Device = PortDevice::NONE;
-    ExpansionDevice expansionDevice = ExpansionDevice::NONE;
-    NesMultitapDevice nesMultitapDevice = NesMultitapDevice::NONE;
-    FamicomMultitapDevice famicomMultitapDevice = FamicomMultitapDevice::NONE;
+    struct Slot
+    {
+        PlayerSlot slot = kObserverPlayerSlot;
+        uint8_t assignable = 0;
+        InputGroupId groupId = 0;
+        InputDeviceId deviceId = kNoInputDevice;
+    };
+
+    uint8_t slotCount = 0;
+    std::array<Slot, kMaxAssignedPlayerSlot + 1> slots = {};
 };
 
 struct InputFrameData

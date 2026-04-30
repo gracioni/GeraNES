@@ -1,5 +1,5 @@
 #include "ConsoleNetplay/WebRtcPeerConnection.h"
-#include "logger/logger.h"
+#include "ConsoleNetplay/NetplayLog.h"
 
 #include <algorithm>
 #include <atomic>
@@ -85,27 +85,27 @@ void retireRtcCallbackContext(void* context) noexcept
 
 void onRtcLog(rtcLogLevel level, const char* message)
 {
-    Logger::Type type = Logger::Type::INFO;
+    NetplayLogLevel type = NetplayLogLevel::Info;
     switch(level) {
         case RTC_LOG_FATAL:
         case RTC_LOG_ERROR:
-            type = Logger::Type::ERROR;
+            type = NetplayLogLevel::Error;
             break;
         case RTC_LOG_WARNING:
-            type = Logger::Type::WARNING;
+            type = NetplayLogLevel::Warning;
             break;
         case RTC_LOG_DEBUG:
         case RTC_LOG_VERBOSE:
-            type = Logger::Type::DEBUG;
+            type = NetplayLogLevel::Debug;
             break;
         case RTC_LOG_NONE:
         case RTC_LOG_INFO:
         default:
-            type = Logger::Type::INFO;
+            type = NetplayLogLevel::Info;
             break;
     }
 
-    Logger::instance().log(std::string("[libdatachannel] ") + (message != nullptr ? message : ""), type);
+    logNetplayMessage(std::string("[libdatachannel] ") + (message != nullptr ? message : ""), type);
 }
 
 void ensureRtcLoggerInitialized()

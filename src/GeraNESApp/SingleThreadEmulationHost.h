@@ -518,6 +518,26 @@ public:
     uint32_t manualLoadStateGeneration() const override;
     uint32_t exactEmulationFrame() const override;
     uint32_t getRegionFPS() const override;
+    void configureInputBufferCapacity(size_t capacity) override
+    {
+        m_emu.configureInputBufferCapacity(capacity);
+    }
+
+    uint32_t inputTimelineEpoch() const override
+    {
+        return m_emu.inputTimelineEpoch();
+    }
+
+    void setInputTimelineEpoch(uint32_t timelineEpoch) override
+    {
+        m_emu.setInputTimelineEpoch(timelineEpoch);
+    }
+
+    void discardQueuedInputFramesAfter(uint32_t frame) override
+    {
+        m_emu.discardQueuedInputFramesAfter(frame);
+    }
+
     const uint32_t* getFramebuffer() const override;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
@@ -530,6 +550,7 @@ public:
     std::vector<uint8_t> saveStateToMemory() override;
     std::vector<uint8_t> saveNetplayStateToMemory() override;
     bool loadStateFromMemory(const std::vector<uint8_t>& data) override;
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) override;
 
     template<typename InputProvider>

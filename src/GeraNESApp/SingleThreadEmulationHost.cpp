@@ -499,6 +499,11 @@ std::vector<uint8_t> SingleThreadEmulationHost::saveNetplayStateToMemory()
 
 bool SingleThreadEmulationHost::loadStateFromMemory(const std::vector<uint8_t>& data)
 {
+    return loadStateFromMemoryOnCleanBoot(data);
+}
+
+bool SingleThreadEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data)
+{
     if(data.empty()) return false;
     m_holdPresentedFramebufferUntilFrameReady = true;
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);

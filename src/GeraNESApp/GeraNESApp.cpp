@@ -1,4 +1,6 @@
 #include "GeraNESApp/GeraNESApp.h"
+
+#include "ConsoleNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayWindowUI.h"
 
 #include <algorithm>

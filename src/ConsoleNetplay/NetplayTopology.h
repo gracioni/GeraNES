@@ -1,48 +1,33 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <vector>
+
+#include "ConsoleNetplay/NetplayTypes.h"
 
 namespace ConsoleNetplay {
 
-enum class PortDevice : uint8_t
+using InputDeviceId = uint16_t;
+using InputGroupId = uint16_t;
+
+inline constexpr InputDeviceId kNoInputDevice = 0;
+inline constexpr InputDeviceId kGenericInputDevice = 1;
+
+struct InputSlotDescriptor
 {
-    CONTROLLER = 0,
-    ZAPPER = 1,
-    ARKANOID_CONTROLLER = 2,
-    BANDAI_HYPERSHOT = 3,
-    SNES_MOUSE = 4,
-    SNES_CONTROLLER = 5,
-    POWER_PAD_SIDE_A = 6,
-    POWER_PAD_SIDE_B = 7,
-    FAMICOM_CONTROLLER = 8,
-    SUBOR_MOUSE = 9,
-    NONE = 10,
-    VIRTUAL_BOY_CONTROLLER = 11
+    PlayerSlot slot = kObserverPlayerSlot;
+    InputGroupId groupId = 0;
+    InputDeviceId deviceId = kNoInputDevice;
+    bool assignable = false;
+    std::string groupLabel;
+    std::string inputLabel;
 };
 
-enum class ExpansionDevice : uint8_t
-{
-    NONE = 0,
-    STANDARD_CONTROLLER_FAMICOM = 1,
-    BANDAI_HYPERSHOT = 2,
-    KONAMI_HYPERSHOT = 3,
-    ARKANOID_CONTROLLER = 4,
-    FAMILY_TRAINER_SIDE_A = 5,
-    FAMILY_TRAINER_SIDE_B = 6,
-    SUBOR_KEYBOARD = 7,
-    FAMILY_BASIC_KEYBOARD = 8
-};
-
-enum class NesMultitapDevice : uint8_t
-{
-    NONE = 0,
-    FOUR_SCORE = 1
-};
-
-enum class FamicomMultitapDevice : uint8_t
-{
-    NONE = 0,
-    HORI_ADAPTER = 1
-};
+std::vector<InputSlotDescriptor> defaultInputTopology();
+const InputSlotDescriptor* findInputSlot(const std::vector<InputSlotDescriptor>& topology, PlayerSlot slot);
+InputSlotDescriptor* findInputSlot(std::vector<InputSlotDescriptor>& topology, PlayerSlot slot);
+bool inputTopologyEquivalent(const std::vector<InputSlotDescriptor>& lhs,
+                             const std::vector<InputSlotDescriptor>& rhs);
 
 } // namespace ConsoleNetplay

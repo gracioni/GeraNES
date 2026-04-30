@@ -15,52 +15,44 @@
 
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/IEmulationHost.h"
-#include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "ConsoleNetplay/ConfirmedInputBufferDriver.h"
+#include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/SelfStallDetector.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
+#include "ConsoleNetplay/NetplayAppRuntime.h"
 #include "ConsoleNetplay/NetplayConfig.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/NetplayRuntimeSupport.h"
 
-namespace ConsoleNetplay {
+namespace GeraNESNetplay {
 
-class NetplayAppRuntime
+using ConsoleNetplay::ConfirmedInputBufferDriver;
+using ConsoleNetplay::FrameNumber;
+using ConsoleNetplay::InputTimeline;
+using ConsoleNetplay::kInvalidParticipantId;
+using ConsoleNetplay::kObserverPlayerSlot;
+using ConsoleNetplay::MessageType;
+using ConsoleNetplay::NetplayAutoTune;
+using ConsoleNetplay::NetplayCoordinator;
+using ConsoleNetplay::NetplayRomSelection;
+using ConsoleNetplay::NetTransportBackend;
+using ConsoleNetplay::NetTransportOptions;
+using ConsoleNetplay::ParticipantId;
+using ConsoleNetplay::PlayerSlot;
+using ConsoleNetplay::ResyncReason;
+using ConsoleNetplay::RollbackStats;
+using ConsoleNetplay::RoomState;
+using ConsoleNetplay::RuntimePeriodicCrcState;
+using ConsoleNetplay::RuntimeRomValidationState;
+using ConsoleNetplay::SelfStallDetector;
+using ConsoleNetplay::SessionState;
+using ConsoleNetplay::TimelineInputEntry;
+using ConsoleNetplay::defaultNetTransportBackend;
+
+class GeraNESNetplayAppRuntime
 {
 public:
-    struct FramePacingDiagnostics
-    {
-        uint64_t sampleCount = 0;
-        uint32_t lastDtMs = 0;
-        uint32_t maxDtMs = 0;
-        uint32_t lastFramesAdvanced = 0;
-        uint32_t maxFramesAdvanced = 0;
-        uint64_t totalFramesAdvanced = 0;
-        uint32_t lastCatchupFrames = 0;
-        uint32_t maxCatchupFrames = 0;
-        uint64_t catchupTickCount = 0;
-        bool netplayPacingOverrideActive = false;
-        bool presenterCadenceMatched = false;
-
-        void record(uint32_t dtMs,
-                    uint32_t framesAdvanced,
-                    uint32_t catchupFrames,
-                    bool netplayOverrideActive,
-                    bool cadenceMatched)
-        {
-            ++sampleCount;
-            lastDtMs = dtMs;
-            maxDtMs = std::max(maxDtMs, dtMs);
-            lastFramesAdvanced = framesAdvanced;
-            maxFramesAdvanced = std::max(maxFramesAdvanced, framesAdvanced);
-            totalFramesAdvanced += framesAdvanced;
-            lastCatchupFrames = catchupFrames;
-            maxCatchupFrames = std::max(maxCatchupFrames, catchupFrames);
-            if(catchupFrames > 0) {
-                ++catchupTickCount;
-            }
-            netplayPacingOverrideActive = netplayOverrideActive;
-            presenterCadenceMatched = cadenceMatched;
-        }
-    };
+    using FramePacingDiagnostics = ConsoleNetplay::NetplayAppRuntime::FramePacingDiagnostics;
 
     struct UiSnapshot
     {
@@ -101,12 +93,7 @@ public:
         std::vector<std::string> eventLog;
     };
 
-    struct RomSelection
-    {
-        bool loaded = false;
-        std::string gameName;
-        RomValidationData validation = {};
-    };
+    using RomSelection = NetplayRomSelection;
 
     struct MenuSnapshot
     {
@@ -122,7 +109,7 @@ public:
     };
 
 private:
-    using WorkerCommand = std::function<void(NetplayAppRuntime&, GeraNESEmu&)>;
+    using WorkerCommand = std::function<void(GeraNESNetplayAppRuntime&, GeraNESEmu&)>;
 
     struct PendingManualStateResync
     {
@@ -148,15 +135,12 @@ private:
     std::string m_stickyStatusMessage;
 
     std::chrono::steady_clock::time_point m_runtimeLastTickTime = {};
-    std::string m_lastSelectedRomKey;
-    std::string m_lastSubmittedValidationKey;
+    RuntimeRomValidationState m_romValidationState;
     std::optional<SessionState> m_lastSessionState;
     std::vector<PlayerSlot> m_lastLocalAssignedSlots;
     std::string m_lastAssignmentLayoutKey;
     std::deque<PendingManualStateResync> m_pendingManualStateResyncs;
-    FrameNumber m_lastSubmittedLocalCrcFrame = 0;
-    FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
-    FrameNumber m_postRecoveryRapidCrcThroughFrame = 0;
+    RuntimePeriodicCrcState m_periodicCrcState;
     FrameNumber m_lastRollbackTargetFrame = 0;
     FrameNumber m_lastMissingRollbackSnapshotFrame = 0;
     FrameNumber m_lastMissingRollbackSnapshotLocalFrame = 0;
@@ -169,14 +153,11 @@ private:
     std::chrono::steady_clock::time_point m_sharedClockLagOverBudgetSince = {};
     std::chrono::steady_clock::time_point m_lastSharedClockResyncRequestAt = {};
     bool m_sharedClockResyncRequestPending = false;
-    bool m_forceNextConfirmedCrcSubmission = false;
     bool m_observerVisibilityResyncPending = false;
     bool m_webVisibilityManagedPause = false;
     bool m_webPageVisible = true;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
-
-    static std::string buildRomKey(const std::optional<RomSelection>& selection);
 
     // Recovery entry points and ownership:
     // - `processRollbackIfNeededOnWorker`: local rollback correction after
@@ -194,31 +175,18 @@ private:
 
     static std::optional<RomSelection> captureCurrentRomSelection(GeraNESEmu& emu);
 
-    std::string buildAssignmentLayoutKey() const;
+    void reanchorInputDriver(FrameNumber anchorFrame);
 
-    void reanchorInputDriver(FrameNumber anchorFrame, const std::vector<PlayerSlot>& localSlots);
-
-    bool applyAuthoritativeStateLocally(GeraNESEmu& emu,
-                                        FrameNumber targetFrame,
-                                        const std::vector<uint8_t>& payload);
-
-    std::vector<uint8_t> buildAuthoritativeStatePayload(GeraNESEmu& emu,
-                                                        FrameNumber authoritativeFrame,
+    std::vector<uint8_t> buildAuthoritativeStatePayload(FrameNumber authoritativeFrame,
                                                         bool preferConfirmedSnapshot) const;
 
-    uint32_t computeAuthoritativeStateCrc32(GeraNESEmu& emu,
-                                            FrameNumber authoritativeFrame,
-                                            bool preferConfirmedSnapshot) const;
-
-    bool beginAuthoritativeResync(GeraNESEmu& emu,
-                                  FrameNumber authoritativeFrame,
+    bool beginAuthoritativeResync(FrameNumber authoritativeFrame,
                                   const std::vector<uint8_t>& statePayload,
                                   bool preferConfirmedSnapshot,
                                   ResyncReason reason = ResyncReason::Unspecified,
                                   ParticipantId targetParticipantId = kInvalidParticipantId);
 
-    bool beginAuthoritativeResyncWithoutLocalReload(GeraNESEmu& emu,
-                                                    FrameNumber authoritativeFrame,
+    bool beginAuthoritativeResyncWithoutLocalReload(FrameNumber authoritativeFrame,
                                                     const std::vector<uint8_t>& statePayload,
                                                     bool preferConfirmedSnapshot,
                                                     ResyncReason reason);
@@ -228,30 +196,29 @@ private:
     std::string computeSessionBlockedReason(const std::optional<RomSelection>& localRom) const;
 
     void syncRomValidation(const std::optional<RomSelection>& localRom);
-    void syncInputDelayFromSettings(GeraNESEmu& emu);
-    void processAutoStartIfNeeded(GeraNESEmu& emu, const std::optional<RomSelection>& localRom);
+    void syncInputDelayFromSettings();
+    void processAutoStartIfNeeded(const std::optional<RomSelection>& localRom);
     void processAutoResumeIfNeeded(const std::optional<RomSelection>& localRom);
-    void processHostManualStateChangeResyncIfNeeded(GeraNESEmu& emu);
-    void processPendingManualStateResyncIfNeeded(GeraNESEmu& emu);
-    void processPeriodicLocalCrcIfNeeded(GeraNESEmu& emu);
+    void processHostManualStateChangeResyncIfNeeded();
+    void processPendingManualStateResyncIfNeeded();
+    void processPeriodicLocalCrcIfNeeded();
     uint32_t consumeWorkerDtMs();
-    void handleSessionStateTransitionsOnWorker(GeraNESEmu& emu);
-    bool beginInitialSessionSyncOnWorker(GeraNESEmu& emu);
-    void processHostResyncIfNeededOnWorker(GeraNESEmu& emu);
-    void processHostLateJoinResyncIfNeededOnWorker(GeraNESEmu& emu);
-    void processHostStallIfNeededOnWorker(GeraNESEmu& emu);
+    void handleSessionStateTransitionsOnWorker();
+    bool beginInitialSessionSyncOnWorker();
+    void processHostResyncIfNeededOnWorker();
+    void processHostLateJoinResyncIfNeededOnWorker();
+    void processHostStallIfNeededOnWorker();
     void processResyncIfNeededOnWorker(GeraNESEmu& emu);
     uint32_t advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu,
                                                   uint32_t maxFrames,
                                                   bool requireLagTrigger = true);
     void alignResyncPlaybackToSharedClockOnWorker(GeraNESEmu& emu, FrameNumber loadedFrame);
     void processRollbackIfNeededOnWorker(GeraNESEmu& emu);
-    bool shouldRecoverStandaloneInputWhileNetplayActive() const;
     void ensureStandaloneInputBootstrapFrame(GeraNESEmu& emu);
     bool tryBuildPlaybackConfirmedFrame(uint32_t frame, NetplayCoordinator::ConfirmedFrameInputs& outFrame);
     bool tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHost::ReplayFrameInput& outFrame);
     void updateUiSnapshot(const std::optional<RomSelection>& localRom);
-    void syncEmuInputTimelineEpoch(GeraNESEmu& emu);
+    void syncEmuInputTimelineEpoch();
     bool tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t frame);
     bool shouldAllowPredictionForFrame(FrameNumber frame) const;
     void recordPlaybackStop(FrameNumber frame);
@@ -266,7 +233,7 @@ private:
     void drainPendingCommands(GeraNESEmu& emu);
 
 public:
-    explicit NetplayAppRuntime(IEmulationHost& emuHost);
+    explicit GeraNESNetplayAppRuntime(IEmulationHost& emuHost);
 
     void setLocalReconnectToken(uint64_t token);
     void refreshLocalRomSelectionImmediate();
@@ -324,5 +291,5 @@ public:
     void runOnEmulationThread(GeraNESEmu& emu);
 };
 
-} // namespace ConsoleNetplay
+} // namespace GeraNESNetplay
 

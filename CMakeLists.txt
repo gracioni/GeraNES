@@ -496,9 +496,10 @@ list(FILTER GERANES_LIBRARY_SOURCES EXCLUDE REGEX ".*/src/resources\\.rc$")
 set(GERANES_APP_LIBRARY_SOURCES ${GERANES_LIBRARY_SOURCES})
 list(FILTER GERANES_APP_LIBRARY_SOURCES INCLUDE REGEX ".*/src/GeraNESApp/.*\\.(c|cpp)$")
 list(APPEND GERANES_APP_LIBRARY_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/ConfirmedInputBufferDriver.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESInputFrameAdapter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayAdapters.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/NetplayAppRuntime.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayAppRuntime.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayConsole.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/NetplayWindowUI.cpp"
 )
 

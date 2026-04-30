@@ -16,9 +16,9 @@
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESApp/SingleThreadEmulationHost.h"
-#include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/GeraNESInputFrameAdapter.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/GeraNESNetplayAppRuntime.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 
@@ -213,7 +213,16 @@ private:
             emu.setFrameInputResolver({});
             emu.setPreAdvanceHook([this](GeraNESEmu& emuRef) {
                 emuRef.setInputTimelineEpoch(coordinator.session().roomState().timelineEpoch);
-                driver.queuePendingFramesToEmu(emuRef);
+                driver.consumePendingFrames(
+                    emuRef.frameCount(),
+                    emuRef.frameCount() + driver.prebufferFrames() + driver.predictFrames(),
+                    [&emuRef](const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed) {
+                        InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
+                        inputFrame.speculative = confirmed.predicted;
+                        inputFrame.timelineEpoch = emuRef.inputTimelineEpoch();
+                        (void)emuRef.queueInputFrame(inputFrame);
+                    }
+                );
             });
         }
     };
@@ -224,7 +233,7 @@ private:
         std::string name;
         bool host = false;
         HostT emu{DummyAudioOutput::instance()};
-        ConsoleNetplay::NetplayAppRuntime runtime{emu};
+        GeraNESNetplay::GeraNESNetplayAppRuntime runtime{emu};
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
@@ -398,7 +407,7 @@ private:
         if(confirmed == nullptr) {
             return peer.emu.createInputFrame(frame);
         }
-        InputFrame inputFrame = ConsoleNetplay::toGeraNESInputFrame(confirmed->netplayFrame);
+        InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed->netplayFrame);
         inputFrame.frame = frame;
         return inputFrame;
     }
@@ -1054,7 +1063,7 @@ private:
     static IEmulationHost::InputState buildRuntimeInputStateForSlot(ConsoleNetplay::PlayerSlot slot, const Buttons& buttons)
     {
         IEmulationHost::InputState inputState{};
-        ConsoleNetplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
+        GeraNESNetplay::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
         return inputState;
     }
 
@@ -1726,7 +1735,7 @@ private:
                             if(!localId.has_value()) return false;
                             const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *localId);
                             return hostParticipant != nullptr &&
-                                   hostSnap.room.nesMultitapDevice == ConsoleNetplay::NesMultitapDevice::FOUR_SCORE &&
+                                   GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(hostSnap.room) == Settings::NesMultitapDevice::FOUR_SCORE &&
                                    hostParticipant->controllerAssignment == ConsoleNetplay::kMultitapP1PlayerSlot;
                         }, options.startupTimeoutSteps, 5u)) {
                         failureReason = "Host-only Four Score P1 assignment did not stick before client join.";
@@ -1838,16 +1847,16 @@ private:
                         options.hostMultitapAssignedBeforeJoinOnly
                             ? ConsoleNetplay::kMultitapP1PlayerSlot
                             : ConsoleNetplay::kPort1PlayerSlot;
-                    const ConsoleNetplay::NesMultitapDevice expectedNesMultitap =
+                    const Settings::NesMultitapDevice expectedNesMultitap =
                         options.hostMultitapAssignedBeforeJoinOnly
-                            ? ConsoleNetplay::NesMultitapDevice::FOUR_SCORE
-                            : ConsoleNetplay::NesMultitapDevice::NONE;
+                            ? Settings::NesMultitapDevice::FOUR_SCORE
+                            : Settings::NesMultitapDevice::NONE;
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
                            hostParticipant->controllerAssignment == expectedHostAssignment &&
                            clientParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
-                           hostSnap.room.nesMultitapDevice == expectedNesMultitap &&
-                           clientSnap.room.nesMultitapDevice == expectedNesMultitap &&
+                           GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(hostSnap.room) == expectedNesMultitap &&
+                           GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(clientSnap.room) == expectedNesMultitap &&
                            hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running;
                 }, options.startupTimeoutSteps, 5u)) {
@@ -1908,10 +1917,10 @@ private:
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
                            clientSnap.room.activeResyncId == 0 &&
-                           hostSnap.room.port1Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER) &&
-                           hostSnap.room.port2Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::ZAPPER) &&
-                           clientSnap.room.port1Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER) &&
-                           clientSnap.room.port2Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::ZAPPER) &&
+                           GeraNESNetplay::geraNESPortDeviceFromTopology(hostSnap.room, ConsoleNetplay::kPort1PlayerSlot) == Settings::Device::CONTROLLER &&
+                           GeraNESNetplay::geraNESPortDeviceFromTopology(hostSnap.room, ConsoleNetplay::kPort2PlayerSlot) == Settings::Device::ZAPPER &&
+                           GeraNESNetplay::geraNESPortDeviceFromTopology(clientSnap.room, ConsoleNetplay::kPort1PlayerSlot) == Settings::Device::CONTROLLER &&
+                           GeraNESNetplay::geraNESPortDeviceFromTopology(clientSnap.room, ConsoleNetplay::kPort2PlayerSlot) == Settings::Device::ZAPPER &&
                            participantHasAssignments(hostSnap.room, *hostId, {ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::kPort2PlayerSlot}) &&
                            participantHasAssignments(clientSnap.room, *hostId, {ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::kPort2PlayerSlot}) &&
                            localAssignedSlot(clientSnap.room, clientSnap.localParticipantId) == std::nullopt;
@@ -3145,9 +3154,9 @@ private:
                 return replayInput;
             }
             replayInput.hasFrameOverride = true;
-            replayInput.frameOverride = ConsoleNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
+            replayInput.frameOverride = GeraNESNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
             replayInput.frameOverride.frame = frame;
-            ConsoleNetplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
+            GeraNESNetplay::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
             replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {

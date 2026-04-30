@@ -106,11 +106,7 @@ struct RoomState
     uint32_t pendingResyncAckCount = 0;
     std::string selectedGameName;
     RomValidationData romValidation;
-    std::optional<PortDevice> port1Device = PortDevice::CONTROLLER;
-    std::optional<PortDevice> port2Device = PortDevice::CONTROLLER;
-    ExpansionDevice expansionDevice = ExpansionDevice::NONE;
-    NesMultitapDevice nesMultitapDevice = NesMultitapDevice::NONE;
-    FamicomMultitapDevice famicomMultitapDevice = FamicomMultitapDevice::NONE;
+    std::vector<InputSlotDescriptor> inputTopology = defaultInputTopology();
     std::vector<ParticipantInfo> participants;
 };
 

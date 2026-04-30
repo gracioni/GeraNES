@@ -15,7 +15,7 @@
 #include "ConsoleNetplay/NetplayInputFrameSerialization.h"
 #include "ConsoleNetplay/NetplayConfig.h"
 #include "ConsoleNetplay/NetplayCrc32.h"
-#include "logger/logger.h"
+#include "ConsoleNetplay/NetplayLog.h"
 
 namespace {
 
@@ -34,8 +34,6 @@ constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
-
-using ConsoleNetplay::PortDevice;
 
 std::string participantLabel(const ConsoleNetplay::ParticipantInfo& participant)
 {
@@ -116,21 +114,34 @@ std::string describeHostTarget(ConsoleNetplay::NetTransportBackend backend,
 ConsoleNetplay::InputTopologyData makeTopologyData(const ConsoleNetplay::RoomState& room)
 {
     ConsoleNetplay::InputTopologyData data;
-    data.port1Device = room.port1Device.value_or(PortDevice::NONE);
-    data.port2Device = room.port2Device.value_or(PortDevice::NONE);
-    data.expansionDevice = room.expansionDevice;
-    data.nesMultitapDevice = room.nesMultitapDevice;
-    data.famicomMultitapDevice = room.famicomMultitapDevice;
+    data.slotCount = static_cast<uint8_t>(std::min<size_t>(room.inputTopology.size(), data.slots.size()));
+    for(size_t index = 0; index < data.slotCount; ++index) {
+        data.slots[index].slot = room.inputTopology[index].slot;
+        data.slots[index].assignable = room.inputTopology[index].assignable ? 1u : 0u;
+        data.slots[index].groupId = room.inputTopology[index].groupId;
+        data.slots[index].deviceId = room.inputTopology[index].deviceId;
+    }
     return data;
 }
 
 void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::InputTopologyData& data)
 {
-    room.port1Device = data.port1Device;
-    room.port2Device = data.port2Device;
-    room.expansionDevice = data.expansionDevice;
-    room.nesMultitapDevice = data.nesMultitapDevice;
-    room.famicomMultitapDevice = data.famicomMultitapDevice;
+    std::vector<ConsoleNetplay::InputSlotDescriptor> topology;
+    const size_t slotCount = std::min<size_t>(data.slotCount, data.slots.size());
+    topology.reserve(slotCount);
+    for(size_t index = 0; index < slotCount; ++index) {
+        const auto& slot = data.slots[index];
+        if(slot.slot > ConsoleNetplay::kMaxAssignedPlayerSlot) continue;
+        topology.push_back(ConsoleNetplay::InputSlotDescriptor{
+            slot.slot,
+            slot.groupId,
+            slot.deviceId,
+            slot.assignable != 0,
+            "Input " + std::to_string(static_cast<unsigned>(slot.groupId)),
+            "Device " + std::to_string(static_cast<unsigned>(slot.deviceId))
+        });
+    }
+    room.inputTopology = std::move(topology);
 }
 
 ConsoleNetplay::NetplayInputFrame makeRoomTopologyNetplayFrame(ConsoleNetplay::FrameNumber frame,
@@ -459,7 +470,7 @@ void NetplayCoordinator::pushToast(const std::string& message)
         return;
     }
     pushLog(message);
-    Logger::instance().log(message, Logger::Type::USER);
+    logNetplayMessage(message, NetplayLogLevel::User);
 }
 
 ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const std::string& displayName)
@@ -3628,7 +3639,7 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
 
     PeerHealthData data;
     data.participantId = m_localParticipantId;
-    data.currentFrame = m_session.roomState().currentFrame;
+    data.currentFrame = m_localSimulationFrame;
     data.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     data.sharedClockMicros = sharedClockNowMicros();
     data.clockSyncRttMicros = m_sharedClockRttMicros;
@@ -3938,30 +3949,17 @@ FrameNumber NetplayCoordinator::latestPredictedRemoteFrame() const
     return latest;
 }
 
-void NetplayCoordinator::setRoomInputTopology(std::optional<PortDevice> port1Device,
-                                              std::optional<PortDevice> port2Device,
-                                              ExpansionDevice expansionDevice,
-                                              NesMultitapDevice nesMultitapDevice,
-                                              FamicomMultitapDevice famicomMultitapDevice,
+void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                                               std::optional<ParticipantId> preservedParticipantId,
                                               PlayerSlot preservedAssignment)
 {
     if(!m_hosting) return;
 
     RoomState& room = m_session.roomState();
-    const bool changed =
-        room.port1Device != port1Device ||
-        room.port2Device != port2Device ||
-        room.expansionDevice != expansionDevice ||
-        room.nesMultitapDevice != nesMultitapDevice ||
-        room.famicomMultitapDevice != famicomMultitapDevice;
+    const bool changed = !inputTopologyEquivalent(room.inputTopology, inputTopology);
     if(!changed) return;
 
-    room.port1Device = port1Device;
-    room.port2Device = port2Device;
-    room.expansionDevice = expansionDevice;
-    room.nesMultitapDevice = nesMultitapDevice;
-    room.famicomMultitapDevice = famicomMultitapDevice;
+    room.inputTopology = std::move(inputTopology);
 
     std::vector<ParticipantId> changedAssignments;
     for(ParticipantInfo& participant : room.participants) {

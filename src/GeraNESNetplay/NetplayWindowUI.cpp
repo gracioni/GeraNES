@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "GeraNESNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/GeraNESNetplayAppRuntime.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/WebRtcSignaling.h"
@@ -17,7 +17,9 @@
 #include "GeraNESApp/imgui_util.h"
 #include "imgui.h"
 
-namespace ConsoleNetplay {
+namespace GeraNESNetplay {
+
+using namespace ConsoleNetplay;
 
 inline const char* sessionStateLabel(SessionState state)
 {
@@ -128,7 +130,7 @@ inline PendingConnectOperationUiState& pendingConnectOperationUiState()
 }
 
 void drawNetplayWindow(bool& showWindow,
-                       NetplayAppRuntime& runtime,
+                       GeraNESNetplayAppRuntime& runtime,
                        const ImVec2& viewportCenter)
 {
     WebRtcRoomBrowserUiState& roomBrowser = webRtcRoomBrowserUiState();
@@ -938,25 +940,25 @@ void drawNetplayWindow(bool& showWindow,
 
     const auto drawAssignmentTree = [&](const ParticipantInfo& participant) {
         const ParticipantId participantId = participant.id;
-        const auto currentPort1 = toSettingsDevice(room.port1Device.value_or(PortDevice::NONE));
-        const auto currentPort2 = toSettingsDevice(room.port2Device.value_or(PortDevice::NONE));
-        const auto currentExpansionDevice = toSettingsExpansionDevice(room.expansionDevice);
-        const auto currentNesMultitapDevice = toSettingsNesMultitapDevice(room.nesMultitapDevice);
-        const auto currentFamicomMultitapDevice = toSettingsFamicomMultitapDevice(room.famicomMultitapDevice);
+        const auto currentPort1 = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+        const auto currentPort2 = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+        const auto currentExpansionDevice = geraNESExpansionDeviceFromTopology(room);
+        const auto currentNesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
+        const auto currentFamicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
         const auto canAssignCandidate = [&](std::optional<Settings::Device> port1Device,
                                             std::optional<Settings::Device> port2Device,
                                             Settings::ExpansionDevice expansionDevice,
                                             Settings::NesMultitapDevice nesMultitapDevice,
                                             Settings::FamicomMultitapDevice famicomMultitapDevice,
                                             PlayerSlot slot) {
-            return canAssignInputCandidate(
+            return canAssignGeraNESInputCandidate(
                 room,
                 participantId,
-                toNetplayPortDevice(port1Device),
-                toNetplayPortDevice(port2Device),
-                toNetplayExpansionDevice(expansionDevice),
-                toNetplayNesMultitapDevice(nesMultitapDevice),
-                toNetplayFamicomMultitapDevice(famicomMultitapDevice),
+                port1Device,
+                port2Device,
+                expansionDevice,
+                nesMultitapDevice,
+                famicomMultitapDevice,
                 slot
             );
         };
@@ -969,14 +971,14 @@ void drawNetplayWindow(bool& showWindow,
             std::vector<PlayerSlot> slots;
             for(PlayerSlot existingSlot : participant.controllerAssignments) {
                 if(existingSlot == kObserverPlayerSlot || existingSlot == requestedSlot) continue;
-                if(canAssignInputCandidate(
+                if(canAssignGeraNESInputCandidate(
                        room,
                        participantId,
-                       toNetplayPortDevice(port1Device),
-                       toNetplayPortDevice(port2Device),
-                       toNetplayExpansionDevice(expansionDevice),
-                       toNetplayNesMultitapDevice(nesMultitapDevice),
-                       toNetplayFamicomMultitapDevice(famicomMultitapDevice),
+                       port1Device,
+                       port2Device,
+                       expansionDevice,
+                       nesMultitapDevice,
+                       famicomMultitapDevice,
                        existingSlot
                    )) {
                     slots.push_back(existingSlot);
@@ -1398,4 +1400,4 @@ void drawNetplayWindow(bool& showWindow,
     ImGui::End();
 }
 
-} // namespace ConsoleNetplay
+} // namespace GeraNESNetplay

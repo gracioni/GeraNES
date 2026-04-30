@@ -1,16 +1,13 @@
 #pragma once
 
-#include "GeraNES/GeraNESEmu.h"
-#include "GeraNESApp/EmulationHost.h"
-#include "ConsoleNetplay/NetplayCoordinator.h"
-#include "ConsoleNetplay/NetplayInputAssignment.h"
-
-#include <array>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <vector>
+
+#include "ConsoleNetplay/NetplayCoordinator.h"
 
 namespace ConsoleNetplay
 {
@@ -18,6 +15,9 @@ namespace ConsoleNetplay
 class ConfirmedInputBufferDriver
 {
 public:
+    using LocalInputBuilder = std::function<NetplayInputFrame(PlayerSlot, FrameNumber, const RoomState&)>;
+    using PendingFrameConsumer = std::function<void(const NetplayCoordinator::ConfirmedFrameInputs&)>;
+
     struct PlaybackQueueStats
     {
         uint64_t rebuildCount = 0;
@@ -52,14 +52,10 @@ private:
 
     void seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
                                       const std::vector<PlayerSlot>& localSlots,
-                                      const EmulationHost::InputState& localInputState,
-                                      const RoomState& room);
+                                      const RoomState& room,
+                                      const LocalInputBuilder& buildLocalInput);
 
 public:
-    static void applyPadMaskToInputState(EmulationHost::InputState& state, PlayerSlot slot, uint64_t mask);
-    static void applyPadMaskToInputFrame(InputFrame& inputFrame, PlayerSlot slot, uint64_t mask);
-    static void applyInputFrameToInputState(EmulationHost::InputState& state, const InputFrame& inputFrame);
-
     uint32_t producedThroughFrame() const;
     uint32_t queuedThroughFrame() const;
     size_t pendingFrameCount() const;
@@ -76,14 +72,19 @@ public:
                                  bool x = false, bool y = false, bool l = false, bool r = false,
                                  bool up2 = false, bool down2 = false, bool left2 = false, bool right2 = false);
 
+    static NetplayInputFrame buildMaskContribution(PlayerSlot slot,
+                                                   FrameNumber frame,
+                                                   uint32_t timelineEpoch,
+                                                   uint64_t mask);
+
     void produceLocalBufferedInputs(NetplayCoordinator& coordinator,
                                     bool active,
                                     bool awaitingSync,
                                     SessionState state,
                                     std::optional<PlayerSlot> localSlot,
                                     uint32_t dtMs,
-                                    const EmulationHost::InputState& localInputState,
                                     const RoomState& room,
+                                    const LocalInputBuilder& buildLocalInput,
                                     uint32_t regionFps,
                                     uint32_t exactFrame,
                                     uint32_t confirmedThroughFrame);
@@ -94,11 +95,22 @@ public:
                                     SessionState state,
                                     const std::vector<PlayerSlot>& localSlots,
                                     uint32_t dtMs,
-                                    const EmulationHost::InputState& localInputState,
                                     const RoomState& room,
+                                    const LocalInputBuilder& buildLocalInput,
                                     uint32_t regionFps,
                                     uint32_t exactFrame,
                                     uint32_t confirmedThroughFrame);
+
+    void produceLocalBufferedInputMasks(NetplayCoordinator& coordinator,
+                                        bool active,
+                                        bool awaitingSync,
+                                        SessionState state,
+                                        std::optional<PlayerSlot> localSlot,
+                                        uint32_t dtMs,
+                                        uint64_t localPrimaryMask,
+                                        uint32_t regionFps,
+                                        uint32_t exactFrame,
+                                        uint32_t confirmedThroughFrame);
 
     void produceLocalBufferedInputs(NetplayCoordinator& coordinator,
                                     bool active,
@@ -121,17 +133,26 @@ public:
                                     uint32_t regionFps,
                                     uint32_t exactFrame,
                                     uint32_t confirmedThroughFrame);
+
+    void produceLocalBufferedInputMasks(NetplayCoordinator& coordinator,
+                                        bool active,
+                                        bool awaitingSync,
+                                        SessionState state,
+                                        const std::vector<PlayerSlot>& localSlots,
+                                        uint32_t dtMs,
+                                        uint64_t localPrimaryMask,
+                                        uint32_t regionFps,
+                                        uint32_t exactFrame,
+                                        uint32_t confirmedThroughFrame);
 
     uint32_t confirmedThroughFrame(const NetplayCoordinator& coordinator) const;
 
-    EmulationHost::InputState buildReplayInputState(const NetplayCoordinator& coordinator, FrameNumber frame) const;
-
-    bool tryBuildConfirmedInputState(const NetplayCoordinator& coordinator,
+    bool tryBuildConfirmedInputFrame(const NetplayCoordinator& coordinator,
                                      bool active,
                                      bool awaitingSync,
                                      SessionState state,
                                      FrameNumber frame,
-                                     EmulationHost::InputState& outState) const;
+                                     NetplayInputFrame& outFrame) const;
 
     void preparePlaybackFramesForEmulationThread(NetplayCoordinator& coordinator,
                                                  bool active,
@@ -145,7 +166,9 @@ public:
                                                   SessionState state,
                                                   uint32_t emulationFrame);
 
-    void queuePendingFramesToEmu(GeraNESEmu& emu);
+    void consumePendingFrames(FrameNumber currentFrame,
+                              FrameNumber queueLimitFrame,
+                              const PendingFrameConsumer& consumer);
 };
 
 }

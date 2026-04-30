@@ -1,9 +1,233 @@
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 
+#include <string>
+
 #include "ConsoleNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/NetSerialization.h"
 
-namespace ConsoleNetplay {
+namespace GeraNESNetplay {
+
+using ConsoleNetplay::InputSlotDescriptor;
+using ConsoleNetplay::InputDeviceId;
+using ConsoleNetplay::applyAssignedContribution;
+using ConsoleNetplay::kExpansionPlayerSlot;
+using ConsoleNetplay::kInvalidParticipantId;
+using ConsoleNetplay::kMaxAssignedPlayerSlot;
+using ConsoleNetplay::kMultitapP1PlayerSlot;
+using ConsoleNetplay::kMultitapP2PlayerSlot;
+using ConsoleNetplay::kMultitapP3PlayerSlot;
+using ConsoleNetplay::kMultitapP4PlayerSlot;
+using ConsoleNetplay::kObserverPlayerSlot;
+using ConsoleNetplay::kPort1PlayerSlot;
+using ConsoleNetplay::kPort2PlayerSlot;
+using ConsoleNetplay::makeContributionBase;
+using ConsoleNetplay::makeRoomTopologyBaseNetplayFrame;
+using ConsoleNetplay::PacketReader;
+using ConsoleNetplay::PacketWriter;
+using ConsoleNetplay::ParticipantInfo;
+using ConsoleNetplay::participantAssignments;
+
+namespace {
+
+InputDeviceId geraNESDeviceId(Settings::Device device)
+{
+    return static_cast<InputDeviceId>(0x400u + static_cast<uint8_t>(device));
+}
+
+InputDeviceId geraNESExpansionDeviceId(Settings::ExpansionDevice device)
+{
+    return static_cast<InputDeviceId>(0x100u + static_cast<uint8_t>(device));
+}
+
+InputDeviceId geraNESNesMultitapDeviceId(Settings::NesMultitapDevice device)
+{
+    return static_cast<InputDeviceId>(0x200u + static_cast<uint8_t>(device));
+}
+
+InputDeviceId geraNESFamicomMultitapDeviceId(Settings::FamicomMultitapDevice device)
+{
+    return static_cast<InputDeviceId>(0x300u + static_cast<uint8_t>(device));
+}
+
+const char* geraNESPortDeviceLabel(Settings::Device device)
+{
+    switch(device) {
+        case Settings::Device::CONTROLLER: return "Standard Controller";
+        case Settings::Device::FAMICOM_CONTROLLER: return "Famicom Controller";
+        case Settings::Device::ZAPPER: return "Zapper";
+        case Settings::Device::ARKANOID_CONTROLLER: return "Arkanoid Controller";
+        case Settings::Device::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
+        case Settings::Device::SNES_MOUSE: return "SNES Mouse";
+        case Settings::Device::SNES_CONTROLLER: return "SNES Controller";
+        case Settings::Device::POWER_PAD_SIDE_A: return "Power Pad (Side A)";
+        case Settings::Device::POWER_PAD_SIDE_B: return "Power Pad (Side B)";
+        case Settings::Device::SUBOR_MOUSE: return "Subor Mouse";
+        case Settings::Device::VIRTUAL_BOY_CONTROLLER: return "Virtual Boy Controller";
+        case Settings::Device::NONE:
+        default:
+            return "None";
+    }
+}
+
+const char* geraNESExpansionDeviceLabel(Settings::ExpansionDevice device)
+{
+    switch(device) {
+        case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM: return "Standard Controller (Famicom)";
+        case Settings::ExpansionDevice::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
+        case Settings::ExpansionDevice::KONAMI_HYPERSHOT: return "Konami Hyper Shot";
+        case Settings::ExpansionDevice::ARKANOID_CONTROLLER: return "Arkanoid Controller (Famicom)";
+        case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A: return "Family Trainer (Side A)";
+        case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B: return "Family Trainer (Side B)";
+        case Settings::ExpansionDevice::SUBOR_KEYBOARD: return "Subor Keyboard";
+        case Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD: return "Family Basic Keyboard";
+        case Settings::ExpansionDevice::NONE:
+        default:
+            return "None";
+    }
+}
+
+bool geraNESMultitapActive(Settings::NesMultitapDevice nesMultitapDevice,
+                           Settings::FamicomMultitapDevice famicomMultitapDevice)
+{
+    return nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
+           famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
+}
+
+std::vector<InputSlotDescriptor> makeGeraNESInputTopology(
+    std::optional<Settings::Device> port1Device,
+    std::optional<Settings::Device> port2Device,
+    Settings::ExpansionDevice expansionDevice,
+    Settings::NesMultitapDevice nesMultitapDevice,
+    Settings::FamicomMultitapDevice famicomMultitapDevice)
+{
+    std::vector<InputSlotDescriptor> topology;
+    if(geraNESMultitapActive(nesMultitapDevice, famicomMultitapDevice)) {
+        const bool fourScore = nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE;
+        const char* groupLabel = fourScore ? "Four Score" : "Hori Adapter";
+        const InputDeviceId deviceId = fourScore
+            ? geraNESNesMultitapDeviceId(nesMultitapDevice)
+            : geraNESFamicomMultitapDeviceId(famicomMultitapDevice);
+        for(PlayerSlot slot = kMultitapP1PlayerSlot; slot <= kMultitapP4PlayerSlot; ++slot) {
+            const unsigned index = static_cast<unsigned>(slot - kMultitapP1PlayerSlot) + 1u;
+            topology.push_back({slot, 4, deviceId, true, groupLabel, "P" + std::to_string(index)});
+        }
+        return topology;
+    }
+
+    if(port1Device.has_value() && *port1Device != Settings::Device::NONE) {
+        topology.push_back({kPort1PlayerSlot, 1, geraNESDeviceId(*port1Device), true, "Port 1", geraNESPortDeviceLabel(*port1Device)});
+    }
+    if(port2Device.has_value() && *port2Device != Settings::Device::NONE) {
+        topology.push_back({kPort2PlayerSlot, 2, geraNESDeviceId(*port2Device), true, "Port 2", geraNESPortDeviceLabel(*port2Device)});
+    }
+    if(expansionDevice != Settings::ExpansionDevice::NONE) {
+        topology.push_back({kExpansionPlayerSlot, 3, geraNESExpansionDeviceId(expansionDevice), true, "Expansion Port", geraNESExpansionDeviceLabel(expansionDevice)});
+    }
+    return topology;
+}
+
+} // namespace
+
+RoomState roomWithGeraNESInputTopology(RoomState room,
+                                       std::optional<Settings::Device> port1Device,
+                                       std::optional<Settings::Device> port2Device,
+                                       Settings::ExpansionDevice expansionDevice,
+                                       Settings::NesMultitapDevice nesMultitapDevice,
+                                       Settings::FamicomMultitapDevice famicomMultitapDevice)
+{
+    room.inputTopology = makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice);
+    return room;
+}
+
+bool canAssignGeraNESInputCandidate(const RoomState& room,
+                                    ParticipantId participantId,
+                                    std::optional<Settings::Device> port1Device,
+                                    std::optional<Settings::Device> port2Device,
+                                    Settings::ExpansionDevice expansionDevice,
+                                    Settings::NesMultitapDevice nesMultitapDevice,
+                                    Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                    PlayerSlot slot)
+{
+    const Settings::NesMultitapDevice currentNesMultitap = geraNESNesMultitapDeviceFromTopology(room);
+    const Settings::FamicomMultitapDevice currentFamicomMultitap = geraNESFamicomMultitapDeviceFromTopology(room);
+    const bool currentUsesNesMultitap = currentNesMultitap != Settings::NesMultitapDevice::NONE;
+    const bool currentUsesFamicomMultitap = currentFamicomMultitap != Settings::FamicomMultitapDevice::NONE;
+    const bool candidateUsesNesMultitap = nesMultitapDevice != Settings::NesMultitapDevice::NONE;
+    const bool candidateUsesFamicomMultitap = famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
+    const bool changesMultitapFamily =
+        currentUsesNesMultitap != candidateUsesNesMultitap ||
+        currentUsesFamicomMultitap != candidateUsesFamicomMultitap;
+    if(changesMultitapFamily) {
+        for(const ParticipantInfo& participant : room.participants) {
+            if(participant.id == participantId) continue;
+            for(PlayerSlot assignment : participantAssignments(participant)) {
+                if(assignment >= kMultitapP1PlayerSlot && assignment <= kMultitapP4PlayerSlot) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return canAssignInputCandidate(
+        room,
+        participantId,
+        makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice),
+        slot
+    );
+}
+
+void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
+                                 std::optional<Settings::Device> port1Device,
+                                 std::optional<Settings::Device> port2Device,
+                                 Settings::ExpansionDevice expansionDevice,
+                                 Settings::NesMultitapDevice nesMultitapDevice,
+                                 Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                 std::optional<ParticipantId> preservedParticipantId,
+                                 PlayerSlot preservedAssignment)
+{
+    coordinator.setRoomInputTopology(
+        makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice),
+        preservedParticipantId,
+        preservedAssignment
+    );
+}
+
+Settings::Device geraNESPortDeviceFromTopology(const RoomState& room, PlayerSlot slot)
+{
+    const InputSlotDescriptor* descriptor = findInputSlot(room.inputTopology, slot);
+    if(descriptor == nullptr || (descriptor->deviceId & 0xFF00u) != 0x0400u) {
+        return Settings::Device::NONE;
+    }
+    return static_cast<Settings::Device>(static_cast<uint8_t>(descriptor->deviceId & 0x00FFu));
+}
+
+Settings::ExpansionDevice geraNESExpansionDeviceFromTopology(const RoomState& room)
+{
+    const InputSlotDescriptor* descriptor = findInputSlot(room.inputTopology, kExpansionPlayerSlot);
+    if(descriptor == nullptr || (descriptor->deviceId & 0xFF00u) != 0x0100u) {
+        return Settings::ExpansionDevice::NONE;
+    }
+    return static_cast<Settings::ExpansionDevice>(static_cast<uint8_t>(descriptor->deviceId & 0x00FFu));
+}
+
+Settings::NesMultitapDevice geraNESNesMultitapDeviceFromTopology(const RoomState& room)
+{
+    const InputSlotDescriptor* descriptor = findInputSlot(room.inputTopology, kMultitapP1PlayerSlot);
+    if(descriptor == nullptr || (descriptor->deviceId & 0xFF00u) != 0x0200u) {
+        return Settings::NesMultitapDevice::NONE;
+    }
+    return static_cast<Settings::NesMultitapDevice>(static_cast<uint8_t>(descriptor->deviceId & 0x00FFu));
+}
+
+Settings::FamicomMultitapDevice geraNESFamicomMultitapDeviceFromTopology(const RoomState& room)
+{
+    const InputSlotDescriptor* descriptor = findInputSlot(room.inputTopology, kMultitapP1PlayerSlot);
+    if(descriptor == nullptr || (descriptor->deviceId & 0xFF00u) != 0x0300u) {
+        return Settings::FamicomMultitapDevice::NONE;
+    }
+    return static_cast<Settings::FamicomMultitapDevice>(static_cast<uint8_t>(descriptor->deviceId & 0x00FFu));
+}
 
 namespace {
 
@@ -26,22 +250,22 @@ enum class AdapterSlotPayloadKind : uint8_t
 struct AdapterFramePayload
 {
     uint8_t version = kAdapterFramePayloadVersion;
-    PortDevice port1Device = PortDevice::NONE;
-    PortDevice port2Device = PortDevice::NONE;
-    ExpansionDevice expansionDevice = ExpansionDevice::NONE;
-    NesMultitapDevice nesMultitapDevice = NesMultitapDevice::NONE;
-    FamicomMultitapDevice famicomMultitapDevice = FamicomMultitapDevice::NONE;
+    Settings::Device port1Device = Settings::Device::NONE;
+    Settings::Device port2Device = Settings::Device::NONE;
+    Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
+    Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
+    Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
 };
 
 std::vector<uint8_t> makeAdapterFramePayload(const InputFrame& inputFrame)
 {
     PacketWriter writer;
     writer.writePod(kAdapterFramePayloadVersion);
-    writer.writePod(static_cast<uint8_t>(toNetplayPortDevice(inputFrame.port1Device)));
-    writer.writePod(static_cast<uint8_t>(toNetplayPortDevice(inputFrame.port2Device)));
-    writer.writePod(static_cast<uint8_t>(toNetplayExpansionDevice(inputFrame.expansionDevice)));
-    writer.writePod(static_cast<uint8_t>(toNetplayNesMultitapDevice(inputFrame.nesMultitapDevice)));
-    writer.writePod(static_cast<uint8_t>(toNetplayFamicomMultitapDevice(inputFrame.famicomMultitapDevice)));
+    writer.writePod(static_cast<uint8_t>(inputFrame.port1Device));
+    writer.writePod(static_cast<uint8_t>(inputFrame.port2Device));
+    writer.writePod(static_cast<uint8_t>(inputFrame.expansionDevice));
+    writer.writePod(static_cast<uint8_t>(inputFrame.nesMultitapDevice));
+    writer.writePod(static_cast<uint8_t>(inputFrame.famicomMultitapDevice));
     return writer.data();
 }
 
@@ -63,11 +287,11 @@ bool readAdapterFramePayload(const NetplayInputFrame& inputFrame, AdapterFramePa
         return false;
     }
     if(payload.version != kAdapterFramePayloadVersion || reader.remaining() != 0) return false;
-    payload.port1Device = static_cast<PortDevice>(port1Device);
-    payload.port2Device = static_cast<PortDevice>(port2Device);
-    payload.expansionDevice = static_cast<ExpansionDevice>(expansionDevice);
-    payload.nesMultitapDevice = static_cast<NesMultitapDevice>(nesMultitapDevice);
-    payload.famicomMultitapDevice = static_cast<FamicomMultitapDevice>(famicomMultitapDevice);
+    payload.port1Device = static_cast<Settings::Device>(port1Device);
+    payload.port2Device = static_cast<Settings::Device>(port2Device);
+    payload.expansionDevice = static_cast<Settings::ExpansionDevice>(expansionDevice);
+    payload.nesMultitapDevice = static_cast<Settings::NesMultitapDevice>(nesMultitapDevice);
+    payload.famicomMultitapDevice = static_cast<Settings::FamicomMultitapDevice>(famicomMultitapDevice);
     return true;
 }
 
@@ -233,78 +457,78 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
         writer.writePod(kind);
     };
 
-    const PortDevice port1Device = toNetplayPortDevice(inputFrame.port1Device);
-    const PortDevice port2Device = toNetplayPortDevice(inputFrame.port2Device);
-    const ExpansionDevice expansionDevice = toNetplayExpansionDevice(inputFrame.expansionDevice);
+    const Settings::Device port1Device = inputFrame.port1Device;
+    const Settings::Device port2Device = inputFrame.port2Device;
+    const Settings::ExpansionDevice expansionDevice = inputFrame.expansionDevice;
     switch(slot) {
         case kPort1PlayerSlot:
-            if(port1Device == PortDevice::ZAPPER) {
+            if(port1Device == Settings::Device::ZAPPER) {
                 writeHeader(AdapterSlotPayloadKind::Zapper);
                 writer.writePod(static_cast<int16_t>(inputFrame.zapperP1X));
                 writer.writePod(static_cast<int16_t>(inputFrame.zapperP1Y));
                 writer.writePod(boolMask(inputFrame.zapperP1Trigger));
-            } else if(port1Device == PortDevice::ARKANOID_CONTROLLER) {
+            } else if(port1Device == Settings::Device::ARKANOID_CONTROLLER) {
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(inputFrame.arkanoidP1Position);
                 writer.writePod(boolMask(inputFrame.arkanoidP1Button));
-            } else if(port1Device == PortDevice::SNES_MOUSE || port1Device == PortDevice::SUBOR_MOUSE) {
+            } else if(port1Device == Settings::Device::SNES_MOUSE || port1Device == Settings::Device::SUBOR_MOUSE) {
                 writeHeader(AdapterSlotPayloadKind::Mouse);
-                const bool subor = port1Device == PortDevice::SUBOR_MOUSE;
+                const bool subor = port1Device == Settings::Device::SUBOR_MOUSE;
                 writer.writePod(static_cast<int16_t>(subor ? inputFrame.suborMouseP1DeltaX : inputFrame.snesMouseP1DeltaX));
                 writer.writePod(static_cast<int16_t>(subor ? inputFrame.suborMouseP1DeltaY : inputFrame.snesMouseP1DeltaY));
                 writer.writePod(boolMask(subor ? inputFrame.suborMouseP1Left : inputFrame.snesMouseP1Left,
                                          subor ? inputFrame.suborMouseP1Right : inputFrame.snesMouseP1Right));
-            } else if(port1Device == PortDevice::POWER_PAD_SIDE_A || port1Device == PortDevice::POWER_PAD_SIDE_B) {
+            } else if(port1Device == Settings::Device::POWER_PAD_SIDE_A || port1Device == Settings::Device::POWER_PAD_SIDE_B) {
                 writeHeader(AdapterSlotPayloadKind::PowerPad);
                 writer.writePod(powerPadMask(inputFrame.powerPadP1Buttons));
             }
             break;
         case kPort2PlayerSlot:
-            if(port2Device == PortDevice::ZAPPER) {
+            if(port2Device == Settings::Device::ZAPPER) {
                 writeHeader(AdapterSlotPayloadKind::Zapper);
                 writer.writePod(static_cast<int16_t>(inputFrame.zapperP2X));
                 writer.writePod(static_cast<int16_t>(inputFrame.zapperP2Y));
                 writer.writePod(boolMask(inputFrame.zapperP2Trigger));
-            } else if(port2Device == PortDevice::ARKANOID_CONTROLLER) {
+            } else if(port2Device == Settings::Device::ARKANOID_CONTROLLER) {
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(inputFrame.arkanoidP2Position);
                 writer.writePod(boolMask(inputFrame.arkanoidP2Button));
-            } else if(port2Device == PortDevice::SNES_MOUSE || port2Device == PortDevice::SUBOR_MOUSE) {
+            } else if(port2Device == Settings::Device::SNES_MOUSE || port2Device == Settings::Device::SUBOR_MOUSE) {
                 writeHeader(AdapterSlotPayloadKind::Mouse);
-                const bool subor = port2Device == PortDevice::SUBOR_MOUSE;
+                const bool subor = port2Device == Settings::Device::SUBOR_MOUSE;
                 writer.writePod(static_cast<int16_t>(subor ? inputFrame.suborMouseP2DeltaX : inputFrame.snesMouseP2DeltaX));
                 writer.writePod(static_cast<int16_t>(subor ? inputFrame.suborMouseP2DeltaY : inputFrame.snesMouseP2DeltaY));
                 writer.writePod(boolMask(subor ? inputFrame.suborMouseP2Left : inputFrame.snesMouseP2Left,
                                          subor ? inputFrame.suborMouseP2Right : inputFrame.snesMouseP2Right));
-            } else if(port2Device == PortDevice::POWER_PAD_SIDE_A || port2Device == PortDevice::POWER_PAD_SIDE_B) {
+            } else if(port2Device == Settings::Device::POWER_PAD_SIDE_A || port2Device == Settings::Device::POWER_PAD_SIDE_B) {
                 writeHeader(AdapterSlotPayloadKind::PowerPad);
                 writer.writePod(powerPadMask(inputFrame.powerPadP2Buttons));
             }
             break;
         case kExpansionPlayerSlot:
-            if(expansionDevice == ExpansionDevice::BANDAI_HYPERSHOT) {
+            if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
                 writeHeader(AdapterSlotPayloadKind::BandaiPointer);
                 writer.writePod(static_cast<int16_t>(inputFrame.bandaiX));
                 writer.writePod(static_cast<int16_t>(inputFrame.bandaiY));
                 writer.writePod(boolMask(inputFrame.bandaiTrigger));
-            } else if(expansionDevice == ExpansionDevice::ARKANOID_CONTROLLER) {
+            } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(inputFrame.arkanoidFamicomPosition);
                 writer.writePod(boolMask(inputFrame.arkanoidFamicomButton));
-            } else if(expansionDevice == ExpansionDevice::KONAMI_HYPERSHOT) {
+            } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
                 writeHeader(AdapterSlotPayloadKind::KonamiHyperShot);
                 writer.writePod(boolMask(inputFrame.konamiP1Run, inputFrame.konamiP1Jump,
                                          inputFrame.konamiP2Run, inputFrame.konamiP2Jump));
-            } else if(expansionDevice == ExpansionDevice::SUBOR_KEYBOARD) {
+            } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
                 writeHeader(AdapterSlotPayloadKind::Keyboard);
                 writer.writePod(static_cast<uint8_t>(0));
                 writeKeyboardKeys(writer, inputFrame.suborKeyboardKeys);
-            } else if(expansionDevice == ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
+            } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
                 writeHeader(AdapterSlotPayloadKind::Keyboard);
                 writer.writePod(static_cast<uint8_t>(1));
                 writeKeyboardKeys(writer, inputFrame.familyBasicKeyboardKeys);
-            } else if(expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-                      expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+            } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                      expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                 writeHeader(AdapterSlotPayloadKind::FamilyTrainer);
                 writer.writePod(powerPadMask(inputFrame.powerPadP1Buttons));
                 writer.writePod(powerPadMask(inputFrame.powerPadP2Buttons));
@@ -316,29 +540,29 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
     return writer.data();
 }
 
-bool isControllerLike(PortDevice device)
+bool isControllerLike(Settings::Device device)
 {
-    return device == PortDevice::CONTROLLER ||
-           device == PortDevice::FAMICOM_CONTROLLER ||
-           device == PortDevice::SNES_CONTROLLER ||
-           device == PortDevice::VIRTUAL_BOY_CONTROLLER;
+    return device == Settings::Device::CONTROLLER ||
+           device == Settings::Device::FAMICOM_CONTROLLER ||
+           device == Settings::Device::SNES_CONTROLLER ||
+           device == Settings::Device::VIRTUAL_BOY_CONTROLLER;
 }
 
 bool slotNeedsAdapterPayload(const InputFrame& inputFrame, PlayerSlot slot)
 {
-    const PortDevice port1Device = toNetplayPortDevice(inputFrame.port1Device);
-    const PortDevice port2Device = toNetplayPortDevice(inputFrame.port2Device);
-    const ExpansionDevice expansionDevice = toNetplayExpansionDevice(inputFrame.expansionDevice);
+    const Settings::Device port1Device = inputFrame.port1Device;
+    const Settings::Device port2Device = inputFrame.port2Device;
+    const Settings::ExpansionDevice expansionDevice = inputFrame.expansionDevice;
     switch(slot) {
         case kPort1PlayerSlot:
-            return port1Device != PortDevice::NONE && !isControllerLike(port1Device);
+            return port1Device != Settings::Device::NONE && !isControllerLike(port1Device);
         case kPort2PlayerSlot:
-            return port2Device != PortDevice::NONE &&
+            return port2Device != Settings::Device::NONE &&
                    !isControllerLike(port2Device) &&
-                   port2Device != PortDevice::BANDAI_HYPERSHOT;
+                   port2Device != Settings::Device::BANDAI_HYPERSHOT;
         case kExpansionPlayerSlot:
-            return expansionDevice != ExpansionDevice::NONE &&
-                   expansionDevice != ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+            return expansionDevice != Settings::ExpansionDevice::NONE &&
+                   expansionDevice != Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
         default:
             return false;
     }
@@ -392,13 +616,13 @@ bool applySlotPayload(InputFrame& frame,
             break;
         case AdapterSlotPayloadKind::Mouse:
             if(!reader.readPod(x) || !reader.readPod(y) || !reader.readPod(flags)) return false;
-            if(slot == kPort1PlayerSlot && adapterPayload.port1Device == PortDevice::SUBOR_MOUSE) {
+            if(slot == kPort1PlayerSlot && adapterPayload.port1Device == Settings::Device::SUBOR_MOUSE) {
                 frame.suborMouseP1DeltaX = x; frame.suborMouseP1DeltaY = y;
                 frame.suborMouseP1Left = (flags & 1u) != 0; frame.suborMouseP1Right = (flags & 2u) != 0;
             } else if(slot == kPort1PlayerSlot) {
                 frame.snesMouseP1DeltaX = x; frame.snesMouseP1DeltaY = y;
                 frame.snesMouseP1Left = (flags & 1u) != 0; frame.snesMouseP1Right = (flags & 2u) != 0;
-            } else if(slot == kPort2PlayerSlot && adapterPayload.port2Device == PortDevice::SUBOR_MOUSE) {
+            } else if(slot == kPort2PlayerSlot && adapterPayload.port2Device == Settings::Device::SUBOR_MOUSE) {
                 frame.suborMouseP2DeltaX = x; frame.suborMouseP2DeltaY = y;
                 frame.suborMouseP2Left = (flags & 1u) != 0; frame.suborMouseP2Right = (flags & 2u) != 0;
             } else if(slot == kPort2PlayerSlot) {
@@ -493,15 +717,15 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
     frame.speculative = inputFrame.speculative;
     AdapterFramePayload adapterPayload;
     if(readAdapterFramePayload(inputFrame, adapterPayload)) {
-        frame.port1Device = toSettingsDevice(adapterPayload.port1Device);
-        frame.port2Device = toSettingsDevice(adapterPayload.port2Device);
-        frame.expansionDevice = toSettingsExpansionDevice(adapterPayload.expansionDevice);
-        frame.nesMultitapDevice = toSettingsNesMultitapDevice(adapterPayload.nesMultitapDevice);
-        frame.famicomMultitapDevice = toSettingsFamicomMultitapDevice(adapterPayload.famicomMultitapDevice);
+        frame.port1Device = adapterPayload.port1Device;
+        frame.port2Device = adapterPayload.port2Device;
+        frame.expansionDevice = adapterPayload.expansionDevice;
+        frame.nesMultitapDevice = adapterPayload.nesMultitapDevice;
+        frame.famicomMultitapDevice = adapterPayload.famicomMultitapDevice;
     }
     const bool multitapActive =
-        adapterPayload.nesMultitapDevice != NesMultitapDevice::NONE ||
-        adapterPayload.famicomMultitapDevice != FamicomMultitapDevice::NONE;
+        adapterPayload.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
+        adapterPayload.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
     if(multitapActive) {
         applyMask(frame, kMultitapP1PlayerSlot, inputFrame.buttonMaskLo[kMultitapP1PlayerSlot]);
         applyMask(frame, kMultitapP2PlayerSlot, inputFrame.buttonMaskLo[kMultitapP2PlayerSlot]);
@@ -512,7 +736,7 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
         applyMask(frame, kPort2PlayerSlot, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
         applyMask(frame, kExpansionPlayerSlot, inputFrame.buttonMaskLo[kExpansionPlayerSlot]);
     }
-    if(adapterPayload.port2Device == PortDevice::BANDAI_HYPERSHOT) {
+    if(adapterPayload.port2Device == Settings::Device::BANDAI_HYPERSHOT) {
         applyBandaiPadMask(frame, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
     }
     for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
@@ -526,13 +750,15 @@ InputFrame makeRoomTopologyBaseFrame(FrameNumber frame, const RoomState& room)
     InputFrame inputFrame{};
     inputFrame.frame = frame;
     inputFrame.timelineEpoch = room.timelineEpoch;
-    inputFrame.port1Device = toSettingsDevice(room.port1Device.value_or(PortDevice::NONE));
-    inputFrame.port2Device = toSettingsDevice(room.port2Device.value_or(PortDevice::NONE));
-    inputFrame.expansionDevice = toSettingsExpansionDevice(room.expansionDevice);
-    inputFrame.nesMultitapDevice = toSettingsNesMultitapDevice(room.nesMultitapDevice);
-    inputFrame.famicomMultitapDevice = toSettingsFamicomMultitapDevice(room.famicomMultitapDevice);
+    inputFrame.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+    inputFrame.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    inputFrame.expansionDevice = geraNESExpansionDeviceFromTopology(room);
+    inputFrame.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
+    inputFrame.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
     return inputFrame;
 }
+
+namespace {
 
 InputFrame makeContributionBase(const InputFrame& baseFrame)
 {
@@ -546,19 +772,21 @@ InputFrame makeContributionBase(const InputFrame& baseFrame)
     return contribution;
 }
 
+} // namespace
+
 InputFrame buildAssignedContribution(PlayerSlot slot,
-                                            const NetplayInputState& state,
+                                            const GeraNESInputState& state,
                                             const InputFrame& baseFrame)
 {
     InputFrame contribution = makeContributionBase(baseFrame);
 
     switch(slot) {
         case kPort1PlayerSlot: {
-            const PortDevice device = toNetplayPortDevice(baseFrame.port1Device);
-            if(device == PortDevice::CONTROLLER ||
-               device == PortDevice::FAMICOM_CONTROLLER ||
-               device == PortDevice::SNES_CONTROLLER ||
-               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
+            const Settings::Device device = baseFrame.port1Device;
+            if(device == Settings::Device::CONTROLLER ||
+               device == Settings::Device::FAMICOM_CONTROLLER ||
+               device == Settings::Device::SNES_CONTROLLER ||
+               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                 contribution.p1A = state.p1A; contribution.p1B = state.p1B; contribution.p1Select = state.p1Select; contribution.p1Start = state.p1Start;
                 contribution.p1Up = state.p1Up; contribution.p1Down = state.p1Down; contribution.p1Left = state.p1Left; contribution.p1Right = state.p1Right;
                 contribution.p1X = state.p1X; contribution.p1Y = state.p1Y; contribution.p1L = state.p1L; contribution.p1R = state.p1R;
@@ -566,28 +794,28 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
                 contribution.vbP1Up0 = state.p1Up; contribution.vbP1Down0 = state.p1Down; contribution.vbP1Left0 = state.p1Left; contribution.vbP1Right0 = state.p1Right;
                 contribution.vbP1Up1 = state.p1Up2; contribution.vbP1Down1 = state.p1Down2; contribution.vbP1Left1 = state.p1Left2; contribution.vbP1Right1 = state.p1Right2;
                 contribution.vbP1L = state.p1L; contribution.vbP1R = state.p1R;
-            } else if(device == PortDevice::ZAPPER) {
+            } else if(device == Settings::Device::ZAPPER) {
                 contribution.zapperP1X = state.zapperX; contribution.zapperP1Y = state.zapperY; contribution.zapperP1Trigger = state.zapperP1Trigger;
-            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
+            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
                 contribution.arkanoidP1Position = state.arkanoidNesPosition; contribution.arkanoidP1Button = state.mousePrimaryButton;
-            } else if(device == PortDevice::SNES_MOUSE) {
+            } else if(device == Settings::Device::SNES_MOUSE) {
                 contribution.snesMouseP1DeltaX = state.mouseDeltaX; contribution.snesMouseP1DeltaY = state.mouseDeltaY;
                 contribution.snesMouseP1Left = state.mousePrimaryButton; contribution.snesMouseP1Right = state.mouseSecondaryButton;
-            } else if(device == PortDevice::SUBOR_MOUSE) {
+            } else if(device == Settings::Device::SUBOR_MOUSE) {
                 contribution.suborMouseP1DeltaX = state.mouseDeltaX; contribution.suborMouseP1DeltaY = state.mouseDeltaY;
                 contribution.suborMouseP1Left = state.mousePrimaryButton; contribution.suborMouseP1Right = state.mouseSecondaryButton;
-            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
-                      device == PortDevice::POWER_PAD_SIDE_B) {
+            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
+                      device == Settings::Device::POWER_PAD_SIDE_B) {
                 contribution.powerPadP1Buttons = state.p1PowerPadButtons;
             }
             break;
         }
         case kPort2PlayerSlot: {
-            const PortDevice device = toNetplayPortDevice(baseFrame.port2Device);
-            if(device == PortDevice::CONTROLLER ||
-               device == PortDevice::FAMICOM_CONTROLLER ||
-               device == PortDevice::SNES_CONTROLLER ||
-               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
+            const Settings::Device device = baseFrame.port2Device;
+            if(device == Settings::Device::CONTROLLER ||
+               device == Settings::Device::FAMICOM_CONTROLLER ||
+               device == Settings::Device::SNES_CONTROLLER ||
+               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                 contribution.p2A = state.p2A; contribution.p2B = state.p2B; contribution.p2Select = state.p2Select; contribution.p2Start = state.p2Start;
                 contribution.p2Up = state.p2Up; contribution.p2Down = state.p2Down; contribution.p2Left = state.p2Left; contribution.p2Right = state.p2Right;
                 contribution.p2X = state.p2X; contribution.p2Y = state.p2Y; contribution.p2L = state.p2L; contribution.p2R = state.p2R;
@@ -595,43 +823,43 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
                 contribution.vbP2Up0 = state.p2Up; contribution.vbP2Down0 = state.p2Down; contribution.vbP2Left0 = state.p2Left; contribution.vbP2Right0 = state.p2Right;
                 contribution.vbP2Up1 = state.p2Up2; contribution.vbP2Down1 = state.p2Down2; contribution.vbP2Left1 = state.p2Left2; contribution.vbP2Right1 = state.p2Right2;
                 contribution.vbP2L = state.p2L; contribution.vbP2R = state.p2R;
-            } else if(device == PortDevice::ZAPPER) {
+            } else if(device == Settings::Device::ZAPPER) {
                 contribution.zapperP2X = state.zapperX; contribution.zapperP2Y = state.zapperY; contribution.zapperP2Trigger = state.zapperP2Trigger;
-            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
+            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
                 contribution.arkanoidP2Position = state.arkanoidNesPosition; contribution.arkanoidP2Button = state.mousePrimaryButton;
-            } else if(device == PortDevice::SNES_MOUSE) {
+            } else if(device == Settings::Device::SNES_MOUSE) {
                 contribution.snesMouseP2DeltaX = state.mouseDeltaX; contribution.snesMouseP2DeltaY = state.mouseDeltaY;
                 contribution.snesMouseP2Left = state.mousePrimaryButton; contribution.snesMouseP2Right = state.mouseSecondaryButton;
-            } else if(device == PortDevice::SUBOR_MOUSE) {
+            } else if(device == Settings::Device::SUBOR_MOUSE) {
                 contribution.suborMouseP2DeltaX = state.mouseDeltaX; contribution.suborMouseP2DeltaY = state.mouseDeltaY;
                 contribution.suborMouseP2Left = state.mousePrimaryButton; contribution.suborMouseP2Right = state.mouseSecondaryButton;
-            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
-                      device == PortDevice::POWER_PAD_SIDE_B) {
+            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
+                      device == Settings::Device::POWER_PAD_SIDE_B) {
                 contribution.powerPadP2Buttons = state.p2PowerPadButtons;
-            } else if(device == PortDevice::BANDAI_HYPERSHOT) {
+            } else if(device == Settings::Device::BANDAI_HYPERSHOT) {
                 contribution.bandaiA = state.p2A; contribution.bandaiB = state.p2B; contribution.bandaiSelect = state.p2Select; contribution.bandaiStart = state.p2Start;
                 contribution.bandaiUp = state.p2Up; contribution.bandaiDown = state.p2Down; contribution.bandaiLeft = state.p2Left; contribution.bandaiRight = state.p2Right;
             }
             break;
         }
         case kExpansionPlayerSlot: {
-            const ExpansionDevice expansionDevice = toNetplayExpansionDevice(baseFrame.expansionDevice);
-            if(expansionDevice == ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+            const Settings::ExpansionDevice expansionDevice = baseFrame.expansionDevice;
+            if(expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
                 contribution.p3A = state.p3A; contribution.p3B = state.p3B; contribution.p3Select = state.p3Select; contribution.p3Start = state.p3Start;
                 contribution.p3Up = state.p3Up; contribution.p3Down = state.p3Down; contribution.p3Left = state.p3Left; contribution.p3Right = state.p3Right;
-            } else if(expansionDevice == ExpansionDevice::BANDAI_HYPERSHOT) {
+            } else if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
                 contribution.bandaiX = state.zapperX; contribution.bandaiY = state.zapperY; contribution.bandaiTrigger = state.bandaiTrigger;
-            } else if(expansionDevice == ExpansionDevice::ARKANOID_CONTROLLER) {
+            } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
                 contribution.arkanoidFamicomPosition = state.arkanoidFamicomPosition; contribution.arkanoidFamicomButton = state.mousePrimaryButton;
-            } else if(expansionDevice == ExpansionDevice::KONAMI_HYPERSHOT) {
+            } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
                 contribution.konamiP1Run = state.konamiP1Run; contribution.konamiP1Jump = state.konamiP1Jump;
                 contribution.konamiP2Run = state.konamiP2Run; contribution.konamiP2Jump = state.konamiP2Jump;
-            } else if(expansionDevice == ExpansionDevice::SUBOR_KEYBOARD) {
+            } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
                 contribution.suborKeyboardKeys = state.suborKeyboardKeys;
-            } else if(expansionDevice == ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
+            } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
                 contribution.familyBasicKeyboardKeys = state.familyBasicKeyboardKeys;
-            } else if(expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-                      expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+            } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                      expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                 contribution.powerPadP1Buttons = state.p1PowerPadButtons;
                 contribution.powerPadP2Buttons = state.p2PowerPadButtons;
             }
@@ -660,66 +888,15 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
     return contribution;
 }
 
-uint64_t assignedContributionPrimaryMask(PlayerSlot slot, const InputFrame& contribution)
-{
-    auto buildMask = [](bool a, bool b, bool select, bool start,
-                        bool up, bool down, bool left, bool right,
-                        bool x = false, bool y = false, bool l = false, bool r = false,
-                        bool up2 = false, bool down2 = false, bool left2 = false, bool right2 = false) {
-        uint64_t mask = 0;
-        if(a) mask |= (1ull << 0);
-        if(b) mask |= (1ull << 1);
-        if(select) mask |= (1ull << 2);
-        if(start) mask |= (1ull << 3);
-        if(up) mask |= (1ull << 4);
-        if(down) mask |= (1ull << 5);
-        if(left) mask |= (1ull << 6);
-        if(right) mask |= (1ull << 7);
-        if(x) mask |= (1ull << 8);
-        if(y) mask |= (1ull << 9);
-        if(l) mask |= (1ull << 10);
-        if(r) mask |= (1ull << 11);
-        if(up2) mask |= (1ull << 12);
-        if(down2) mask |= (1ull << 13);
-        if(left2) mask |= (1ull << 14);
-        if(right2) mask |= (1ull << 15);
-        return mask;
-    };
-
-    switch(slot) {
-        case kPort1PlayerSlot:
-        case kMultitapP1PlayerSlot:
-            return buildMask(contribution.p1A, contribution.p1B, contribution.p1Select, contribution.p1Start,
-                             contribution.p1Up, contribution.p1Down, contribution.p1Left, contribution.p1Right,
-                             contribution.p1X, contribution.p1Y, contribution.p1L, contribution.p1R,
-                             contribution.vbP1Up1, contribution.vbP1Down1, contribution.vbP1Left1, contribution.vbP1Right1);
-        case kPort2PlayerSlot:
-        case kMultitapP2PlayerSlot:
-            return buildMask(contribution.p2A, contribution.p2B, contribution.p2Select, contribution.p2Start,
-                             contribution.p2Up, contribution.p2Down, contribution.p2Left, contribution.p2Right,
-                             contribution.p2X, contribution.p2Y, contribution.p2L, contribution.p2R,
-                             contribution.vbP2Up1, contribution.vbP2Down1, contribution.vbP2Left1, contribution.vbP2Right1);
-        case kExpansionPlayerSlot:
-        case kMultitapP3PlayerSlot:
-            return buildMask(contribution.p3A, contribution.p3B, contribution.p3Select, contribution.p3Start,
-                             contribution.p3Up, contribution.p3Down, contribution.p3Left, contribution.p3Right);
-        case kMultitapP4PlayerSlot:
-            return buildMask(contribution.p4A, contribution.p4B, contribution.p4Select, contribution.p4Start,
-                             contribution.p4Up, contribution.p4Down, contribution.p4Left, contribution.p4Right);
-        default:
-            return 0;
-    }
-}
-
 void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputFrame& contribution)
 {
     switch(slot) {
         case kPort1PlayerSlot: {
-            const PortDevice device = toNetplayPortDevice(target.port1Device);
-            if(device == PortDevice::CONTROLLER ||
-               device == PortDevice::FAMICOM_CONTROLLER ||
-               device == PortDevice::SNES_CONTROLLER ||
-               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
+            const Settings::Device device = target.port1Device;
+            if(device == Settings::Device::CONTROLLER ||
+               device == Settings::Device::FAMICOM_CONTROLLER ||
+               device == Settings::Device::SNES_CONTROLLER ||
+               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                 target.p1A = contribution.p1A; target.p1B = contribution.p1B; target.p1Select = contribution.p1Select; target.p1Start = contribution.p1Start;
                 target.p1Up = contribution.p1Up; target.p1Down = contribution.p1Down; target.p1Left = contribution.p1Left; target.p1Right = contribution.p1Right;
                 target.p1X = contribution.p1X; target.p1Y = contribution.p1Y; target.p1L = contribution.p1L; target.p1R = contribution.p1R;
@@ -727,28 +904,28 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
                 target.vbP1Up0 = contribution.vbP1Up0; target.vbP1Down0 = contribution.vbP1Down0; target.vbP1Left0 = contribution.vbP1Left0; target.vbP1Right0 = contribution.vbP1Right0;
                 target.vbP1Up1 = contribution.vbP1Up1; target.vbP1Down1 = contribution.vbP1Down1; target.vbP1Left1 = contribution.vbP1Left1; target.vbP1Right1 = contribution.vbP1Right1;
                 target.vbP1L = contribution.vbP1L; target.vbP1R = contribution.vbP1R;
-            } else if(device == PortDevice::ZAPPER) {
+            } else if(device == Settings::Device::ZAPPER) {
                 target.zapperP1X = contribution.zapperP1X; target.zapperP1Y = contribution.zapperP1Y; target.zapperP1Trigger = contribution.zapperP1Trigger;
-            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
+            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
                 target.arkanoidP1Position = contribution.arkanoidP1Position; target.arkanoidP1Button = contribution.arkanoidP1Button;
-            } else if(device == PortDevice::SNES_MOUSE) {
+            } else if(device == Settings::Device::SNES_MOUSE) {
                 target.snesMouseP1DeltaX = contribution.snesMouseP1DeltaX; target.snesMouseP1DeltaY = contribution.snesMouseP1DeltaY;
                 target.snesMouseP1Left = contribution.snesMouseP1Left; target.snesMouseP1Right = contribution.snesMouseP1Right;
-            } else if(device == PortDevice::SUBOR_MOUSE) {
+            } else if(device == Settings::Device::SUBOR_MOUSE) {
                 target.suborMouseP1DeltaX = contribution.suborMouseP1DeltaX; target.suborMouseP1DeltaY = contribution.suborMouseP1DeltaY;
                 target.suborMouseP1Left = contribution.suborMouseP1Left; target.suborMouseP1Right = contribution.suborMouseP1Right;
-            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
-                      device == PortDevice::POWER_PAD_SIDE_B) {
+            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
+                      device == Settings::Device::POWER_PAD_SIDE_B) {
                 target.powerPadP1Buttons = contribution.powerPadP1Buttons;
             }
             break;
         }
         case kPort2PlayerSlot: {
-            const PortDevice device = toNetplayPortDevice(target.port2Device);
-            if(device == PortDevice::CONTROLLER ||
-               device == PortDevice::FAMICOM_CONTROLLER ||
-               device == PortDevice::SNES_CONTROLLER ||
-               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
+            const Settings::Device device = target.port2Device;
+            if(device == Settings::Device::CONTROLLER ||
+               device == Settings::Device::FAMICOM_CONTROLLER ||
+               device == Settings::Device::SNES_CONTROLLER ||
+               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                 target.p2A = contribution.p2A; target.p2B = contribution.p2B; target.p2Select = contribution.p2Select; target.p2Start = contribution.p2Start;
                 target.p2Up = contribution.p2Up; target.p2Down = contribution.p2Down; target.p2Left = contribution.p2Left; target.p2Right = contribution.p2Right;
                 target.p2X = contribution.p2X; target.p2Y = contribution.p2Y; target.p2L = contribution.p2L; target.p2R = contribution.p2R;
@@ -756,43 +933,43 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
                 target.vbP2Up0 = contribution.vbP2Up0; target.vbP2Down0 = contribution.vbP2Down0; target.vbP2Left0 = contribution.vbP2Left0; target.vbP2Right0 = contribution.vbP2Right0;
                 target.vbP2Up1 = contribution.vbP2Up1; target.vbP2Down1 = contribution.vbP2Down1; target.vbP2Left1 = contribution.vbP2Left1; target.vbP2Right1 = contribution.vbP2Right1;
                 target.vbP2L = contribution.vbP2L; target.vbP2R = contribution.vbP2R;
-            } else if(device == PortDevice::ZAPPER) {
+            } else if(device == Settings::Device::ZAPPER) {
                 target.zapperP2X = contribution.zapperP2X; target.zapperP2Y = contribution.zapperP2Y; target.zapperP2Trigger = contribution.zapperP2Trigger;
-            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
+            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
                 target.arkanoidP2Position = contribution.arkanoidP2Position; target.arkanoidP2Button = contribution.arkanoidP2Button;
-            } else if(device == PortDevice::SNES_MOUSE) {
+            } else if(device == Settings::Device::SNES_MOUSE) {
                 target.snesMouseP2DeltaX = contribution.snesMouseP2DeltaX; target.snesMouseP2DeltaY = contribution.snesMouseP2DeltaY;
                 target.snesMouseP2Left = contribution.snesMouseP2Left; target.snesMouseP2Right = contribution.snesMouseP2Right;
-            } else if(device == PortDevice::SUBOR_MOUSE) {
+            } else if(device == Settings::Device::SUBOR_MOUSE) {
                 target.suborMouseP2DeltaX = contribution.suborMouseP2DeltaX; target.suborMouseP2DeltaY = contribution.suborMouseP2DeltaY;
                 target.suborMouseP2Left = contribution.suborMouseP2Left; target.suborMouseP2Right = contribution.suborMouseP2Right;
-            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
-                      device == PortDevice::POWER_PAD_SIDE_B) {
+            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
+                      device == Settings::Device::POWER_PAD_SIDE_B) {
                 target.powerPadP2Buttons = contribution.powerPadP2Buttons;
-            } else if(device == PortDevice::BANDAI_HYPERSHOT) {
+            } else if(device == Settings::Device::BANDAI_HYPERSHOT) {
                 target.bandaiA = contribution.bandaiA; target.bandaiB = contribution.bandaiB; target.bandaiSelect = contribution.bandaiSelect; target.bandaiStart = contribution.bandaiStart;
                 target.bandaiUp = contribution.bandaiUp; target.bandaiDown = contribution.bandaiDown; target.bandaiLeft = contribution.bandaiLeft; target.bandaiRight = contribution.bandaiRight;
             }
             break;
         }
         case kExpansionPlayerSlot: {
-            const ExpansionDevice expansionDevice = toNetplayExpansionDevice(target.expansionDevice);
-            if(expansionDevice == ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+            const Settings::ExpansionDevice expansionDevice = target.expansionDevice;
+            if(expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
                 target.p3A = contribution.p3A; target.p3B = contribution.p3B; target.p3Select = contribution.p3Select; target.p3Start = contribution.p3Start;
                 target.p3Up = contribution.p3Up; target.p3Down = contribution.p3Down; target.p3Left = contribution.p3Left; target.p3Right = contribution.p3Right;
-            } else if(expansionDevice == ExpansionDevice::BANDAI_HYPERSHOT) {
+            } else if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
                 target.bandaiX = contribution.bandaiX; target.bandaiY = contribution.bandaiY; target.bandaiTrigger = contribution.bandaiTrigger;
-            } else if(expansionDevice == ExpansionDevice::ARKANOID_CONTROLLER) {
+            } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
                 target.arkanoidFamicomPosition = contribution.arkanoidFamicomPosition; target.arkanoidFamicomButton = contribution.arkanoidFamicomButton;
-            } else if(expansionDevice == ExpansionDevice::KONAMI_HYPERSHOT) {
+            } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
                 target.konamiP1Run = contribution.konamiP1Run; target.konamiP1Jump = contribution.konamiP1Jump;
                 target.konamiP2Run = contribution.konamiP2Run; target.konamiP2Jump = contribution.konamiP2Jump;
-            } else if(expansionDevice == ExpansionDevice::SUBOR_KEYBOARD) {
+            } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
                 target.suborKeyboardKeys = contribution.suborKeyboardKeys;
-            } else if(expansionDevice == ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
+            } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
                 target.familyBasicKeyboardKeys = contribution.familyBasicKeyboardKeys;
-            } else if(expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-                      expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+            } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                      expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                 target.powerPadP1Buttons = contribution.powerPadP1Buttons;
                 target.powerPadP2Buttons = contribution.powerPadP2Buttons;
             }
@@ -826,12 +1003,4 @@ bool injectInputFrameForTests(NetplayCoordinator& coordinator,
     return coordinator.injectInputFrameForTests(input, toNetplayInputFrame(contribution));
 }
 
-void recordLocalInputFrame(NetplayCoordinator& coordinator,
-                           FrameNumber frame,
-                           PlayerSlot slot,
-                           const InputFrame& contribution)
-{
-    coordinator.recordLocalInputFrame(frame, slot, toNetplayInputFrame(contribution));
-}
-
-} // namespace ConsoleNetplay
+} // namespace GeraNESNetplay

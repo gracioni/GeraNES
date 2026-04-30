@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "ConsoleNetplay/INetplayRuntimeHost.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "signal/signal.h"
 
@@ -104,85 +105,6 @@ struct EmulationHostTypes
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
 
-    struct NetplayDiagnosticsSnapshot
-    {
-        struct TimingStats
-        {
-            uint64_t count = 0;
-            uint64_t totalUs = 0;
-            uint64_t maxUs = 0;
-            uint64_t lastUs = 0;
-            uint64_t recentAverageUs = 0;
-
-            void record(uint64_t elapsedUs)
-            {
-                lastUs = elapsedUs;
-                totalUs += elapsedUs;
-                maxUs = std::max(maxUs, elapsedUs);
-                recentAverageUs = count == 0
-                    ? elapsedUs
-                    : ((recentAverageUs * 7u) + elapsedUs) / 8u;
-                ++count;
-            }
-        };
-
-        struct ByteStats
-        {
-            uint64_t count = 0;
-            uint64_t totalBytes = 0;
-            uint64_t maxBytes = 0;
-            uint64_t lastBytes = 0;
-
-            void record(size_t bytes)
-            {
-                const uint64_t value = static_cast<uint64_t>(bytes);
-                lastBytes = value;
-                totalBytes += value;
-                maxBytes = std::max(maxBytes, value);
-                ++count;
-            }
-        };
-
-        struct RollbackStats
-        {
-            uint32_t rollbackCount = 0;
-            uint32_t maxRollbackDistance = 0;
-            uint32_t predictionHitCount = 0;
-            uint32_t predictionMissCount = 0;
-            uint32_t hardResyncCount = 0;
-            uint32_t lastRollbackFromFrame = 0;
-            uint32_t lastRollbackToFrame = 0;
-        };
-
-        bool enabled = false;
-        uint32_t currentFrame = 0;
-        size_t snapshotCapacity = 0;
-        size_t storedSnapshots = 0;
-        uint32_t latestSnapshotCrc32 = 0;
-        TimingStats netplayStateSaveTiming;
-        TimingStats netplayRollbackSnapshotSaveTiming;
-        TimingStats netplayCrcTiming;
-        TimingStats rollbackLoadTiming;
-        ByteStats netplayStateSerializedBytes;
-        ByteStats netplayRollbackSnapshotSerializedBytes;
-        ByteStats snapshotLookupCopyBytes;
-        ByteStats rollbackSnapshotCopyBytes;
-        ByteStats seededSnapshotCopyBytes;
-        RollbackStats rollbackStats;
-    };
-
-    enum class ManualStateChangeKind
-    {
-        Reset,
-        LoadState
-    };
-
-    struct ManualStateChangeRecord
-    {
-        ManualStateChangeKind kind = ManualStateChangeKind::Reset;
-        uint32_t frame = 0;
-    };
-
     struct InputTopologySnapshot
     {
         std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
@@ -199,9 +121,9 @@ public:
     using InputState = EmulationHostTypes::InputState;
     using ReplayFrameInput = EmulationHostTypes::ReplayFrameInput;
     using FrameInputResolver = EmulationHostTypes::FrameInputResolver;
-    using NetplayDiagnosticsSnapshot = EmulationHostTypes::NetplayDiagnosticsSnapshot;
-    using ManualStateChangeKind = EmulationHostTypes::ManualStateChangeKind;
-    using ManualStateChangeRecord = EmulationHostTypes::ManualStateChangeRecord;
+    using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
+    using ManualStateChangeKind = ConsoleNetplay::NetplayManualStateChangeKind;
+    using ManualStateChangeRecord = ConsoleNetplay::NetplayManualStateChangeRecord;
     using InputTopologySnapshot = EmulationHostTypes::InputTopologySnapshot;
 
     virtual ~IEmulationHost() = default;
@@ -278,6 +200,10 @@ public:
     virtual uint32_t manualLoadStateGeneration() const = 0;
     virtual uint32_t exactEmulationFrame() const = 0;
     virtual uint32_t getRegionFPS() const = 0;
+    virtual void configureInputBufferCapacity(size_t capacity) = 0;
+    virtual uint32_t inputTimelineEpoch() const = 0;
+    virtual void setInputTimelineEpoch(uint32_t timelineEpoch) = 0;
+    virtual void discardQueuedInputFramesAfter(uint32_t frame) = 0;
     virtual const uint32_t* getFramebuffer() const = 0;
     virtual void copyFramebuffer(std::vector<uint32_t>& out) const = 0;
     virtual void beginPresentationHoldUntilNextFrameReady() = 0;
@@ -290,6 +216,7 @@ public:
     virtual std::vector<uint8_t> saveStateToMemory() = 0;
     virtual std::vector<uint8_t> saveNetplayStateToMemory() = 0;
     virtual bool loadStateFromMemory(const std::vector<uint8_t>& data) = 0;
+    virtual bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) = 0;
     virtual uint32_t canonicalStateCrc32() = 0;
     virtual uint32_t canonicalNetplayStateCrc32() = 0;

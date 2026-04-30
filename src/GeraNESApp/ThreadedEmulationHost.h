@@ -115,6 +115,7 @@ private:
         bool nsfPaused = false;
         bool nsfEnded = false;
         uint32_t frameCount = 0;
+        uint32_t inputTimelineEpoch = 0;
         uint32_t lastFrameReadyFrame = 0;
         uint32_t lastFrameReadyNetplayCrc32 = 0;
         uint32_t manualResetGeneration = 0;
@@ -179,6 +180,7 @@ private:
     mutable std::mutex m_workerReadyMutex;
     std::condition_variable m_workerReadyCv;
     bool m_workerReady = false;
+    std::thread::id m_workerThreadId;
     mutable std::mutex m_presenterMutex;
     std::condition_variable m_presenterCv;
     std::atomic<bool> m_shutdownStarted{false};
@@ -214,6 +216,15 @@ private:
     void refreshSnapshotLocked();
     void onFrameReadyLocked();
     void workerLoop(std::stop_token stopToken);
+    static thread_local const ThreadedEmulationHost* t_directAccessHost;
+    bool onWorkerThread() const
+    {
+        return std::this_thread::get_id() == m_workerThreadId;
+    }
+    bool hasDirectEmuAccess() const
+    {
+        return onWorkerThread() || t_directAccessHost == this;
+    }
 
 public:
     explicit ThreadedEmulationHost(IAudioOutput& audioOutput);
@@ -250,6 +261,20 @@ public:
     decltype(auto) withExclusiveAccess(Fn&& fn)
     {
         std::scoped_lock emuLock(m_emuMutex);
+        struct DirectAccessScope
+        {
+            const ThreadedEmulationHost* previous = nullptr;
+            explicit DirectAccessScope(const ThreadedEmulationHost* host)
+                : previous(t_directAccessHost)
+            {
+                t_directAccessHost = host;
+            }
+            ~DirectAccessScope()
+            {
+                t_directAccessHost = previous;
+            }
+        } directAccessScope(this);
+
         if constexpr(std::is_void_v<std::invoke_result_t<Fn, GeraNESEmu&>>) {
             std::forward<Fn>(fn)(m_emu);
             refreshSnapshotLocked();
@@ -262,6 +287,20 @@ public:
     decltype(auto) withExclusiveAccess(Fn&& fn) const
     {
         std::scoped_lock emuLock(m_emuMutex);
+        struct DirectAccessScope
+        {
+            const ThreadedEmulationHost* previous = nullptr;
+            explicit DirectAccessScope(const ThreadedEmulationHost* host)
+                : previous(t_directAccessHost)
+            {
+                t_directAccessHost = host;
+            }
+            ~DirectAccessScope()
+            {
+                t_directAccessHost = previous;
+            }
+        } directAccessScope(this);
+
         return std::forward<Fn>(fn)(m_emu);
     }
 
@@ -414,6 +453,9 @@ public:
 
     bool valid() const
     {
+        if(hasDirectEmuAccess()) {
+            return m_emu.valid();
+        }
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.valid;
     }
@@ -632,6 +674,9 @@ public:
 
     uint32_t frameCount() const
     {
+        if(hasDirectEmuAccess()) {
+            return m_emu.frameCount();
+        }
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.frameCount;
     }
@@ -640,6 +685,49 @@ public:
     uint32_t manualLoadStateGeneration() const;
     uint32_t exactEmulationFrame() const;
     uint32_t getRegionFPS() const;
+    void configureInputBufferCapacity(size_t capacity)
+    {
+        if(hasDirectEmuAccess()) {
+            m_emu.configureInputBufferCapacity(capacity);
+            return;
+        }
+        postCommand([capacity](GeraNESEmu& emu) {
+            emu.configureInputBufferCapacity(capacity);
+        });
+    }
+
+    uint32_t inputTimelineEpoch() const
+    {
+        if(hasDirectEmuAccess()) {
+            return m_emu.inputTimelineEpoch();
+        }
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        return m_snapshot.inputTimelineEpoch;
+    }
+
+    void setInputTimelineEpoch(uint32_t timelineEpoch)
+    {
+        if(hasDirectEmuAccess()) {
+            m_emu.setInputTimelineEpoch(timelineEpoch);
+            refreshSnapshotLocked();
+            return;
+        }
+        postCommand([timelineEpoch](GeraNESEmu& emu) {
+            emu.setInputTimelineEpoch(timelineEpoch);
+        });
+    }
+
+    void discardQueuedInputFramesAfter(uint32_t frame)
+    {
+        if(hasDirectEmuAccess()) {
+            m_emu.discardQueuedInputFramesAfter(frame);
+            return;
+        }
+        postCommand([frame](GeraNESEmu& emu) {
+            emu.discardQueuedInputFramesAfter(frame);
+        });
+    }
+
     const uint32_t* getFramebuffer() const;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
@@ -652,6 +740,7 @@ public:
     std::vector<uint8_t> saveStateToMemory();
     std::vector<uint8_t> saveNetplayStateToMemory();
     bool loadStateFromMemory(const std::vector<uint8_t>& data);
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data);
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data);
 
     template<typename InputProvider>

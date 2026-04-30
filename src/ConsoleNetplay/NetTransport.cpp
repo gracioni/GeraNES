@@ -2,7 +2,7 @@
 #include "ConsoleNetplay/WebRtcPeerConnection.h"
 #include "ConsoleNetplay/WebRtcSignalingClient.h"
 #include "ConsoleNetplay/WebRtcSignalingServer.h"
-#include "logger/logger.h"
+#include "ConsoleNetplay/NetplayLog.h"
 
 #include <algorithm>
 #include <atomic>
@@ -798,7 +798,7 @@ private:
     bool& m_bootstrapSawRoomJoined = m_session.bootstrapSawRoomJoined;
     void logTrace(const std::string& message) const
     {
-        Logger::instance().log("[WebRTC transport] " + message, Logger::Type::INFO);
+        logNetplayMessage("[WebRTC transport] " + message, NetplayLogLevel::Info);
     }
 
     static const char* handshakeStageLabel(PeerHandshakeState state)

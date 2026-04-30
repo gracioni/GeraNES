@@ -35,6 +35,13 @@ SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapsh
         return result;
     }
 
+    if(current.confirmedFrame >= current.localSimulationFrame &&
+       current.maxRemoteReportedConfirmedFrame >= current.confirmedFrame) {
+        m_progressBaseline = current;
+        m_lastProgressAt = now;
+        return result;
+    }
+
     if(now < m_cooldownUntil) {
         return result;
     }

@@ -350,11 +350,7 @@ public:
     static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
     FrameNumber latestPredictedRemoteFrame() const;
-    void setRoomInputTopology(std::optional<PortDevice> port1Device,
-                              std::optional<PortDevice> port2Device,
-                              ExpansionDevice expansionDevice,
-                              NesMultitapDevice nesMultitapDevice,
-                              FamicomMultitapDevice famicomMultitapDevice,
+    void setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                               std::optional<ParticipantId> preservedParticipantId = std::nullopt,
                               PlayerSlot preservedAssignment = kObserverPlayerSlot);
 

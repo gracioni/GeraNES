@@ -2,9 +2,9 @@
 
 #include <array>
 
-namespace ConsoleNetplay {
+namespace GeraNESNetplay {
 
-struct NetplayInputState
+struct GeraNESInputState
 {
     bool p1A = false;
     bool p1B = false;
@@ -80,4 +80,4 @@ struct NetplayInputState
     bool mouseSecondaryButton = false;
 };
 
-} // namespace ConsoleNetplay
+} // namespace GeraNESNetplay

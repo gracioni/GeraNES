@@ -16,7 +16,7 @@
 #undef ERROR
 #endif
 
-#include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/GeraNESInputFrameAdapter.h"
 #include "ConsoleNetplay/DesyncMonitor.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "ConsoleNetplay/SelfStallDetector.h"
@@ -2443,12 +2443,12 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    InputFrame confirmedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(500u, room);
+    InputFrame confirmedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(500u, room);
     ConsoleNetplay::TimelineInputEntry confirmed{};
     confirmed.frame = 500u;
     confirmed.participantId = remote.id;
     confirmed.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
-    confirmed.netplayFrame = ConsoleNetplay::toNetplayInputFrame(confirmedContribution);
+    confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedContribution);
     confirmed.sequence = 1003u;
     confirmed.confirmed = true;
     confirmed.predicted = false;
@@ -2470,8 +2470,8 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
     resumedInput.participantId = remote.id;
     resumedInput.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     resumedInput.sequence = 1004u;
-    InputFrame resumedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(501u, room);
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+    InputFrame resumedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(501u, room);
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     REQUIRE(reconnected->lastReceivedInputSequence == 1004u);
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input sequence from Participant"));
@@ -2517,8 +2517,8 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     resumedInput.participantId = remote.id;
     resumedInput.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     resumedInput.sequence = 660u;
-    InputFrame resumedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(10895u, room);
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+    InputFrame resumedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(10895u, room);
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
@@ -2570,9 +2570,9 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
     resumedInput.participantId = remote.id;
     resumedInput.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     resumedInput.sequence = 1u;
-    InputFrame resumedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(7207u, room);
+    InputFrame resumedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(7207u, room);
     resumedContribution.p1A = true;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
@@ -2655,11 +2655,11 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
     for(ConsoleNetplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
         ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
         confirmed.frame = frame;
-        InputFrame confirmedInputFrame = ConsoleNetplay::makeRoomTopologyBaseFrame(frame, clientRoom);
+        InputFrame confirmedInputFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(frame, clientRoom);
         confirmed.buttonMaskLo[ConsoleNetplay::kPort1PlayerSlot] = 0u;
         confirmed.buttonMaskLo[ConsoleNetplay::kPort2PlayerSlot] = (frame % 2u) == 0u ? 1u : 0u;
         confirmedInputFrame.p2A = (frame % 2u) == 0u;
-        confirmed.netplayFrame = ConsoleNetplay::toNetplayInputFrame(confirmedInputFrame);
+        confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedInputFrame);
         confirmedFrames.push_back(confirmed);
     }
 
@@ -3380,8 +3380,8 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
         remote.buttonMaskLo = 0u;
         remote.buttonMaskHi = 0u;
 
-        InputFrame contribution = ConsoleNetplay::makeRoomTopologyBaseFrame(frame, room);
-        REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, remote, contribution));
+        InputFrame contribution = GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, remote, contribution));
     }
 
     room.state = ConsoleNetplay::SessionState::Running;
@@ -4009,9 +4009,9 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     baselineRemoteInput.buttonMaskLo = 0;
     baselineRemoteInput.buttonMaskHi = 0;
 
-    InputFrame baselineContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(101, hostRoom);
+    InputFrame baselineContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(101, hostRoom);
     baselineContribution.p2Right = true;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, baselineRemoteInput, baselineContribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, baselineRemoteInput, baselineContribution));
 
     ConsoleNetplay::ConfirmedInputBufferDriver hostPlaybackDriver;
     hostPlaybackDriver.setPrebufferFrames(12);
@@ -4055,7 +4055,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
-    REQUIRE(ConsoleNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame).p2Right);
+    REQUIRE(GeraNESNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame).p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
     REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
@@ -4065,7 +4065,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs suspendedPlaybackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(112, true, suspendedPlaybackFrame));
     REQUIRE_FALSE(suspendedPlaybackFrame.predicted);
-    REQUIRE(ConsoleNetplay::toGeraNESInputFrame(suspendedPlaybackFrame.netplayFrame).p2Right);
+    REQUIRE(GeraNESNetplay::toGeraNESInputFrame(suspendedPlaybackFrame.netplayFrame).p2Right);
     REQUIRE(host.remoteInputs().find(112u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot) != nullptr);
 
     const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
@@ -4112,7 +4112,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
     REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
     REQUIRE_FALSE(resumedWindowPlayback.predicted);
-    REQUIRE(ConsoleNetplay::toGeraNESInputFrame(resumedWindowPlayback.netplayFrame).p2Right);
+    REQUIRE(GeraNESNetplay::toGeraNESInputFrame(resumedWindowPlayback.netplayFrame).p2Right);
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
     ConsoleNetplay::InputFrameData staleResumedInput = baselineRemoteInput;
@@ -4120,7 +4120,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     staleResumedInput.sequence = 2;
     for(int i = 0; i < 4; ++i) {
         staleResumedInput.sequence += 1u;
-        REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, staleResumedInput, baselineContribution));
+        REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, staleResumedInput, baselineContribution));
         host.update(0);
         REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     }
@@ -4179,6 +4179,22 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
     clientRoom.inputDelayFrames = 3;
     hostRoom.predictFrames = 8;
     clientRoom.predictFrames = 8;
+    hostRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
+        hostRoom,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    clientRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
+        clientRoom,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
 
     ConsoleNetplay::ParticipantId clientRemoteId = ConsoleNetplay::kInvalidParticipantId;
     for(auto& participant : hostRoom.participants) {
@@ -4312,6 +4328,22 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
     clientRoom.inputDelayFrames = 3;
     hostRoom.predictFrames = 8;
     clientRoom.predictFrames = 8;
+    hostRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
+        hostRoom,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    clientRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
+        clientRoom,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
 
     ConsoleNetplay::ParticipantId hostRemoteId = ConsoleNetplay::kInvalidParticipantId;
     for(auto& participant : hostRoom.participants) {
@@ -4436,14 +4468,14 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    InputFrame committedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(1553u, room);
+    InputFrame committedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(1553u, room);
     ConsoleNetplay::TimelineInputEntry committed;
     committed.frame = 1553u;
     committed.participantId = remote.id;
     committed.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     committed.buttonMaskLo = 0u;
     committed.buttonMaskHi = 0u;
-    committed.netplayFrame = ConsoleNetplay::toNetplayInputFrame(committedContribution);
+    committed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(committedContribution);
     committed.sequence = 0u;
     committed.confirmed = true;
     committed.predicted = false;
@@ -4457,14 +4489,14 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     lateInput.sequence = 1u;
     lateInput.buttonMaskLo = 0u;
     lateInput.buttonMaskHi = 0u;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, lateInput, committedContribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, lateInput, committedContribution));
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
 
     ConsoleNetplay::InputFrameData nextInput = lateInput;
     nextInput.frame = 1554u;
     nextInput.sequence = 2u;
-    InputFrame nextContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(1554u, room);
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, nextInput, nextContribution));
+    InputFrame nextContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(1554u, room);
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, nextInput, nextContribution));
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant"));
 
     host.disconnect();
@@ -4804,7 +4836,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     contribution.frame = inputEqual.frame;
     contribution.timelineEpoch = inputEqual.timelineEpoch;
     contribution.p1A = true;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(coordinator, inputEqual, contribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(coordinator, inputEqual, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
     ConsoleNetplay::InputFrameData inputStale = inputEqual;
@@ -4813,7 +4845,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     inputStale.sequence = 2u;
     contribution.frame = inputStale.frame;
     contribution.timelineEpoch = inputStale.timelineEpoch;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(coordinator, inputStale, contribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(coordinator, inputStale, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
     REQUIRE(room.staleInputPacketCount == 1u);
     REQUIRE(room.lastIgnoredStaleInputEpoch == 4u);
@@ -4824,7 +4856,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     inputFuture.sequence = 3u;
     contribution.frame = inputFuture.frame;
     contribution.timelineEpoch = inputFuture.timelineEpoch;
-    REQUIRE_FALSE(ConsoleNetplay::injectInputFrameForTests(coordinator, inputFuture, contribution));
+    REQUIRE_FALSE(GeraNESNetplay::injectInputFrameForTests(coordinator, inputFuture, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
     REQUIRE(room.staleInputPacketCount == 1u);
 
@@ -5050,7 +5082,7 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
     staleInput.payloadSize = 0u;
     InputFrame staleContribution{};
     staleContribution.frame = staleInput.frame;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, staleInput, staleContribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, staleInput, staleContribution));
     REQUIRE(host.session().roomState().staleInputPacketCount > 0u);
 
     ConsoleNetplay::FrameStatusData staleStatus{};
@@ -5091,7 +5123,7 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
 
     const uint32_t staleInputCountBefore = host.session().roomState().staleInputPacketCount;
     staleInput.sequence = 2u;
-    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, staleInput, staleContribution));
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, staleInput, staleContribution));
     REQUIRE(host.session().roomState().staleInputPacketCount > staleInputCountBefore);
 
     host.disconnect();
@@ -5678,7 +5710,7 @@ TEST_CASE("Duck Hunt host reset resync keeps observer client in identical state"
 TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[netplay][assignment][unit]")
 {
     auto makeInputState = [](ConsoleNetplay::PlayerSlot slot, uint64_t mask) {
-        ConsoleNetplay::NetplayInputState state{};
+        GeraNESNetplay::GeraNESInputState state{};
         auto bit = [mask](uint32_t index) { return (mask & (1ull << index)) != 0; };
         const bool a = bit(0);
         const bool b = bit(1);
@@ -5713,27 +5745,32 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
 
     SECTION("port assignments move the same local patterns to the new slots")
     {
-        ConsoleNetplay::RoomState room;
-        room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
-        room.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
+        ConsoleNetplay::RoomState room = GeraNESNetplay::roomWithGeraNESInputTopology(
+            ConsoleNetplay::RoomState{},
+            Settings::Device::CONTROLLER,
+            Settings::Device::CONTROLLER,
+            Settings::ExpansionDevice::NONE,
+            Settings::NesMultitapDevice::NONE,
+            Settings::FamicomMultitapDevice::NONE
+        );
 
         const auto hostState = makeInputState(ConsoleNetplay::kPort1PlayerSlot, hostMask);
         const auto clientState = makeInputState(ConsoleNetplay::kPort2PlayerSlot, clientMask);
         const auto hostSwappedState = makeInputState(ConsoleNetplay::kPort2PlayerSlot, hostMask);
         const auto clientSwappedState = makeInputState(ConsoleNetplay::kPort1PlayerSlot, clientMask);
 
-        auto beforeSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(30u, room);
-        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, hostState, beforeSwap));
-        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kPort2PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, clientState, beforeSwap));
+        auto beforeSwap = GeraNESNetplay::makeRoomTopologyBaseFrame(30u, room);
+        GeraNESNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kPort1PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, hostState, beforeSwap));
+        GeraNESNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kPort2PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, clientState, beforeSwap));
 
         REQUIRE(beforeSwap.p1Start == true);
         REQUIRE(beforeSwap.p1Right == true);
         REQUIRE(beforeSwap.p2A == true);
         REQUIRE(beforeSwap.p2Up == true);
 
-        auto afterSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(31u, room);
-        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kPort2PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, hostSwappedState, afterSwap));
-        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, clientSwappedState, afterSwap));
+        auto afterSwap = GeraNESNetplay::makeRoomTopologyBaseFrame(31u, room);
+        GeraNESNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kPort2PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, hostSwappedState, afterSwap));
+        GeraNESNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kPort1PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, clientSwappedState, afterSwap));
 
         REQUIRE(afterSwap.p1A == true);
         REQUIRE(afterSwap.p1Up == true);
@@ -5745,26 +5782,32 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
 
     SECTION("multitap assignments also preserve patterns when swapped")
     {
-        ConsoleNetplay::RoomState room;
-        room.nesMultitapDevice = ConsoleNetplay::NesMultitapDevice::FOUR_SCORE;
+        ConsoleNetplay::RoomState room = GeraNESNetplay::roomWithGeraNESInputTopology(
+            ConsoleNetplay::RoomState{},
+            Settings::Device::CONTROLLER,
+            Settings::Device::CONTROLLER,
+            Settings::ExpansionDevice::NONE,
+            Settings::NesMultitapDevice::FOUR_SCORE,
+            Settings::FamicomMultitapDevice::NONE
+        );
 
         const auto p1State = makeInputState(ConsoleNetplay::kMultitapP1PlayerSlot, hostMask);
         const auto p4State = makeInputState(ConsoleNetplay::kMultitapP4PlayerSlot, clientMask);
         const auto p1SwappedState = makeInputState(ConsoleNetplay::kMultitapP4PlayerSlot, hostMask);
         const auto p4SwappedState = makeInputState(ConsoleNetplay::kMultitapP1PlayerSlot, clientMask);
 
-        auto beforeSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(44u, room);
-        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kMultitapP1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP1PlayerSlot, p1State, beforeSwap));
-        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kMultitapP4PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP4PlayerSlot, p4State, beforeSwap));
+        auto beforeSwap = GeraNESNetplay::makeRoomTopologyBaseFrame(44u, room);
+        GeraNESNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kMultitapP1PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP1PlayerSlot, p1State, beforeSwap));
+        GeraNESNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kMultitapP4PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP4PlayerSlot, p4State, beforeSwap));
 
         REQUIRE(beforeSwap.p1Start == true);
         REQUIRE(beforeSwap.p1Right == true);
         REQUIRE(beforeSwap.p4A == true);
         REQUIRE(beforeSwap.p4Up == true);
 
-        auto afterSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(45u, room);
-        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kMultitapP4PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP4PlayerSlot, p1SwappedState, afterSwap));
-        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kMultitapP1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP1PlayerSlot, p4SwappedState, afterSwap));
+        auto afterSwap = GeraNESNetplay::makeRoomTopologyBaseFrame(45u, room);
+        GeraNESNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kMultitapP4PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP4PlayerSlot, p1SwappedState, afterSwap));
+        GeraNESNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kMultitapP1PlayerSlot, GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP1PlayerSlot, p4SwappedState, afterSwap));
 
         REQUIRE(afterSwap.p1A == true);
         REQUIRE(afterSwap.p1Up == true);
@@ -5777,17 +5820,23 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
 
 TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assignment][zapper]")
 {
-    ConsoleNetplay::NetplayInputState state{};
+    GeraNESNetplay::GeraNESInputState state{};
     state.zapperX = 87;
     state.zapperY = 53;
     state.zapperP2Trigger = true;
 
-    ConsoleNetplay::RoomState room;
-    room.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
+    ConsoleNetplay::RoomState room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        ConsoleNetplay::RoomState{},
+        Settings::Device::NONE,
+        Settings::Device::ZAPPER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
 
-    auto frame = ConsoleNetplay::makeRoomTopologyBaseFrame(19u, room);
-    const auto contribution = ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, state, frame);
-    ConsoleNetplay::applyAssignedContribution(frame, ConsoleNetplay::kPort2PlayerSlot, contribution);
+    auto frame = GeraNESNetplay::makeRoomTopologyBaseFrame(19u, room);
+    const auto contribution = GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, state, frame);
+    GeraNESNetplay::applyAssignedContribution(frame, ConsoleNetplay::kPort2PlayerSlot, contribution);
 
     REQUIRE(frame.port2Device == Settings::Device::ZAPPER);
     REQUIRE(frame.zapperP2X == 87);
@@ -5795,7 +5844,7 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
     REQUIRE(frame.zapperP2Trigger == true);
 
     EmulationHost::InputState replayState{};
-    ConsoleNetplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayState, frame);
+    GeraNESNetplay::applyInputFrameToInputState(replayState, frame);
     REQUIRE(replayState.zapperX == 87);
     REQUIRE(replayState.zapperY == 53);
     REQUIRE(replayState.zapperP2Trigger == true);
@@ -5803,9 +5852,14 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
 
 TEST_CASE("Netplay allows multiple assignments for the same participant", "[netplay][assignment][multi]")
 {
-    ConsoleNetplay::RoomState room;
-    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    room.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
+    ConsoleNetplay::RoomState room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        ConsoleNetplay::RoomState{},
+        Settings::Device::CONTROLLER,
+        Settings::Device::ZAPPER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
 
     ConsoleNetplay::ParticipantInfo host;
     host.id = 0;
@@ -5814,33 +5868,33 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
     host.normalizeControllerAssignments();
     room.participants.push_back(host);
 
-    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         host.id,
-        room.port1Device,
-        room.port2Device,
-        room.expansionDevice,
-        room.nesMultitapDevice,
-        room.famicomMultitapDevice,
+        Settings::Device::CONTROLLER,
+        Settings::Device::ZAPPER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kPort2PlayerSlot
     ));
 
-    ConsoleNetplay::NetplayInputState state{};
+    GeraNESNetplay::GeraNESInputState state{};
     state.p1Start = true;
     state.zapperX = 112;
     state.zapperY = 64;
     state.zapperP2Trigger = true;
 
-    auto frame = ConsoleNetplay::makeRoomTopologyBaseFrame(33u, room);
-    ConsoleNetplay::applyAssignedContribution(
+    auto frame = GeraNESNetplay::makeRoomTopologyBaseFrame(33u, room);
+    GeraNESNetplay::applyAssignedContribution(
         frame,
         ConsoleNetplay::kPort1PlayerSlot,
-        ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, state, frame)
+        GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, state, frame)
     );
-    ConsoleNetplay::applyAssignedContribution(
+    GeraNESNetplay::applyAssignedContribution(
         frame,
         ConsoleNetplay::kPort2PlayerSlot,
-        ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, state, frame)
+        GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, state, frame)
     );
 
     REQUIRE(frame.p1Start == true);
@@ -5851,7 +5905,7 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
 
 TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload", "[netplay][assignment][controller]")
 {
-    ConsoleNetplay::NetplayInputState state{};
+    GeraNESNetplay::GeraNESInputState state{};
     state.p1Start = true;
     state.zapperX = 87;
     state.zapperY = 53;
@@ -5860,12 +5914,17 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
     state.mouseDeltaY = -3;
     state.mousePrimaryButton = true;
 
-    ConsoleNetplay::RoomState room;
-    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    room.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
+    ConsoleNetplay::RoomState room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        ConsoleNetplay::RoomState{},
+        Settings::Device::CONTROLLER,
+        Settings::Device::ZAPPER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
 
-    const auto baseFrame = ConsoleNetplay::makeRoomTopologyBaseFrame(19u, room);
-    const auto contribution = ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, state, baseFrame);
+    const auto baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(19u, room);
+    const auto contribution = GeraNESNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, state, baseFrame);
 
     REQUIRE(contribution.p1Start == true);
     REQUIRE(contribution.zapperP1Trigger == false);
@@ -5880,17 +5939,29 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
 
 TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from previous topology", "[netplay][assignment][topology]")
 {
-    ConsoleNetplay::RoomState oldRoom;
-    oldRoom.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
-    InputFrame staleZapperContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(21u, oldRoom);
+    ConsoleNetplay::RoomState oldRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
+        ConsoleNetplay::RoomState{},
+        Settings::Device::NONE,
+        Settings::Device::ZAPPER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    InputFrame staleZapperContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(21u, oldRoom);
     staleZapperContribution.zapperP2X = 87;
     staleZapperContribution.zapperP2Y = 53;
     staleZapperContribution.zapperP2Trigger = true;
 
-    ConsoleNetplay::RoomState newRoom;
-    newRoom.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    InputFrame target = ConsoleNetplay::makeRoomTopologyBaseFrame(21u, newRoom);
-    ConsoleNetplay::applyAssignedContribution(target, ConsoleNetplay::kPort2PlayerSlot, staleZapperContribution);
+    ConsoleNetplay::RoomState newRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
+        ConsoleNetplay::RoomState{},
+        Settings::Device::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    InputFrame target = GeraNESNetplay::makeRoomTopologyBaseFrame(21u, newRoom);
+    GeraNESNetplay::applyAssignedContribution(target, ConsoleNetplay::kPort2PlayerSlot, staleZapperContribution);
 
     REQUIRE(target.port2Device == Settings::Device::CONTROLLER);
     REQUIRE(target.zapperP2Trigger == false);
@@ -5933,10 +6004,14 @@ TEST_CASE("Emulator input buffer drops stale timeline epoch frames when timeline
 
 TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")
 {
-    ConsoleNetplay::RoomState room;
-    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    room.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    room.expansionDevice = ConsoleNetplay::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+    ConsoleNetplay::RoomState room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        ConsoleNetplay::RoomState{},
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
 
     ConsoleNetplay::ParticipantInfo host;
     host.id = 0;
@@ -5950,86 +6025,90 @@ TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity",
     client.controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
     room.participants.push_back(client);
 
-    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE_FALSE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        room.expansionDevice,
-        ConsoleNetplay::NesMultitapDevice::NONE,
-        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kPort1PlayerSlot
     ));
 
-    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        room.expansionDevice,
-        ConsoleNetplay::NesMultitapDevice::NONE,
-        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kPort2PlayerSlot
     ));
 
-    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        room.expansionDevice,
-        ConsoleNetplay::NesMultitapDevice::NONE,
-        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kExpansionPlayerSlot
     ));
 
-    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE_FALSE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        ConsoleNetplay::ExpansionDevice::NONE,
-        ConsoleNetplay::NesMultitapDevice::FOUR_SCORE,
-        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kMultitapP1PlayerSlot
     ));
 
-    room.nesMultitapDevice = ConsoleNetplay::NesMultitapDevice::FOUR_SCORE;
-    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    room.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
-    room.expansionDevice = ConsoleNetplay::ExpansionDevice::NONE;
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE
+    );
     room.participants[0].controllerAssignment = ConsoleNetplay::kMultitapP1PlayerSlot;
 
-    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE_FALSE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        ConsoleNetplay::ExpansionDevice::NONE,
-        ConsoleNetplay::NesMultitapDevice::FOUR_SCORE,
-        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kMultitapP1PlayerSlot
     ));
 
-    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        ConsoleNetplay::ExpansionDevice::NONE,
-        ConsoleNetplay::NesMultitapDevice::FOUR_SCORE,
-        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::FOUR_SCORE,
+        Settings::FamicomMultitapDevice::NONE,
         ConsoleNetplay::kMultitapP2PlayerSlot
     ));
 
-    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
+    REQUIRE_FALSE(GeraNESNetplay::canAssignGeraNESInputCandidate(
         room,
         client.id,
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
-        ConsoleNetplay::ExpansionDevice::NONE,
-        ConsoleNetplay::NesMultitapDevice::NONE,
-        ConsoleNetplay::FamicomMultitapDevice::HORI_ADAPTER,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::HORI_ADAPTER,
         ConsoleNetplay::kMultitapP2PlayerSlot
     ));
 }

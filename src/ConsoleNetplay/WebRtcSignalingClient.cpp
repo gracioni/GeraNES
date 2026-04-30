@@ -1,6 +1,6 @@
 #include "ConsoleNetplay/WebRtcSignalingClient.h"
 
-#include "logger/logger.h"
+#include "ConsoleNetplay/NetplayLog.h"
 
 #include <chrono>
 #include <atomic>
@@ -294,7 +294,7 @@ private:
 
     void logTrace(const std::string& message) const
     {
-        Logger::instance().log("[WebRTC signaling] " + message, Logger::Type::INFO);
+        logNetplayMessage("[WebRTC signaling] " + message, NetplayLogLevel::Info);
     }
 
     void pushEvent(Event&& event)
@@ -676,7 +676,7 @@ private:
 
     void logTrace(const std::string& message) const
     {
-        Logger::instance().log("[WebRTC signaling] " + message, Logger::Type::INFO);
+        logNetplayMessage("[WebRTC signaling] " + message, NetplayLogLevel::Info);
     }
 
     void pushEvent(Event&& event)
@@ -1133,7 +1133,7 @@ public:
 
     void onClose()
     {
-        Logger::instance().log("WebRTC signaling WebSocket closed", Logger::Type::WARNING);
+        logNetplayMessage("WebRTC signaling WebSocket closed", NetplayLogLevel::Warning);
         setConnected(false);
         pushEvent(Event{Event::Type::Disconnected, {}, {}});
     }
@@ -1141,7 +1141,7 @@ public:
     void onError(const char* text)
     {
         const std::string error = text != nullptr ? text : "WebRTC signaling WebSocket error";
-        Logger::instance().log(error, Logger::Type::ERROR);
+        logNetplayMessage(error, NetplayLogLevel::Error);
         setConnected(false);
         setLastError(error);
         pushEvent(Event{Event::Type::Error, {}, error});
