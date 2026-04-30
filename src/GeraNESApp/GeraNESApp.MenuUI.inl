@@ -128,7 +128,7 @@ inline void GeraNESApp::menuBar() {
             const char* pauseKey = (pauseShortcut != nullptr) ? pauseShortcut->shortcut.c_str() : nullptr;
             const bool netplayPauseActive = canUseNetplaySessionPause();
             const bool pauseSelected = netplayPauseActive
-                ? (m_netplayRuntime.uiSnapshot().room.state == Netplay::SessionState::Paused)
+                ? (m_netplayRuntime.uiSnapshot().room.state == ConsoleNetplay::SessionState::Paused)
                 : m_emu.paused();
             if(ImGui::MenuItem("Pause", pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted())) {
                 togglePauseAction();
@@ -373,7 +373,7 @@ inline void GeraNESApp::menuBar() {
                 : localInputTopology.famicomMultitapDevice;
 #else
             const bool netplayInputManaged = false;
-            const std::vector<Netplay::PlayerSlot> localNetplayAssignments;
+            const std::vector<ConsoleNetplay::PlayerSlot> localNetplayAssignments;
             const bool canChangeNetplayManagedInput = true;
             const auto localInputTopology = m_emu.getInputTopologySnapshot();
             const auto effectivePort1Device = localInputTopology.port1Device;
@@ -500,16 +500,16 @@ inline void GeraNESApp::menuBar() {
                 }
             };
 
-            auto localHasNetplayAssignment = [&](Netplay::PlayerSlot slot) {
+            auto localHasNetplayAssignment = [&](ConsoleNetplay::PlayerSlot slot) {
                 return std::find(localNetplayAssignments.begin(), localNetplayAssignments.end(), slot) != localNetplayAssignments.end();
             };
-            const bool allowPort1Config = !netplayInputManaged || localHasNetplayAssignment(Netplay::kPort1PlayerSlot);
-            const bool allowPort2Config = !netplayInputManaged || localHasNetplayAssignment(Netplay::kPort2PlayerSlot);
-            const bool allowExpansionConfig = !netplayInputManaged || localHasNetplayAssignment(Netplay::kExpansionPlayerSlot);
-            const bool allowMultitapP1Config = !netplayInputManaged || localHasNetplayAssignment(Netplay::kMultitapP1PlayerSlot);
-            const bool allowMultitapP2Config = !netplayInputManaged || localHasNetplayAssignment(Netplay::kMultitapP2PlayerSlot);
-            const bool allowMultitapP3Config = !netplayInputManaged || localHasNetplayAssignment(Netplay::kMultitapP3PlayerSlot);
-            const bool allowMultitapP4Config = !netplayInputManaged || localHasNetplayAssignment(Netplay::kMultitapP4PlayerSlot);
+            const bool allowPort1Config = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kPort1PlayerSlot);
+            const bool allowPort2Config = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kPort2PlayerSlot);
+            const bool allowExpansionConfig = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kExpansionPlayerSlot);
+            const bool allowMultitapP1Config = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kMultitapP1PlayerSlot);
+            const bool allowMultitapP2Config = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kMultitapP2PlayerSlot);
+            const bool allowMultitapP3Config = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kMultitapP3PlayerSlot);
+            const bool allowMultitapP4Config = !netplayInputManaged || localHasNetplayAssignment(ConsoleNetplay::kMultitapP4PlayerSlot);
 
             if (ImGui::BeginMenu("Port 1", !anyMultitapActive && (!netplayInputManaged || allowPort1Config))) {
                 drawControllerPortMenuItem("None", Settings::Port::P_1, Settings::Device::NONE);

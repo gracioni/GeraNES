@@ -11,13 +11,13 @@
 
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/NetplayInputAssignment.h"
-#include "GeraNESNetplay/WebRtcSignaling.h"
-#include "GeraNESNetplay/WebRtcSignalingClient.h"
+#include "ConsoleNetplay/NetplayInputAssignment.h"
+#include "ConsoleNetplay/WebRtcSignaling.h"
+#include "ConsoleNetplay/WebRtcSignalingClient.h"
 #include "GeraNESApp/imgui_util.h"
 #include "imgui.h"
 
-namespace Netplay {
+namespace ConsoleNetplay {
 
 inline const char* sessionStateLabel(SessionState state)
 {
@@ -1398,4 +1398,4 @@ void drawNetplayWindow(bool& showWindow,
     ImGui::End();
 }
 
-} // namespace Netplay
+} // namespace ConsoleNetplay

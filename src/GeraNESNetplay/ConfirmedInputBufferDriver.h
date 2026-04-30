@@ -2,8 +2,8 @@
 
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/EmulationHost.h"
-#include "GeraNESNetplay/NetplayCoordinator.h"
-#include "GeraNESNetplay/NetplayInputAssignment.h"
+#include "ConsoleNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/NetplayInputAssignment.h"
 
 #include <array>
 #include <cstdint>
@@ -12,7 +12,7 @@
 #include <optional>
 #include <vector>
 
-namespace Netplay
+namespace ConsoleNetplay
 {
 
 class ConfirmedInputBufferDriver

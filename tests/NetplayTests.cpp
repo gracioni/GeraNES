@@ -17,17 +17,17 @@
 #endif
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
-#include "GeraNESNetplay/DesyncMonitor.h"
+#include "ConsoleNetplay/DesyncMonitor.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/SelfStallDetector.h"
-#include "GeraNESNetplay/RemoteInputStallMonitor.h"
-#include "GeraNESNetplay/NetplayAutoTune.h"
-#include "GeraNESNetplay/NetplayConfig.h"
-#include "GeraNESNetplay/NetplayInputAssignment.h"
-#include "GeraNESNetplay/WebRtcPeerConnection.h"
-#include "GeraNESNetplay/WebRtcSignaling.h"
-#include "GeraNESNetplay/WebRtcSignalingClient.h"
-#include "GeraNESNetplay/WebRtcSignalingServer.h"
+#include "ConsoleNetplay/SelfStallDetector.h"
+#include "ConsoleNetplay/RemoteInputStallMonitor.h"
+#include "ConsoleNetplay/NetplayAutoTune.h"
+#include "ConsoleNetplay/NetplayConfig.h"
+#include "ConsoleNetplay/NetplayInputAssignment.h"
+#include "ConsoleNetplay/WebRtcPeerConnection.h"
+#include "ConsoleNetplay/WebRtcSignaling.h"
+#include "ConsoleNetplay/WebRtcSignalingClient.h"
+#include "ConsoleNetplay/WebRtcSignalingServer.h"
 #include "GeraNES/util/Crc32.h"
 #include "GeraNESApp/AudioOutputBase.h"
 #include "NetplayTest.h"
@@ -105,12 +105,12 @@ void writeSingleByteIpsPatchForTest(const std::filesystem::path& path, uint32_t 
 class LocalWebSocketSignalingServer
 {
 private:
-    std::unique_ptr<Netplay::IWebRtcSignalingServer> m_server;
+    std::unique_ptr<ConsoleNetplay::IWebRtcSignalingServer> m_server;
 
 public:
     explicit LocalWebSocketSignalingServer(uint16_t port)
     {
-        m_server = Netplay::createWebRtcSignalingServer();
+        m_server = ConsoleNetplay::createWebRtcSignalingServer();
         REQUIRE(m_server != nullptr);
         REQUIRE(m_server->start(port));
     }
@@ -365,13 +365,13 @@ public:
 
 TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
 {
-    REQUIRE(Netplay::kDesyncMonitorEnabled == true);
-    REQUIRE(Netplay::kDesyncCrcIntervalFrames == 30u);
+    REQUIRE(ConsoleNetplay::kDesyncMonitorEnabled == true);
+    REQUIRE(ConsoleNetplay::kDesyncCrcIntervalFrames == 30u);
 }
 
 TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives before local CRC", "[netplay][crc][monitor]")
 {
-    Netplay::DesyncMonitor monitor;
+    ConsoleNetplay::DesyncMonitor monitor;
 
     const auto remoteOnly = monitor.submitRemoteCrc(120u, 0x12345678u);
     REQUIRE(remoteOnly.compared == false);
@@ -386,9 +386,9 @@ TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives befor
 
 TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
 {
-    Netplay::RemoteInputStallMonitor monitor;
+    ConsoleNetplay::RemoteInputStallMonitor monitor;
 
-    const auto stall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 181u, 4u);
+    const auto stall = monitor.noteStall(2u, ConsoleNetplay::kPort2PlayerSlot, 181u, 4u);
     REQUIRE(stall.newlyTracked == true);
 
     const auto staleHealth = monitor.onPeerHealth(2u, 4u);
@@ -402,21 +402,21 @@ TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer he
 TEST_CASE("Netplay remote input stall monitor coalesces transient repeated stall logs",
           "[netplay][implicit-stall][monitor]")
 {
-    Netplay::RemoteInputStallMonitor monitor;
+    ConsoleNetplay::RemoteInputStallMonitor monitor;
 
-    const auto firstStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 181u, 4u);
+    const auto firstStall = monitor.noteStall(2u, ConsoleNetplay::kPort2PlayerSlot, 181u, 4u);
     REQUIRE(firstStall.newlyTracked == true);
 
     const auto firstRecovery = monitor.clearRecovered(2u, 181u);
     REQUIRE(firstRecovery.cleared == true);
 
-    const auto coalescedStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 182u, 4u);
+    const auto coalescedStall = monitor.noteStall(2u, ConsoleNetplay::kPort2PlayerSlot, 182u, 4u);
     REQUIRE(coalescedStall.newlyTracked == false);
 
     const auto coalescedFreshHealth = monitor.onPeerHealth(2u, 5u);
     REQUIRE(coalescedFreshHealth.shouldScheduleResync == false);
 
-    const auto laterStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 199u, 5u);
+    const auto laterStall = monitor.noteStall(2u, ConsoleNetplay::kPort2PlayerSlot, 199u, 5u);
     REQUIRE(laterStall.newlyTracked == true);
 
     const auto laterFreshHealth = monitor.onPeerHealth(2u, 6u);
@@ -427,15 +427,15 @@ TEST_CASE("Netplay remote input stall monitor coalesces transient repeated stall
 TEST_CASE("Netplay remote input stall monitor coalesces alternating adjacent pending stalls",
           "[netplay][implicit-stall][monitor]")
 {
-    Netplay::RemoteInputStallMonitor monitor;
+    ConsoleNetplay::RemoteInputStallMonitor monitor;
 
-    const auto firstStall = monitor.noteStall(2u, Netplay::kPort2PlayerSlot, 3386u, 4u);
+    const auto firstStall = monitor.noteStall(2u, ConsoleNetplay::kPort2PlayerSlot, 3386u, 4u);
     REQUIRE(firstStall.newlyTracked == true);
 
     for(int i = 0; i < 8; ++i) {
         const auto adjacentStall = monitor.noteStall(
             2u,
-            (i % 2) == 0 ? Netplay::kPort1PlayerSlot : Netplay::kPort2PlayerSlot,
+            (i % 2) == 0 ? ConsoleNetplay::kPort1PlayerSlot : ConsoleNetplay::kPort2PlayerSlot,
             (i % 2) == 0 ? 3385u : 3386u,
             4u
         );
@@ -449,13 +449,13 @@ TEST_CASE("Netplay remote input stall monitor coalesces alternating adjacent pen
 
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
 {
-    Netplay::SelfStallDetector detector;
-    Netplay::SelfStallDetector::Snapshot snapshot;
+    ConsoleNetplay::SelfStallDetector detector;
+    ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = true;
-    snapshot.role = Netplay::SelfStallDetector::Role::Host;
-    snapshot.sessionState = Netplay::SessionState::Running;
-    snapshot.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Host;
+    snapshot.sessionState = ConsoleNetplay::SessionState::Running;
+    snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 4u;
     snapshot.connectedRemoteParticipantCount = 1u;
     snapshot.localSimulationFrame = 100u;
@@ -490,13 +490,13 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
 
 TEST_CASE("Netplay self stall detector triggers on client freeze even if remote progress advances", "[netplay][host-stall][client][unit]")
 {
-    Netplay::SelfStallDetector detector;
-    Netplay::SelfStallDetector::Snapshot snapshot;
+    ConsoleNetplay::SelfStallDetector detector;
+    ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = false;
-    snapshot.role = Netplay::SelfStallDetector::Role::Client;
-    snapshot.sessionState = Netplay::SessionState::Running;
-    snapshot.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Client;
+    snapshot.sessionState = ConsoleNetplay::SessionState::Running;
+    snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 2u;
     snapshot.connectedRemoteParticipantCount = 1u;
     snapshot.localSimulationFrame = 300u;
@@ -517,15 +517,15 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
 TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
           "[netplay][auto-settings][delay]")
 {
-    Netplay::NetplayAutoTune autoSettings;
-    Netplay::RoomState room;
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
     room.sessionId = 1;
-    room.state = Netplay::SessionState::Running;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 4;
     room.predictFrames = 8;
 
-    Netplay::RollbackStats stats;
+    ConsoleNetplay::RollbackStats stats;
     auto recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
@@ -543,17 +543,17 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
 TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
           "[netplay][auto-settings][delay]")
 {
-    Netplay::NetplayAutoTune autoSettings;
-    Netplay::RoomState room;
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
     room.sessionId = 2;
-    room.state = Netplay::SessionState::Running;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
     room.predictFrames = 8;
     room.currentFrame = 900;
 
     auto recommendations =
-        autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::ConfirmedDesync);
+        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
     REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 2);
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
@@ -563,24 +563,24 @@ TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
 TEST_CASE("Netplay reactive auto delay respects temporary increase block",
           "[netplay][auto-settings][delay]")
 {
-    Netplay::NetplayAutoTune autoSettings;
-    Netplay::RoomState room;
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
     room.sessionId = 5;
-    room.state = Netplay::SessionState::Running;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
     room.predictFrames = 8;
     room.currentFrame = 900;
     room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
 
     auto recommendations =
-        autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::ConfirmedDesync);
+        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
     REQUIRE(autoSettings.snapshot().lastDecisionReason.find("blocked until frame 1500") != std::string::npos);
 
     room.currentFrame = 1500;
-    recommendations = autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::ConfirmedDesync);
+    recommendations = autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
     REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 2);
 }
@@ -588,17 +588,17 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
 TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
           "[netplay][auto-settings][delay]")
 {
-    Netplay::NetplayAutoTune autoSettings;
-    Netplay::RoomState room;
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
     room.sessionId = 3;
-    room.state = Netplay::SessionState::Running;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
     room.predictFrames = 8;
     room.currentFrame = 1200;
 
     const auto recommendations =
-        autoSettings.recommendForImpendingResync(room, Netplay::ResyncReason::AssignmentChanged);
+        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::AssignmentChanged);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
 }
@@ -606,15 +606,15 @@ TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
 TEST_CASE("Netplay reactive auto tuning keeps predict fixed at eight",
           "[netplay][auto-settings][delay]")
 {
-    Netplay::NetplayAutoTune autoSettings;
-    Netplay::RoomState room;
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
     room.sessionId = 4;
-    room.state = Netplay::SessionState::Running;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::Normal;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
     room.predictFrames = 3;
 
-    Netplay::RollbackStats stats;
+    ConsoleNetplay::RollbackStats stats;
     const auto recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE(recommendations.predictFrames.has_value());
     REQUIRE(*recommendations.predictFrames == 8);
@@ -622,15 +622,15 @@ TEST_CASE("Netplay reactive auto tuning keeps predict fixed at eight",
 
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")
 {
-    Netplay::NetplayCoordinator coordinator;
-    const auto availableBackends = Netplay::availableNetTransportBackends();
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    const auto availableBackends = ConsoleNetplay::availableNetTransportBackends();
 
-    REQUIRE(Netplay::defaultNetTransportBackend() == Netplay::NetTransportBackend::ENet);
-    REQUIRE(std::find(availableBackends.begin(), availableBackends.end(), Netplay::NetTransportBackend::ENet) != availableBackends.end());
-    REQUIRE(std::find(availableBackends.begin(), availableBackends.end(), Netplay::NetTransportBackend::WebRTC) != availableBackends.end());
-    REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
-    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
-    REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::WebRTC);
+    REQUIRE(ConsoleNetplay::defaultNetTransportBackend() == ConsoleNetplay::NetTransportBackend::ENet);
+    REQUIRE(std::find(availableBackends.begin(), availableBackends.end(), ConsoleNetplay::NetTransportBackend::ENet) != availableBackends.end());
+    REQUIRE(std::find(availableBackends.begin(), availableBackends.end(), ConsoleNetplay::NetTransportBackend::WebRTC) != availableBackends.end());
+    REQUIRE(coordinator.transportBackend() == ConsoleNetplay::NetTransportBackend::ENet);
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
+    REQUIRE(coordinator.transportBackend() == ConsoleNetplay::NetTransportBackend::WebRTC);
 
     REQUIRE_FALSE(coordinator.host(27991, 1, "Host"));
     REQUIRE(coordinator.lastError() == "Failed to host WebRTC session: Configure signaling URL and room id for WebRTC");
@@ -638,8 +638,8 @@ TEST_CASE("Netplay transport backend can be selected before session startup", "[
 #if !defined(__EMSCRIPTEN__)
     const uint16_t signalingPort = reserveLoopbackPort();
     LocalWebSocketSignalingServer signalingServer(signalingPort);
-    Netplay::NetTransportOptions transportOptions;
-    transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions transportOptions;
+    transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(signalingPort),
         "room",
         ""
@@ -650,8 +650,8 @@ TEST_CASE("Netplay transport backend can be selected before session startup", "[
     coordinator.disconnect();
 #endif
 
-    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(coordinator.transportBackend() == Netplay::NetTransportBackend::ENet);
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(coordinator.transportBackend() == ConsoleNetplay::NetTransportBackend::ENet);
 }
 
 TEST_CASE("Netplay coordinator can host and join through remote wss signaling",
@@ -669,14 +669,14 @@ TEST_CASE("Netplay coordinator can host and join through remote wss signaling",
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count()));
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
-    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
+    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         *signalingUrl,
         roomId,
         ""
@@ -691,7 +691,7 @@ TEST_CASE("Netplay coordinator can host and join through remote wss signaling",
         host.update(0);
         hostSessionAdvertised =
             host.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId;
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
         if(!hostSessionAdvertised) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -736,9 +736,9 @@ TEST_CASE("Netplay coordinator can host and join through remote wss signaling",
     INFO("Client last error: " << client.lastError());
     REQUIRE(hostConnected);
     REQUIRE(clientConnected);
-    REQUIRE(host.localParticipantId() != Netplay::kInvalidParticipantId);
+    REQUIRE(host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId);
     REQUIRE(host.session().findParticipant(host.localParticipantId()) != nullptr);
-    REQUIRE(client.localParticipantId() != Netplay::kInvalidParticipantId);
+    REQUIRE(client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId);
     REQUIRE(hostSawClientParticipant);
 
     host.disconnectImmediately();
@@ -748,11 +748,11 @@ TEST_CASE("Netplay coordinator can host and join through remote wss signaling",
 TEST_CASE("WebRTC signaling client validates desktop connection prerequisites",
           "[netplay][webrtc][signaling][transport]")
 {
-    auto signalingClient = Netplay::createWebRtcSignalingClient();
+    auto signalingClient = ConsoleNetplay::createWebRtcSignalingClient();
     REQUIRE(signalingClient != nullptr);
     REQUIRE_FALSE(signalingClient->isConnected());
 
-    Netplay::WebRtcSignalingClientOptions options;
+    ConsoleNetplay::WebRtcSignalingClientOptions options;
     options.config.url = "http://127.0.0.1:27990";
     options.config.roomId = "room";
     options.localPeerId = "host";
@@ -762,8 +762,8 @@ TEST_CASE("WebRTC signaling client validates desktop connection prerequisites",
     REQUIRE(signalingClient->lastError() == "WebRTC signaling desktop client requires ws:// or wss:// URLs");
     REQUIRE_FALSE(signalingClient->isConnected());
 
-    Netplay::WebRtcSignalingMessage offer;
-    offer.type = Netplay::WebRtcSignalType::Offer;
+    ConsoleNetplay::WebRtcSignalingMessage offer;
+    offer.type = ConsoleNetplay::WebRtcSignalType::Offer;
     offer.roomId = "room";
     offer.peerId = "host";
     offer.targetPeerId = "client";
@@ -776,12 +776,12 @@ TEST_CASE("WebRTC signaling client validates desktop connection prerequisites",
 TEST_CASE("WebRTC peer connection factory can open and start offer generation on desktop",
           "[netplay][webrtc][peer]")
 {
-    auto peerConnection = Netplay::createWebRtcPeerConnection();
+    auto peerConnection = ConsoleNetplay::createWebRtcPeerConnection();
     REQUIRE(peerConnection != nullptr);
     REQUIRE_FALSE(peerConnection->isOpen());
     REQUIRE_FALSE(peerConnection->isDataChannelOpen());
 
-    Netplay::WebRtcPeerConnectionOptions options;
+    ConsoleNetplay::WebRtcPeerConnectionOptions options;
     options.localPeerId = "host";
     options.remotePeerId = "client";
     options.host = true;
@@ -799,10 +799,10 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    auto signalingClient = Netplay::createWebRtcSignalingClient();
+    auto signalingClient = ConsoleNetplay::createWebRtcSignalingClient();
     REQUIRE(signalingClient != nullptr);
 
-    Netplay::WebRtcSignalingClientOptions options;
+    ConsoleNetplay::WebRtcSignalingClientOptions options;
     options.config.url = "ws://127.0.0.1:" + std::to_string(port);
     options.config.roomId = "room";
     options.localPeerId = "host";
@@ -814,7 +814,7 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
     bool sawConnected = false;
     for(int attempt = 0; attempt < 50 && !sawConnected; ++attempt) {
         for(const auto& event : signalingClient->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Connected) {
                 sawConnected = true;
             }
         }
@@ -825,8 +825,8 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
 
     REQUIRE(sawConnected);
 
-    Netplay::WebRtcSignalingMessage hello;
-    hello.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage hello;
+    hello.type = ConsoleNetplay::WebRtcSignalType::Hello;
     hello.roomId = "room";
     hello.peerId = "host";
     REQUIRE(signalingClient->send(hello));
@@ -834,8 +834,8 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
     bool sawWelcome = false;
     for(int attempt = 0; attempt < 50 && !sawWelcome; ++attempt) {
         for(const auto& event : signalingClient->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::Welcome) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::Welcome) {
                 sawWelcome = true;
             }
         }
@@ -845,8 +845,8 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
     }
     REQUIRE(sawWelcome);
 
-    Netplay::WebRtcSignalingMessage createRoom;
-    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createRoom.roomId = "room";
     createRoom.peerId = "host";
     REQUIRE(signalingClient->send(createRoom));
@@ -854,8 +854,8 @@ TEST_CASE("WebRTC signaling client exchanges loopback desktop WebSocket messages
     bool sawRoomJoined = false;
     for(int attempt = 0; attempt < 50 && !sawRoomJoined; ++attempt) {
         for(const auto& event : signalingClient->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined) {
                 sawRoomJoined = true;
             }
         }
@@ -880,18 +880,18 @@ TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay
     INFO("Remote WSS URL: " << url);
     INFO("Probe room: " << roomId);
 
-    auto host = Netplay::createWebRtcSignalingClient();
-    auto client = Netplay::createWebRtcSignalingClient();
+    auto host = ConsoleNetplay::createWebRtcSignalingClient();
+    auto client = ConsoleNetplay::createWebRtcSignalingClient();
     REQUIRE(host != nullptr);
     REQUIRE(client != nullptr);
 
-    Netplay::WebRtcSignalingClientOptions hostOptions;
+    ConsoleNetplay::WebRtcSignalingClientOptions hostOptions;
     hostOptions.config.url = url;
     hostOptions.config.roomId = roomId;
     hostOptions.localPeerId = "codex-host";
     hostOptions.host = true;
 
-    Netplay::WebRtcSignalingClientOptions clientOptions;
+    ConsoleNetplay::WebRtcSignalingClientOptions clientOptions;
     clientOptions.config.url = url;
     clientOptions.config.roomId = roomId;
     clientOptions.localPeerId = "codex-client";
@@ -904,12 +904,12 @@ TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay
     bool clientConnected = false;
     for(int attempt = 0; attempt < 100 && (!hostConnected || !clientConnected); ++attempt) {
         for(const auto& event : host->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Connected) {
                 hostConnected = true;
             }
         }
         for(const auto& event : client->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Connected) {
                 clientConnected = true;
             }
         }
@@ -920,14 +920,14 @@ TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay
     REQUIRE(hostConnected);
     REQUIRE(clientConnected);
 
-    Netplay::WebRtcSignalingMessage hostHello;
-    hostHello.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage hostHello;
+    hostHello.type = ConsoleNetplay::WebRtcSignalType::Hello;
     hostHello.roomId = roomId;
     hostHello.peerId = hostOptions.localPeerId;
     REQUIRE(host->send(hostHello));
 
-    Netplay::WebRtcSignalingMessage createRoom;
-    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createRoom.roomId = roomId;
     createRoom.peerId = hostOptions.localPeerId;
     createRoom.maxParticipants = 2;
@@ -936,8 +936,8 @@ TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay
     bool hostSawRoomJoined = false;
     for(int attempt = 0; attempt < 100 && !hostSawRoomJoined; ++attempt) {
         for(const auto& event : host->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined &&
                event.message.roomId == roomId) {
                 hostSawRoomJoined = true;
             }
@@ -949,14 +949,14 @@ TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay
     INFO("Host last error: " << host->lastError());
     REQUIRE(hostSawRoomJoined);
 
-    Netplay::WebRtcSignalingMessage clientHello;
-    clientHello.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage clientHello;
+    clientHello.type = ConsoleNetplay::WebRtcSignalType::Hello;
     clientHello.roomId = roomId;
     clientHello.peerId = clientOptions.localPeerId;
     REQUIRE(client->send(clientHello));
 
-    Netplay::WebRtcSignalingMessage joinRoom;
-    joinRoom.type = Netplay::WebRtcSignalType::JoinRoom;
+    ConsoleNetplay::WebRtcSignalingMessage joinRoom;
+    joinRoom.type = ConsoleNetplay::WebRtcSignalType::JoinRoom;
     joinRoom.roomId = roomId;
     joinRoom.peerId = clientOptions.localPeerId;
     REQUIRE(client->send(joinRoom));
@@ -965,15 +965,15 @@ TEST_CASE("WebRTC signaling client can complete remote wss bootstrap", "[netplay
     bool hostSawPeerJoined = false;
     for(int attempt = 0; attempt < 150 && (!clientSawRoomJoined || !hostSawPeerJoined); ++attempt) {
         for(const auto& event : client->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined &&
                event.message.roomId == roomId) {
                 clientSawRoomJoined = true;
             }
         }
         for(const auto& event : host->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::PeerJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::PeerJoined &&
                event.message.roomId == roomId &&
                event.message.peerId == clientOptions.localPeerId) {
                 hostSawPeerJoined = true;
@@ -998,12 +998,12 @@ TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    auto hostA = Netplay::createWebRtcSignalingClient();
-    auto hostB = Netplay::createWebRtcSignalingClient();
+    auto hostA = ConsoleNetplay::createWebRtcSignalingClient();
+    auto hostB = ConsoleNetplay::createWebRtcSignalingClient();
     REQUIRE(hostA != nullptr);
     REQUIRE(hostB != nullptr);
 
-    Netplay::WebRtcSignalingClientOptions options;
+    ConsoleNetplay::WebRtcSignalingClientOptions options;
     options.config.url = "ws://127.0.0.1:" + std::to_string(port);
     options.config.roomId = "browser";
     options.config.roomId = "used-room";
@@ -1011,14 +1011,14 @@ TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][
     REQUIRE(hostA->connect(options));
     REQUIRE(hostB->connect(options));
 
-    Netplay::WebRtcSignalingMessage helloA;
-    helloA.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage helloA;
+    helloA.type = ConsoleNetplay::WebRtcSignalType::Hello;
     helloA.roomId = options.config.roomId;
     helloA.peerId = "host-a";
     REQUIRE(hostA->send(helloA));
 
-    Netplay::WebRtcSignalingMessage createA;
-    createA.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createA;
+    createA.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createA.roomId = options.config.roomId;
     createA.peerId = "host-a";
     REQUIRE(hostA->send(createA));
@@ -1026,8 +1026,8 @@ TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][
     bool hostACreated = false;
     for(int attempt = 0; attempt < 50 && !hostACreated; ++attempt) {
         for(const auto& event : hostA->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined &&
                event.message.roomId == options.config.roomId) {
                 hostACreated = true;
             }
@@ -1038,14 +1038,14 @@ TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][
     }
     REQUIRE(hostACreated);
 
-    Netplay::WebRtcSignalingMessage helloB;
-    helloB.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage helloB;
+    helloB.type = ConsoleNetplay::WebRtcSignalType::Hello;
     helloB.roomId = options.config.roomId;
     helloB.peerId = "host-b";
     REQUIRE(hostB->send(helloB));
 
-    Netplay::WebRtcSignalingMessage createB;
-    createB.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createB;
+    createB.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createB.roomId = options.config.roomId;
     createB.peerId = "host-b";
     REQUIRE(hostB->send(createB));
@@ -1053,8 +1053,8 @@ TEST_CASE("WebRTC signaling server rejects duplicate room creation", "[netplay][
     bool sawDuplicateError = false;
     for(int attempt = 0; attempt < 50 && !sawDuplicateError; ++attempt) {
         for(const auto& event : hostB->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::Error &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::Error &&
                event.message.error == "Room already exists") {
                 sawDuplicateError = true;
             }
@@ -1072,26 +1072,26 @@ TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][w
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    auto host = Netplay::createWebRtcSignalingClient();
-    auto client = Netplay::createWebRtcSignalingClient();
+    auto host = ConsoleNetplay::createWebRtcSignalingClient();
+    auto client = ConsoleNetplay::createWebRtcSignalingClient();
     REQUIRE(host != nullptr);
     REQUIRE(client != nullptr);
 
-    Netplay::WebRtcSignalingClientOptions options;
+    ConsoleNetplay::WebRtcSignalingClientOptions options;
     options.config.url = "ws://127.0.0.1:" + std::to_string(port);
     options.config.roomId = "locked-room";
 
     REQUIRE(host->connect(options));
     REQUIRE(client->connect(options));
 
-    Netplay::WebRtcSignalingMessage hostHello;
-    hostHello.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage hostHello;
+    hostHello.type = ConsoleNetplay::WebRtcSignalType::Hello;
     hostHello.roomId = options.config.roomId;
     hostHello.peerId = "host";
     REQUIRE(host->send(hostHello));
 
-    Netplay::WebRtcSignalingMessage createRoom;
-    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createRoom.roomId = options.config.roomId;
     createRoom.peerId = "host";
     createRoom.password = "secret";
@@ -1100,8 +1100,8 @@ TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][w
     bool roomCreated = false;
     for(int attempt = 0; attempt < 50 && !roomCreated; ++attempt) {
         for(const auto& event : host->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined) {
                 roomCreated = true;
             }
         }
@@ -1111,14 +1111,14 @@ TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][w
     }
     REQUIRE(roomCreated);
 
-    Netplay::WebRtcSignalingMessage clientHello;
-    clientHello.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage clientHello;
+    clientHello.type = ConsoleNetplay::WebRtcSignalType::Hello;
     clientHello.roomId = options.config.roomId;
     clientHello.peerId = "client";
     REQUIRE(client->send(clientHello));
 
-    Netplay::WebRtcSignalingMessage badJoin;
-    badJoin.type = Netplay::WebRtcSignalType::JoinRoom;
+    ConsoleNetplay::WebRtcSignalingMessage badJoin;
+    badJoin.type = ConsoleNetplay::WebRtcSignalType::JoinRoom;
     badJoin.roomId = options.config.roomId;
     badJoin.peerId = "client";
     badJoin.password = "wrong";
@@ -1127,8 +1127,8 @@ TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][w
     bool sawWrongPassword = false;
     for(int attempt = 0; attempt < 50 && !sawWrongPassword; ++attempt) {
         for(const auto& event : client->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::Error &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::Error &&
                event.message.error == "Invalid room password") {
                 sawWrongPassword = true;
             }
@@ -1139,8 +1139,8 @@ TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][w
     }
     REQUIRE(sawWrongPassword);
 
-    Netplay::WebRtcSignalingMessage goodJoin;
-    goodJoin.type = Netplay::WebRtcSignalType::JoinRoom;
+    ConsoleNetplay::WebRtcSignalingMessage goodJoin;
+    goodJoin.type = ConsoleNetplay::WebRtcSignalType::JoinRoom;
     goodJoin.roomId = options.config.roomId;
     goodJoin.peerId = "client";
     goodJoin.password = "secret";
@@ -1149,8 +1149,8 @@ TEST_CASE("WebRTC signaling server enforces room password on join", "[netplay][w
     bool sawJoined = false;
     for(int attempt = 0; attempt < 50 && !sawJoined; ++attempt) {
         for(const auto& event : client->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined &&
                event.message.roomId == options.config.roomId) {
                 sawJoined = true;
             }
@@ -1167,14 +1167,14 @@ TEST_CASE("WebRTC signaling server lists rooms with password protection metadata
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    auto hostPublic = Netplay::createWebRtcSignalingClient();
-    auto hostPrivate = Netplay::createWebRtcSignalingClient();
-    auto browser = Netplay::createWebRtcSignalingClient();
+    auto hostPublic = ConsoleNetplay::createWebRtcSignalingClient();
+    auto hostPrivate = ConsoleNetplay::createWebRtcSignalingClient();
+    auto browser = ConsoleNetplay::createWebRtcSignalingClient();
     REQUIRE(hostPublic != nullptr);
     REQUIRE(hostPrivate != nullptr);
     REQUIRE(browser != nullptr);
 
-    Netplay::WebRtcSignalingClientOptions options;
+    ConsoleNetplay::WebRtcSignalingClientOptions options;
     options.config.url = "ws://127.0.0.1:" + std::to_string(port);
     options.config.roomId = "browser";
 
@@ -1182,21 +1182,21 @@ TEST_CASE("WebRTC signaling server lists rooms with password protection metadata
     REQUIRE(hostPrivate->connect(options));
     REQUIRE(browser->connect(options));
 
-    Netplay::WebRtcSignalingMessage helloPublic;
-    helloPublic.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage helloPublic;
+    helloPublic.type = ConsoleNetplay::WebRtcSignalType::Hello;
     helloPublic.peerId = "host-public";
     REQUIRE(hostPublic->send(helloPublic));
 
-    Netplay::WebRtcSignalingMessage createPublic;
-    createPublic.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createPublic;
+    createPublic.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createPublic.roomId = "public-room";
     createPublic.peerId = "host-public";
     REQUIRE(hostPublic->send(createPublic));
     bool publicRoomCreated = false;
     for(int attempt = 0; attempt < 50 && !publicRoomCreated; ++attempt) {
         for(const auto& event : hostPublic->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined &&
                event.message.roomId == "public-room") {
                 publicRoomCreated = true;
             }
@@ -1207,13 +1207,13 @@ TEST_CASE("WebRTC signaling server lists rooms with password protection metadata
     }
     REQUIRE(publicRoomCreated);
 
-    Netplay::WebRtcSignalingMessage helloPrivate;
-    helloPrivate.type = Netplay::WebRtcSignalType::Hello;
+    ConsoleNetplay::WebRtcSignalingMessage helloPrivate;
+    helloPrivate.type = ConsoleNetplay::WebRtcSignalType::Hello;
     helloPrivate.peerId = "host-private";
     REQUIRE(hostPrivate->send(helloPrivate));
 
-    Netplay::WebRtcSignalingMessage createPrivate;
-    createPrivate.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createPrivate;
+    createPrivate.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createPrivate.roomId = "private-room";
     createPrivate.peerId = "host-private";
     createPrivate.password = "secret";
@@ -1221,8 +1221,8 @@ TEST_CASE("WebRTC signaling server lists rooms with password protection metadata
     bool privateRoomCreated = false;
     for(int attempt = 0; attempt < 50 && !privateRoomCreated; ++attempt) {
         for(const auto& event : hostPrivate->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomJoined &&
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomJoined &&
                event.message.roomId == "private-room") {
                 privateRoomCreated = true;
             }
@@ -1233,15 +1233,15 @@ TEST_CASE("WebRTC signaling server lists rooms with password protection metadata
     }
     REQUIRE(privateRoomCreated);
 
-    Netplay::WebRtcSignalingMessage roomList;
-    roomList.type = Netplay::WebRtcSignalType::RoomList;
+    ConsoleNetplay::WebRtcSignalingMessage roomList;
+    roomList.type = ConsoleNetplay::WebRtcSignalType::RoomList;
     REQUIRE(browser->send(roomList));
 
-    std::optional<Netplay::WebRtcSignalingMessage> listedRooms;
+    std::optional<ConsoleNetplay::WebRtcSignalingMessage> listedRooms;
     for(int attempt = 0; attempt < 50 && !listedRooms.has_value(); ++attempt) {
         for(const auto& event : browser->poll()) {
-            if(event.type == Netplay::IWebRtcSignalingClient::Event::Type::Message &&
-               event.message.type == Netplay::WebRtcSignalType::RoomList) {
+            if(event.type == ConsoleNetplay::IWebRtcSignalingClient::Event::Type::Message &&
+               event.message.type == ConsoleNetplay::WebRtcSignalType::RoomList) {
                 listedRooms = event.message;
             }
         }
@@ -1273,11 +1273,11 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
-    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport hostTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport clientTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
         "room",
         ""
@@ -1290,18 +1290,18 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
 
     bool hostConnected = false;
     bool clientConnected = false;
-    Netplay::NetTransport::PeerHandle hostPeer = Netplay::NetTransport::kInvalidPeerHandle;
-    Netplay::NetTransport::PeerHandle clientPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle hostPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle clientPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
 
     for(int attempt = 0; attempt < 500 && (!hostConnected || !clientConnected); ++attempt) {
         for(const auto& event : hostTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 hostConnected = true;
                 hostPeer = event.peer;
             }
         }
         for(const auto& event : clientTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 clientConnected = true;
                 clientPeer = event.peer;
             }
@@ -1314,17 +1314,17 @@ TEST_CASE("WebRTC transport exchanges loopback packets between desktop host and 
 
     REQUIRE(hostConnected);
     REQUIRE(clientConnected);
-    REQUIRE(hostPeer != Netplay::NetTransport::kInvalidPeerHandle);
-    REQUIRE(clientPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(hostPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
 
     const std::vector<uint8_t> payload = {1, 2, 3, 4, 5};
-    REQUIRE(hostTransport.sendReliable(hostPeer, Netplay::Channel::Control, payload));
+    REQUIRE(hostTransport.sendReliable(hostPeer, ConsoleNetplay::Channel::Control, payload));
 
     bool payloadDelivered = false;
     for(int attempt = 0; attempt < 500 && !payloadDelivered; ++attempt) {
         for(const auto& event : clientTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
-                REQUIRE(event.channel == Netplay::Channel::Control);
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == ConsoleNetplay::Channel::Control);
                 REQUIRE(event.payload == payload);
                 payloadDelivered = true;
             }
@@ -1346,11 +1346,11 @@ TEST_CASE("WebRTC transport shutdown releases loopback signaling slots promptly"
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
-    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport hostTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport clientTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
         "room",
         ""
@@ -1365,12 +1365,12 @@ TEST_CASE("WebRTC transport shutdown releases loopback signaling slots promptly"
     bool clientConnected = false;
     for(int attempt = 0; attempt < 500 && (!hostConnected || !clientConnected); ++attempt) {
         for(const auto& event : hostTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 hostConnected = true;
             }
         }
         for(const auto& event : clientTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 clientConnected = true;
             }
         }
@@ -1384,7 +1384,7 @@ TEST_CASE("WebRTC transport shutdown releases loopback signaling slots promptly"
 
     clientTransport.shutdown();
 
-    Netplay::NetTransport replacementTransport(Netplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport replacementTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
     replacementTransport.setOptions(options);
     REQUIRE(replacementTransport.connectToHost("", 0));
 
@@ -1392,7 +1392,7 @@ TEST_CASE("WebRTC transport shutdown releases loopback signaling slots promptly"
     for(int attempt = 0; attempt < 400 && !replacementConnected; ++attempt) {
         hostTransport.poll(0);
         for(const auto& event : replacementTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 replacementConnected = true;
             }
         }
@@ -1422,11 +1422,11 @@ TEST_CASE("WebRTC transport can connect host and client through remote wss signa
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count()));
 
-    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
-    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport hostTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport clientTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         *signalingUrl,
         roomId,
         ""
@@ -1440,18 +1440,18 @@ TEST_CASE("WebRTC transport can connect host and client through remote wss signa
 
     bool hostConnected = false;
     bool clientConnected = false;
-    Netplay::NetTransport::PeerHandle hostPeer = Netplay::NetTransport::kInvalidPeerHandle;
-    Netplay::NetTransport::PeerHandle clientPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle hostPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle clientPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
 
     for(int attempt = 0; attempt < 3000 && (!hostConnected || !clientConnected); ++attempt) {
         for(const auto& event : hostTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 hostConnected = true;
                 hostPeer = event.peer;
             }
         }
         for(const auto& event : clientTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 clientConnected = true;
                 clientPeer = event.peer;
             }
@@ -1466,13 +1466,13 @@ TEST_CASE("WebRTC transport can connect host and client through remote wss signa
     INFO("Client transport error: " << clientTransport.lastError());
     REQUIRE(hostConnected);
     REQUIRE(clientConnected);
-    REQUIRE(hostPeer != Netplay::NetTransport::kInvalidPeerHandle);
-    REQUIRE(clientPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(hostPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
 
     const std::vector<uint8_t> payload = {9, 8, 7, 6};
     bool payloadQueued = false;
     for(int attempt = 0; attempt < 200 && !payloadQueued; ++attempt) {
-        payloadQueued = hostTransport.sendReliable(hostPeer, Netplay::Channel::Control, payload);
+        payloadQueued = hostTransport.sendReliable(hostPeer, ConsoleNetplay::Channel::Control, payload);
         if(!payloadQueued) {
             hostTransport.poll(0);
             clientTransport.poll(0);
@@ -1485,8 +1485,8 @@ TEST_CASE("WebRTC transport can connect host and client through remote wss signa
     for(int attempt = 0; attempt < 3000 && !payloadDelivered; ++attempt) {
         hostTransport.poll(0);
         for(const auto& event : clientTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
-                REQUIRE(event.channel == Netplay::Channel::Control);
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == ConsoleNetplay::Channel::Control);
                 REQUIRE(event.payload == payload);
                 payloadDelivered = true;
             }
@@ -1510,11 +1510,11 @@ TEST_CASE("WebRTC transport exchanges loopback packets in a password-protected r
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
-    Netplay::NetTransport clientTransport(Netplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport hostTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport clientTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
         "locked-room",
         "secret"
@@ -1527,18 +1527,18 @@ TEST_CASE("WebRTC transport exchanges loopback packets in a password-protected r
 
     bool hostConnected = false;
     bool clientConnected = false;
-    Netplay::NetTransport::PeerHandle hostPeer = Netplay::NetTransport::kInvalidPeerHandle;
-    Netplay::NetTransport::PeerHandle clientPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle hostPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle clientPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
 
     for(int attempt = 0; attempt < 500 && (!hostConnected || !clientConnected); ++attempt) {
         for(const auto& event : hostTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 hostConnected = true;
                 hostPeer = event.peer;
             }
         }
         for(const auto& event : clientTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 clientConnected = true;
                 clientPeer = event.peer;
             }
@@ -1551,8 +1551,8 @@ TEST_CASE("WebRTC transport exchanges loopback packets in a password-protected r
 
     REQUIRE(hostConnected);
     REQUIRE(clientConnected);
-    REQUIRE(hostPeer != Netplay::NetTransport::kInvalidPeerHandle);
-    REQUIRE(clientPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(hostPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
 
     hostTransport.disconnectAll();
     clientTransport.disconnectAll();
@@ -1564,12 +1564,12 @@ TEST_CASE("WebRTC transport supports multiple loopback participants",
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    Netplay::NetTransport hostTransport(Netplay::NetTransportBackend::WebRTC);
-    Netplay::NetTransport clientATransport(Netplay::NetTransportBackend::WebRTC);
-    Netplay::NetTransport clientBTransport(Netplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport hostTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport clientATransport(ConsoleNetplay::NetTransportBackend::WebRTC);
+    ConsoleNetplay::NetTransport clientBTransport(ConsoleNetplay::NetTransportBackend::WebRTC);
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
         "room",
         ""
@@ -1582,59 +1582,59 @@ TEST_CASE("WebRTC transport supports multiple loopback participants",
     REQUIRE(clientATransport.connectToHost("", 0));
     REQUIRE(clientBTransport.connectToHost("", 0));
 
-    std::vector<Netplay::NetTransport::PeerHandle> hostPeers;
-    Netplay::NetTransport::PeerHandle clientAPeer = Netplay::NetTransport::kInvalidPeerHandle;
-    Netplay::NetTransport::PeerHandle clientBPeer = Netplay::NetTransport::kInvalidPeerHandle;
+    std::vector<ConsoleNetplay::NetTransport::PeerHandle> hostPeers;
+    ConsoleNetplay::NetTransport::PeerHandle clientAPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
+    ConsoleNetplay::NetTransport::PeerHandle clientBPeer = ConsoleNetplay::NetTransport::kInvalidPeerHandle;
 
     for(int attempt = 0; attempt < 800 &&
                        (hostPeers.size() < 2 ||
-                        clientAPeer == Netplay::NetTransport::kInvalidPeerHandle ||
-                        clientBPeer == Netplay::NetTransport::kInvalidPeerHandle); ++attempt) {
+                        clientAPeer == ConsoleNetplay::NetTransport::kInvalidPeerHandle ||
+                        clientBPeer == ConsoleNetplay::NetTransport::kInvalidPeerHandle); ++attempt) {
         for(const auto& event : hostTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected &&
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected &&
                std::find(hostPeers.begin(), hostPeers.end(), event.peer) == hostPeers.end()) {
                 hostPeers.push_back(event.peer);
             }
         }
         for(const auto& event : clientATransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 clientAPeer = event.peer;
             }
         }
         for(const auto& event : clientBTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::Connected) {
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::Connected) {
                 clientBPeer = event.peer;
             }
         }
 
         if(hostPeers.size() < 2 ||
-           clientAPeer == Netplay::NetTransport::kInvalidPeerHandle ||
-           clientBPeer == Netplay::NetTransport::kInvalidPeerHandle) {
+           clientAPeer == ConsoleNetplay::NetTransport::kInvalidPeerHandle ||
+           clientBPeer == ConsoleNetplay::NetTransport::kInvalidPeerHandle) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 
     REQUIRE(hostPeers.size() == 2u);
-    REQUIRE(clientAPeer != Netplay::NetTransport::kInvalidPeerHandle);
-    REQUIRE(clientBPeer != Netplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientAPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
+    REQUIRE(clientBPeer != ConsoleNetplay::NetTransport::kInvalidPeerHandle);
     REQUIRE(hostTransport.connectedPeers().size() == 2u);
 
     const std::vector<uint8_t> broadcastPayload = {9, 8, 7, 6};
-    REQUIRE(hostTransport.broadcastReliable(Netplay::Channel::Control, broadcastPayload));
+    REQUIRE(hostTransport.broadcastReliable(ConsoleNetplay::Channel::Control, broadcastPayload));
 
     bool clientAReceived = false;
     bool clientBReceived = false;
     for(int attempt = 0; attempt < 500 && (!clientAReceived || !clientBReceived); ++attempt) {
         for(const auto& event : clientATransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
-                REQUIRE(event.channel == Netplay::Channel::Control);
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == ConsoleNetplay::Channel::Control);
                 REQUIRE(event.payload == broadcastPayload);
                 clientAReceived = true;
             }
         }
         for(const auto& event : clientBTransport.poll(0)) {
-            if(event.type == Netplay::NetTransport::Event::Type::PacketReceived) {
-                REQUIRE(event.channel == Netplay::Channel::Control);
+            if(event.type == ConsoleNetplay::NetTransport::Event::Type::PacketReceived) {
+                REQUIRE(event.channel == ConsoleNetplay::Channel::Control);
                 REQUIRE(event.payload == broadcastPayload);
                 clientBReceived = true;
             }
@@ -1649,17 +1649,17 @@ TEST_CASE("WebRTC transport supports multiple loopback participants",
 
     const std::vector<uint8_t> clientAPayload = {1, 1, 1};
     const std::vector<uint8_t> clientBPayload = {2, 2, 2};
-    REQUIRE(clientATransport.sendReliable(clientAPeer, Netplay::Channel::Gameplay, clientAPayload));
-    REQUIRE(clientBTransport.sendReliable(clientBPeer, Netplay::Channel::Gameplay, clientBPayload));
+    REQUIRE(clientATransport.sendReliable(clientAPeer, ConsoleNetplay::Channel::Gameplay, clientAPayload));
+    REQUIRE(clientBTransport.sendReliable(clientBPeer, ConsoleNetplay::Channel::Gameplay, clientBPayload));
 
     bool hostSawA = false;
     bool hostSawB = false;
     for(int attempt = 0; attempt < 500 && (!hostSawA || !hostSawB); ++attempt) {
         for(const auto& event : hostTransport.poll(0)) {
-            if(event.type != Netplay::NetTransport::Event::Type::PacketReceived) {
+            if(event.type != ConsoleNetplay::NetTransport::Event::Type::PacketReceived) {
                 continue;
             }
-            REQUIRE(event.channel == Netplay::Channel::Gameplay);
+            REQUIRE(event.channel == ConsoleNetplay::Channel::Gameplay);
             if(event.payload == clientAPayload) {
                 hostSawA = true;
             } else if(event.payload == clientBPayload) {
@@ -1682,23 +1682,23 @@ TEST_CASE("WebRTC transport supports multiple loopback participants",
 
 TEST_CASE("WebRTC signaling messages round-trip through JSON", "[netplay][webrtc][signaling]")
 {
-    Netplay::WebRtcSignalingMessage offer;
-    offer.type = Netplay::WebRtcSignalType::Offer;
+    ConsoleNetplay::WebRtcSignalingMessage offer;
+    offer.type = ConsoleNetplay::WebRtcSignalType::Offer;
     offer.roomId = "room-123";
     offer.peerId = "host";
     offer.targetPeerId = "client";
     offer.sdp = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n";
 
-    const auto parsedOffer = Netplay::WebRtcSignalingMessage::fromText(offer.toText());
+    const auto parsedOffer = ConsoleNetplay::WebRtcSignalingMessage::fromText(offer.toText());
     REQUIRE(parsedOffer.has_value());
-    REQUIRE(parsedOffer->type == Netplay::WebRtcSignalType::Offer);
+    REQUIRE(parsedOffer->type == ConsoleNetplay::WebRtcSignalType::Offer);
     REQUIRE(parsedOffer->roomId == "room-123");
     REQUIRE(parsedOffer->peerId == "host");
     REQUIRE(parsedOffer->targetPeerId == "client");
     REQUIRE(parsedOffer->sdp == offer.sdp);
 
-    Netplay::WebRtcSignalingMessage ice;
-    ice.type = Netplay::WebRtcSignalType::IceCandidate;
+    ConsoleNetplay::WebRtcSignalingMessage ice;
+    ice.type = ConsoleNetplay::WebRtcSignalType::IceCandidate;
     ice.roomId = "room-123";
     ice.peerId = "client";
     ice.targetPeerId = "host";
@@ -1706,39 +1706,39 @@ TEST_CASE("WebRTC signaling messages round-trip through JSON", "[netplay][webrtc
     ice.mid = "0";
     ice.mlineIndex = 0;
 
-    const auto parsedIce = Netplay::WebRtcSignalingMessage::fromJson(ice.toJson());
+    const auto parsedIce = ConsoleNetplay::WebRtcSignalingMessage::fromJson(ice.toJson());
     REQUIRE(parsedIce.has_value());
-    REQUIRE(parsedIce->type == Netplay::WebRtcSignalType::IceCandidate);
+    REQUIRE(parsedIce->type == ConsoleNetplay::WebRtcSignalType::IceCandidate);
     REQUIRE(parsedIce->candidate == ice.candidate);
     REQUIRE(parsedIce->mid == "0");
     REQUIRE(parsedIce->mlineIndex == 0);
 
-    Netplay::WebRtcSignalingMessage createRoom;
-    createRoom.type = Netplay::WebRtcSignalType::CreateRoom;
+    ConsoleNetplay::WebRtcSignalingMessage createRoom;
+    createRoom.type = ConsoleNetplay::WebRtcSignalType::CreateRoom;
     createRoom.roomId = "private-room";
     createRoom.peerId = "host";
     createRoom.password = "secret";
 
-    Netplay::WebRtcSignalingRoomInfo listedPublic;
+    ConsoleNetplay::WebRtcSignalingRoomInfo listedPublic;
     listedPublic.roomId = "public-room";
     listedPublic.passwordProtected = false;
 
-    Netplay::WebRtcSignalingRoomInfo listedPrivate;
+    ConsoleNetplay::WebRtcSignalingRoomInfo listedPrivate;
     listedPrivate.roomId = "private-room";
     listedPrivate.passwordProtected = true;
 
-    Netplay::WebRtcSignalingMessage roomList;
-    roomList.type = Netplay::WebRtcSignalType::RoomList;
+    ConsoleNetplay::WebRtcSignalingMessage roomList;
+    roomList.type = ConsoleNetplay::WebRtcSignalType::RoomList;
     roomList.rooms = {listedPublic, listedPrivate};
 
-    const auto parsedCreateRoom = Netplay::WebRtcSignalingMessage::fromText(createRoom.toText());
+    const auto parsedCreateRoom = ConsoleNetplay::WebRtcSignalingMessage::fromText(createRoom.toText());
     REQUIRE(parsedCreateRoom.has_value());
-    REQUIRE(parsedCreateRoom->type == Netplay::WebRtcSignalType::CreateRoom);
+    REQUIRE(parsedCreateRoom->type == ConsoleNetplay::WebRtcSignalType::CreateRoom);
     REQUIRE(parsedCreateRoom->password == "secret");
 
-    const auto parsedRoomList = Netplay::WebRtcSignalingMessage::fromJson(roomList.toJson());
+    const auto parsedRoomList = ConsoleNetplay::WebRtcSignalingMessage::fromJson(roomList.toJson());
     REQUIRE(parsedRoomList.has_value());
-    REQUIRE(parsedRoomList->type == Netplay::WebRtcSignalType::RoomList);
+    REQUIRE(parsedRoomList->type == ConsoleNetplay::WebRtcSignalType::RoomList);
     REQUIRE(parsedRoomList->rooms.size() == 2u);
     REQUIRE(parsedRoomList->rooms[0].roomId == "public-room");
     REQUIRE(parsedRoomList->rooms[0].passwordProtected == false);
@@ -1847,8 +1847,8 @@ TEST_CASE("Late-joining assigned client remains deterministic after assignment r
     options.appFlow = true;
     options.runtimeFlow = true;
     options.singleThreadRuntimeFlow = true;
-    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(signalingPort),
         "late-join-assigned-determinism",
         ""
@@ -1886,14 +1886,14 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
 {
     GeraNESTestSupport::requireRomFixture();
 
-    for(const Netplay::NetTransportBackend backend : {Netplay::NetTransportBackend::ENet, Netplay::NetTransportBackend::WebRTC}) {
-        INFO("backend=" << Netplay::netTransportBackendLabel(backend));
+    for(const ConsoleNetplay::NetTransportBackend backend : {ConsoleNetplay::NetTransportBackend::ENet, ConsoleNetplay::NetTransportBackend::WebRTC}) {
+        INFO("backend=" << ConsoleNetplay::netTransportBackendLabel(backend));
 
-        const uint16_t signalingPort = backend == Netplay::NetTransportBackend::WebRTC
+        const uint16_t signalingPort = backend == ConsoleNetplay::NetTransportBackend::WebRTC
             ? reserveLoopbackPort()
             : 0u;
         std::optional<LocalWebSocketSignalingServer> signalingServer;
-        if(backend == Netplay::NetTransportBackend::WebRTC) {
+        if(backend == ConsoleNetplay::NetTransportBackend::WebRTC) {
             signalingServer.emplace(signalingPort);
         }
 
@@ -1911,15 +1911,15 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
         options.clientLoopDtMs = 33;
         options.hostStepStride = 1;
         options.clientStepStride = 2;
-        if(backend == Netplay::NetTransportBackend::WebRTC) {
-            options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+        if(backend == ConsoleNetplay::NetTransportBackend::WebRTC) {
+            options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
                 "ws://127.0.0.1:" + std::to_string(signalingPort),
                 "web-both-assigned",
                 ""
             };
         }
         options.reportPath = GeraNESTestSupport::reportPath(
-            backend == Netplay::NetTransportBackend::WebRTC
+            backend == ConsoleNetplay::NetTransportBackend::WebRTC
                 ? "netplay_web_webrtc_both_assigned_inputs_regression.json"
                 : "netplay_web_both_assigned_inputs_regression.json"
         ).string();
@@ -1951,8 +1951,8 @@ TEST_CASE("Netplay mobile browser bad Wi-Fi acceptance keeps running without res
     options.appFlow = true;
     options.runtimeFlow = true;
     options.singleThreadRuntimeFlow = true;
-    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(signalingPort),
         "mobile-bad-wifi-acceptance",
         ""
@@ -2002,8 +2002,8 @@ TEST_CASE("Netplay mobile browser normal gameplay sustained soak stays connected
     options.appFlow = true;
     options.runtimeFlow = true;
     options.singleThreadRuntimeFlow = true;
-    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(signalingPort),
         "mobile-normal-long-soak",
         ""
@@ -2101,7 +2101,7 @@ TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay]
     bool hostFound = false;
     for(const auto& participant : report.at("host").at("participants")) {
         if(participant.at("name") == "Host") {
-            REQUIRE(participant.at("controllerAssignment") == Netplay::kMultitapP1PlayerSlot);
+            REQUIRE(participant.at("controllerAssignment") == ConsoleNetplay::kMultitapP1PlayerSlot);
             hostFound = true;
             break;
         }
@@ -2135,8 +2135,8 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
 
 TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick][reconnect][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     uint16_t port = 0;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
@@ -2155,8 +2155,8 @@ TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick]
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             hostRoom.participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -2164,7 +2164,7 @@ TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick]
     }
     REQUIRE(connected);
 
-    const Netplay::ParticipantId clientId = client.localParticipantId();
+    const ConsoleNetplay::ParticipantId clientId = client.localParticipantId();
     REQUIRE(host.kickParticipant(clientId));
 
     bool clientRemoved = false;
@@ -2198,8 +2198,8 @@ TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick]
 
 TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[netplay][kick][reconnect][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     uint16_t port = 0;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
@@ -2217,8 +2217,8 @@ TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[ne
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             host.session().roomState().participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -2226,11 +2226,11 @@ TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[ne
     }
     REQUIRE(connected);
 
-    const Netplay::ParticipantId clientId = client.localParticipantId();
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    const ConsoleNetplay::ParticipantId clientId = client.localParticipantId();
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.currentFrame = 500;
     hostRoom.lastConfirmedFrame = 500;
     clientRoom.currentFrame = 500;
@@ -2241,11 +2241,11 @@ TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[ne
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -2254,21 +2254,21 @@ TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[ne
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
 
     host.setLocalSimulationFrame(500);
     const std::vector<uint8_t> payload = {1u, 2u, 3u, 4u};
-    REQUIRE(host.beginResync(500u, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ConfirmedDesync));
+    REQUIRE(host.beginResync(500u, payload, 0x11111111u, 0x22222222u, ConsoleNetplay::ResyncReason::ConfirmedDesync));
     REQUIRE(host.session().roomState().pendingResyncAckCount > 0u);
 
-    Netplay::ResyncAckData failedAck{};
+    ConsoleNetplay::ResyncAckData failedAck{};
     failedAck.resyncId = host.session().roomState().activeResyncId;
     failedAck.participantId = clientId;
     failedAck.loadedFrame = 500u;
@@ -2276,7 +2276,7 @@ TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[ne
     failedAck.success = 0u;
     REQUIRE(host.injectResyncAckForTests(failedAck));
 
-    const Netplay::ParticipantInfo* reserved = host.session().findParticipant(clientId);
+    const ConsoleNetplay::ParticipantInfo* reserved = host.session().findParticipant(clientId);
     REQUIRE(reserved != nullptr);
     REQUIRE_FALSE(reserved->connected);
     REQUIRE(reserved->reconnectReserved);
@@ -2302,8 +2302,8 @@ TEST_CASE("Resync-failure removal lets netplay participant auto reconnect", "[ne
 TEST_CASE("Passive host transport loss keeps client reconnecting after reservation window",
           "[netplay][reconnect][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     client.setReconnectReservationDurationForTests(1);
 
     uint16_t port = 0;
@@ -2360,18 +2360,18 @@ TEST_CASE("WebRTC reconnect failure shows room missing toast", "[netplay][reconn
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
         "room",
         ""
     };
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
-    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
+    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
     host.setTransportOptions(options);
     client.setTransportOptions(options);
     client.setReconnectReservationDurationForTests(2);
@@ -2416,62 +2416,62 @@ TEST_CASE("WebRTC reconnect failure shows room missing toast", "[netplay][reconn
 TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
           "[netplay][reconnect][resync][unit]")
 {
-    Netplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator host;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = host.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
-    room.state = Netplay::SessionState::Running;
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 7u;
     room.currentFrame = 500u;
     room.lastConfirmedFrame = 500u;
 
-    Netplay::ParticipantInfo remote;
+    ConsoleNetplay::ParticipantInfo remote;
     remote.id = 1u;
     remote.displayName = "Participant";
     remote.connected = false;
     remote.romLoaded = true;
     remote.romCompatible = true;
-    remote.role = Netplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
     remote.lastReceivedInputFrame = 500u;
     remote.lastContiguousInputFrame = 500u;
     remote.lastReceivedInputSequence = 1003u;
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    InputFrame confirmedContribution = Netplay::makeRoomTopologyBaseFrame(500u, room);
-    Netplay::TimelineInputEntry confirmed{};
+    InputFrame confirmedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(500u, room);
+    ConsoleNetplay::TimelineInputEntry confirmed{};
     confirmed.frame = 500u;
     confirmed.participantId = remote.id;
-    confirmed.playerSlot = Netplay::kPort2PlayerSlot;
-    confirmed.netplayFrame = Netplay::toNetplayInputFrame(confirmedContribution);
+    confirmed.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
+    confirmed.netplayFrame = ConsoleNetplay::toNetplayInputFrame(confirmedContribution);
     confirmed.sequence = 1003u;
     confirmed.confirmed = true;
     confirmed.predicted = false;
-    const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
+    const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
 
     const std::vector<uint8_t> payload{1u, 2u, 3u};
     const uint32_t payloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(payload.data()), payload.size());
-    REQUIRE(host.beginResync(500u, payload, payloadCrc32, 0x12345678u, Netplay::ResyncReason::InitialSessionSync));
+    REQUIRE(host.beginResync(500u, payload, payloadCrc32, 0x12345678u, ConsoleNetplay::ResyncReason::InitialSessionSync));
 
-    Netplay::ParticipantInfo* reconnected = const_cast<Netplay::NetSession&>(host.session()).findParticipant(remote.id);
+    ConsoleNetplay::ParticipantInfo* reconnected = const_cast<ConsoleNetplay::NetSession&>(host.session()).findParticipant(remote.id);
     REQUIRE(reconnected != nullptr);
     reconnected->connected = true;
     REQUIRE(reconnected->lastReceivedInputSequence == 1003u);
 
-    Netplay::InputFrameData resumedInput{};
+    ConsoleNetplay::InputFrameData resumedInput{};
     resumedInput.timelineEpoch = room.timelineEpoch;
     resumedInput.frame = 501u;
     resumedInput.participantId = remote.id;
-    resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
+    resumedInput.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     resumedInput.sequence = 1004u;
-    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(501u, room);
-    REQUIRE(Netplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+    InputFrame resumedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(501u, room);
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     REQUIRE(reconnected->lastReceivedInputSequence == 1004u);
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input sequence from Participant"));
@@ -2482,27 +2482,27 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
 TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
           "[netplay][reconnect][input][unit]")
 {
-    Netplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator host;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = host.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
-    room.state = Netplay::SessionState::Running;
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 11u;
     room.currentFrame = 10894u;
     room.lastConfirmedFrame = 10235u;
 
-    Netplay::ParticipantInfo remote;
+    ConsoleNetplay::ParticipantInfo remote;
     remote.id = 1u;
     remote.displayName = "Participant";
     remote.connected = true;
     remote.romLoaded = true;
     remote.romCompatible = true;
-    remote.role = Netplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
     remote.lastReceivedInputFrame = 10235u;
     remote.lastContiguousInputFrame = 10235u;
     remote.lastReceivedInputSequence = 1u;
@@ -2511,16 +2511,16 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    Netplay::InputFrameData resumedInput{};
+    ConsoleNetplay::InputFrameData resumedInput{};
     resumedInput.timelineEpoch = room.timelineEpoch;
     resumedInput.frame = 10895u;
     resumedInput.participantId = remote.id;
-    resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
+    resumedInput.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     resumedInput.sequence = 660u;
-    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(10895u, room);
-    REQUIRE(Netplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+    InputFrame resumedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(10895u, room);
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
-    const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
     REQUIRE(updated->lastReceivedInputSequence == 660u);
     REQUIRE(updated->lastContiguousInputFrame == 10895u);
@@ -2535,27 +2535,27 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
 TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
           "[netplay][reconnect][input][unit]")
 {
-    Netplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator host;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = host.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
-    room.state = Netplay::SessionState::Running;
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 12u;
     room.currentFrame = 7206u;
     room.lastConfirmedFrame = 7206u;
 
-    Netplay::ParticipantInfo remote;
+    ConsoleNetplay::ParticipantInfo remote;
     remote.id = 1u;
     remote.displayName = "Participant";
     remote.connected = true;
     remote.romLoaded = true;
     remote.romCompatible = true;
-    remote.role = Netplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
     remote.lastReceivedInputFrame = 7206u;
     remote.lastContiguousInputFrame = 7206u;
     remote.lastReceivedInputSequence = 1003u;
@@ -2564,17 +2564,17 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    Netplay::InputFrameData resumedInput{};
+    ConsoleNetplay::InputFrameData resumedInput{};
     resumedInput.timelineEpoch = room.timelineEpoch;
     resumedInput.frame = 7207u;
     resumedInput.participantId = remote.id;
-    resumedInput.playerSlot = Netplay::kPort1PlayerSlot;
+    resumedInput.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     resumedInput.sequence = 1u;
-    InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(7207u, room);
+    InputFrame resumedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(7207u, room);
     resumedContribution.p1A = true;
-    REQUIRE(Netplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
-    const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
     REQUIRE(updated->lastReceivedInputSequence == 1u);
     REQUIRE(updated->lastContiguousInputFrame == 7207u);
@@ -2589,12 +2589,12 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
 TEST_CASE("Client confirmed frame sync does not prefill future local inputs after reconnect-style catchup",
           "[netplay][reconnect][input][client][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     REQUIRE(host.host(port, 2, "Host"));
     REQUIRE(client.join("127.0.0.1", port, "Client"));
 
@@ -2605,17 +2605,17 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
         connected =
             host.session().roomState().participants.size() >= 2u &&
             client.session().roomState().participants.size() >= 2u &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId;
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.currentFrame = 105u;
     clientRoom.currentFrame = 100u;
     hostRoom.lastConfirmedFrame = 100u;
@@ -2626,11 +2626,11 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -2640,40 +2640,40 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
 
     client.setLocalSimulationFrame(100u);
 
-    std::vector<Netplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
-    for(Netplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
-        Netplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
+    std::vector<ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
+    for(ConsoleNetplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
+        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
         confirmed.frame = frame;
-        InputFrame confirmedInputFrame = Netplay::makeRoomTopologyBaseFrame(frame, clientRoom);
-        confirmed.buttonMaskLo[Netplay::kPort1PlayerSlot] = 0u;
-        confirmed.buttonMaskLo[Netplay::kPort2PlayerSlot] = (frame % 2u) == 0u ? 1u : 0u;
+        InputFrame confirmedInputFrame = ConsoleNetplay::makeRoomTopologyBaseFrame(frame, clientRoom);
+        confirmed.buttonMaskLo[ConsoleNetplay::kPort1PlayerSlot] = 0u;
+        confirmed.buttonMaskLo[ConsoleNetplay::kPort2PlayerSlot] = (frame % 2u) == 0u ? 1u : 0u;
         confirmedInputFrame.p2A = (frame % 2u) == 0u;
-        confirmed.netplayFrame = Netplay::toNetplayInputFrame(confirmedInputFrame);
+        confirmed.netplayFrame = ConsoleNetplay::toNetplayInputFrame(confirmedInputFrame);
         confirmedFrames.push_back(confirmed);
     }
 
-    Netplay::ConfirmedInputFramesData data{};
+    ConsoleNetplay::ConfirmedInputFramesData data{};
     data.timelineEpoch = clientRoom.timelineEpoch;
     data.startFrame = 101u;
     data.frameCount = static_cast<uint16_t>(confirmedFrames.size());
     REQUIRE(client.injectConfirmedPlaybackFramesForTests(data, confirmedFrames));
 
     REQUIRE(client.findConfirmedFrame(105u) != nullptr);
-    REQUIRE(client.localInputs().find(105u, client.localParticipantId(), Netplay::kPort2PlayerSlot) == nullptr);
+    REQUIRE(client.localInputs().find(105u, client.localParticipantId(), ConsoleNetplay::kPort2PlayerSlot) == nullptr);
 
-    client.recordLocalInputFrame(105u, Netplay::kPort2PlayerSlot, 1u);
-    REQUIRE(client.localInputs().find(105u, client.localParticipantId(), Netplay::kPort2PlayerSlot) != nullptr);
+    client.recordLocalInputFrame(105u, ConsoleNetplay::kPort2PlayerSlot, 1u);
+    REQUIRE(client.localInputs().find(105u, client.localParticipantId(), ConsoleNetplay::kPort2PlayerSlot) != nullptr);
 
     host.disconnect();
     client.disconnect();
@@ -2682,12 +2682,12 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
 TEST_CASE("Host disconnect toast uses participant display name",
           "[netplay][disconnect][toast][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     REQUIRE(host.host(port, 2, "Host"));
     REQUIRE(client.join("127.0.0.1", port, "NamedClient"));
 
@@ -2696,7 +2696,7 @@ TEST_CASE("Host disconnect toast uses participant display name",
         host.update(0);
         client.update(0);
         connected = host.session().roomState().participants.size() >= 2 &&
-                    client.localParticipantId() != Netplay::kInvalidParticipantId;
+                    client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
@@ -2724,9 +2724,9 @@ TEST_CASE("Host disconnect toast uses participant display name",
 TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",
           "[netplay][reconnect][replace-peer][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
-    Netplay::NetplayCoordinator replacementClient;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator replacementClient;
     uint16_t port = 0;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
@@ -2743,8 +2743,8 @@ TEST_CASE("Reconnect token match replaces active peer instead of creating duplic
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             host.session().roomState().participants.size() == 2u;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -2752,7 +2752,7 @@ TEST_CASE("Reconnect token match replaces active peer instead of creating duplic
     }
     REQUIRE(connected);
 
-    const Netplay::ParticipantId originalClientParticipantId = client.localParticipantId();
+    const ConsoleNetplay::ParticipantId originalClientParticipantId = client.localParticipantId();
     const uint64_t reconnectToken = client.localReconnectToken();
     REQUIRE(reconnectToken != 0u);
     client.setLocalReconnectToken(0u);
@@ -2783,14 +2783,14 @@ TEST_CASE("Reconnect token match replaces active peer instead of creating duplic
 
 TEST_CASE("ENet coordinator supports host plus two participants", "[netplay][enet][coordinator][multi-peer]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator clientA;
-    Netplay::NetplayCoordinator clientB;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator clientA;
+    ConsoleNetplay::NetplayCoordinator clientB;
     uint16_t port = 0;
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(clientA.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(clientB.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(clientA.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(clientB.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
 
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
@@ -2831,16 +2831,16 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
 {
     GeraNESTestSupport::requireRomFixture();
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator inputClient;
-    Netplay::NetplayCoordinator observerA;
-    Netplay::NetplayCoordinator observerB;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator inputClient;
+    ConsoleNetplay::NetplayCoordinator observerA;
+    ConsoleNetplay::NetplayCoordinator observerB;
     uint16_t port = 0;
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(inputClient.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(observerA.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(observerB.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(inputClient.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(observerA.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(observerB.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
 
     bool started = false;
     for(int attempt = 0; attempt < 24 && !started; ++attempt) {
@@ -2884,7 +2884,7 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
     }
     REQUIRE(connected);
 
-    const auto findParticipantIdByName = [](const Netplay::RoomState& room, const std::string& name) -> std::optional<Netplay::ParticipantId> {
+    const auto findParticipantIdByName = [](const ConsoleNetplay::RoomState& room, const std::string& name) -> std::optional<ConsoleNetplay::ParticipantId> {
         for(const auto& participant : room.participants) {
             if(participant.displayName == name) {
                 return participant.id;
@@ -2903,7 +2903,7 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
     REQUIRE(observerBId.has_value());
 
     REQUIRE(host.clearControllerAssignments(*hostId));
-    REQUIRE(host.assignController(*inputClientId, Netplay::kPort1PlayerSlot));
+    REQUIRE(host.assignController(*inputClientId, ConsoleNetplay::kPort1PlayerSlot));
     REQUIRE(host.clearControllerAssignments(*observerAId));
     REQUIRE(host.clearControllerAssignments(*observerBId));
 
@@ -2911,28 +2911,28 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
         pumpAll(0);
     }
 
-    auto verifyAssignmentView = [&](const Netplay::NetplayCoordinator& coordinator) {
+    auto verifyAssignmentView = [&](const ConsoleNetplay::NetplayCoordinator& coordinator) {
         const auto& room = coordinator.session().roomState();
-        const auto findById = [&](Netplay::ParticipantId id) -> const Netplay::ParticipantInfo* {
+        const auto findById = [&](ConsoleNetplay::ParticipantId id) -> const ConsoleNetplay::ParticipantInfo* {
             for(const auto& participant : room.participants) {
                 if(participant.id == id) return &participant;
             }
             return nullptr;
         };
 
-        const Netplay::ParticipantInfo* hostParticipant = findById(*hostId);
-        const Netplay::ParticipantInfo* inputParticipant = findById(*inputClientId);
-        const Netplay::ParticipantInfo* obsAParticipant = findById(*observerAId);
-        const Netplay::ParticipantInfo* obsBParticipant = findById(*observerBId);
+        const ConsoleNetplay::ParticipantInfo* hostParticipant = findById(*hostId);
+        const ConsoleNetplay::ParticipantInfo* inputParticipant = findById(*inputClientId);
+        const ConsoleNetplay::ParticipantInfo* obsAParticipant = findById(*observerAId);
+        const ConsoleNetplay::ParticipantInfo* obsBParticipant = findById(*observerBId);
         REQUIRE(hostParticipant != nullptr);
         REQUIRE(inputParticipant != nullptr);
         REQUIRE(obsAParticipant != nullptr);
         REQUIRE(obsBParticipant != nullptr);
-        REQUIRE(Netplay::participantIsObserver(*hostParticipant));
-        REQUIRE_FALSE(Netplay::participantIsObserver(*inputParticipant));
-        REQUIRE(Netplay::participantHasAssignment(*inputParticipant, Netplay::kPort1PlayerSlot));
-        REQUIRE(Netplay::participantIsObserver(*obsAParticipant));
-        REQUIRE(Netplay::participantIsObserver(*obsBParticipant));
+        REQUIRE(ConsoleNetplay::participantIsObserver(*hostParticipant));
+        REQUIRE_FALSE(ConsoleNetplay::participantIsObserver(*inputParticipant));
+        REQUIRE(ConsoleNetplay::participantHasAssignment(*inputParticipant, ConsoleNetplay::kPort1PlayerSlot));
+        REQUIRE(ConsoleNetplay::participantIsObserver(*obsAParticipant));
+        REQUIRE(ConsoleNetplay::participantIsObserver(*obsBParticipant));
     };
 
     verifyAssignmentView(host);
@@ -2979,7 +2979,7 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
         const uint32_t burstFrames = 8u + (rng() % 12u);
         for(uint32_t i = 0; i < burstFrames; ++i) {
             const uint64_t randomMask = static_cast<uint64_t>(rng() & 0x0FFFu);
-            inputClient.recordLocalInputFrame(netplayInputFrame, Netplay::kPort1PlayerSlot, randomMask, 0u);
+            inputClient.recordLocalInputFrame(netplayInputFrame, ConsoleNetplay::kPort1PlayerSlot, randomMask, 0u);
             inputClient.setLocalSimulationFrame(netplayInputFrame);
 
             for(int pump = 0; pump < 6; ++pump) {
@@ -2993,7 +2993,7 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
             stepRandomEmuFrame(hostEmu, rng);
         }
 
-        const Netplay::FrameNumber authoritativeFrame = hostEmu.frameCount();
+        const ConsoleNetplay::FrameNumber authoritativeFrame = hostEmu.frameCount();
         const std::vector<uint8_t> statePayload = hostEmu.saveNetplayStateToMemory();
         REQUIRE_FALSE(statePayload.empty());
 
@@ -3006,15 +3006,15 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
             statePayload,
             payloadCrc32,
             stateCrc32,
-            Netplay::ResyncReason::HostLoadedState
+            ConsoleNetplay::ResyncReason::HostLoadedState
         ));
 
         bool resyncSettled = false;
         for(int step = 0; step < 2400 && !resyncSettled; ++step) {
             pumpAll(0);
 
-            auto processClientResync = [&](Netplay::NetplayCoordinator& coordinator, GeraNESEmu& emu) {
-                const std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending =
+            auto processClientResync = [&](ConsoleNetplay::NetplayCoordinator& coordinator, GeraNESEmu& emu) {
+                const std::optional<ConsoleNetplay::NetplayCoordinator::PendingResyncApply> pending =
                     coordinator.consumePendingResyncApply();
                 if(!pending.has_value()) return;
 
@@ -3042,7 +3042,7 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
             resyncSettled =
                 room.activeResyncId == 0u &&
                 room.pendingResyncAckCount == 0u &&
-                room.state == Netplay::SessionState::Running;
+                room.state == ConsoleNetplay::SessionState::Running;
 
             if(!resyncSettled) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -3082,12 +3082,12 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
 {
     GeraNESTestSupport::requireRomFixture();
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator observer;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator observer;
     const uint16_t port = reserveLoopbackPort();
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(observer.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(observer.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     REQUIRE(host.host(port, 1, "Host"));
     REQUIRE(observer.join("127.0.0.1", port, "Observer"));
 
@@ -3110,7 +3110,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
     }
     REQUIRE(connected);
 
-    const auto findParticipantIdByName = [](const Netplay::RoomState& room, const std::string& name) -> std::optional<Netplay::ParticipantId> {
+    const auto findParticipantIdByName = [](const ConsoleNetplay::RoomState& room, const std::string& name) -> std::optional<ConsoleNetplay::ParticipantId> {
         for(const auto& participant : room.participants) {
             if(participant.displayName == name) {
                 return participant.id;
@@ -3136,7 +3136,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
     for(uint32_t frame = 0; frame < 12u; ++frame) {
         queueFrameAndAdvance(hostEmu, frame, false);
     }
-    const Netplay::FrameNumber firstFrame = hostEmu.frameCount();
+    const ConsoleNetplay::FrameNumber firstFrame = hostEmu.frameCount();
     const std::vector<uint8_t> firstPayload = hostEmu.saveNetplayStateToMemory();
     REQUIRE_FALSE(firstPayload.empty());
     const uint32_t firstPayloadCrc32 =
@@ -3146,7 +3146,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
     for(uint32_t frame = firstFrame; frame < firstFrame + 9u; ++frame) {
         queueFrameAndAdvance(hostEmu, frame, false);
     }
-    const Netplay::FrameNumber secondFrame = hostEmu.frameCount();
+    const ConsoleNetplay::FrameNumber secondFrame = hostEmu.frameCount();
     const std::vector<uint8_t> secondPayload = hostEmu.saveNetplayStateToMemory();
     REQUIRE_FALSE(secondPayload.empty());
     const uint32_t secondPayloadCrc32 =
@@ -3158,14 +3158,14 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
         firstPayload,
         firstPayloadCrc32,
         firstStateCrc32,
-        Netplay::ResyncReason::HostLoadedState
+        ConsoleNetplay::ResyncReason::HostLoadedState
     ));
     REQUIRE(host.beginResync(
         secondFrame,
         secondPayload,
         secondPayloadCrc32,
         secondStateCrc32,
-        Netplay::ResyncReason::HostLoadedState
+        ConsoleNetplay::ResyncReason::HostLoadedState
     ));
 
     // Allow both resync streams to reach the observer before consuming.
@@ -3173,7 +3173,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
         pump(0);
     }
 
-    const std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending =
+    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingResyncApply> pending =
         observer.consumePendingResyncApply();
     REQUIRE(pending.has_value());
     REQUIRE(pending->targetFrame == secondFrame);
@@ -3201,7 +3201,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
         settled =
             room.activeResyncId == 0u &&
             room.pendingResyncAckCount == 0u &&
-            room.state == Netplay::SessionState::Running;
+            room.state == ConsoleNetplay::SessionState::Running;
         if(!settled) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
@@ -3219,20 +3219,20 @@ TEST_CASE("WebRTC coordinator supports host plus two participants", "[netplay][w
     const uint16_t port = reserveLoopbackPort();
     LocalWebSocketSignalingServer server(port);
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator clientA;
-    Netplay::NetplayCoordinator clientB;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator clientA;
+    ConsoleNetplay::NetplayCoordinator clientB;
 
-    Netplay::NetTransportOptions options;
-    options.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    ConsoleNetplay::NetTransportOptions options;
+    options.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         "ws://127.0.0.1:" + std::to_string(port),
         "room",
         ""
     };
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
-    REQUIRE(clientA.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
-    REQUIRE(clientB.setTransportBackend(Netplay::NetTransportBackend::WebRTC));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
+    REQUIRE(clientA.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
+    REQUIRE(clientB.setTransportBackend(ConsoleNetplay::NetTransportBackend::WebRTC));
     host.setTransportOptions(options);
     clientA.setTransportOptions(options);
     clientB.setTransportOptions(options);
@@ -3268,18 +3268,18 @@ TEST_CASE("WebRTC coordinator supports host plus two participants", "[netplay][w
 
 TEST_CASE("Netplay coordinator records implicit playback stops without pausing the session", "[netplay][playback-stop][unit]")
 {
-    Netplay::NetplayCoordinator coordinator;
+    ConsoleNetplay::NetplayCoordinator coordinator;
     const uint16_t port = reserveLoopbackPort();
     REQUIRE(coordinator.host(port, 1, "Host"));
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 1;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.currentFrame = 180;
     room.lastConfirmedFrame = 180;
     room.selectedGameName = "SuspendTest";
 
-    Netplay::ParticipantInfo* localParticipant = nullptr;
+    ConsoleNetplay::ParticipantInfo* localParticipant = nullptr;
     for(auto& participant : room.participants) {
         if(participant.id == coordinator.localParticipantId()) {
             localParticipant = &participant;
@@ -3290,18 +3290,18 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     localParticipant->connected = true;
     localParticipant->romLoaded = true;
     localParticipant->romCompatible = true;
-    localParticipant->role = Netplay::ParticipantRole::SessionParticipant;
-    localParticipant->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    localParticipant->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    localParticipant->controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
     localParticipant->normalizeControllerAssignments();
 
-    Netplay::ParticipantInfo remoteParticipant;
+    ConsoleNetplay::ParticipantInfo remoteParticipant;
     remoteParticipant.id = 1;
     remoteParticipant.displayName = "Client";
     remoteParticipant.connected = true;
     remoteParticipant.romLoaded = true;
     remoteParticipant.romCompatible = true;
-    remoteParticipant.role = Netplay::ParticipantRole::SessionParticipant;
-    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
     remoteParticipant.normalizeControllerAssignments();
     room.participants.push_back(remoteParticipant);
     localParticipant = nullptr;
@@ -3314,7 +3314,7 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     REQUIRE(localParticipant != nullptr);
 
     coordinator.recordPlaybackStop(181, true);
-    REQUIRE(room.state == Netplay::SessionState::Running);
+    REQUIRE(room.state == ConsoleNetplay::SessionState::Running);
     REQUIRE(coordinator.predictionStats().playbackStopCount >= 1);
 
     coordinator.disconnect();
@@ -3322,18 +3322,18 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
 
 TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer confirmations", "[netplay][clock][unit]")
 {
-    Netplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator host;
     const uint16_t port = reserveLoopbackPort();
     REQUIRE(host.host(port, 1, "Host"));
 
-    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
     room.sessionId = 1;
-    room.state = Netplay::SessionState::Lobby;
+    room.state = ConsoleNetplay::SessionState::Lobby;
     room.currentFrame = 0;
     room.lastConfirmedFrame = 0;
     room.selectedGameName = "ClockBatch";
 
-    Netplay::ParticipantInfo* hostLocal = nullptr;
+    ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
     for(auto& participant : room.participants) {
         if(participant.id == host.localParticipantId()) {
             hostLocal = &participant;
@@ -3344,54 +3344,54 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
     hostLocal->connected = true;
     hostLocal->romLoaded = true;
     hostLocal->romCompatible = true;
-    hostLocal->role = Netplay::ParticipantRole::SessionOwner;
-    hostLocal->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    hostLocal->role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    hostLocal->controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
     hostLocal->normalizeControllerAssignments();
 
-    const Netplay::ParticipantId remoteParticipantId =
-        static_cast<Netplay::ParticipantId>(host.localParticipantId() + 1u);
-    Netplay::ParticipantInfo remoteParticipant;
+    const ConsoleNetplay::ParticipantId remoteParticipantId =
+        static_cast<ConsoleNetplay::ParticipantId>(host.localParticipantId() + 1u);
+    ConsoleNetplay::ParticipantInfo remoteParticipant;
     remoteParticipant.id = remoteParticipantId;
     remoteParticipant.displayName = "Client";
     remoteParticipant.connected = true;
     remoteParticipant.romLoaded = true;
     remoteParticipant.romCompatible = true;
-    remoteParticipant.role = Netplay::ParticipantRole::SessionParticipant;
-    remoteParticipant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+    remoteParticipant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
     remoteParticipant.normalizeControllerAssignments();
     room.participants.push_back(remoteParticipant);
 
-    constexpr Netplay::FrameNumber kPrebufferFrames = 8u;
-    for(Netplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
-        host.recordLocalInputFrame(frame, Netplay::kPort1PlayerSlot, 0u);
+    constexpr ConsoleNetplay::FrameNumber kPrebufferFrames = 8u;
+    for(ConsoleNetplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
+        host.recordLocalInputFrame(frame, ConsoleNetplay::kPort1PlayerSlot, 0u);
     }
     REQUIRE(host.latestConfirmedFrame() == 0u);
 
     // Feed remote frames while not running so host stores confirmed inputs but
     // does not publish them yet. This models prebuffer prepared ahead of run.
     uint32_t sequence = 1u;
-    for(Netplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
-        Netplay::InputFrameData remote{};
+    for(ConsoleNetplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
+        ConsoleNetplay::InputFrameData remote{};
         remote.timelineEpoch = room.timelineEpoch;
         remote.frame = frame;
         remote.participantId = remoteParticipantId;
-        remote.playerSlot = Netplay::kPort2PlayerSlot;
+        remote.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
         remote.sequence = sequence++;
         remote.buttonMaskLo = 0u;
         remote.buttonMaskHi = 0u;
 
-        InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
-        REQUIRE(Netplay::injectInputFrameForTests(host, remote, contribution));
+        InputFrame contribution = ConsoleNetplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, remote, contribution));
     }
 
-    room.state = Netplay::SessionState::Running;
-    host.recordLocalInputFrame(kPrebufferFrames + 1u, Netplay::kPort1PlayerSlot, 0u);
+    room.state = ConsoleNetplay::SessionState::Running;
+    host.recordLocalInputFrame(kPrebufferFrames + 1u, ConsoleNetplay::kPort1PlayerSlot, 0u);
 
     REQUIRE(host.latestConfirmedFrame() == kPrebufferFrames);
 
     uint64_t previousClockMicros = 0u;
-    for(Netplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
-        const Netplay::NetplayCoordinator::ConfirmedFrameInputs* confirmed = host.findConfirmedFrame(frame);
+    for(ConsoleNetplay::FrameNumber frame = 1u; frame <= kPrebufferFrames; ++frame) {
+        const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs* confirmed = host.findConfirmedFrame(frame);
         REQUIRE(confirmed != nullptr);
         REQUIRE(confirmed->authoritativeFrameStartClockMicros != 0u);
         if(frame > 1u) {
@@ -3412,8 +3412,8 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
 
 TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate resync", "[netplay][prediction-limit][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
     REQUIRE(host.host(port, 1, "Host"));
@@ -3428,8 +3428,8 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             hostRoom.participants.size() >= 2;
 
         if(!connected) {
@@ -3438,10 +3438,10 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "ImplicitRecovery";
     clientRoom.selectedGameName = "ImplicitRecovery";
     hostRoom.currentFrame = 180;
@@ -3449,20 +3449,20 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
     hostRoom.lastConfirmedFrame = 180;
     clientRoom.lastConfirmedFrame = 180;
 
-    Netplay::ParticipantInfo* hostLocal = nullptr;
-    Netplay::ParticipantInfo* hostRemote = nullptr;
+    ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
+    ConsoleNetplay::ParticipantInfo* hostRemote = nullptr;
     for(auto& participant : hostRoom.participants) {
         participant.connected = true;
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
             hostLocal = &participant;
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
             hostRemote = &participant;
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -3474,28 +3474,28 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
 
     host.setLocalSimulationFrame(180);
     client.setLocalSimulationFrame(180);
-    host.recordLocalInputFrame(181, Netplay::kPort1PlayerSlot, 0);
+    host.recordLocalInputFrame(181, ConsoleNetplay::kPort1PlayerSlot, 0);
 
-    Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
     REQUIRE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
-    REQUIRE(host.remoteInputs().find(181u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(host.remoteInputs().find(181u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot) != nullptr);
     REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
     REQUIRE(hostRemote->sequenceRebasePending);
 
-    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending =
+    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pending =
         host.consumePendingHostResyncFrame();
     REQUIRE_FALSE(pending.has_value());
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
@@ -3507,8 +3507,8 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
 TEST_CASE("Netplay observer can request host resync without reconnect side effects",
           "[netplay][resync-request][observer][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
     REQUIRE(host.host(port, 1, "Host"));
@@ -3523,8 +3523,8 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             hostRoom.participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -3532,10 +3532,10 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "ObserverVisibility";
     clientRoom.selectedGameName = "ObserverVisibility";
     hostRoom.currentFrame = 160;
@@ -3548,10 +3548,10 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::Observer;
+            participant.role = ConsoleNetplay::ParticipantRole::Observer;
             participant.controllerAssignments.clear();
         }
         participant.normalizeControllerAssignments();
@@ -3562,11 +3562,11 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::Observer;
+            participant.role = ConsoleNetplay::ParticipantRole::Observer;
             participant.controllerAssignments.clear();
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -3574,7 +3574,7 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
     host.setLocalSimulationFrame(164);
     client.setLocalSimulationFrame(161);
 
-    REQUIRE(client.requestHostResync(Netplay::ResyncReason::ObserverVisibilityRestore));
+    REQUIRE(client.requestHostResync(ConsoleNetplay::ResyncReason::ObserverVisibilityRestore));
 
     bool received = false;
     for(int step = 0; step < 120 && !received; ++step) {
@@ -3583,7 +3583,7 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
         const auto pending = host.consumePendingHostResyncFrame();
         if(pending.has_value()) {
             REQUIRE(pending->frame == 160u);
-            REQUIRE(pending->reason == Netplay::ResyncReason::ObserverVisibilityRestore);
+            REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ObserverVisibilityRestore);
             REQUIRE(pending->participantId == client.localParticipantId());
             REQUIRE(host.session().roomState().participants.size() == 2u);
             REQUIRE(anyLogLineContains(host.eventLog(), "Participant requested authoritative resync"));
@@ -3603,12 +3603,12 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
 TEST_CASE("Rollback recovery resync request detail reaches host log",
           "[netplay][resync-request][rollback][detail][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
-    REQUIRE(host.setTransportBackend(Netplay::NetTransportBackend::ENet));
-    REQUIRE(client.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     REQUIRE(host.host(port, 2, "Host"));
     REQUIRE(client.join("127.0.0.1", port, "Client"));
 
@@ -3619,17 +3619,17 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
         connected =
             host.session().roomState().participants.size() >= 2u &&
             client.session().roomState().participants.size() >= 2u &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId;
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "RollbackFailure";
     clientRoom.selectedGameName = "RollbackFailure";
     hostRoom.timelineEpoch = 3u;
@@ -3644,11 +3644,11 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -3658,11 +3658,11 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -3670,12 +3670,12 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
     host.setLocalSimulationFrame(242);
     client.setLocalSimulationFrame(238);
 
-    Netplay::ResyncRequestData request;
-    request.reason = Netplay::ResyncReason::ConfirmedDesync;
+    ConsoleNetplay::ResyncRequestData request;
+    request.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
     request.localFrame = 238u;
     request.confirmedThroughFrame = 240u;
     request.source = 2u;
-    request.flags = Netplay::kResyncRequestFlagRollbackReplayEnqueueFailure;
+    request.flags = ConsoleNetplay::kResyncRequestFlagRollbackReplayEnqueueFailure;
     REQUIRE(client.requestHostResync(request));
 
     bool received = false;
@@ -3684,7 +3684,7 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
         host.update(0);
         const auto pending = host.consumePendingHostResyncFrame();
         if(pending.has_value()) {
-            REQUIRE(pending->reason == Netplay::ResyncReason::ConfirmedDesync);
+            REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
             REQUIRE(anyLogLineContains(host.eventLog(), "source 2"));
             REQUIRE(anyLogLineContains(host.eventLog(), "detail rollback_replay_enqueue_failure"));
             received = true;
@@ -3702,8 +3702,8 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
     REQUIRE(host.host(port, 1, "Host"));
@@ -3717,8 +3717,8 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             host.session().roomState().participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -3726,10 +3726,10 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.currentFrame = 200;
     clientRoom.currentFrame = 200;
     hostRoom.lastConfirmedFrame = 200;
@@ -3740,10 +3740,10 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::Observer;
+            participant.role = ConsoleNetplay::ParticipantRole::Observer;
             participant.controllerAssignments.clear();
         }
         participant.normalizeControllerAssignments();
@@ -3754,20 +3754,20 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::Observer;
+            participant.role = ConsoleNetplay::ParticipantRole::Observer;
             participant.controllerAssignments.clear();
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
 
     host.setLocalSimulationFrame(204);
     client.setLocalSimulationFrame(201);
-    REQUIRE(client.requestHostResync(Netplay::ResyncReason::ObserverVisibilityRestore));
+    REQUIRE(client.requestHostResync(ConsoleNetplay::ResyncReason::ObserverVisibilityRestore));
 
-    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending;
+    std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pending;
     for(int step = 0; step < 120 && !pending.has_value(); ++step) {
         client.update(0);
         host.update(0);
@@ -3788,7 +3788,7 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
         pending->reason,
         pending->participantId
     ));
-    REQUIRE(host.session().roomState().state == Netplay::SessionState::Running);
+    REQUIRE(host.session().roomState().state == ConsoleNetplay::SessionState::Running);
     REQUIRE(host.session().roomState().activeResyncId == 0u);
     REQUIRE(host.session().roomState().pendingResyncAckCount == 0u);
 
@@ -3799,7 +3799,7 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
         host.update(0);
         const auto& room = host.session().roomState();
         hostRecovered =
-            room.state == Netplay::SessionState::Running &&
+            room.state == ConsoleNetplay::SessionState::Running &&
             room.activeResyncId == 0u &&
             room.pendingResyncAckCount == 0u;
         if(!hostRecovered) {
@@ -3815,8 +3815,8 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
 TEST_CASE("Targeted observer resync times out without stalling host forever",
           "[netplay][resync-request][observer][timeout][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     const uint16_t port = reserveLoopbackPort();
 
     REQUIRE(host.host(port, 1, "Host"));
@@ -3830,8 +3830,8 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             host.session().roomState().participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -3839,10 +3839,10 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.currentFrame = 200;
     clientRoom.currentFrame = 200;
     hostRoom.lastConfirmedFrame = 200;
@@ -3853,10 +3853,10 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::Observer;
+            participant.role = ConsoleNetplay::ParticipantRole::Observer;
             participant.controllerAssignments.clear();
         }
         participant.normalizeControllerAssignments();
@@ -3867,20 +3867,20 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::Observer;
+            participant.role = ConsoleNetplay::ParticipantRole::Observer;
             participant.controllerAssignments.clear();
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
 
     host.setLocalSimulationFrame(204);
     client.setLocalSimulationFrame(201);
-    REQUIRE(client.requestHostResync(Netplay::ResyncReason::ObserverVisibilityRestore));
+    REQUIRE(client.requestHostResync(ConsoleNetplay::ResyncReason::ObserverVisibilityRestore));
 
-    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending;
+    std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pending;
     for(int step = 0; step < 120 && !pending.has_value(); ++step) {
         client.update(0);
         host.update(0);
@@ -3905,7 +3905,7 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
     std::this_thread::sleep_for(std::chrono::milliseconds(5200));
     host.update(0);
 
-    REQUIRE(host.session().roomState().state == Netplay::SessionState::Running);
+    REQUIRE(host.session().roomState().state == ConsoleNetplay::SessionState::Running);
     REQUIRE(host.session().roomState().participants.size() == 2u);
     REQUIRE(anyLogLineContains(host.eventLog(), "Targeted resync ACK timed out"));
 
@@ -3916,8 +3916,8 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
 TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without immediate resync",
           "[netplay][prediction-limit][unit]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     bool started = false;
     for(int attempt = 0; attempt < 3 && !started; ++attempt) {
         host.disconnect();
@@ -3938,8 +3938,8 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             hostRoom.participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -3947,10 +3947,10 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "SuspendResume";
     clientRoom.selectedGameName = "SuspendResume";
     hostRoom.currentFrame = 100;
@@ -3958,20 +3958,20 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     hostRoom.lastConfirmedFrame = 100;
     clientRoom.lastConfirmedFrame = 100;
 
-    Netplay::ParticipantInfo* hostLocal = nullptr;
-    Netplay::ParticipantInfo* hostRemote = nullptr;
+    ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
+    ConsoleNetplay::ParticipantInfo* hostRemote = nullptr;
     for(auto& participant : hostRoom.participants) {
         participant.connected = true;
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
             hostLocal = &participant;
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
             hostRemote = &participant;
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
             participant.lastReceivedInputFrame = 100u;
             participant.lastContiguousInputFrame = 100u;
             participant.lastReceivedInputSequence = 0u;
@@ -3988,11 +3988,11 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -4000,20 +4000,20 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     host.setLocalSimulationFrame(100);
     client.setLocalSimulationFrame(100);
 
-    Netplay::InputFrameData baselineRemoteInput{};
+    ConsoleNetplay::InputFrameData baselineRemoteInput{};
     baselineRemoteInput.timelineEpoch = hostRoom.timelineEpoch;
     baselineRemoteInput.frame = 101;
     baselineRemoteInput.participantId = hostRemote->id;
-    baselineRemoteInput.playerSlot = Netplay::kPort2PlayerSlot;
+    baselineRemoteInput.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     baselineRemoteInput.sequence = 1;
     baselineRemoteInput.buttonMaskLo = 0;
     baselineRemoteInput.buttonMaskHi = 0;
 
-    InputFrame baselineContribution = Netplay::makeRoomTopologyBaseFrame(101, hostRoom);
+    InputFrame baselineContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(101, hostRoom);
     baselineContribution.p2Right = true;
-    REQUIRE(Netplay::injectInputFrameForTests(host, baselineRemoteInput, baselineContribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, baselineRemoteInput, baselineContribution));
 
-    Netplay::ConfirmedInputBufferDriver hostPlaybackDriver;
+    ConsoleNetplay::ConfirmedInputBufferDriver hostPlaybackDriver;
     hostPlaybackDriver.setPrebufferFrames(12);
     hostPlaybackDriver.setPredictFrames(8);
     hostPlaybackDriver.reanchor(100);
@@ -4021,8 +4021,8 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         host,
         true,
         false,
-        Netplay::SessionState::Running,
-        std::vector<Netplay::PlayerSlot>{Netplay::kPort1PlayerSlot},
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{ConsoleNetplay::kPort1PlayerSlot},
         0,
         uint64_t{0},
         60,
@@ -4033,16 +4033,16 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         host,
         true,
         false,
-        Netplay::SessionState::Running,
+        ConsoleNetplay::SessionState::Running,
         100
     );
     host.setLocalSimulationFrame(110);
 
-    const Netplay::TimelineInputEntry* predictedRemote =
-        host.remoteInputs().find(108u, hostRemote->id, Netplay::kPort2PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* predictedRemote =
+        host.remoteInputs().find(108u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot);
     REQUIRE(predictedRemote != nullptr);
-    const Netplay::TimelineInputEntry* synthesizedRemote =
-        host.remoteInputs().find(109u, hostRemote->id, Netplay::kPort2PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* synthesizedRemote =
+        host.remoteInputs().find(109u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot);
     REQUIRE(synthesizedRemote != nullptr);
     REQUIRE(synthesizedRemote->confirmed);
     REQUIRE_FALSE(synthesizedRemote->predicted);
@@ -4052,32 +4052,32 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     // prediction is no longer allowed, the host must synthesize confirmed input
     // from the last known contribution instead of returning false and stopping
     // simulation. Desync detection can still request a resync later if needed.
-    Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
-    REQUIRE(Netplay::toGeraNESInputFrame(playbackFrame.netplayFrame).p2Right);
+    REQUIRE(ConsoleNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame).p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
     REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
     REQUIRE(hostRemote->sequenceRebasePending);
-    REQUIRE(host.remoteInputs().find(111u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(host.remoteInputs().find(111u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot) != nullptr);
 
-    Netplay::NetplayCoordinator::ConfirmedFrameInputs suspendedPlaybackFrame{};
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs suspendedPlaybackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(112, true, suspendedPlaybackFrame));
     REQUIRE_FALSE(suspendedPlaybackFrame.predicted);
-    REQUIRE(Netplay::toGeraNESInputFrame(suspendedPlaybackFrame.netplayFrame).p2Right);
-    REQUIRE(host.remoteInputs().find(112u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(ConsoleNetplay::toGeraNESInputFrame(suspendedPlaybackFrame.netplayFrame).p2Right);
+    REQUIRE(host.remoteInputs().find(112u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot) != nullptr);
 
-    const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
+    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         host.consumePendingHostResyncFrame();
     REQUIRE_FALSE(pendingResync.has_value());
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
 
     hostLocal->controllerAssignments.clear();
-    hostLocal->controllerAssignment = Netplay::kObserverPlayerSlot;
+    hostLocal->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
     hostLocal->normalizeControllerAssignments();
 
-    Netplay::ConfirmedInputBufferDriver observerHostPlaybackDriver;
+    ConsoleNetplay::ConfirmedInputBufferDriver observerHostPlaybackDriver;
     observerHostPlaybackDriver.setPrebufferFrames(2);
     observerHostPlaybackDriver.setPredictFrames(8);
     observerHostPlaybackDriver.reanchor(112);
@@ -4085,8 +4085,8 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         host,
         true,
         false,
-        Netplay::SessionState::Running,
-        std::vector<Netplay::PlayerSlot>{},
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{},
         0,
         uint64_t{0},
         60,
@@ -4097,30 +4097,30 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         host,
         true,
         false,
-        Netplay::SessionState::Running,
+        ConsoleNetplay::SessionState::Running,
         112
     );
     REQUIRE(observerHostPlaybackDriver.queuedThroughFrame() > 114u);
-    REQUIRE(host.remoteInputs().find(115u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(host.remoteInputs().find(115u, hostRemote->id, ConsoleNetplay::kPort2PlayerSlot) != nullptr);
 
-    hostLocal->controllerAssignments = {Netplay::kPort1PlayerSlot};
+    hostLocal->controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
     hostLocal->normalizeControllerAssignments();
 
     // Subsequent frames keep using synthetic confirmed input without forcing a
     // targeted authoritative resync for a brief background/minimize gap.
-    host.recordLocalInputFrame(112, Netplay::kPort1PlayerSlot, 0);
-    Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
+    host.recordLocalInputFrame(112, ConsoleNetplay::kPort1PlayerSlot, 0);
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
     REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
     REQUIRE_FALSE(resumedWindowPlayback.predicted);
-    REQUIRE(Netplay::toGeraNESInputFrame(resumedWindowPlayback.netplayFrame).p2Right);
+    REQUIRE(ConsoleNetplay::toGeraNESInputFrame(resumedWindowPlayback.netplayFrame).p2Right);
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
-    Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
+    ConsoleNetplay::InputFrameData staleResumedInput = baselineRemoteInput;
     staleResumedInput.frame = 102;
     staleResumedInput.sequence = 2;
     for(int i = 0; i < 4; ++i) {
         staleResumedInput.sequence += 1u;
-        REQUIRE(Netplay::injectInputFrameForTests(host, staleResumedInput, baselineContribution));
+        REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, staleResumedInput, baselineContribution));
         host.update(0);
         REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     }
@@ -4132,10 +4132,10 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
 TEST_CASE("Netplay client post-resync startup honors input delay before prediction",
           "[netplay][resync][delay][client][unit]")
 {
-    constexpr Netplay::FrameNumber kResyncFrame = 1000u;
+    constexpr ConsoleNetplay::FrameNumber kResyncFrame = 1000u;
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     bool started = false;
     for(int attempt = 0; attempt < 3 && !started; ++attempt) {
         host.disconnect();
@@ -4156,8 +4156,8 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             hostRoom.participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -4165,10 +4165,10 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "ResyncDelay";
     clientRoom.selectedGameName = "ResyncDelay";
     hostRoom.currentFrame = kResyncFrame;
@@ -4180,17 +4180,17 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
     hostRoom.predictFrames = 8;
     clientRoom.predictFrames = 8;
 
-    Netplay::ParticipantId clientRemoteId = Netplay::kInvalidParticipantId;
+    ConsoleNetplay::ParticipantId clientRemoteId = ConsoleNetplay::kInvalidParticipantId;
     for(auto& participant : hostRoom.participants) {
         participant.connected = true;
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -4199,32 +4199,32 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
             clientRemoteId = participant.id;
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
-    REQUIRE(clientRemoteId != Netplay::kInvalidParticipantId);
+    REQUIRE(clientRemoteId != ConsoleNetplay::kInvalidParticipantId);
 
     host.setLocalSimulationFrame(kResyncFrame);
     client.setLocalSimulationFrame(kResyncFrame);
 
-    Netplay::ConfirmedInputBufferDriver driver;
+    ConsoleNetplay::ConfirmedInputBufferDriver driver;
     driver.setPrebufferFrames(3);
     driver.setPredictFrames(8);
     driver.reanchor(kResyncFrame);
     const uint64_t clientInputMask =
-        Netplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, true, false, false, true, false);
+        ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, true, false, false, true, false);
     driver.produceLocalBufferedInputs(
         client,
         true,
         false,
-        Netplay::SessionState::Running,
-        std::vector<Netplay::PlayerSlot>{Netplay::kPort2PlayerSlot},
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{ConsoleNetplay::kPort2PlayerSlot},
         0,
         clientInputMask,
         60,
@@ -4232,12 +4232,12 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
         driver.confirmedThroughFrame(client)
     );
 
-    const Netplay::TimelineInputEntry* local101 =
-        client.localInputs().find(kResyncFrame + 1u, client.localParticipantId(), Netplay::kPort2PlayerSlot);
-    const Netplay::TimelineInputEntry* local102 =
-        client.localInputs().find(kResyncFrame + 2u, client.localParticipantId(), Netplay::kPort2PlayerSlot);
-    const Netplay::TimelineInputEntry* local103 =
-        client.localInputs().find(kResyncFrame + 3u, client.localParticipantId(), Netplay::kPort2PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* local101 =
+        client.localInputs().find(kResyncFrame + 1u, client.localParticipantId(), ConsoleNetplay::kPort2PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* local102 =
+        client.localInputs().find(kResyncFrame + 2u, client.localParticipantId(), ConsoleNetplay::kPort2PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* local103 =
+        client.localInputs().find(kResyncFrame + 3u, client.localParticipantId(), ConsoleNetplay::kPort2PlayerSlot);
     REQUIRE(local101 != nullptr);
     REQUIRE(local102 != nullptr);
     REQUIRE(local103 != nullptr);
@@ -4249,14 +4249,14 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
         client,
         true,
         false,
-        Netplay::SessionState::Running,
+        ConsoleNetplay::SessionState::Running,
         kResyncFrame
     );
 
     REQUIRE(driver.queuedThroughFrame() == kResyncFrame);
-    REQUIRE(client.remoteInputs().find(kResyncFrame + 1u, clientRemoteId, Netplay::kPort1PlayerSlot) == nullptr);
-    REQUIRE(client.remoteInputs().find(kResyncFrame + 2u, clientRemoteId, Netplay::kPort1PlayerSlot) == nullptr);
-    REQUIRE(client.remoteInputs().find(kResyncFrame + 3u, clientRemoteId, Netplay::kPort1PlayerSlot) == nullptr);
+    REQUIRE(client.remoteInputs().find(kResyncFrame + 1u, clientRemoteId, ConsoleNetplay::kPort1PlayerSlot) == nullptr);
+    REQUIRE(client.remoteInputs().find(kResyncFrame + 2u, clientRemoteId, ConsoleNetplay::kPort1PlayerSlot) == nullptr);
+    REQUIRE(client.remoteInputs().find(kResyncFrame + 3u, clientRemoteId, ConsoleNetplay::kPort1PlayerSlot) == nullptr);
 
     host.disconnect();
     client.disconnect();
@@ -4265,10 +4265,10 @@ TEST_CASE("Netplay client post-resync startup honors input delay before predicti
 TEST_CASE("Netplay host post-resync startup honors input delay before remote prediction",
           "[netplay][resync][delay][host][unit]")
 {
-    constexpr Netplay::FrameNumber kResyncFrame = 1000u;
+    constexpr ConsoleNetplay::FrameNumber kResyncFrame = 1000u;
 
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
     bool started = false;
     for(int attempt = 0; attempt < 3 && !started; ++attempt) {
         host.disconnect();
@@ -4289,8 +4289,8 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
         connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             hostRoom.participants.size() >= 2;
         if(!connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -4298,10 +4298,10 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
     }
     REQUIRE(connected);
 
-    auto& hostRoom = const_cast<Netplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<Netplay::RoomState&>(client.session().roomState());
-    hostRoom.state = Netplay::SessionState::Running;
-    clientRoom.state = Netplay::SessionState::Running;
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "ResyncDelay";
     clientRoom.selectedGameName = "ResyncDelay";
     hostRoom.currentFrame = kResyncFrame;
@@ -4313,18 +4313,18 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
     hostRoom.predictFrames = 8;
     clientRoom.predictFrames = 8;
 
-    Netplay::ParticipantId hostRemoteId = Netplay::kInvalidParticipantId;
+    ConsoleNetplay::ParticipantId hostRemoteId = ConsoleNetplay::kInvalidParticipantId;
     for(auto& participant : hostRoom.participants) {
         participant.connected = true;
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == host.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         } else {
             hostRemoteId = participant.id;
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
             participant.lastReceivedInputFrame = kResyncFrame;
             participant.lastContiguousInputFrame = kResyncFrame;
             participant.lastReceivedInputSequence = 0u;
@@ -4333,18 +4333,18 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
         }
         participant.normalizeControllerAssignments();
     }
-    REQUIRE(hostRemoteId != Netplay::kInvalidParticipantId);
+    REQUIRE(hostRemoteId != ConsoleNetplay::kInvalidParticipantId);
 
     for(auto& participant : clientRoom.participants) {
         participant.connected = true;
         participant.romLoaded = true;
         participant.romCompatible = true;
         if(participant.id == client.localParticipantId()) {
-            participant.role = Netplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {Netplay::kPort2PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {ConsoleNetplay::kPort2PlayerSlot};
         } else {
-            participant.role = Netplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {Netplay::kPort1PlayerSlot};
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
         }
         participant.normalizeControllerAssignments();
     }
@@ -4352,18 +4352,18 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
     host.setLocalSimulationFrame(kResyncFrame);
     client.setLocalSimulationFrame(kResyncFrame);
 
-    Netplay::ConfirmedInputBufferDriver driver;
+    ConsoleNetplay::ConfirmedInputBufferDriver driver;
     driver.setPrebufferFrames(3);
     driver.setPredictFrames(8);
     driver.reanchor(kResyncFrame);
     const uint64_t hostInputMask =
-        Netplay::ConfirmedInputBufferDriver::buildPadMask(false, true, true, false, true, false, false, true);
+        ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(false, true, true, false, true, false, false, true);
     driver.produceLocalBufferedInputs(
         host,
         true,
         false,
-        Netplay::SessionState::Running,
-        std::vector<Netplay::PlayerSlot>{Netplay::kPort1PlayerSlot},
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{ConsoleNetplay::kPort1PlayerSlot},
         0,
         hostInputMask,
         60,
@@ -4371,12 +4371,12 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
         driver.confirmedThroughFrame(host)
     );
 
-    const Netplay::TimelineInputEntry* local101 =
-        host.localInputs().find(kResyncFrame + 1u, host.localParticipantId(), Netplay::kPort1PlayerSlot);
-    const Netplay::TimelineInputEntry* local102 =
-        host.localInputs().find(kResyncFrame + 2u, host.localParticipantId(), Netplay::kPort1PlayerSlot);
-    const Netplay::TimelineInputEntry* local103 =
-        host.localInputs().find(kResyncFrame + 3u, host.localParticipantId(), Netplay::kPort1PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* local101 =
+        host.localInputs().find(kResyncFrame + 1u, host.localParticipantId(), ConsoleNetplay::kPort1PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* local102 =
+        host.localInputs().find(kResyncFrame + 2u, host.localParticipantId(), ConsoleNetplay::kPort1PlayerSlot);
+    const ConsoleNetplay::TimelineInputEntry* local103 =
+        host.localInputs().find(kResyncFrame + 3u, host.localParticipantId(), ConsoleNetplay::kPort1PlayerSlot);
     REQUIRE(local101 != nullptr);
     REQUIRE(local102 != nullptr);
     REQUIRE(local103 != nullptr);
@@ -4388,14 +4388,14 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
         host,
         true,
         false,
-        Netplay::SessionState::Running,
+        ConsoleNetplay::SessionState::Running,
         kResyncFrame
     );
 
     REQUIRE(driver.queuedThroughFrame() <= kResyncFrame + 3u);
-    for(Netplay::FrameNumber frame = kResyncFrame + 1u; frame <= kResyncFrame + 3u; ++frame) {
-        const Netplay::TimelineInputEntry* remote =
-            host.remoteInputs().find(frame, hostRemoteId, Netplay::kPort2PlayerSlot);
+    for(ConsoleNetplay::FrameNumber frame = kResyncFrame + 1u; frame <= kResyncFrame + 3u; ++frame) {
+        const ConsoleNetplay::TimelineInputEntry* remote =
+            host.remoteInputs().find(frame, hostRemoteId, ConsoleNetplay::kPort2PlayerSlot);
         if(remote != nullptr) {
             REQUIRE_FALSE(remote->predicted);
         }
@@ -4408,63 +4408,63 @@ TEST_CASE("Netplay host post-resync startup honors input delay before remote pre
 TEST_CASE("Netplay host accepts late input for already committed post-resync frame",
           "[netplay][input][resync][unit]")
 {
-    Netplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator host;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = host.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(host.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
     room.sessionId = 11u;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 3u;
     room.currentFrame = 1554u;
     room.lastConfirmedFrame = 1553u;
 
-    Netplay::ParticipantInfo remote;
+    ConsoleNetplay::ParticipantInfo remote;
     remote.id = 1u;
     remote.connected = true;
     remote.romLoaded = true;
     remote.romCompatible = true;
-    remote.role = Netplay::ParticipantRole::SessionParticipant;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
     remote.displayName = "Participant";
-    remote.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    remote.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
     remote.lastReceivedInputFrame = 1553u;
     remote.lastContiguousInputFrame = 1553u;
     remote.lastReceivedInputSequence = 0u;
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
-    InputFrame committedContribution = Netplay::makeRoomTopologyBaseFrame(1553u, room);
-    Netplay::TimelineInputEntry committed;
+    InputFrame committedContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(1553u, room);
+    ConsoleNetplay::TimelineInputEntry committed;
     committed.frame = 1553u;
     committed.participantId = remote.id;
-    committed.playerSlot = Netplay::kPort1PlayerSlot;
+    committed.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     committed.buttonMaskLo = 0u;
     committed.buttonMaskHi = 0u;
-    committed.netplayFrame = Netplay::toNetplayInputFrame(committedContribution);
+    committed.netplayFrame = ConsoleNetplay::toNetplayInputFrame(committedContribution);
     committed.sequence = 0u;
     committed.confirmed = true;
     committed.predicted = false;
-    const_cast<Netplay::InputTimeline&>(host.remoteInputs()).push(committed);
+    const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(committed);
 
-    Netplay::InputFrameData lateInput{};
+    ConsoleNetplay::InputFrameData lateInput{};
     lateInput.timelineEpoch = room.timelineEpoch;
     lateInput.frame = 1553u;
     lateInput.participantId = remote.id;
-    lateInput.playerSlot = Netplay::kPort1PlayerSlot;
+    lateInput.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     lateInput.sequence = 1u;
     lateInput.buttonMaskLo = 0u;
     lateInput.buttonMaskHi = 0u;
-    REQUIRE(Netplay::injectInputFrameForTests(host, lateInput, committedContribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, lateInput, committedContribution));
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
 
-    Netplay::InputFrameData nextInput = lateInput;
+    ConsoleNetplay::InputFrameData nextInput = lateInput;
     nextInput.frame = 1554u;
     nextInput.sequence = 2u;
-    InputFrame nextContribution = Netplay::makeRoomTopologyBaseFrame(1554u, room);
-    REQUIRE(Netplay::injectInputFrameForTests(host, nextInput, nextContribution));
+    InputFrame nextContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(1554u, room);
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, nextInput, nextContribution));
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant"));
 
     host.disconnect();
@@ -4704,18 +4704,18 @@ TEST_CASE("Offline emulation advances with input buffer capacity one", "[emu][in
 
 TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets from previous epochs", "[netplay][epoch][stale-packets][unit]")
 {
-    Netplay::NetplayCoordinator coordinator;
+    ConsoleNetplay::NetplayCoordinator coordinator;
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 1;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 3;
     room.currentFrame = 180;
     room.lastConfirmedFrame = 175;
     room.lastRemoteCrcFrame = 90;
     room.lastRemoteCrc32 = 0x12345678u;
 
-    Netplay::FrameStatusData staleStatus;
+    ConsoleNetplay::FrameStatusData staleStatus;
     staleStatus.timelineEpoch = 2;
     staleStatus.currentFrame = 999;
     staleStatus.lastConfirmedFrame = 998;
@@ -4728,7 +4728,7 @@ TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets from p
     REQUIRE(room.staleFrameStatusPacketCount == 1u);
     REQUIRE(room.lastIgnoredStaleFrameStatusEpoch == 2u);
 
-    Netplay::CrcReportData staleCrc;
+    ConsoleNetplay::CrcReportData staleCrc;
     staleCrc.timelineEpoch = 2;
     staleCrc.frame = 999;
     staleCrc.crc32 = 0xCAFEBABEu;
@@ -4743,21 +4743,21 @@ TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets from p
 TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets after a resync epoch bump", "[netplay][epoch][stale-packets][resync][unit]")
 {
     const uint16_t port = reserveLoopbackPort();
-    Netplay::NetplayCoordinator coordinator;
+    ConsoleNetplay::NetplayCoordinator coordinator;
     REQUIRE(coordinator.host(port, 1, "Host"));
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 1;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 4;
     room.currentFrame = 120;
     room.lastConfirmedFrame = 118;
 
     const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
-    REQUIRE(coordinator.beginResync(118u, payload, 0x11111111u, 0x22222222u, Netplay::ResyncReason::ManualForce));
+    REQUIRE(coordinator.beginResync(118u, payload, 0x11111111u, 0x22222222u, ConsoleNetplay::ResyncReason::ManualForce));
     REQUIRE(room.timelineEpoch == 5u);
 
-    Netplay::FrameStatusData staleStatus;
+    ConsoleNetplay::FrameStatusData staleStatus;
     staleStatus.timelineEpoch = 4u;
     staleStatus.currentFrame = 999u;
     staleStatus.lastConfirmedFrame = 999u;
@@ -4765,7 +4765,7 @@ TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets after 
     staleStatus.predictFrames = 6u;
     REQUIRE(coordinator.injectFrameStatusForTests(staleStatus));
 
-    Netplay::CrcReportData staleCrc;
+    ConsoleNetplay::CrcReportData staleCrc;
     staleCrc.timelineEpoch = 4u;
     staleCrc.frame = 999u;
     staleCrc.crc32 = 0xDEADBEEFu;
@@ -4782,84 +4782,84 @@ TEST_CASE("Netplay coordinator ignores stale frame-status and CRC packets after 
 
 TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs for input, confirmed frames, and acks", "[netplay][epoch][input-ack-confirmed][unit]")
 {
-    Netplay::NetplayCoordinator coordinator;
+    ConsoleNetplay::NetplayCoordinator coordinator;
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 9u;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 5u;
 
-    Netplay::InputFrameData inputEqual;
+    ConsoleNetplay::InputFrameData inputEqual;
     inputEqual.timelineEpoch = 5u;
     inputEqual.frame = 40u;
     inputEqual.participantId = 1u;
-    inputEqual.playerSlot = Netplay::kPort2PlayerSlot;
+    inputEqual.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     inputEqual.sequence = 1u;
     InputFrame contribution{};
     contribution.frame = inputEqual.frame;
     contribution.timelineEpoch = inputEqual.timelineEpoch;
     contribution.p1A = true;
-    REQUIRE(Netplay::injectInputFrameForTests(coordinator, inputEqual, contribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(coordinator, inputEqual, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
-    Netplay::InputFrameData inputStale = inputEqual;
+    ConsoleNetplay::InputFrameData inputStale = inputEqual;
     inputStale.timelineEpoch = 4u;
     inputStale.frame = 41u;
     inputStale.sequence = 2u;
     contribution.frame = inputStale.frame;
     contribution.timelineEpoch = inputStale.timelineEpoch;
-    REQUIRE(Netplay::injectInputFrameForTests(coordinator, inputStale, contribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(coordinator, inputStale, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
     REQUIRE(room.staleInputPacketCount == 1u);
     REQUIRE(room.lastIgnoredStaleInputEpoch == 4u);
 
-    Netplay::InputFrameData inputFuture = inputEqual;
+    ConsoleNetplay::InputFrameData inputFuture = inputEqual;
     inputFuture.timelineEpoch = 6u;
     inputFuture.frame = 42u;
     inputFuture.sequence = 3u;
     contribution.frame = inputFuture.frame;
     contribution.timelineEpoch = inputFuture.timelineEpoch;
-    REQUIRE_FALSE(Netplay::injectInputFrameForTests(coordinator, inputFuture, contribution));
+    REQUIRE_FALSE(ConsoleNetplay::injectInputFrameForTests(coordinator, inputFuture, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
     REQUIRE(room.staleInputPacketCount == 1u);
 
-    Netplay::ConfirmedInputFramesData confirmedEqual;
+    ConsoleNetplay::ConfirmedInputFramesData confirmedEqual;
     confirmedEqual.timelineEpoch = 5u;
     confirmedEqual.startFrame = 100u;
     confirmedEqual.frameCount = 0u;
     REQUIRE(coordinator.injectConfirmedInputFramesForTests(confirmedEqual));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
-    Netplay::ConfirmedInputFramesData confirmedStale = confirmedEqual;
+    ConsoleNetplay::ConfirmedInputFramesData confirmedStale = confirmedEqual;
     confirmedStale.timelineEpoch = 4u;
     REQUIRE(coordinator.injectConfirmedInputFramesForTests(confirmedStale));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
-    Netplay::ConfirmedInputFramesData confirmedFuture = confirmedEqual;
+    ConsoleNetplay::ConfirmedInputFramesData confirmedFuture = confirmedEqual;
     confirmedFuture.timelineEpoch = 6u;
     REQUIRE_FALSE(coordinator.injectConfirmedInputFramesForTests(confirmedFuture));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
-    Netplay::InputAckData ackEqual;
+    ConsoleNetplay::InputAckData ackEqual;
     ackEqual.timelineEpoch = 5u;
     ackEqual.participantId = coordinator.localParticipantId();
-    ackEqual.playerSlot = Netplay::kPort1PlayerSlot;
+    ackEqual.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     ackEqual.contiguousFrame = 120u;
     ackEqual.sequence = 1u;
     REQUIRE(coordinator.injectInputAckForTests(ackEqual));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
-    Netplay::InputAckData ackStale = ackEqual;
+    ConsoleNetplay::InputAckData ackStale = ackEqual;
     ackStale.timelineEpoch = 4u;
     REQUIRE(coordinator.injectInputAckForTests(ackStale));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
-    Netplay::InputAckData ackFuture = ackEqual;
+    ConsoleNetplay::InputAckData ackFuture = ackEqual;
     ackFuture.timelineEpoch = 6u;
     REQUIRE_FALSE(coordinator.injectInputAckForTests(ackFuture));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
@@ -4869,24 +4869,24 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
 
 TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before host resync scheduling", "[netplay][crc][classification][unit]")
 {
-    Netplay::NetplayCoordinator coordinator;
-    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 7u;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 3u;
     room.currentFrame = 240u;
     room.lastConfirmedFrame = 240u;
 
     coordinator.submitLocalCrc(200u, 0x11111111u);
 
-    Netplay::CrcReportData report;
+    ConsoleNetplay::CrcReportData report;
     report.timelineEpoch = room.timelineEpoch;
     report.frame = 200u;
     report.crc32 = 0x22222222u;
@@ -4894,7 +4894,7 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "CRC mismatch below hard-resync threshold"));
-    std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
+    std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         coordinator.consumePendingHostResyncFrame();
     REQUIRE_FALSE(pendingResync.has_value());
 
@@ -4920,28 +4920,28 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
 
 TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[netplay][crc][stabilization][unit]")
 {
-    Netplay::NetplayCoordinator coordinator;
-    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 7u;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 3u;
     room.currentFrame = 240u;
     room.lastConfirmedFrame = 240u;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     room.recoveryModeEnteredAtFrame = 240u;
     room.stabilizationCrcPassCount = 0u;
 
     coordinator.submitLocalCrc(240u, 0x11111111u);
     REQUIRE(room.stabilizationCrcPassCount == 0u);
 
-    Netplay::CrcReportData matchingReport;
+    ConsoleNetplay::CrcReportData matchingReport;
     matchingReport.timelineEpoch = room.timelineEpoch;
     matchingReport.frame = 240u;
     matchingReport.crc32 = 0x11111111u;
@@ -4954,24 +4954,24 @@ TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[
 TEST_CASE("Netplay post-resync stabilization CRC mismatch is provisional pressure",
           "[netplay][crc][stabilization][unit]")
 {
-    Netplay::NetplayCoordinator coordinator;
-    REQUIRE(coordinator.setTransportBackend(Netplay::NetTransportBackend::ENet));
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
         hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
     }
     REQUIRE(hosted);
 
-    auto& room = const_cast<Netplay::RoomState&>(coordinator.session().roomState());
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
     room.sessionId = 7u;
-    room.state = Netplay::SessionState::Running;
+    room.state = ConsoleNetplay::SessionState::Running;
     room.timelineEpoch = 3u;
     room.currentFrame = 240u;
     room.lastConfirmedFrame = 240u;
-    room.recoveryInputMode = Netplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     room.recoveryModeEnteredAtFrame = 240u;
 
-    Netplay::CrcReportData report;
+    ConsoleNetplay::CrcReportData report;
     report.timelineEpoch = room.timelineEpoch;
     report.frame = 241u;
     report.crc32 = 0x22222222u;
@@ -4997,8 +4997,8 @@ TEST_CASE("Netplay post-resync stabilization CRC mismatch is provisional pressur
 TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery lock and stabilization",
           "[netplay][coordinator][recovery][epoch]")
 {
-    Netplay::NetplayCoordinator host;
-    Netplay::NetplayCoordinator client;
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
 
     bool hosted = false;
     for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
@@ -5023,8 +5023,8 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
         const bool connected =
             host.isConnected() &&
             client.isConnected() &&
-            host.localParticipantId() != Netplay::kInvalidParticipantId &&
-            client.localParticipantId() != Netplay::kInvalidParticipantId &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
             host.session().roomState().participants.size() >= 2;
         if(connected) break;
     }
@@ -5033,27 +5033,27 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
 
     host.setLocalSimulationFrame(120u);
     const std::vector<uint8_t> payload = {1u, 2u, 3u, 4u};
-    REQUIRE(host.beginResync(120u, payload, 0u, 0x13579BDFu, Netplay::ResyncReason::ManualForce));
-    REQUIRE(host.session().roomState().recoveryInputMode == Netplay::RecoveryInputMode::ResyncLocked);
+    REQUIRE(host.beginResync(120u, payload, 0u, 0x13579BDFu, ConsoleNetplay::ResyncReason::ManualForce));
+    REQUIRE(host.session().roomState().recoveryInputMode == ConsoleNetplay::RecoveryInputMode::ResyncLocked);
 
     const uint32_t activeEpoch = host.session().roomState().timelineEpoch;
     REQUIRE(activeEpoch > 0u);
 
-    Netplay::InputFrameData staleInput{};
+    ConsoleNetplay::InputFrameData staleInput{};
     staleInput.timelineEpoch = activeEpoch - 1u;
     staleInput.frame = 121u;
     staleInput.participantId = client.localParticipantId();
-    staleInput.playerSlot = Netplay::kPort2PlayerSlot;
+    staleInput.playerSlot = ConsoleNetplay::kPort2PlayerSlot;
     staleInput.buttonMaskLo = 0x1u;
     staleInput.buttonMaskHi = 0u;
     staleInput.sequence = 1u;
     staleInput.payloadSize = 0u;
     InputFrame staleContribution{};
     staleContribution.frame = staleInput.frame;
-    REQUIRE(Netplay::injectInputFrameForTests(host, staleInput, staleContribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, staleInput, staleContribution));
     REQUIRE(host.session().roomState().staleInputPacketCount > 0u);
 
-    Netplay::FrameStatusData staleStatus{};
+    ConsoleNetplay::FrameStatusData staleStatus{};
     staleStatus.timelineEpoch = activeEpoch - 1u;
     staleStatus.currentFrame = 121u;
     staleStatus.lastConfirmedFrame = 121u;
@@ -5063,35 +5063,35 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
     REQUIRE(host.injectFrameStatusForTests(staleStatus));
     REQUIRE(host.session().roomState().staleFrameStatusPacketCount > 0u);
 
-    Netplay::CrcReportData staleCrc{};
+    ConsoleNetplay::CrcReportData staleCrc{};
     staleCrc.timelineEpoch = activeEpoch - 1u;
     staleCrc.frame = 121u;
     staleCrc.crc32 = 0x11112222u;
-    staleCrc.severity = Netplay::DesyncSeverity::NoIssue;
+    staleCrc.severity = ConsoleNetplay::DesyncSeverity::NoIssue;
     REQUIRE(host.injectCrcReportForTests(staleCrc));
     REQUIRE(host.session().roomState().staleCrcPacketCount > 0u);
 
     const uint32_t acceptedEpochBeforeStaleAck = host.session().roomState().lastAcceptedRemoteEpoch;
-    Netplay::InputAckData staleAck{};
+    ConsoleNetplay::InputAckData staleAck{};
     staleAck.timelineEpoch = activeEpoch - 1u;
     staleAck.participantId = host.localParticipantId();
-    staleAck.playerSlot = Netplay::kPort1PlayerSlot;
+    staleAck.playerSlot = ConsoleNetplay::kPort1PlayerSlot;
     staleAck.contiguousFrame = 121u;
     REQUIRE(host.injectInputAckForTests(staleAck));
     REQUIRE(host.session().roomState().lastAcceptedRemoteEpoch == acceptedEpochBeforeStaleAck);
 
-    Netplay::ResyncAckData successAck{};
+    ConsoleNetplay::ResyncAckData successAck{};
     successAck.resyncId = host.session().roomState().activeResyncId;
     successAck.participantId = client.localParticipantId();
     successAck.loadedFrame = 120u;
     successAck.crc32 = 0x13579BDFu;
     successAck.success = 1u;
     REQUIRE(host.injectResyncAckForTests(successAck));
-    REQUIRE(host.session().roomState().recoveryInputMode == Netplay::RecoveryInputMode::PostResyncStabilizing);
+    REQUIRE(host.session().roomState().recoveryInputMode == ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing);
 
     const uint32_t staleInputCountBefore = host.session().roomState().staleInputPacketCount;
     staleInput.sequence = 2u;
-    REQUIRE(Netplay::injectInputFrameForTests(host, staleInput, staleContribution));
+    REQUIRE(ConsoleNetplay::injectInputFrameForTests(host, staleInput, staleContribution));
     REQUIRE(host.session().roomState().staleInputPacketCount > staleInputCountBefore);
 
     host.disconnect();
@@ -5175,8 +5175,8 @@ TEST_CASE("Netplay runtime flow can reach running state through remote wss signa
     options.runtimeFlow = true;
     options.hostLoopDtMs = 8;
     options.clientLoopDtMs = 16;
-    options.transportBackend = Netplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         *signalingUrl,
         roomId,
         ""
@@ -5192,8 +5192,8 @@ TEST_CASE("Netplay runtime flow can reach running state through remote wss signa
     REQUIRE(report.at("client").at("connected") == true);
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("sessionState").get<uint32_t>() == static_cast<uint32_t>(Netplay::SessionState::Running));
-    REQUIRE(report.at("client").at("sessionState").get<uint32_t>() == static_cast<uint32_t>(Netplay::SessionState::Running));
+    REQUIRE(report.at("host").at("sessionState").get<uint32_t>() == static_cast<uint32_t>(ConsoleNetplay::SessionState::Running));
+    REQUIRE(report.at("client").at("sessionState").get<uint32_t>() == static_cast<uint32_t>(ConsoleNetplay::SessionState::Running));
     REQUIRE(report.at("host").at("participants").size() >= 2u);
     REQUIRE(report.at("client").at("participants").size() >= 2u);
 }
@@ -5612,7 +5612,7 @@ TEST_CASE("Netplay host intentional disconnect closes the room without client re
     const std::string lastError = report.at("client").at("lastError").get<std::string>();
     REQUIRE((lastError == "Owner closed the room" ||
              lastError == "Owner disconnected during session"));
-    REQUIRE(report.at("client").at("sessionState") == static_cast<int>(Netplay::SessionState::Ended));
+    REQUIRE(report.at("client").at("sessionState") == static_cast<int>(ConsoleNetplay::SessionState::Ended));
 
     // Event log tail length is bounded and may not always retain the terminal
     // close message; state + lastError above are the stable assertions.
@@ -5677,8 +5677,8 @@ TEST_CASE("Duck Hunt host reset resync keeps observer client in identical state"
 
 TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[netplay][assignment][unit]")
 {
-    auto makeInputState = [](Netplay::PlayerSlot slot, uint64_t mask) {
-        Netplay::NetplayInputState state{};
+    auto makeInputState = [](ConsoleNetplay::PlayerSlot slot, uint64_t mask) {
+        ConsoleNetplay::NetplayInputState state{};
         auto bit = [mask](uint32_t index) { return (mask & (1ull << index)) != 0; };
         const bool a = bit(0);
         const bool b = bit(1);
@@ -5689,17 +5689,17 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
         const bool left = bit(6);
         const bool right = bit(7);
         switch(slot) {
-            case Netplay::kPort1PlayerSlot:
-            case Netplay::kMultitapP1PlayerSlot:
+            case ConsoleNetplay::kPort1PlayerSlot:
+            case ConsoleNetplay::kMultitapP1PlayerSlot:
                 state.p1A = a; state.p1B = b; state.p1Select = select; state.p1Start = start;
                 state.p1Up = up; state.p1Down = down; state.p1Left = left; state.p1Right = right;
                 break;
-            case Netplay::kPort2PlayerSlot:
-            case Netplay::kMultitapP2PlayerSlot:
+            case ConsoleNetplay::kPort2PlayerSlot:
+            case ConsoleNetplay::kMultitapP2PlayerSlot:
                 state.p2A = a; state.p2B = b; state.p2Select = select; state.p2Start = start;
                 state.p2Up = up; state.p2Down = down; state.p2Left = left; state.p2Right = right;
                 break;
-            case Netplay::kMultitapP4PlayerSlot:
+            case ConsoleNetplay::kMultitapP4PlayerSlot:
                 state.p4A = a; state.p4B = b; state.p4Select = select; state.p4Start = start;
                 state.p4Up = up; state.p4Down = down; state.p4Left = left; state.p4Right = right;
                 break;
@@ -5708,32 +5708,32 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
         }
         return state;
     };
-    auto hostMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(false, false, false, true, false, false, false, true);
-    auto clientMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, false, true, false, false, false);
+    auto hostMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(false, false, false, true, false, false, false, true);
+    auto clientMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, false, true, false, false, false);
 
     SECTION("port assignments move the same local patterns to the new slots")
     {
-        Netplay::RoomState room;
-        room.port1Device = Netplay::PortDevice::CONTROLLER;
-        room.port2Device = Netplay::PortDevice::CONTROLLER;
+        ConsoleNetplay::RoomState room;
+        room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
+        room.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
 
-        const auto hostState = makeInputState(Netplay::kPort1PlayerSlot, hostMask);
-        const auto clientState = makeInputState(Netplay::kPort2PlayerSlot, clientMask);
-        const auto hostSwappedState = makeInputState(Netplay::kPort2PlayerSlot, hostMask);
-        const auto clientSwappedState = makeInputState(Netplay::kPort1PlayerSlot, clientMask);
+        const auto hostState = makeInputState(ConsoleNetplay::kPort1PlayerSlot, hostMask);
+        const auto clientState = makeInputState(ConsoleNetplay::kPort2PlayerSlot, clientMask);
+        const auto hostSwappedState = makeInputState(ConsoleNetplay::kPort2PlayerSlot, hostMask);
+        const auto clientSwappedState = makeInputState(ConsoleNetplay::kPort1PlayerSlot, clientMask);
 
-        auto beforeSwap = Netplay::makeRoomTopologyBaseFrame(30u, room);
-        Netplay::applyAssignedContribution(beforeSwap, Netplay::kPort1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, hostState, beforeSwap));
-        Netplay::applyAssignedContribution(beforeSwap, Netplay::kPort2PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, clientState, beforeSwap));
+        auto beforeSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(30u, room);
+        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, hostState, beforeSwap));
+        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kPort2PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, clientState, beforeSwap));
 
         REQUIRE(beforeSwap.p1Start == true);
         REQUIRE(beforeSwap.p1Right == true);
         REQUIRE(beforeSwap.p2A == true);
         REQUIRE(beforeSwap.p2Up == true);
 
-        auto afterSwap = Netplay::makeRoomTopologyBaseFrame(31u, room);
-        Netplay::applyAssignedContribution(afterSwap, Netplay::kPort2PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, hostSwappedState, afterSwap));
-        Netplay::applyAssignedContribution(afterSwap, Netplay::kPort1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, clientSwappedState, afterSwap));
+        auto afterSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(31u, room);
+        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kPort2PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, hostSwappedState, afterSwap));
+        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, clientSwappedState, afterSwap));
 
         REQUIRE(afterSwap.p1A == true);
         REQUIRE(afterSwap.p1Up == true);
@@ -5745,26 +5745,26 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
 
     SECTION("multitap assignments also preserve patterns when swapped")
     {
-        Netplay::RoomState room;
-        room.nesMultitapDevice = Netplay::NesMultitapDevice::FOUR_SCORE;
+        ConsoleNetplay::RoomState room;
+        room.nesMultitapDevice = ConsoleNetplay::NesMultitapDevice::FOUR_SCORE;
 
-        const auto p1State = makeInputState(Netplay::kMultitapP1PlayerSlot, hostMask);
-        const auto p4State = makeInputState(Netplay::kMultitapP4PlayerSlot, clientMask);
-        const auto p1SwappedState = makeInputState(Netplay::kMultitapP4PlayerSlot, hostMask);
-        const auto p4SwappedState = makeInputState(Netplay::kMultitapP1PlayerSlot, clientMask);
+        const auto p1State = makeInputState(ConsoleNetplay::kMultitapP1PlayerSlot, hostMask);
+        const auto p4State = makeInputState(ConsoleNetplay::kMultitapP4PlayerSlot, clientMask);
+        const auto p1SwappedState = makeInputState(ConsoleNetplay::kMultitapP4PlayerSlot, hostMask);
+        const auto p4SwappedState = makeInputState(ConsoleNetplay::kMultitapP1PlayerSlot, clientMask);
 
-        auto beforeSwap = Netplay::makeRoomTopologyBaseFrame(44u, room);
-        Netplay::applyAssignedContribution(beforeSwap, Netplay::kMultitapP1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP1PlayerSlot, p1State, beforeSwap));
-        Netplay::applyAssignedContribution(beforeSwap, Netplay::kMultitapP4PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP4PlayerSlot, p4State, beforeSwap));
+        auto beforeSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(44u, room);
+        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kMultitapP1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP1PlayerSlot, p1State, beforeSwap));
+        ConsoleNetplay::applyAssignedContribution(beforeSwap, ConsoleNetplay::kMultitapP4PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP4PlayerSlot, p4State, beforeSwap));
 
         REQUIRE(beforeSwap.p1Start == true);
         REQUIRE(beforeSwap.p1Right == true);
         REQUIRE(beforeSwap.p4A == true);
         REQUIRE(beforeSwap.p4Up == true);
 
-        auto afterSwap = Netplay::makeRoomTopologyBaseFrame(45u, room);
-        Netplay::applyAssignedContribution(afterSwap, Netplay::kMultitapP4PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP4PlayerSlot, p1SwappedState, afterSwap));
-        Netplay::applyAssignedContribution(afterSwap, Netplay::kMultitapP1PlayerSlot, Netplay::buildAssignedContribution(Netplay::kMultitapP1PlayerSlot, p4SwappedState, afterSwap));
+        auto afterSwap = ConsoleNetplay::makeRoomTopologyBaseFrame(45u, room);
+        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kMultitapP4PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP4PlayerSlot, p1SwappedState, afterSwap));
+        ConsoleNetplay::applyAssignedContribution(afterSwap, ConsoleNetplay::kMultitapP1PlayerSlot, ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kMultitapP1PlayerSlot, p4SwappedState, afterSwap));
 
         REQUIRE(afterSwap.p1A == true);
         REQUIRE(afterSwap.p1Up == true);
@@ -5777,17 +5777,17 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
 
 TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assignment][zapper]")
 {
-    Netplay::NetplayInputState state{};
+    ConsoleNetplay::NetplayInputState state{};
     state.zapperX = 87;
     state.zapperY = 53;
     state.zapperP2Trigger = true;
 
-    Netplay::RoomState room;
-    room.port2Device = Netplay::PortDevice::ZAPPER;
+    ConsoleNetplay::RoomState room;
+    room.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
 
-    auto frame = Netplay::makeRoomTopologyBaseFrame(19u, room);
-    const auto contribution = Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, state, frame);
-    Netplay::applyAssignedContribution(frame, Netplay::kPort2PlayerSlot, contribution);
+    auto frame = ConsoleNetplay::makeRoomTopologyBaseFrame(19u, room);
+    const auto contribution = ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, state, frame);
+    ConsoleNetplay::applyAssignedContribution(frame, ConsoleNetplay::kPort2PlayerSlot, contribution);
 
     REQUIRE(frame.port2Device == Settings::Device::ZAPPER);
     REQUIRE(frame.zapperP2X == 87);
@@ -5795,7 +5795,7 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
     REQUIRE(frame.zapperP2Trigger == true);
 
     EmulationHost::InputState replayState{};
-    Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayState, frame);
+    ConsoleNetplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayState, frame);
     REQUIRE(replayState.zapperX == 87);
     REQUIRE(replayState.zapperY == 53);
     REQUIRE(replayState.zapperP2Trigger == true);
@@ -5803,18 +5803,18 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
 
 TEST_CASE("Netplay allows multiple assignments for the same participant", "[netplay][assignment][multi]")
 {
-    Netplay::RoomState room;
-    room.port1Device = Netplay::PortDevice::CONTROLLER;
-    room.port2Device = Netplay::PortDevice::ZAPPER;
+    ConsoleNetplay::RoomState room;
+    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    room.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
 
-    Netplay::ParticipantInfo host;
+    ConsoleNetplay::ParticipantInfo host;
     host.id = 0;
     host.displayName = "Host";
-    host.controllerAssignments = {Netplay::kPort1PlayerSlot};
+    host.controllerAssignments = {ConsoleNetplay::kPort1PlayerSlot};
     host.normalizeControllerAssignments();
     room.participants.push_back(host);
 
-    REQUIRE(Netplay::canAssignInputCandidate(
+    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
         room,
         host.id,
         room.port1Device,
@@ -5822,25 +5822,25 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
         room.expansionDevice,
         room.nesMultitapDevice,
         room.famicomMultitapDevice,
-        Netplay::kPort2PlayerSlot
+        ConsoleNetplay::kPort2PlayerSlot
     ));
 
-    Netplay::NetplayInputState state{};
+    ConsoleNetplay::NetplayInputState state{};
     state.p1Start = true;
     state.zapperX = 112;
     state.zapperY = 64;
     state.zapperP2Trigger = true;
 
-    auto frame = Netplay::makeRoomTopologyBaseFrame(33u, room);
-    Netplay::applyAssignedContribution(
+    auto frame = ConsoleNetplay::makeRoomTopologyBaseFrame(33u, room);
+    ConsoleNetplay::applyAssignedContribution(
         frame,
-        Netplay::kPort1PlayerSlot,
-        Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, state, frame)
+        ConsoleNetplay::kPort1PlayerSlot,
+        ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, state, frame)
     );
-    Netplay::applyAssignedContribution(
+    ConsoleNetplay::applyAssignedContribution(
         frame,
-        Netplay::kPort2PlayerSlot,
-        Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, state, frame)
+        ConsoleNetplay::kPort2PlayerSlot,
+        ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort2PlayerSlot, state, frame)
     );
 
     REQUIRE(frame.p1Start == true);
@@ -5851,7 +5851,7 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
 
 TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload", "[netplay][assignment][controller]")
 {
-    Netplay::NetplayInputState state{};
+    ConsoleNetplay::NetplayInputState state{};
     state.p1Start = true;
     state.zapperX = 87;
     state.zapperY = 53;
@@ -5860,12 +5860,12 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
     state.mouseDeltaY = -3;
     state.mousePrimaryButton = true;
 
-    Netplay::RoomState room;
-    room.port1Device = Netplay::PortDevice::CONTROLLER;
-    room.port2Device = Netplay::PortDevice::ZAPPER;
+    ConsoleNetplay::RoomState room;
+    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    room.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
 
-    const auto baseFrame = Netplay::makeRoomTopologyBaseFrame(19u, room);
-    const auto contribution = Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, state, baseFrame);
+    const auto baseFrame = ConsoleNetplay::makeRoomTopologyBaseFrame(19u, room);
+    const auto contribution = ConsoleNetplay::buildAssignedContribution(ConsoleNetplay::kPort1PlayerSlot, state, baseFrame);
 
     REQUIRE(contribution.p1Start == true);
     REQUIRE(contribution.zapperP1Trigger == false);
@@ -5880,17 +5880,17 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
 
 TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from previous topology", "[netplay][assignment][topology]")
 {
-    Netplay::RoomState oldRoom;
-    oldRoom.port2Device = Netplay::PortDevice::ZAPPER;
-    InputFrame staleZapperContribution = Netplay::makeRoomTopologyBaseFrame(21u, oldRoom);
+    ConsoleNetplay::RoomState oldRoom;
+    oldRoom.port2Device = ConsoleNetplay::PortDevice::ZAPPER;
+    InputFrame staleZapperContribution = ConsoleNetplay::makeRoomTopologyBaseFrame(21u, oldRoom);
     staleZapperContribution.zapperP2X = 87;
     staleZapperContribution.zapperP2Y = 53;
     staleZapperContribution.zapperP2Trigger = true;
 
-    Netplay::RoomState newRoom;
-    newRoom.port2Device = Netplay::PortDevice::CONTROLLER;
-    InputFrame target = Netplay::makeRoomTopologyBaseFrame(21u, newRoom);
-    Netplay::applyAssignedContribution(target, Netplay::kPort2PlayerSlot, staleZapperContribution);
+    ConsoleNetplay::RoomState newRoom;
+    newRoom.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    InputFrame target = ConsoleNetplay::makeRoomTopologyBaseFrame(21u, newRoom);
+    ConsoleNetplay::applyAssignedContribution(target, ConsoleNetplay::kPort2PlayerSlot, staleZapperContribution);
 
     REQUIRE(target.port2Device == Settings::Device::CONTROLLER);
     REQUIRE(target.zapperP2Trigger == false);
@@ -5933,104 +5933,104 @@ TEST_CASE("Emulator input buffer drops stale timeline epoch frames when timeline
 
 TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")
 {
-    Netplay::RoomState room;
-    room.port1Device = Netplay::PortDevice::CONTROLLER;
-    room.port2Device = Netplay::PortDevice::CONTROLLER;
-    room.expansionDevice = Netplay::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+    ConsoleNetplay::RoomState room;
+    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    room.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    room.expansionDevice = ConsoleNetplay::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
 
-    Netplay::ParticipantInfo host;
+    ConsoleNetplay::ParticipantInfo host;
     host.id = 0;
     host.displayName = "Host";
-    host.controllerAssignment = Netplay::kPort1PlayerSlot;
+    host.controllerAssignment = ConsoleNetplay::kPort1PlayerSlot;
     room.participants.push_back(host);
 
-    Netplay::ParticipantInfo client;
+    ConsoleNetplay::ParticipantInfo client;
     client.id = 1;
     client.displayName = "Client";
-    client.controllerAssignment = Netplay::kObserverPlayerSlot;
+    client.controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
     room.participants.push_back(client);
 
-    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
         room.expansionDevice,
-        Netplay::NesMultitapDevice::NONE,
-        Netplay::FamicomMultitapDevice::NONE,
-        Netplay::kPort1PlayerSlot
+        ConsoleNetplay::NesMultitapDevice::NONE,
+        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        ConsoleNetplay::kPort1PlayerSlot
     ));
 
-    REQUIRE(Netplay::canAssignInputCandidate(
+    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
         room.expansionDevice,
-        Netplay::NesMultitapDevice::NONE,
-        Netplay::FamicomMultitapDevice::NONE,
-        Netplay::kPort2PlayerSlot
+        ConsoleNetplay::NesMultitapDevice::NONE,
+        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        ConsoleNetplay::kPort2PlayerSlot
     ));
 
-    REQUIRE(Netplay::canAssignInputCandidate(
+    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
         room.expansionDevice,
-        Netplay::NesMultitapDevice::NONE,
-        Netplay::FamicomMultitapDevice::NONE,
-        Netplay::kExpansionPlayerSlot
+        ConsoleNetplay::NesMultitapDevice::NONE,
+        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        ConsoleNetplay::kExpansionPlayerSlot
     ));
 
-    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        Netplay::ExpansionDevice::NONE,
-        Netplay::NesMultitapDevice::FOUR_SCORE,
-        Netplay::FamicomMultitapDevice::NONE,
-        Netplay::kMultitapP1PlayerSlot
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        ConsoleNetplay::ExpansionDevice::NONE,
+        ConsoleNetplay::NesMultitapDevice::FOUR_SCORE,
+        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        ConsoleNetplay::kMultitapP1PlayerSlot
     ));
 
-    room.nesMultitapDevice = Netplay::NesMultitapDevice::FOUR_SCORE;
-    room.port1Device = Netplay::PortDevice::CONTROLLER;
-    room.port2Device = Netplay::PortDevice::CONTROLLER;
-    room.expansionDevice = Netplay::ExpansionDevice::NONE;
-    room.participants[0].controllerAssignment = Netplay::kMultitapP1PlayerSlot;
+    room.nesMultitapDevice = ConsoleNetplay::NesMultitapDevice::FOUR_SCORE;
+    room.port1Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    room.port2Device = ConsoleNetplay::PortDevice::CONTROLLER;
+    room.expansionDevice = ConsoleNetplay::ExpansionDevice::NONE;
+    room.participants[0].controllerAssignment = ConsoleNetplay::kMultitapP1PlayerSlot;
 
-    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        Netplay::ExpansionDevice::NONE,
-        Netplay::NesMultitapDevice::FOUR_SCORE,
-        Netplay::FamicomMultitapDevice::NONE,
-        Netplay::kMultitapP1PlayerSlot
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        ConsoleNetplay::ExpansionDevice::NONE,
+        ConsoleNetplay::NesMultitapDevice::FOUR_SCORE,
+        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        ConsoleNetplay::kMultitapP1PlayerSlot
     ));
 
-    REQUIRE(Netplay::canAssignInputCandidate(
+    REQUIRE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        Netplay::ExpansionDevice::NONE,
-        Netplay::NesMultitapDevice::FOUR_SCORE,
-        Netplay::FamicomMultitapDevice::NONE,
-        Netplay::kMultitapP2PlayerSlot
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        ConsoleNetplay::ExpansionDevice::NONE,
+        ConsoleNetplay::NesMultitapDevice::FOUR_SCORE,
+        ConsoleNetplay::FamicomMultitapDevice::NONE,
+        ConsoleNetplay::kMultitapP2PlayerSlot
     ));
 
-    REQUIRE_FALSE(Netplay::canAssignInputCandidate(
+    REQUIRE_FALSE(ConsoleNetplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
-        Netplay::ExpansionDevice::NONE,
-        Netplay::NesMultitapDevice::NONE,
-        Netplay::FamicomMultitapDevice::HORI_ADAPTER,
-        Netplay::kMultitapP2PlayerSlot
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER),
+        ConsoleNetplay::ExpansionDevice::NONE,
+        ConsoleNetplay::NesMultitapDevice::NONE,
+        ConsoleNetplay::FamicomMultitapDevice::HORI_ADAPTER,
+        ConsoleNetplay::kMultitapP2PlayerSlot
     ));
 }
 

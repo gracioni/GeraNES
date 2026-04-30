@@ -175,7 +175,7 @@ private:
     NsfVisualizerUI m_nsfVisualizer;
 #endif
 
-    Netplay::NetplayAppRuntime m_netplayRuntime;
+    ConsoleNetplay::NetplayAppRuntime m_netplayRuntime;
 
     struct RomDatabaseEditorData {
         bool loaded = false;

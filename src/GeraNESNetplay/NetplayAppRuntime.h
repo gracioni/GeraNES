@@ -16,12 +16,12 @@
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
-#include "GeraNESNetplay/SelfStallDetector.h"
-#include "GeraNESNetplay/NetplayAutoTune.h"
-#include "GeraNESNetplay/NetplayConfig.h"
-#include "GeraNESNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/SelfStallDetector.h"
+#include "ConsoleNetplay/NetplayAutoTune.h"
+#include "ConsoleNetplay/NetplayConfig.h"
+#include "ConsoleNetplay/NetplayCoordinator.h"
 
-namespace Netplay {
+namespace ConsoleNetplay {
 
 class NetplayAppRuntime
 {
@@ -324,5 +324,5 @@ public:
     void runOnEmulationThread(GeraNESEmu& emu);
 };
 
-} // namespace Netplay
+} // namespace ConsoleNetplay
 

@@ -1,9 +1,9 @@
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 
-#include "GeraNESNetplay/NetplayCoordinator.h"
-#include "GeraNESNetplay/NetSerialization.h"
+#include "ConsoleNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/NetSerialization.h"
 
-namespace Netplay {
+namespace ConsoleNetplay {
 
 namespace {
 
@@ -834,4 +834,4 @@ void recordLocalInputFrame(NetplayCoordinator& coordinator,
     coordinator.recordLocalInputFrame(frame, slot, toNetplayInputFrame(contribution));
 }
 
-} // namespace Netplay
+} // namespace ConsoleNetplay

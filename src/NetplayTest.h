@@ -19,8 +19,8 @@
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/NetplayAppRuntime.h"
-#include "GeraNESNetplay/NetplayAutoTune.h"
-#include "GeraNESNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/NetplayAutoTune.h"
+#include "ConsoleNetplay/NetplayCoordinator.h"
 
 class NetplayTest
 {
@@ -94,8 +94,8 @@ public:
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
         bool requireHostManualLoadDuringResync = false;
-        Netplay::NetTransportBackend transportBackend = Netplay::NetTransportBackend::ENet;
-        Netplay::NetTransportOptions transportOptions = {};
+        ConsoleNetplay::NetTransportBackend transportBackend = ConsoleNetplay::NetTransportBackend::ENet;
+        ConsoleNetplay::NetTransportOptions transportOptions = {};
         std::vector<uint32_t> hostManualLoadStateFrames;
     };
 
@@ -171,7 +171,7 @@ private:
         std::string name;
         bool host = false;
         GeraNESEmu emu{DummyAudioOutput::instance()};
-        Netplay::NetplayCoordinator coordinator;
+        ConsoleNetplay::NetplayCoordinator coordinator;
         DeterministicInputGenerator generator;
         uint32_t publishedThroughFrame = 0;
         uint32_t queuedThroughFrame = 0;
@@ -195,8 +195,8 @@ private:
         std::string name;
         bool host = false;
         EmulationHost emu{DummyAudioOutput::instance()};
-        Netplay::NetplayCoordinator coordinator;
-        Netplay::ConfirmedInputBufferDriver driver;
+        ConsoleNetplay::NetplayCoordinator coordinator;
+        ConsoleNetplay::ConfirmedInputBufferDriver driver;
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
@@ -224,7 +224,7 @@ private:
         std::string name;
         bool host = false;
         HostT emu{DummyAudioOutput::instance()};
-        Netplay::NetplayAppRuntime runtime{emu};
+        ConsoleNetplay::NetplayAppRuntime runtime{emu};
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
@@ -339,12 +339,12 @@ private:
         return buttons;
     }
 
-    static std::optional<Netplay::RomValidationData> captureRomValidation(GeraNESEmu& emu)
+    static std::optional<ConsoleNetplay::RomValidationData> captureRomValidation(GeraNESEmu& emu)
     {
         if(!emu.valid()) return std::nullopt;
 
         Cartridge& cart = emu.getConsole().cartridge();
-        Netplay::RomValidationData validation;
+        ConsoleNetplay::RomValidationData validation;
         validation.romCrc32 = cart.romFile().fileCrc32();
         validation.mapperId = static_cast<uint16_t>(std::max(0, cart.mapperId()));
         validation.subMapperId = static_cast<uint16_t>(std::max(0, cart.subMapperId()));
@@ -356,7 +356,7 @@ private:
         return validation;
     }
 
-    static std::optional<Netplay::RomValidationData> captureRomValidation(EmulationHost& emu)
+    static std::optional<ConsoleNetplay::RomValidationData> captureRomValidation(EmulationHost& emu)
     {
         if(!emu.valid()) return std::nullopt;
         return emu.withExclusiveAccess([&](auto& innerEmu) {
@@ -364,23 +364,23 @@ private:
         });
     }
 
-    static std::optional<Netplay::PlayerSlot> localAssignedSlot(const Netplay::NetplayCoordinator& coordinator)
+    static std::optional<ConsoleNetplay::PlayerSlot> localAssignedSlot(const ConsoleNetplay::NetplayCoordinator& coordinator)
     {
         for(const auto& participant : coordinator.session().roomState().participants) {
             if(participant.id == coordinator.localParticipantId() &&
-               participant.controllerAssignment != Netplay::kObserverPlayerSlot) {
+               participant.controllerAssignment != ConsoleNetplay::kObserverPlayerSlot) {
                 return participant.controllerAssignment;
             }
         }
         return std::nullopt;
     }
 
-    static std::optional<Netplay::PlayerSlot> localAssignedSlot(const Netplay::RoomState& room,
-                                                                Netplay::ParticipantId localParticipantId)
+    static std::optional<ConsoleNetplay::PlayerSlot> localAssignedSlot(const ConsoleNetplay::RoomState& room,
+                                                                ConsoleNetplay::ParticipantId localParticipantId)
     {
         for(const auto& participant : room.participants) {
             if(participant.id == localParticipantId &&
-               participant.controllerAssignment != Netplay::kObserverPlayerSlot) {
+               participant.controllerAssignment != ConsoleNetplay::kObserverPlayerSlot) {
                 return participant.controllerAssignment;
             }
         }
@@ -398,7 +398,7 @@ private:
         if(confirmed == nullptr) {
             return peer.emu.createInputFrame(frame);
         }
-        InputFrame inputFrame = Netplay::toGeraNESInputFrame(confirmed->netplayFrame);
+        InputFrame inputFrame = ConsoleNetplay::toGeraNESInputFrame(confirmed->netplayFrame);
         inputFrame.frame = frame;
         return inputFrame;
     }
@@ -529,8 +529,8 @@ private:
             const bool connected =
                 hostPeer.coordinator.isConnected() &&
                 clientPeer.coordinator.isConnected() &&
-                hostPeer.coordinator.localParticipantId() != Netplay::kInvalidParticipantId &&
-                clientPeer.coordinator.localParticipantId() != Netplay::kInvalidParticipantId &&
+                hostPeer.coordinator.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+                clientPeer.coordinator.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
                 hostPeer.coordinator.session().roomState().participants.size() >= 2 &&
                 clientPeer.coordinator.session().roomState().participants.size() >= 2;
             if(connected) {
@@ -582,8 +582,8 @@ private:
             }
         }
 
-        const Netplay::ParticipantId hostId = hostPeer.coordinator.localParticipantId();
-        const Netplay::ParticipantId clientId = clientPeer.coordinator.localParticipantId();
+        const ConsoleNetplay::ParticipantId hostId = hostPeer.coordinator.localParticipantId();
+        const ConsoleNetplay::ParticipantId clientId = clientPeer.coordinator.localParticipantId();
         if(!hostPeer.coordinator.assignController(hostId, 0)) {
             failureReason = "Failed to assign host to P1.";
             return false;
@@ -599,8 +599,8 @@ private:
             pumpNetwork(hostPeer, clientPeer, 1);
             const auto hostSlot = localAssignedSlot(hostPeer.coordinator);
             const auto clientSlot = localAssignedSlot(clientPeer.coordinator);
-            if(hostSlot == std::optional<Netplay::PlayerSlot>(0) &&
-               clientSlot == std::optional<Netplay::PlayerSlot>(1)) {
+            if(hostSlot == std::optional<ConsoleNetplay::PlayerSlot>(0) &&
+               clientSlot == std::optional<ConsoleNetplay::PlayerSlot>(1)) {
                 hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.frameCount());
                 clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.frameCount());
                 if(!hostPeer.coordinator.startSession()) {
@@ -610,8 +610,8 @@ private:
 
                 for(uint32_t startStep = 0; startStep < options.startupTimeoutSteps; ++startStep) {
                     pumpNetwork(hostPeer, clientPeer, 1);
-                    if(hostPeer.coordinator.session().roomState().state == Netplay::SessionState::Running &&
-                       clientPeer.coordinator.session().roomState().state == Netplay::SessionState::Running) {
+                    if(hostPeer.coordinator.session().roomState().state == ConsoleNetplay::SessionState::Running &&
+                       clientPeer.coordinator.session().roomState().state == ConsoleNetplay::SessionState::Running) {
                         return true;
                     }
                 }
@@ -627,7 +627,7 @@ private:
 
     static void publishLocalInputs(PeerState& peer, const Options& options)
     {
-        const std::optional<Netplay::PlayerSlot> slot = localAssignedSlot(peer.coordinator);
+        const std::optional<ConsoleNetplay::PlayerSlot> slot = localAssignedSlot(peer.coordinator);
         if(!slot.has_value()) {
             return;
         }
@@ -709,9 +709,9 @@ private:
             eventTail.push_back(log[i]);
         }
 
-        const std::optional<Netplay::PlayerSlot> localSlot = localAssignedSlot(peer.coordinator);
-        const Netplay::TimelineInputEntry* latestLocal = nullptr;
-        const Netplay::TimelineInputEntry* latestLocalConfirmed = nullptr;
+        const std::optional<ConsoleNetplay::PlayerSlot> localSlot = localAssignedSlot(peer.coordinator);
+        const ConsoleNetplay::TimelineInputEntry* latestLocal = nullptr;
+        const ConsoleNetplay::TimelineInputEntry* latestLocalConfirmed = nullptr;
         if(localSlot.has_value()) {
             latestLocal = peer.coordinator.localInputs().latestFor(peer.coordinator.localParticipantId(), *localSlot);
             latestLocalConfirmed = peer.coordinator.localInputs().latestConfirmedFor(peer.coordinator.localParticipantId(), *localSlot);
@@ -1018,7 +1018,7 @@ private:
         };
     }
 
-    static std::optional<Netplay::ParticipantId> findParticipantIdByName(const Netplay::RoomState& room,
+    static std::optional<ConsoleNetplay::ParticipantId> findParticipantIdByName(const ConsoleNetplay::RoomState& room,
                                                                          const std::string& name)
     {
         for(const auto& participant : room.participants) {
@@ -1029,8 +1029,8 @@ private:
         return std::nullopt;
     }
 
-    static const Netplay::ParticipantInfo* findParticipantInRoom(const Netplay::RoomState& room,
-                                                                 Netplay::ParticipantId id)
+    static const ConsoleNetplay::ParticipantInfo* findParticipantInRoom(const ConsoleNetplay::RoomState& room,
+                                                                 ConsoleNetplay::ParticipantId id)
     {
         for(const auto& participant : room.participants) {
             if(participant.id == id) {
@@ -1040,10 +1040,10 @@ private:
         return nullptr;
     }
 
-    static bool allAssignedParticipantsReadyAndCompatible(const Netplay::RoomState& room)
+    static bool allAssignedParticipantsReadyAndCompatible(const ConsoleNetplay::RoomState& room)
     {
         for(const auto& participant : room.participants) {
-            if(participant.controllerAssignment == Netplay::kObserverPlayerSlot) continue;
+            if(participant.controllerAssignment == ConsoleNetplay::kObserverPlayerSlot) continue;
             if(!participant.connected || !participant.romLoaded || !participant.romCompatible) {
                 return false;
             }
@@ -1051,10 +1051,10 @@ private:
         return true;
     }
 
-    static IEmulationHost::InputState buildRuntimeInputStateForSlot(Netplay::PlayerSlot slot, const Buttons& buttons)
+    static IEmulationHost::InputState buildRuntimeInputStateForSlot(ConsoleNetplay::PlayerSlot slot, const Buttons& buttons)
     {
         IEmulationHost::InputState inputState{};
-        Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
+        ConsoleNetplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
         return inputState;
     }
 
@@ -1099,13 +1099,13 @@ private:
         return playbackButtonsForFrame(options, generator, hostSide, frameIndex, fps);
     }
 
-    static bool participantHasAssignments(const Netplay::RoomState& room,
-                                          Netplay::ParticipantId participantId,
-                                          std::initializer_list<Netplay::PlayerSlot> expectedAssignments)
+    static bool participantHasAssignments(const ConsoleNetplay::RoomState& room,
+                                          ConsoleNetplay::ParticipantId participantId,
+                                          std::initializer_list<ConsoleNetplay::PlayerSlot> expectedAssignments)
     {
         const auto* participant = findParticipantInRoom(room, participantId);
         if(participant == nullptr) return false;
-        for(Netplay::PlayerSlot slot : expectedAssignments) {
+        for(ConsoleNetplay::PlayerSlot slot : expectedAssignments) {
             if(!participant->hasControllerAssignment(slot)) {
                 return false;
             }
@@ -1114,12 +1114,12 @@ private:
     }
 
     static bool inputFrameMatchesButtonsForSlot(const InputFrame& inputFrame,
-                                                Netplay::PlayerSlot slot,
+                                                ConsoleNetplay::PlayerSlot slot,
                                                 const Buttons& buttons)
     {
         switch(slot) {
-            case Netplay::kPort1PlayerSlot:
-            case Netplay::kMultitapP1PlayerSlot:
+            case ConsoleNetplay::kPort1PlayerSlot:
+            case ConsoleNetplay::kMultitapP1PlayerSlot:
                 return inputFrame.p1A == buttons.a &&
                        inputFrame.p1B == buttons.b &&
                        inputFrame.p1Select == buttons.select &&
@@ -1128,8 +1128,8 @@ private:
                        inputFrame.p1Down == buttons.down &&
                        inputFrame.p1Left == buttons.left &&
                        inputFrame.p1Right == buttons.right;
-            case Netplay::kPort2PlayerSlot:
-            case Netplay::kMultitapP2PlayerSlot:
+            case ConsoleNetplay::kPort2PlayerSlot:
+            case ConsoleNetplay::kMultitapP2PlayerSlot:
                 return inputFrame.p2A == buttons.a &&
                        inputFrame.p2B == buttons.b &&
                        inputFrame.p2Select == buttons.select &&
@@ -1138,8 +1138,8 @@ private:
                        inputFrame.p2Down == buttons.down &&
                        inputFrame.p2Left == buttons.left &&
                        inputFrame.p2Right == buttons.right;
-            case Netplay::kExpansionPlayerSlot:
-            case Netplay::kMultitapP3PlayerSlot:
+            case ConsoleNetplay::kExpansionPlayerSlot:
+            case ConsoleNetplay::kMultitapP3PlayerSlot:
                 return inputFrame.p3A == buttons.a &&
                        inputFrame.p3B == buttons.b &&
                        inputFrame.p3Select == buttons.select &&
@@ -1148,7 +1148,7 @@ private:
                        inputFrame.p3Down == buttons.down &&
                        inputFrame.p3Left == buttons.left &&
                        inputFrame.p3Right == buttons.right;
-            case Netplay::kMultitapP4PlayerSlot:
+            case ConsoleNetplay::kMultitapP4PlayerSlot:
                 return inputFrame.p4A == buttons.a &&
                        inputFrame.p4B == buttons.b &&
                        inputFrame.p4Select == buttons.select &&
@@ -1168,8 +1168,8 @@ private:
                                       const DeterministicInputGenerator& clientGenerator,
                                       uint32_t windowStartFrame,
                                       uint32_t windowEndFrame,
-                                      Netplay::PlayerSlot hostSlot,
-                                      Netplay::PlayerSlot clientSlot,
+                                      ConsoleNetplay::PlayerSlot hostSlot,
+                                      ConsoleNetplay::PlayerSlot clientSlot,
                                       const Options& options,
                                       bool swapped)
     {
@@ -1198,8 +1198,8 @@ private:
                                        const DeterministicInputGenerator& clientGenerator,
                                        uint32_t windowStartFrame,
                                        uint32_t windowEndFrame,
-                                       Netplay::PlayerSlot hostSlot,
-                                       Netplay::PlayerSlot clientSlot,
+                                       ConsoleNetplay::PlayerSlot hostSlot,
+                                       ConsoleNetplay::PlayerSlot clientSlot,
                                        const Options& options,
                                        bool swapped)
     {
@@ -1223,7 +1223,7 @@ private:
                                             const DeterministicInputGenerator& generator,
                                             uint32_t windowStartFrame,
                                             uint32_t windowEndFrame,
-                                            Netplay::PlayerSlot slot,
+                                            ConsoleNetplay::PlayerSlot slot,
                                             const Options& options)
     {
         bool matched = false;
@@ -1248,8 +1248,8 @@ private:
                                        const DeterministicInputGenerator& clientGenerator,
                                        uint32_t windowStartFrame,
                                        uint32_t windowEndFrame,
-                                       Netplay::PlayerSlot hostSlot,
-                                       Netplay::PlayerSlot clientSlot,
+                                       ConsoleNetplay::PlayerSlot hostSlot,
+                                       ConsoleNetplay::PlayerSlot clientSlot,
                                        const Options& options,
                                        bool swapped)
     {
@@ -1274,22 +1274,22 @@ private:
         const auto snapshot = peer.runtime.uiSnapshot();
         const auto activeResyncReasonLabel = [&]() -> const char* {
             switch(snapshot.room.activeResyncReason) {
-                case Netplay::ResyncReason::Unspecified: return "Unspecified";
-                case Netplay::ResyncReason::InitialSessionSync: return "InitialSessionSync";
-                case Netplay::ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
-                case Netplay::ResyncReason::AssignmentChanged: return "AssignmentChanged";
-                case Netplay::ResyncReason::ManualForce: return "ManualForce";
-                case Netplay::ResyncReason::HostReset: return "HostReset";
-                case Netplay::ResyncReason::HostLoadedState: return "HostLoadedState";
-                case Netplay::ResyncReason::ObserverVisibilityRestore: return "ObserverVisibilityRestore";
+                case ConsoleNetplay::ResyncReason::Unspecified: return "Unspecified";
+                case ConsoleNetplay::ResyncReason::InitialSessionSync: return "InitialSessionSync";
+                case ConsoleNetplay::ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
+                case ConsoleNetplay::ResyncReason::AssignmentChanged: return "AssignmentChanged";
+                case ConsoleNetplay::ResyncReason::ManualForce: return "ManualForce";
+                case ConsoleNetplay::ResyncReason::HostReset: return "HostReset";
+                case ConsoleNetplay::ResyncReason::HostLoadedState: return "HostLoadedState";
+                case ConsoleNetplay::ResyncReason::ObserverVisibilityRestore: return "ObserverVisibilityRestore";
                 default: return "Unknown";
             }
         };
         const auto recoveryInputModeLabel = [&]() -> const char* {
             switch(snapshot.room.recoveryInputMode) {
-                case Netplay::RecoveryInputMode::Normal: return "Normal";
-                case Netplay::RecoveryInputMode::ResyncLocked: return "ResyncLocked";
-                case Netplay::RecoveryInputMode::PostResyncStabilizing: return "PostResyncStabilizing";
+                case ConsoleNetplay::RecoveryInputMode::Normal: return "Normal";
+                case ConsoleNetplay::RecoveryInputMode::ResyncLocked: return "ResyncLocked";
+                case ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing: return "PostResyncStabilizing";
                 default: return "Unknown";
             }
         };
@@ -1658,7 +1658,7 @@ private:
                     hostPeer.runtime.assignController(*hostIdBeforeJoin, 0);
                     if(!waitFor([&]() {
                             const auto hostSnap = hostPeer.runtime.uiSnapshot();
-                            return hostSnap.room.state == Netplay::SessionState::Running &&
+                            return hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                    findParticipantIdByName(hostSnap.room, hostPeer.name).has_value();
                         }, options.startupTimeoutSteps, 5u)) {
                         failureReason = "Timed out waiting for host-only session to start before client join.";
@@ -1680,7 +1680,7 @@ private:
                                 std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS())
                             );
                             hostPeer.runtime.updateLatestInputState(
-                                buildRuntimeInputStateForSlot(Netplay::kPort1PlayerSlot, hostButtons)
+                                buildRuntimeInputStateForSlot(ConsoleNetplay::kPort1PlayerSlot, hostButtons)
                             );
                             hostPeer.emu.update(16u);
                             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
@@ -1690,7 +1690,7 @@ private:
                                        hostPeer.generator,
                                        newHostFrame + 1u,
                                        newHostFrame + 8u,
-                                       Netplay::kPort1PlayerSlot,
+                                       ConsoleNetplay::kPort1PlayerSlot,
                                        options
                                    );
                         }, options.startupTimeoutSteps, 1u)) {
@@ -1718,7 +1718,7 @@ private:
                         Settings::ExpansionDevice::NONE,
                         Settings::NesMultitapDevice::FOUR_SCORE,
                         Settings::FamicomMultitapDevice::NONE,
-                        Netplay::kMultitapP1PlayerSlot
+                        ConsoleNetplay::kMultitapP1PlayerSlot
                     );
                     if(!waitFor([&]() {
                             const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1726,8 +1726,8 @@ private:
                             if(!localId.has_value()) return false;
                             const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *localId);
                             return hostParticipant != nullptr &&
-                                   hostSnap.room.nesMultitapDevice == Netplay::NesMultitapDevice::FOUR_SCORE &&
-                                   hostParticipant->controllerAssignment == Netplay::kMultitapP1PlayerSlot;
+                                   hostSnap.room.nesMultitapDevice == ConsoleNetplay::NesMultitapDevice::FOUR_SCORE &&
+                                   hostParticipant->controllerAssignment == ConsoleNetplay::kMultitapP1PlayerSlot;
                         }, options.startupTimeoutSteps, 5u)) {
                         failureReason = "Host-only Four Score P1 assignment did not stick before client join.";
                         result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
@@ -1784,8 +1784,8 @@ private:
         if(!waitFor([&]() {
                 const auto hostSnap = hostPeer.runtime.uiSnapshot();
                 const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                return hostSnap.room.state == Netplay::SessionState::Running &&
-                       clientSnap.room.state == Netplay::SessionState::Running;
+                return hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                       clientSnap.room.state == ConsoleNetplay::SessionState::Running;
             }, options.startupTimeoutSteps, 5u)) {
             failureReason = "Timed out waiting for auto-started running session.";
             result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
@@ -1834,22 +1834,22 @@ private:
                     if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
                     const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
                     const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
-                    const Netplay::PlayerSlot expectedHostAssignment =
+                    const ConsoleNetplay::PlayerSlot expectedHostAssignment =
                         options.hostMultitapAssignedBeforeJoinOnly
-                            ? Netplay::kMultitapP1PlayerSlot
-                            : Netplay::kPort1PlayerSlot;
-                    const Netplay::NesMultitapDevice expectedNesMultitap =
+                            ? ConsoleNetplay::kMultitapP1PlayerSlot
+                            : ConsoleNetplay::kPort1PlayerSlot;
+                    const ConsoleNetplay::NesMultitapDevice expectedNesMultitap =
                         options.hostMultitapAssignedBeforeJoinOnly
-                            ? Netplay::NesMultitapDevice::FOUR_SCORE
-                            : Netplay::NesMultitapDevice::NONE;
+                            ? ConsoleNetplay::NesMultitapDevice::FOUR_SCORE
+                            : ConsoleNetplay::NesMultitapDevice::NONE;
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
                            hostParticipant->controllerAssignment == expectedHostAssignment &&
-                           clientParticipant->controllerAssignment == Netplay::kObserverPlayerSlot &&
+                           clientParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
                            hostSnap.room.nesMultitapDevice == expectedNesMultitap &&
                            clientSnap.room.nesMultitapDevice == expectedNesMultitap &&
-                           hostSnap.room.state == Netplay::SessionState::Running &&
-                           clientSnap.room.state == Netplay::SessionState::Running;
+                           hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                           clientSnap.room.state == ConsoleNetplay::SessionState::Running;
                 }, options.startupTimeoutSteps, 5u)) {
                 failureReason = options.hostMultitapAssignedBeforeJoinOnly
                     ? "Timed out waiting for late-joining observer to sync after host was already assigned to Four Score P1."
@@ -1861,7 +1861,7 @@ private:
             }
 
             if(options.assignLateJoinClientAfterJoin) {
-                hostPeer.runtime.assignController(*clientId, Netplay::kPort2PlayerSlot);
+                hostPeer.runtime.assignController(*clientId, ConsoleNetplay::kPort2PlayerSlot);
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
                         const auto clientSnap = clientPeer.runtime.uiSnapshot();
@@ -1874,11 +1874,11 @@ private:
                         return hostParticipant != nullptr &&
                                clientParticipantHostView != nullptr &&
                                clientLocalParticipant != nullptr &&
-                               hostParticipant->controllerAssignment == Netplay::kPort1PlayerSlot &&
-                               clientParticipantHostView->controllerAssignment == Netplay::kPort2PlayerSlot &&
-                               clientLocalParticipant->controllerAssignment == Netplay::kPort2PlayerSlot &&
-                               hostSnap.room.state == Netplay::SessionState::Running &&
-                               clientSnap.room.state == Netplay::SessionState::Running &&
+                               hostParticipant->controllerAssignment == ConsoleNetplay::kPort1PlayerSlot &&
+                               clientParticipantHostView->controllerAssignment == ConsoleNetplay::kPort2PlayerSlot &&
+                               clientLocalParticipant->controllerAssignment == ConsoleNetplay::kPort2PlayerSlot &&
+                               hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                               clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                hostSnap.room.activeResyncId == 0 &&
                                clientSnap.room.activeResyncId == 0;
                     }, options.startupTimeoutSteps, 5u)) {
@@ -1898,22 +1898,22 @@ private:
                 Settings::ExpansionDevice::NONE,
                 Settings::NesMultitapDevice::NONE,
                 Settings::FamicomMultitapDevice::NONE,
-                {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}
+                {ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::kPort2PlayerSlot}
             );
 
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
                     const auto clientSnap = clientPeer.runtime.uiSnapshot();
-                    return hostSnap.room.state == Netplay::SessionState::Running &&
-                           clientSnap.room.state == Netplay::SessionState::Running &&
+                    return hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                           clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
                            clientSnap.room.activeResyncId == 0 &&
-                           hostSnap.room.port1Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER) &&
-                           hostSnap.room.port2Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::ZAPPER) &&
-                           clientSnap.room.port1Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER) &&
-                           clientSnap.room.port2Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::ZAPPER) &&
-                           participantHasAssignments(hostSnap.room, *hostId, {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}) &&
-                           participantHasAssignments(clientSnap.room, *hostId, {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}) &&
+                           hostSnap.room.port1Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER) &&
+                           hostSnap.room.port2Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::ZAPPER) &&
+                           clientSnap.room.port1Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::CONTROLLER) &&
+                           clientSnap.room.port2Device == std::optional<ConsoleNetplay::PortDevice>(ConsoleNetplay::PortDevice::ZAPPER) &&
+                           participantHasAssignments(hostSnap.room, *hostId, {ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::kPort2PlayerSlot}) &&
+                           participantHasAssignments(clientSnap.room, *hostId, {ConsoleNetplay::kPort1PlayerSlot, ConsoleNetplay::kPort2PlayerSlot}) &&
                            localAssignedSlot(clientSnap.room, clientSnap.localParticipantId) == std::nullopt;
                 }, options.startupTimeoutSteps, 5u)) {
                 failureReason = "Timed out waiting for host controller+zapper observer scenario to settle.";
@@ -1938,8 +1938,8 @@ private:
                            clientParticipant != nullptr &&
                            hostParticipant->controllerAssignment == 0 &&
                            clientParticipant->controllerAssignment == 1 &&
-                           hostSnap.room.state == Netplay::SessionState::Running &&
-                           clientSnap.room.state == Netplay::SessionState::Running &&
+                           hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                           clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
                            clientSnap.room.activeResyncId == 0;
                 }, options.startupTimeoutSteps, 5u)) {
@@ -1996,7 +1996,7 @@ private:
         uint32_t observerVisibilitySuspendHostFrame = 0;
         const auto performRuntimeReconnect = [&](const char* triggerDescription) -> bool {
             const auto clientBeforeDisconnect = clientPeer.runtime.uiSnapshot();
-            const Netplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
+            const ConsoleNetplay::ParticipantId previousLocalParticipantId = clientBeforeDisconnect.localParticipantId;
             const auto previousHostViewClientId = findParticipantIdByName(hostPeer.runtime.uiSnapshot().room, clientPeer.name);
             const uint32_t reconnectWaitSteps =
                 options.reconnectDuringResync
@@ -2014,9 +2014,9 @@ private:
                             ? findParticipantInRoom(hostSnap.room, *hostClientId)
                             : nullptr;
                     const bool hostSessionAlive =
-                        hostSnap.room.state == Netplay::SessionState::Paused ||
-                        hostSnap.room.state == Netplay::SessionState::Running ||
-                        hostSnap.room.state == Netplay::SessionState::Resyncing;
+                        hostSnap.room.state == ConsoleNetplay::SessionState::Paused ||
+                        hostSnap.room.state == ConsoleNetplay::SessionState::Running ||
+                        hostSnap.room.state == ConsoleNetplay::SessionState::Resyncing;
                     const bool reservationObserved =
                         hostClientId.has_value() &&
                         reservedParticipant != nullptr &&
@@ -2084,8 +2084,8 @@ private:
                            !hostClientParticipant->reconnectReserved &&
                            clientLocalParticipant != nullptr &&
                            (assignmentRestored || options.reconnectDuringResync) &&
-                           hostSnap.room.state == Netplay::SessionState::Running &&
-                           clientSnap.room.state == Netplay::SessionState::Running &&
+                           hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                           clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
                            clientSnap.room.activeResyncId == 0;
                 }, reconnectWaitSteps, 5u)) {
@@ -2167,10 +2167,10 @@ private:
                 std::max<uint32_t>(1u, clientPeer.emu.getRegionFPS())
             );
             const bool hostInRecoveryWindow =
-                hostLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                hostLoopSnapshot.room.state == ConsoleNetplay::SessionState::Resyncing ||
                 hostLoopSnapshot.room.activeResyncId != 0u;
             const bool clientInRecoveryWindow =
-                clientLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                clientLoopSnapshot.room.state == ConsoleNetplay::SessionState::Resyncing ||
                 clientLoopSnapshot.room.activeResyncId != 0u;
             if(options.clientRuntimePauseAfterFrames > 0 &&
                !clientRuntimePauseTriggered &&
@@ -2257,11 +2257,11 @@ private:
                         return hostParticipant != nullptr &&
                                clientParticipantHostView != nullptr &&
                                clientLocalParticipant != nullptr &&
-                               hostParticipant->controllerAssignment == Netplay::kPort2PlayerSlot &&
-                               clientParticipantHostView->controllerAssignment == Netplay::kPort1PlayerSlot &&
-                               clientLocalParticipant->controllerAssignment == Netplay::kPort1PlayerSlot &&
-                               hostSwapSnap.room.state == Netplay::SessionState::Running &&
-                               clientSwapSnap.room.state == Netplay::SessionState::Running &&
+                               hostParticipant->controllerAssignment == ConsoleNetplay::kPort2PlayerSlot &&
+                               clientParticipantHostView->controllerAssignment == ConsoleNetplay::kPort1PlayerSlot &&
+                               clientLocalParticipant->controllerAssignment == ConsoleNetplay::kPort1PlayerSlot &&
+                               hostSwapSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                               clientSwapSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                hostSwapSnap.room.activeResyncId == 0 &&
                                clientSwapSnap.room.activeResyncId == 0;
                     }, options.startupTimeoutSteps, 5u)) {
@@ -2378,13 +2378,13 @@ private:
                clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.forceManualResyncFrame) {
                 if(options.dropClientIncomingResyncChunkMessages > 0u) {
                     clientPeer.runtime.injectDropNextIncomingMessages(
-                        Netplay::MessageType::ResyncChunk,
+                        ConsoleNetplay::MessageType::ResyncChunk,
                         options.dropClientIncomingResyncChunkMessages
                     );
                 }
                 if(options.dropClientIncomingResyncCompleteMessages > 0u) {
                     clientPeer.runtime.injectDropNextIncomingMessages(
-                        Netplay::MessageType::ResyncComplete,
+                        ConsoleNetplay::MessageType::ResyncComplete,
                         options.dropClientIncomingResyncCompleteMessages
                     );
                 }
@@ -2441,8 +2441,8 @@ private:
                     hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.hostManualLoadStateFrames[hostManualLoadTriggerIndex] &&
                     clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.hostManualLoadStateFrames[hostManualLoadTriggerIndex];
                 const bool activeResyncObserved =
-                    hostLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
-                    clientLoopSnapshot.room.state == Netplay::SessionState::Resyncing ||
+                    hostLoopSnapshot.room.state == ConsoleNetplay::SessionState::Resyncing ||
+                    clientLoopSnapshot.room.state == ConsoleNetplay::SessionState::Resyncing ||
                     hostLoopSnapshot.room.activeResyncId != 0u ||
                     clientLoopSnapshot.room.activeResyncId != 0u ||
                     (manualResyncObserved && !manualResyncCompleted);
@@ -2501,8 +2501,8 @@ private:
                                            clientPeer.generator,
                                            probeStartFrame,
                                            probeEndFrame,
-                                           Netplay::kPort2PlayerSlot,
-                                           Netplay::kPort1PlayerSlot,
+                                           ConsoleNetplay::kPort2PlayerSlot,
+                                           ConsoleNetplay::kPort1PlayerSlot,
                                            options,
                                            true) &&
                     peerHasBufferedPattern(clientPeer,
@@ -2510,8 +2510,8 @@ private:
                                            clientPeer.generator,
                                            probeStartFrame,
                                            probeEndFrame,
-                                           Netplay::kPort2PlayerSlot,
-                                           Netplay::kPort1PlayerSlot,
+                                           ConsoleNetplay::kPort2PlayerSlot,
+                                           ConsoleNetplay::kPort1PlayerSlot,
                                            options,
                                            true);
             }
@@ -2529,7 +2529,7 @@ private:
                     !clientSnap.connected &&
                     !clientSnap.reconnecting;
                 const bool roomClosedObserved =
-                    clientSnap.room.state == Netplay::SessionState::Ended ||
+                    clientSnap.room.state == ConsoleNetplay::SessionState::Ended ||
                     clientSnap.room.participants.empty();
                 if(clientDisconnectedNoReconnect && roomClosedObserved) {
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
@@ -2575,12 +2575,12 @@ private:
                manualResyncObserved &&
                !manualResyncCompleted &&
                !reconnectTriggered &&
-               (hostSnap.room.state == Netplay::SessionState::Resyncing ||
-                clientSnap.room.state == Netplay::SessionState::Resyncing ||
+               (hostSnap.room.state == ConsoleNetplay::SessionState::Resyncing ||
+                clientSnap.room.state == ConsoleNetplay::SessionState::Resyncing ||
                 hostSnap.room.activeResyncId != 0u ||
                 clientSnap.room.activeResyncId != 0u ||
-                hostSnap.room.state == Netplay::SessionState::Running ||
-                clientSnap.room.state == Netplay::SessionState::Running)) {
+                hostSnap.room.state == ConsoleNetplay::SessionState::Running ||
+                clientSnap.room.state == ConsoleNetplay::SessionState::Running)) {
                 if(!performRuntimeReconnect("disconnect during active or just-observed resync")) {
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.exitCode = RESULT_FAILED;
@@ -2592,8 +2592,8 @@ private:
             if(manualResyncTriggered &&
                manualResyncObserved &&
                !manualResyncCompleted &&
-               hostSnap.room.state == Netplay::SessionState::Running &&
-               clientSnap.room.state == Netplay::SessionState::Running &&
+               hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+               clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                hostSnap.room.activeResyncId == 0u &&
                clientSnap.room.activeResyncId == 0u) {
                 manualResyncCompleted = true;
@@ -2803,7 +2803,7 @@ private:
                 }
                 if(options.hostDisconnectFrame > 0 &&
                    !((!clientSnap.connected && !clientSnap.reconnecting) &&
-                     (clientSnap.room.state == Netplay::SessionState::Ended ||
+                     (clientSnap.room.state == ConsoleNetplay::SessionState::Ended ||
                       clientSnap.room.participants.empty()))) {
                     ++hostDisconnectCompletionWaitSteps;
                     if(hostDisconnectCompletionWaitSteps >= hostDisconnectCompletionWaitLimit) {
@@ -2957,8 +2957,8 @@ private:
             const bool connected =
                 hostPeer.coordinator.isConnected() &&
                 clientPeer.coordinator.isConnected() &&
-                hostPeer.coordinator.localParticipantId() != Netplay::kInvalidParticipantId &&
-                clientPeer.coordinator.localParticipantId() != Netplay::kInvalidParticipantId &&
+                hostPeer.coordinator.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+                clientPeer.coordinator.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
                 hostPeer.coordinator.session().roomState().participants.size() >= 2 &&
                 clientPeer.coordinator.session().roomState().participants.size() >= 2;
             if(connected) {
@@ -3004,8 +3004,8 @@ private:
             if(allCompatible) break;
         }
 
-        const Netplay::ParticipantId hostId = hostPeer.coordinator.localParticipantId();
-        const Netplay::ParticipantId clientId = clientPeer.coordinator.localParticipantId();
+        const ConsoleNetplay::ParticipantId hostId = hostPeer.coordinator.localParticipantId();
+        const ConsoleNetplay::ParticipantId clientId = clientPeer.coordinator.localParticipantId();
         hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(options.inputDelayFrames));
         hostPeer.coordinator.setPredictFrames(static_cast<uint8_t>(options.predictFrames));
         hostPeer.driver.setPrebufferFrames(options.inputDelayFrames);
@@ -3021,8 +3021,8 @@ private:
             const auto clientSlot = localAssignedSlot(clientPeer.coordinator);
             if(hostAssigned &&
                clientAssigned &&
-               hostSlot == std::optional<Netplay::PlayerSlot>(0) &&
-               clientSlot == std::optional<Netplay::PlayerSlot>(1)) {
+               hostSlot == std::optional<ConsoleNetplay::PlayerSlot>(0) &&
+               clientSlot == std::optional<ConsoleNetplay::PlayerSlot>(1)) {
                 hostPeer.coordinator.setLocalSimulationFrame(hostPeer.emu.exactEmulationFrame());
                 clientPeer.coordinator.setLocalSimulationFrame(clientPeer.emu.exactEmulationFrame());
                 if(!hostPeer.coordinator.startSession()) {
@@ -3041,8 +3041,8 @@ private:
                     processAppPendingResync(hostPeer);
                     processAppPendingResync(clientPeer);
                     pumpCoordinators(hostPeer, clientPeer, 1);
-                    if(hostPeer.coordinator.session().roomState().state == Netplay::SessionState::Running &&
-                       clientPeer.coordinator.session().roomState().state == Netplay::SessionState::Running) {
+                    if(hostPeer.coordinator.session().roomState().state == ConsoleNetplay::SessionState::Running &&
+                       clientPeer.coordinator.session().roomState().state == ConsoleNetplay::SessionState::Running) {
                         return true;
                     }
                 }
@@ -3061,7 +3061,7 @@ private:
                                       uint32_t dtMs,
                                       bool swapped)
     {
-        const std::optional<Netplay::PlayerSlot> slot = localAssignedSlot(peer.coordinator);
+        const std::optional<ConsoleNetplay::PlayerSlot> slot = localAssignedSlot(peer.coordinator);
         uint64_t localPrimaryMask = 0;
         if(slot.has_value()) {
             const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
@@ -3086,7 +3086,7 @@ private:
 
     static void processAppPendingResync(AppPeerState& peer)
     {
-        std::optional<Netplay::NetplayCoordinator::PendingResyncApply> pending = peer.coordinator.consumePendingResyncApply();
+        std::optional<ConsoleNetplay::NetplayCoordinator::PendingResyncApply> pending = peer.coordinator.consumePendingResyncApply();
         if(!pending.has_value()) return;
 
         const bool loaded =
@@ -3118,7 +3118,7 @@ private:
 
     static void processAppRollback(AppPeerState& peer)
     {
-        std::optional<Netplay::FrameNumber> rollbackFrame = peer.coordinator.consumePendingRollbackFrame();
+        std::optional<ConsoleNetplay::FrameNumber> rollbackFrame = peer.coordinator.consumePendingRollbackFrame();
         if(!rollbackFrame.has_value()) {
             return;
         }
@@ -3140,14 +3140,14 @@ private:
         peer.coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
         if(!peer.emu.resimulateToFrame(currentFrame, [&](uint32_t frame) {
             EmulationHost::ReplayFrameInput replayInput{};
-            Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
             if(!peer.coordinator.tryBuildPlaybackFrame(frame, frame > peer.coordinator.latestConfirmedFrame(), playbackFrame)) {
                 return replayInput;
             }
             replayInput.hasFrameOverride = true;
-            replayInput.frameOverride = Netplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
+            replayInput.frameOverride = ConsoleNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
             replayInput.frameOverride.frame = frame;
-            Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
+            ConsoleNetplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
             replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {
@@ -3162,18 +3162,18 @@ private:
     {
         if(!peer.coordinator.isHosting()) return;
 
-        std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pending = peer.coordinator.consumePendingHostResyncFrame();
+        std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pending = peer.coordinator.consumePendingHostResyncFrame();
         if(!pending.has_value() || !peer.emu.valid()) return;
 
         const bool initialSessionSync =
-            peer.coordinator.session().roomState().state == Netplay::SessionState::Starting;
-        const Netplay::FrameNumber emuFrame = peer.emu.exactEmulationFrame();
-        const Netplay::FrameNumber requestedFrame =
+            peer.coordinator.session().roomState().state == ConsoleNetplay::SessionState::Starting;
+        const ConsoleNetplay::FrameNumber emuFrame = peer.emu.exactEmulationFrame();
+        const ConsoleNetplay::FrameNumber requestedFrame =
             initialSessionSync
                 ? emuFrame
                 : pending->frame;
-        const Netplay::FrameNumber authoritativeFrame =
-            std::min<Netplay::FrameNumber>(requestedFrame, emuFrame);
+        const ConsoleNetplay::FrameNumber authoritativeFrame =
+            std::min<ConsoleNetplay::FrameNumber>(requestedFrame, emuFrame);
 
         const std::optional<std::shared_ptr<const std::vector<uint8_t>>> confirmedSnapshot =
             initialSessionSync ? std::nullopt : peer.emu.netplaySnapshotForFrame(authoritativeFrame);
@@ -3328,9 +3328,9 @@ private:
     {
         if(!peer.coordinator.isHosting()) return false;
         if(!peer.emu.valid()) return false;
-        if(peer.coordinator.session().roomState().state != Netplay::SessionState::Starting) return false;
+        if(peer.coordinator.session().roomState().state != ConsoleNetplay::SessionState::Starting) return false;
 
-        const Netplay::FrameNumber authoritativeFrame = peer.emu.exactEmulationFrame();
+        const ConsoleNetplay::FrameNumber authoritativeFrame = peer.emu.exactEmulationFrame();
         const std::vector<uint8_t> statePayload = peer.emu.saveNetplayStateToMemory();
         if(statePayload.empty()) return false;
 
@@ -3610,11 +3610,11 @@ private:
                     hostParticipant != nullptr &&
                     clientParticipantHostView != nullptr &&
                     clientLocalParticipant != nullptr &&
-                    hostParticipant->controllerAssignment == Netplay::kPort2PlayerSlot &&
-                    clientParticipantHostView->controllerAssignment == Netplay::kPort1PlayerSlot &&
-                    clientLocalParticipant->controllerAssignment == Netplay::kPort1PlayerSlot &&
-                    hostRoom.state == Netplay::SessionState::Running &&
-                    clientRoom.state == Netplay::SessionState::Running &&
+                    hostParticipant->controllerAssignment == ConsoleNetplay::kPort2PlayerSlot &&
+                    clientParticipantHostView->controllerAssignment == ConsoleNetplay::kPort1PlayerSlot &&
+                    clientLocalParticipant->controllerAssignment == ConsoleNetplay::kPort1PlayerSlot &&
+                    hostRoom.state == ConsoleNetplay::SessionState::Running &&
+                    clientRoom.state == ConsoleNetplay::SessionState::Running &&
                     hostRoom.activeResyncId == 0 &&
                     clientRoom.activeResyncId == 0;
             }
@@ -3628,8 +3628,8 @@ private:
                                            clientPeer.generator,
                                            probeStartFrame,
                                            probeEndFrame,
-                                           Netplay::kPort2PlayerSlot,
-                                           Netplay::kPort1PlayerSlot,
+                                           ConsoleNetplay::kPort2PlayerSlot,
+                                           ConsoleNetplay::kPort1PlayerSlot,
                                            options,
                                            true) &&
                     peerHasBufferedPattern(clientPeer,
@@ -3637,8 +3637,8 @@ private:
                                            clientPeer.generator,
                                            probeStartFrame,
                                            probeEndFrame,
-                                           Netplay::kPort2PlayerSlot,
-                                           Netplay::kPort1PlayerSlot,
+                                           ConsoleNetplay::kPort2PlayerSlot,
+                                           ConsoleNetplay::kPort1PlayerSlot,
                                            options,
                                            true);
             }
@@ -3743,13 +3743,13 @@ private:
     static RunArtifacts runAutoSettingsProbe(const Options& /*options*/)
     {
         RunArtifacts result;
-        Netplay::NetplayAutoTune autoSettings;
+        ConsoleNetplay::NetplayAutoTune autoSettings;
         autoSettings.setEnabled(true);
 
-        auto makeParticipant = [](Netplay::ParticipantId id,
-                                  Netplay::PlayerSlot slot,
+        auto makeParticipant = [](ConsoleNetplay::ParticipantId id,
+                                  ConsoleNetplay::PlayerSlot slot,
                                   uint16_t jitterMs) {
-            Netplay::ParticipantInfo participant;
+            ConsoleNetplay::ParticipantInfo participant;
             participant.id = id;
             participant.connected = true;
             participant.romLoaded = true;
@@ -3759,7 +3759,7 @@ private:
             return participant;
         };
 
-        Netplay::RoomState room;
+        ConsoleNetplay::RoomState room;
         room.sessionId = 1;
         room.timelineEpoch = 1;
         room.inputDelayFrames = 0;
@@ -3769,13 +3769,13 @@ private:
             makeParticipant(1, 1, 20)
         };
 
-        Netplay::RollbackStats stats;
+        ConsoleNetplay::RollbackStats stats;
         constexpr uint32_t fps = 60;
         nlohmann::json scenarios = nlohmann::json::array();
 
         auto appendScenario = [&](const std::string& name,
-                                  const Netplay::NetplayAutoTune::Recommendations& recommendations,
-                                  const Netplay::NetplayAutoTune::Snapshot& snapshot) {
+                                  const ConsoleNetplay::NetplayAutoTune::Recommendations& recommendations,
+                                  const ConsoleNetplay::NetplayAutoTune::Snapshot& snapshot) {
             scenarios.push_back({
                 {"scenario", name},
                 {"recommendedDelay", recommendations.inputDelayFrames.has_value()
@@ -3792,7 +3792,7 @@ private:
             });
         };
 
-        room.state = Netplay::SessionState::ReadyCheck;
+        room.state = ConsoleNetplay::SessionState::ReadyCheck;
         auto preSession = autoSettings.update(room, stats, 0, fps);
         appendScenario("pre_session_jitter_bootstrap", preSession, autoSettings.snapshot());
         if(!preSession.inputDelayFrames.has_value() || *preSession.inputDelayFrames != 3u ||
@@ -3808,7 +3808,7 @@ private:
 
         room.inputDelayFrames = *preSession.inputDelayFrames;
         room.predictFrames = *preSession.predictFrames;
-        room.state = Netplay::SessionState::Running;
+        room.state = ConsoleNetplay::SessionState::Running;
         room.currentFrame = 100;
         auto warmup = autoSettings.update(room, stats, 0, fps);
         appendScenario("running_window_init", warmup, autoSettings.snapshot());
@@ -3937,8 +3937,8 @@ private:
                 hostPeer.coordinator.recordLocalInputFrame(frame, *hostSlot, hostMask);
                 clientPeer.coordinator.recordLocalInputFrame(frame, *clientSlot, clientMask);
 
-                Netplay::NetplayCoordinator::ConfirmedFrameInputs hostPlayback;
-                Netplay::NetplayCoordinator::ConfirmedFrameInputs clientPlayback;
+                ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs hostPlayback;
+                ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs clientPlayback;
                 if(!hostPeer.coordinator.tryBuildPlaybackFrame(frame, true, hostPlayback) ||
                    !clientPeer.coordinator.tryBuildPlaybackFrame(frame, true, clientPlayback)) {
                     failureReason = "Failed to build predicted playback frame " + std::to_string(frame) + ".";

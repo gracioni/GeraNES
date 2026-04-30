@@ -4,12 +4,12 @@
 
 #include "GeraNES/InputBuffer.h"
 #include "GeraNES/Settings.h"
-#include "GeraNESNetplay/NetplayInputFrame.h"
-#include "GeraNESNetplay/NetplayInputState.h"
-#include "GeraNESNetplay/NetSession.h"
-#include "GeraNESNetplay/NetplayTopology.h"
+#include "ConsoleNetplay/NetplayInputFrame.h"
+#include "ConsoleNetplay/NetplayInputState.h"
+#include "ConsoleNetplay/NetSession.h"
+#include "ConsoleNetplay/NetplayTopology.h"
 
-namespace Netplay {
+namespace ConsoleNetplay {
 
 inline PortDevice toNetplayPortDevice(Settings::Device device)
 {
@@ -87,4 +87,4 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
 uint64_t assignedContributionPrimaryMask(PlayerSlot slot, const InputFrame& contribution);
 void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputFrame& contribution);
 
-} // namespace Netplay
+} // namespace ConsoleNetplay

@@ -5,7 +5,7 @@
 
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 
-namespace Netplay
+namespace ConsoleNetplay
 {
 
 namespace {
@@ -682,4 +682,4 @@ void ConfirmedInputBufferDriver::queuePendingFramesToEmu(GeraNESEmu& emu)
     }
 }
 
-} // namespace Netplay
+} // namespace ConsoleNetplay

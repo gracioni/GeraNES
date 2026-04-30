@@ -91,8 +91,8 @@ bool GeraNESApp::canUseNetplaySessionPause() const
     const auto snapshot = m_netplayRuntime.uiSnapshot();
     return snapshot.active &&
            snapshot.hosting &&
-           (snapshot.room.state == Netplay::SessionState::Running ||
-            snapshot.room.state == Netplay::SessionState::Paused);
+           (snapshot.room.state == ConsoleNetplay::SessionState::Running ||
+            snapshot.room.state == ConsoleNetplay::SessionState::Paused);
 }
 
 bool GeraNESApp::isNetplayPauseRestricted() const
@@ -707,20 +707,20 @@ void GeraNESApp::syncSettings()
     m_emu.enableOverclock(cfg.improvements.overclock);
     m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.rollbackWindowFrames));
     m_netplayRuntime.setLocalReconnectToken(0);
-    const auto availableBackends = Netplay::availableNetTransportBackends();
-    Netplay::NetTransportBackend configuredBackend = static_cast<Netplay::NetTransportBackend>(std::clamp(cfg.netplay.transportBackend, 0, 1));
+    const auto availableBackends = ConsoleNetplay::availableNetTransportBackends();
+    ConsoleNetplay::NetTransportBackend configuredBackend = static_cast<ConsoleNetplay::NetTransportBackend>(std::clamp(cfg.netplay.transportBackend, 0, 1));
     if(std::find(availableBackends.begin(), availableBackends.end(), configuredBackend) == availableBackends.end()) {
-        configuredBackend = Netplay::defaultNetTransportBackend();
+        configuredBackend = ConsoleNetplay::defaultNetTransportBackend();
         cfg.netplay.transportBackend = static_cast<int>(configuredBackend);
     }
-    Netplay::NetTransportOptions transportOptions;
+    ConsoleNetplay::NetTransportOptions transportOptions;
 #ifdef __EMSCRIPTEN__
     cfg.netplay.useEmbeddedSignalingServer = false;
 #endif
     transportOptions.useEmbeddedWebRtcSignalingServer = cfg.netplay.useEmbeddedSignalingServer;
     transportOptions.embeddedWebRtcSignalingPort =
         static_cast<uint16_t>(std::clamp(cfg.netplay.embeddedSignalingPort, 1, 65535));
-    transportOptions.webRtcSignaling = Netplay::WebRtcSignalingConfig{
+    transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
         cfg.netplay.signalingUrl,
         cfg.netplay.signalingRoomId,
         cfg.netplay.signalingPassword
@@ -1633,23 +1633,23 @@ void GeraNESApp::pollAndPrepareInput()
             im.isPressed(m_systemInput.speed)
         );
         m_netplayRuntime.updateLatestInputState(inputState);
-        const uint64_t p1RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+        const uint64_t p1RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
             p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart,
             p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,
             p1X, p1Y, p1PrimaryL, p1PrimaryR,
             p1Up2, p1Down2, p1Left2, p1Right2
         );
-        const uint64_t p2RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+        const uint64_t p2RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
             p2PrimaryA, p2PrimaryB, p2PrimarySelect, p2PrimaryStart,
             p2PrimaryUp, p2PrimaryDown, p2PrimaryLeft, p2PrimaryRight,
             p2X, p2Y, p2PrimaryL, p2PrimaryR,
             p2Up2, p2Down2, p2Left2, p2Right2
         );
-        const uint64_t p3RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+        const uint64_t p3RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
             p3A, p3B, p3Select, p3Start,
             p3Up, p3Down, p3Left, p3Right
         );
-        const uint64_t p4RawMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(
+        const uint64_t p4RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
             p4A, p4B, p4Select, p4Start,
             p4Up, p4Down, p4Left, p4Right
         );

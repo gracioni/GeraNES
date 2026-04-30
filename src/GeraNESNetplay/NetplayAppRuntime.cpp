@@ -5,9 +5,9 @@
 #include <sstream>
 
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/NetplayCrc32.h"
+#include "ConsoleNetplay/NetplayCrc32.h"
 
-namespace Netplay {
+namespace ConsoleNetplay {
 
 namespace {
 
@@ -2296,4 +2296,4 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
 
     updateUiSnapshot(localRom);
 }
-} // namespace Netplay
+} // namespace ConsoleNetplay

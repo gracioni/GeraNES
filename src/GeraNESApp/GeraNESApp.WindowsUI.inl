@@ -146,7 +146,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showNetplayWindow) {
-        Netplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, viewportCenter);
+        ConsoleNetplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, viewportCenter);
     }
 
     if(m_showRomDatabaseWindow) {
