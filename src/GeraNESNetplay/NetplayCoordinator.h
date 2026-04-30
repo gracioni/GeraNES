@@ -10,12 +10,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "GeraNES/InputBuffer.h"
-#include "GeraNES/Settings.h"
 #include "DesyncMonitor.h"
 #include "RemoteInputStallMonitor.h"
 #include "InputTimeline.h"
 #include "Diagnostics.h"
+#include "NetplayInputFrame.h"
 #include "NetSerialization.h"
 #include "NetSession.h"
 #include "NetTransport.h"
@@ -64,7 +63,7 @@ public:
         uint64_t authoritativeFrameStartClockMicros = 0;
         std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
         std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
-        InputFrame inputFrame = {};
+        NetplayInputFrame netplayFrame = {};
         bool predicted = false;
     };
 
@@ -351,11 +350,11 @@ public:
     static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
     FrameNumber latestPredictedRemoteFrame() const;
-    void setRoomInputTopology(std::optional<Settings::Device> port1Device,
-                              std::optional<Settings::Device> port2Device,
-                              Settings::ExpansionDevice expansionDevice,
-                              Settings::NesMultitapDevice nesMultitapDevice,
-                              Settings::FamicomMultitapDevice famicomMultitapDevice,
+    void setRoomInputTopology(std::optional<PortDevice> port1Device,
+                              std::optional<PortDevice> port2Device,
+                              ExpansionDevice expansionDevice,
+                              NesMultitapDevice nesMultitapDevice,
+                              FamicomMultitapDevice famicomMultitapDevice,
                               std::optional<ParticipantId> preservedParticipantId = std::nullopt,
                               PlayerSlot preservedAssignment = kObserverPlayerSlot);
 
@@ -385,7 +384,7 @@ public:
     void setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs);
     void setLocalEmulatorVersionForTests(const std::string& version);
     void simulateTransportFailureForTests();
-    bool injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution);
+    bool injectInputFrameForTests(const InputFrameData& input, const NetplayInputFrame& contribution);
     bool injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data);
     bool injectConfirmedPlaybackFramesForTests(const ConfirmedInputFramesData& data,
                                                const std::vector<ConfirmedFrameInputs>& frames);
@@ -423,7 +422,7 @@ public:
     uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     FrameNumber authoritativeResyncTargetFrame() const;
     uint8_t predictFrames() const;
-    void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution);
+    void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const NetplayInputFrame& contribution);
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
     void predictRemoteInputsForFrame(FrameNumber frame);
     bool tryBuildPlaybackFrame(FrameNumber frame,

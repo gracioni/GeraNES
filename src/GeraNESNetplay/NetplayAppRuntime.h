@@ -158,6 +158,8 @@ private:
     FrameNumber m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
     FrameNumber m_postRecoveryRapidCrcThroughFrame = 0;
     FrameNumber m_lastRollbackTargetFrame = 0;
+    FrameNumber m_lastMissingRollbackSnapshotFrame = 0;
+    FrameNumber m_lastMissingRollbackSnapshotLocalFrame = 0;
     FrameNumber m_lastLoadedAuthoritativeFrame = 0;
     FrameNumber m_lastRecoveryReanchorFrame = 0;
     FrameNumber m_sharedClockLagOverBudgetSinceFrame = 0;

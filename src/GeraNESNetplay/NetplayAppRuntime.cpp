@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "GeraNES/util/Crc32.h"
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 
 namespace Netplay {
 
@@ -586,6 +587,8 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(GeraNESEmu& emu)
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
         m_postRecoveryRapidCrcThroughFrame = 0;
         m_lastRollbackTargetFrame = 0;
+        m_lastMissingRollbackSnapshotFrame = 0;
+        m_lastMissingRollbackSnapshotLocalFrame = 0;
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
@@ -1162,7 +1165,7 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(GeraNESEmu& emu
             break;
         }
 
-        InputFrame inputFrame = playbackFrame.inputFrame;
+        InputFrame inputFrame = toGeraNESInputFrame(playbackFrame.netplayFrame);
         inputFrame.speculative = false;
         inputFrame.timelineEpoch = emu.inputTimelineEpoch();
         const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
@@ -1224,14 +1227,6 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         return;
     }
 
-    const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshotData =
-        m_emuHost.netplaySnapshotForFrame(*rollbackFrame);
-    if(!snapshotData.has_value()) {
-        m_coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
-        return;
-    }
-
-    const uint32_t rollbackFromFrame = currentFrame;
     const auto requestRollbackRecoveryResync = [&](const std::string& message, uint16_t requestFlags = 0u) {
         m_coordinator.appendNetplayLog(message);
         if(m_coordinator.isHosting()) {
@@ -1250,6 +1245,64 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
         (void)m_coordinator.requestHostResync(request);
     };
 
+    const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshotData =
+        m_emuHost.netplaySnapshotForFrame(*rollbackFrame);
+    if(!snapshotData.has_value()) {
+        const bool shouldLog =
+            m_lastMissingRollbackSnapshotFrame != *rollbackFrame ||
+            m_lastMissingRollbackSnapshotLocalFrame != currentFrame;
+        m_lastMissingRollbackSnapshotFrame = *rollbackFrame;
+        m_lastMissingRollbackSnapshotLocalFrame = currentFrame;
+
+        if(m_coordinator.isHosting()) {
+            const std::vector<uint8_t> statePayload =
+                buildAuthoritativeStatePayload(emu, currentFrame, false);
+            if(beginAuthoritativeResyncWithoutLocalReload(
+                   emu,
+                   currentFrame,
+                   statePayload,
+                   false,
+                   ResyncReason::ConfirmedDesync
+               )) {
+                if(shouldLog) {
+                    m_coordinator.appendNetplayLog(
+                        "Netplay rollback snapshot unavailable; started authoritative resync at frame " +
+                        std::to_string(currentFrame) +
+                        " instead of rollback to frame " +
+                        std::to_string(*rollbackFrame)
+                    );
+                }
+            } else if(shouldLog) {
+                m_coordinator.appendNetplayLog(
+                    "Netplay rollback failed: snapshot unavailable for frame " +
+                    std::to_string(*rollbackFrame)
+                );
+            }
+            return;
+        }
+
+        if(shouldLog) {
+            requestRollbackRecoveryResync(
+                "Netplay rollback failed: snapshot unavailable for frame " +
+                std::to_string(*rollbackFrame),
+                kResyncRequestFlagRollbackReplayBuildFailure
+            );
+        } else {
+            ResyncRequestData request;
+            request.reason = ResyncReason::ConfirmedDesync;
+            request.localFrame = emu.frameCount();
+            request.estimatedHostFrame = 0;
+            request.confirmedThroughFrame = m_inputDriver.confirmedThroughFrame(m_coordinator);
+            request.lagFrames = 0;
+            request.catchupBudgetFrames = 0;
+            request.source = 2u;
+            request.flags = kResyncRequestFlagRollbackReplayBuildFailure;
+            (void)m_coordinator.requestHostResync(request);
+        }
+        return;
+    }
+
+    const uint32_t rollbackFromFrame = currentFrame;
     emu.loadStateFromMemoryWithAudioPolicy(
         **snapshotData,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
@@ -1313,7 +1366,7 @@ void NetplayAppRuntime::processRollbackIfNeededOnWorker(GeraNESEmu& emu)
             return;
         }
 
-        InputFrame inputFrame = playbackFrame.inputFrame;
+        InputFrame inputFrame = toGeraNESInputFrame(playbackFrame.netplayFrame);
         inputFrame.speculative = playbackFrame.predicted;
         inputFrame.timelineEpoch = emu.inputTimelineEpoch();
         const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
@@ -1460,9 +1513,9 @@ bool NetplayAppRuntime::tryBuildPlaybackReplayFrame(uint32_t frame, IEmulationHo
     outFrame = {};
     outFrame.speculative = playbackFrame.predicted;
     outFrame.hasFrameOverride = true;
-    outFrame.frameOverride = playbackFrame.inputFrame;
+    outFrame.frameOverride = toGeraNESInputFrame(playbackFrame.netplayFrame);
     outFrame.frameOverride.frame = frame;
-    ConfirmedInputBufferDriver::applyInputFrameToInputState(outFrame.state, playbackFrame.inputFrame);
+    ConfirmedInputBufferDriver::applyInputFrameToInputState(outFrame.state, outFrame.frameOverride);
     return true;
 }
 
@@ -1527,7 +1580,7 @@ bool NetplayAppRuntime::tryQueuePlaybackFrameToEmu(GeraNESEmu& emu, uint32_t fra
         return true;
     }
 
-    InputFrame inputFrame = playbackFrame.inputFrame;
+    InputFrame inputFrame = toGeraNESInputFrame(playbackFrame.netplayFrame);
     inputFrame.speculative = playbackFrame.predicted;
     inputFrame.timelineEpoch = emu.inputTimelineEpoch();
     const InputBuffer::EnqueueResult enqueueResult = emu.queueInputFrame(inputFrame);
@@ -1670,11 +1723,11 @@ NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
     snapshot.hosting = m_uiSnapshot.hosting;
     snapshot.inputManaged = m_uiSnapshot.active && m_uiSnapshot.connected;
     snapshot.transportBackend = m_uiSnapshot.transportBackend;
-    snapshot.port1Device = m_uiSnapshot.room.port1Device;
-    snapshot.port2Device = m_uiSnapshot.room.port2Device;
-    snapshot.expansionDevice = m_uiSnapshot.room.expansionDevice;
-    snapshot.nesMultitapDevice = m_uiSnapshot.room.nesMultitapDevice;
-    snapshot.famicomMultitapDevice = m_uiSnapshot.room.famicomMultitapDevice;
+    snapshot.port1Device = toSettingsDevice(m_uiSnapshot.room.port1Device);
+    snapshot.port2Device = toSettingsDevice(m_uiSnapshot.room.port2Device);
+    snapshot.expansionDevice = toSettingsExpansionDevice(m_uiSnapshot.room.expansionDevice);
+    snapshot.nesMultitapDevice = toSettingsNesMultitapDevice(m_uiSnapshot.room.nesMultitapDevice);
+    snapshot.famicomMultitapDevice = toSettingsFamicomMultitapDevice(m_uiSnapshot.room.famicomMultitapDevice);
     if(snapshot.inputManaged) {
         for(const auto& participant : m_uiSnapshot.room.participants) {
             if(participant.id != m_uiSnapshot.localParticipantId) continue;
@@ -1897,11 +1950,11 @@ void NetplayAppRuntime::configureInputAssignments(ParticipantId participantId,
         emu.setPortDevice(Settings::Port::P_2, port2Device.value_or(Settings::Device::NONE));
         emu.setExpansionDevice(expansionDevice);
         self.m_coordinator.setRoomInputTopology(
-            port1Device,
-            port2Device,
-            expansionDevice,
-            nesMultitapDevice,
-            famicomMultitapDevice,
+            toNetplayPortDevice(port1Device),
+            toNetplayPortDevice(port2Device),
+            toNetplayExpansionDevice(expansionDevice),
+            toNetplayNesMultitapDevice(nesMultitapDevice),
+            toNetplayFamicomMultitapDevice(famicomMultitapDevice),
             participantId,
             preservedSlot
         );
@@ -2086,6 +2139,8 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
         m_nextScheduledLocalCrcFrame = kDesyncCrcIntervalFrames;
         m_postRecoveryRapidCrcThroughFrame = 0;
         m_lastRollbackTargetFrame = 0;
+        m_lastMissingRollbackSnapshotFrame = 0;
+        m_lastMissingRollbackSnapshotLocalFrame = 0;
         m_lastLoadedAuthoritativeFrame = 0;
         m_lastRecoveryReanchorFrame = 0;
         m_forceNextConfirmedCrcSubmission = false;
@@ -2118,12 +2173,34 @@ void NetplayAppRuntime::runOnEmulationThread(GeraNESEmu& emu)
     m_emuHost.setAllowPresenterTimeoutAdvance(false);
 
     const std::optional<RomSelection> localRom = captureCurrentRomSelection(emu);
+    const RoomState roomState = m_coordinator.session().roomState();
+    if(!m_coordinator.isHosting()) {
+        emu.setPortDevice(Settings::Port::P_1, toSettingsDevice(roomState.port1Device.value_or(PortDevice::NONE)));
+        emu.setPortDevice(Settings::Port::P_2, toSettingsDevice(roomState.port2Device.value_or(PortDevice::NONE)));
+        emu.setExpansionDevice(toSettingsExpansionDevice(roomState.expansionDevice));
+        emu.setNesMultitapDevice(toSettingsNesMultitapDevice(roomState.nesMultitapDevice));
+        emu.setFamicomMultitapDevice(toSettingsFamicomMultitapDevice(roomState.famicomMultitapDevice));
+    }
+    std::optional<PortDevice> port1Device = toNetplayPortDevice(emu.getPortDevice(Settings::Port::P_1));
+    std::optional<PortDevice> port2Device = toNetplayPortDevice(emu.getPortDevice(Settings::Port::P_2));
+    if(port1Device == std::optional<PortDevice>(PortDevice::NONE) && roomState.port1Device.has_value()) {
+        port1Device = roomState.port1Device;
+        if(m_coordinator.isHosting()) {
+            emu.setPortDevice(Settings::Port::P_1, toSettingsDevice(*port1Device));
+        }
+    }
+    if(port2Device == std::optional<PortDevice>(PortDevice::NONE) && roomState.port2Device.has_value()) {
+        port2Device = roomState.port2Device;
+        if(m_coordinator.isHosting()) {
+            emu.setPortDevice(Settings::Port::P_2, toSettingsDevice(*port2Device));
+        }
+    }
     m_coordinator.setRoomInputTopology(
-        emu.getPortDevice(Settings::Port::P_1),
-        emu.getPortDevice(Settings::Port::P_2),
-        emu.getExpansionDevice(),
-        emu.getNesMultitapDevice(),
-        emu.getFamicomMultitapDevice()
+        port1Device,
+        port2Device,
+        toNetplayExpansionDevice(emu.getExpansionDevice()),
+        toNetplayNesMultitapDevice(emu.getNesMultitapDevice()),
+        toNetplayFamicomMultitapDevice(emu.getFamicomMultitapDevice())
     );
     syncRomValidation(localRom);
     syncEmuInputTimelineEpoch(emu);

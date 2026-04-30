@@ -5,7 +5,7 @@
 #include <list>
 #include <unordered_map>
 
-#include "GeraNES/InputBuffer.h"
+#include "NetplayInputFrame.h"
 #include "NetProtocol.h"
 
 namespace Netplay {
@@ -17,7 +17,7 @@ struct TimelineInputEntry
     PlayerSlot playerSlot = kObserverPlayerSlot;
     uint64_t buttonMaskLo = 0;
     uint64_t buttonMaskHi = 0;
-    InputFrame inputFrame = {};
+    NetplayInputFrame netplayFrame = {};
     uint32_t sequence = 0;
     bool predicted = false;
     bool confirmed = false;

@@ -2,40 +2,42 @@
 
 #include <algorithm>
 
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
+
 namespace Netplay {
 
-const char* portDeviceLabel(Settings::Device device)
+const char* portDeviceLabel(PortDevice device)
 {
     switch(device) {
-        case Settings::Device::CONTROLLER: return "Standard Controller";
-        case Settings::Device::FAMICOM_CONTROLLER: return "Famicom Controller";
-        case Settings::Device::ZAPPER: return "Zapper";
-        case Settings::Device::ARKANOID_CONTROLLER: return "Arkanoid Controller";
-        case Settings::Device::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
-        case Settings::Device::SNES_MOUSE: return "SNES Mouse";
-        case Settings::Device::SNES_CONTROLLER: return "SNES Controller";
-        case Settings::Device::POWER_PAD_SIDE_A: return "Power Pad (Side A)";
-        case Settings::Device::POWER_PAD_SIDE_B: return "Power Pad (Side B)";
-        case Settings::Device::SUBOR_MOUSE: return "Subor Mouse";
-        case Settings::Device::VIRTUAL_BOY_CONTROLLER: return "Virtual Boy Controller";
-        case Settings::Device::NONE:
+        case PortDevice::CONTROLLER: return "Standard Controller";
+        case PortDevice::FAMICOM_CONTROLLER: return "Famicom Controller";
+        case PortDevice::ZAPPER: return "Zapper";
+        case PortDevice::ARKANOID_CONTROLLER: return "Arkanoid Controller";
+        case PortDevice::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
+        case PortDevice::SNES_MOUSE: return "SNES Mouse";
+        case PortDevice::SNES_CONTROLLER: return "SNES Controller";
+        case PortDevice::POWER_PAD_SIDE_A: return "Power Pad (Side A)";
+        case PortDevice::POWER_PAD_SIDE_B: return "Power Pad (Side B)";
+        case PortDevice::SUBOR_MOUSE: return "Subor Mouse";
+        case PortDevice::VIRTUAL_BOY_CONTROLLER: return "Virtual Boy Controller";
+        case PortDevice::NONE:
         default:
             return "None";
     }
 }
 
-const char* expansionDeviceLabel(Settings::ExpansionDevice device)
+const char* expansionDeviceLabel(ExpansionDevice device)
 {
     switch(device) {
-        case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM: return "Standard Controller (Famicom)";
-        case Settings::ExpansionDevice::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
-        case Settings::ExpansionDevice::KONAMI_HYPERSHOT: return "Konami Hyper Shot";
-        case Settings::ExpansionDevice::ARKANOID_CONTROLLER: return "Arkanoid Controller (Famicom)";
-        case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A: return "Family Trainer (Side A)";
-        case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B: return "Family Trainer (Side B)";
-        case Settings::ExpansionDevice::SUBOR_KEYBOARD: return "Subor Keyboard";
-        case Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD: return "Family Basic Keyboard";
-        case Settings::ExpansionDevice::NONE:
+        case ExpansionDevice::STANDARD_CONTROLLER_FAMICOM: return "Standard Controller (Famicom)";
+        case ExpansionDevice::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
+        case ExpansionDevice::KONAMI_HYPERSHOT: return "Konami Hyper Shot";
+        case ExpansionDevice::ARKANOID_CONTROLLER: return "Arkanoid Controller (Famicom)";
+        case ExpansionDevice::FAMILY_TRAINER_SIDE_A: return "Family Trainer (Side A)";
+        case ExpansionDevice::FAMILY_TRAINER_SIDE_B: return "Family Trainer (Side B)";
+        case ExpansionDevice::SUBOR_KEYBOARD: return "Subor Keyboard";
+        case ExpansionDevice::FAMILY_BASIC_KEYBOARD: return "Family Basic Keyboard";
+        case ExpansionDevice::NONE:
         default:
             return "None";
     }
@@ -63,9 +65,9 @@ std::string inputAssignmentLeafLabel(PlayerSlot slot, const RoomState& room)
 {
     switch(slot) {
         case kPort1PlayerSlot:
-            return portDeviceLabel(room.port1Device.value_or(Settings::Device::NONE));
+            return portDeviceLabel(room.port1Device.value_or(PortDevice::NONE));
         case kPort2PlayerSlot:
-            return portDeviceLabel(room.port2Device.value_or(Settings::Device::NONE));
+            return portDeviceLabel(room.port2Device.value_or(PortDevice::NONE));
         case kExpansionPlayerSlot:
             return expansionDeviceLabel(room.expansionDevice);
         case kMultitapP1PlayerSlot:
@@ -73,10 +75,10 @@ std::string inputAssignmentLeafLabel(PlayerSlot slot, const RoomState& room)
         case kMultitapP3PlayerSlot:
         case kMultitapP4PlayerSlot: {
             const unsigned controllerIndex = static_cast<unsigned>(slot - kMultitapP1PlayerSlot) + 1u;
-            if(room.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE) {
+            if(room.nesMultitapDevice == NesMultitapDevice::FOUR_SCORE) {
                 return "Four Score P" + std::to_string(controllerIndex);
             }
-            if(room.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER) {
+            if(room.famicomMultitapDevice == FamicomMultitapDevice::HORI_ADAPTER) {
                 return "Hori Adapter P" + std::to_string(controllerIndex);
             }
             return "Multitap P" + std::to_string(controllerIndex);
@@ -89,8 +91,8 @@ std::string inputAssignmentLeafLabel(PlayerSlot slot, const RoomState& room)
 
 bool isMultitapActive(const RoomState& room)
 {
-    return room.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
-           room.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
+    return room.nesMultitapDevice != NesMultitapDevice::NONE ||
+           room.famicomMultitapDevice != FamicomMultitapDevice::NONE;
 }
 
 std::vector<PlayerSlot> participantAssignments(const ParticipantInfo& participant)
@@ -154,13 +156,13 @@ std::vector<PlayerSlot> availableInputAssignments(const RoomState& room)
         return assignments;
     }
 
-    if(room.port1Device.has_value() && room.port1Device != std::optional<Settings::Device>(Settings::Device::NONE)) {
+    if(room.port1Device.has_value() && room.port1Device != std::optional<PortDevice>(PortDevice::NONE)) {
         assignments.push_back(kPort1PlayerSlot);
     }
-    if(room.port2Device.has_value() && room.port2Device != std::optional<Settings::Device>(Settings::Device::NONE)) {
+    if(room.port2Device.has_value() && room.port2Device != std::optional<PortDevice>(PortDevice::NONE)) {
         assignments.push_back(kPort2PlayerSlot);
     }
-    if(room.expansionDevice != Settings::ExpansionDevice::NONE) {
+    if(room.expansionDevice != ExpansionDevice::NONE) {
         assignments.push_back(kExpansionPlayerSlot);
     }
     return assignments;
@@ -174,11 +176,11 @@ bool isAssignmentAvailable(PlayerSlot slot, const RoomState& room)
 }
 
 RoomState roomWithTopology(RoomState room,
-                                  std::optional<Settings::Device> port1Device,
-                                  std::optional<Settings::Device> port2Device,
-                                  Settings::ExpansionDevice expansionDevice,
-                                  Settings::NesMultitapDevice nesMultitapDevice,
-                                  Settings::FamicomMultitapDevice famicomMultitapDevice)
+                                  std::optional<PortDevice> port1Device,
+                                  std::optional<PortDevice> port2Device,
+                                  ExpansionDevice expansionDevice,
+                                  NesMultitapDevice nesMultitapDevice,
+                                  FamicomMultitapDevice famicomMultitapDevice)
 {
     room.port1Device = port1Device;
     room.port2Device = port2Device;
@@ -206,11 +208,11 @@ bool isInputAssignmentClaimedByOtherParticipant(const RoomState& room,
 
 bool canAssignInputCandidate(const RoomState& room,
                                     ParticipantId participantId,
-                                    std::optional<Settings::Device> port1Device,
-                                    std::optional<Settings::Device> port2Device,
-                                    Settings::ExpansionDevice expansionDevice,
-                                    Settings::NesMultitapDevice nesMultitapDevice,
-                                    Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                    std::optional<PortDevice> port1Device,
+                                    std::optional<PortDevice> port2Device,
+                                    ExpansionDevice expansionDevice,
+                                    NesMultitapDevice nesMultitapDevice,
+                                    FamicomMultitapDevice famicomMultitapDevice,
                                     PlayerSlot slot)
 {
     RoomState candidateRoom = roomWithTopology(
@@ -280,16 +282,133 @@ std::string inputAssignmentLabel(PlayerSlot slot, const RoomState& room)
     return inputAssignmentGroupLabel(slot, room) + " - " + inputAssignmentLeafLabel(slot, room);
 }
 
+namespace {
+
+uint64_t buildButtonMask(bool a, bool b, bool select, bool start,
+                         bool up, bool down, bool left, bool right,
+                         bool x = false, bool y = false, bool l = false, bool r = false,
+                         bool up2 = false, bool down2 = false, bool left2 = false, bool right2 = false)
+{
+    uint64_t mask = 0;
+    if(a) mask |= (1ull << 0);
+    if(b) mask |= (1ull << 1);
+    if(select) mask |= (1ull << 2);
+    if(start) mask |= (1ull << 3);
+    if(up) mask |= (1ull << 4);
+    if(down) mask |= (1ull << 5);
+    if(left) mask |= (1ull << 6);
+    if(right) mask |= (1ull << 7);
+    if(x) mask |= (1ull << 8);
+    if(y) mask |= (1ull << 9);
+    if(l) mask |= (1ull << 10);
+    if(r) mask |= (1ull << 11);
+    if(up2) mask |= (1ull << 12);
+    if(down2) mask |= (1ull << 13);
+    if(left2) mask |= (1ull << 14);
+    if(right2) mask |= (1ull << 15);
+    return mask;
+}
+
+bool isControllerLike(PortDevice device)
+{
+    return device == PortDevice::CONTROLLER ||
+           device == PortDevice::FAMICOM_CONTROLLER ||
+           device == PortDevice::SNES_CONTROLLER ||
+           device == PortDevice::VIRTUAL_BOY_CONTROLLER;
+}
+
+} // namespace
+
+NetplayInputFrame makeRoomTopologyBaseNetplayFrame(FrameNumber frame, const RoomState& room)
+{
+    NetplayInputFrame inputFrame{};
+    inputFrame.frame = frame;
+    inputFrame.timelineEpoch = room.timelineEpoch;
+    return inputFrame;
+}
+
+NetplayInputFrame makeContributionBase(const NetplayInputFrame& baseFrame)
+{
+    NetplayInputFrame contribution{};
+    contribution.frame = baseFrame.frame;
+    contribution.timelineEpoch = baseFrame.timelineEpoch;
+    contribution.framePayload = baseFrame.framePayload;
+    return contribution;
+}
+
+NetplayInputFrame buildAssignedContribution(PlayerSlot slot,
+                                            const NetplayInputState& state,
+                                            const NetplayInputFrame& baseFrame)
+{
+    NetplayInputFrame contribution = makeContributionBase(baseFrame);
+
+    switch(slot) {
+        case kPort1PlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(
+                state.p1A, state.p1B, state.p1Select, state.p1Start,
+                state.p1Up, state.p1Down, state.p1Left, state.p1Right,
+                state.p1X, state.p1Y, state.p1L, state.p1R,
+                state.p1Up2, state.p1Down2, state.p1Left2, state.p1Right2);
+            break;
+        case kPort2PlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(
+                state.p2A, state.p2B, state.p2Select, state.p2Start,
+                state.p2Up, state.p2Down, state.p2Left, state.p2Right,
+                state.p2X, state.p2Y, state.p2L, state.p2R,
+                state.p2Up2, state.p2Down2, state.p2Left2, state.p2Right2);
+            break;
+        case kExpansionPlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(
+                state.p3A, state.p3B, state.p3Select, state.p3Start,
+                state.p3Up, state.p3Down, state.p3Left, state.p3Right);
+            break;
+        case kMultitapP1PlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(state.p1A, state.p1B, state.p1Select, state.p1Start, state.p1Up, state.p1Down, state.p1Left, state.p1Right);
+            break;
+        case kMultitapP2PlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(state.p2A, state.p2B, state.p2Select, state.p2Start, state.p2Up, state.p2Down, state.p2Left, state.p2Right);
+            break;
+        case kMultitapP3PlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(state.p3A, state.p3B, state.p3Select, state.p3Start, state.p3Up, state.p3Down, state.p3Left, state.p3Right);
+            break;
+        case kMultitapP4PlayerSlot:
+            contribution.buttonMaskLo[slot] = buildButtonMask(state.p4A, state.p4B, state.p4Select, state.p4Start, state.p4Up, state.p4Down, state.p4Left, state.p4Right);
+            break;
+        default:
+            break;
+    }
+
+    return contribution;
+}
+
+uint64_t assignedContributionPrimaryMask(PlayerSlot slot, const NetplayInputFrame& contribution)
+{
+    return slot <= kMaxAssignedPlayerSlot ? contribution.buttonMaskLo[slot] : 0u;
+}
+
+void applyAssignedContribution(NetplayInputFrame& target, PlayerSlot slot, const NetplayInputFrame& contribution)
+{
+    if(target.framePayload.empty() && !contribution.framePayload.empty()) {
+        target.framePayload = contribution.framePayload;
+    }
+    if(slot <= kMaxAssignedPlayerSlot) {
+        target.buttonMaskLo[slot] = contribution.buttonMaskLo[slot];
+        target.buttonMaskHi[slot] = contribution.buttonMaskHi[slot];
+        target.slotPayloads[slot] = contribution.slotPayloads[slot];
+    }
+
+}
+
 InputFrame makeRoomTopologyBaseFrame(FrameNumber frame, const RoomState& room)
 {
     InputFrame inputFrame{};
     inputFrame.frame = frame;
     inputFrame.timelineEpoch = room.timelineEpoch;
-    inputFrame.port1Device = room.port1Device.value_or(Settings::Device::NONE);
-    inputFrame.port2Device = room.port2Device.value_or(Settings::Device::NONE);
-    inputFrame.expansionDevice = room.expansionDevice;
-    inputFrame.nesMultitapDevice = room.nesMultitapDevice;
-    inputFrame.famicomMultitapDevice = room.famicomMultitapDevice;
+    inputFrame.port1Device = toSettingsDevice(room.port1Device.value_or(PortDevice::NONE));
+    inputFrame.port2Device = toSettingsDevice(room.port2Device.value_or(PortDevice::NONE));
+    inputFrame.expansionDevice = toSettingsExpansionDevice(room.expansionDevice);
+    inputFrame.nesMultitapDevice = toSettingsNesMultitapDevice(room.nesMultitapDevice);
+    inputFrame.famicomMultitapDevice = toSettingsFamicomMultitapDevice(room.famicomMultitapDevice);
     return inputFrame;
 }
 
@@ -306,18 +425,18 @@ InputFrame makeContributionBase(const InputFrame& baseFrame)
 }
 
 InputFrame buildAssignedContribution(PlayerSlot slot,
-                                            const EmulationHost::InputState& state,
+                                            const NetplayInputState& state,
                                             const InputFrame& baseFrame)
 {
     InputFrame contribution = makeContributionBase(baseFrame);
 
     switch(slot) {
         case kPort1PlayerSlot: {
-            const Settings::Device device = baseFrame.port1Device;
-            if(device == Settings::Device::CONTROLLER ||
-               device == Settings::Device::FAMICOM_CONTROLLER ||
-               device == Settings::Device::SNES_CONTROLLER ||
-               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
+            const PortDevice device = toNetplayPortDevice(baseFrame.port1Device);
+            if(device == PortDevice::CONTROLLER ||
+               device == PortDevice::FAMICOM_CONTROLLER ||
+               device == PortDevice::SNES_CONTROLLER ||
+               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
                 contribution.p1A = state.p1A; contribution.p1B = state.p1B; contribution.p1Select = state.p1Select; contribution.p1Start = state.p1Start;
                 contribution.p1Up = state.p1Up; contribution.p1Down = state.p1Down; contribution.p1Left = state.p1Left; contribution.p1Right = state.p1Right;
                 contribution.p1X = state.p1X; contribution.p1Y = state.p1Y; contribution.p1L = state.p1L; contribution.p1R = state.p1R;
@@ -325,28 +444,28 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
                 contribution.vbP1Up0 = state.p1Up; contribution.vbP1Down0 = state.p1Down; contribution.vbP1Left0 = state.p1Left; contribution.vbP1Right0 = state.p1Right;
                 contribution.vbP1Up1 = state.p1Up2; contribution.vbP1Down1 = state.p1Down2; contribution.vbP1Left1 = state.p1Left2; contribution.vbP1Right1 = state.p1Right2;
                 contribution.vbP1L = state.p1L; contribution.vbP1R = state.p1R;
-            } else if(device == Settings::Device::ZAPPER) {
+            } else if(device == PortDevice::ZAPPER) {
                 contribution.zapperP1X = state.zapperX; contribution.zapperP1Y = state.zapperY; contribution.zapperP1Trigger = state.zapperP1Trigger;
-            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
+            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
                 contribution.arkanoidP1Position = state.arkanoidNesPosition; contribution.arkanoidP1Button = state.mousePrimaryButton;
-            } else if(device == Settings::Device::SNES_MOUSE) {
+            } else if(device == PortDevice::SNES_MOUSE) {
                 contribution.snesMouseP1DeltaX = state.mouseDeltaX; contribution.snesMouseP1DeltaY = state.mouseDeltaY;
                 contribution.snesMouseP1Left = state.mousePrimaryButton; contribution.snesMouseP1Right = state.mouseSecondaryButton;
-            } else if(device == Settings::Device::SUBOR_MOUSE) {
+            } else if(device == PortDevice::SUBOR_MOUSE) {
                 contribution.suborMouseP1DeltaX = state.mouseDeltaX; contribution.suborMouseP1DeltaY = state.mouseDeltaY;
                 contribution.suborMouseP1Left = state.mousePrimaryButton; contribution.suborMouseP1Right = state.mouseSecondaryButton;
-            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
-                      device == Settings::Device::POWER_PAD_SIDE_B) {
+            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
+                      device == PortDevice::POWER_PAD_SIDE_B) {
                 contribution.powerPadP1Buttons = state.p1PowerPadButtons;
             }
             break;
         }
         case kPort2PlayerSlot: {
-            const Settings::Device device = baseFrame.port2Device;
-            if(device == Settings::Device::CONTROLLER ||
-               device == Settings::Device::FAMICOM_CONTROLLER ||
-               device == Settings::Device::SNES_CONTROLLER ||
-               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
+            const PortDevice device = toNetplayPortDevice(baseFrame.port2Device);
+            if(device == PortDevice::CONTROLLER ||
+               device == PortDevice::FAMICOM_CONTROLLER ||
+               device == PortDevice::SNES_CONTROLLER ||
+               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
                 contribution.p2A = state.p2A; contribution.p2B = state.p2B; contribution.p2Select = state.p2Select; contribution.p2Start = state.p2Start;
                 contribution.p2Up = state.p2Up; contribution.p2Down = state.p2Down; contribution.p2Left = state.p2Left; contribution.p2Right = state.p2Right;
                 contribution.p2X = state.p2X; contribution.p2Y = state.p2Y; contribution.p2L = state.p2L; contribution.p2R = state.p2R;
@@ -354,46 +473,48 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
                 contribution.vbP2Up0 = state.p2Up; contribution.vbP2Down0 = state.p2Down; contribution.vbP2Left0 = state.p2Left; contribution.vbP2Right0 = state.p2Right;
                 contribution.vbP2Up1 = state.p2Up2; contribution.vbP2Down1 = state.p2Down2; contribution.vbP2Left1 = state.p2Left2; contribution.vbP2Right1 = state.p2Right2;
                 contribution.vbP2L = state.p2L; contribution.vbP2R = state.p2R;
-            } else if(device == Settings::Device::ZAPPER) {
+            } else if(device == PortDevice::ZAPPER) {
                 contribution.zapperP2X = state.zapperX; contribution.zapperP2Y = state.zapperY; contribution.zapperP2Trigger = state.zapperP2Trigger;
-            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
+            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
                 contribution.arkanoidP2Position = state.arkanoidNesPosition; contribution.arkanoidP2Button = state.mousePrimaryButton;
-            } else if(device == Settings::Device::SNES_MOUSE) {
+            } else if(device == PortDevice::SNES_MOUSE) {
                 contribution.snesMouseP2DeltaX = state.mouseDeltaX; contribution.snesMouseP2DeltaY = state.mouseDeltaY;
                 contribution.snesMouseP2Left = state.mousePrimaryButton; contribution.snesMouseP2Right = state.mouseSecondaryButton;
-            } else if(device == Settings::Device::SUBOR_MOUSE) {
+            } else if(device == PortDevice::SUBOR_MOUSE) {
                 contribution.suborMouseP2DeltaX = state.mouseDeltaX; contribution.suborMouseP2DeltaY = state.mouseDeltaY;
                 contribution.suborMouseP2Left = state.mousePrimaryButton; contribution.suborMouseP2Right = state.mouseSecondaryButton;
-            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
-                      device == Settings::Device::POWER_PAD_SIDE_B) {
+            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
+                      device == PortDevice::POWER_PAD_SIDE_B) {
                 contribution.powerPadP2Buttons = state.p2PowerPadButtons;
-            } else if(device == Settings::Device::BANDAI_HYPERSHOT) {
+            } else if(device == PortDevice::BANDAI_HYPERSHOT) {
                 contribution.bandaiA = state.p2A; contribution.bandaiB = state.p2B; contribution.bandaiSelect = state.p2Select; contribution.bandaiStart = state.p2Start;
                 contribution.bandaiUp = state.p2Up; contribution.bandaiDown = state.p2Down; contribution.bandaiLeft = state.p2Left; contribution.bandaiRight = state.p2Right;
             }
             break;
         }
-        case kExpansionPlayerSlot:
-            if(baseFrame.expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+        case kExpansionPlayerSlot: {
+            const ExpansionDevice expansionDevice = toNetplayExpansionDevice(baseFrame.expansionDevice);
+            if(expansionDevice == ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
                 contribution.p3A = state.p3A; contribution.p3B = state.p3B; contribution.p3Select = state.p3Select; contribution.p3Start = state.p3Start;
                 contribution.p3Up = state.p3Up; contribution.p3Down = state.p3Down; contribution.p3Left = state.p3Left; contribution.p3Right = state.p3Right;
-            } else if(baseFrame.expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
+            } else if(expansionDevice == ExpansionDevice::BANDAI_HYPERSHOT) {
                 contribution.bandaiX = state.zapperX; contribution.bandaiY = state.zapperY; contribution.bandaiTrigger = state.bandaiTrigger;
-            } else if(baseFrame.expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
+            } else if(expansionDevice == ExpansionDevice::ARKANOID_CONTROLLER) {
                 contribution.arkanoidFamicomPosition = state.arkanoidFamicomPosition; contribution.arkanoidFamicomButton = state.mousePrimaryButton;
-            } else if(baseFrame.expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
+            } else if(expansionDevice == ExpansionDevice::KONAMI_HYPERSHOT) {
                 contribution.konamiP1Run = state.konamiP1Run; contribution.konamiP1Jump = state.konamiP1Jump;
                 contribution.konamiP2Run = state.konamiP2Run; contribution.konamiP2Jump = state.konamiP2Jump;
-            } else if(baseFrame.expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
+            } else if(expansionDevice == ExpansionDevice::SUBOR_KEYBOARD) {
                 contribution.suborKeyboardKeys = state.suborKeyboardKeys;
-            } else if(baseFrame.expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
+            } else if(expansionDevice == ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
                 contribution.familyBasicKeyboardKeys = state.familyBasicKeyboardKeys;
-            } else if(baseFrame.expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-                      baseFrame.expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+            } else if(expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                      expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                 contribution.powerPadP1Buttons = state.p1PowerPadButtons;
                 contribution.powerPadP2Buttons = state.p2PowerPadButtons;
             }
             break;
+        }
         case kMultitapP1PlayerSlot:
             contribution.p1A = state.p1A; contribution.p1B = state.p1B; contribution.p1Select = state.p1Select; contribution.p1Start = state.p1Start;
             contribution.p1Up = state.p1Up; contribution.p1Down = state.p1Down; contribution.p1Left = state.p1Left; contribution.p1Right = state.p1Right;
@@ -472,11 +593,11 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
 {
     switch(slot) {
         case kPort1PlayerSlot: {
-            const Settings::Device device = target.port1Device;
-            if(device == Settings::Device::CONTROLLER ||
-               device == Settings::Device::FAMICOM_CONTROLLER ||
-               device == Settings::Device::SNES_CONTROLLER ||
-               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
+            const PortDevice device = toNetplayPortDevice(target.port1Device);
+            if(device == PortDevice::CONTROLLER ||
+               device == PortDevice::FAMICOM_CONTROLLER ||
+               device == PortDevice::SNES_CONTROLLER ||
+               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
                 target.p1A = contribution.p1A; target.p1B = contribution.p1B; target.p1Select = contribution.p1Select; target.p1Start = contribution.p1Start;
                 target.p1Up = contribution.p1Up; target.p1Down = contribution.p1Down; target.p1Left = contribution.p1Left; target.p1Right = contribution.p1Right;
                 target.p1X = contribution.p1X; target.p1Y = contribution.p1Y; target.p1L = contribution.p1L; target.p1R = contribution.p1R;
@@ -484,28 +605,28 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
                 target.vbP1Up0 = contribution.vbP1Up0; target.vbP1Down0 = contribution.vbP1Down0; target.vbP1Left0 = contribution.vbP1Left0; target.vbP1Right0 = contribution.vbP1Right0;
                 target.vbP1Up1 = contribution.vbP1Up1; target.vbP1Down1 = contribution.vbP1Down1; target.vbP1Left1 = contribution.vbP1Left1; target.vbP1Right1 = contribution.vbP1Right1;
                 target.vbP1L = contribution.vbP1L; target.vbP1R = contribution.vbP1R;
-            } else if(device == Settings::Device::ZAPPER) {
+            } else if(device == PortDevice::ZAPPER) {
                 target.zapperP1X = contribution.zapperP1X; target.zapperP1Y = contribution.zapperP1Y; target.zapperP1Trigger = contribution.zapperP1Trigger;
-            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
+            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
                 target.arkanoidP1Position = contribution.arkanoidP1Position; target.arkanoidP1Button = contribution.arkanoidP1Button;
-            } else if(device == Settings::Device::SNES_MOUSE) {
+            } else if(device == PortDevice::SNES_MOUSE) {
                 target.snesMouseP1DeltaX = contribution.snesMouseP1DeltaX; target.snesMouseP1DeltaY = contribution.snesMouseP1DeltaY;
                 target.snesMouseP1Left = contribution.snesMouseP1Left; target.snesMouseP1Right = contribution.snesMouseP1Right;
-            } else if(device == Settings::Device::SUBOR_MOUSE) {
+            } else if(device == PortDevice::SUBOR_MOUSE) {
                 target.suborMouseP1DeltaX = contribution.suborMouseP1DeltaX; target.suborMouseP1DeltaY = contribution.suborMouseP1DeltaY;
                 target.suborMouseP1Left = contribution.suborMouseP1Left; target.suborMouseP1Right = contribution.suborMouseP1Right;
-            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
-                      device == Settings::Device::POWER_PAD_SIDE_B) {
+            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
+                      device == PortDevice::POWER_PAD_SIDE_B) {
                 target.powerPadP1Buttons = contribution.powerPadP1Buttons;
             }
             break;
         }
         case kPort2PlayerSlot: {
-            const Settings::Device device = target.port2Device;
-            if(device == Settings::Device::CONTROLLER ||
-               device == Settings::Device::FAMICOM_CONTROLLER ||
-               device == Settings::Device::SNES_CONTROLLER ||
-               device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
+            const PortDevice device = toNetplayPortDevice(target.port2Device);
+            if(device == PortDevice::CONTROLLER ||
+               device == PortDevice::FAMICOM_CONTROLLER ||
+               device == PortDevice::SNES_CONTROLLER ||
+               device == PortDevice::VIRTUAL_BOY_CONTROLLER) {
                 target.p2A = contribution.p2A; target.p2B = contribution.p2B; target.p2Select = contribution.p2Select; target.p2Start = contribution.p2Start;
                 target.p2Up = contribution.p2Up; target.p2Down = contribution.p2Down; target.p2Left = contribution.p2Left; target.p2Right = contribution.p2Right;
                 target.p2X = contribution.p2X; target.p2Y = contribution.p2Y; target.p2L = contribution.p2L; target.p2R = contribution.p2R;
@@ -513,46 +634,48 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
                 target.vbP2Up0 = contribution.vbP2Up0; target.vbP2Down0 = contribution.vbP2Down0; target.vbP2Left0 = contribution.vbP2Left0; target.vbP2Right0 = contribution.vbP2Right0;
                 target.vbP2Up1 = contribution.vbP2Up1; target.vbP2Down1 = contribution.vbP2Down1; target.vbP2Left1 = contribution.vbP2Left1; target.vbP2Right1 = contribution.vbP2Right1;
                 target.vbP2L = contribution.vbP2L; target.vbP2R = contribution.vbP2R;
-            } else if(device == Settings::Device::ZAPPER) {
+            } else if(device == PortDevice::ZAPPER) {
                 target.zapperP2X = contribution.zapperP2X; target.zapperP2Y = contribution.zapperP2Y; target.zapperP2Trigger = contribution.zapperP2Trigger;
-            } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
+            } else if(device == PortDevice::ARKANOID_CONTROLLER) {
                 target.arkanoidP2Position = contribution.arkanoidP2Position; target.arkanoidP2Button = contribution.arkanoidP2Button;
-            } else if(device == Settings::Device::SNES_MOUSE) {
+            } else if(device == PortDevice::SNES_MOUSE) {
                 target.snesMouseP2DeltaX = contribution.snesMouseP2DeltaX; target.snesMouseP2DeltaY = contribution.snesMouseP2DeltaY;
                 target.snesMouseP2Left = contribution.snesMouseP2Left; target.snesMouseP2Right = contribution.snesMouseP2Right;
-            } else if(device == Settings::Device::SUBOR_MOUSE) {
+            } else if(device == PortDevice::SUBOR_MOUSE) {
                 target.suborMouseP2DeltaX = contribution.suborMouseP2DeltaX; target.suborMouseP2DeltaY = contribution.suborMouseP2DeltaY;
                 target.suborMouseP2Left = contribution.suborMouseP2Left; target.suborMouseP2Right = contribution.suborMouseP2Right;
-            } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
-                      device == Settings::Device::POWER_PAD_SIDE_B) {
+            } else if(device == PortDevice::POWER_PAD_SIDE_A ||
+                      device == PortDevice::POWER_PAD_SIDE_B) {
                 target.powerPadP2Buttons = contribution.powerPadP2Buttons;
-            } else if(device == Settings::Device::BANDAI_HYPERSHOT) {
+            } else if(device == PortDevice::BANDAI_HYPERSHOT) {
                 target.bandaiA = contribution.bandaiA; target.bandaiB = contribution.bandaiB; target.bandaiSelect = contribution.bandaiSelect; target.bandaiStart = contribution.bandaiStart;
                 target.bandaiUp = contribution.bandaiUp; target.bandaiDown = contribution.bandaiDown; target.bandaiLeft = contribution.bandaiLeft; target.bandaiRight = contribution.bandaiRight;
             }
             break;
         }
-        case kExpansionPlayerSlot:
-            if(target.expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+        case kExpansionPlayerSlot: {
+            const ExpansionDevice expansionDevice = toNetplayExpansionDevice(target.expansionDevice);
+            if(expansionDevice == ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
                 target.p3A = contribution.p3A; target.p3B = contribution.p3B; target.p3Select = contribution.p3Select; target.p3Start = contribution.p3Start;
                 target.p3Up = contribution.p3Up; target.p3Down = contribution.p3Down; target.p3Left = contribution.p3Left; target.p3Right = contribution.p3Right;
-            } else if(target.expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
+            } else if(expansionDevice == ExpansionDevice::BANDAI_HYPERSHOT) {
                 target.bandaiX = contribution.bandaiX; target.bandaiY = contribution.bandaiY; target.bandaiTrigger = contribution.bandaiTrigger;
-            } else if(target.expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
+            } else if(expansionDevice == ExpansionDevice::ARKANOID_CONTROLLER) {
                 target.arkanoidFamicomPosition = contribution.arkanoidFamicomPosition; target.arkanoidFamicomButton = contribution.arkanoidFamicomButton;
-            } else if(target.expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
+            } else if(expansionDevice == ExpansionDevice::KONAMI_HYPERSHOT) {
                 target.konamiP1Run = contribution.konamiP1Run; target.konamiP1Jump = contribution.konamiP1Jump;
                 target.konamiP2Run = contribution.konamiP2Run; target.konamiP2Jump = contribution.konamiP2Jump;
-            } else if(target.expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
+            } else if(expansionDevice == ExpansionDevice::SUBOR_KEYBOARD) {
                 target.suborKeyboardKeys = contribution.suborKeyboardKeys;
-            } else if(target.expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
+            } else if(expansionDevice == ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
                 target.familyBasicKeyboardKeys = contribution.familyBasicKeyboardKeys;
-            } else if(target.expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
-                      target.expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
+            } else if(expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
+                      expansionDevice == ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                 target.powerPadP1Buttons = contribution.powerPadP1Buttons;
                 target.powerPadP2Buttons = contribution.powerPadP2Buttons;
             }
             break;
+        }
         case kMultitapP1PlayerSlot:
             target.p1A = contribution.p1A; target.p1B = contribution.p1B; target.p1Select = contribution.p1Select; target.p1Start = contribution.p1Start;
             target.p1Up = contribution.p1Up; target.p1Down = contribution.p1Down; target.p1Left = contribution.p1Left; target.p1Right = contribution.p1Right;

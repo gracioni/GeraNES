@@ -12,9 +12,9 @@
 #endif
 
 #include "GeraNESNetplay/NetplayInputAssignment.h"
+#include "GeraNESNetplay/NetplayInputFrameSerialization.h"
 #include "GeraNES/defines.h"
 #include "GeraNES/util/Crc32.h"
-#include "GeraNES/Serialization.h"
 #include "logger/logger.h"
 
 namespace {
@@ -34,6 +34,8 @@ constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
+
+using Netplay::PortDevice;
 
 std::string participantLabel(const Netplay::ParticipantInfo& participant)
 {
@@ -114,8 +116,8 @@ std::string describeHostTarget(Netplay::NetTransportBackend backend,
 Netplay::InputTopologyData makeTopologyData(const Netplay::RoomState& room)
 {
     Netplay::InputTopologyData data;
-    data.port1Device = room.port1Device.value_or(Settings::Device::NONE);
-    data.port2Device = room.port2Device.value_or(Settings::Device::NONE);
+    data.port1Device = room.port1Device.value_or(PortDevice::NONE);
+    data.port2Device = room.port2Device.value_or(PortDevice::NONE);
     data.expansionDevice = room.expansionDevice;
     data.nesMultitapDevice = room.nesMultitapDevice;
     data.famicomMultitapDevice = room.famicomMultitapDevice;
@@ -131,41 +133,37 @@ void applyTopologyData(Netplay::RoomState& room, const Netplay::InputTopologyDat
     room.famicomMultitapDevice = data.famicomMultitapDevice;
 }
 
-std::vector<uint8_t> serializeInputFrame(const InputFrame& inputFrame)
+Netplay::NetplayInputFrame makeRoomTopologyNetplayFrame(Netplay::FrameNumber frame,
+                                                        const Netplay::RoomState& room)
 {
-    static thread_local size_t reserveHint = 0;
-    Serialize serializer;
-    if(reserveHint > 0) {
-        serializer.reserve(reserveHint);
+    Netplay::NetplayInputFrame inputFrame;
+    inputFrame.frame = frame;
+    inputFrame.timelineEpoch = room.timelineEpoch;
+    return inputFrame;
+}
+
+void materializeNativeMaskFromPayload(Netplay::NetplayInputFrame& inputFrame, Netplay::PlayerSlot slot)
+{
+    if(slot > Netplay::kMaxAssignedPlayerSlot ||
+       inputFrame.buttonMaskLo[slot] != 0u ||
+       inputFrame.slotPayloads[slot].empty()) {
+        return;
     }
-    InputFrame copy = inputFrame;
-    copy.serialization(serializer);
-    std::vector<uint8_t> data = serializer.takeData();
-    reserveHint = data.size();
-    return data;
 }
 
-size_t serializedInputFrameSize(const InputFrame& inputFrame)
+Netplay::NetplayInputFrame timelineContributionForSlot(const Netplay::TimelineInputEntry& entry)
 {
-    SerializationSize serializer;
-    InputFrame copy = inputFrame;
-    copy.serialization(serializer);
-    return serializer.size();
-}
-
-
-bool deserializeInputFrame(const uint8_t* data, size_t size, InputFrame& inputFrame)
-{
-    Deserialize deserializer;
-    deserializer.setData(data, size);
-    inputFrame = {};
-    inputFrame.serialization(deserializer);
-    return !deserializer.error();
-}
-
-bool inputFramesEqual(const InputFrame& a, const InputFrame& b)
-{
-    return a == b;
+    Netplay::NetplayInputFrame contribution = entry.netplayFrame;
+    materializeNativeMaskFromPayload(contribution, entry.playerSlot);
+    if(entry.playerSlot <= Netplay::kMaxAssignedPlayerSlot) {
+        if(entry.buttonMaskLo != 0u || contribution.buttonMaskLo[entry.playerSlot] == 0u) {
+            contribution.buttonMaskLo[entry.playerSlot] = entry.buttonMaskLo;
+        }
+        if(entry.buttonMaskHi != 0u || contribution.buttonMaskHi[entry.playerSlot] == 0u) {
+            contribution.buttonMaskHi[entry.playerSlot] = entry.buttonMaskHi;
+        }
+    }
+    return contribution;
 }
 
 bool isPlayableSlot(Netplay::PlayerSlot slot)
@@ -640,7 +638,7 @@ bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer
             entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
             entry.buttonMaskLo = frame.buttonMaskLo;
             entry.buttonMaskHi = frame.buttonMaskHi;
-            const std::vector<uint8_t> payload = serializeInputFrame(frame.inputFrame);
+            const std::vector<uint8_t> payload = serializeNetplayInputFrame(frame.netplayFrame);
             entry.payloadSize = static_cast<uint16_t>(payload.size());
             writer.writePod(entry);
             writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
@@ -1260,12 +1258,6 @@ static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input,
     return writer.data();
 }
 
-static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input, const InputFrame& inputFrame)
-{
-    const std::vector<uint8_t> payload = serializeInputFrame(inputFrame);
-    return buildInputFramePacket(input, std::span<const uint8_t>(payload.data(), payload.size()));
-}
-
 static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInputFramesData& data,
                                                             std::span<const NetplayCoordinator::ConfirmedFrameInputs> frames,
                                                             uint32_t sessionId)
@@ -1273,7 +1265,7 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
     PacketWriter writer;
     size_t estimatedPayloadSize = sizeof(PacketHeader) + sizeof(ConfirmedInputFramesData);
     for(const auto& frame : frames) {
-        estimatedPayloadSize += sizeof(ConfirmedInputFrameEntry) + serializedInputFrameSize(frame.inputFrame);
+        estimatedPayloadSize += sizeof(ConfirmedInputFrameEntry) + Netplay::serializedNetplayInputFrameSize(frame.netplayFrame);
     }
     writer.reserve(estimatedPayloadSize);
 
@@ -1282,17 +1274,8 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
     header.sessionId = sessionId;
     writer.writePod(header);
     writer.writePod(data);
-    static thread_local Serialize serializer;
-    static thread_local size_t serializerReserveHint = 0;
     for(const auto& frame : frames) {
-        serializer.clear();
-        if(serializerReserveHint > 0) {
-            serializer.reserve(serializerReserveHint);
-        }
-        InputFrame copy = frame.inputFrame;
-        copy.serialization(serializer);
-        const std::vector<uint8_t>& payload = serializer.getData();
-        serializerReserveHint = payload.size();
+        const std::vector<uint8_t> payload = serializeNetplayInputFrame(frame.netplayFrame);
 
         ConfirmedInputFrameEntry entry;
         entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
@@ -1396,8 +1379,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     if(!reader.readPod(input)) return false;
     std::vector<uint8_t> payload;
     if(!reader.readBytes(payload, input.payloadSize)) return false;
-    InputFrame inputFrame;
-    if(!deserializeInputFrame(payload.data(), payload.size(), inputFrame)) return false;
+    NetplayInputFrame netplayFrame;
+    if(!deserializeNetplayInputFrame(payload.data(), payload.size(), netplayFrame)) return false;
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     if(m_hosting && participant != nullptr && participant->id != m_localParticipantId) {
         // Count any incoming remote input packet as activity, including stale
@@ -1591,7 +1574,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     entry.playerSlot = input.playerSlot;
     entry.buttonMaskLo = input.buttonMaskLo;
     entry.buttonMaskHi = input.buttonMaskHi;
-    entry.inputFrame = inputFrame;
+    entry.netplayFrame = std::move(netplayFrame);
     entry.sequence = input.sequence;
     entry.confirmed = true;
     entry.predicted = false;
@@ -1633,7 +1616,11 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         InputFrameData relayedInput = input;
         relayedInput.authoritativeFrameStartClockMicros =
             authoritativeFrameStartClockMicros(input.frame);
-        m_transport.broadcastUnreliable(Channel::Gameplay, buildInputFramePacket(relayedInput, inputFrame), peer);
+        m_transport.broadcastUnreliable(
+            Channel::Gameplay,
+            buildInputFramePacket(relayedInput, std::span<const uint8_t>(payload.data(), payload.size())),
+            peer
+        );
         publishConfirmedFramesIfReady();
     }
 
@@ -1672,7 +1659,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
         frame.authoritativeFrameStartClockMicros = entry.authoritativeFrameStartClockMicros;
         frame.buttonMaskLo = entry.buttonMaskLo;
         frame.buttonMaskHi = entry.buttonMaskHi;
-        if(!deserializeInputFrame(payload.data(), payload.size(), frame.inputFrame)) return false;
+        if(!deserializeNetplayInputFrame(payload.data(), payload.size(), frame.netplayFrame)) return false;
         storeConfirmedFrame(frame);
         if(frame.authoritativeFrameStartClockMicros != 0u) {
             m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
@@ -1701,7 +1688,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
                         reconstructedEntry.playerSlot = slot;
                         reconstructedEntry.buttonMaskLo = confirmedFrame->buttonMaskLo[slot];
                         reconstructedEntry.buttonMaskHi = confirmedFrame->buttonMaskHi[slot];
-                        reconstructedEntry.inputFrame = confirmedFrame->inputFrame;
+                        reconstructedEntry.netplayFrame = confirmedFrame->netplayFrame;
                         reconstructedEntry.sequence = m_localInputSequence;
                         reconstructedEntry.confirmed = true;
                         reconstructedEntry.predicted = false;
@@ -2130,7 +2117,16 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
 
                 TimelineInputEntry synthetic = *latestConfirmed;
                 synthetic.frame = nextFrame;
-                synthetic.inputFrame = InputFrame::repeatedFrom(latestConfirmed->inputFrame, nextFrame);
+                synthetic.netplayFrame = NetplayInputFrame::repeatedFrom(latestConfirmed->netplayFrame, nextFrame);
+                materializeNativeMaskFromPayload(synthetic.netplayFrame, slot);
+                if(synthetic.netplayFrame.buttonMaskLo[slot] == 0u && latestConfirmed->buttonMaskLo != 0u) {
+                    synthetic.netplayFrame.buttonMaskLo[slot] = latestConfirmed->buttonMaskLo;
+                }
+                if(synthetic.netplayFrame.buttonMaskHi[slot] == 0u && latestConfirmed->buttonMaskHi != 0u) {
+                    synthetic.netplayFrame.buttonMaskHi[slot] = latestConfirmed->buttonMaskHi;
+                }
+                synthetic.buttonMaskLo = synthetic.netplayFrame.buttonMaskLo[slot];
+                synthetic.buttonMaskHi = synthetic.netplayFrame.buttonMaskHi[slot];
                 synthetic.predicted = false;
                 synthetic.confirmed = true;
                 if(existing != nullptr) {
@@ -2199,14 +2195,23 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         TimelineInputEntry synthetic{};
         if(latestConfirmed != nullptr) {
             synthetic = *latestConfirmed;
-            synthetic.inputFrame = InputFrame::repeatedFrom(latestConfirmed->inputFrame, nextFrame);
+            synthetic.netplayFrame = NetplayInputFrame::repeatedFrom(latestConfirmed->netplayFrame, nextFrame);
+            materializeNativeMaskFromPayload(synthetic.netplayFrame, slot);
+            if(synthetic.netplayFrame.buttonMaskLo[slot] == 0u && latestConfirmed->buttonMaskLo != 0u) {
+                synthetic.netplayFrame.buttonMaskLo[slot] = latestConfirmed->buttonMaskLo;
+            }
+            if(synthetic.netplayFrame.buttonMaskHi[slot] == 0u && latestConfirmed->buttonMaskHi != 0u) {
+                synthetic.netplayFrame.buttonMaskHi[slot] = latestConfirmed->buttonMaskHi;
+            }
+            synthetic.buttonMaskLo = synthetic.netplayFrame.buttonMaskLo[slot];
+            synthetic.buttonMaskHi = synthetic.netplayFrame.buttonMaskHi[slot];
             synthetic.sequence = latestConfirmed->sequence;
         } else {
             synthetic.participantId = participant.id;
             synthetic.playerSlot = slot;
             synthetic.buttonMaskLo = 0;
             synthetic.buttonMaskHi = 0;
-            synthetic.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(nextFrame, m_session.roomState()));
+            synthetic.netplayFrame = makeRoomTopologyNetplayFrame(nextFrame, m_session.roomState());
             synthetic.sequence = 0;
         }
 
@@ -2488,8 +2493,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                         entry.playerSlot = slot;
                         entry.buttonMaskLo = 0;
                         entry.buttonMaskHi = 0;
-                        entry.inputFrame =
-                            makeContributionBase(makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState()));
+                        entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
                         entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
                         entry.predicted = false;
                         entry.confirmed = true;
@@ -2506,8 +2510,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                         entry.playerSlot = slot;
                         entry.buttonMaskLo = 0;
                         entry.buttonMaskHi = 0;
-                        entry.inputFrame =
-                            makeContributionBase(makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState()));
+                        entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
                         entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
                         entry.predicted = false;
                         entry.confirmed = true;
@@ -2527,7 +2530,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                 entry.playerSlot = slot;
                 entry.buttonMaskLo = 0;
                 entry.buttonMaskHi = 0;
-                entry.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState()));
+                entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
                 entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
                 entry.predicted = false;
                 entry.confirmed = true;
@@ -2609,7 +2612,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     if(preserveConfirmedInputs) {
         ConfirmedFrameInputs confirmedFrame;
         confirmedFrame.frame = loadedFrame;
-        confirmedFrame.inputFrame = makeRoomTopologyBaseFrame(loadedFrame, m_session.roomState());
+        NetplayInputFrame confirmedInputFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
         bool haveConfirmedFrame = false;
         for(const ParticipantInfo& participant : m_session.roomState().participants) {
             for(PlayerSlot slot : participantAssignments(participant)) {
@@ -2625,10 +2628,11 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                 if(preserved != nullptr) {
                     confirmedFrame.buttonMaskLo[slot] = preserved->buttonMaskLo;
                     confirmedFrame.buttonMaskHi[slot] = preserved->buttonMaskHi;
-                    applyAssignedContribution(confirmedFrame.inputFrame, slot, preserved->inputFrame);
+                    applyAssignedContribution(confirmedInputFrame, slot, timelineContributionForSlot(*preserved));
                 }
             }
         }
+        confirmedFrame.netplayFrame = std::move(confirmedInputFrame);
         if(haveConfirmedFrame) {
             storeConfirmedFrame(confirmedFrame);
         }
@@ -2809,7 +2813,7 @@ void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, P
     entry.playerSlot = slot;
     entry.buttonMaskLo = 0;
     entry.buttonMaskHi = 0;
-    entry.inputFrame = makeContributionBase(makeRoomTopologyBaseFrame(frame, m_session.roomState()));
+    entry.netplayFrame = makeRoomTopologyNetplayFrame(frame, m_session.roomState());
     entry.sequence = 0;
     entry.predicted = false;
     entry.confirmed = true;
@@ -3893,7 +3897,16 @@ bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantI
 
     TimelineInputEntry predicted = *lastKnown;
     predicted.frame = frame;
-    predicted.inputFrame = InputFrame::repeatedFrom(lastKnown->inputFrame, frame);
+    predicted.netplayFrame = NetplayInputFrame::repeatedFrom(lastKnown->netplayFrame, frame);
+    materializeNativeMaskFromPayload(predicted.netplayFrame, slot);
+    if(predicted.netplayFrame.buttonMaskLo[slot] == 0u && lastKnown->buttonMaskLo != 0u) {
+        predicted.netplayFrame.buttonMaskLo[slot] = lastKnown->buttonMaskLo;
+    }
+    if(predicted.netplayFrame.buttonMaskHi[slot] == 0u && lastKnown->buttonMaskHi != 0u) {
+        predicted.netplayFrame.buttonMaskHi[slot] = lastKnown->buttonMaskHi;
+    }
+    predicted.buttonMaskLo = predicted.netplayFrame.buttonMaskLo[slot];
+    predicted.buttonMaskHi = predicted.netplayFrame.buttonMaskHi[slot];
     predicted.predicted = true;
     predicted.confirmed = false;
     m_remoteInputs.push(predicted);
@@ -3925,11 +3938,11 @@ FrameNumber NetplayCoordinator::latestPredictedRemoteFrame() const
     return latest;
 }
 
-void NetplayCoordinator::setRoomInputTopology(std::optional<Settings::Device> port1Device,
-                                              std::optional<Settings::Device> port2Device,
-                                              Settings::ExpansionDevice expansionDevice,
-                                              Settings::NesMultitapDevice nesMultitapDevice,
-                                              Settings::FamicomMultitapDevice famicomMultitapDevice,
+void NetplayCoordinator::setRoomInputTopology(std::optional<PortDevice> port1Device,
+                                              std::optional<PortDevice> port2Device,
+                                              ExpansionDevice expansionDevice,
+                                              NesMultitapDevice nesMultitapDevice,
+                                              FamicomMultitapDevice famicomMultitapDevice,
                                               std::optional<ParticipantId> preservedParticipantId,
                                               PlayerSlot preservedAssignment)
 {
@@ -5093,11 +5106,18 @@ bool NetplayCoordinator::injectFrameStatusForTests(const FrameStatusData& status
     return handleFrameStatus(reader);
 }
 
-bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, const InputFrame& contribution)
+bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, const NetplayInputFrame& contribution)
 {
     PacketWriter writer;
-    const std::vector<uint8_t> payload = serializeInputFrame(contribution);
+    NetplayInputFrame netplayFrame = contribution;
+    netplayFrame.frame = input.frame;
+    netplayFrame.timelineEpoch = input.timelineEpoch;
+    const std::vector<uint8_t> payload = serializeNetplayInputFrame(netplayFrame);
     InputFrameData inputWithPayload = input;
+    inputWithPayload.buttonMaskLo = assignedContributionPrimaryMask(input.playerSlot, netplayFrame);
+    inputWithPayload.buttonMaskHi = input.playerSlot <= kMaxAssignedPlayerSlot
+        ? netplayFrame.buttonMaskHi[input.playerSlot]
+        : 0u;
     inputWithPayload.payloadSize = static_cast<uint16_t>(payload.size());
     writer.writePod(inputWithPayload);
     writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
@@ -5373,6 +5393,12 @@ uint8_t NetplayCoordinator::predictFrames() const
 
 void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 {
+    ConfirmedFrameInputs stored = frame;
+    if(stored.netplayFrame.frame != stored.frame) {
+        stored.netplayFrame.frame = stored.frame;
+        stored.netplayFrame.timelineEpoch = m_session.roomState().timelineEpoch;
+    }
+
     if(frame.authoritativeFrameStartClockMicros != 0u) {
         m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
         m_session.roomState().lastAuthoritativeClockMicros = frame.authoritativeFrameStartClockMicros;
@@ -5380,7 +5406,7 @@ void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 
     if(const auto existingIt = m_confirmedFrameIndex.find(frame.frame);
        existingIt != m_confirmedFrameIndex.end()) {
-        *existingIt->second = frame;
+        *existingIt->second = stored;
         m_performanceDiagnostics.confirmedFrameStore.record(true, 1);
         return;
     }
@@ -5391,7 +5417,7 @@ void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
         m_confirmedFrames.pop_front();
     }
 
-    m_confirmedFrames.push_back(frame);
+    m_confirmedFrames.push_back(stored);
     m_confirmedFrameIndex[frame.frame] = std::prev(m_confirmedFrames.end());
 }
 
@@ -5400,7 +5426,7 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
     outFrame = {};
     outFrame.frame = frame;
     outFrame.authoritativeFrameStartClockMicros = authoritativeFrameStartClockMicros(frame);
-    outFrame.inputFrame = makeRoomTopologyBaseFrame(frame, m_session.roomState());
+    NetplayInputFrame assembledInputFrame = makeRoomTopologyNetplayFrame(frame, m_session.roomState());
     bool haveAssignedParticipant = false;
 
     for(const auto& participant : m_session.roomState().participants) {
@@ -5419,9 +5445,11 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
             haveAssignedParticipant = true;
             outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
             outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
-            applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
+            applyAssignedContribution(assembledInputFrame, slot, timelineContributionForSlot(*entry));
         }
     }
+
+    outFrame.netplayFrame = std::move(assembledInputFrame);
 
     return haveAssignedParticipant || std::none_of(
         m_session.roomState().participants.begin(),
@@ -5446,7 +5474,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
     outFrame = {};
     outFrame.frame = frame;
     outFrame.authoritativeFrameStartClockMicros = authoritativeFrameStartClockMicros(frame);
-    outFrame.inputFrame = makeRoomTopologyBaseFrame(frame, m_session.roomState());
+    NetplayInputFrame assembledInputFrame = makeRoomTopologyNetplayFrame(frame, m_session.roomState());
     outFrame.predicted = false;
     bool haveAssignedParticipant = false;
 
@@ -5490,13 +5518,15 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
             haveAssignedParticipant = true;
             outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
             outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
-            applyAssignedContribution(outFrame.inputFrame, slot, entry->inputFrame);
+            applyAssignedContribution(assembledInputFrame, slot, timelineContributionForSlot(*entry));
             if(entry->predicted) {
                 m_predictionStats.recordPredictedFrameUse(frame, slot);
             }
             outFrame.predicted = outFrame.predicted || entry->predicted;
         }
     }
+
+    outFrame.netplayFrame = std::move(assembledInputFrame);
 
     return haveAssignedParticipant || std::none_of(
         m_session.roomState().participants.begin(),
@@ -5619,7 +5649,7 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
 
 }
 
-void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const InputFrame& contribution)
+void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const NetplayInputFrame& contribution)
 {
     if(slot == kObserverPlayerSlot || m_localParticipantId == kInvalidParticipantId) return;
     if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
@@ -5627,14 +5657,20 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
         return;
     }
 
-    const uint64_t buttonMaskLo = assignedContributionPrimaryMask(slot, contribution);
+    NetplayInputFrame normalizedContribution = contribution;
+    normalizedContribution.frame = frame;
+    normalizedContribution.timelineEpoch = m_session.roomState().timelineEpoch;
+
+    const uint64_t buttonMaskLo = assignedContributionPrimaryMask(slot, normalizedContribution);
     const uint64_t buttonMaskHi = 0;
+    normalizedContribution.buttonMaskLo[slot] = buttonMaskLo;
+    normalizedContribution.buttonMaskHi[slot] = buttonMaskHi;
 
     const TimelineInputEntry* existing = m_localInputs.find(frame, m_localParticipantId, slot);
     if(existing != nullptr) {
         if(existing->buttonMaskLo != buttonMaskLo ||
            existing->buttonMaskHi != buttonMaskHi ||
-           !inputFramesEqual(existing->inputFrame, contribution)) {
+           existing->netplayFrame != normalizedContribution) {
             std::ostringstream oss;
             oss << "Ignored attempt to overwrite committed local input on frame " << frame
                 << " assignment " << inputAssignmentLabel(slot, m_session.roomState())
@@ -5674,7 +5710,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     entry.playerSlot = slot;
     entry.buttonMaskLo = buttonMaskLo;
     entry.buttonMaskHi = buttonMaskHi;
-    entry.inputFrame = contribution;
+    entry.netplayFrame = normalizedContribution;
     entry.sequence = ++m_localInputSequence;
     entry.confirmed = m_hosting;
     m_localInputs.push(entry);
@@ -5689,11 +5725,11 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     packetData.buttonMaskLo = buttonMaskLo;
     packetData.buttonMaskHi = buttonMaskHi;
     packetData.sequence = entry.sequence;
-    const std::vector<uint8_t> serializedContribution = serializeInputFrame(contribution);
-    packetData.payloadSize = static_cast<uint16_t>(serializedContribution.size());
+    const std::vector<uint8_t> payloadFrame = serializeNetplayInputFrame(entry.netplayFrame);
+    packetData.payloadSize = static_cast<uint16_t>(payloadFrame.size());
     const std::vector<uint8_t> payload = buildInputFramePacket(
         packetData,
-        std::span<const uint8_t>(serializedContribution.data(), serializedContribution.size())
+        std::span<const uint8_t>(payloadFrame.data(), payloadFrame.size())
     );
 
     if(m_hosting) {
@@ -5712,31 +5748,22 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,
                                                uint64_t buttonMaskLo,
                                                uint64_t /*buttonMaskHi*/)
 {
-    InputFrame contribution = makeContributionBase(makeRoomTopologyBaseFrame(frame, m_session.roomState()));
-    auto bit = [buttonMaskLo](uint32_t index) {
-        return (buttonMaskLo & (1ull << index)) != 0;
-    };
+    NetplayInputFrame contribution = makeContributionBase(makeRoomTopologyNetplayFrame(frame, m_session.roomState()));
     switch(slot) {
         case kPort1PlayerSlot:
         case kMultitapP1PlayerSlot:
-            contribution.p1A = bit(0); contribution.p1B = bit(1); contribution.p1Select = bit(2); contribution.p1Start = bit(3);
-            contribution.p1Up = bit(4); contribution.p1Down = bit(5); contribution.p1Left = bit(6); contribution.p1Right = bit(7);
-            contribution.p1X = bit(8); contribution.p1Y = bit(9); contribution.p1L = bit(10); contribution.p1R = bit(11);
+            contribution.buttonMaskLo[slot] = buttonMaskLo;
             break;
         case kPort2PlayerSlot:
         case kMultitapP2PlayerSlot:
-            contribution.p2A = bit(0); contribution.p2B = bit(1); contribution.p2Select = bit(2); contribution.p2Start = bit(3);
-            contribution.p2Up = bit(4); contribution.p2Down = bit(5); contribution.p2Left = bit(6); contribution.p2Right = bit(7);
-            contribution.p2X = bit(8); contribution.p2Y = bit(9); contribution.p2L = bit(10); contribution.p2R = bit(11);
+            contribution.buttonMaskLo[slot] = buttonMaskLo;
             break;
         case kExpansionPlayerSlot:
         case kMultitapP3PlayerSlot:
-            contribution.p3A = bit(0); contribution.p3B = bit(1); contribution.p3Select = bit(2); contribution.p3Start = bit(3);
-            contribution.p3Up = bit(4); contribution.p3Down = bit(5); contribution.p3Left = bit(6); contribution.p3Right = bit(7);
+            contribution.buttonMaskLo[slot] = buttonMaskLo;
             break;
         case kMultitapP4PlayerSlot:
-            contribution.p4A = bit(0); contribution.p4B = bit(1); contribution.p4Select = bit(2); contribution.p4Start = bit(3);
-            contribution.p4Up = bit(4); contribution.p4Down = bit(5); contribution.p4Left = bit(6); contribution.p4Right = bit(7);
+            contribution.buttonMaskLo[slot] = buttonMaskLo;
             break;
         default:
             break;

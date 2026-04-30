@@ -17,6 +17,7 @@
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESApp/SingleThreadEmulationHost.h"
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/NetplayAppRuntime.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
 #include "GeraNESNetplay/NetplayCoordinator.h"
@@ -397,7 +398,7 @@ private:
         if(confirmed == nullptr) {
             return peer.emu.createInputFrame(frame);
         }
-        InputFrame inputFrame = confirmed->inputFrame;
+        InputFrame inputFrame = Netplay::toGeraNESInputFrame(confirmed->netplayFrame);
         inputFrame.frame = frame;
         return inputFrame;
     }
@@ -1725,7 +1726,7 @@ private:
                             if(!localId.has_value()) return false;
                             const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *localId);
                             return hostParticipant != nullptr &&
-                                   hostSnap.room.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE &&
+                                   hostSnap.room.nesMultitapDevice == Netplay::NesMultitapDevice::FOUR_SCORE &&
                                    hostParticipant->controllerAssignment == Netplay::kMultitapP1PlayerSlot;
                         }, options.startupTimeoutSteps, 5u)) {
                         failureReason = "Host-only Four Score P1 assignment did not stick before client join.";
@@ -1837,10 +1838,10 @@ private:
                         options.hostMultitapAssignedBeforeJoinOnly
                             ? Netplay::kMultitapP1PlayerSlot
                             : Netplay::kPort1PlayerSlot;
-                    const Settings::NesMultitapDevice expectedNesMultitap =
+                    const Netplay::NesMultitapDevice expectedNesMultitap =
                         options.hostMultitapAssignedBeforeJoinOnly
-                            ? Settings::NesMultitapDevice::FOUR_SCORE
-                            : Settings::NesMultitapDevice::NONE;
+                            ? Netplay::NesMultitapDevice::FOUR_SCORE
+                            : Netplay::NesMultitapDevice::NONE;
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
                            hostParticipant->controllerAssignment == expectedHostAssignment &&
@@ -1907,10 +1908,10 @@ private:
                            clientSnap.room.state == Netplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
                            clientSnap.room.activeResyncId == 0 &&
-                           hostSnap.room.port1Device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
-                           hostSnap.room.port2Device == std::optional<Settings::Device>(Settings::Device::ZAPPER) &&
-                           clientSnap.room.port1Device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
-                           clientSnap.room.port2Device == std::optional<Settings::Device>(Settings::Device::ZAPPER) &&
+                           hostSnap.room.port1Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER) &&
+                           hostSnap.room.port2Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::ZAPPER) &&
+                           clientSnap.room.port1Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER) &&
+                           clientSnap.room.port2Device == std::optional<Netplay::PortDevice>(Netplay::PortDevice::ZAPPER) &&
                            participantHasAssignments(hostSnap.room, *hostId, {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}) &&
                            participantHasAssignments(clientSnap.room, *hostId, {Netplay::kPort1PlayerSlot, Netplay::kPort2PlayerSlot}) &&
                            localAssignedSlot(clientSnap.room, clientSnap.localParticipantId) == std::nullopt;
@@ -3144,9 +3145,9 @@ private:
                 return replayInput;
             }
             replayInput.hasFrameOverride = true;
-            replayInput.frameOverride = playbackFrame.inputFrame;
+            replayInput.frameOverride = Netplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
             replayInput.frameOverride.frame = frame;
-            Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, playbackFrame.inputFrame);
+            Netplay::ConfirmedInputBufferDriver::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
             replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {

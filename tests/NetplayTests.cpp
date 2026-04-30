@@ -18,6 +18,7 @@
 
 #include "GeraNESNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/DesyncMonitor.h"
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/SelfStallDetector.h"
 #include "GeraNESNetplay/RemoteInputStallMonitor.h"
 #include "GeraNESNetplay/NetplayAutoTune.h"
@@ -2447,7 +2448,7 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
     confirmed.frame = 500u;
     confirmed.participantId = remote.id;
     confirmed.playerSlot = Netplay::kPort2PlayerSlot;
-    confirmed.inputFrame = confirmedContribution;
+    confirmed.netplayFrame = Netplay::toNetplayInputFrame(confirmedContribution);
     confirmed.sequence = 1003u;
     confirmed.confirmed = true;
     confirmed.predicted = false;
@@ -2470,7 +2471,7 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
     resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
     resumedInput.sequence = 1004u;
     InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(501u, room);
-    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     REQUIRE(reconnected->lastReceivedInputSequence == 1004u);
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input sequence from Participant"));
@@ -2517,7 +2518,7 @@ TEST_CASE("Reconnect input rebase accepts later resumed frame on host",
     resumedInput.playerSlot = Netplay::kPort2PlayerSlot;
     resumedInput.sequence = 660u;
     InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(10895u, room);
-    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
@@ -2571,7 +2572,7 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
     resumedInput.sequence = 1u;
     InputFrame resumedContribution = Netplay::makeRoomTopologyBaseFrame(7207u, room);
     resumedContribution.p1A = true;
-    REQUIRE(host.injectInputFrameForTests(resumedInput, resumedContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
 
     const Netplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
@@ -2654,10 +2655,11 @@ TEST_CASE("Client confirmed frame sync does not prefill future local inputs afte
     for(Netplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
         Netplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
         confirmed.frame = frame;
-        confirmed.inputFrame = Netplay::makeRoomTopologyBaseFrame(frame, clientRoom);
+        InputFrame confirmedInputFrame = Netplay::makeRoomTopologyBaseFrame(frame, clientRoom);
         confirmed.buttonMaskLo[Netplay::kPort1PlayerSlot] = 0u;
         confirmed.buttonMaskLo[Netplay::kPort2PlayerSlot] = (frame % 2u) == 0u ? 1u : 0u;
-        confirmed.inputFrame.p2A = (frame % 2u) == 0u;
+        confirmedInputFrame.p2A = (frame % 2u) == 0u;
+        confirmed.netplayFrame = Netplay::toNetplayInputFrame(confirmedInputFrame);
         confirmedFrames.push_back(confirmed);
     }
 
@@ -3379,7 +3381,7 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
         remote.buttonMaskHi = 0u;
 
         InputFrame contribution = Netplay::makeRoomTopologyBaseFrame(frame, room);
-        REQUIRE(host.injectInputFrameForTests(remote, contribution));
+        REQUIRE(Netplay::injectInputFrameForTests(host, remote, contribution));
     }
 
     room.state = Netplay::SessionState::Running;
@@ -4009,7 +4011,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
 
     InputFrame baselineContribution = Netplay::makeRoomTopologyBaseFrame(101, hostRoom);
     baselineContribution.p2Right = true;
-    REQUIRE(host.injectInputFrameForTests(baselineRemoteInput, baselineContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, baselineRemoteInput, baselineContribution));
 
     Netplay::ConfirmedInputBufferDriver hostPlaybackDriver;
     hostPlaybackDriver.setPrebufferFrames(12);
@@ -4053,7 +4055,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     Netplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
     REQUIRE_FALSE(playbackFrame.predicted);
-    REQUIRE(playbackFrame.inputFrame.p2Right);
+    REQUIRE(Netplay::toGeraNESInputFrame(playbackFrame.netplayFrame).p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
     REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
@@ -4063,7 +4065,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     Netplay::NetplayCoordinator::ConfirmedFrameInputs suspendedPlaybackFrame{};
     REQUIRE(host.tryBuildPlaybackFrame(112, true, suspendedPlaybackFrame));
     REQUIRE_FALSE(suspendedPlaybackFrame.predicted);
-    REQUIRE(suspendedPlaybackFrame.inputFrame.p2Right);
+    REQUIRE(Netplay::toGeraNESInputFrame(suspendedPlaybackFrame.netplayFrame).p2Right);
     REQUIRE(host.remoteInputs().find(112u, hostRemote->id, Netplay::kPort2PlayerSlot) != nullptr);
 
     const std::optional<Netplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
@@ -4110,7 +4112,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     Netplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
     REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
     REQUIRE_FALSE(resumedWindowPlayback.predicted);
-    REQUIRE(resumedWindowPlayback.inputFrame.p2Right);
+    REQUIRE(Netplay::toGeraNESInputFrame(resumedWindowPlayback.netplayFrame).p2Right);
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
     Netplay::InputFrameData staleResumedInput = baselineRemoteInput;
@@ -4118,7 +4120,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     staleResumedInput.sequence = 2;
     for(int i = 0; i < 4; ++i) {
         staleResumedInput.sequence += 1u;
-        REQUIRE(host.injectInputFrameForTests(staleResumedInput, baselineContribution));
+        REQUIRE(Netplay::injectInputFrameForTests(host, staleResumedInput, baselineContribution));
         host.update(0);
         REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     }
@@ -4441,7 +4443,7 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     committed.playerSlot = Netplay::kPort1PlayerSlot;
     committed.buttonMaskLo = 0u;
     committed.buttonMaskHi = 0u;
-    committed.inputFrame = committedContribution;
+    committed.netplayFrame = Netplay::toNetplayInputFrame(committedContribution);
     committed.sequence = 0u;
     committed.confirmed = true;
     committed.predicted = false;
@@ -4455,14 +4457,14 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     lateInput.sequence = 1u;
     lateInput.buttonMaskLo = 0u;
     lateInput.buttonMaskHi = 0u;
-    REQUIRE(host.injectInputFrameForTests(lateInput, committedContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, lateInput, committedContribution));
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
 
     Netplay::InputFrameData nextInput = lateInput;
     nextInput.frame = 1554u;
     nextInput.sequence = 2u;
     InputFrame nextContribution = Netplay::makeRoomTopologyBaseFrame(1554u, room);
-    REQUIRE(host.injectInputFrameForTests(nextInput, nextContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, nextInput, nextContribution));
     REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Rejected non-sequential input from Participant"));
 
     host.disconnect();
@@ -4802,7 +4804,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     contribution.frame = inputEqual.frame;
     contribution.timelineEpoch = inputEqual.timelineEpoch;
     contribution.p1A = true;
-    REQUIRE(coordinator.injectInputFrameForTests(inputEqual, contribution));
+    REQUIRE(Netplay::injectInputFrameForTests(coordinator, inputEqual, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
 
     Netplay::InputFrameData inputStale = inputEqual;
@@ -4811,7 +4813,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     inputStale.sequence = 2u;
     contribution.frame = inputStale.frame;
     contribution.timelineEpoch = inputStale.timelineEpoch;
-    REQUIRE(coordinator.injectInputFrameForTests(inputStale, contribution));
+    REQUIRE(Netplay::injectInputFrameForTests(coordinator, inputStale, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
     REQUIRE(room.staleInputPacketCount == 1u);
     REQUIRE(room.lastIgnoredStaleInputEpoch == 4u);
@@ -4822,7 +4824,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     inputFuture.sequence = 3u;
     contribution.frame = inputFuture.frame;
     contribution.timelineEpoch = inputFuture.timelineEpoch;
-    REQUIRE_FALSE(coordinator.injectInputFrameForTests(inputFuture, contribution));
+    REQUIRE_FALSE(Netplay::injectInputFrameForTests(coordinator, inputFuture, contribution));
     REQUIRE(room.lastAcceptedRemoteEpoch == 5u);
     REQUIRE(room.staleInputPacketCount == 1u);
 
@@ -5048,7 +5050,7 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
     staleInput.payloadSize = 0u;
     InputFrame staleContribution{};
     staleContribution.frame = staleInput.frame;
-    REQUIRE(host.injectInputFrameForTests(staleInput, staleContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, staleInput, staleContribution));
     REQUIRE(host.session().roomState().staleInputPacketCount > 0u);
 
     Netplay::FrameStatusData staleStatus{};
@@ -5089,7 +5091,7 @@ TEST_CASE("Netplay coordinator keeps stale-epoch packets gated during recovery l
 
     const uint32_t staleInputCountBefore = host.session().roomState().staleInputPacketCount;
     staleInput.sequence = 2u;
-    REQUIRE(host.injectInputFrameForTests(staleInput, staleContribution));
+    REQUIRE(Netplay::injectInputFrameForTests(host, staleInput, staleContribution));
     REQUIRE(host.session().roomState().staleInputPacketCount > staleInputCountBefore);
 
     host.disconnect();
@@ -5676,8 +5678,34 @@ TEST_CASE("Duck Hunt host reset resync keeps observer client in identical state"
 TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[netplay][assignment][unit]")
 {
     auto makeInputState = [](Netplay::PlayerSlot slot, uint64_t mask) {
-        EmulationHost::InputState state{};
-        Netplay::ConfirmedInputBufferDriver::applyPadMaskToInputState(state, slot, mask);
+        Netplay::NetplayInputState state{};
+        auto bit = [mask](uint32_t index) { return (mask & (1ull << index)) != 0; };
+        const bool a = bit(0);
+        const bool b = bit(1);
+        const bool select = bit(2);
+        const bool start = bit(3);
+        const bool up = bit(4);
+        const bool down = bit(5);
+        const bool left = bit(6);
+        const bool right = bit(7);
+        switch(slot) {
+            case Netplay::kPort1PlayerSlot:
+            case Netplay::kMultitapP1PlayerSlot:
+                state.p1A = a; state.p1B = b; state.p1Select = select; state.p1Start = start;
+                state.p1Up = up; state.p1Down = down; state.p1Left = left; state.p1Right = right;
+                break;
+            case Netplay::kPort2PlayerSlot:
+            case Netplay::kMultitapP2PlayerSlot:
+                state.p2A = a; state.p2B = b; state.p2Select = select; state.p2Start = start;
+                state.p2Up = up; state.p2Down = down; state.p2Left = left; state.p2Right = right;
+                break;
+            case Netplay::kMultitapP4PlayerSlot:
+                state.p4A = a; state.p4B = b; state.p4Select = select; state.p4Start = start;
+                state.p4Up = up; state.p4Down = down; state.p4Left = left; state.p4Right = right;
+                break;
+            default:
+                break;
+        }
         return state;
     };
     auto hostMask = Netplay::ConfirmedInputBufferDriver::buildPadMask(false, false, false, true, false, false, false, true);
@@ -5686,8 +5714,8 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
     SECTION("port assignments move the same local patterns to the new slots")
     {
         Netplay::RoomState room;
-        room.port1Device = Settings::Device::CONTROLLER;
-        room.port2Device = Settings::Device::CONTROLLER;
+        room.port1Device = Netplay::PortDevice::CONTROLLER;
+        room.port2Device = Netplay::PortDevice::CONTROLLER;
 
         const auto hostState = makeInputState(Netplay::kPort1PlayerSlot, hostMask);
         const auto clientState = makeInputState(Netplay::kPort2PlayerSlot, clientMask);
@@ -5718,7 +5746,7 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
     SECTION("multitap assignments also preserve patterns when swapped")
     {
         Netplay::RoomState room;
-        room.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+        room.nesMultitapDevice = Netplay::NesMultitapDevice::FOUR_SCORE;
 
         const auto p1State = makeInputState(Netplay::kMultitapP1PlayerSlot, hostMask);
         const auto p4State = makeInputState(Netplay::kMultitapP4PlayerSlot, clientMask);
@@ -5749,13 +5777,13 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
 
 TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assignment][zapper]")
 {
-    EmulationHost::InputState state{};
+    Netplay::NetplayInputState state{};
     state.zapperX = 87;
     state.zapperY = 53;
     state.zapperP2Trigger = true;
 
     Netplay::RoomState room;
-    room.port2Device = Settings::Device::ZAPPER;
+    room.port2Device = Netplay::PortDevice::ZAPPER;
 
     auto frame = Netplay::makeRoomTopologyBaseFrame(19u, room);
     const auto contribution = Netplay::buildAssignedContribution(Netplay::kPort2PlayerSlot, state, frame);
@@ -5776,8 +5804,8 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
 TEST_CASE("Netplay allows multiple assignments for the same participant", "[netplay][assignment][multi]")
 {
     Netplay::RoomState room;
-    room.port1Device = Settings::Device::CONTROLLER;
-    room.port2Device = Settings::Device::ZAPPER;
+    room.port1Device = Netplay::PortDevice::CONTROLLER;
+    room.port2Device = Netplay::PortDevice::ZAPPER;
 
     Netplay::ParticipantInfo host;
     host.id = 0;
@@ -5797,7 +5825,7 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
         Netplay::kPort2PlayerSlot
     ));
 
-    EmulationHost::InputState state{};
+    Netplay::NetplayInputState state{};
     state.p1Start = true;
     state.zapperX = 112;
     state.zapperY = 64;
@@ -5823,7 +5851,7 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
 
 TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload", "[netplay][assignment][controller]")
 {
-    EmulationHost::InputState state{};
+    Netplay::NetplayInputState state{};
     state.p1Start = true;
     state.zapperX = 87;
     state.zapperY = 53;
@@ -5833,8 +5861,8 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
     state.mousePrimaryButton = true;
 
     Netplay::RoomState room;
-    room.port1Device = Settings::Device::CONTROLLER;
-    room.port2Device = Settings::Device::ZAPPER;
+    room.port1Device = Netplay::PortDevice::CONTROLLER;
+    room.port2Device = Netplay::PortDevice::ZAPPER;
 
     const auto baseFrame = Netplay::makeRoomTopologyBaseFrame(19u, room);
     const auto contribution = Netplay::buildAssignedContribution(Netplay::kPort1PlayerSlot, state, baseFrame);
@@ -5853,14 +5881,14 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
 TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from previous topology", "[netplay][assignment][topology]")
 {
     Netplay::RoomState oldRoom;
-    oldRoom.port2Device = Settings::Device::ZAPPER;
+    oldRoom.port2Device = Netplay::PortDevice::ZAPPER;
     InputFrame staleZapperContribution = Netplay::makeRoomTopologyBaseFrame(21u, oldRoom);
     staleZapperContribution.zapperP2X = 87;
     staleZapperContribution.zapperP2Y = 53;
     staleZapperContribution.zapperP2Trigger = true;
 
     Netplay::RoomState newRoom;
-    newRoom.port2Device = Settings::Device::CONTROLLER;
+    newRoom.port2Device = Netplay::PortDevice::CONTROLLER;
     InputFrame target = Netplay::makeRoomTopologyBaseFrame(21u, newRoom);
     Netplay::applyAssignedContribution(target, Netplay::kPort2PlayerSlot, staleZapperContribution);
 
@@ -5906,9 +5934,9 @@ TEST_CASE("Emulator input buffer drops stale timeline epoch frames when timeline
 TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity", "[netplay][assignment][ui]")
 {
     Netplay::RoomState room;
-    room.port1Device = Settings::Device::CONTROLLER;
-    room.port2Device = Settings::Device::CONTROLLER;
-    room.expansionDevice = Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+    room.port1Device = Netplay::PortDevice::CONTROLLER;
+    room.port2Device = Netplay::PortDevice::CONTROLLER;
+    room.expansionDevice = Netplay::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
 
     Netplay::ParticipantInfo host;
     host.id = 0;
@@ -5925,83 +5953,83 @@ TEST_CASE("Netplay assignment candidates respect hardware topology exclusivity",
     REQUIRE_FALSE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
         room.expansionDevice,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE,
+        Netplay::NesMultitapDevice::NONE,
+        Netplay::FamicomMultitapDevice::NONE,
         Netplay::kPort1PlayerSlot
     ));
 
     REQUIRE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
         room.expansionDevice,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE,
+        Netplay::NesMultitapDevice::NONE,
+        Netplay::FamicomMultitapDevice::NONE,
         Netplay::kPort2PlayerSlot
     ));
 
     REQUIRE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
         room.expansionDevice,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE,
+        Netplay::NesMultitapDevice::NONE,
+        Netplay::FamicomMultitapDevice::NONE,
         Netplay::kExpansionPlayerSlot
     ));
 
     REQUIRE_FALSE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::FOUR_SCORE,
-        Settings::FamicomMultitapDevice::NONE,
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        Netplay::ExpansionDevice::NONE,
+        Netplay::NesMultitapDevice::FOUR_SCORE,
+        Netplay::FamicomMultitapDevice::NONE,
         Netplay::kMultitapP1PlayerSlot
     ));
 
-    room.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
-    room.port1Device = Settings::Device::CONTROLLER;
-    room.port2Device = Settings::Device::CONTROLLER;
-    room.expansionDevice = Settings::ExpansionDevice::NONE;
+    room.nesMultitapDevice = Netplay::NesMultitapDevice::FOUR_SCORE;
+    room.port1Device = Netplay::PortDevice::CONTROLLER;
+    room.port2Device = Netplay::PortDevice::CONTROLLER;
+    room.expansionDevice = Netplay::ExpansionDevice::NONE;
     room.participants[0].controllerAssignment = Netplay::kMultitapP1PlayerSlot;
 
     REQUIRE_FALSE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::FOUR_SCORE,
-        Settings::FamicomMultitapDevice::NONE,
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        Netplay::ExpansionDevice::NONE,
+        Netplay::NesMultitapDevice::FOUR_SCORE,
+        Netplay::FamicomMultitapDevice::NONE,
         Netplay::kMultitapP1PlayerSlot
     ));
 
     REQUIRE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::FOUR_SCORE,
-        Settings::FamicomMultitapDevice::NONE,
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        Netplay::ExpansionDevice::NONE,
+        Netplay::NesMultitapDevice::FOUR_SCORE,
+        Netplay::FamicomMultitapDevice::NONE,
         Netplay::kMultitapP2PlayerSlot
     ));
 
     REQUIRE_FALSE(Netplay::canAssignInputCandidate(
         room,
         client.id,
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::HORI_ADAPTER,
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        std::optional<Netplay::PortDevice>(Netplay::PortDevice::CONTROLLER),
+        Netplay::ExpansionDevice::NONE,
+        Netplay::NesMultitapDevice::NONE,
+        Netplay::FamicomMultitapDevice::HORI_ADAPTER,
         Netplay::kMultitapP2PlayerSlot
     ));
 }

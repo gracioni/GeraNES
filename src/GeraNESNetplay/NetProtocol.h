@@ -4,12 +4,12 @@
 #include <cstdint>
 #include <string>
 
-#include "GeraNES/Settings.h"
 #include "NetplayTypes.h"
+#include "NetplayTopology.h"
 
 namespace Netplay {
 
-constexpr uint8_t kProtocolVersion = 8;
+constexpr uint8_t kProtocolVersion = 10;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -125,11 +125,11 @@ struct RomValidationResultData
 
 struct InputTopologyData
 {
-    Settings::Device port1Device = Settings::Device::NONE;
-    Settings::Device port2Device = Settings::Device::NONE;
-    Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
-    Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
-    Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
+    PortDevice port1Device = PortDevice::NONE;
+    PortDevice port2Device = PortDevice::NONE;
+    ExpansionDevice expansionDevice = ExpansionDevice::NONE;
+    NesMultitapDevice nesMultitapDevice = NesMultitapDevice::NONE;
+    FamicomMultitapDevice famicomMultitapDevice = FamicomMultitapDevice::NONE;
 };
 
 struct InputFrameData

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
+
 namespace Netplay
 {
 
@@ -50,6 +52,46 @@ PadButtons decodePadMask(uint64_t mask)
     return buttons;
 }
 
+NetplayInputState toNetplayInputState(const EmulationHost::InputState& state)
+{
+    NetplayInputState netplayState;
+    netplayState.p1A = state.p1A; netplayState.p1B = state.p1B; netplayState.p1Select = state.p1Select; netplayState.p1Start = state.p1Start;
+    netplayState.p1Up = state.p1Up; netplayState.p1Down = state.p1Down; netplayState.p1Left = state.p1Left; netplayState.p1Right = state.p1Right;
+    netplayState.p1X = state.p1X; netplayState.p1Y = state.p1Y; netplayState.p1L = state.p1L; netplayState.p1R = state.p1R;
+    netplayState.p1Up2 = state.p1Up2; netplayState.p1Down2 = state.p1Down2; netplayState.p1Left2 = state.p1Left2; netplayState.p1Right2 = state.p1Right2;
+
+    netplayState.p2A = state.p2A; netplayState.p2B = state.p2B; netplayState.p2Select = state.p2Select; netplayState.p2Start = state.p2Start;
+    netplayState.p2Up = state.p2Up; netplayState.p2Down = state.p2Down; netplayState.p2Left = state.p2Left; netplayState.p2Right = state.p2Right;
+    netplayState.p2X = state.p2X; netplayState.p2Y = state.p2Y; netplayState.p2L = state.p2L; netplayState.p2R = state.p2R;
+    netplayState.p2Up2 = state.p2Up2; netplayState.p2Down2 = state.p2Down2; netplayState.p2Left2 = state.p2Left2; netplayState.p2Right2 = state.p2Right2;
+
+    netplayState.p3A = state.p3A; netplayState.p3B = state.p3B; netplayState.p3Select = state.p3Select; netplayState.p3Start = state.p3Start;
+    netplayState.p3Up = state.p3Up; netplayState.p3Down = state.p3Down; netplayState.p3Left = state.p3Left; netplayState.p3Right = state.p3Right;
+    netplayState.p4A = state.p4A; netplayState.p4B = state.p4B; netplayState.p4Select = state.p4Select; netplayState.p4Start = state.p4Start;
+    netplayState.p4Up = state.p4Up; netplayState.p4Down = state.p4Down; netplayState.p4Left = state.p4Left; netplayState.p4Right = state.p4Right;
+
+    netplayState.p1PowerPadButtons = state.p1PowerPadButtons;
+    netplayState.p2PowerPadButtons = state.p2PowerPadButtons;
+    netplayState.suborKeyboardKeys = state.suborKeyboardKeys;
+    netplayState.familyBasicKeyboardKeys = state.familyBasicKeyboardKeys;
+    netplayState.zapperX = state.zapperX;
+    netplayState.zapperY = state.zapperY;
+    netplayState.mouseDeltaX = state.mouseDeltaX;
+    netplayState.mouseDeltaY = state.mouseDeltaY;
+    netplayState.arkanoidNesPosition = state.arkanoidNesPosition;
+    netplayState.arkanoidFamicomPosition = state.arkanoidFamicomPosition;
+    netplayState.zapperP1Trigger = state.zapperP1Trigger;
+    netplayState.zapperP2Trigger = state.zapperP2Trigger;
+    netplayState.bandaiTrigger = state.bandaiTrigger;
+    netplayState.konamiP1Run = state.konamiP1Run;
+    netplayState.konamiP1Jump = state.konamiP1Jump;
+    netplayState.konamiP2Run = state.konamiP2Run;
+    netplayState.konamiP2Jump = state.konamiP2Jump;
+    netplayState.mousePrimaryButton = state.mousePrimaryButton;
+    netplayState.mouseSecondaryButton = state.mouseSecondaryButton;
+    return netplayState;
+}
+
 } // namespace
 
 void ConfirmedInputBufferDriver::seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
@@ -57,13 +99,14 @@ void ConfirmedInputBufferDriver::seedInitialPrebufferIfNeeded(NetplayCoordinator
                                                                const EmulationHost::InputState& localInputState,
                                                                const RoomState& room)
 {
+    const NetplayInputState netplayInputState = toNetplayInputState(localInputState);
     while(m_producedThroughFrame < m_prebufferFrames) {
         ++m_producedThroughFrame;
         for(PlayerSlot localSlot : localSlots) {
             coordinator.recordLocalInputFrame(
                 m_producedThroughFrame,
                 localSlot,
-                buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+                toNetplayInputFrame(buildAssignedContribution(localSlot, netplayInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room)))
             );
         }
     }
@@ -397,6 +440,7 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     }
 
     seedInitialPrebufferIfNeeded(coordinator, localSlots, localInputState, room);
+    const NetplayInputState netplayInputState = toNetplayInputState(localInputState);
 
     // Produce committed local inputs using delay-only horizon.
     const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
@@ -407,7 +451,7 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
             coordinator.recordLocalInputFrame(
                 m_producedThroughFrame,
                 localSlot,
-                buildAssignedContribution(localSlot, localInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room))
+                toNetplayInputFrame(buildAssignedContribution(localSlot, netplayInputState, makeRoomTopologyBaseFrame(m_producedThroughFrame, room)))
             );
         }
     }
@@ -460,8 +504,8 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     }
 
     RoomState room = coordinator.session().roomState();
-    if(room.port1Device == std::nullopt) room.port1Device = Settings::Device::CONTROLLER;
-    if(room.port2Device == std::nullopt) room.port2Device = Settings::Device::CONTROLLER;
+    if(room.port1Device == std::nullopt) room.port1Device = PortDevice::CONTROLLER;
+    if(room.port2Device == std::nullopt) room.port2Device = PortDevice::CONTROLLER;
     produceLocalBufferedInputs(
         coordinator,
         active,
@@ -489,7 +533,7 @@ EmulationHost::InputState ConfirmedInputBufferDriver::buildReplayInputState(cons
     if(confirmed == nullptr) {
         return state;
     }
-    applyInputFrameToInputState(state, confirmed->inputFrame);
+    applyInputFrameToInputState(state, toGeraNESInputFrame(confirmed->netplayFrame));
     return state;
 }
 
@@ -631,7 +675,7 @@ void ConfirmedInputBufferDriver::queuePendingFramesToEmu(GeraNESEmu& emu)
         if(confirmed.frame > queueLimitFrame) {
             break;
         }
-        InputFrame inputFrame = confirmed.inputFrame;
+        InputFrame inputFrame = toGeraNESInputFrame(confirmed.netplayFrame);
         inputFrame.speculative = confirmed.predicted;
         inputFrame.timelineEpoch = emu.inputTimelineEpoch();
         (void)emu.queueInputFrame(inputFrame);

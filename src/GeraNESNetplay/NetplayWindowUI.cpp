@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "GeraNESNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/WebRtcSignaling.h"
 #include "GeraNESNetplay/WebRtcSignalingClient.h"
@@ -937,8 +938,11 @@ void drawNetplayWindow(bool& showWindow,
 
     const auto drawAssignmentTree = [&](const ParticipantInfo& participant) {
         const ParticipantId participantId = participant.id;
-        const auto currentPort1 = room.port1Device.value_or(Settings::Device::NONE);
-        const auto currentPort2 = room.port2Device.value_or(Settings::Device::NONE);
+        const auto currentPort1 = toSettingsDevice(room.port1Device.value_or(PortDevice::NONE));
+        const auto currentPort2 = toSettingsDevice(room.port2Device.value_or(PortDevice::NONE));
+        const auto currentExpansionDevice = toSettingsExpansionDevice(room.expansionDevice);
+        const auto currentNesMultitapDevice = toSettingsNesMultitapDevice(room.nesMultitapDevice);
+        const auto currentFamicomMultitapDevice = toSettingsFamicomMultitapDevice(room.famicomMultitapDevice);
         const auto canAssignCandidate = [&](std::optional<Settings::Device> port1Device,
                                             std::optional<Settings::Device> port2Device,
                                             Settings::ExpansionDevice expansionDevice,
@@ -948,11 +952,11 @@ void drawNetplayWindow(bool& showWindow,
             return canAssignInputCandidate(
                 room,
                 participantId,
-                port1Device,
-                port2Device,
-                expansionDevice,
-                nesMultitapDevice,
-                famicomMultitapDevice,
+                toNetplayPortDevice(port1Device),
+                toNetplayPortDevice(port2Device),
+                toNetplayExpansionDevice(expansionDevice),
+                toNetplayNesMultitapDevice(nesMultitapDevice),
+                toNetplayFamicomMultitapDevice(famicomMultitapDevice),
                 slot
             );
         };
@@ -968,11 +972,11 @@ void drawNetplayWindow(bool& showWindow,
                 if(canAssignInputCandidate(
                        room,
                        participantId,
-                       port1Device,
-                       port2Device,
-                       expansionDevice,
-                       nesMultitapDevice,
-                       famicomMultitapDevice,
+                       toNetplayPortDevice(port1Device),
+                       toNetplayPortDevice(port2Device),
+                       toNetplayExpansionDevice(expansionDevice),
+                       toNetplayNesMultitapDevice(nesMultitapDevice),
+                       toNetplayFamicomMultitapDevice(famicomMultitapDevice),
                        existingSlot
                    )) {
                     slots.push_back(existingSlot);
@@ -994,13 +998,13 @@ void drawNetplayWindow(bool& showWindow,
                 participantId,
                 port1Device,
                 port2Device,
-                room.expansionDevice,
+                currentExpansionDevice,
                 Settings::NesMultitapDevice::NONE,
                 Settings::FamicomMultitapDevice::NONE,
                 buildMergedAssignments(
                     port1Device,
                     port2Device,
-                    room.expansionDevice,
+                    currentExpansionDevice,
                     Settings::NesMultitapDevice::NONE,
                     Settings::FamicomMultitapDevice::NONE,
                     port == Settings::Port::P_1 ? kPort1PlayerSlot : kPort2PlayerSlot
@@ -1058,13 +1062,13 @@ void drawNetplayWindow(bool& showWindow,
             );
             const bool selected =
                 participantHasAssignment(participant, slot) &&
-                room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
-                room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
+                currentNesMultitapDevice == Settings::NesMultitapDevice::NONE &&
+                currentFamicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
                 ((port == Settings::Port::P_1 ? currentPort1 : currentPort2) == device);
             const bool enabled = canAssignCandidate(
                 port1Device,
                 port2Device,
-                room.expansionDevice,
+                currentExpansionDevice,
                 Settings::NesMultitapDevice::NONE,
                 Settings::FamicomMultitapDevice::NONE,
                 slot
@@ -1078,9 +1082,9 @@ void drawNetplayWindow(bool& showWindow,
         const auto drawExpansionOption = [&](const char* label, Settings::ExpansionDevice device) {
             const bool selected =
                 participantHasAssignment(participant, kExpansionPlayerSlot) &&
-                room.nesMultitapDevice == Settings::NesMultitapDevice::NONE &&
-                room.famicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
-                room.expansionDevice == device;
+                currentNesMultitapDevice == Settings::NesMultitapDevice::NONE &&
+                currentFamicomMultitapDevice == Settings::FamicomMultitapDevice::NONE &&
+                currentExpansionDevice == device;
             const bool enabled = canAssignCandidate(
                 std::optional<Settings::Device>(currentPort1),
                 std::optional<Settings::Device>(currentPort2),
@@ -1101,8 +1105,8 @@ void drawNetplayWindow(bool& showWindow,
                                             PlayerSlot slot) {
             const bool selected =
                 participantHasAssignment(participant, slot) &&
-                room.nesMultitapDevice == nesDevice &&
-                room.famicomMultitapDevice == famicomDevice;
+                currentNesMultitapDevice == nesDevice &&
+                currentFamicomMultitapDevice == famicomDevice;
             const bool enabled = canAssignCandidate(
                 std::optional<Settings::Device>(Settings::Device::CONTROLLER),
                 std::optional<Settings::Device>(Settings::Device::CONTROLLER),
@@ -1120,27 +1124,27 @@ void drawNetplayWindow(bool& showWindow,
 
         const ImGuiTreeNodeFlags treeFlags = ImGuiTreeNodeFlags_None;
         const bool anyPort1Enabled =
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::CONTROLLER), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::ZAPPER), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::SNES_MOUSE), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER), std::optional<Settings::Device>(currentPort2), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot);
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::CONTROLLER), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::ZAPPER), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::SNES_MOUSE), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER), std::optional<Settings::Device>(currentPort2), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort1PlayerSlot);
         const bool anyPort2Enabled =
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::CONTROLLER), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::ZAPPER), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::SNES_MOUSE), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
-            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER), room.expansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot);
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::CONTROLLER), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::ZAPPER), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::SNES_MOUSE), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot) ||
+            canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER), currentExpansionDevice, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kPort2PlayerSlot);
         const bool anyExpansionEnabled =
             canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(currentPort2), Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kExpansionPlayerSlot) ||
             canAssignCandidate(std::optional<Settings::Device>(currentPort1), std::optional<Settings::Device>(currentPort2), Settings::ExpansionDevice::BANDAI_HYPERSHOT, Settings::NesMultitapDevice::NONE, Settings::FamicomMultitapDevice::NONE, kExpansionPlayerSlot) ||

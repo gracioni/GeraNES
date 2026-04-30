@@ -4,16 +4,16 @@
 #include <string>
 #include <vector>
 
-#include "GeraNES/InputBuffer.h"
-#include "GeraNESApp/EmulationHost.h"
+#include "GeraNESNetplay/NetplayInputFrame.h"
+#include "GeraNESNetplay/NetplayInputState.h"
 #include "GeraNESNetplay/NetSession.h"
 
 namespace Netplay {
 
 std::string inputAssignmentLabel(PlayerSlot slot, const RoomState& room);
 
-const char* portDeviceLabel(Settings::Device device);
-const char* expansionDeviceLabel(Settings::ExpansionDevice device);
+const char* portDeviceLabel(PortDevice device);
+const char* expansionDeviceLabel(ExpansionDevice device);
 std::string inputAssignmentGroupLabel(PlayerSlot slot, const RoomState& room);
 std::string inputAssignmentLeafLabel(PlayerSlot slot, const RoomState& room);
 
@@ -29,11 +29,11 @@ std::vector<PlayerSlot> availableInputAssignments(const RoomState& room);
 bool isAssignmentAvailable(PlayerSlot slot, const RoomState& room);
 
 RoomState roomWithTopology(RoomState room,
-                           std::optional<Settings::Device> port1Device,
-                           std::optional<Settings::Device> port2Device,
-                           Settings::ExpansionDevice expansionDevice,
-                           Settings::NesMultitapDevice nesMultitapDevice,
-                           Settings::FamicomMultitapDevice famicomMultitapDevice);
+                           std::optional<PortDevice> port1Device,
+                           std::optional<PortDevice> port2Device,
+                           ExpansionDevice expansionDevice,
+                           NesMultitapDevice nesMultitapDevice,
+                           FamicomMultitapDevice famicomMultitapDevice);
 
 bool isInputAssignmentClaimedByOtherParticipant(const RoomState& room,
                                                 ParticipantId participantId,
@@ -41,20 +41,19 @@ bool isInputAssignmentClaimedByOtherParticipant(const RoomState& room,
 
 bool canAssignInputCandidate(const RoomState& room,
                              ParticipantId participantId,
-                             std::optional<Settings::Device> port1Device,
-                             std::optional<Settings::Device> port2Device,
-                             Settings::ExpansionDevice expansionDevice,
-                             Settings::NesMultitapDevice nesMultitapDevice,
-                             Settings::FamicomMultitapDevice famicomMultitapDevice,
+                             std::optional<PortDevice> port1Device,
+                             std::optional<PortDevice> port2Device,
+                             ExpansionDevice expansionDevice,
+                             NesMultitapDevice nesMultitapDevice,
+                             FamicomMultitapDevice famicomMultitapDevice,
                              PlayerSlot slot);
 
-InputFrame makeRoomTopologyBaseFrame(FrameNumber frame, const RoomState& room);
-InputFrame makeContributionBase(const InputFrame& baseFrame);
-InputFrame buildAssignedContribution(PlayerSlot slot,
-                                     const EmulationHost::InputState& state,
-                                     const InputFrame& baseFrame);
-
-uint64_t assignedContributionPrimaryMask(PlayerSlot slot, const InputFrame& contribution);
-void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputFrame& contribution);
+NetplayInputFrame makeRoomTopologyBaseNetplayFrame(FrameNumber frame, const RoomState& room);
+NetplayInputFrame makeContributionBase(const NetplayInputFrame& baseFrame);
+NetplayInputFrame buildAssignedContribution(PlayerSlot slot,
+                                            const NetplayInputState& state,
+                                            const NetplayInputFrame& baseFrame);
+uint64_t assignedContributionPrimaryMask(PlayerSlot slot, const NetplayInputFrame& contribution);
+void applyAssignedContribution(NetplayInputFrame& target, PlayerSlot slot, const NetplayInputFrame& contribution);
 
 } // namespace Netplay
