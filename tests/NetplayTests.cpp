@@ -513,7 +513,7 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     REQUIRE(update.shouldResync);
 }
 
-TEST_CASE("Netplay reactive auto delay decays by one after one minute of stability",
+TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
           "[netplay][auto-settings][delay]")
 {
     Netplay::NetplayAutoTune autoSettings;
@@ -529,11 +529,11 @@ TEST_CASE("Netplay reactive auto delay decays by one after one minute of stabili
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
 
-    room.currentFrame = 1800;
+    room.currentFrame = 600;
     recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
 
-    room.currentFrame = 3600;
+    room.currentFrame = 1200;
     recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 3);

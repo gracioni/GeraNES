@@ -59,7 +59,7 @@ private:
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;
     static constexpr uint8_t kMaxAutoPredictFrames = 8;
-    static constexpr FrameNumber kDelayDecayStableFrames = 3600;
+    static constexpr FrameNumber kDelayDecayStableFrames = 1200;
 
     static uint8_t clampDelay(uint32_t frames);
     static uint8_t clampPredict(uint32_t frames);
