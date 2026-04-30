@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "GeraNES/util/Crc32.h"
+#include "GeraNESNetplay/NetplayCrc32.h"
 
 namespace Netplay {
 
@@ -75,7 +75,7 @@ std::optional<uint32_t> SnapshotSystem::crc32ForFrame(FrameNumber frame) const
 uint32_t SnapshotSystem::calcCrc32(const std::vector<uint8_t>& data)
 {
     if(data.empty()) return 0;
-    return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+    return crc32(data.data(), data.size());
 }
 
 void SnapshotSystem::trim()

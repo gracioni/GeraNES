@@ -4,8 +4,8 @@
 #include <iomanip>
 #include <sstream>
 
-#include "GeraNES/util/Crc32.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
+#include "GeraNESNetplay/NetplayCrc32.h"
 
 namespace Netplay {
 
@@ -168,7 +168,7 @@ bool NetplayAppRuntime::beginAuthoritativeResync(GeraNESEmu& emu,
     if(statePayload.empty()) return false;
 
     const uint32_t payloadCrc32 =
-        Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        crc32(statePayload.data(), statePayload.size());
     const uint32_t stateCrc32 =
         computeAuthoritativeStateCrc32(emu, authoritativeFrame, preferConfirmedSnapshot);
     if(!m_coordinator.beginResync(
@@ -197,7 +197,7 @@ bool NetplayAppRuntime::beginAuthoritativeResyncWithoutLocalReload(GeraNESEmu& e
     if(statePayload.empty()) return false;
 
     const uint32_t payloadCrc32 =
-        Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
+        crc32(statePayload.data(), statePayload.size());
     const uint32_t stateCrc32 =
         computeAuthoritativeStateCrc32(emu, authoritativeFrame, preferConfirmedSnapshot);
     if(!m_coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32, reason)) {

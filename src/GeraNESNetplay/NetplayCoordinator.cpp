@@ -13,8 +13,8 @@
 
 #include "GeraNESNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/NetplayInputFrameSerialization.h"
-#include "GeraNES/defines.h"
-#include "GeraNES/util/Crc32.h"
+#include "GeraNESNetplay/NetplayConfig.h"
+#include "GeraNESNetplay/NetplayCrc32.h"
 #include "logger/logger.h"
 
 namespace {
@@ -226,7 +226,7 @@ namespace Netplay {
 
 NetplayCoordinator::NetplayCoordinator()
     : m_localDisplayName(defaultDisplayName())
-    , m_localEmulatorVersion(GERANES_VERSION)
+    , m_localEmulatorVersion(kDefaultNetplayRuntimeVersion)
 {
     m_localInputs.configure(2400);
     m_remoteInputs.configure(2400);
@@ -3136,7 +3136,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
         return true;
     }
 
-    const uint32_t payloadCrc32 = Crc32::calc(reinterpret_cast<const char*>(m_incomingResync->payload.data()), m_incomingResync->payload.size());
+    const uint32_t payloadCrc32 = crc32(m_incomingResync->payload.data(), m_incomingResync->payload.size());
     if(payloadCrc32 != m_incomingResync->expectedPayloadCrc32) {
         pushLog("Resync payload CRC mismatch");
         if(!m_hosting && m_serverPeer != NetTransport::kInvalidPeerHandle) {
@@ -5080,7 +5080,7 @@ void NetplayCoordinator::setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs
 
 void NetplayCoordinator::setLocalEmulatorVersionForTests(const std::string& version)
 {
-    m_localEmulatorVersion = version.empty() ? std::string(GERANES_VERSION) : version;
+    m_localEmulatorVersion = version.empty() ? std::string(kDefaultNetplayRuntimeVersion) : version;
 }
 
 void NetplayCoordinator::simulateTransportFailureForTests()

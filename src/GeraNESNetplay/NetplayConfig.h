@@ -12,6 +12,8 @@
 
 namespace Netplay {
 
+inline constexpr const char* kDefaultNetplayRuntimeVersion = "standalone";
+
 inline constexpr bool kDesyncMonitorEnabled =
     GERANES_NETPLAY_DESYNC_MONITOR_ENABLED != 0;
 

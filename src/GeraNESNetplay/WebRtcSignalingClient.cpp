@@ -435,7 +435,7 @@ public:
             return false;
         }
 
-        handles->session = WinHttpOpen(L"GeraNES/1.0",
+        handles->session = WinHttpOpen(L"Netplay/1.0",
                                        WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                        WINHTTP_NO_PROXY_NAME,
                                        WINHTTP_NO_PROXY_BYPASS,
@@ -969,7 +969,7 @@ void geranes_ws_connect_bridge(int handle, const char* urlPtr, intptr_t self)
         scope.callExport = scope.callExport || function(name, args) {
             const fn = Module['_' + name];
             if(typeof fn !== 'function') {
-                console.error('[GeraNES][WS] missing export', name);
+                console.error('[Netplay][WS] missing export', name);
                 return;
             }
             fn.apply(null, args || []);
@@ -996,17 +996,17 @@ void geranes_ws_connect_bridge(int handle, const char* urlPtr, intptr_t self)
             const handle = $0;
             const url = UTF8ToString($1);
             const selfPtr = $2;
-            console.log('[GeraNES][WS] connecting on main thread', { handle: handle, url: url });
+            console.log('[Netplay][WS] connecting on main thread', { handle: handle, url: url });
             const ws = new WebSocket(url);
             ws.binaryType = 'arraybuffer';
             scope.sockets[handle] = ws;
 
             ws.onopen = function() {
-                console.log('[GeraNES][WS] open', { handle: handle, url: url });
+                console.log('[Netplay][WS] open', { handle: handle, url: url });
                 scope.callExport('geranes_ws_on_open', [selfPtr]);
             };
             ws.onclose = function(event) {
-                console.log('[GeraNES][WS] close', {
+                console.log('[Netplay][WS] close', {
                     handle: handle,
                     code: event ? event.code : 0,
                     reason: event ? event.reason : "",
@@ -1015,7 +1015,7 @@ void geranes_ws_connect_bridge(int handle, const char* urlPtr, intptr_t self)
                 scope.callExport('geranes_ws_on_close', [selfPtr]);
             };
             ws.onerror = function(event) {
-                console.error('[GeraNES][WS] error', {
+                console.error('[Netplay][WS] error', {
                     handle: handle,
                     url: url,
                     readyState: ws.readyState,
@@ -1030,7 +1030,7 @@ void geranes_ws_connect_bridge(int handle, const char* urlPtr, intptr_t self)
                 scope.callExportString('geranes_ws_on_message', selfPtr, text);
             };
         } catch(err) {
-            console.error('[GeraNES][WS] constructor/setup failed', err);
+            console.error('[Netplay][WS] constructor/setup failed', err);
             try {
                 scope.callExportString('geranes_ws_on_error', $2, err && err.message ? err.message : 'WebRTC signaling WebSocket setup failed');
             } catch(_) {

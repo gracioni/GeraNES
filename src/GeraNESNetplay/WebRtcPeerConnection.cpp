@@ -632,7 +632,7 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
         function callExport(name, args) {
             const fn = Module['_' + name];
             if(typeof fn !== 'function') {
-                console.error('[GeraNES][RTC] missing export', name);
+                console.error('[Netplay][RTC] missing export', name);
                 return;
             }
             fn.apply(null, args || []);
@@ -753,7 +753,7 @@ void geranes_rtc_open_bridge(int handle, const char* iceServersJsonPtr, int host
 
         function reportError(selfPtr, err) {
             const message = scope.describeRtcError(err, null, null);
-            console.error('[GeraNES][RTC] error', { self: selfPtr, error: err, message: message });
+            console.error('[Netplay][RTC] error', { self: selfPtr, error: err, message: message });
             callExportString('geranes_rtc_on_error', selfPtr, message);
         }
 
@@ -1016,7 +1016,7 @@ int geranes_rtc_create_offer_bridge(int handle, intptr_t self, intptr_t onLocalD
             const message = scope.describeRtcError
                 ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
                 : String(err);
-            console.error('[GeraNES][RTC] createOffer failed', { self: selfPtr, error: err, message: message });
+            console.error('[Netplay][RTC] createOffer failed', { self: selfPtr, error: err, message: message });
             scope.callExportString('geranes_rtc_on_error', selfPtr, message);
         }
 
@@ -1049,7 +1049,7 @@ int geranes_rtc_create_answer_bridge(int handle, intptr_t self)
             const message = scope.describeRtcError
                 ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
                 : String(err);
-            console.error('[GeraNES][RTC] createAnswer failed', { self: selfPtr, error: err, message: message });
+            console.error('[Netplay][RTC] createAnswer failed', { self: selfPtr, error: err, message: message });
             scope.callExportString('geranes_rtc_on_error', selfPtr, message);
         }
 
@@ -1084,7 +1084,7 @@ int geranes_rtc_set_remote_description_bridge(int handle, const char* sdpPtr, in
             const message = scope.describeRtcError
                 ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
                 : String(err);
-            console.error('[GeraNES][RTC] setRemoteDescription failed', { self: selfPtr, error: err, message: message });
+            console.error('[Netplay][RTC] setRemoteDescription failed', { self: selfPtr, error: err, message: message });
             scope.callExportString('geranes_rtc_on_error', selfPtr, message);
         }
 
@@ -1125,7 +1125,7 @@ int geranes_rtc_add_ice_candidate_bridge(int handle,
             const message = scope.describeRtcError
                 ? scope.describeRtcError(err, scope.peers[handle] ? scope.peers[handle].pc : null, scope.peers[handle] ? scope.peers[handle].dc : null)
                 : String(err);
-            console.error('[GeraNES][RTC] addIceCandidate failed', { self: selfPtr, error: err, message: message });
+            console.error('[Netplay][RTC] addIceCandidate failed', { self: selfPtr, error: err, message: message });
             scope.callExportString('geranes_rtc_on_error', selfPtr, message);
         }
 
