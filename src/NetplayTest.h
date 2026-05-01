@@ -20,8 +20,9 @@
 #include "GeraNESNetplay/GeraNESInputFrameAdapter.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/GeraNESNetplayConsole.h"
+#include "GeraNESNetplay/GeraNESNetplayAssignmentHelpers.h"
+#include "GeraNESNetplay/GeraNESNetplayMenuHelpers.h"
 #include "GeraNESNetplay/GeraNESNetplayRuntimeDriver.h"
-#include "GeraNESNetplay/GeraNESNetplayUIHelpers.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 

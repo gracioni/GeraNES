@@ -12,7 +12,7 @@
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/GeraNESNetplayUIHelpers.h"
+#include "GeraNESNetplay/GeraNESNetplayAssignmentHelpers.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/WebRtcSignaling.h"
 #include "ConsoleNetplay/WebRtcSignalingClient.h"
