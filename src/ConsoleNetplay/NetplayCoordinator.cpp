@@ -1521,6 +1521,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
            existingCommitted->confirmed &&
            !existingCommitted->predicted &&
            input.frame < expectedFrame) {
+            const bool committedMismatch =
+                existingCommitted->buttonMaskLo != input.buttonMaskLo ||
+                existingCommitted->buttonMaskHi != input.buttonMaskHi ||
+                existingCommitted->netplayFrame.slotPayloads[input.playerSlot] != netplayFrame.slotPayloads[input.playerSlot];
             participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
             participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
             participant->sequenceRebasePending = false;
@@ -1530,13 +1534,22 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " frame " << input.frame
                 << " expectedFrame " << expectedFrame
                 << " seq " << input.sequence;
-            if(existingCommitted->buttonMaskLo != input.buttonMaskLo ||
-               existingCommitted->buttonMaskHi != input.buttonMaskHi) {
+            if(committedMismatch) {
                 oss << " classification=late_committed_input_mismatch";
             } else {
                 oss << " classification=late_committed_input_duplicate";
             }
             pushLog(oss.str());
+            if(committedMismatch &&
+               m_hosting &&
+               m_session.roomState().state == SessionState::Running &&
+               m_session.roomState().activeResyncId == 0u &&
+               m_session.roomState().pendingResyncAckCount == 0u) {
+                queuePendingHostResync(input.frame, ResyncReason::ConfirmedDesync);
+                pushLog(
+                    "Late committed input differed from authoritative committed frame; scheduling recovery resync"
+                );
+            }
             return true;
         }
 

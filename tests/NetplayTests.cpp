@@ -4447,6 +4447,86 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     client.disconnect();
 }
 
+TEST_CASE("Late mismatching input for committed fallback frame schedules host recovery resync",
+          "[netplay][prediction][fallback][late-mismatch]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 9u;
+    room.currentFrame = 110u;
+    room.lastConfirmedFrame = 110u;
+
+    ConsoleNetplay::ParticipantInfo local;
+    local.id = 0u;
+    local.displayName = "Host";
+    local.connected = true;
+    local.romLoaded = true;
+    local.romCompatible = true;
+    local.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    local.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    local.normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Participant";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 112u;
+    remote.lastContiguousInputFrame = 112u;
+    remote.lastReceivedInputSequence = 11u;
+    remote.inputSuspended = true;
+    remote.sequenceRebasePending = true;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+
+    room.participants.clear();
+    room.participants.push_back(local);
+    room.participants.push_back(remote);
+
+    InputFrame committedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(111u, room);
+    committedContribution.p2Right = true;
+
+    ConsoleNetplay::TimelineInputEntry committed{};
+    committed.frame = 111u;
+    committed.participantId = remote.id;
+    committed.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    committed.buttonMaskLo = 0u;
+    committed.buttonMaskHi = 0u;
+    committed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(committedContribution);
+    committed.sequence = 11u;
+    committed.confirmed = true;
+    committed.predicted = false;
+    const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(committed);
+
+    ConsoleNetplay::InputFrameData lateInput{};
+    lateInput.timelineEpoch = room.timelineEpoch;
+    lateInput.frame = 111u;
+    lateInput.participantId = remote.id;
+    lateInput.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    lateInput.sequence = 12u;
+    lateInput.buttonMaskLo = 1u;
+
+    InputFrame mismatchingContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(111u, room);
+    mismatchingContribution.p2A = true;
+
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, lateInput, mismatchingContribution));
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->frame == 111u);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay client post-resync startup honors input delay before prediction",
           "[netplay][resync][delay][client][unit]")
 {
