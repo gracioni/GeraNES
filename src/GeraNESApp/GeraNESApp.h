@@ -47,7 +47,8 @@ namespace fs = std::filesystem;
 
 #include "GeraNESApp/EmulationHost.h"
 #include "ConsoleNetplay/NetplayAppRuntime.h"
-#include "GeraNESNetplay/GeraNESNetplayRuntimeGlue.h"
+#include "GeraNESNetplay/GeraNESNetplayRuntimeDriver.h"
+#include "GeraNESNetplay/GeraNESNetplayUIHelpers.h"
 
 #include "GeraNES/defines.h"
 

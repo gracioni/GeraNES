@@ -10,8 +10,9 @@
 #include <vector>
 
 #include "GeraNESApp/AppSettings.h"
+#include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/GeraNESNetplayRuntimeGlue.h"
+#include "GeraNESNetplay/GeraNESNetplayUIHelpers.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/WebRtcSignaling.h"
 #include "ConsoleNetplay/WebRtcSignalingClient.h"

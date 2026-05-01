@@ -499,7 +499,8 @@ list(APPEND GERANES_APP_LIBRARY_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESInputFrameAdapter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayAdapters.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayConsole.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayRuntimeGlue.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayRuntimeDriver.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayUIHelpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/NetplayWindowUI.cpp"
 )
 
