@@ -351,7 +351,7 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu("Input"))
             {
 #ifndef __EMSCRIPTEN__
-            const auto netplaySnapshot = GeraNESNetplay::GeraNESNetplayConsole::menuSnapshot(m_netplayRuntime);
+            const auto netplaySnapshot = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
             const auto localInputTopology = m_emu.getInputTopologySnapshot();
             const bool netplayInputManaged = netplaySnapshot.inputManaged;
             const auto& localNetplayAssignments = netplaySnapshot.localAssignments;

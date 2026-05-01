@@ -14,11 +14,13 @@
 #include <nlohmann/json.hpp>
 
 #include "GeraNES/GeraNESEmu.h"
+#include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/EmulationHost.h"
 #include "GeraNESApp/SingleThreadEmulationHost.h"
 #include "GeraNESNetplay/GeraNESInputFrameAdapter.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/GeraNESNetplayConsole.h"
+#include "GeraNESNetplay/GeraNESNetplayRuntimeGlue.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 
@@ -245,13 +247,24 @@ private:
             , generator(seed)
         {
             emu.setAllowPresenterTimeoutAdvance(false);
-            GeraNESNetplay::GeraNESNetplayConsole::configureRuntimeForGeraNES(runtime, emu);
+            GeraNESNetplay::configureRuntimeForGeraNES(runtime, emu);
             emu.setPreAdvanceHook([this](GeraNESEmu& innerEmu) {
-                GeraNESNetplay::GeraNESNetplayConsole::runRuntimeOnEmulationThread(
+                const auto& cfg = AppSettings::instance().data.netplay;
+                const GeraNESNetplay::RuntimeLoopSettings runtimeSettings =
+                    GeraNESNetplay::buildRuntimeLoopSettings(
+                        emu,
+                        cfg.autoGameplayTuning,
+                        cfg.showNetplayDebugLog,
+                        cfg.gameplayReceiveDelayMs,
+                        cfg.inputDelayFrames,
+                        cfg.predictFrames
+                    );
+                (void)GeraNESNetplay::runRuntimeOnEmulationThread(
                     runtime,
                     emu,
                     innerEmu,
-                    latestInputState
+                    latestInputState,
+                    runtimeSettings
                 );
             });
         }
@@ -1636,11 +1649,22 @@ private:
 
         auto pumpPeerRuntime = [](auto& peer) {
             peer.emu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
-                GeraNESNetplay::GeraNESNetplayConsole::runRuntimeOnEmulationThread(
+                const auto& cfg = AppSettings::instance().data.netplay;
+                const GeraNESNetplay::RuntimeLoopSettings runtimeSettings =
+                    GeraNESNetplay::buildRuntimeLoopSettings(
+                        peer.emu,
+                        cfg.autoGameplayTuning,
+                        cfg.showNetplayDebugLog,
+                        cfg.gameplayReceiveDelayMs,
+                        cfg.inputDelayFrames,
+                        cfg.predictFrames
+                    );
+                (void)GeraNESNetplay::runRuntimeOnEmulationThread(
                     peer.runtime,
                     peer.emu,
                     innerEmu,
-                    peer.latestInputState
+                    peer.latestInputState,
+                    runtimeSettings
                 );
             });
         };
@@ -1737,7 +1761,7 @@ private:
                         cleanup();
                         return result;
                     }
-                    GeraNESNetplay::GeraNESNetplayConsole::configureInputAssignments(
+                    GeraNESNetplay::configureInputAssignments(
                         hostPeer.runtime,
                         *hostIdBeforeJoin,
                         std::optional<Settings::Device>(Settings::Device::CONTROLLER),
@@ -1915,7 +1939,7 @@ private:
             }
         } else if(options.hostControllerAndZapperObserverScenario) {
             hostPeer.runtime.clearControllerAssignments(*clientId);
-            GeraNESNetplay::GeraNESNetplayConsole::configureInputAssignments(
+            GeraNESNetplay::configureInputAssignments(
                 hostPeer.runtime,
                 *hostId,
                 std::optional<Settings::Device>(Settings::Device::CONTROLLER),

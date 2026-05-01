@@ -13,38 +13,9 @@ namespace GeraNESNetplay {
 class GeraNESNetplayConsole final : public ConsoleNetplay::INetplayConsole
 {
 public:
-    struct MenuSnapshot
-    {
-        bool hosting = false;
-        bool inputManaged = false;
-        ConsoleNetplay::NetTransportBackend transportBackend = ConsoleNetplay::defaultNetTransportBackend();
-        std::vector<ConsoleNetplay::PlayerSlot> localAssignments;
-        std::optional<Settings::Device> port1Device;
-        std::optional<Settings::Device> port2Device;
-        Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
-        Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
-        Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
-    };
-
     GeraNESNetplayConsole(IEmulationHost& host,
                           GeraNESEmu& emu,
                           const IEmulationHost::InputState& latestInputState);
-
-    static void configureRuntimeForGeraNES(ConsoleNetplay::NetplayAppRuntime& runtime,
-                                           IEmulationHost& host);
-    static MenuSnapshot menuSnapshot(const ConsoleNetplay::NetplayAppRuntime& runtime);
-    static void configureInputAssignments(ConsoleNetplay::NetplayAppRuntime& runtime,
-                                          ConsoleNetplay::ParticipantId participantId,
-                                          std::optional<Settings::Device> port1Device,
-                                          std::optional<Settings::Device> port2Device,
-                                          Settings::ExpansionDevice expansionDevice,
-                                          Settings::NesMultitapDevice nesMultitapDevice,
-                                          Settings::FamicomMultitapDevice famicomMultitapDevice,
-                                          const std::vector<ConsoleNetplay::PlayerSlot>& slots);
-    static void runRuntimeOnEmulationThread(ConsoleNetplay::NetplayAppRuntime& runtime,
-                                            IEmulationHost& host,
-                                            GeraNESEmu& emu,
-                                            const IEmulationHost::InputState& latestInputState);
     static std::optional<ConsoleNetplay::NetplayRomSelection> captureRomSelection(GeraNESEmu& emu);
 
     bool valid() const override;
@@ -67,14 +38,6 @@ public:
     bool queuePlaybackInputFrame(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed) override;
     void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber frame) override;
 
-    void configureInputTopology(ConsoleNetplay::NetplayCoordinator& coordinator,
-                                std::optional<Settings::Device> port1Device,
-                                std::optional<Settings::Device> port2Device,
-                                Settings::ExpansionDevice expansionDevice,
-                                Settings::NesMultitapDevice nesMultitapDevice,
-                                Settings::FamicomMultitapDevice famicomMultitapDevice,
-                                std::optional<ConsoleNetplay::ParticipantId> preservedParticipantId,
-                                ConsoleNetplay::PlayerSlot preservedAssignment);
     static bool buildReplayFrameInput(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed,
                                       ConsoleNetplay::FrameNumber frame,
                                       IEmulationHost::ReplayFrameInput& outFrame);

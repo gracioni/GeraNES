@@ -59,7 +59,7 @@ void GeraNESApp::onLog(const std::string& msg, Logger::Type type)
 
 bool GeraNESApp::isNetplayClientRestricted() const
 {
-    const auto snapshot = GeraNESNetplay::GeraNESNetplayConsole::menuSnapshot(m_netplayRuntime);
+    const auto snapshot = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
     return snapshot.inputManaged && !snapshot.hosting;
 }
 
@@ -857,19 +857,33 @@ void GeraNESApp::updateCursor()
 GeraNESApp::GeraNESApp()
     : m_emu(m_audioOutput)
 {
-    GeraNESNetplay::GeraNESNetplayConsole::configureRuntimeForGeraNES(m_netplayRuntime, m_emu);
+    GeraNESNetplay::configureRuntimeForGeraNES(m_netplayRuntime, m_emu);
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
         IEmulationHost::InputState latestInputState{};
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
             latestInputState = m_netplayLatestInputState;
         }
-        GeraNESNetplay::GeraNESNetplayConsole::runRuntimeOnEmulationThread(
+        auto& cfg = AppSettings::instance().data.netplay;
+        const GeraNESNetplay::RuntimeLoopSettings runtimeSettings =
+            GeraNESNetplay::buildRuntimeLoopSettings(
+                m_emu,
+                cfg.autoGameplayTuning,
+                cfg.showNetplayDebugLog,
+                cfg.gameplayReceiveDelayMs,
+                cfg.inputDelayFrames,
+                cfg.predictFrames
+            );
+        const ConsoleNetplay::NetplayAppRuntime::UpdateResult updateResult =
+            GeraNESNetplay::runRuntimeOnEmulationThread(
             m_netplayRuntime,
             m_emu,
             emu,
-            latestInputState
+            latestInputState,
+            runtimeSettings
         );
+        cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
+        cfg.predictFrames = static_cast<int>(updateResult.predictFrames);
     });
 
     std::ofstream file(LOG_FILE);
@@ -1162,7 +1176,7 @@ void GeraNESApp::onWebVisibilityChanged(bool visible)
 
     const bool wasSuspended = m_webVisibilitySuspended;
     m_webVisibilitySuspended = false;
-    const auto netplayMenu = GeraNESNetplay::GeraNESNetplayConsole::menuSnapshot(m_netplayRuntime);
+    const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
     const bool deferObserverResume =
         netplayMenu.inputManaged &&
         !netplayMenu.hosting &&

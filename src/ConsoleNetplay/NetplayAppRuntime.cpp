@@ -580,7 +580,7 @@ void NetplayAppRuntime::processPendingInputTopologyChanges(INetplayConsole& cons
         const FrameNumber rebuildFromFrame = console.frameCount() > 0 ? (console.frameCount() - 1u) : 0u;
         const PlayerSlot preservedSlot = change.slots.empty() ? kObserverPlayerSlot : change.slots.front();
         m_coordinator.setLocalSimulationFrame(rebuildFromFrame);
-        change.configureTopology(console, m_coordinator, change.participantId, preservedSlot);
+        change.configureTopology(m_coordinator, change.participantId, preservedSlot);
         m_coordinator.clearControllerAssignments(change.participantId);
         for(PlayerSlot slot : change.slots) {
             if(slot == kObserverPlayerSlot) continue;

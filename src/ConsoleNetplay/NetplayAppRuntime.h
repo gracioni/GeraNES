@@ -92,8 +92,7 @@ public:
     };
 
     using RomSelection = NetplayRomSelection;
-    using InputTopologyConfigurer = std::function<void(INetplayConsole&,
-                                                       NetplayCoordinator&,
+    using InputTopologyConfigurer = std::function<void(NetplayCoordinator&,
                                                        std::optional<ParticipantId>,
                                                        PlayerSlot)>;
 
@@ -146,74 +145,20 @@ public:
                         RuntimeHost& host,
                         std::vector<NetplayManualStateChangeRecord> manualEvents,
                         RuntimeInputDelaySettings inputDelaySettings,
-                        RuntimeFrameSettings frameSettings)
-    {
-        NetplayStateBridgeAdapter<RuntimeHost> stateBridge(host);
-        NetplayStateHostBridgeAdapter<RuntimeHost> hostBridge(host);
-        NetplayRuntimeSessionControlsAdapter<RuntimeHost> sessionControls(host);
-        UpdateContext context{
-            console,
-            stateBridge,
-            hostBridge,
-            sessionControls,
-            std::move(manualEvents),
-            std::move(inputDelaySettings),
-            std::move(frameSettings)
-        };
-        return update(std::move(context));
-    }
+                        RuntimeFrameSettings frameSettings);
     template<typename RuntimeHost>
-    static void applyUpdateResultToHost(RuntimeHost& host, const UpdateResult& result)
-    {
-        host.configureInputBufferCapacity(result.inputBufferCapacity);
-        if(result.snapshotCapacity.has_value()) {
-            host.configureNetplaySnapshots(*result.snapshotCapacity);
-        }
-        host.setAutoQueuePendingInputOnFrameStart(result.autoQueuePendingInputOnFrameStart);
-        host.setAllowPresenterTimeoutAdvance(result.allowPresenterTimeoutAdvance);
-        if(result.discardQueuedAudio) {
-            host.discardQueuedAudio();
-        }
-        host.setSimulationSuspended(result.simulationSuspended);
-    }
+    static void applyUpdateResultToHost(RuntimeHost& host, const UpdateResult& result);
     template<typename RuntimeHost, typename Converter>
     void applyPlaybackResolverToHost(RuntimeHost& host,
                                      bool enabled,
-                                     Converter converter)
-    {
-        if(enabled) {
-            host.setFrameInputResolver(
-                [this, converter](FrameNumber frame, typename RuntimeHost::ReplayFrameInput& outFrame) {
-                    NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-                    if(!tryBuildPlaybackFrame(frame, playbackFrame)) {
-                        return false;
-                    }
-                    return converter(playbackFrame, frame, outFrame);
-                }
-            );
-        } else {
-            host.setFrameInputResolver({});
-        }
-    }
+                                     Converter converter);
     template<typename RuntimeHost, typename Converter>
     UpdateResult updateAndApply(INetplayConsole& console,
                                 RuntimeHost& host,
                                 std::vector<NetplayManualStateChangeRecord> manualEvents,
                                 RuntimeInputDelaySettings inputDelaySettings,
                                 RuntimeFrameSettings frameSettings,
-                                Converter playbackConverter)
-    {
-        const UpdateResult result = update(
-            console,
-            host,
-            std::move(manualEvents),
-            std::move(inputDelaySettings),
-            std::move(frameSettings)
-        );
-        applyPlaybackResolverToHost(host, result.netplayOwnsEmulationInput, playbackConverter);
-        applyUpdateResultToHost(host, result);
-        return result;
-    }
+                                Converter playbackConverter);
     void setLocalReconnectToken(uint64_t token);
     void refreshLocalRomSelectionImmediate();
     void recordFramePacing(uint32_t dtMs,
