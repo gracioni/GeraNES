@@ -2,8 +2,11 @@
 
 #include <algorithm>
 
+#include "ConsoleNetplay/NetplayLog.h"
+#include "GeraNESApp/AppSettings.h"
 #include "GeraNESNetplay/GeraNESInputFrameAdapter.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
+#include "logger/logger.h"
 
 namespace GeraNESNetplay {
 
@@ -16,6 +19,114 @@ GeraNESNetplayConsole::GeraNESNetplayConsole(IEmulationHost& host,
       m_emu(emu),
       m_latestInputState(latestInputState)
 {
+}
+
+void GeraNESNetplayConsole::configureRuntimeForGeraNES(NetplayAppRuntime& runtime, IEmulationHost& host)
+{
+    runtime.setRuntimeHostWakeCallback([&host]() {
+        host.setSimulationSuspended(false);
+    });
+    setNetplayLogCallback([](const std::string& message, NetplayLogLevel level) {
+        Logger::Type type = Logger::Type::INFO;
+        switch(level) {
+            case NetplayLogLevel::Debug: type = Logger::Type::DEBUG; break;
+            case NetplayLogLevel::Warning: type = Logger::Type::WARNING; break;
+            case NetplayLogLevel::Error: type = Logger::Type::ERROR; break;
+            case NetplayLogLevel::User: type = Logger::Type::USER; break;
+            case NetplayLogLevel::Info:
+            default: type = Logger::Type::INFO; break;
+        }
+        Logger::instance().log(message, type);
+    });
+}
+
+GeraNESNetplayConsole::MenuSnapshot GeraNESNetplayConsole::menuSnapshot(const NetplayAppRuntime& runtime)
+{
+    const NetplayAppRuntime::MenuSnapshot generic = runtime.menuSnapshot();
+    const NetplayAppRuntime::UiSnapshot ui = runtime.uiSnapshot();
+    MenuSnapshot snapshot;
+    snapshot.hosting = generic.hosting;
+    snapshot.inputManaged = generic.inputManaged;
+    snapshot.transportBackend = generic.transportBackend;
+    snapshot.localAssignments = generic.localAssignments;
+    snapshot.port1Device = geraNESPortDeviceFromTopology(ui.room, kPort1PlayerSlot);
+    snapshot.port2Device = geraNESPortDeviceFromTopology(ui.room, kPort2PlayerSlot);
+    snapshot.expansionDevice = geraNESExpansionDeviceFromTopology(ui.room);
+    snapshot.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(ui.room);
+    snapshot.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(ui.room);
+    return snapshot;
+}
+
+void GeraNESNetplayConsole::configureInputAssignments(NetplayAppRuntime& runtime,
+                                                      ParticipantId participantId,
+                                                      std::optional<Settings::Device> port1Device,
+                                                      std::optional<Settings::Device> port2Device,
+                                                      Settings::ExpansionDevice expansionDevice,
+                                                      Settings::NesMultitapDevice nesMultitapDevice,
+                                                      Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                                      const std::vector<PlayerSlot>& slots)
+{
+    runtime.configureInputAssignments(
+        participantId,
+        slots,
+        [=](INetplayConsole& console,
+            NetplayCoordinator& coordinator,
+            std::optional<ParticipantId> preservedParticipantId,
+            PlayerSlot preservedSlot) {
+            auto& geraNESConsole = static_cast<GeraNESNetplayConsole&>(console);
+            geraNESConsole.configureInputTopology(
+                coordinator,
+                port1Device,
+                port2Device,
+                expansionDevice,
+                nesMultitapDevice,
+                famicomMultitapDevice,
+                preservedParticipantId,
+                preservedSlot
+            );
+        }
+    );
+}
+
+void GeraNESNetplayConsole::runRuntimeOnEmulationThread(NetplayAppRuntime& runtime,
+                                                        IEmulationHost& host,
+                                                        GeraNESEmu& emu,
+                                                        const IEmulationHost::InputState& latestInputState)
+{
+    GeraNESNetplayConsole console(host, emu, latestInputState);
+
+    NetplayAppRuntime::RuntimeFrameSettings frameSettings;
+    frameSettings.autoGameplayTuning = AppSettings::instance().data.netplay.autoGameplayTuning;
+    frameSettings.showDebugLog = AppSettings::instance().data.netplay.showNetplayDebugLog;
+    frameSettings.diagnostics = host.getNetplayDiagnostics();
+    frameSettings.discardQueuedNetplayInputsAfter = [&host](FrameNumber frame) {
+        host.discardQueuedNetplayInputsAfter(frame);
+    };
+
+    RuntimeInputDelaySettings inputDelaySettings;
+    auto& cfg = AppSettings::instance().data.netplay;
+    cfg.gameplayReceiveDelayMs = std::max(0, cfg.gameplayReceiveDelayMs);
+#ifdef NDEBUG
+    cfg.gameplayReceiveDelayMs = 0;
+#endif
+    inputDelaySettings.debugMode = cfg.showNetplayDebugLog;
+    inputDelaySettings.gameplayReceiveDelayMs = static_cast<uint32_t>(cfg.gameplayReceiveDelayMs);
+    inputDelaySettings.autoGameplayTuning = cfg.autoGameplayTuning;
+    inputDelaySettings.manualInputDelayFrames = static_cast<uint32_t>(std::max(0, cfg.inputDelayFrames));
+    inputDelaySettings.manualPredictFrames = static_cast<uint32_t>(std::max(0, cfg.predictFrames));
+    inputDelaySettings.regionFps = host.getRegionFPS();
+
+    const NetplayAppRuntime::UpdateResult updateResult = runtime.updateAndApply(
+        console,
+        host,
+        host.consumeManualStateChanges(),
+        inputDelaySettings,
+        frameSettings,
+        GeraNESNetplayConsole::buildReplayFrameInput
+    );
+
+    cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
+    cfg.predictFrames = static_cast<int>(updateResult.predictFrames);
 }
 
 std::optional<NetplayRomSelection> GeraNESNetplayConsole::captureRomSelection(GeraNESEmu& emu)
@@ -37,9 +148,9 @@ std::optional<NetplayRomSelection> GeraNESNetplayConsole::captureRomSelection(Ge
     return selection;
 }
 
-std::optional<NetplayRomSelection> GeraNESNetplayConsole::currentRomSelection() const
+bool GeraNESNetplayConsole::valid() const
 {
-    return captureRomSelection(m_emu);
+    return m_emu.valid();
 }
 
 uint32_t GeraNESNetplayConsole::frameCount() const
@@ -47,14 +158,33 @@ uint32_t GeraNESNetplayConsole::frameCount() const
     return m_emu.frameCount();
 }
 
-uint32_t GeraNESNetplayConsole::inputTimelineEpoch() const
-{
-    return m_emu.inputTimelineEpoch();
-}
-
 uint32_t GeraNESNetplayConsole::regionFps() const
 {
     return m_emu.getRegionFPS();
+}
+
+uint32_t GeraNESNetplayConsole::canonicalNetplayStateCrc32()
+{
+    return m_emu.canonicalNetplayStateCrc32();
+}
+
+std::optional<NetplayRomSelection> GeraNESNetplayConsole::currentRomSelection() const
+{
+    return captureRomSelection(m_emu);
+}
+
+bool GeraNESNetplayConsole::loadRollbackState(const std::vector<uint8_t>& data)
+{
+    m_emu.loadStateFromMemoryWithAudioPolicy(
+        data,
+        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput
+    );
+    return m_emu.valid();
+}
+
+bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulating)
+{
+    return m_emu.updateUntilFrame(frameDtMs, resimulating);
 }
 
 void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)

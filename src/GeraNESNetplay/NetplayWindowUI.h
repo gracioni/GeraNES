@@ -2,12 +2,14 @@
 
 struct ImVec2;
 
+namespace ConsoleNetplay {
+class NetplayAppRuntime;
+}
+
 namespace GeraNESNetplay {
 
-class GeraNESNetplayAppRuntime;
-
 void drawNetplayWindow(bool& showWindow,
-                       GeraNESNetplayAppRuntime& runtime,
+                       ConsoleNetplay::NetplayAppRuntime& runtime,
                        const ImVec2& viewportCenter);
 
 } // namespace GeraNESNetplay

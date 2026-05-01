@@ -1,6 +1,5 @@
 #include "GeraNESApp/GeraNESApp.h"
 
-#include "ConsoleNetplay/ConfirmedInputBufferDriver.h"
 #include "GeraNESNetplay/NetplayWindowUI.h"
 
 #include <algorithm>
@@ -60,7 +59,7 @@ void GeraNESApp::onLog(const std::string& msg, Logger::Type type)
 
 bool GeraNESApp::isNetplayClientRestricted() const
 {
-    const auto snapshot = m_netplayRuntime.menuSnapshot();
+    const auto snapshot = GeraNESNetplay::GeraNESNetplayConsole::menuSnapshot(m_netplayRuntime);
     return snapshot.inputManaged && !snapshot.hosting;
 }
 
@@ -857,10 +856,20 @@ void GeraNESApp::updateCursor()
 
 GeraNESApp::GeraNESApp()
     : m_emu(m_audioOutput)
-    , m_netplayRuntime(m_emu)
 {
+    GeraNESNetplay::GeraNESNetplayConsole::configureRuntimeForGeraNES(m_netplayRuntime, m_emu);
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
-        m_netplayRuntime.runOnEmulationThread(emu);
+        IEmulationHost::InputState latestInputState{};
+        {
+            std::scoped_lock stateLock(m_netplayInputStateMutex);
+            latestInputState = m_netplayLatestInputState;
+        }
+        GeraNESNetplay::GeraNESNetplayConsole::runRuntimeOnEmulationThread(
+            m_netplayRuntime,
+            m_emu,
+            emu,
+            latestInputState
+        );
     });
 
     std::ofstream file(LOG_FILE);
@@ -1141,7 +1150,7 @@ void GeraNESApp::onWebVisibilityChanged(bool visible)
     m_hasLastMousePosition = false;
     m_forceImGuiMouseResync = true;
     m_emu.withExclusiveAccess([this, visible](auto& emu) {
-        m_netplayRuntime.notifyWebVisibilityChangedImmediate(emu, visible);
+        m_netplayRuntime.notifyWebVisibilityChanged(visible);
     });
 
     if(!visible) {
@@ -1153,7 +1162,7 @@ void GeraNESApp::onWebVisibilityChanged(bool visible)
 
     const bool wasSuspended = m_webVisibilitySuspended;
     m_webVisibilitySuspended = false;
-    const auto netplayMenu = m_netplayRuntime.menuSnapshot();
+    const auto netplayMenu = GeraNESNetplay::GeraNESNetplayConsole::menuSnapshot(m_netplayRuntime);
     const bool deferObserverResume =
         netplayMenu.inputManaged &&
         !netplayMenu.hosting &&
@@ -1634,28 +1643,10 @@ void GeraNESApp::pollAndPrepareInput()
         inputState.speedBoost = !keyboardExpansionActive && (
             im.isPressed(m_systemInput.speed)
         );
-        m_netplayRuntime.updateLatestInputState(inputState);
-        const uint64_t p1RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
-            p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart,
-            p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,
-            p1X, p1Y, p1PrimaryL, p1PrimaryR,
-            p1Up2, p1Down2, p1Left2, p1Right2
-        );
-        const uint64_t p2RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
-            p2PrimaryA, p2PrimaryB, p2PrimarySelect, p2PrimaryStart,
-            p2PrimaryUp, p2PrimaryDown, p2PrimaryLeft, p2PrimaryRight,
-            p2X, p2Y, p2PrimaryL, p2PrimaryR,
-            p2Up2, p2Down2, p2Left2, p2Right2
-        );
-        const uint64_t p3RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
-            p3A, p3B, p3Select, p3Start,
-            p3Up, p3Down, p3Left, p3Right
-        );
-        const uint64_t p4RawMask = ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(
-            p4A, p4B, p4Select, p4Start,
-            p4Up, p4Down, p4Left, p4Right
-        );
-        m_netplayRuntime.updateLatestRawMasks({p1RawMask, p2RawMask, p3RawMask, p4RawMask});
+        {
+            std::scoped_lock stateLock(m_netplayInputStateMutex);
+            m_netplayLatestInputState = inputState;
+        }
         m_emu.setPendingInput(inputState);
     } else {
         m_emu.setPendingInput({});

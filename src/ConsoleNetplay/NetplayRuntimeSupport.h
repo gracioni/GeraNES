@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -9,7 +10,7 @@
 
 #include "ConsoleNetplay/ConfirmedInputBufferDriver.h"
 #include "ConsoleNetplay/INetplayConsole.h"
-#include "ConsoleNetplay/INetplayRuntimeHost.h"
+#include "ConsoleNetplay/NetplayRuntimeTypes.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 #include "ConsoleNetplay/SelfStallDetector.h"
@@ -74,6 +75,7 @@ public:
     virtual uint32_t lastFrameReadyNetplayCrc32() const = 0;
     virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(FrameNumber frame) const = 0;
     virtual std::optional<uint32_t> netplaySnapshotCrc32ForFrame(FrameNumber frame) const = 0;
+    virtual bool updateNetplaySnapshotCrc32ForFrame(FrameNumber frame, uint32_t canonicalCrc32) = 0;
     virtual void seedNetplaySnapshot(FrameNumber frame,
                                      const std::vector<uint8_t>& data,
                                      std::optional<uint32_t> canonicalCrc32 = std::nullopt) = 0;
@@ -138,6 +140,11 @@ public:
         return m_host.netplaySnapshotCrc32ForFrame(frame);
     }
 
+    bool updateNetplaySnapshotCrc32ForFrame(FrameNumber frame, uint32_t canonicalCrc32) override
+    {
+        return m_host.updateNetplaySnapshotCrc32ForFrame(frame, canonicalCrc32);
+    }
+
     void seedNetplaySnapshot(FrameNumber frame,
                              const std::vector<uint8_t>& data,
                              std::optional<uint32_t> canonicalCrc32 = std::nullopt) override
@@ -199,6 +206,111 @@ struct RuntimeHostResyncProcessResult
     ParticipantId targetParticipantId = kInvalidParticipantId;
 };
 
+struct RuntimePendingResyncApplyResult
+{
+    bool consumed = false;
+    bool loadedExpectedFrame = false;
+    uint32_t resyncId = 0;
+    FrameNumber targetFrame = 0;
+    FrameNumber loadedFrame = 0;
+    FrameNumber loadedAuthoritativeFrame = 0;
+    FrameNumber reanchorFrame = 0;
+    uint32_t loadedCrc32 = 0;
+};
+
+struct RuntimeRollbackProcessState
+{
+    FrameNumber lastRollbackTargetFrame = 0;
+    FrameNumber lastMissingRollbackSnapshotFrame = 0;
+    FrameNumber lastMissingRollbackSnapshotLocalFrame = 0;
+    FrameNumber lastRecoveryReanchorFrame = 0;
+};
+
+struct RuntimeRollbackProcessSettings
+{
+    bool showDebugLog = false;
+};
+
+struct RuntimeRollbackProcessResult
+{
+    bool consumed = false;
+    bool applied = false;
+    bool requestedResync = false;
+    bool startedAuthoritativeResync = false;
+    FrameNumber rollbackFromFrame = 0;
+    FrameNumber rollbackTargetFrame = 0;
+    FrameNumber reanchorFrame = 0;
+};
+
+struct RuntimePendingManualStateResync
+{
+    ResyncReason reason = ResyncReason::Unspecified;
+    FrameNumber eventFrame = 0;
+    bool waitForAdvance = true;
+};
+
+struct RuntimeManualStateResyncProcessResult
+{
+    bool startedResync = false;
+    bool deferredResync = false;
+    FrameNumber loadedAuthoritativeFrame = 0;
+    FrameNumber reanchorFrame = 0;
+};
+
+struct RuntimeSharedClockCatchupState
+{
+    FrameNumber lagOverBudgetSinceFrame = 0;
+    FrameNumber lastResyncRequestFrame = 0;
+    FrameNumber lastConfirmedLagWaitLogFrame = 0;
+    uint32_t resyncRequestEpoch = 0;
+    std::chrono::steady_clock::time_point lagOverBudgetSince = {};
+    std::chrono::steady_clock::time_point lastResyncRequestAt = {};
+    bool resyncRequestPending = false;
+};
+
+struct RuntimeSessionTransitionState
+{
+    std::optional<SessionState> lastSessionState;
+    bool observerVisibilityResyncPending = false;
+};
+
+struct RuntimeSessionTransitionResult
+{
+    bool inactive = false;
+    bool resetWorkerTick = false;
+};
+
+class INetplayRuntimeSessionControls
+{
+public:
+    virtual ~INetplayRuntimeSessionControls() = default;
+
+    virtual FrameNumber frameCount() const = 0;
+    virtual void restartAudio() = 0;
+    virtual void discardQueuedNetplayInputsAfter(FrameNumber frame) = 0;
+    virtual void discardQueuedAudio() = 0;
+    virtual void setSimulationSuspended(bool suspended) = 0;
+};
+
+template<typename RuntimeHost>
+class NetplayRuntimeSessionControlsAdapter final : public INetplayRuntimeSessionControls
+{
+public:
+    explicit NetplayRuntimeSessionControlsAdapter(RuntimeHost& host) : m_host(host) {}
+
+    FrameNumber frameCount() const override { return m_host.frameCount(); }
+    void restartAudio() override { m_host.restartAudio(); }
+    void discardQueuedNetplayInputsAfter(FrameNumber frame) override
+    {
+        m_host.discardQueuedNetplayInputsAfter(frame);
+    }
+    void discardQueuedAudio() override { m_host.discardQueuedAudio(); }
+    void setSimulationSuspended(bool suspended) override { m_host.setSimulationSuspended(suspended); }
+
+private:
+    RuntimeHost& m_host;
+};
+
 size_t runtimeInputBufferCapacity(uint32_t prebufferFrames, uint32_t predictFrames);
 
 RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordinator,
@@ -224,19 +336,6 @@ std::vector<uint8_t> runtimeBuildAuthoritativeStatePayload(INetplayStateBridge& 
                                                            FrameNumber authoritativeFrame,
                                                            bool preferConfirmedSnapshot);
 
-uint32_t runtimeComputeAuthoritativeStateCrc32(INetplayStateBridge& emu,
-                                               const INetplayStateHostBridge& runtimeHost,
-                                               FrameNumber authoritativeFrame,
-                                               bool preferConfirmedSnapshot);
-
-RuntimeAuthoritativeStateResult runtimeApplyAuthoritativeStateLocally(
-    NetplayCoordinator& coordinator,
-    ConfirmedInputBufferDriver& inputDriver,
-    INetplayStateBridge& emu,
-    INetplayStateHostBridge& runtimeHost,
-    FrameNumber targetFrame,
-    const std::vector<uint8_t>& payload);
-
 RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     NetplayCoordinator& coordinator,
     ConfirmedInputBufferDriver& inputDriver,
@@ -248,27 +347,21 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     ResyncReason reason = ResyncReason::Unspecified,
     ParticipantId targetParticipantId = kInvalidParticipantId);
 
-RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResyncWithoutLocalReload(
-    NetplayCoordinator& coordinator,
-    ConfirmedInputBufferDriver& inputDriver,
-    INetplayStateBridge& emu,
-    INetplayStateHostBridge& runtimeHost,
-    FrameNumber authoritativeFrame,
-    const std::vector<uint8_t>& statePayload,
-    bool preferConfirmedSnapshot,
-    ResyncReason reason);
-
 RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
     NetplayCoordinator& coordinator,
     INetplayStateBridge& emu,
     const INetplayStateHostBridge& runtimeHost,
     RuntimePeriodicCrcState& state);
 
-std::string runtimeAssignmentLayoutKey(const NetplayCoordinator& coordinator);
-
 RuntimeAutoStartResult runtimeProcessAutoStartIfNeeded(NetplayCoordinator& coordinator,
                                                        const INetplayStateBridge& emu,
                                                        const std::optional<NetplayRomSelection>& localRom);
+
+RuntimeHostResyncProcessResult runtimeBeginInitialSessionSyncIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost);
 
 RuntimeHostResyncProcessResult runtimeProcessHostResyncIfNeeded(
     NetplayCoordinator& coordinator,
@@ -291,6 +384,54 @@ RuntimeHostResyncProcessResult runtimeProcessSelfStallRecoveryIfNeeded(
     INetplayStateBridge& emu,
     INetplayStateHostBridge& runtimeHost,
     std::chrono::steady_clock::time_point now);
+
+RuntimePendingResyncApplyResult runtimeProcessPendingResyncApplyIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost);
+
+RuntimeManualStateResyncProcessResult runtimeProcessHostManualStateChangesIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost,
+    std::deque<RuntimePendingManualStateResync>& pendingManualStateResyncs,
+    const std::vector<NetplayManualStateChangeRecord>& events);
+
+RuntimeManualStateResyncProcessResult runtimeProcessPendingManualStateResyncIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost,
+    std::deque<RuntimePendingManualStateResync>& pendingManualStateResyncs);
+
+RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayRuntimeSessionControls& controls,
+    RuntimeSessionTransitionState& sessionState,
+    RuntimePeriodicCrcState& periodicCrcState,
+    RuntimeRollbackProcessState& rollbackState,
+    RuntimeSharedClockCatchupState& sharedClockState,
+    FrameNumber& lastLoadedAuthoritativeFrame);
+
+RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayConsole& console,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost,
+    RuntimeRollbackProcessState& state,
+    const RuntimeRollbackProcessSettings& settings);
+
+uint32_t runtimeAdvanceToSharedClockIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayConsole& console,
+    RuntimeSharedClockCatchupState& state,
+    uint32_t maxFrames,
+    bool requireLagTrigger);
 
 bool runtimeProcessAutoResumeIfNeeded(NetplayCoordinator& coordinator,
                                       bool& webVisibilityManagedPause,
@@ -322,41 +463,17 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
 
 void runtimeProduceLocalBufferedInputs(NetplayCoordinator& coordinator,
                                        ConfirmedInputBufferDriver& inputDriver,
-                                       const std::vector<PlayerSlot>& localSlots,
-                                       uint32_t workerDtMs,
-                                       const ConfirmedInputBufferDriver::LocalInputBuilder& buildLocalInput,
-                                       uint32_t regionFps,
-                                       FrameNumber localFrame);
-
-void runtimeProduceLocalBufferedInputs(NetplayCoordinator& coordinator,
-                                       ConfirmedInputBufferDriver& inputDriver,
                                        INetplayConsole& console,
                                        const std::vector<PlayerSlot>& localSlots,
                                        uint32_t workerDtMs);
 
 void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
                                   ConfirmedInputBufferDriver& inputDriver,
-                                  FrameNumber localFrame,
-                                  const ConfirmedInputBufferDriver::PendingFrameConsumer& consumeFrame);
-
-void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
-                                  ConfirmedInputBufferDriver& inputDriver,
                                   INetplayConsole& console);
-
-bool runtimeShouldAllowPredictionForFrame(const NetplayCoordinator& coordinator,
-                                          const ConfirmedInputBufferDriver& inputDriver,
-                                          FrameNumber frame);
-
-void runtimeRecordPlaybackStop(NetplayCoordinator& coordinator,
-                               const ConfirmedInputBufferDriver& inputDriver,
-                               FrameNumber frame);
 
 bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
                                            const ConfirmedInputBufferDriver& inputDriver,
                                            FrameNumber frame,
                                            NetplayCoordinator::ConfirmedFrameInputs& outFrame);
-
-SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinator& coordinator,
-                                                          FrameNumber localSimulationFrame);
 
 } // namespace ConsoleNetplay

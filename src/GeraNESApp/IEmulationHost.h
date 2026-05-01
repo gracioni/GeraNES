@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "ConsoleNetplay/INetplayRuntimeHost.h"
+#include "ConsoleNetplay/NetplayRuntimeTypes.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "signal/signal.h"
 

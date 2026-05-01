@@ -1,8 +1,9 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 
-#include "ConsoleNetplay/INetplayRuntimeHost.h"
+#include "ConsoleNetplay/NetplayRuntimeTypes.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 #include "ConsoleNetplay/NetplayInputFrame.h"
 #include "ConsoleNetplay/NetplayTypes.h"
@@ -14,10 +15,13 @@ class INetplayConsole
 public:
     virtual ~INetplayConsole() = default;
 
-    virtual std::optional<NetplayRomSelection> currentRomSelection() const = 0;
+    virtual bool valid() const = 0;
     virtual uint32_t frameCount() const = 0;
-    virtual uint32_t inputTimelineEpoch() const = 0;
     virtual uint32_t regionFps() const = 0;
+    virtual uint32_t canonicalNetplayStateCrc32() = 0;
+    virtual std::optional<NetplayRomSelection> currentRomSelection() const = 0;
+    virtual bool loadRollbackState(const std::vector<uint8_t>& data) = 0;
+    virtual bool updateUntilFrame(uint32_t frameDtMs, bool resimulating) = 0;
 
     virtual void applyRemoteInputTopology(const RoomState& room) = 0;
     virtual void publishCurrentInputTopology(NetplayCoordinator& coordinator) = 0;

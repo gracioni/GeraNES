@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -9,13 +8,14 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ConsoleNetplay/ConfirmedInputBufferDriver.h"
-#include "ConsoleNetplay/INetplayRuntimeHost.h"
+#include "ConsoleNetplay/NetplayRuntimeTypes.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
-#include "ConsoleNetplay/NetplayConfig.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
+#include "ConsoleNetplay/NetplayRuntimeSupport.h"
 #include "ConsoleNetplay/SelfStallDetector.h"
 
 namespace ConsoleNetplay {
@@ -89,28 +89,139 @@ public:
         bool inputManaged = false;
         NetTransportBackend transportBackend = defaultNetTransportBackend();
         std::vector<PlayerSlot> localAssignments;
-        std::vector<InputSlotDescriptor> inputTopology;
     };
 
-    using WorkerCommand = std::function<void(NetplayAppRuntime&, INetplayEmulator&)>;
-    using LocalInputBuilder = ConfirmedInputBufferDriver::LocalInputBuilder;
+    using RomSelection = NetplayRomSelection;
+    using InputTopologyConfigurer = std::function<void(INetplayConsole&,
+                                                       NetplayCoordinator&,
+                                                       std::optional<ParticipantId>,
+                                                       PlayerSlot)>;
 
-    explicit NetplayAppRuntime(INetplayRuntimeHost& runtimeHost);
+    struct RuntimeFrameSettings
+    {
+        bool autoGameplayTuning = false;
+        bool showDebugLog = false;
+        NetplayRuntimeDiagnostics diagnostics;
+        std::function<void(FrameNumber)> discardQueuedNetplayInputsAfter;
+    };
 
-    NetplayCoordinator& coordinator();
-    const NetplayCoordinator& coordinator() const;
-    ConfirmedInputBufferDriver& inputDriver();
-    const ConfirmedInputBufferDriver& inputDriver() const;
+    struct RuntimeFrameResult
+    {
+        bool running = false;
+        bool paused = false;
+    };
 
+    struct UpdateContext
+    {
+        INetplayConsole& console;
+        INetplayStateBridge& stateBridge;
+        INetplayStateHostBridge& hostBridge;
+        INetplayRuntimeSessionControls& sessionControls;
+        std::vector<NetplayManualStateChangeRecord> manualEvents;
+        RuntimeInputDelaySettings inputDelaySettings;
+        RuntimeFrameSettings frameSettings;
+    };
+
+    struct UpdateResult
+    {
+        bool active = false;
+        bool running = false;
+        bool paused = false;
+        bool netplayOwnsEmulationInput = false;
+        bool autoQueuePendingInputOnFrameStart = true;
+        bool allowPresenterTimeoutAdvance = true;
+        bool simulationSuspended = false;
+        bool discardQueuedAudio = false;
+        size_t inputBufferCapacity = 64;
+        std::optional<size_t> snapshotCapacity;
+        uint32_t inputDelayFrames = 0;
+        uint32_t predictFrames = 0;
+    };
+
+    virtual ~NetplayAppRuntime() = default;
+
+    UpdateResult update(UpdateContext context);
+    template<typename RuntimeHost>
+    UpdateResult update(INetplayConsole& console,
+                        RuntimeHost& host,
+                        std::vector<NetplayManualStateChangeRecord> manualEvents,
+                        RuntimeInputDelaySettings inputDelaySettings,
+                        RuntimeFrameSettings frameSettings)
+    {
+        NetplayStateBridgeAdapter<RuntimeHost> stateBridge(host);
+        NetplayStateHostBridgeAdapter<RuntimeHost> hostBridge(host);
+        NetplayRuntimeSessionControlsAdapter<RuntimeHost> sessionControls(host);
+        UpdateContext context{
+            console,
+            stateBridge,
+            hostBridge,
+            sessionControls,
+            std::move(manualEvents),
+            std::move(inputDelaySettings),
+            std::move(frameSettings)
+        };
+        return update(std::move(context));
+    }
+    template<typename RuntimeHost>
+    static void applyUpdateResultToHost(RuntimeHost& host, const UpdateResult& result)
+    {
+        host.configureInputBufferCapacity(result.inputBufferCapacity);
+        if(result.snapshotCapacity.has_value()) {
+            host.configureNetplaySnapshots(*result.snapshotCapacity);
+        }
+        host.setAutoQueuePendingInputOnFrameStart(result.autoQueuePendingInputOnFrameStart);
+        host.setAllowPresenterTimeoutAdvance(result.allowPresenterTimeoutAdvance);
+        if(result.discardQueuedAudio) {
+            host.discardQueuedAudio();
+        }
+        host.setSimulationSuspended(result.simulationSuspended);
+    }
+    template<typename RuntimeHost, typename Converter>
+    void applyPlaybackResolverToHost(RuntimeHost& host,
+                                     bool enabled,
+                                     Converter converter)
+    {
+        if(enabled) {
+            host.setFrameInputResolver(
+                [this, converter](FrameNumber frame, typename RuntimeHost::ReplayFrameInput& outFrame) {
+                    NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+                    if(!tryBuildPlaybackFrame(frame, playbackFrame)) {
+                        return false;
+                    }
+                    return converter(playbackFrame, frame, outFrame);
+                }
+            );
+        } else {
+            host.setFrameInputResolver({});
+        }
+    }
+    template<typename RuntimeHost, typename Converter>
+    UpdateResult updateAndApply(INetplayConsole& console,
+                                RuntimeHost& host,
+                                std::vector<NetplayManualStateChangeRecord> manualEvents,
+                                RuntimeInputDelaySettings inputDelaySettings,
+                                RuntimeFrameSettings frameSettings,
+                                Converter playbackConverter)
+    {
+        const UpdateResult result = update(
+            console,
+            host,
+            std::move(manualEvents),
+            std::move(inputDelaySettings),
+            std::move(frameSettings)
+        );
+        applyPlaybackResolverToHost(host, result.netplayOwnsEmulationInput, playbackConverter);
+        applyUpdateResultToHost(host, result);
+        return result;
+    }
     void setLocalReconnectToken(uint64_t token);
     void refreshLocalRomSelectionImmediate();
-    void updateLatestInputMasks(const std::array<uint64_t, 4>& masks);
-    void setLocalInputBuilder(LocalInputBuilder builder);
     void recordFramePacing(uint32_t dtMs,
                            uint32_t framesAdvanced,
                            uint32_t catchupFrames,
                            bool netplayOverrideActive,
                            bool cadenceMatched);
+    void setRuntimeHostWakeCallback(std::function<void()> callback);
     UiSnapshot uiSnapshot() const;
     MenuSnapshot menuSnapshot() const;
     bool runtimeActive() const;
@@ -122,9 +233,9 @@ public:
     void setTransportBackend(NetTransportBackend backend);
     void setTransportOptions(const NetTransportOptions& options);
     void configureRollbackWindow(size_t snapshotCapacity);
+    void notifyWebVisibilityChanged(bool visible);
     NetTransportOptions transportOptions() const;
     NetTransportBackend transportBackend() const;
-
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();
@@ -132,9 +243,9 @@ public:
     void addControllerAssignment(ParticipantId participantId, PlayerSlot slot);
     void removeControllerAssignment(ParticipantId participantId, PlayerSlot slot);
     void clearControllerAssignments(ParticipantId participantId);
-    void setInputTopology(std::vector<InputSlotDescriptor> inputTopology,
-                          std::optional<ParticipantId> preservedParticipantId = std::nullopt,
-                          PlayerSlot preservedAssignment = kObserverPlayerSlot);
+    void configureInputAssignments(ParticipantId participantId,
+                                   std::vector<PlayerSlot> slots,
+                                   InputTopologyConfigurer configureTopology);
     void kickParticipant(ParticipantId participantId);
     void removeReconnectReservation(ParticipantId participantId);
     void requestForceResync();
@@ -142,17 +253,80 @@ public:
     void appendNetplayLog(const std::string& message);
     void shutdown();
     void shutdownForUnload();
-    void runOnEmulationThread(INetplayEmulator& emu);
+    bool tryBuildPlaybackFrame(FrameNumber frame,
+                               NetplayCoordinator::ConfirmedFrameInputs& outFrame);
 
 private:
-    struct PendingManualStateResync
-    {
-        ResyncReason reason = ResyncReason::Unspecified;
-        FrameNumber eventFrame = 0;
-        bool waitForAdvance = true;
-    };
+    using RuntimeCommand = std::function<void(NetplayAppRuntime&)>;
 
-    INetplayRuntimeHost& m_runtimeHost;
+    void enqueueRuntimeCommand(RuntimeCommand command);
+    void drainRuntimeCommands();
+    void wakeRuntimeHost();
+    void processPendingInputTopologyChanges(INetplayConsole& console,
+                                            INetplayStateBridge& stateBridge,
+                                            INetplayStateHostBridge& hostBridge);
+
+    void resetInactiveRuntimeState();
+    void reanchorInputDriver(FrameNumber anchorFrame);
+    std::vector<uint8_t> buildAuthoritativeStatePayload(INetplayStateBridge& stateBridge,
+                                                        const INetplayStateHostBridge& hostBridge,
+                                                        FrameNumber authoritativeFrame,
+                                                        bool preferConfirmedSnapshot) const;
+    bool beginAuthoritativeResync(INetplayStateBridge& stateBridge,
+                                  INetplayStateHostBridge& hostBridge,
+                                  FrameNumber authoritativeFrame,
+                                  const std::vector<uint8_t>& statePayload,
+                                  bool preferConfirmedSnapshot,
+                                  ResyncReason reason = ResyncReason::Unspecified,
+                                  ParticipantId targetParticipantId = kInvalidParticipantId);
+    std::string computeSessionBlockedReason(const std::optional<RomSelection>& localRom) const;
+    void syncRomValidation(const std::optional<RomSelection>& localRom);
+    RuntimeInputDelayResult syncInputDelayFromSettings(const RuntimeInputDelaySettings& settings);
+    bool processAutoStartIfNeeded(INetplayStateBridge& stateBridge,
+                                  INetplayStateHostBridge& hostBridge,
+                                  const std::optional<RomSelection>& localRom);
+    void processHostManualStateChangeResyncIfNeeded(INetplayStateBridge& stateBridge,
+                                                    INetplayStateHostBridge& hostBridge,
+                                                    const std::vector<NetplayManualStateChangeRecord>& events);
+    void processPendingManualStateResyncIfNeeded(INetplayStateBridge& stateBridge,
+                                                 INetplayStateHostBridge& hostBridge);
+    void processPeriodicLocalCrcIfNeeded(INetplayStateBridge& stateBridge,
+                                         const INetplayStateHostBridge& hostBridge);
+    uint32_t consumeWorkerDtMs();
+    void handleSessionStateTransitionsOnWorker(INetplayRuntimeSessionControls& controls);
+    bool beginInitialSessionSyncOnWorker(INetplayStateBridge& stateBridge,
+                                         INetplayStateHostBridge& hostBridge);
+    void processHostResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
+                                           INetplayStateHostBridge& hostBridge,
+                                           bool autoGameplayTuning);
+    void processHostLateJoinResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
+                                                   INetplayStateHostBridge& hostBridge);
+    void processHostStallIfNeededOnWorker(INetplayStateBridge& stateBridge,
+                                          INetplayStateHostBridge& hostBridge,
+                                          std::chrono::steady_clock::time_point now);
+    RuntimePendingResyncApplyResult processResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
+                                                                  INetplayStateHostBridge& hostBridge);
+    uint32_t advanceToSharedClockIfNeededOnWorker(INetplayConsole& console,
+                                                  uint32_t maxFrames,
+                                                  bool requireLagTrigger = true);
+    void processRollbackIfNeededOnWorker(INetplayConsole& console,
+                                         INetplayStateBridge& stateBridge,
+                                         INetplayStateHostBridge& hostBridge,
+                                         const RuntimeRollbackProcessSettings& settings);
+    RuntimeFrameResult runActiveConsoleFrame(INetplayConsole& console,
+                                             INetplayStateBridge& stateBridge,
+                                             INetplayStateHostBridge& hostBridge,
+                                             INetplayRuntimeSessionControls& sessionControls,
+                                             const std::optional<RomSelection>& localRom,
+                                             const std::vector<NetplayManualStateChangeRecord>& manualEvents,
+                                             const RuntimeFrameSettings& settings);
+    void updateUiSnapshot(const std::optional<RomSelection>& localRom,
+                          const NetplayRuntimeDiagnostics& runtimeDiagnostics);
+    void syncEmuInputTimelineEpoch(INetplayStateBridge& stateBridge);
+    void ensureStandaloneInputBootstrapFrame(INetplayConsole& console,
+                                             INetplayStateBridge& stateBridge);
+    bool tryQueuePlaybackFrameToConsole(INetplayConsole& console, FrameNumber frame);
+
     NetplayCoordinator m_coordinator;
     ConfirmedInputBufferDriver m_inputDriver;
     SelfStallDetector m_selfStallDetector;
@@ -160,35 +334,53 @@ private:
     FramePacingDiagnostics m_framePacingDiagnostics;
 
     mutable std::mutex m_stateMutex;
-    std::deque<WorkerCommand> m_pendingCommands;
-    std::array<uint64_t, 4> m_latestInputMasks = {};
-    LocalInputBuilder m_localInputBuilder;
+    std::deque<RuntimeCommand> m_pendingRuntimeCommands;
+    struct PendingInputTopologyChange
+    {
+        ParticipantId participantId = kInvalidParticipantId;
+        std::vector<PlayerSlot> slots;
+        InputTopologyConfigurer configureTopology;
+    };
+    std::deque<PendingInputTopologyChange> m_pendingInputTopologyChanges;
     UiSnapshot m_uiSnapshot;
+    std::function<void()> m_runtimeHostWakeCallback;
     uint64_t m_cachedReconnectToken = 0;
     bool m_hasCachedReconnectToken = false;
     std::string m_stickyStatusMessage;
-    std::optional<SessionState> m_lastSessionState;
+
+    std::chrono::steady_clock::time_point m_runtimeLastTickTime = {};
+    RuntimeRomValidationState m_romValidationState;
+    RuntimeSessionTransitionState m_sessionTransitionState;
     std::vector<PlayerSlot> m_lastLocalAssignedSlots;
-    std::deque<PendingManualStateResync> m_pendingManualStateResyncs;
-    FrameNumber m_lastSubmittedLocalCrcFrame = 0;
-    FrameNumber m_lastRollbackTargetFrame = 0;
+    std::string m_lastAssignmentLayoutKey;
+    std::deque<RuntimePendingManualStateResync> m_pendingManualStateResyncs;
+    RuntimePeriodicCrcState m_periodicCrcState;
+    RuntimeRollbackProcessState m_rollbackProcessState;
     FrameNumber m_lastLoadedAuthoritativeFrame = 0;
-    FrameNumber m_lastRecoveryReanchorFrame = 0;
+    RuntimeSharedClockCatchupState m_sharedClockCatchupState;
+    bool m_webVisibilityManagedPause = false;
+    bool m_webPageVisible = true;
+    std::optional<RomSelection> m_latestLocalRom;
+    bool m_forceResyncRequested = false;
+    bool m_hostedPauseToggleRequested = false;
+    std::optional<bool> m_pendingWebVisibilityChange;
+    std::optional<size_t> m_pendingSnapshotCapacity;
     std::atomic<bool> m_runtimeActive{false};
     std::atomic<bool> m_runtimeRunning{false};
-
-    template<typename Fn>
-    void enqueueCommand(Fn&& fn)
-    {
-        std::scoped_lock stateLock(m_stateMutex);
-        m_pendingCommands.emplace_back(std::forward<Fn>(fn));
-    }
-
-    void drainPendingCommands(INetplayEmulator& emu);
-    std::vector<PlayerSlot> localAssignedSlots() const;
-    void updateUiSnapshot(const std::optional<NetplayRomSelection>& localRom);
-    void reanchorInputDriver(FrameNumber anchorFrame);
-    void queuePendingFramesToEmu(INetplayEmulator& emu);
 };
+
+NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
+    const NetplayCoordinator& coordinator,
+    const ConfirmedInputBufferDriver& inputDriver,
+    const std::optional<NetplayRomSelection>& localRom,
+    const std::string& stickyStatusMessage,
+    FrameNumber lastSubmittedLocalCrcFrame,
+    FrameNumber lastRollbackTargetFrame,
+    FrameNumber lastLoadedAuthoritativeFrame,
+    FrameNumber lastRecoveryReanchorFrame,
+    const NetplayAutoTune::Snapshot& autoSettings,
+    const NetplayAppRuntime::FramePacingDiagnostics& framePacingDiagnostics,
+    const NetplayRuntimeDiagnostics& runtimeDiagnostics,
+    const std::string& sessionBlockedReason);
 
 } // namespace ConsoleNetplay

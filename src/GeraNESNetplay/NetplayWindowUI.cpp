@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "GeraNESNetplay/GeraNESNetplayAppRuntime.h"
+#include "GeraNESApp/AppSettings.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
+#include "GeraNESNetplay/GeraNESNetplayConsole.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/WebRtcSignaling.h"
 #include "ConsoleNetplay/WebRtcSignalingClient.h"
@@ -130,7 +131,7 @@ inline PendingConnectOperationUiState& pendingConnectOperationUiState()
 }
 
 void drawNetplayWindow(bool& showWindow,
-                       GeraNESNetplayAppRuntime& runtime,
+                       NetplayAppRuntime& runtime,
                        const ImVec2& viewportCenter)
 {
     WebRtcRoomBrowserUiState& roomBrowser = webRtcRoomBrowserUiState();
@@ -996,7 +997,8 @@ void drawNetplayWindow(bool& showWindow,
             const auto port2Device = std::optional<Settings::Device>(
                 port == Settings::Port::P_2 ? device : currentPort2
             );
-            runtime.configureInputAssignments(
+            GeraNESNetplayConsole::configureInputAssignments(
+                runtime,
                 participantId,
                 port1Device,
                 port2Device,
@@ -1016,7 +1018,8 @@ void drawNetplayWindow(bool& showWindow,
         const auto selectExpansionDevice = [&](Settings::ExpansionDevice device) {
             const auto port1Device = std::optional<Settings::Device>(currentPort1);
             const auto port2Device = std::optional<Settings::Device>(currentPort2);
-            runtime.configureInputAssignments(
+            GeraNESNetplayConsole::configureInputAssignments(
+                runtime,
                 participantId,
                 port1Device,
                 port2Device,
@@ -1038,7 +1041,8 @@ void drawNetplayWindow(bool& showWindow,
                                                   PlayerSlot slot) {
             const auto port1Device = std::optional<Settings::Device>(Settings::Device::CONTROLLER);
             const auto port2Device = std::optional<Settings::Device>(Settings::Device::CONTROLLER);
-            runtime.configureInputAssignments(
+            GeraNESNetplayConsole::configureInputAssignments(
+                runtime,
                 participantId,
                 port1Device,
                 port2Device,

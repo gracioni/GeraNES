@@ -23,6 +23,12 @@ std::string runtimeContentHashKey(const RomValidationData& validation)
 
 } // namespace
 
+SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinator& coordinator,
+                                                          FrameNumber localSimulationFrame);
+bool runtimeShouldAllowPredictionForFrame(const NetplayCoordinator& coordinator,
+                                          const ConfirmedInputBufferDriver& inputDriver,
+                                          FrameNumber frame);
+
 size_t runtimeInputBufferCapacity(uint32_t prebufferFrames, uint32_t predictFrames)
 {
     const size_t horizon = static_cast<size_t>(prebufferFrames) + static_cast<size_t>(predictFrames);
@@ -300,8 +306,25 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     if(statePayload.empty()) return result;
 
     const uint32_t payloadCrc32 = crc32(statePayload.data(), statePayload.size());
-    const uint32_t stateCrc32 =
+    uint32_t stateCrc32 =
         runtimeComputeAuthoritativeStateCrc32(emu, runtimeHost, authoritativeFrame, preferConfirmedSnapshot);
+    RuntimeAuthoritativeStateResult localStateResult;
+    if(targetParticipantId == kInvalidParticipantId) {
+        localStateResult = runtimeApplyAuthoritativeStateLocally(
+            coordinator,
+            inputDriver,
+            emu,
+            runtimeHost,
+            authoritativeFrame,
+            statePayload
+        );
+        if(!localStateResult.localStateApplied) {
+            return result;
+        }
+        stateCrc32 = localStateResult.stateCrc32;
+    } else if(!preferConfirmedSnapshot) {
+        stateCrc32 = 0;
+    }
     if(!coordinator.beginResync(
            authoritativeFrame,
            statePayload,
@@ -316,16 +339,12 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     result.started = true;
     result.stateCrc32 = stateCrc32;
     if(targetParticipantId == kInvalidParticipantId) {
-        result = runtimeApplyAuthoritativeStateLocally(
-            coordinator,
-            inputDriver,
-            emu,
-            runtimeHost,
-            authoritativeFrame,
-            statePayload
-        );
+        runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
+        coordinator.setLocalSimulationFrame(authoritativeFrame);
+        inputDriver.reanchor(authoritativeFrame);
+        result = localStateResult;
         result.started = true;
-        result.stateCrc32 = stateCrc32 != 0 ? stateCrc32 : result.stateCrc32;
+        result.stateCrc32 = stateCrc32;
     }
     return result;
 }
@@ -470,6 +489,43 @@ RuntimeAutoStartResult runtimeProcessAutoStartIfNeeded(NetplayCoordinator& coord
     coordinator.setLocalSimulationFrame(emu.frameCount());
     result.started = coordinator.startSession();
     result.initialSyncNeeded = result.started && emu.frameCount() > 0;
+    return result;
+}
+
+RuntimeHostResyncProcessResult runtimeBeginInitialSessionSyncIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost)
+{
+    RuntimeHostResyncProcessResult result;
+    if(!coordinator.isHosting()) return result;
+    if(!emu.valid()) return result;
+    if(coordinator.session().roomState().state != SessionState::Starting) return result;
+
+    const FrameNumber authoritativeFrame = emu.frameCount();
+    const std::vector<uint8_t> statePayload =
+        runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, authoritativeFrame, false);
+    const RuntimeAuthoritativeStateResult stateResult =
+        runtimeBeginAuthoritativeResync(
+            coordinator,
+            inputDriver,
+            emu,
+            runtimeHost,
+            authoritativeFrame,
+            statePayload,
+            false
+        );
+    if(!stateResult.started) return result;
+
+    coordinator.appendNetplayLog("Netplay initial session sync started");
+    result.started = true;
+    result.localStateApplied = stateResult.localStateApplied;
+    result.initialSessionSync = true;
+    result.authoritativeFrame = authoritativeFrame;
+    result.loadedAuthoritativeFrame = stateResult.loadedAuthoritativeFrame;
+    result.reanchorFrame = stateResult.reanchorFrame;
+    result.reason = ResyncReason::InitialSessionSync;
     return result;
 }
 
@@ -716,6 +772,724 @@ RuntimeHostResyncProcessResult runtimeProcessSelfStallRecoveryIfNeeded(
         processResult.reason = ResyncReason::ClientStallRecovery;
     }
     return processResult;
+}
+
+RuntimePendingResyncApplyResult runtimeProcessPendingResyncApplyIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost)
+{
+    RuntimePendingResyncApplyResult result;
+    std::optional<NetplayCoordinator::PendingResyncApply> pending =
+        coordinator.consumePendingResyncApply();
+    if(!pending.has_value()) return result;
+
+    result.consumed = true;
+    result.resyncId = pending->resyncId;
+    result.targetFrame = pending->targetFrame;
+
+    runtimeHost.beginPresentationHoldUntilNextFrameReady();
+    const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
+    const FrameNumber loadedFrame = emu.frameCount();
+    const bool loadedExpectedFrame =
+        loaded &&
+        (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
+    const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0u;
+
+    result.loadedExpectedFrame = loadedExpectedFrame;
+    result.loadedFrame = loadedFrame;
+    result.loadedCrc32 = loadedCrc32;
+
+    if(loadedExpectedFrame) {
+        emu.discardQueuedInputFramesAfter(pending->targetFrame);
+        runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
+        coordinator.setLocalSimulationFrame(pending->targetFrame);
+        runtimeHost.discardQueuedNetplayInputsAfter(pending->targetFrame);
+        runtimeHost.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
+        runtimeHost.setAuthoritativeFrameReadyState(
+            pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame,
+            pending->frameReadyCrc32 != 0u ? pending->frameReadyCrc32 : loadedCrc32
+        );
+        inputDriver.reanchor(pending->targetFrame);
+        result.loadedAuthoritativeFrame = pending->targetFrame;
+        result.reanchorFrame = pending->targetFrame;
+
+        std::ostringstream oss;
+        oss << "Netplay resync post-load validation accepted"
+            << " targetFrame " << pending->targetFrame
+            << " loadedCrc32 " << loadedCrc32
+            << " frameReadyFrame "
+            << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
+        coordinator.appendNetplayLog(oss.str());
+    }
+
+    coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
+
+    if(!loadedExpectedFrame) {
+        if(loaded && loadedFrame != pending->targetFrame) {
+            std::ostringstream oss;
+            oss << "Netplay resync load frame mismatch: expected "
+                << pending->targetFrame
+                << ", got "
+                << loadedFrame
+                << " after clean-boot state load";
+            coordinator.appendNetplayLog(oss.str());
+        }
+        coordinator.appendNetplayLog("Netplay resync post-load validation rejected");
+        coordinator.appendNetplayLog("Netplay resync failed");
+    }
+
+    return result;
+}
+
+RuntimeManualStateResyncProcessResult runtimeProcessHostManualStateChangesIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost,
+    std::deque<RuntimePendingManualStateResync>& pendingManualStateResyncs,
+    const std::vector<NetplayManualStateChangeRecord>& events)
+{
+    RuntimeManualStateResyncProcessResult processResult;
+    if(events.empty()) return processResult;
+
+    for(const NetplayManualStateChangeRecord& event : events) {
+        if(!coordinator.isHosting()) continue;
+
+        const RoomState& room = coordinator.session().roomState();
+        const SessionState state = room.state;
+        if(state != SessionState::Running &&
+           state != SessionState::Paused &&
+           state != SessionState::Resyncing) {
+            continue;
+        }
+        if(!emu.valid()) continue;
+
+        const ResyncReason reason =
+            event.kind == NetplayManualStateChangeKind::Reset
+                ? ResyncReason::HostReset
+                : ResyncReason::HostLoadedState;
+        {
+            std::ostringstream oss;
+            oss << "Owner manual state change detected"
+                << " reason " << NetplayCoordinator::resyncReasonToast(reason)
+                << " eventFrame " << event.frame
+                << " emuFrame " << emu.frameCount()
+                << " roomEpoch " << room.timelineEpoch;
+            coordinator.appendNetplayLog(oss.str());
+        }
+        const std::string toast = NetplayCoordinator::resyncReasonToast(reason);
+        if(!toast.empty()) {
+            coordinator.appendNetplayLog(toast);
+        }
+
+        const FrameNumber eventFrame = std::min<FrameNumber>(event.frame, emu.frameCount());
+        const bool resyncBusy =
+            state == SessionState::Resyncing ||
+            room.activeResyncId != 0 ||
+            room.pendingResyncAckCount != 0;
+        emu.discardQueuedInputFramesAfter(eventFrame);
+        runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
+        inputDriver.reanchor(eventFrame);
+        processResult.reanchorFrame = eventFrame;
+
+        const bool hasRemotePeers = std::any_of(
+            room.participants.begin(),
+            room.participants.end(),
+            [&coordinator](const ParticipantInfo& participant) {
+                return participant.id != coordinator.localParticipantId();
+            }
+        );
+        if(!hasRemotePeers) {
+            continue;
+        }
+
+        if(resyncBusy) {
+            coordinator.appendNetplayLog(
+                "Deferring manual host recovery until the active resync/bootstrap finishes"
+            );
+            pendingManualStateResyncs.clear();
+            pendingManualStateResyncs.push_back(RuntimePendingManualStateResync{
+                reason,
+                eventFrame,
+                event.kind == NetplayManualStateChangeKind::Reset
+            });
+            processResult.deferredResync = true;
+            continue;
+        }
+
+        coordinator.discardTimelineAfter(eventFrame);
+        coordinator.invalidateLocalCrcHistoryAfter(eventFrame);
+        coordinator.setLocalSimulationFrame(eventFrame);
+
+        if(event.kind == NetplayManualStateChangeKind::LoadState) {
+            const std::vector<uint8_t> statePayload =
+                runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, eventFrame, false);
+            if(statePayload.empty()) {
+                continue;
+            }
+
+            pendingManualStateResyncs.clear();
+            const RuntimeAuthoritativeStateResult stateResult =
+                runtimeBeginAuthoritativeResync(
+                    coordinator,
+                    inputDriver,
+                    emu,
+                    runtimeHost,
+                    eventFrame,
+                    statePayload,
+                    false,
+                    reason
+                );
+            if(stateResult.started) {
+                processResult.startedResync = true;
+                processResult.loadedAuthoritativeFrame = stateResult.loadedAuthoritativeFrame;
+                processResult.reanchorFrame = stateResult.reanchorFrame != 0
+                    ? stateResult.reanchorFrame
+                    : processResult.reanchorFrame;
+            }
+            continue;
+        }
+
+        pendingManualStateResyncs.clear();
+        pendingManualStateResyncs.push_back(RuntimePendingManualStateResync{reason, eventFrame, true});
+        processResult.deferredResync = true;
+    }
+
+    return processResult;
+}
+
+RuntimeManualStateResyncProcessResult runtimeProcessPendingManualStateResyncIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost,
+    std::deque<RuntimePendingManualStateResync>& pendingManualStateResyncs)
+{
+    RuntimeManualStateResyncProcessResult processResult;
+    if(pendingManualStateResyncs.empty()) return processResult;
+    if(!coordinator.isHosting()) {
+        pendingManualStateResyncs.clear();
+        return processResult;
+    }
+
+    const SessionState state = coordinator.session().roomState().state;
+    if(state != SessionState::Running && state != SessionState::Paused) {
+        return processResult;
+    }
+
+    while(!pendingManualStateResyncs.empty()) {
+        const RuntimePendingManualStateResync pending = pendingManualStateResyncs.front();
+        if(pending.waitForAdvance && emu.frameCount() <= pending.eventFrame) {
+            return processResult;
+        }
+
+        const FrameNumber authoritativeFrame = emu.frameCount();
+        const std::vector<uint8_t> statePayload =
+            runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, authoritativeFrame, false);
+        if(statePayload.empty()) {
+            return processResult;
+        }
+
+        const RuntimeAuthoritativeStateResult stateResult =
+            runtimeBeginAuthoritativeResync(
+                coordinator,
+                inputDriver,
+                emu,
+                runtimeHost,
+                authoritativeFrame,
+                statePayload,
+                false,
+                pending.reason
+            );
+        if(!stateResult.started) {
+            return processResult;
+        }
+
+        std::ostringstream oss;
+        oss << "Applying deferred manual host recovery"
+            << " reason " << NetplayCoordinator::resyncReasonToast(pending.reason)
+            << " authoritativeFrame " << authoritativeFrame;
+        coordinator.appendNetplayLog(oss.str());
+        pendingManualStateResyncs.pop_front();
+        processResult.startedResync = true;
+        processResult.loadedAuthoritativeFrame = stateResult.loadedAuthoritativeFrame;
+        processResult.reanchorFrame = stateResult.reanchorFrame;
+    }
+
+    return processResult;
+}
+
+RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayRuntimeSessionControls& controls,
+    RuntimeSessionTransitionState& sessionState,
+    RuntimePeriodicCrcState& periodicCrcState,
+    RuntimeRollbackProcessState& rollbackState,
+    RuntimeSharedClockCatchupState& sharedClockState,
+    FrameNumber& lastLoadedAuthoritativeFrame)
+{
+    RuntimeSessionTransitionResult result;
+    if(!coordinator.isActive()) {
+        sessionState.lastSessionState.reset();
+        inputDriver.reset();
+        periodicCrcState = RuntimePeriodicCrcState{};
+        rollbackState = RuntimeRollbackProcessState{};
+        sharedClockState = RuntimeSharedClockCatchupState{};
+        lastLoadedAuthoritativeFrame = 0;
+        result.inactive = true;
+        result.resetWorkerTick = true;
+        return result;
+    }
+
+    const SessionState currentState = coordinator.session().roomState().state;
+    const std::optional<SessionState> previousState = sessionState.lastSessionState;
+    if(previousState.has_value() && *previousState == currentState) {
+        return result;
+    }
+
+    const bool enteringResync = currentState == SessionState::Resyncing;
+    const bool leavingResync =
+        previousState.has_value() &&
+        *previousState == SessionState::Resyncing &&
+        currentState != SessionState::Resyncing;
+    if(enteringResync || leavingResync) {
+        controls.restartAudio();
+    }
+    if(enteringResync) {
+        const FrameNumber discardAfterFrame =
+            coordinator.session().roomState().resyncTargetFrame != 0u
+                ? coordinator.session().roomState().resyncTargetFrame
+                : controls.frameCount();
+        controls.discardQueuedNetplayInputsAfter(discardAfterFrame);
+    }
+
+    if(currentState != SessionState::Running) {
+        inputDriver.reset();
+        result.resetWorkerTick = true;
+    }
+
+    if(currentState == SessionState::Paused) {
+        controls.setSimulationSuspended(true);
+        if(!previousState.has_value() || *previousState != SessionState::Paused) {
+            controls.discardQueuedAudio();
+        }
+    }
+
+    if(previousState.has_value() &&
+       *previousState == SessionState::Paused &&
+       currentState != SessionState::Paused &&
+       !sessionState.observerVisibilityResyncPending) {
+        controls.setSimulationSuspended(false);
+    }
+
+    if(currentState == SessionState::Running &&
+       previousState.has_value() &&
+       (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
+        const FrameNumber anchorFrame = coordinator.session().roomState().lastConfirmedFrame;
+        inputDriver.reanchor(anchorFrame);
+        rollbackState.lastRecoveryReanchorFrame = anchorFrame;
+        periodicCrcState.postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
+        if(sessionState.observerVisibilityResyncPending) {
+            sessionState.observerVisibilityResyncPending = false;
+            controls.setSimulationSuspended(false);
+        }
+    }
+
+    if(currentState == SessionState::Running &&
+       (!previousState.has_value() || *previousState != SessionState::Running)) {
+        periodicCrcState.forceNextConfirmedCrcSubmission = true;
+    }
+
+    sessionState.lastSessionState = currentState;
+    return result;
+}
+
+RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayConsole& console,
+    INetplayStateBridge& emu,
+    INetplayStateHostBridge& runtimeHost,
+    RuntimeRollbackProcessState& state,
+    const RuntimeRollbackProcessSettings& settings)
+{
+    RuntimeRollbackProcessResult result;
+    std::optional<FrameNumber> rollbackFrame = coordinator.consumePendingRollbackFrame();
+    if(!rollbackFrame.has_value()) return result;
+    result.consumed = true;
+    state.lastRollbackTargetFrame = *rollbackFrame;
+    result.rollbackTargetFrame = *rollbackFrame;
+
+    const FrameNumber currentFrame = console.frameCount();
+    if(currentFrame == 0) return result;
+
+    const FrameNumber confirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
+    const FrameNumber latestSafeRollbackFrame = currentFrame - 1u;
+    const FrameNumber earliestConfirmedReplayFrame =
+        confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
+    const FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
+    if(*rollbackFrame < rollbackFloor) {
+        rollbackFrame = rollbackFloor;
+    }
+    result.rollbackTargetFrame = *rollbackFrame;
+    state.lastRollbackTargetFrame = *rollbackFrame;
+
+    if(*rollbackFrame >= currentFrame) {
+        coordinator.rescheduleRollbackFrame(*rollbackFrame);
+        return result;
+    }
+
+    const auto requestRollbackRecoveryResync = [&](const std::string& message, uint16_t requestFlags = 0u) {
+        coordinator.appendNetplayLog(message);
+        if(coordinator.isHosting()) {
+            return;
+        }
+
+        ResyncRequestData request;
+        request.reason = ResyncReason::ConfirmedDesync;
+        request.localFrame = console.frameCount();
+        request.estimatedHostFrame = 0;
+        request.confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
+        request.lagFrames = 0;
+        request.catchupBudgetFrames = 0;
+        request.source = 2u; // rollback resimulation failed
+        request.flags = requestFlags;
+        result.requestedResync = coordinator.requestHostResync(request) || result.requestedResync;
+    };
+
+    const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshotData =
+        runtimeHost.netplaySnapshotForFrame(*rollbackFrame);
+    if(!snapshotData.has_value()) {
+        const bool shouldLog =
+            state.lastMissingRollbackSnapshotFrame != *rollbackFrame ||
+            state.lastMissingRollbackSnapshotLocalFrame != currentFrame;
+        state.lastMissingRollbackSnapshotFrame = *rollbackFrame;
+        state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
+
+        if(coordinator.isHosting()) {
+            const std::vector<uint8_t> statePayload =
+                runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, currentFrame, false);
+            const RuntimeAuthoritativeStateResult stateResult =
+                runtimeBeginAuthoritativeResyncWithoutLocalReload(
+                    coordinator,
+                    inputDriver,
+                    emu,
+                    runtimeHost,
+                    currentFrame,
+                    statePayload,
+                    false,
+                    ResyncReason::ConfirmedDesync
+                );
+            if(stateResult.started) {
+                result.startedAuthoritativeResync = true;
+                if(stateResult.reanchorFrame != 0) {
+                    state.lastRecoveryReanchorFrame = stateResult.reanchorFrame;
+                    result.reanchorFrame = stateResult.reanchorFrame;
+                }
+                if(shouldLog) {
+                    coordinator.appendNetplayLog(
+                        "Netplay rollback snapshot unavailable; started authoritative resync at frame " +
+                        std::to_string(currentFrame) +
+                        " instead of rollback to frame " +
+                        std::to_string(*rollbackFrame)
+                    );
+                }
+            } else if(shouldLog) {
+                coordinator.appendNetplayLog(
+                    "Netplay rollback failed: snapshot unavailable for frame " +
+                    std::to_string(*rollbackFrame)
+                );
+            }
+            return result;
+        }
+
+        if(shouldLog) {
+            requestRollbackRecoveryResync(
+                "Netplay rollback failed: snapshot unavailable for frame " +
+                std::to_string(*rollbackFrame),
+                kResyncRequestFlagRollbackReplayBuildFailure
+            );
+        } else {
+            ResyncRequestData request;
+            request.reason = ResyncReason::ConfirmedDesync;
+            request.localFrame = console.frameCount();
+            request.estimatedHostFrame = 0;
+            request.confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
+            request.lagFrames = 0;
+            request.catchupBudgetFrames = 0;
+            request.source = 2u;
+            request.flags = kResyncRequestFlagRollbackReplayBuildFailure;
+            result.requestedResync = coordinator.requestHostResync(request) || result.requestedResync;
+        }
+        return result;
+    }
+
+    result.rollbackFromFrame = currentFrame;
+    if(!console.loadRollbackState(**snapshotData) || !console.valid()) {
+        coordinator.appendNetplayLog("Netplay rollback failed: snapshot load failed");
+        return result;
+    }
+
+    const uint32_t rollbackCanonicalCrc32 = console.canonicalNetplayStateCrc32();
+    (void)runtimeHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
+    coordinator.setLocalSimulationFrame(*rollbackFrame);
+    coordinator.discardTimelineAfter(*rollbackFrame, true);
+    coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
+
+    FrameNumber inputDriverAnchorFrame = *rollbackFrame;
+    const ParticipantId localParticipantId = coordinator.localParticipantId();
+    for(auto it = coordinator.localInputs().entries().rbegin();
+        it != coordinator.localInputs().entries().rend();
+        ++it) {
+        if(it->participantId != localParticipantId) continue;
+        inputDriverAnchorFrame = std::max(inputDriverAnchorFrame, it->frame);
+        break;
+    }
+    inputDriver.reanchor(inputDriverAnchorFrame);
+    state.lastRecoveryReanchorFrame = inputDriverAnchorFrame;
+    result.reanchorFrame = inputDriverAnchorFrame;
+
+    const uint32_t frameDt =
+        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, console.regionFps()));
+    while(console.frameCount() < currentFrame) {
+        const FrameNumber nextFrame = console.frameCount() + 1u;
+        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
+        const bool allowPrediction =
+            nextFrame > confirmedThroughFrame &&
+            nextFrame <= currentFrame &&
+            runtimeShouldAllowPredictionForFrame(
+                coordinator,
+                inputDriver,
+                confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.prebufferFrames()) + 1u
+            );
+        const FrameNumber predictionCapFrame =
+            confirmedThroughFrame +
+            static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
+            static_cast<FrameNumber>(inputDriver.predictFrames());
+        const bool allowHostFallback = nextFrame > predictionCapFrame;
+        if(!coordinator.tryBuildPlaybackFrame(
+               nextFrame,
+               allowPrediction,
+               playbackFrame,
+               allowHostFallback
+           )) {
+            requestRollbackRecoveryResync(
+                "Netplay resimulation failed: could not build playback frame " +
+                std::to_string(nextFrame),
+                kResyncRequestFlagRollbackReplayBuildFailure
+            );
+            return result;
+        }
+
+        if(!console.queuePlaybackInputFrame(playbackFrame)) {
+            requestRollbackRecoveryResync(
+                "Netplay resimulation failed: rejected playback enqueue at frame " +
+                std::to_string(nextFrame),
+                kResyncRequestFlagRollbackReplayEnqueueFailure
+            );
+            return result;
+        }
+        if(!console.updateUntilFrame(frameDt, true)) {
+            requestRollbackRecoveryResync(
+                "Netplay resimulation failed: emulator did not advance at frame " +
+                std::to_string(nextFrame),
+                kResyncRequestFlagRollbackReplayAdvanceFailure
+            );
+            return result;
+        }
+    }
+    coordinator.setLocalSimulationFrame(console.frameCount());
+    runtimeHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
+
+    const FrameNumber recoveredConfirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
+    if(settings.showDebugLog && recoveredConfirmedFrame != 0u && recoveredConfirmedFrame <= console.frameCount()) {
+        const uint32_t recoveredConfirmedCrc32 = console.canonicalNetplayStateCrc32();
+        std::ostringstream validate;
+        validate << "Rollback recovery reanchored"
+                 << " targetFrame " << *rollbackFrame
+                 << " confirmedFrame " << recoveredConfirmedFrame
+                 << " localSimulationFrame " << console.frameCount()
+                 << " canonicalCrc32 " << recoveredConfirmedCrc32;
+        coordinator.appendNetplayLog(validate.str());
+    }
+
+    if(settings.showDebugLog) {
+        coordinator.appendNetplayLog(
+            "Netplay rollback applied (" + std::to_string(result.rollbackFromFrame) +
+            " -> " + std::to_string(*rollbackFrame) + ")"
+        );
+    }
+
+    result.applied = true;
+    return result;
+}
+
+uint32_t runtimeAdvanceToSharedClockIfNeeded(
+    NetplayCoordinator& coordinator,
+    ConfirmedInputBufferDriver& inputDriver,
+    INetplayConsole& console,
+    RuntimeSharedClockCatchupState& state,
+    uint32_t maxFrames,
+    bool requireLagTrigger)
+{
+    if(maxFrames == 0u) return 0u;
+    if(coordinator.isHosting()) return 0u;
+    if(!coordinator.isActive() || coordinator.session().roomState().state != SessionState::Running) return 0u;
+    if(!console.valid()) return 0u;
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, console.regionFps()));
+    const uint64_t frameDtMicros =
+        std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, static_cast<uint64_t>(console.regionFps())));
+    const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
+    bool lagTriggerActivated = false;
+    FrameNumber estimatedHostFrameFromClock = 0u;
+    FrameNumber estimatedLagFrames = 0u;
+
+    constexpr FrameNumber kContinuousCatchupLagTriggerFrames = 2u;
+    const RoomState& room = coordinator.session().roomState();
+    if(state.resyncRequestPending && room.timelineEpoch != state.resyncRequestEpoch) {
+        state.resyncRequestPending = false;
+        state.lagOverBudgetSince = {};
+        state.lagOverBudgetSinceFrame = 0;
+    }
+    if(room.lastAuthoritativeClockFrame != 0u &&
+       room.lastAuthoritativeClockMicros != 0u &&
+       room.sharedClockSynchronized) {
+        const uint64_t nowSharedClockMicros = coordinator.sharedClockNowMicros();
+        if(nowSharedClockMicros != 0u && nowSharedClockMicros > room.lastAuthoritativeClockMicros) {
+            const uint64_t elapsedSinceAuthoritativeMicros =
+                nowSharedClockMicros - room.lastAuthoritativeClockMicros;
+            estimatedHostFrameFromClock =
+                room.lastAuthoritativeClockFrame +
+                static_cast<FrameNumber>(elapsedSinceAuthoritativeMicros / frameDtMicros);
+            const FrameNumber localFrame = console.frameCount();
+            estimatedLagFrames =
+                estimatedHostFrameFromClock > localFrame ? (estimatedHostFrameFromClock - localFrame) : 0u;
+        }
+    }
+
+    if(requireLagTrigger) {
+        if(estimatedLagFrames < kContinuousCatchupLagTriggerFrames) return 0u;
+        lagTriggerActivated = true;
+        if(console.frameCount() >= confirmedThroughFrame) return 0u;
+    }
+
+    if(estimatedLagFrames > maxFrames) {
+        constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
+        constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
+        const auto now = std::chrono::steady_clock::now();
+        const FrameNumber localFrame = console.frameCount();
+        const FrameNumber confirmedLagFrames =
+            confirmedThroughFrame > localFrame ? (confirmedThroughFrame - localFrame) : 0u;
+
+        if(state.lagOverBudgetSince.time_since_epoch().count() == 0 ||
+           estimatedLagFrames <= maxFrames) {
+            state.lagOverBudgetSince = now;
+            state.lagOverBudgetSinceFrame = localFrame;
+        }
+
+        if(confirmedLagFrames <= maxFrames) {
+            state.lagOverBudgetSince = {};
+            state.lagOverBudgetSinceFrame = 0;
+            if(localFrame >= state.lastConfirmedLagWaitLogFrame + 300u) {
+                state.lastConfirmedLagWaitLogFrame = localFrame;
+                std::ostringstream oss;
+                oss << "Netplay shared-clock catchup over budget but confirmed input is not far enough ahead"
+                    << " lag " << estimatedLagFrames
+                    << " confirmedLag " << confirmedLagFrames
+                    << " budget " << maxFrames
+                    << "; waiting instead of requesting resync";
+                coordinator.appendNetplayLog(oss.str());
+            }
+            return 0u;
+        }
+
+        const bool lagPersisted = now - state.lagOverBudgetSince >= kLargeLagPersistence;
+        if(!lagPersisted) return 0u;
+
+        if(state.lastResyncRequestAt.time_since_epoch().count() != 0 &&
+           now - state.lastResyncRequestAt < kSharedClockResyncRequestCooldown) {
+            return 0u;
+        }
+        state.resyncRequestPending = false;
+
+        ResyncRequestData request;
+        request.reason = ResyncReason::ConfirmedDesync;
+        request.localFrame = localFrame;
+        request.estimatedHostFrame = estimatedHostFrameFromClock;
+        request.confirmedThroughFrame = confirmedThroughFrame;
+        request.lagFrames =
+            static_cast<uint16_t>(std::min<FrameNumber>(estimatedLagFrames, 0xffffu));
+        request.catchupBudgetFrames =
+            static_cast<uint16_t>(std::min<uint32_t>(maxFrames, 0xffffu));
+        request.source = 1u; // shared-clock catchup over budget
+
+        if(coordinator.requestHostResync(request)) {
+            state.resyncRequestPending = true;
+            state.resyncRequestEpoch = room.timelineEpoch;
+            state.lastResyncRequestAt = now;
+            state.lastResyncRequestFrame = localFrame;
+            std::ostringstream oss;
+            oss << "Netplay shared-clock catchup skipped; lag "
+                << estimatedLagFrames
+                << " frame(s) exceeds catchup budget "
+                << maxFrames
+                << " since local frame "
+                << state.lagOverBudgetSinceFrame
+                << ", requested authoritative resync";
+            coordinator.appendNetplayLog(oss.str());
+        }
+        return 0u;
+    }
+
+    state.lagOverBudgetSince = {};
+    state.lagOverBudgetSinceFrame = 0;
+
+    uint32_t advancedFrames = 0u;
+    while(advancedFrames < maxFrames) {
+        const FrameNumber nextFrame = console.frameCount() + 1u;
+        if(nextFrame > confirmedThroughFrame) break;
+
+        const uint64_t nextFrameClockMicros = coordinator.authoritativeFrameStartClockMicros(nextFrame);
+        if(nextFrameClockMicros == 0u) break;
+
+        const uint64_t nowSharedClockMicros = coordinator.sharedClockNowMicros();
+        if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) break;
+
+        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        if(!coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) break;
+        if(playbackFrame.predicted) break;
+        if(!console.queuePlaybackInputFrame(playbackFrame)) break;
+        if(!console.updateUntilFrame(frameDt, false)) break;
+
+        ++advancedFrames;
+        coordinator.setLocalSimulationFrame(console.frameCount());
+    }
+
+    if(advancedFrames > 0u) {
+        std::ostringstream oss;
+        oss << "Netplay continuous shared-clock catchup advanced "
+            << advancedFrames
+            << " frame(s)"
+            << " localFrame="
+            << console.frameCount()
+            << " confirmedThrough="
+            << confirmedThroughFrame;
+        if(lagTriggerActivated) {
+            oss << " triggerLagFrames="
+                << estimatedLagFrames
+                << " estimatedHostFrame="
+                << estimatedHostFrameFromClock;
+        }
+        oss << " (audio muted)";
+        coordinator.appendNetplayLog(oss.str());
+    }
+
+    return advancedFrames;
 }
 
 bool runtimeProcessAutoResumeIfNeeded(NetplayCoordinator& coordinator,

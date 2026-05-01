@@ -18,7 +18,7 @@
 #include "GeraNESApp/SingleThreadEmulationHost.h"
 #include "GeraNESNetplay/GeraNESInputFrameAdapter.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
-#include "GeraNESNetplay/GeraNESNetplayAppRuntime.h"
+#include "GeraNESNetplay/GeraNESNetplayConsole.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 
@@ -233,7 +233,8 @@ private:
         std::string name;
         bool host = false;
         HostT emu{DummyAudioOutput::instance()};
-        GeraNESNetplay::GeraNESNetplayAppRuntime runtime{emu};
+        ConsoleNetplay::NetplayAppRuntime runtime;
+        IEmulationHost::InputState latestInputState = {};
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
@@ -244,9 +245,20 @@ private:
             , generator(seed)
         {
             emu.setAllowPresenterTimeoutAdvance(false);
+            GeraNESNetplay::GeraNESNetplayConsole::configureRuntimeForGeraNES(runtime, emu);
             emu.setPreAdvanceHook([this](GeraNESEmu& innerEmu) {
-                runtime.runOnEmulationThread(innerEmu);
+                GeraNESNetplay::GeraNESNetplayConsole::runRuntimeOnEmulationThread(
+                    runtime,
+                    emu,
+                    innerEmu,
+                    latestInputState
+                );
             });
+        }
+
+        void updateLatestInputState(const IEmulationHost::InputState& inputState)
+        {
+            latestInputState = inputState;
         }
     };
 
@@ -1624,7 +1636,12 @@ private:
 
         auto pumpPeerRuntime = [](auto& peer) {
             peer.emu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
-                peer.runtime.runOnEmulationThread(innerEmu);
+                GeraNESNetplay::GeraNESNetplayConsole::runRuntimeOnEmulationThread(
+                    peer.runtime,
+                    peer.emu,
+                    innerEmu,
+                    peer.latestInputState
+                );
             });
         };
 
@@ -1688,7 +1705,7 @@ private:
                                 hostFrame,
                                 std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS())
                             );
-                            hostPeer.runtime.updateLatestInputState(
+                            hostPeer.updateLatestInputState(
                                 buildRuntimeInputStateForSlot(ConsoleNetplay::kPort1PlayerSlot, hostButtons)
                             );
                             hostPeer.emu.update(16u);
@@ -1720,14 +1737,15 @@ private:
                         cleanup();
                         return result;
                     }
-                    hostPeer.runtime.configureInputAssignment(
+                    GeraNESNetplay::GeraNESNetplayConsole::configureInputAssignments(
+                        hostPeer.runtime,
                         *hostIdBeforeJoin,
                         std::optional<Settings::Device>(Settings::Device::CONTROLLER),
                         std::optional<Settings::Device>(Settings::Device::CONTROLLER),
                         Settings::ExpansionDevice::NONE,
                         Settings::NesMultitapDevice::FOUR_SCORE,
                         Settings::FamicomMultitapDevice::NONE,
-                        ConsoleNetplay::kMultitapP1PlayerSlot
+                        {ConsoleNetplay::kMultitapP1PlayerSlot}
                     );
                     if(!waitFor([&]() {
                             const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1807,9 +1825,6 @@ private:
             const uint32_t observerOnlyHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t observerOnlyClientFrame = clientPeer.emu.exactEmulationFrame();
             if(!waitFor([&]() {
-                    std::array<uint64_t, 4> emptyMasks = {};
-                    hostPeer.runtime.updateLatestRawMasks(emptyMasks);
-                    clientPeer.runtime.updateLatestRawMasks(emptyMasks);
                     hostPeer.emu.update(16u);
                     clientPeer.emu.update(16u);
                     return hostPeer.emu.exactEmulationFrame() >= observerOnlyHostFrame + 4u &&
@@ -1900,7 +1915,8 @@ private:
             }
         } else if(options.hostControllerAndZapperObserverScenario) {
             hostPeer.runtime.clearControllerAssignments(*clientId);
-            hostPeer.runtime.configureInputAssignments(
+            GeraNESNetplay::GeraNESNetplayConsole::configureInputAssignments(
+                hostPeer.runtime,
                 *hostId,
                 std::optional<Settings::Device>(Settings::Device::CONTROLLER),
                 std::optional<Settings::Device>(Settings::Device::ZAPPER),
@@ -2212,17 +2228,17 @@ private:
                 effectiveClientButtons.select = ((clientFrame + step) % 3u) == 1u;
             }
             if(options.hostControllerAndZapperObserverScenario) {
-                hostPeer.runtime.updateLatestInputState(
+                hostPeer.updateLatestInputState(
                     buildDuckHuntLikeRuntimeInputState(hostFrame, std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS()))
                 );
-                clientPeer.runtime.updateLatestInputState(IEmulationHost::InputState{});
+                clientPeer.updateLatestInputState(IEmulationHost::InputState{});
             } else {
-                hostPeer.runtime.updateLatestInputState(
+                hostPeer.updateLatestInputState(
                     hostLocalSlot.has_value()
                         ? buildRuntimeInputStateForSlot(*hostLocalSlot, effectiveHostButtons)
                         : IEmulationHost::InputState{}
                 );
-                clientPeer.runtime.updateLatestInputState(
+                clientPeer.updateLatestInputState(
                     clientRuntimePaused ||
                             (options.hostAssignedBeforeJoinOnly && !options.assignLateJoinClientAfterJoin) ||
                             !clientLocalSlot.has_value()

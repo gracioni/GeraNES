@@ -46,7 +46,8 @@ namespace fs = std::filesystem;
 #include "SDLOpenGLWindow.h"
 
 #include "GeraNESApp/EmulationHost.h"
-#include "GeraNESNetplay/GeraNESNetplayAppRuntime.h"
+#include "ConsoleNetplay/NetplayAppRuntime.h"
+#include "GeraNESNetplay/GeraNESNetplayConsole.h"
 
 #include "GeraNES/defines.h"
 
@@ -175,7 +176,9 @@ private:
     NsfVisualizerUI m_nsfVisualizer;
 #endif
 
-    GeraNESNetplay::GeraNESNetplayAppRuntime m_netplayRuntime;
+    ConsoleNetplay::NetplayAppRuntime m_netplayRuntime;
+    mutable std::mutex m_netplayInputStateMutex;
+    IEmulationHost::InputState m_netplayLatestInputState = {};
 
     struct RomDatabaseEditorData {
         bool loaded = false;
