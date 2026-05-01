@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -9,6 +10,9 @@
 #include "NetplayTopology.h"
 
 namespace ConsoleNetplay {
+
+class PacketWriter;
+class PacketReader;
 
 constexpr uint8_t kProtocolVersion = 13;
 constexpr size_t kMaxRomHashBytes = 32;
@@ -89,6 +93,13 @@ struct PacketHeader
     uint8_t protocolVersion = kProtocolVersion;
     MessageType type = MessageType::CreateRoom;
     uint32_t sessionId = 0;
+
+    static constexpr size_t serializedSize()
+    {
+        return sizeof(uint8_t) + sizeof(MessageType) + sizeof(uint32_t);
+    }
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, PacketHeader& header);
 };
 
 struct RomValidationData
@@ -101,6 +112,9 @@ struct RomValidationData
     uint32_t chrRamSize = 0;
     uint32_t fileSize = 0;
     std::array<uint8_t, kMaxRomHashBytes> contentHash = {};
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, RomValidationData& data);
 };
 
 struct JoinRoomData
@@ -108,12 +122,18 @@ struct JoinRoomData
     uint64_t reconnectToken = 0;
     uint8_t romLoaded = 0;
     RomValidationData romValidation = {};
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, JoinRoomData& data);
 };
 
 struct JoinRejectedData
 {
     JoinRejectReason reason = JoinRejectReason::Unknown;
     RomValidationData romValidation = {};
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, JoinRejectedData& data);
 };
 
 struct RomValidationResultData
@@ -122,6 +142,9 @@ struct RomValidationResultData
     uint8_t romLoaded = 0;
     uint8_t romCompatible = 0;
     RomValidationData romValidation = {};
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, RomValidationResultData& data);
 };
 
 struct InputTopologyData
@@ -134,9 +157,17 @@ struct InputTopologyData
         InputDeviceId deviceId = kNoInputDevice;
         std::string groupLabel;
         std::string inputLabel;
+
+        void serialize(PacketWriter& writer) const;
+        static bool deserialize(PacketReader& reader, Slot& slot);
+        size_t serializedSize() const;
     };
 
     std::vector<Slot> slots;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, InputTopologyData& data);
+    size_t serializedSize() const;
 };
 
 struct InputFrameData
@@ -150,6 +181,9 @@ struct InputFrameData
     uint64_t buttonMaskHi = 0;
     uint32_t sequence = 0;
     uint16_t payloadSize = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, InputFrameData& data);
 };
 
 struct ConfirmedInputFramesData
@@ -157,6 +191,9 @@ struct ConfirmedInputFramesData
     uint32_t timelineEpoch = 0;
     FrameNumber startFrame = 0;
     uint16_t frameCount = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ConfirmedInputFramesData& data);
 };
 
 struct ConfirmedInputFrameEntry
@@ -166,11 +203,18 @@ struct ConfirmedInputFrameEntry
         PlayerSlot slot = kObserverPlayerSlot;
         uint64_t buttonMaskLo = 0;
         uint64_t buttonMaskHi = 0;
+
+        void serialize(PacketWriter& writer) const;
+        static bool deserialize(PacketReader& reader, SlotMask& slotMask);
     };
 
     uint64_t authoritativeFrameStartClockMicros = 0;
     std::vector<SlotMask> slotMasks;
     uint16_t payloadSize = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ConfirmedInputFrameEntry& entry);
+    size_t serializedSize() const;
 };
 
 struct InputAckData
@@ -180,6 +224,9 @@ struct InputAckData
     PlayerSlot playerSlot = kObserverPlayerSlot;
     FrameNumber contiguousFrame = 0;
     uint32_t sequence = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, InputAckData& data);
 };
 
 struct FrameStatusData
@@ -190,23 +237,37 @@ struct FrameStatusData
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
     InputTopologyData topology = {};
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, FrameStatusData& data);
+    size_t serializedSize() const;
 };
 
 struct AssignControllerData
 {
     ParticipantId participantId = kInvalidParticipantId;
     std::vector<PlayerSlot> controllerAssignments;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, AssignControllerData& data);
+    size_t serializedSize() const;
 };
 
 struct ParticipantLeftData
 {
     ParticipantId participantId = kInvalidParticipantId;
     uint32_t disconnectReason = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ParticipantLeftData& data);
 };
 
 struct LeaveRoomData
 {
     ParticipantId participantId = kInvalidParticipantId;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, LeaveRoomData& data);
 };
 
 struct StartSessionData
@@ -215,6 +276,10 @@ struct StartSessionData
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
     InputTopologyData topology = {};
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, StartSessionData& data);
+    size_t serializedSize() const;
 };
 
 struct PeerHealthData
@@ -227,12 +292,18 @@ struct PeerHealthData
     uint64_t sharedClockMicros = 0;
     uint64_t clockSyncRttMicros = 0;
     uint8_t sharedClockSynchronized = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, PeerHealthData& data);
 };
 
 struct ClockSyncRequestData
 {
     uint32_t sequence = 0;
     uint64_t clientSendMicros = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ClockSyncRequestData& data);
 };
 
 struct ClockSyncResponseData
@@ -241,6 +312,9 @@ struct ClockSyncResponseData
     uint64_t clientSendMicros = 0;
     uint64_t hostReceiveMicros = 0;
     uint64_t hostSendMicros = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ClockSyncResponseData& data);
 };
 
 struct CrcReportData
@@ -249,6 +323,9 @@ struct CrcReportData
     FrameNumber frame = 0;
     uint32_t crc32 = 0;
     DesyncSeverity severity = DesyncSeverity::NoIssue;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, CrcReportData& data);
 };
 
 struct ResyncBeginData
@@ -264,6 +341,9 @@ struct ResyncBeginData
     uint32_t frameReadyCrc32 = 0;
     uint32_t inputSequenceBase = 0;
     ResyncReason reason = ResyncReason::Unspecified;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ResyncBeginData& data);
 };
 
 struct ResyncChunkData
@@ -271,11 +351,17 @@ struct ResyncChunkData
     uint32_t resyncId = 0;
     uint32_t offset = 0;
     uint16_t size = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ResyncChunkData& data);
 };
 
 struct ResyncCompleteData
 {
     uint32_t resyncId = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ResyncCompleteData& data);
 };
 
 struct ResyncAckData
@@ -285,6 +371,9 @@ struct ResyncAckData
     FrameNumber loadedFrame = 0;
     uint32_t crc32 = 0;
     uint8_t success = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ResyncAckData& data);
 };
 
 struct ResyncAbortData
@@ -292,6 +381,9 @@ struct ResyncAbortData
     uint32_t resyncId = 0;
     ParticipantId participantId = kInvalidParticipantId;
     uint8_t reason = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ResyncAbortData& data);
 };
 
 struct ResyncRequestData
@@ -305,6 +397,9 @@ struct ResyncRequestData
     uint16_t catchupBudgetFrames = 0;
     uint16_t source = 0;
     uint16_t flags = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ResyncRequestData& data);
 };
 
 constexpr uint16_t kResyncRequestFlagRollbackReplayBuildFailure = 1u << 0;
