@@ -248,11 +248,12 @@ private:
             , generator(seed)
         {
             emu.setAllowPresenterTimeoutAdvance(false);
-            GeraNESNetplay::configureRuntimeForGeraNES(runtime, emu);
+            GeraNESNetplay::attachRuntimeWakeToHost(runtime, emu);
+            GeraNESNetplay::installFrontendNetplayLogCallback();
             emu.setPreAdvanceHook([this](GeraNESEmu& innerEmu) {
                 const auto& cfg = AppSettings::instance().data.netplay;
-                const GeraNESNetplay::RuntimeLoopSettings runtimeSettings =
-                    GeraNESNetplay::buildRuntimeLoopSettings(
+                const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
+                    ConsoleNetplay::buildRuntimeExecutionSettings(
                         emu,
                         cfg.autoGameplayTuning,
                         cfg.showNetplayDebugLog,
@@ -260,7 +261,7 @@ private:
                         cfg.inputDelayFrames,
                         cfg.predictFrames
                     );
-                (void)GeraNESNetplay::runRuntimeOnEmulationThread(
+                (void)GeraNESNetplay::executeRuntimeFrame(
                     runtime,
                     emu,
                     innerEmu,
@@ -1651,8 +1652,8 @@ private:
         auto pumpPeerRuntime = [](auto& peer) {
             peer.emu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
                 const auto& cfg = AppSettings::instance().data.netplay;
-                const GeraNESNetplay::RuntimeLoopSettings runtimeSettings =
-                    GeraNESNetplay::buildRuntimeLoopSettings(
+                const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
+                    ConsoleNetplay::buildRuntimeExecutionSettings(
                         peer.emu,
                         cfg.autoGameplayTuning,
                         cfg.showNetplayDebugLog,
@@ -1660,7 +1661,7 @@ private:
                         cfg.inputDelayFrames,
                         cfg.predictFrames
                     );
-                (void)GeraNESNetplay::runRuntimeOnEmulationThread(
+                (void)GeraNESNetplay::executeRuntimeFrame(
                     peer.runtime,
                     peer.emu,
                     innerEmu,

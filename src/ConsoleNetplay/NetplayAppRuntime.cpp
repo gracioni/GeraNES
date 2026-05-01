@@ -113,23 +113,6 @@ NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
     return m_uiSnapshot;
 }
 
-NetplayAppRuntime::MenuSnapshot NetplayAppRuntime::menuSnapshot() const
-{
-    const UiSnapshot ui = uiSnapshot();
-    MenuSnapshot snapshot;
-    snapshot.hosting = ui.hosting;
-    snapshot.inputManaged = ui.active && ui.connected;
-    snapshot.transportBackend = ui.transportBackend;
-    if(snapshot.inputManaged) {
-        for(const auto& participant : ui.room.participants) {
-            if(participant.id != ui.localParticipantId) continue;
-            snapshot.localAssignments = participantAssignments(participant);
-            break;
-        }
-    }
-    return snapshot;
-}
-
 bool NetplayAppRuntime::runtimeActive() const
 {
     return m_runtimeActive.load(std::memory_order_acquire);

@@ -857,7 +857,8 @@ void GeraNESApp::updateCursor()
 GeraNESApp::GeraNESApp()
     : m_emu(m_audioOutput)
 {
-    GeraNESNetplay::configureRuntimeForGeraNES(m_netplayRuntime, m_emu);
+    GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
+    GeraNESNetplay::installFrontendNetplayLogCallback();
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
         IEmulationHost::InputState latestInputState{};
         {
@@ -865,8 +866,8 @@ GeraNESApp::GeraNESApp()
             latestInputState = m_netplayLatestInputState;
         }
         auto& cfg = AppSettings::instance().data.netplay;
-        const GeraNESNetplay::RuntimeLoopSettings runtimeSettings =
-            GeraNESNetplay::buildRuntimeLoopSettings(
+        const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
+            ConsoleNetplay::buildRuntimeExecutionSettings(
                 m_emu,
                 cfg.autoGameplayTuning,
                 cfg.showNetplayDebugLog,
@@ -875,7 +876,7 @@ GeraNESApp::GeraNESApp()
                 cfg.predictFrames
             );
         const ConsoleNetplay::NetplayAppRuntime::UpdateResult updateResult =
-            GeraNESNetplay::runRuntimeOnEmulationThread(
+            GeraNESNetplay::executeRuntimeFrame(
             m_netplayRuntime,
             m_emu,
             emu,

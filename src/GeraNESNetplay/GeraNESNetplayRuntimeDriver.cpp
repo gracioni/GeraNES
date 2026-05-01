@@ -1,7 +1,5 @@
 #include "GeraNESNetplay/GeraNESNetplayRuntimeDriver.h"
 
-#include <algorithm>
-
 #include "ConsoleNetplay/NetplayLog.h"
 #include "ConsoleNetplay/NetplayRuntimeHostApply.h"
 #include "GeraNESNetplay/GeraNESNetplayConsole.h"
@@ -11,11 +9,15 @@ namespace GeraNESNetplay {
 
 using namespace ConsoleNetplay;
 
-void configureRuntimeForGeraNES(NetplayAppRuntime& runtime, IEmulationHost& host)
+void attachRuntimeWakeToHost(NetplayAppRuntime& runtime, IEmulationHost& host)
 {
     runtime.setRuntimeHostWakeCallback([&host]() {
         host.setSimulationSuspended(false);
     });
+}
+
+void installFrontendNetplayLogCallback()
+{
     setNetplayLogCallback([](const std::string& message, NetplayLogLevel level) {
         Logger::Type type = Logger::Type::INFO;
         switch(level) {
@@ -30,41 +32,11 @@ void configureRuntimeForGeraNES(NetplayAppRuntime& runtime, IEmulationHost& host
     });
 }
 
-RuntimeLoopSettings buildRuntimeLoopSettings(IEmulationHost& host,
-                                             bool autoGameplayTuning,
-                                             bool showDebugLog,
-                                             int gameplayReceiveDelayMs,
-                                             int inputDelayFrames,
-                                             int predictFrames)
-{
-    RuntimeLoopSettings settings;
-    settings.frameSettings.autoGameplayTuning = autoGameplayTuning;
-    settings.frameSettings.showDebugLog = showDebugLog;
-    settings.frameSettings.diagnostics = host.getNetplayDiagnostics();
-    settings.frameSettings.discardQueuedNetplayInputsAfter = [&host](FrameNumber frame) {
-        host.discardQueuedNetplayInputsAfter(frame);
-    };
-
-    settings.inputDelaySettings.debugMode = showDebugLog;
-    settings.inputDelaySettings.autoGameplayTuning = autoGameplayTuning;
-    settings.inputDelaySettings.gameplayReceiveDelayMs =
-        static_cast<uint32_t>(std::max(0, gameplayReceiveDelayMs));
-    settings.inputDelaySettings.manualInputDelayFrames =
-        static_cast<uint32_t>(std::max(0, inputDelayFrames));
-    settings.inputDelaySettings.manualPredictFrames =
-        static_cast<uint32_t>(std::max(0, predictFrames));
-    settings.inputDelaySettings.regionFps = host.getRegionFPS();
-#ifdef NDEBUG
-    settings.inputDelaySettings.gameplayReceiveDelayMs = 0;
-#endif
-    return settings;
-}
-
-NetplayAppRuntime::UpdateResult runRuntimeOnEmulationThread(NetplayAppRuntime& runtime,
-                                                            IEmulationHost& host,
-                                                            GeraNESEmu& emu,
-                                                            const IEmulationHost::InputState& latestInputState,
-                                                            const RuntimeLoopSettings& settings)
+NetplayAppRuntime::UpdateResult executeRuntimeFrame(NetplayAppRuntime& runtime,
+                                                    IEmulationHost& host,
+                                                    GeraNESEmu& emu,
+                                                    const IEmulationHost::InputState& latestInputState,
+                                                    const RuntimeExecutionSettings& settings)
 {
     GeraNESNetplayConsole console(host, emu, latestInputState);
 

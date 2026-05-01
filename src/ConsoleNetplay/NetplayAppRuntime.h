@@ -83,14 +83,6 @@ public:
         std::vector<std::string> eventLog;
     };
 
-    struct MenuSnapshot
-    {
-        bool hosting = false;
-        bool inputManaged = false;
-        NetTransportBackend transportBackend = defaultNetTransportBackend();
-        std::vector<PlayerSlot> localAssignments;
-    };
-
     using RomSelection = NetplayRomSelection;
     using InputTopologyConfigurer = std::function<void(NetplayCoordinator&,
                                                        std::optional<ParticipantId>,
@@ -168,7 +160,6 @@ public:
                            bool cadenceMatched);
     void setRuntimeHostWakeCallback(std::function<void()> callback);
     UiSnapshot uiSnapshot() const;
-    MenuSnapshot menuSnapshot() const;
     bool runtimeActive() const;
     bool runtimeRunning() const;
     void injectDropNextIncomingMessages(MessageType type, uint32_t count);
