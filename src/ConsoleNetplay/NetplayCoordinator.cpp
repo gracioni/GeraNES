@@ -1540,16 +1540,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 oss << " classification=late_committed_input_duplicate";
             }
             pushLog(oss.str());
-            if(committedMismatch &&
-               m_hosting &&
-               m_session.roomState().state == SessionState::Running &&
-               m_session.roomState().activeResyncId == 0u &&
-               m_session.roomState().pendingResyncAckCount == 0u) {
-                queuePendingHostResync(input.frame, ResyncReason::ConfirmedDesync);
-                pushLog(
-                    "Late committed input differed from authoritative committed frame; scheduling recovery resync"
-                );
-            }
             return true;
         }
 
@@ -2509,7 +2499,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
             if(!it->confirmed || it->frame > loadedFrame) continue;
 
             TimelineInputEntry entry = *it;
-            entry.frame = loadedFrame;
             entry.predicted = false;
             entry.confirmed = true;
             if(resetInputSequences) {

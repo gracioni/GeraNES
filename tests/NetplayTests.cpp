@@ -4447,7 +4447,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     client.disconnect();
 }
 
-TEST_CASE("Late mismatching input for committed fallback frame schedules host recovery resync",
+TEST_CASE("Late mismatching input for committed fallback frame is classified without immediate host recovery resync",
           "[netplay][prediction][fallback][late-mismatch]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -4519,10 +4519,8 @@ TEST_CASE("Late mismatching input for committed fallback frame schedules host re
     mismatchingContribution.p2A = true;
 
     REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, lateInput, mismatchingContribution));
-    const auto pending = host.consumePendingHostResyncFrame();
-    REQUIRE(pending.has_value());
-    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(pending->frame == 111u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_mismatch"));
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
 
     host.disconnect();
 }
