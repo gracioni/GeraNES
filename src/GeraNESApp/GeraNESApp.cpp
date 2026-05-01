@@ -858,7 +858,7 @@ GeraNESApp::GeraNESApp()
     : m_emu(m_audioOutput)
 {
     GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
-    GeraNESNetplay::installFrontendNetplayLogCallback();
+    GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
         IEmulationHost::InputState latestInputState{};
         {
@@ -867,7 +867,7 @@ GeraNESApp::GeraNESApp()
         }
         auto& cfg = AppSettings::instance().data.netplay;
         const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
-            ConsoleNetplay::buildRuntimeExecutionSettings(
+            GeraNESNetplay::buildGeraNESRuntimeExecutionSettings(
                 m_emu,
                 cfg.autoGameplayTuning,
                 cfg.showNetplayDebugLog,
@@ -2099,7 +2099,7 @@ void GeraNESApp::mainLoop()
     }
 
     bool netplayPacingOverrideActive = false;
-    netplayPacingOverrideActive = m_netplayRuntime.runtimeActive();
+    netplayPacingOverrideActive = m_netplayRuntime.uiSnapshot().active;
     const uint32_t pacingDtMs = static_cast<uint32_t>(std::min<Uint64>(dt, UINT32_MAX));
     const bool minimized = isMinimized();
     const bool allowPresenterPacing =

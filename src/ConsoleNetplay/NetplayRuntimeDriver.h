@@ -37,9 +37,6 @@ RuntimeExecutionSettings buildRuntimeExecutionSettings(RuntimeHost& host,
     settings.inputDelaySettings.manualPredictFrames =
         static_cast<uint32_t>(std::max(0, predictFrames));
     settings.inputDelaySettings.regionFps = host.getRegionFPS();
-#ifdef NDEBUG
-    settings.inputDelaySettings.gameplayReceiveDelayMs = 0;
-#endif
     return settings;
 }
 

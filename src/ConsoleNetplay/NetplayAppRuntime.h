@@ -160,8 +160,6 @@ public:
                            bool cadenceMatched);
     void setRuntimeHostWakeCallback(std::function<void()> callback);
     UiSnapshot uiSnapshot() const;
-    bool runtimeActive() const;
-    bool runtimeRunning() const;
     void injectDropNextIncomingMessages(MessageType type, uint32_t count);
     void clearIncomingMessageDrops();
     void setReconnectReservationTimeoutForTests(uint32_t seconds);
@@ -171,7 +169,6 @@ public:
     void configureRollbackWindow(size_t snapshotCapacity);
     void notifyWebVisibilityChanged(bool visible);
     NetTransportOptions transportOptions() const;
-    NetTransportBackend transportBackend() const;
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
     void join(const std::string& hostName, uint16_t port, const std::string& displayName);
     void disconnect();

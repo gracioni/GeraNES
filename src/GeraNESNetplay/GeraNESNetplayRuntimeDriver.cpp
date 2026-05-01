@@ -1,5 +1,7 @@
 #include "GeraNESNetplay/GeraNESNetplayRuntimeDriver.h"
 
+#include <mutex>
+
 #include "ConsoleNetplay/NetplayLog.h"
 #include "ConsoleNetplay/NetplayRuntimeHostApply.h"
 #include "GeraNESNetplay/GeraNESNetplayConsole.h"
@@ -9,6 +11,12 @@ namespace GeraNESNetplay {
 
 using namespace ConsoleNetplay;
 
+namespace {
+
+std::once_flag g_netplayLogInstallOnce;
+
+} // namespace
+
 void attachRuntimeWakeToHost(NetplayAppRuntime& runtime, IEmulationHost& host)
 {
     runtime.setRuntimeHostWakeCallback([&host]() {
@@ -16,20 +24,43 @@ void attachRuntimeWakeToHost(NetplayAppRuntime& runtime, IEmulationHost& host)
     });
 }
 
-void installFrontendNetplayLogCallback()
+void installProcessGlobalFrontendNetplayLogCallbackOnce()
 {
-    setNetplayLogCallback([](const std::string& message, NetplayLogLevel level) {
-        Logger::Type type = Logger::Type::INFO;
-        switch(level) {
-            case NetplayLogLevel::Debug: type = Logger::Type::DEBUG; break;
-            case NetplayLogLevel::Warning: type = Logger::Type::WARNING; break;
-            case NetplayLogLevel::Error: type = Logger::Type::ERROR; break;
-            case NetplayLogLevel::User: type = Logger::Type::USER; break;
-            case NetplayLogLevel::Info:
-            default: type = Logger::Type::INFO; break;
-        }
-        Logger::instance().log(message, type);
+    std::call_once(g_netplayLogInstallOnce, []() {
+        setNetplayLogCallback([](const std::string& message, NetplayLogLevel level) {
+            Logger::Type type = Logger::Type::INFO;
+            switch(level) {
+                case NetplayLogLevel::Debug: type = Logger::Type::DEBUG; break;
+                case NetplayLogLevel::Warning: type = Logger::Type::WARNING; break;
+                case NetplayLogLevel::Error: type = Logger::Type::ERROR; break;
+                case NetplayLogLevel::User: type = Logger::Type::USER; break;
+                case NetplayLogLevel::Info:
+                default: type = Logger::Type::INFO; break;
+            }
+            Logger::instance().log(message, type);
+        });
     });
+}
+
+RuntimeExecutionSettings buildGeraNESRuntimeExecutionSettings(IEmulationHost& host,
+                                                              bool autoGameplayTuning,
+                                                              bool showDebugLog,
+                                                              int gameplayReceiveDelayMs,
+                                                              int inputDelayFrames,
+                                                              int predictFrames)
+{
+    int policyGameplayReceiveDelayMs = std::max(0, gameplayReceiveDelayMs);
+#ifdef NDEBUG
+    policyGameplayReceiveDelayMs = 0;
+#endif
+    return buildRuntimeExecutionSettings(
+        host,
+        autoGameplayTuning,
+        showDebugLog,
+        policyGameplayReceiveDelayMs,
+        inputDelayFrames,
+        predictFrames
+    );
 }
 
 NetplayAppRuntime::UpdateResult executeRuntimeFrame(NetplayAppRuntime& runtime,

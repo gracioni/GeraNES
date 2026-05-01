@@ -113,16 +113,6 @@ NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
     return m_uiSnapshot;
 }
 
-bool NetplayAppRuntime::runtimeActive() const
-{
-    return m_runtimeActive.load(std::memory_order_acquire);
-}
-
-bool NetplayAppRuntime::runtimeRunning() const
-{
-    return m_runtimeRunning.load(std::memory_order_acquire);
-}
-
 void NetplayAppRuntime::injectDropNextIncomingMessages(MessageType type, uint32_t count)
 {
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
@@ -197,12 +187,6 @@ void NetplayAppRuntime::notifyWebVisibilityChanged(bool visible)
 NetTransportOptions NetplayAppRuntime::transportOptions() const
 {
     return m_coordinator.transportOptions();
-}
-
-NetTransportBackend NetplayAppRuntime::transportBackend() const
-{
-    std::scoped_lock stateLock(m_stateMutex);
-    return m_uiSnapshot.transportBackend;
 }
 
 void NetplayAppRuntime::host(uint16_t port, size_t maxPeers, const std::string& displayName)

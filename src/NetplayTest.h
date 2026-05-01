@@ -250,11 +250,11 @@ private:
         {
             emu.setAllowPresenterTimeoutAdvance(false);
             GeraNESNetplay::attachRuntimeWakeToHost(runtime, emu);
-            GeraNESNetplay::installFrontendNetplayLogCallback();
+            GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
             emu.setPreAdvanceHook([this](GeraNESEmu& innerEmu) {
                 const auto& cfg = AppSettings::instance().data.netplay;
                 const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
-                    ConsoleNetplay::buildRuntimeExecutionSettings(
+                    GeraNESNetplay::buildGeraNESRuntimeExecutionSettings(
                         emu,
                         cfg.autoGameplayTuning,
                         cfg.showNetplayDebugLog,
@@ -1390,7 +1390,7 @@ private:
             {"lastFrameReadyFrame", peer.emu.lastFrameReadyFrame()},
             {"lastFrameReadyNetplayCrc32", peer.emu.lastFrameReadyNetplayCrc32()},
             {"runtimeActive", snapshot.active},
-            {"runtimeRunning", peer.runtime.runtimeRunning()},
+            {"runtimeRunning", snapshot.room.state == ConsoleNetplay::SessionState::Running},
             {"connected", snapshot.connected},
             {"reconnecting", snapshot.reconnecting},
             {"lastError", snapshot.lastError},
@@ -1654,7 +1654,7 @@ private:
             peer.emu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
                 const auto& cfg = AppSettings::instance().data.netplay;
                 const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
-                    ConsoleNetplay::buildRuntimeExecutionSettings(
+                    GeraNESNetplay::buildGeraNESRuntimeExecutionSettings(
                         peer.emu,
                         cfg.autoGameplayTuning,
                         cfg.showNetplayDebugLog,

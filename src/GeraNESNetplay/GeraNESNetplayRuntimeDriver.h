@@ -8,7 +8,13 @@
 namespace GeraNESNetplay {
 
 void attachRuntimeWakeToHost(ConsoleNetplay::NetplayAppRuntime& runtime, IEmulationHost& host);
-void installFrontendNetplayLogCallback();
+void installProcessGlobalFrontendNetplayLogCallbackOnce();
+ConsoleNetplay::RuntimeExecutionSettings buildGeraNESRuntimeExecutionSettings(IEmulationHost& host,
+                                                                              bool autoGameplayTuning,
+                                                                              bool showDebugLog,
+                                                                              int gameplayReceiveDelayMs,
+                                                                              int inputDelayFrames,
+                                                                              int predictFrames);
 ConsoleNetplay::NetplayAppRuntime::UpdateResult executeRuntimeFrame(
     ConsoleNetplay::NetplayAppRuntime& runtime,
     IEmulationHost& host,
