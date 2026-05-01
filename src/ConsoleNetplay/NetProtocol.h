@@ -10,7 +10,7 @@
 
 namespace ConsoleNetplay {
 
-constexpr uint8_t kProtocolVersion = 12;
+constexpr uint8_t kProtocolVersion = 13;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;

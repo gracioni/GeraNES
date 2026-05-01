@@ -111,6 +111,372 @@ std::string describeHostTarget(ConsoleNetplay::NetTransportBackend backend,
     return oss.str();
 }
 
+constexpr size_t serializedPacketHeaderSize()
+{
+    return sizeof(uint8_t) + sizeof(ConsoleNetplay::MessageType) + sizeof(uint32_t);
+}
+
+void writePacketHeader(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::PacketHeader& header)
+{
+    writer.writePod(header.protocolVersion);
+    writer.writePod(header.type);
+    writer.writePod(header.sessionId);
+}
+
+bool readPacketHeader(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::PacketHeader& header)
+{
+    return reader.readPod(header.protocolVersion) &&
+           reader.readPod(header.type) &&
+           reader.readPod(header.sessionId);
+}
+
+void writeRomValidationData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::RomValidationData& data)
+{
+    writer.writePod(data.romCrc32);
+    writer.writePod(data.mapperId);
+    writer.writePod(data.subMapperId);
+    writer.writePod(data.prgRomSize);
+    writer.writePod(data.chrRomSize);
+    writer.writePod(data.chrRamSize);
+    writer.writePod(data.fileSize);
+    writer.writeBytes(std::span<const uint8_t>(data.contentHash.data(), data.contentHash.size()));
+}
+
+bool readRomValidationData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::RomValidationData& data)
+{
+    std::vector<uint8_t> contentHash;
+    if(!reader.readPod(data.romCrc32) ||
+       !reader.readPod(data.mapperId) ||
+       !reader.readPod(data.subMapperId) ||
+       !reader.readPod(data.prgRomSize) ||
+       !reader.readPod(data.chrRomSize) ||
+       !reader.readPod(data.chrRamSize) ||
+       !reader.readPod(data.fileSize) ||
+       !reader.readBytes(contentHash, data.contentHash.size())) {
+        return false;
+    }
+    std::copy(contentHash.begin(), contentHash.end(), data.contentHash.begin());
+    return true;
+}
+
+void writeJoinRoomData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::JoinRoomData& data)
+{
+    writer.writePod(data.reconnectToken);
+    writer.writePod(data.romLoaded);
+    writeRomValidationData(writer, data.romValidation);
+}
+
+bool readJoinRoomData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::JoinRoomData& data)
+{
+    return reader.readPod(data.reconnectToken) &&
+           reader.readPod(data.romLoaded) &&
+           readRomValidationData(reader, data.romValidation);
+}
+
+void writeJoinRejectedData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::JoinRejectedData& data)
+{
+    writer.writePod(data.reason);
+    writeRomValidationData(writer, data.romValidation);
+}
+
+bool readJoinRejectedData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::JoinRejectedData& data)
+{
+    return reader.readPod(data.reason) &&
+           readRomValidationData(reader, data.romValidation);
+}
+
+void writeRomValidationResultData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::RomValidationResultData& data)
+{
+    writer.writePod(data.participantId);
+    writer.writePod(data.romLoaded);
+    writer.writePod(data.romCompatible);
+    writeRomValidationData(writer, data.romValidation);
+}
+
+bool readRomValidationResultData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::RomValidationResultData& data)
+{
+    return reader.readPod(data.participantId) &&
+           reader.readPod(data.romLoaded) &&
+           reader.readPod(data.romCompatible) &&
+           readRomValidationData(reader, data.romValidation);
+}
+
+void writeInputFrameData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::InputFrameData& data)
+{
+    writer.writePod(data.timelineEpoch);
+    writer.writePod(data.frame);
+    writer.writePod(data.authoritativeFrameStartClockMicros);
+    writer.writePod(data.participantId);
+    writer.writePod(data.playerSlot);
+    writer.writePod(data.buttonMaskLo);
+    writer.writePod(data.buttonMaskHi);
+    writer.writePod(data.sequence);
+    writer.writePod(data.payloadSize);
+}
+
+bool readInputFrameData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::InputFrameData& data)
+{
+    return reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.frame) &&
+           reader.readPod(data.authoritativeFrameStartClockMicros) &&
+           reader.readPod(data.participantId) &&
+           reader.readPod(data.playerSlot) &&
+           reader.readPod(data.buttonMaskLo) &&
+           reader.readPod(data.buttonMaskHi) &&
+           reader.readPod(data.sequence) &&
+           reader.readPod(data.payloadSize);
+}
+
+void writeConfirmedInputFramesData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ConfirmedInputFramesData& data)
+{
+    writer.writePod(data.timelineEpoch);
+    writer.writePod(data.startFrame);
+    writer.writePod(data.frameCount);
+}
+
+bool readConfirmedInputFramesData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ConfirmedInputFramesData& data)
+{
+    return reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.startFrame) &&
+           reader.readPod(data.frameCount);
+}
+
+void writeConfirmedInputFrameSlotMask(ConsoleNetplay::PacketWriter& writer,
+                                      const ConsoleNetplay::ConfirmedInputFrameEntry::SlotMask& slotMask)
+{
+    writer.writePod(slotMask.slot);
+    writer.writePod(slotMask.buttonMaskLo);
+    writer.writePod(slotMask.buttonMaskHi);
+}
+
+bool readConfirmedInputFrameSlotMask(ConsoleNetplay::PacketReader& reader,
+                                     ConsoleNetplay::ConfirmedInputFrameEntry::SlotMask& slotMask)
+{
+    return reader.readPod(slotMask.slot) &&
+           reader.readPod(slotMask.buttonMaskLo) &&
+           reader.readPod(slotMask.buttonMaskHi);
+}
+
+void writeInputAckData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::InputAckData& data)
+{
+    writer.writePod(data.timelineEpoch);
+    writer.writePod(data.participantId);
+    writer.writePod(data.playerSlot);
+    writer.writePod(data.contiguousFrame);
+    writer.writePod(data.sequence);
+}
+
+bool readInputAckData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::InputAckData& data)
+{
+    return reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.participantId) &&
+           reader.readPod(data.playerSlot) &&
+           reader.readPod(data.contiguousFrame) &&
+           reader.readPod(data.sequence);
+}
+
+void writeParticipantLeftData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ParticipantLeftData& data)
+{
+    writer.writePod(data.participantId);
+    writer.writePod(data.disconnectReason);
+}
+
+bool readParticipantLeftData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ParticipantLeftData& data)
+{
+    return reader.readPod(data.participantId) &&
+           reader.readPod(data.disconnectReason);
+}
+
+void writeLeaveRoomData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::LeaveRoomData& data)
+{
+    writer.writePod(data.participantId);
+}
+
+bool readLeaveRoomData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::LeaveRoomData& data)
+{
+    return reader.readPod(data.participantId);
+}
+
+void writePeerHealthData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::PeerHealthData& data)
+{
+    writer.writePod(data.participantId);
+    writer.writePod(data.currentFrame);
+    writer.writePod(data.lastConfirmedFrame);
+    writer.writePod(data.pingMs);
+    writer.writePod(data.jitterMs);
+    writer.writePod(data.sharedClockMicros);
+    writer.writePod(data.clockSyncRttMicros);
+    writer.writePod(data.sharedClockSynchronized);
+}
+
+bool readPeerHealthData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::PeerHealthData& data)
+{
+    return reader.readPod(data.participantId) &&
+           reader.readPod(data.currentFrame) &&
+           reader.readPod(data.lastConfirmedFrame) &&
+           reader.readPod(data.pingMs) &&
+           reader.readPod(data.jitterMs) &&
+           reader.readPod(data.sharedClockMicros) &&
+           reader.readPod(data.clockSyncRttMicros) &&
+           reader.readPod(data.sharedClockSynchronized);
+}
+
+void writeClockSyncRequestData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ClockSyncRequestData& data)
+{
+    writer.writePod(data.sequence);
+    writer.writePod(data.clientSendMicros);
+}
+
+bool readClockSyncRequestData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ClockSyncRequestData& data)
+{
+    return reader.readPod(data.sequence) &&
+           reader.readPod(data.clientSendMicros);
+}
+
+void writeClockSyncResponseData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ClockSyncResponseData& data)
+{
+    writer.writePod(data.sequence);
+    writer.writePod(data.clientSendMicros);
+    writer.writePod(data.hostReceiveMicros);
+    writer.writePod(data.hostSendMicros);
+}
+
+bool readClockSyncResponseData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ClockSyncResponseData& data)
+{
+    return reader.readPod(data.sequence) &&
+           reader.readPod(data.clientSendMicros) &&
+           reader.readPod(data.hostReceiveMicros) &&
+           reader.readPod(data.hostSendMicros);
+}
+
+void writeCrcReportData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::CrcReportData& data)
+{
+    writer.writePod(data.timelineEpoch);
+    writer.writePod(data.frame);
+    writer.writePod(data.crc32);
+    writer.writePod(data.severity);
+}
+
+bool readCrcReportData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::CrcReportData& data)
+{
+    return reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.frame) &&
+           reader.readPod(data.crc32) &&
+           reader.readPod(data.severity);
+}
+
+void writeResyncBeginData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ResyncBeginData& data)
+{
+    writer.writePod(data.resyncId);
+    writer.writePod(data.timelineEpoch);
+    writer.writePod(data.targetFrame);
+    writer.writePod(data.confirmedFrame);
+    writer.writePod(data.frameReadyFrame);
+    writer.writePod(data.payloadSize);
+    writer.writePod(data.payloadCrc32);
+    writer.writePod(data.stateCrc32);
+    writer.writePod(data.frameReadyCrc32);
+    writer.writePod(data.inputSequenceBase);
+    writer.writePod(data.reason);
+}
+
+bool readResyncBeginData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ResyncBeginData& data)
+{
+    return reader.readPod(data.resyncId) &&
+           reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.targetFrame) &&
+           reader.readPod(data.confirmedFrame) &&
+           reader.readPod(data.frameReadyFrame) &&
+           reader.readPod(data.payloadSize) &&
+           reader.readPod(data.payloadCrc32) &&
+           reader.readPod(data.stateCrc32) &&
+           reader.readPod(data.frameReadyCrc32) &&
+           reader.readPod(data.inputSequenceBase) &&
+           reader.readPod(data.reason);
+}
+
+void writeResyncChunkData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ResyncChunkData& data)
+{
+    writer.writePod(data.resyncId);
+    writer.writePod(data.offset);
+    writer.writePod(data.size);
+}
+
+bool readResyncChunkData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ResyncChunkData& data)
+{
+    return reader.readPod(data.resyncId) &&
+           reader.readPod(data.offset) &&
+           reader.readPod(data.size);
+}
+
+void writeResyncCompleteData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ResyncCompleteData& data)
+{
+    writer.writePod(data.resyncId);
+}
+
+bool readResyncCompleteData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ResyncCompleteData& data)
+{
+    return reader.readPod(data.resyncId);
+}
+
+void writeResyncAckData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ResyncAckData& data)
+{
+    writer.writePod(data.resyncId);
+    writer.writePod(data.participantId);
+    writer.writePod(data.loadedFrame);
+    writer.writePod(data.crc32);
+    writer.writePod(data.success);
+}
+
+bool readResyncAckData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ResyncAckData& data)
+{
+    return reader.readPod(data.resyncId) &&
+           reader.readPod(data.participantId) &&
+           reader.readPod(data.loadedFrame) &&
+           reader.readPod(data.crc32) &&
+           reader.readPod(data.success);
+}
+
+void writeResyncAbortData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ResyncAbortData& data)
+{
+    writer.writePod(data.resyncId);
+    writer.writePod(data.participantId);
+    writer.writePod(data.reason);
+}
+
+bool readResyncAbortData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ResyncAbortData& data)
+{
+    return reader.readPod(data.resyncId) &&
+           reader.readPod(data.participantId) &&
+           reader.readPod(data.reason);
+}
+
+void writeResyncRequestData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ResyncRequestData& data)
+{
+    writer.writePod(data.participantId);
+    writer.writePod(data.reason);
+    writer.writePod(data.localFrame);
+    writer.writePod(data.estimatedHostFrame);
+    writer.writePod(data.confirmedThroughFrame);
+    writer.writePod(data.lagFrames);
+    writer.writePod(data.catchupBudgetFrames);
+    writer.writePod(data.source);
+    writer.writePod(data.flags);
+}
+
+bool readResyncRequestData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ResyncRequestData& data)
+{
+    return reader.readPod(data.participantId) &&
+           reader.readPod(data.reason) &&
+           reader.readPod(data.localFrame) &&
+           reader.readPod(data.estimatedHostFrame) &&
+           reader.readPod(data.confirmedThroughFrame) &&
+           reader.readPod(data.lagFrames) &&
+           reader.readPod(data.catchupBudgetFrames) &&
+           reader.readPod(data.source) &&
+           reader.readPod(data.flags);
+}
+
 ConsoleNetplay::InputTopologyData makeTopologyData(const ConsoleNetplay::RoomState& room)
 {
     ConsoleNetplay::InputTopologyData data;
@@ -246,7 +612,7 @@ void writeConfirmedInputFrameEntry(ConsoleNetplay::PacketWriter& writer, const C
     const uint8_t slotMaskCount = static_cast<uint8_t>(std::min<size_t>(entry.slotMasks.size(), std::numeric_limits<uint8_t>::max()));
     writer.writePod(slotMaskCount);
     for(uint8_t index = 0; index < slotMaskCount; ++index) {
-        writer.writePod(entry.slotMasks[index]);
+        writeConfirmedInputFrameSlotMask(writer, entry.slotMasks[index]);
     }
     writer.writePod(entry.payloadSize);
 }
@@ -260,7 +626,7 @@ bool readConfirmedInputFrameEntry(ConsoleNetplay::PacketReader& reader, ConsoleN
     entry.slotMasks.reserve(slotMaskCount);
     for(uint8_t index = 0; index < slotMaskCount; ++index) {
         ConsoleNetplay::ConfirmedInputFrameEntry::SlotMask slotMask;
-        if(!reader.readPod(slotMask)) return false;
+        if(!readConfirmedInputFrameSlotMask(reader, slotMask)) return false;
         entry.slotMasks.push_back(slotMask);
     }
     if(!reader.readPod(entry.payloadSize)) return false;
@@ -773,7 +1139,7 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         PacketHeader header;
         header.type = MessageType::PauseSession;
         header.sessionId = m_session.roomState().sessionId;
-        writer.writePod(header);
+        writePacketHeader(writer, header);
         StartSessionData startData;
         startData.state = SessionState::Paused;
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
@@ -788,7 +1154,7 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         PacketHeader header;
         header.type = MessageType::ResumeSession;
         header.sessionId = m_session.roomState().sessionId;
-        writer.writePod(header);
+        writePacketHeader(writer, header);
         StartSessionData startData;
         startData.state = SessionState::Running;
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
@@ -810,13 +1176,13 @@ bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer
         PacketHeader header;
         header.type = MessageType::ConfirmedInputFrames;
         header.sessionId = m_session.roomState().sessionId;
-        writer.writePod(header);
+        writePacketHeader(writer, header);
 
         ConfirmedInputFramesData data;
         data.timelineEpoch = m_session.roomState().timelineEpoch;
         data.startFrame = frames.front().frame;
         data.frameCount = static_cast<uint16_t>(frames.size());
-        writer.writePod(data);
+        writeConfirmedInputFramesData(writer, data);
 
         for(const auto& frame : frames) {
             ConfirmedInputFrameEntry entry;
@@ -943,7 +1309,7 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     PacketHeader header;
     header.type = MessageType::ResumeSession;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     StartSessionData startData;
     startData.state = SessionState::Running;
     startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
@@ -1160,12 +1526,12 @@ std::vector<uint8_t> NetplayCoordinator::buildJoinRoomPacket() const
     PacketHeader header;
     header.type = MessageType::JoinRoom;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     JoinRoomData joinData;
     joinData.reconnectToken = m_localReconnectToken;
     joinData.romLoaded = m_pendingJoinRomLoaded ? 1 : 0;
     joinData.romValidation = m_pendingJoinRomValidation;
-    writer.writePod(joinData);
+    writeJoinRoomData(writer, joinData);
     writer.writeString(m_localDisplayName);
     writer.writeString(m_localEmulatorVersion);
 
@@ -1179,7 +1545,7 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
     PacketHeader header;
     header.type = MessageType::ParticipantJoined;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     writer.writePod(participant.id);
     writer.writePod(reconnectToken);
     writer.writePod(static_cast<uint8_t>(participant.connected ? 1 : 0));
@@ -1208,12 +1574,12 @@ std::vector<uint8_t> NetplayCoordinator::buildJoinRejectedPacket(JoinRejectReaso
     PacketHeader header;
     header.type = MessageType::JoinRejected;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
 
     JoinRejectedData data;
     data.reason = reason;
     data.romValidation = romValidation;
-    writer.writePod(data);
+    writeJoinRejectedData(writer, data);
     writer.writeString(gameName);
     writer.writeString(expectedEmulatorVersion);
 
@@ -1227,9 +1593,9 @@ std::vector<uint8_t> NetplayCoordinator::buildSelectRomPacket(const std::string&
     PacketHeader header;
     header.type = MessageType::SelectRom;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     writer.writeString(gameName);
-    writer.writePod(romValidation);
+    writeRomValidationData(writer, romValidation);
     writeInputTopologyData(writer, makeTopologyData(m_session.roomState()));
 
     return writer.data();
@@ -1242,8 +1608,8 @@ std::vector<uint8_t> NetplayCoordinator::buildRomValidationResultPacket(const Ro
     PacketHeader header;
     header.type = MessageType::RomValidationResult;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(result);
+    writePacketHeader(writer, header);
+    writeRomValidationResultData(writer, result);
 
     return writer.data();
 }
@@ -1256,12 +1622,12 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantLeftPacket(ParticipantI
     PacketHeader header;
     header.type = MessageType::ParticipantLeft;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
 
     ParticipantLeftData data;
     data.participantId = participantId;
     data.disconnectReason = disconnectReason;
-    writer.writePod(data);
+    writeParticipantLeftData(writer, data);
 
     return writer.data();
 }
@@ -1273,11 +1639,11 @@ std::vector<uint8_t> NetplayCoordinator::buildLeaveRoomPacket(ParticipantId part
     PacketHeader header;
     header.type = MessageType::LeaveRoom;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
 
     LeaveRoomData data;
     data.participantId = participantId;
-    writer.writePod(data);
+    writeLeaveRoomData(writer, data);
 
     return writer.data();
 }
@@ -1289,8 +1655,8 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncBeginPacket(const ResyncBegi
     PacketHeader header;
     header.type = MessageType::ResyncBegin;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeResyncBeginData(writer, data);
 
     return writer.data();
 }
@@ -1302,8 +1668,8 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncChunkPacket(const ResyncChun
     PacketHeader header;
     header.type = MessageType::ResyncChunk;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeResyncChunkData(writer, data);
     writer.writeBytes(payloadChunk);
 
     return writer.data();
@@ -1316,8 +1682,8 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncCompletePacket(const ResyncC
     PacketHeader header;
     header.type = MessageType::ResyncComplete;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeResyncCompleteData(writer, data);
 
     return writer.data();
 }
@@ -1329,8 +1695,8 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncAckPacket(const ResyncAckDat
     PacketHeader header;
     header.type = MessageType::ResyncAck;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeResyncAckData(writer, data);
 
     return writer.data();
 }
@@ -1342,8 +1708,8 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncAbortPacket(const ResyncAbor
     PacketHeader header;
     header.type = MessageType::ResyncAbort;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeResyncAbortData(writer, data);
 
     return writer.data();
 }
@@ -1355,8 +1721,8 @@ std::vector<uint8_t> NetplayCoordinator::buildResyncRequestPacket(const ResyncRe
     PacketHeader header;
     header.type = MessageType::ResyncRequest;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeResyncRequestData(writer, data);
 
     return writer.data();
 }
@@ -1400,8 +1766,8 @@ std::vector<uint8_t> NetplayCoordinator::buildClockSyncRequestPacket(const Clock
     PacketHeader header;
     header.type = MessageType::ClockSyncRequest;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeClockSyncRequestData(writer, data);
 
     return writer.data();
 }
@@ -1413,8 +1779,8 @@ std::vector<uint8_t> NetplayCoordinator::buildClockSyncResponsePacket(const Cloc
     PacketHeader header;
     header.type = MessageType::ClockSyncResponse;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeClockSyncResponseData(writer, data);
 
     return writer.data();
 }
@@ -1426,8 +1792,8 @@ std::vector<uint8_t> NetplayCoordinator::buildPeerHealthPacket(const PeerHealthD
     PacketHeader header;
     header.type = MessageType::PeerHealth;
     header.sessionId = sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writePeerHealthData(writer, data);
 
     return writer.data();
 }
@@ -1441,8 +1807,8 @@ static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input,
     PacketHeader header;
     header.type = MessageType::InputFrame;
     header.sessionId = 0;
-    writer.writePod(header);
-    writer.writePod(input);
+    writePacketHeader(writer, header);
+    writeInputFrameData(writer, input);
     writer.writeBytes(serializedInputFrame);
 
     return writer.data();
@@ -1464,8 +1830,8 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
     PacketHeader header;
     header.type = MessageType::ConfirmedInputFrames;
     header.sessionId = sessionId;
-    writer.writePod(header);
-    writer.writePod(data);
+    writePacketHeader(writer, header);
+    writeConfirmedInputFramesData(writer, data);
     for(const auto& frame : frames) {
         const std::vector<uint8_t> payload = serializeNetplayInputFrame(frame.netplayFrame);
 
@@ -1493,8 +1859,8 @@ static std::vector<uint8_t> buildInputAckPacket(const InputAckData& ack)
     PacketHeader header;
     header.type = MessageType::InputAck;
     header.sessionId = 0;
-    writer.writePod(header);
-    writer.writePod(ack);
+    writePacketHeader(writer, header);
+    writeInputAckData(writer, ack);
 
     return writer.data();
 }
@@ -1507,7 +1873,7 @@ static std::vector<uint8_t> buildFrameStatusPacket(const FrameStatusData& status
     PacketHeader header;
     header.type = MessageType::FrameStatus;
     header.sessionId = sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     writeFrameStatusData(writer, status);
 
     return writer.data();
@@ -1520,8 +1886,8 @@ static std::vector<uint8_t> buildCrcReportPacket(const CrcReportData& report, ui
     PacketHeader header;
     header.type = MessageType::CrcReport;
     header.sessionId = sessionId;
-    writer.writePod(header);
-    writer.writePod(report);
+    writePacketHeader(writer, header);
+    writeCrcReportData(writer, report);
 
     return writer.data();
 }
@@ -1534,7 +1900,7 @@ static std::vector<uint8_t> buildAssignControllerPacket(const AssignControllerDa
     PacketHeader header;
     header.type = MessageType::AssignController;
     header.sessionId = sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     writeAssignControllerData(writer, data);
 
     return writer.data();
@@ -1548,7 +1914,7 @@ static std::vector<uint8_t> buildStartSessionPacket(const StartSessionData& data
     PacketHeader header;
     header.type = MessageType::StartSession;
     header.sessionId = sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     writeStartSessionData(writer, data);
 
     return writer.data();
@@ -1561,7 +1927,7 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
     PacketHeader header;
     header.type = type;
     header.sessionId = sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
 
     StartSessionData data;
     data.state = state;
@@ -1576,7 +1942,7 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
 bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     InputFrameData input;
-    if(!reader.readPod(input)) return false;
+    if(!readInputFrameData(reader, input)) return false;
     std::vector<uint8_t> payload;
     if(!reader.readBytes(payload, input.payloadSize)) return false;
     NetplayInputFrame netplayFrame;
@@ -1830,7 +2196,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
 {
     ConfirmedInputFramesData data;
-    if(!reader.readPod(data)) return false;
+    if(!readConfirmedInputFramesData(reader, data)) return false;
     if(data.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(data.timelineEpoch < m_session.roomState().timelineEpoch) {
             return true;
@@ -1914,7 +2280,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
 bool NetplayCoordinator::handleInputAck(PacketReader& reader)
 {
     InputAckData ack;
-    if(!reader.readPod(ack)) return false;
+    if(!readInputAckData(reader, ack)) return false;
     if(ack.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(ack.timelineEpoch < m_session.roomState().timelineEpoch) {
             return true;
@@ -2555,7 +2921,7 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
 bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 {
     CrcReportData report;
-    if(!reader.readPod(report)) return false;
+    if(!readCrcReportData(reader, report)) return false;
     if(!kDesyncMonitorEnabled) return true;
     if(report.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(report.timelineEpoch < m_session.roomState().timelineEpoch) {
@@ -3077,7 +3443,7 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
     std::string gameName;
     RomValidationData romValidation;
     if(!reader.readString(gameName)) return false;
-    if(!reader.readPod(romValidation)) return false;
+    if(!readRomValidationData(reader, romValidation)) return false;
     InputTopologyData topology;
     if(!readInputTopologyData(reader, topology)) return false;
 
@@ -3106,7 +3472,7 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
 bool NetplayCoordinator::handleRomValidationResult(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     RomValidationResultData result;
-    if(!reader.readPod(result)) return false;
+    if(!readRomValidationResultData(reader, result)) return false;
 
     if(ParticipantInfo* participant = m_session.findParticipant(result.participantId)) {
         participant->romLoaded = result.romLoaded != 0;
@@ -3140,7 +3506,7 @@ bool NetplayCoordinator::handleRomValidationResult(NetTransport::PeerHandle peer
 bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
 {
     ParticipantLeftData data;
-    if(!reader.readPod(data)) return false;
+    if(!readParticipantLeftData(reader, data)) return false;
 
     if(const ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         rememberParticipantDisplayName(*participant);
@@ -3192,7 +3558,7 @@ bool NetplayCoordinator::handleParticipantLeft(PacketReader& reader)
 bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     LeaveRoomData data;
-    if(!reader.readPod(data)) return false;
+    if(!readLeaveRoomData(reader, data)) return false;
     if(!m_hosting) return true;
 
     const ParticipantId participantId = participantIdFromPeer(peer);
@@ -3221,7 +3587,7 @@ bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketRe
 bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
 {
     ResyncBeginData data;
-    if(!reader.readPod(data)) return false;
+    if(!readResyncBeginData(reader, data)) return false;
     if(data.payloadSize > kMaxIncomingResyncPayloadBytes) {
         pushLog("Rejected resync begin: payload exceeds safety limit");
         return false;
@@ -3290,7 +3656,7 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
 bool NetplayCoordinator::handleResyncChunk(PacketReader& reader)
 {
     ResyncChunkData data;
-    if(!reader.readPod(data)) return false;
+    if(!readResyncChunkData(reader, data)) return false;
     if(!m_incomingResync.has_value() || m_incomingResync->resyncId != data.resyncId) return false;
     const size_t payloadSize = m_incomingResync->payload.size();
     const size_t offset = static_cast<size_t>(data.offset);
@@ -3311,7 +3677,7 @@ bool NetplayCoordinator::handleResyncChunk(PacketReader& reader)
 bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
 {
     ResyncCompleteData data;
-    if(!reader.readPod(data)) return false;
+    if(!readResyncCompleteData(reader, data)) return false;
     if(!m_incomingResync.has_value() || m_incomingResync->resyncId != data.resyncId) return false;
 
     if(std::find(m_incomingResync->receivedMask.begin(), m_incomingResync->receivedMask.end(), uint8_t{0}) != m_incomingResync->receivedMask.end()) {
@@ -3368,7 +3734,7 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
 bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
 {
     ResyncAckData data;
-    if(!reader.readPod(data)) return false;
+    if(!readResyncAckData(reader, data)) return false;
     const bool targetedResync = activeResyncIsTargeted();
     const uint32_t activeResyncId =
         targetedResync ? m_activeTargetedResyncId : m_session.roomState().activeResyncId;
@@ -3507,7 +3873,7 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
 bool NetplayCoordinator::handleResyncAbort(PacketReader& reader)
 {
     ResyncAbortData data;
-    if(!reader.readPod(data)) return false;
+    if(!readResyncAbortData(reader, data)) return false;
     if(activeResyncIsTargeted()) {
         if(!m_hosting || data.resyncId != m_activeTargetedResyncId) return true;
         cancelTargetedResync(
@@ -3549,7 +3915,7 @@ bool NetplayCoordinator::handleResyncAbort(PacketReader& reader)
 bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     ResyncRequestData data;
-    if(!reader.readPod(data)) return false;
+    if(!readResyncRequestData(reader, data)) return false;
     if(!m_hosting) return true;
 
     ParticipantInfo* participant = m_session.findParticipant(data.participantId);
@@ -3616,7 +3982,7 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
 bool NetplayCoordinator::handleClockSyncRequest(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     ClockSyncRequestData data;
-    if(!reader.readPod(data)) return false;
+    if(!readClockSyncRequestData(reader, data)) return false;
     if(!m_hosting) return true;
 
     const int64_t receiveMicros = monotonicNowMicros();
@@ -3633,7 +3999,7 @@ bool NetplayCoordinator::handleClockSyncRequest(NetTransport::PeerHandle peer, P
 bool NetplayCoordinator::handleClockSyncResponse(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     ClockSyncResponseData data;
-    if(!reader.readPod(data)) return false;
+    if(!readClockSyncResponseData(reader, data)) return false;
     if(m_hosting || m_serverPeer == NetTransport::kInvalidPeerHandle || peer != m_serverPeer) return true;
 
     auto it = m_pendingClockSyncRequests.find(data.sequence);
@@ -3682,7 +4048,7 @@ bool NetplayCoordinator::handleClockSyncResponse(NetTransport::PeerHandle peer, 
 bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     PeerHealthData data;
-    if(!reader.readPod(data)) return false;
+    if(!readPeerHealthData(reader, data)) return false;
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         m_lastPeerHealthAt[participant->id] = std::chrono::steady_clock::now();
@@ -4197,7 +4563,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     if(!m_hosting) return false;
 
     JoinRoomData joinData;
-    if(!reader.readPod(joinData)) return false;
+    if(!readJoinRoomData(reader, joinData)) return false;
 
     std::string displayName;
     if(!reader.readString(displayName)) return false;
@@ -4487,7 +4853,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
 bool NetplayCoordinator::handleJoinRejected(PacketReader& reader)
 {
     JoinRejectedData data;
-    if(!reader.readPod(data)) return false;
+    if(!readJoinRejectedData(reader, data)) return false;
 
     std::string gameName;
     if(!reader.readString(gameName)) return false;
@@ -4528,7 +4894,7 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
 {
     PacketReader reader(payload.data(), payload.size());
     PacketHeader header;
-    if(!reader.readPod(header)) return false;
+    if(!readPacketHeader(reader, header)) return false;
 
     if(header.protocolVersion != kProtocolVersion) {
         m_lastError = "Protocol version mismatch";
@@ -4935,7 +5301,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                             << " bytes " << event.payload.size();
                         PacketReader diagnosticReader(event.payload.data(), event.payload.size());
                         PacketHeader diagnosticHeader;
-                        if(diagnosticReader.readPod(diagnosticHeader)) {
+                        if(readPacketHeader(diagnosticReader, diagnosticHeader)) {
                             oss << " type " << messageTypeLabel(diagnosticHeader.type)
                                 << " sessionId " << diagnosticHeader.sessionId
                                 << " localSessionId " << m_session.roomState().sessionId
@@ -4943,7 +5309,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 << "/" << static_cast<unsigned>(kProtocolVersion);
                             if(diagnosticHeader.type == MessageType::InputFrame) {
                                 InputFrameData input{};
-                                if(diagnosticReader.readPod(input)) {
+                                if(readInputFrameData(diagnosticReader, input)) {
                                     oss << " epoch " << input.timelineEpoch
                                         << " currentEpoch " << m_session.roomState().timelineEpoch
                                         << " frame " << input.frame
@@ -4953,7 +5319,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 }
                             } else if(diagnosticHeader.type == MessageType::ConfirmedInputFrames) {
                                 ConfirmedInputFramesData confirmed{};
-                                if(diagnosticReader.readPod(confirmed)) {
+                                if(readConfirmedInputFramesData(diagnosticReader, confirmed)) {
                                     oss << " epoch " << confirmed.timelineEpoch
                                         << " currentEpoch " << m_session.roomState().timelineEpoch
                                         << " startFrame " << confirmed.startFrame
@@ -4969,7 +5335,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 }
                             } else if(diagnosticHeader.type == MessageType::CrcReport) {
                                 CrcReportData report{};
-                                if(diagnosticReader.readPod(report)) {
+                                if(readCrcReportData(diagnosticReader, report)) {
                                     oss << " epoch " << report.timelineEpoch
                                         << " currentEpoch " << m_session.roomState().timelineEpoch
                                         << " frame " << report.frame;
@@ -4993,9 +5359,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     };
 
     const auto queueOrHandleEvent = [&](NetTransport::Event event) {
-        if(event.type == NetTransport::Event::Type::PacketReceived && event.payload.size() >= sizeof(PacketHeader)) {
+        if(event.type == NetTransport::Event::Type::PacketReceived && event.payload.size() >= serializedPacketHeaderSize()) {
             PacketHeader header{};
-            std::memcpy(&header, event.payload.data(), sizeof(PacketHeader));
+            PacketReader headerReader(event.payload.data(), event.payload.size());
+            if(!readPacketHeader(headerReader, header)) {
+                return;
+            }
             auto it = m_dropIncomingMessageCounts.find(static_cast<uint16_t>(header.type));
             if(it != m_dropIncomingMessageCounts.end() && it->second > 0u) {
                 --it->second;
@@ -5305,7 +5674,7 @@ bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, c
     inputWithPayload.buttonMaskLo = assignedContributionPrimaryMask(input.playerSlot, netplayFrame);
     inputWithPayload.buttonMaskHi = netplayFrame.buttonMaskHi[input.playerSlot];
     inputWithPayload.payloadSize = static_cast<uint16_t>(payload.size());
-    writer.writePod(inputWithPayload);
+    writeInputFrameData(writer, inputWithPayload);
     writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleInputFrame(NetTransport::kInvalidPeerHandle, reader);
@@ -5314,7 +5683,7 @@ bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, c
 bool NetplayCoordinator::injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data)
 {
     PacketWriter writer;
-    writer.writePod(data);
+    writeConfirmedInputFramesData(writer, data);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleConfirmedInputFrames(reader);
 }
@@ -5333,7 +5702,7 @@ bool NetplayCoordinator::injectConfirmedPlaybackFramesForTests(const ConfirmedIn
 bool NetplayCoordinator::injectInputAckForTests(const InputAckData& ack)
 {
     PacketWriter writer;
-    writer.writePod(ack);
+    writeInputAckData(writer, ack);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleInputAck(reader);
 }
@@ -5358,7 +5727,7 @@ bool NetplayCoordinator::markMissingInputGapForTests(ParticipantId participantId
 bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
 {
     PacketWriter writer;
-    writer.writePod(report);
+    writeCrcReportData(writer, report);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleCrcReport(reader);
 }
@@ -5366,7 +5735,7 @@ bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
 bool NetplayCoordinator::injectResyncAckForTests(const ResyncAckData& ack)
 {
     PacketWriter writer;
-    writer.writePod(ack);
+    writeResyncAckData(writer, ack);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleResyncAck(reader);
 }
@@ -6662,7 +7031,7 @@ bool NetplayCoordinator::pauseSession()
     PacketHeader header;
     header.type = MessageType::PauseSession;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     StartSessionData data;
     data.state = SessionState::Paused;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
@@ -6688,7 +7057,7 @@ bool NetplayCoordinator::resumeSession()
     PacketHeader header;
     header.type = MessageType::ResumeSession;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     StartSessionData data;
     data.state = SessionState::Running;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
@@ -6710,7 +7079,7 @@ bool NetplayCoordinator::endSession()
     PacketHeader header;
     header.type = MessageType::EndSession;
     header.sessionId = m_session.roomState().sessionId;
-    writer.writePod(header);
+    writePacketHeader(writer, header);
     StartSessionData data;
     data.state = SessionState::Ended;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;

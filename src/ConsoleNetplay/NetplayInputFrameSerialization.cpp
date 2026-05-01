@@ -41,6 +41,42 @@ uint8_t activeSlotCount(const NetplayInputFrame& frame)
     return static_cast<uint8_t>(frame.activeSlots().size());
 }
 
+void writeNetplayInputFrameWireHeader(PacketWriter& writer, const NetplayInputFrameWireHeader& header)
+{
+    writer.writePod(header.version);
+    writer.writePod(header.frame);
+    writer.writePod(header.timelineEpoch);
+    writer.writePod(header.speculative);
+    writer.writePod(header.slotCount);
+    writer.writePod(header.framePayloadSize);
+}
+
+bool readNetplayInputFrameWireHeader(PacketReader& reader, NetplayInputFrameWireHeader& header)
+{
+    return reader.readPod(header.version) &&
+           reader.readPod(header.frame) &&
+           reader.readPod(header.timelineEpoch) &&
+           reader.readPod(header.speculative) &&
+           reader.readPod(header.slotCount) &&
+           reader.readPod(header.framePayloadSize);
+}
+
+void writeNetplayInputSlotWireHeader(PacketWriter& writer, const NetplayInputSlotWireHeader& header)
+{
+    writer.writePod(header.slot);
+    writer.writePod(header.buttonMaskLo);
+    writer.writePod(header.buttonMaskHi);
+    writer.writePod(header.payloadSize);
+}
+
+bool readNetplayInputSlotWireHeader(PacketReader& reader, NetplayInputSlotWireHeader& header)
+{
+    return reader.readPod(header.slot) &&
+           reader.readPod(header.buttonMaskLo) &&
+           reader.readPod(header.buttonMaskHi) &&
+           reader.readPod(header.payloadSize);
+}
+
 } // namespace
 
 std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
@@ -55,7 +91,7 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
     header.slotCount = activeSlotCount(frame);
     header.framePayloadSize = static_cast<uint16_t>(frame.framePayload.size());
 
-    writer.writePod(header);
+    writeNetplayInputFrameWireHeader(writer, header);
     writer.writeBytes(std::span<const uint8_t>(frame.framePayload.data(), frame.framePayload.size()));
     for(PlayerSlot slot : frame.activeSlots()) {
         if(!slotHasPayload(frame, slot)) {
@@ -66,7 +102,7 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
         slotHeader.buttonMaskLo = frame.buttonMaskLo[slot];
         slotHeader.buttonMaskHi = frame.buttonMaskHi[slot];
         slotHeader.payloadSize = static_cast<uint16_t>(frame.slotPayloads[slot].size());
-        writer.writePod(slotHeader);
+        writeNetplayInputSlotWireHeader(writer, slotHeader);
         writer.writeBytes(std::span<const uint8_t>(frame.slotPayloads[slot].data(), frame.slotPayloads[slot].size()));
     }
     return writer.data();
@@ -74,10 +110,12 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
 
 size_t serializedNetplayInputFrameSize(const NetplayInputFrame& frame)
 {
-    size_t size = sizeof(NetplayInputFrameWireHeader) + frame.framePayload.size();
+    size_t size =
+        sizeof(uint8_t) + sizeof(FrameNumber) + sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) +
+        frame.framePayload.size();
     for(PlayerSlot slot : frame.activeSlots()) {
         if(slotHasPayload(frame, slot)) {
-            size += sizeof(NetplayInputSlotWireHeader) + frame.slotPayloads[slot].size();
+            size += sizeof(PlayerSlot) + sizeof(uint64_t) + sizeof(uint64_t) + sizeof(uint16_t) + frame.slotPayloads[slot].size();
         }
     }
     return size;
@@ -87,7 +125,7 @@ bool deserializeNetplayInputFrame(const uint8_t* data, size_t size, NetplayInput
 {
     PacketReader reader(data, size);
     NetplayInputFrameWireHeader header;
-    if(!reader.readPod(header)) return false;
+    if(!readNetplayInputFrameWireHeader(reader, header)) return false;
     if(header.version != kNetplayInputFrameWireVersion) return false;
 
     NetplayInputFrame decoded;
@@ -97,7 +135,7 @@ bool deserializeNetplayInputFrame(const uint8_t* data, size_t size, NetplayInput
     if(!reader.readBytes(decoded.framePayload, header.framePayloadSize)) return false;
     for(uint8_t index = 0; index < header.slotCount; ++index) {
         NetplayInputSlotWireHeader slotHeader;
-        if(!reader.readPod(slotHeader)) return false;
+        if(!readNetplayInputSlotWireHeader(reader, slotHeader)) return false;
         if(slotHeader.buttonMaskLo != 0u) {
             decoded.buttonMaskLo[slotHeader.slot] = slotHeader.buttonMaskLo;
         }
