@@ -114,12 +114,14 @@ std::string describeHostTarget(ConsoleNetplay::NetTransportBackend backend,
 ConsoleNetplay::InputTopologyData makeTopologyData(const ConsoleNetplay::RoomState& room)
 {
     ConsoleNetplay::InputTopologyData data;
-    data.slotCount = static_cast<uint8_t>(std::min<size_t>(room.inputTopology.size(), data.slots.size()));
-    for(size_t index = 0; index < data.slotCount; ++index) {
-        data.slots[index].slot = room.inputTopology[index].slot;
-        data.slots[index].assignable = room.inputTopology[index].assignable ? 1u : 0u;
-        data.slots[index].groupId = room.inputTopology[index].groupId;
-        data.slots[index].deviceId = room.inputTopology[index].deviceId;
+    data.slots.reserve(room.inputTopology.size());
+    for(const auto& inputSlot : room.inputTopology) {
+        data.slots.push_back(ConsoleNetplay::InputTopologyData::Slot{
+            inputSlot.slot,
+            static_cast<uint8_t>(inputSlot.assignable ? 1u : 0u),
+            inputSlot.groupId,
+            inputSlot.deviceId
+        });
     }
     return data;
 }
@@ -127,11 +129,8 @@ ConsoleNetplay::InputTopologyData makeTopologyData(const ConsoleNetplay::RoomSta
 void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::InputTopologyData& data)
 {
     std::vector<ConsoleNetplay::InputSlotDescriptor> topology;
-    const size_t slotCount = std::min<size_t>(data.slotCount, data.slots.size());
-    topology.reserve(slotCount);
-    for(size_t index = 0; index < slotCount; ++index) {
-        const auto& slot = data.slots[index];
-        if(slot.slot > ConsoleNetplay::kMaxAssignedPlayerSlot) continue;
+    topology.reserve(data.slots.size());
+    for(const auto& slot : data.slots) {
         topology.push_back(ConsoleNetplay::InputSlotDescriptor{
             slot.slot,
             slot.groupId,
@@ -142,6 +141,161 @@ void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::In
         });
     }
     room.inputTopology = std::move(topology);
+    for(auto& participant : room.participants) {
+        participant.normalizeControllerAssignments(&room.inputTopology);
+    }
+}
+
+size_t serializedInputTopologyDataSize(const ConsoleNetplay::InputTopologyData& data)
+{
+    return sizeof(uint8_t) +
+           (sizeof(ConsoleNetplay::InputTopologyData::Slot) * data.slots.size());
+}
+
+void writeInputTopologyData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::InputTopologyData& data)
+{
+    const uint8_t slotCount = static_cast<uint8_t>(std::min<size_t>(data.slots.size(), std::numeric_limits<uint8_t>::max()));
+    writer.writePod(slotCount);
+    for(uint8_t index = 0; index < slotCount; ++index) {
+        writer.writePod(data.slots[index]);
+    }
+}
+
+bool readInputTopologyData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::InputTopologyData& data)
+{
+    uint8_t slotCount = 0;
+    if(!reader.readPod(slotCount)) return false;
+    data.slots.clear();
+    data.slots.reserve(slotCount);
+    for(uint8_t index = 0; index < slotCount; ++index) {
+        ConsoleNetplay::InputTopologyData::Slot slot;
+        if(!reader.readPod(slot)) return false;
+        data.slots.push_back(slot);
+    }
+    return true;
+}
+
+size_t serializedAssignControllerDataSize(const ConsoleNetplay::AssignControllerData& data)
+{
+    return sizeof(ConsoleNetplay::ParticipantId) +
+           sizeof(uint8_t) +
+           (sizeof(ConsoleNetplay::PlayerSlot) * data.controllerAssignments.size());
+}
+
+void writeAssignControllerData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::AssignControllerData& data)
+{
+    writer.writePod(data.participantId);
+    const uint8_t assignmentCount = static_cast<uint8_t>(
+        std::min<size_t>(data.controllerAssignments.size(), std::numeric_limits<uint8_t>::max())
+    );
+    writer.writePod(assignmentCount);
+    for(uint8_t index = 0; index < assignmentCount; ++index) {
+        writer.writePod(data.controllerAssignments[index]);
+    }
+}
+
+bool readAssignControllerData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::AssignControllerData& data)
+{
+    if(!reader.readPod(data.participantId)) return false;
+    uint8_t assignmentCount = 0;
+    if(!reader.readPod(assignmentCount)) return false;
+    data.controllerAssignments.clear();
+    data.controllerAssignments.reserve(assignmentCount);
+    for(uint8_t index = 0; index < assignmentCount; ++index) {
+        ConsoleNetplay::PlayerSlot slot = ConsoleNetplay::kObserverPlayerSlot;
+        if(!reader.readPod(slot)) return false;
+        data.controllerAssignments.push_back(slot);
+    }
+    return true;
+}
+
+size_t serializedConfirmedInputFrameEntrySize(const ConsoleNetplay::ConfirmedInputFrameEntry& entry)
+{
+    return sizeof(entry.authoritativeFrameStartClockMicros) +
+           sizeof(uint8_t) +
+           (sizeof(ConsoleNetplay::ConfirmedInputFrameEntry::SlotMask) * entry.slotMasks.size()) +
+           sizeof(entry.payloadSize);
+}
+
+void writeConfirmedInputFrameEntry(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::ConfirmedInputFrameEntry& entry)
+{
+    writer.writePod(entry.authoritativeFrameStartClockMicros);
+    const uint8_t slotMaskCount = static_cast<uint8_t>(std::min<size_t>(entry.slotMasks.size(), std::numeric_limits<uint8_t>::max()));
+    writer.writePod(slotMaskCount);
+    for(uint8_t index = 0; index < slotMaskCount; ++index) {
+        writer.writePod(entry.slotMasks[index]);
+    }
+    writer.writePod(entry.payloadSize);
+}
+
+bool readConfirmedInputFrameEntry(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::ConfirmedInputFrameEntry& entry)
+{
+    if(!reader.readPod(entry.authoritativeFrameStartClockMicros)) return false;
+    uint8_t slotMaskCount = 0;
+    if(!reader.readPod(slotMaskCount)) return false;
+    entry.slotMasks.clear();
+    entry.slotMasks.reserve(slotMaskCount);
+    for(uint8_t index = 0; index < slotMaskCount; ++index) {
+        ConsoleNetplay::ConfirmedInputFrameEntry::SlotMask slotMask;
+        if(!reader.readPod(slotMask)) return false;
+        entry.slotMasks.push_back(slotMask);
+    }
+    if(!reader.readPod(entry.payloadSize)) return false;
+    return true;
+}
+
+size_t serializedFrameStatusDataSize(const ConsoleNetplay::FrameStatusData& status)
+{
+    return sizeof(status.timelineEpoch) +
+           sizeof(status.currentFrame) +
+           sizeof(status.lastConfirmedFrame) +
+           sizeof(status.inputDelayFrames) +
+           sizeof(status.predictFrames) +
+           serializedInputTopologyDataSize(status.topology);
+}
+
+void writeFrameStatusData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::FrameStatusData& status)
+{
+    writer.writePod(status.timelineEpoch);
+    writer.writePod(status.currentFrame);
+    writer.writePod(status.lastConfirmedFrame);
+    writer.writePod(status.inputDelayFrames);
+    writer.writePod(status.predictFrames);
+    writeInputTopologyData(writer, status.topology);
+}
+
+bool readFrameStatusData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::FrameStatusData& status)
+{
+    if(!reader.readPod(status.timelineEpoch)) return false;
+    if(!reader.readPod(status.currentFrame)) return false;
+    if(!reader.readPod(status.lastConfirmedFrame)) return false;
+    if(!reader.readPod(status.inputDelayFrames)) return false;
+    if(!reader.readPod(status.predictFrames)) return false;
+    return readInputTopologyData(reader, status.topology);
+}
+
+size_t serializedStartSessionDataSize(const ConsoleNetplay::StartSessionData& data)
+{
+    return sizeof(data.state) +
+           sizeof(data.inputDelayFrames) +
+           sizeof(data.predictFrames) +
+           serializedInputTopologyDataSize(data.topology);
+}
+
+void writeStartSessionData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::StartSessionData& data)
+{
+    writer.writePod(data.state);
+    writer.writePod(data.inputDelayFrames);
+    writer.writePod(data.predictFrames);
+    writeInputTopologyData(writer, data.topology);
+}
+
+bool readStartSessionData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay::StartSessionData& data)
+{
+    if(!reader.readPod(data.state)) return false;
+    if(!reader.readPod(data.inputDelayFrames)) return false;
+    if(!reader.readPod(data.predictFrames)) return false;
+    return readInputTopologyData(reader, data.topology);
 }
 
 ConsoleNetplay::NetplayInputFrame makeRoomTopologyNetplayFrame(ConsoleNetplay::FrameNumber frame,
@@ -155,8 +309,7 @@ ConsoleNetplay::NetplayInputFrame makeRoomTopologyNetplayFrame(ConsoleNetplay::F
 
 void materializeNativeMaskFromPayload(ConsoleNetplay::NetplayInputFrame& inputFrame, ConsoleNetplay::PlayerSlot slot)
 {
-    if(slot > ConsoleNetplay::kMaxAssignedPlayerSlot ||
-       inputFrame.buttonMaskLo[slot] != 0u ||
+    if(inputFrame.buttonMaskLo[slot] != 0u ||
        inputFrame.slotPayloads[slot].empty()) {
         return;
     }
@@ -166,20 +319,22 @@ ConsoleNetplay::NetplayInputFrame timelineContributionForSlot(const ConsoleNetpl
 {
     ConsoleNetplay::NetplayInputFrame contribution = entry.netplayFrame;
     materializeNativeMaskFromPayload(contribution, entry.playerSlot);
-    if(entry.playerSlot <= ConsoleNetplay::kMaxAssignedPlayerSlot) {
-        if(entry.buttonMaskLo != 0u || contribution.buttonMaskLo[entry.playerSlot] == 0u) {
-            contribution.buttonMaskLo[entry.playerSlot] = entry.buttonMaskLo;
-        }
-        if(entry.buttonMaskHi != 0u || contribution.buttonMaskHi[entry.playerSlot] == 0u) {
-            contribution.buttonMaskHi[entry.playerSlot] = entry.buttonMaskHi;
-        }
+    if(entry.buttonMaskLo != 0u || contribution.buttonMaskLo[entry.playerSlot] == 0u) {
+        contribution.buttonMaskLo[entry.playerSlot] = entry.buttonMaskLo;
+    }
+    if(entry.buttonMaskHi != 0u || contribution.buttonMaskHi[entry.playerSlot] == 0u) {
+        contribution.buttonMaskHi[entry.playerSlot] = entry.buttonMaskHi;
     }
     return contribution;
 }
 
-bool isPlayableSlot(ConsoleNetplay::PlayerSlot slot)
+bool isPlayableSlot(const ConsoleNetplay::RoomState& room, ConsoleNetplay::PlayerSlot slot)
 {
-    return slot <= ConsoleNetplay::kMaxAssignedPlayerSlot;
+    if(slot == ConsoleNetplay::kObserverPlayerSlot) {
+        return false;
+    }
+    const ConsoleNetplay::InputSlotDescriptor* descriptor = ConsoleNetplay::findInputSlot(room.inputTopology, slot);
+    return descriptor != nullptr && descriptor->assignable;
 }
 
 std::string controllerAssignmentToast(ConsoleNetplay::PlayerSlot slot,
@@ -223,11 +378,7 @@ ConsoleNetplay::AssignControllerData makeAssignControllerData(const ConsoleNetpl
 {
     ConsoleNetplay::AssignControllerData data;
     data.participantId = participant.id;
-    const size_t count = std::min(participant.controllerAssignments.size(), data.controllerAssignments.size());
-    data.assignmentCount = static_cast<uint8_t>(count);
-    for(size_t i = 0; i < count; ++i) {
-        data.controllerAssignments[i] = participant.controllerAssignments[i];
-    }
+    data.controllerAssignments = participant.controllerAssignments;
     return data;
 }
 
@@ -605,7 +756,7 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
         startData.predictFrames = m_session.roomState().predictFrames;
         startData.topology = makeTopologyData(m_session.roomState());
-        writer.writePod(startData);
+        writeStartSessionData(writer, startData);
         return m_transport.sendReliable(peer, Channel::Control, writer.data());
     }
 
@@ -620,7 +771,7 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
         startData.predictFrames = m_session.roomState().predictFrames;
         startData.topology = makeTopologyData(m_session.roomState());
-        writer.writePod(startData);
+        writeStartSessionData(writer, startData);
         return m_transport.sendReliable(peer, Channel::Control, writer.data());
     }
 
@@ -647,11 +798,16 @@ bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer
         for(const auto& frame : frames) {
             ConfirmedInputFrameEntry entry;
             entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
-            entry.buttonMaskLo = frame.buttonMaskLo;
-            entry.buttonMaskHi = frame.buttonMaskHi;
+            for(PlayerSlot slot : frame.netplayFrame.activeSlots()) {
+                entry.slotMasks.push_back(ConfirmedInputFrameEntry::SlotMask{
+                    slot,
+                    frame.buttonMaskLo[slot],
+                    frame.buttonMaskHi[slot]
+                });
+            }
             const std::vector<uint8_t> payload = serializeNetplayInputFrame(frame.netplayFrame);
             entry.payloadSize = static_cast<uint16_t>(payload.size());
-            writer.writePod(entry);
+            writeConfirmedInputFrameEntry(writer, entry);
             writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
         }
 
@@ -770,7 +926,7 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
     startData.predictFrames = m_session.roomState().predictFrames;
     startData.topology = makeTopologyData(m_session.roomState());
-    writer.writePod(startData);
+    writeStartSessionData(writer, startData);
     m_transport.broadcastReliable(Channel::Control, writer.data());
 }
 
@@ -1008,7 +1164,7 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
     writer.writePod(participant.reservationSecondsRemaining);
     writer.writePod(participant.role);
     const uint8_t assignmentCount = static_cast<uint8_t>(
-        std::min(participant.controllerAssignments.size(), static_cast<size_t>(kMaxAssignedPlayerSlot + 1))
+        std::min(participant.controllerAssignments.size(), static_cast<size_t>(std::numeric_limits<uint8_t>::max()))
     );
     writer.writePod(assignmentCount);
     for(uint8_t index = 0; index < assignmentCount; ++index) {
@@ -1051,7 +1207,7 @@ std::vector<uint8_t> NetplayCoordinator::buildSelectRomPacket(const std::string&
     writer.writePod(header);
     writer.writeString(gameName);
     writer.writePod(romValidation);
-    writer.writePod(makeTopologyData(m_session.roomState()));
+    writeInputTopologyData(writer, makeTopologyData(m_session.roomState()));
 
     return writer.data();
 }
@@ -1276,7 +1432,9 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
     PacketWriter writer;
     size_t estimatedPayloadSize = sizeof(PacketHeader) + sizeof(ConfirmedInputFramesData);
     for(const auto& frame : frames) {
-        estimatedPayloadSize += sizeof(ConfirmedInputFrameEntry) + ConsoleNetplay::serializedNetplayInputFrameSize(frame.netplayFrame);
+        estimatedPayloadSize += sizeof(uint64_t) + sizeof(uint8_t) + sizeof(uint16_t) +
+                                (frame.netplayFrame.activeSlots().size() * sizeof(ConfirmedInputFrameEntry::SlotMask)) +
+                                ConsoleNetplay::serializedNetplayInputFrameSize(frame.netplayFrame);
     }
     writer.reserve(estimatedPayloadSize);
 
@@ -1290,10 +1448,15 @@ static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInput
 
         ConfirmedInputFrameEntry entry;
         entry.authoritativeFrameStartClockMicros = frame.authoritativeFrameStartClockMicros;
-        entry.buttonMaskLo = frame.buttonMaskLo;
-        entry.buttonMaskHi = frame.buttonMaskHi;
+        for(PlayerSlot slot : frame.netplayFrame.activeSlots()) {
+            entry.slotMasks.push_back(ConfirmedInputFrameEntry::SlotMask{
+                slot,
+                frame.buttonMaskLo[slot],
+                frame.buttonMaskHi[slot]
+            });
+        }
         entry.payloadSize = static_cast<uint16_t>(payload.size());
-        writer.writePod(entry);
+        writeConfirmedInputFrameEntry(writer, entry);
         writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
     }
 
@@ -1316,12 +1479,13 @@ static std::vector<uint8_t> buildInputAckPacket(const InputAckData& ack)
 static std::vector<uint8_t> buildFrameStatusPacket(const FrameStatusData& status, uint32_t sessionId)
 {
     PacketWriter writer;
+    writer.reserve(sizeof(PacketHeader) + serializedFrameStatusDataSize(status));
 
     PacketHeader header;
     header.type = MessageType::FrameStatus;
     header.sessionId = sessionId;
     writer.writePod(header);
-    writer.writePod(status);
+    writeFrameStatusData(writer, status);
 
     return writer.data();
 }
@@ -1342,12 +1506,13 @@ static std::vector<uint8_t> buildCrcReportPacket(const CrcReportData& report, ui
 static std::vector<uint8_t> buildAssignControllerPacket(const AssignControllerData& data, uint32_t sessionId)
 {
     PacketWriter writer;
+    writer.reserve(sizeof(PacketHeader) + serializedAssignControllerDataSize(data));
 
     PacketHeader header;
     header.type = MessageType::AssignController;
     header.sessionId = sessionId;
     writer.writePod(header);
-    writer.writePod(data);
+    writeAssignControllerData(writer, data);
 
     return writer.data();
 }
@@ -1355,12 +1520,13 @@ static std::vector<uint8_t> buildAssignControllerPacket(const AssignControllerDa
 static std::vector<uint8_t> buildStartSessionPacket(const StartSessionData& data, uint32_t sessionId)
 {
     PacketWriter writer;
+    writer.reserve(sizeof(PacketHeader) + serializedStartSessionDataSize(data));
 
     PacketHeader header;
     header.type = MessageType::StartSession;
     header.sessionId = sessionId;
     writer.writePod(header);
-    writer.writePod(data);
+    writeStartSessionData(writer, data);
 
     return writer.data();
 }
@@ -1379,7 +1545,7 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
     data.inputDelayFrames = 0;
     data.predictFrames = 0;
     data.topology = {};
-    writer.writePod(data);
+    writeStartSessionData(writer, data);
 
     return writer.data();
 }
@@ -1423,7 +1589,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     if(input.playerSlot == kObserverPlayerSlot) {
         return true;
     }
-    if(!isPlayableSlot(input.playerSlot)) {
+    if(!isPlayableSlot(m_session.roomState(), input.playerSlot)) {
         pushLog("Ignored input frame with invalid player slot");
         return true;
     }
@@ -1661,15 +1827,17 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
 
     for(uint16_t i = 0; i < data.frameCount; ++i) {
         ConfirmedInputFrameEntry entry;
-        if(!reader.readPod(entry)) return false;
+        if(!readConfirmedInputFrameEntry(reader, entry)) return false;
         std::vector<uint8_t> payload;
         if(!reader.readBytes(payload, entry.payloadSize)) return false;
 
         ConfirmedFrameInputs frame;
         frame.frame = data.startFrame + static_cast<FrameNumber>(i);
         frame.authoritativeFrameStartClockMicros = entry.authoritativeFrameStartClockMicros;
-        frame.buttonMaskLo = entry.buttonMaskLo;
-        frame.buttonMaskHi = entry.buttonMaskHi;
+        for(const auto& slotMask : entry.slotMasks) {
+            frame.buttonMaskLo[slotMask.slot] = slotMask.buttonMaskLo;
+            frame.buttonMaskHi[slotMask.slot] = slotMask.buttonMaskHi;
+        }
         if(!deserializeNetplayInputFrame(payload.data(), payload.size(), frame.netplayFrame)) return false;
         storeConfirmedFrame(frame);
         if(frame.authoritativeFrameStartClockMicros != 0u) {
@@ -1734,7 +1902,7 @@ bool NetplayCoordinator::handleInputAck(PacketReader& reader)
     if(ack.playerSlot == kObserverPlayerSlot) {
         return true;
     }
-    if(!isPlayableSlot(ack.playerSlot)) {
+    if(!isPlayableSlot(m_session.roomState(), ack.playerSlot)) {
         pushLog("Ignored input ACK with invalid player slot");
         return true;
     }
@@ -1785,11 +1953,13 @@ void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, Fra
 void NetplayCoordinator::advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot)
 {
     (void)slot;
+    const InputTimeline& timeline =
+        participant.id == m_localParticipantId ? m_localInputs : m_remoteInputs;
     while(true) {
         const FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
         bool haveAllAssignments = true;
         for(PlayerSlot assignedSlot : participantAssignments(participant)) {
-            const TimelineInputEntry* entry = m_remoteInputs.find(nextFrame, participant.id, assignedSlot);
+            const TimelineInputEntry* entry = timeline.find(nextFrame, participant.id, assignedSlot);
             if(entry == nullptr || !entry->confirmed) {
                 haveAllAssignments = false;
                 break;
@@ -2163,7 +2333,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     if(participant.id == m_localParticipantId ||
        !participant.connected ||
        participantIsObserver(participant) ||
-       !isPlayableSlot(slot) ||
+       !isPlayableSlot(m_session.roomState(), slot) ||
        !participantHasAssignment(participant, slot)) {
         return false;
     }
@@ -2332,7 +2502,7 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
 bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
 {
     FrameStatusData status;
-    if(!reader.readPod(status)) return false;
+    if(!readFrameStatusData(reader, status)) return false;
     if(!m_hosting) {
         m_suppressReconnectPresenceToasts = false;
     }
@@ -2627,7 +2797,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         bool haveConfirmedFrame = false;
         for(const ParticipantInfo& participant : m_session.roomState().participants) {
             for(PlayerSlot slot : participantAssignments(participant)) {
-                if(!isPlayableSlot(slot)) {
+                if(!isPlayableSlot(m_session.roomState(), slot)) {
                     continue;
                 }
                 haveConfirmedFrame = true;
@@ -2807,7 +2977,7 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
 
 void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame)
 {
-    if(participantId == kInvalidParticipantId || slot == kObserverPlayerSlot || !isPlayableSlot(slot)) return;
+    if(participantId == kInvalidParticipantId || slot == kObserverPlayerSlot || !isPlayableSlot(m_session.roomState(), slot)) return;
 
     InputTimeline* timeline = &m_remoteInputs;
     if(participantId == m_localParticipantId) {
@@ -2834,7 +3004,7 @@ void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, P
 bool NetplayCoordinator::handleAssignController(PacketReader& reader)
 {
     AssignControllerData data;
-    if(!reader.readPod(data)) return false;
+    if(!readAssignControllerData(reader, data)) return false;
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         const FrameNumber assignmentBaselineFrame =
@@ -2842,21 +3012,8 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
                       m_session.roomState().currentFrame,
                       m_session.roomState().lastConfirmedFrame});
         const std::vector<PlayerSlot> previousAssignments = participant->controllerAssignments;
-        participant->controllerAssignments.assign(
-            data.controllerAssignments.begin(),
-            data.controllerAssignments.begin() + std::min<size_t>(data.assignmentCount, data.controllerAssignments.size())
-        );
-        participant->controllerAssignments.erase(
-            std::remove_if(
-                participant->controllerAssignments.begin(),
-                participant->controllerAssignments.end(),
-                [](PlayerSlot slot) {
-                    return slot != kObserverPlayerSlot && slot > kMultitapP4PlayerSlot;
-                }
-            ),
-            participant->controllerAssignments.end()
-        );
-        participant->normalizeControllerAssignments();
+        participant->controllerAssignments = data.controllerAssignments;
+        participant->normalizeControllerAssignments(&m_session.roomState().inputTopology);
         const bool keepHostRole = participant->id == m_localParticipantId && m_hosting;
         syncParticipantRoleWithAssignments(*participant, keepHostRole);
         const bool assignmentChanged = previousAssignments != participant->controllerAssignments;
@@ -2899,7 +3056,7 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
     if(!reader.readString(gameName)) return false;
     if(!reader.readPod(romValidation)) return false;
     InputTopologyData topology;
-    if(!reader.readPod(topology)) return false;
+    if(!readInputTopologyData(reader, topology)) return false;
 
     const bool activeSession =
         m_session.roomState().state == SessionState::Starting ||
@@ -3543,7 +3700,7 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
 bool NetplayCoordinator::handleStartSession(PacketReader& reader)
 {
     StartSessionData data;
-    if(!reader.readPod(data)) return false;
+    if(!readStartSessionData(reader, data)) return false;
 
     const SessionState previousState = m_session.roomState().state;
     if(data.state == SessionState::Starting) {
@@ -3951,7 +4108,8 @@ FrameNumber NetplayCoordinator::latestPredictedRemoteFrame() const
 
 void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                                               std::optional<ParticipantId> preservedParticipantId,
-                                              PlayerSlot preservedAssignment)
+                                              PlayerSlot preservedAssignment,
+                                              AssignmentRemapper remapAssignment)
 {
     if(!m_hosting) return;
 
@@ -3968,13 +4126,22 @@ void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> i
         std::vector<PlayerSlot> preservedAssignments;
         const bool preserveParticipantAssignment = preservedParticipantId.has_value() && participant.id == *preservedParticipantId;
         for(PlayerSlot slot : participantAssignments(participant)) {
+            PlayerSlot candidateSlot = slot;
+            if(!isAssignmentAvailable(candidateSlot, room) && remapAssignment) {
+                const std::optional<PlayerSlot> remapped = remapAssignment(slot);
+                if(remapped.has_value()) {
+                    candidateSlot = *remapped;
+                }
+            }
             const bool preserveSpecificAssignment =
                 preserveParticipantAssignment &&
-                slot == preservedAssignment &&
+                (slot == preservedAssignment || candidateSlot == preservedAssignment) &&
                 preservedAssignment != kObserverPlayerSlot &&
                 isAssignmentAvailable(preservedAssignment, room);
-            if(preserveSpecificAssignment || isAssignmentAvailable(slot, room)) {
-                preservedAssignments.push_back(slot);
+            if(preserveSpecificAssignment) {
+                preservedAssignments.push_back(preservedAssignment);
+            } else if(isAssignmentAvailable(candidateSlot, room)) {
+                preservedAssignments.push_back(candidateSlot);
             }
         }
 
@@ -4233,7 +4400,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.reservationSecondsRemaining = reservationSecondsRemaining;
     participant.role = role;
     participant.controllerAssignments = std::move(controllerAssignments);
-    participant.normalizeControllerAssignments();
+    participant.normalizeControllerAssignments(&m_session.roomState().inputTopology);
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
     if(!m_hosting &&
@@ -4771,7 +4938,7 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 }
                             } else if(diagnosticHeader.type == MessageType::FrameStatus) {
                                 FrameStatusData status{};
-                                if(diagnosticReader.readPod(status)) {
+                                if(readFrameStatusData(diagnosticReader, status)) {
                                     oss << " epoch " << status.timelineEpoch
                                         << " currentEpoch " << m_session.roomState().timelineEpoch
                                         << " currentFrame " << status.currentFrame
@@ -5099,7 +5266,7 @@ void NetplayCoordinator::simulateTransportFailureForTests()
 bool NetplayCoordinator::injectFrameStatusForTests(const FrameStatusData& status)
 {
     PacketWriter writer;
-    writer.writePod(status);
+    writeFrameStatusData(writer, status);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleFrameStatus(reader);
 }
@@ -5113,9 +5280,7 @@ bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, c
     const std::vector<uint8_t> payload = serializeNetplayInputFrame(netplayFrame);
     InputFrameData inputWithPayload = input;
     inputWithPayload.buttonMaskLo = assignedContributionPrimaryMask(input.playerSlot, netplayFrame);
-    inputWithPayload.buttonMaskHi = input.playerSlot <= kMaxAssignedPlayerSlot
-        ? netplayFrame.buttonMaskHi[input.playerSlot]
-        : 0u;
+    inputWithPayload.buttonMaskHi = netplayFrame.buttonMaskHi[input.playerSlot];
     inputWithPayload.payloadSize = static_cast<uint16_t>(payload.size());
     writer.writePod(inputWithPayload);
     writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
@@ -5148,6 +5313,23 @@ bool NetplayCoordinator::injectInputAckForTests(const InputAckData& ack)
     writer.writePod(ack);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleInputAck(reader);
+}
+
+bool NetplayCoordinator::markMissingInputGapForTests(ParticipantId participantId,
+                                                     FrameNumber missingFrame,
+                                                     FrameNumber receivedFrame,
+                                                     PlayerSlot slot)
+{
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr || slot == kObserverPlayerSlot || !isPlayableSlot(m_session.roomState(), slot)) {
+        return false;
+    }
+    if(!participant->pendingMissingInputFrom.has_value() ||
+       *participant->pendingMissingInputFrom != missingFrame) {
+        participant->pendingMissingInputFrom = missingFrame;
+        recordMissingInputGap(*participant, missingFrame, receivedFrame, slot);
+    }
+    return true;
 }
 
 bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
@@ -5429,7 +5611,7 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
 
     for(const auto& participant : m_session.roomState().participants) {
         for(PlayerSlot slot : participantAssignments(participant)) {
-            if(!isPlayableSlot(slot)) {
+            if(!isPlayableSlot(m_session.roomState(), slot)) {
                 continue;
             }
             const TimelineInputEntry* entry =
@@ -5478,7 +5660,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
 
     for(const auto& participant : m_session.roomState().participants) {
         for(PlayerSlot slot : participantAssignments(participant)) {
-            if(!isPlayableSlot(slot)) {
+            if(!isPlayableSlot(m_session.roomState(), slot)) {
                 continue;
             }
             const bool isLocalParticipant = participant.id == m_localParticipantId;
@@ -5747,25 +5929,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,
                                                uint64_t /*buttonMaskHi*/)
 {
     NetplayInputFrame contribution = makeContributionBase(makeRoomTopologyNetplayFrame(frame, m_session.roomState()));
-    switch(slot) {
-        case kPort1PlayerSlot:
-        case kMultitapP1PlayerSlot:
-            contribution.buttonMaskLo[slot] = buttonMaskLo;
-            break;
-        case kPort2PlayerSlot:
-        case kMultitapP2PlayerSlot:
-            contribution.buttonMaskLo[slot] = buttonMaskLo;
-            break;
-        case kExpansionPlayerSlot:
-        case kMultitapP3PlayerSlot:
-            contribution.buttonMaskLo[slot] = buttonMaskLo;
-            break;
-        case kMultitapP4PlayerSlot:
-            contribution.buttonMaskLo[slot] = buttonMaskLo;
-            break;
-        default:
-            break;
-    }
+    contribution.buttonMaskLo[slot] = buttonMaskLo;
     recordLocalInputFrame(frame, slot, contribution);
 }
 
@@ -6478,7 +6642,7 @@ bool NetplayCoordinator::pauseSession()
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
-    writer.writePod(data);
+    writeStartSessionData(writer, data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner paused session");
     pushToast("Owner paused");
@@ -6504,7 +6668,7 @@ bool NetplayCoordinator::resumeSession()
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
-    writer.writePod(data);
+    writeStartSessionData(writer, data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner resumed session");
     pushToast("Owner resumed");
@@ -6526,7 +6690,7 @@ bool NetplayCoordinator::endSession()
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
     data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
-    writer.writePod(data);
+    writeStartSessionData(writer, data);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner ended session");
     return true;

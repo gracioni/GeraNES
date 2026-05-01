@@ -11,16 +11,8 @@ namespace GeraNESNetplay {
 using ConsoleNetplay::InputSlotDescriptor;
 using ConsoleNetplay::InputDeviceId;
 using ConsoleNetplay::applyAssignedContribution;
-using ConsoleNetplay::kExpansionPlayerSlot;
 using ConsoleNetplay::kInvalidParticipantId;
-using ConsoleNetplay::kMaxAssignedPlayerSlot;
-using ConsoleNetplay::kMultitapP1PlayerSlot;
-using ConsoleNetplay::kMultitapP2PlayerSlot;
-using ConsoleNetplay::kMultitapP3PlayerSlot;
-using ConsoleNetplay::kMultitapP4PlayerSlot;
 using ConsoleNetplay::kObserverPlayerSlot;
-using ConsoleNetplay::kPort1PlayerSlot;
-using ConsoleNetplay::kPort2PlayerSlot;
 using ConsoleNetplay::makeContributionBase;
 using ConsoleNetplay::makeRoomTopologyBaseNetplayFrame;
 using ConsoleNetplay::PacketReader;
@@ -94,6 +86,41 @@ bool geraNESMultitapActive(Settings::NesMultitapDevice nesMultitapDevice,
            famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
 }
 
+std::optional<PlayerSlot> mapAssignmentForGeraNESCandidateTopology(PlayerSlot assignment,
+                                                                   bool currentUsesMultitap,
+                                                                   bool candidateUsesMultitap)
+{
+    if(currentUsesMultitap == candidateUsesMultitap) {
+        return assignment;
+    }
+
+    if(!currentUsesMultitap && candidateUsesMultitap) {
+        switch(assignment) {
+            case kPort1PlayerSlot: return kMultitapP1PlayerSlot;
+            case kPort2PlayerSlot: return kMultitapP2PlayerSlot;
+            default: return std::nullopt;
+        }
+    }
+
+    switch(assignment) {
+        case kMultitapP1PlayerSlot: return kPort1PlayerSlot;
+        case kMultitapP2PlayerSlot: return kPort2PlayerSlot;
+        default: return std::nullopt;
+    }
+}
+
+std::optional<PlayerSlot> mapAssignmentForGeraNESTopologyChange(PlayerSlot assignment,
+                                                                const RoomState& currentRoom,
+                                                                const std::vector<InputSlotDescriptor>& candidateTopology)
+{
+    const bool currentUsesMultitap =
+        geraNESNesMultitapDeviceFromTopology(currentRoom) != Settings::NesMultitapDevice::NONE ||
+        geraNESFamicomMultitapDeviceFromTopology(currentRoom) != Settings::FamicomMultitapDevice::NONE;
+    const bool candidateUsesMultitap =
+        findInputSlot(candidateTopology, kMultitapP1PlayerSlot) != nullptr;
+    return mapAssignmentForGeraNESCandidateTopology(assignment, currentUsesMultitap, candidateUsesMultitap);
+}
+
 std::vector<InputSlotDescriptor> makeGeraNESInputTopology(
     std::optional<Settings::Device> port1Device,
     std::optional<Settings::Device> port2Device,
@@ -108,9 +135,9 @@ std::vector<InputSlotDescriptor> makeGeraNESInputTopology(
         const InputDeviceId deviceId = fourScore
             ? geraNESNesMultitapDeviceId(nesMultitapDevice)
             : geraNESFamicomMultitapDeviceId(famicomMultitapDevice);
-        for(PlayerSlot slot = kMultitapP1PlayerSlot; slot <= kMultitapP4PlayerSlot; ++slot) {
-            const unsigned index = static_cast<unsigned>(slot - kMultitapP1PlayerSlot) + 1u;
-            topology.push_back({slot, 4, deviceId, true, groupLabel, "P" + std::to_string(index)});
+        for(size_t index = 0; index < kMultitapPlayerSlots.size(); ++index) {
+            const PlayerSlot slot = kMultitapPlayerSlots[index];
+            topology.push_back({slot, 4, deviceId, true, groupLabel, "P" + std::to_string(index + 1u)});
         }
         return topology;
     }
@@ -162,15 +189,36 @@ bool canAssignGeraNESInputCandidate(const RoomState& room,
         for(const ParticipantInfo& participant : room.participants) {
             if(participant.id == participantId) continue;
             for(PlayerSlot assignment : participantAssignments(participant)) {
-                if(assignment >= kMultitapP1PlayerSlot && assignment <= kMultitapP4PlayerSlot) {
+                if(isGeraNESMultitapPlayerSlot(assignment)) {
                     return false;
                 }
             }
         }
     }
 
+    RoomState candidateRoom = room;
+    if(currentUsesNesMultitap != candidateUsesNesMultitap ||
+       currentUsesFamicomMultitap != candidateUsesFamicomMultitap) {
+        for(ParticipantInfo& participant : candidateRoom.participants) {
+            std::vector<PlayerSlot> mappedAssignments;
+            for(PlayerSlot assignment : participantAssignments(participant)) {
+                const std::optional<PlayerSlot> mapped =
+                    mapAssignmentForGeraNESCandidateTopology(
+                        assignment,
+                        currentUsesNesMultitap || currentUsesFamicomMultitap,
+                        candidateUsesNesMultitap || candidateUsesFamicomMultitap
+                    );
+                if(mapped.has_value()) {
+                    mappedAssignments.push_back(*mapped);
+                }
+            }
+            participant.controllerAssignments = std::move(mappedAssignments);
+            participant.normalizeControllerAssignments();
+        }
+    }
+
     return canAssignInputCandidate(
-        room,
+        candidateRoom,
         participantId,
         makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice),
         slot
@@ -186,11 +234,31 @@ void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
                                  std::optional<ParticipantId> preservedParticipantId,
                                  PlayerSlot preservedAssignment)
 {
+    const RoomState currentRoom = coordinator.session().roomState();
+    std::vector<InputSlotDescriptor> candidateTopology =
+        makeGeraNESInputTopology(
+            port1Device,
+            port2Device,
+            expansionDevice,
+            nesMultitapDevice,
+            famicomMultitapDevice
+        );
+    const std::vector<InputSlotDescriptor> remapTopology = candidateTopology;
     coordinator.setRoomInputTopology(
-        makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice),
+        candidateTopology,
         preservedParticipantId,
-        preservedAssignment
+        preservedAssignment,
+        [currentRoom, remapTopology](PlayerSlot assignment) {
+            return remapGeraNESAssignmentForTopologyChange(assignment, currentRoom, remapTopology);
+        }
     );
+}
+
+std::optional<PlayerSlot> remapGeraNESAssignmentForTopologyChange(PlayerSlot assignment,
+                                                                  const RoomState& currentRoom,
+                                                                  const std::vector<InputSlotDescriptor>& candidateTopology)
+{
+    return mapAssignmentForGeraNESTopologyChange(assignment, currentRoom, candidateTopology);
 }
 
 Settings::Device geraNESPortDeviceFromTopology(const RoomState& room, PlayerSlot slot)
@@ -570,7 +638,7 @@ bool slotNeedsAdapterPayload(const InputFrame& inputFrame, PlayerSlot slot)
 
 void attachAdapterPayloads(NetplayInputFrame& frame, const InputFrame& inputFrame)
 {
-    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
+    for(PlayerSlot slot : kAllGeraNESPlayerSlots) {
         if(slotNeedsAdapterPayload(inputFrame, slot)) {
             frame.slotPayloads[slot] = makeSlotPayload(inputFrame, slot);
         }
@@ -582,7 +650,7 @@ bool applySlotPayload(InputFrame& frame,
                       const AdapterFramePayload& adapterPayload,
                       PlayerSlot slot)
 {
-    if(slot > kMaxAssignedPlayerSlot || inputFrame.slotPayloads[slot].empty()) return false;
+    if(inputFrame.slotPayloads[slot].empty()) return false;
     PacketReader reader(inputFrame.slotPayloads[slot].data(), inputFrame.slotPayloads[slot].size());
     uint8_t version = 0;
     AdapterSlotPayloadKind kind = AdapterSlotPayloadKind::None;
@@ -739,7 +807,7 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
     if(adapterPayload.port2Device == Settings::Device::BANDAI_HYPERSHOT) {
         applyBandaiPadMask(frame, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
     }
-    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
+    for(PlayerSlot slot : kAllGeraNESPlayerSlots) {
         (void)applySlotPayload(frame, inputFrame, adapterPayload, slot);
     }
     return frame;

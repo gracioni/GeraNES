@@ -195,6 +195,8 @@ private:
     void enqueueRuntimeCommand(RuntimeCommand command);
     void drainRuntimeCommands();
     void wakeRuntimeHost();
+    void enqueuePendingAssignmentMutation(RuntimeCommand command);
+    void processPendingAssignmentMutations();
     void processPendingInputTopologyChanges(INetplayConsole& console,
                                             INetplayStateBridge& stateBridge,
                                             INetplayStateHostBridge& hostBridge);
@@ -268,6 +270,7 @@ private:
 
     mutable std::mutex m_stateMutex;
     std::deque<RuntimeCommand> m_pendingRuntimeCommands;
+    std::deque<RuntimeCommand> m_pendingAssignmentMutationCommands;
     struct PendingInputTopologyChange
     {
         ParticipantId participantId = kInvalidParticipantId;

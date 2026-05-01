@@ -53,7 +53,7 @@ struct ParticipantInfo
     bool inputSuspended = false;
     bool inputResumeAwaitingResync = false;
 
-    void normalizeControllerAssignments();
+    void normalizeControllerAssignments(const std::vector<InputSlotDescriptor>* topology = nullptr);
     bool hasControllerAssignment(PlayerSlot slot) const;
 };
 

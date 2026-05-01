@@ -5,6 +5,7 @@
 
 #include "ConsoleNetplay/NetplayAppRuntime.h"
 #include "GeraNES/Settings.h"
+#include "GeraNESNetplay/GeraNESNetplaySlots.h"
 
 namespace GeraNESNetplay {
 

@@ -61,8 +61,8 @@ public:
     {
         FrameNumber frame = 0;
         uint64_t authoritativeFrameStartClockMicros = 0;
-        std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
-        std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
+        NetplayPerSlotValue<uint64_t> buttonMaskLo = {};
+        NetplayPerSlotValue<uint64_t> buttonMaskHi = {};
         NetplayInputFrame netplayFrame = {};
         bool predicted = false;
     };
@@ -350,9 +350,11 @@ public:
     static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
     FrameNumber latestPredictedRemoteFrame() const;
+    using AssignmentRemapper = std::function<std::optional<PlayerSlot>(PlayerSlot)>;
     void setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                               std::optional<ParticipantId> preservedParticipantId = std::nullopt,
-                              PlayerSlot preservedAssignment = kObserverPlayerSlot);
+                              PlayerSlot preservedAssignment = kObserverPlayerSlot,
+                              AssignmentRemapper remapAssignment = {});
 
     bool host(uint16_t port, size_t maxPeers, const std::string& displayName);
     bool join(const std::string& hostName, uint16_t port, const std::string& displayName);
@@ -385,6 +387,10 @@ public:
     bool injectConfirmedPlaybackFramesForTests(const ConfirmedInputFramesData& data,
                                                const std::vector<ConfirmedFrameInputs>& frames);
     bool injectInputAckForTests(const InputAckData& ack);
+    bool markMissingInputGapForTests(ParticipantId participantId,
+                                     FrameNumber missingFrame,
+                                     FrameNumber receivedFrame,
+                                     PlayerSlot slot);
     bool injectFrameStatusForTests(const FrameStatusData& status);
     bool injectCrcReportForTests(const CrcReportData& report);
     bool injectResyncAckForTests(const ResyncAckData& ack);

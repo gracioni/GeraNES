@@ -31,21 +31,14 @@ struct NetplayInputSlotWireHeader
 
 bool slotHasPayload(const NetplayInputFrame& frame, PlayerSlot slot)
 {
-    return slot <= kMaxAssignedPlayerSlot &&
-           (frame.buttonMaskLo[slot] != 0u ||
-            frame.buttonMaskHi[slot] != 0u ||
-            !frame.slotPayloads[slot].empty());
+    return frame.buttonMaskLo[slot] != 0u ||
+           frame.buttonMaskHi[slot] != 0u ||
+           !frame.slotPayloads[slot].empty();
 }
 
 uint8_t activeSlotCount(const NetplayInputFrame& frame)
 {
-    uint8_t count = 0;
-    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
-        if(slotHasPayload(frame, slot)) {
-            ++count;
-        }
-    }
-    return count;
+    return static_cast<uint8_t>(frame.activeSlots().size());
 }
 
 } // namespace
@@ -64,7 +57,7 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
 
     writer.writePod(header);
     writer.writeBytes(std::span<const uint8_t>(frame.framePayload.data(), frame.framePayload.size()));
-    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
+    for(PlayerSlot slot : frame.activeSlots()) {
         if(!slotHasPayload(frame, slot)) {
             continue;
         }
@@ -82,7 +75,7 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
 size_t serializedNetplayInputFrameSize(const NetplayInputFrame& frame)
 {
     size_t size = sizeof(NetplayInputFrameWireHeader) + frame.framePayload.size();
-    for(PlayerSlot slot = 0; slot <= kMaxAssignedPlayerSlot; ++slot) {
+    for(PlayerSlot slot : frame.activeSlots()) {
         if(slotHasPayload(frame, slot)) {
             size += sizeof(NetplayInputSlotWireHeader) + frame.slotPayloads[slot].size();
         }
@@ -105,10 +98,15 @@ bool deserializeNetplayInputFrame(const uint8_t* data, size_t size, NetplayInput
     for(uint8_t index = 0; index < header.slotCount; ++index) {
         NetplayInputSlotWireHeader slotHeader;
         if(!reader.readPod(slotHeader)) return false;
-        if(slotHeader.slot > kMaxAssignedPlayerSlot) return false;
-        decoded.buttonMaskLo[slotHeader.slot] = slotHeader.buttonMaskLo;
-        decoded.buttonMaskHi[slotHeader.slot] = slotHeader.buttonMaskHi;
-        if(!reader.readBytes(decoded.slotPayloads[slotHeader.slot], slotHeader.payloadSize)) return false;
+        if(slotHeader.buttonMaskLo != 0u) {
+            decoded.buttonMaskLo[slotHeader.slot] = slotHeader.buttonMaskLo;
+        }
+        if(slotHeader.buttonMaskHi != 0u) {
+            decoded.buttonMaskHi[slotHeader.slot] = slotHeader.buttonMaskHi;
+        }
+        if(slotHeader.payloadSize != 0) {
+            if(!reader.readBytes(decoded.slotPayloads[slotHeader.slot], slotHeader.payloadSize)) return false;
+        }
     }
     if(reader.remaining() != 0) return false;
 

@@ -3,13 +3,14 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "NetplayTypes.h"
 #include "NetplayTopology.h"
 
 namespace ConsoleNetplay {
 
-constexpr uint8_t kProtocolVersion = 10;
+constexpr uint8_t kProtocolVersion = 11;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -133,8 +134,7 @@ struct InputTopologyData
         InputDeviceId deviceId = kNoInputDevice;
     };
 
-    uint8_t slotCount = 0;
-    std::array<Slot, kMaxAssignedPlayerSlot + 1> slots = {};
+    std::vector<Slot> slots;
 };
 
 struct InputFrameData
@@ -159,9 +159,15 @@ struct ConfirmedInputFramesData
 
 struct ConfirmedInputFrameEntry
 {
+    struct SlotMask
+    {
+        PlayerSlot slot = kObserverPlayerSlot;
+        uint64_t buttonMaskLo = 0;
+        uint64_t buttonMaskHi = 0;
+    };
+
     uint64_t authoritativeFrameStartClockMicros = 0;
-    std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskLo = {};
-    std::array<uint64_t, kMaxAssignedPlayerSlot + 1> buttonMaskHi = {};
+    std::vector<SlotMask> slotMasks;
     uint16_t payloadSize = 0;
 };
 
@@ -187,8 +193,7 @@ struct FrameStatusData
 struct AssignControllerData
 {
     ParticipantId participantId = kInvalidParticipantId;
-    uint8_t assignmentCount = 0;
-    std::array<PlayerSlot, kMaxAssignedPlayerSlot + 1> controllerAssignments = {};
+    std::vector<PlayerSlot> controllerAssignments;
 };
 
 struct ParticipantLeftData

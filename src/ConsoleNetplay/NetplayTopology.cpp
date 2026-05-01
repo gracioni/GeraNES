@@ -7,8 +7,8 @@ namespace ConsoleNetplay {
 std::vector<InputSlotDescriptor> defaultInputTopology()
 {
     return {
-        {kPort1PlayerSlot, 1, kGenericInputDevice, true, "Input 1", "Input"},
-        {kPort2PlayerSlot, 2, kGenericInputDevice, true, "Input 2", "Input"},
+        {0, 1, kGenericInputDevice, true, "Input 1", "Input"},
+        {1, 2, kGenericInputDevice, true, "Input 2", "Input"},
     };
 }
 

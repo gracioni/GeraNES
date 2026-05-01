@@ -5,14 +5,6 @@
 namespace GeraNESNetplay
 {
 
-using ConsoleNetplay::kExpansionPlayerSlot;
-using ConsoleNetplay::kMultitapP1PlayerSlot;
-using ConsoleNetplay::kMultitapP2PlayerSlot;
-using ConsoleNetplay::kMultitapP3PlayerSlot;
-using ConsoleNetplay::kMultitapP4PlayerSlot;
-using ConsoleNetplay::kPort1PlayerSlot;
-using ConsoleNetplay::kPort2PlayerSlot;
-
 namespace {
 
 struct PadButtons

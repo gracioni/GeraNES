@@ -117,9 +117,7 @@ NetplayInputFrame ConfirmedInputBufferDriver::buildMaskContribution(PlayerSlot s
     NetplayInputFrame input;
     input.frame = frame;
     input.timelineEpoch = timelineEpoch;
-    if(slot <= kMaxAssignedPlayerSlot) {
-        input.buttonMaskLo[slot] = mask;
-    }
+    input.buttonMaskLo[slot] = mask;
     return input;
 }
 

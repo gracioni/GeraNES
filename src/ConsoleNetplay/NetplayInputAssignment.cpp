@@ -93,6 +93,9 @@ bool isAssignmentAvailable(PlayerSlot slot, const RoomState& room)
 RoomState roomWithInputTopology(RoomState room, std::vector<InputSlotDescriptor> inputTopology)
 {
     room.inputTopology = std::move(inputTopology);
+    for(auto& participant : room.participants) {
+        participant.normalizeControllerAssignments(&room.inputTopology);
+    }
     return room;
 }
 
@@ -174,7 +177,7 @@ NetplayInputFrame makeContributionBase(const NetplayInputFrame& baseFrame)
 
 uint64_t assignedContributionPrimaryMask(PlayerSlot slot, const NetplayInputFrame& contribution)
 {
-    return slot <= kMaxAssignedPlayerSlot ? contribution.buttonMaskLo[slot] : 0u;
+    return contribution.buttonMaskLo[slot];
 }
 
 void applyAssignedContribution(NetplayInputFrame& target, PlayerSlot slot, const NetplayInputFrame& contribution)
@@ -182,11 +185,9 @@ void applyAssignedContribution(NetplayInputFrame& target, PlayerSlot slot, const
     if(target.framePayload.empty() && !contribution.framePayload.empty()) {
         target.framePayload = contribution.framePayload;
     }
-    if(slot <= kMaxAssignedPlayerSlot) {
-        target.buttonMaskLo[slot] = contribution.buttonMaskLo[slot];
-        target.buttonMaskHi[slot] = contribution.buttonMaskHi[slot];
-        target.slotPayloads[slot] = contribution.slotPayloads[slot];
-    }
+    target.buttonMaskLo[slot] = contribution.buttonMaskLo[slot];
+    target.buttonMaskHi[slot] = contribution.buttonMaskHi[slot];
+    target.slotPayloads[slot] = contribution.slotPayloads[slot];
 
 }
 

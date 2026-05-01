@@ -6,6 +6,7 @@
 #include "GeraNES/InputBuffer.h"
 #include "GeraNES/Settings.h"
 #include "GeraNESNetplay/GeraNESInputState.h"
+#include "GeraNESNetplay/GeraNESNetplaySlots.h"
 #include "ConsoleNetplay/NetplayInputFrame.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
 #include "ConsoleNetplay/NetProtocol.h"
@@ -41,6 +42,9 @@ Settings::Device geraNESPortDeviceFromTopology(const RoomState& room, PlayerSlot
 Settings::ExpansionDevice geraNESExpansionDeviceFromTopology(const RoomState& room);
 Settings::NesMultitapDevice geraNESNesMultitapDeviceFromTopology(const RoomState& room);
 Settings::FamicomMultitapDevice geraNESFamicomMultitapDeviceFromTopology(const RoomState& room);
+std::optional<PlayerSlot> remapGeraNESAssignmentForTopologyChange(PlayerSlot assignment,
+                                                                  const RoomState& currentRoom,
+                                                                  const std::vector<ConsoleNetplay::InputSlotDescriptor>& candidateTopology);
 void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
                                  std::optional<Settings::Device> port1Device,
                                  std::optional<Settings::Device> port2Device,
