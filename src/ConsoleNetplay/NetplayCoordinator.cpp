@@ -120,7 +120,9 @@ ConsoleNetplay::InputTopologyData makeTopologyData(const ConsoleNetplay::RoomSta
             inputSlot.slot,
             static_cast<uint8_t>(inputSlot.assignable ? 1u : 0u),
             inputSlot.groupId,
-            inputSlot.deviceId
+            inputSlot.deviceId,
+            inputSlot.groupLabel,
+            inputSlot.inputLabel
         });
     }
     return data;
@@ -136,8 +138,8 @@ void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::In
             slot.groupId,
             slot.deviceId,
             slot.assignable != 0,
-            "Input " + std::to_string(static_cast<unsigned>(slot.groupId)),
-            "Device " + std::to_string(static_cast<unsigned>(slot.deviceId))
+            slot.groupLabel,
+            slot.inputLabel
         });
     }
     room.inputTopology = std::move(topology);
@@ -148,8 +150,16 @@ void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::In
 
 size_t serializedInputTopologyDataSize(const ConsoleNetplay::InputTopologyData& data)
 {
-    return sizeof(uint8_t) +
-           (sizeof(ConsoleNetplay::InputTopologyData::Slot) * data.slots.size());
+    size_t size = sizeof(uint8_t);
+    for(const auto& slot : data.slots) {
+        size += sizeof(ConsoleNetplay::PlayerSlot) +
+                sizeof(uint8_t) +
+                sizeof(ConsoleNetplay::InputGroupId) +
+                sizeof(ConsoleNetplay::InputDeviceId) +
+                sizeof(uint16_t) + slot.groupLabel.size() +
+                sizeof(uint16_t) + slot.inputLabel.size();
+    }
+    return size;
 }
 
 void writeInputTopologyData(ConsoleNetplay::PacketWriter& writer, const ConsoleNetplay::InputTopologyData& data)
@@ -157,7 +167,13 @@ void writeInputTopologyData(ConsoleNetplay::PacketWriter& writer, const ConsoleN
     const uint8_t slotCount = static_cast<uint8_t>(std::min<size_t>(data.slots.size(), std::numeric_limits<uint8_t>::max()));
     writer.writePod(slotCount);
     for(uint8_t index = 0; index < slotCount; ++index) {
-        writer.writePod(data.slots[index]);
+        const auto& slot = data.slots[index];
+        writer.writePod(slot.slot);
+        writer.writePod(slot.assignable);
+        writer.writePod(slot.groupId);
+        writer.writePod(slot.deviceId);
+        writer.writeString(slot.groupLabel);
+        writer.writeString(slot.inputLabel);
     }
 }
 
@@ -169,7 +185,14 @@ bool readInputTopologyData(ConsoleNetplay::PacketReader& reader, ConsoleNetplay:
     data.slots.reserve(slotCount);
     for(uint8_t index = 0; index < slotCount; ++index) {
         ConsoleNetplay::InputTopologyData::Slot slot;
-        if(!reader.readPod(slot)) return false;
+        if(!reader.readPod(slot.slot) ||
+           !reader.readPod(slot.assignable) ||
+           !reader.readPod(slot.groupId) ||
+           !reader.readPod(slot.deviceId) ||
+           !reader.readString(slot.groupLabel) ||
+           !reader.readString(slot.inputLabel)) {
+            return false;
+        }
         data.slots.push_back(slot);
     }
     return true;
@@ -6396,6 +6419,9 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         std::remove(participant->controllerAssignments.begin(), participant->controllerAssignments.end(), slot),
         participant->controllerAssignments.end()
     );
+    if(participant->controllerAssignments.empty()) {
+        participant->controllerAssignment = kObserverPlayerSlot;
+    }
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
     participant->lastReceivedInputFrame = assignmentBaselineFrame;

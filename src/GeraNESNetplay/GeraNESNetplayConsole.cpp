@@ -88,29 +88,60 @@ void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 void GeraNESNetplayConsole::publishCurrentInputTopology(NetplayCoordinator& coordinator)
 {
     const RoomState room = coordinator.session().roomState();
+    const Settings::Device roomPort1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+    const Settings::Device roomPort2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    const Settings::ExpansionDevice roomExpansionDevice = geraNESExpansionDeviceFromTopology(room);
+    const Settings::NesMultitapDevice roomNesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
+    const Settings::FamicomMultitapDevice roomFamicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
+
     std::optional<Settings::Device> port1Device = m_emu.getPortDevice(Settings::Port::P_1);
     std::optional<Settings::Device> port2Device = m_emu.getPortDevice(Settings::Port::P_2);
-    if(port1Device == std::optional<Settings::Device>(Settings::Device::NONE) &&
-       geraNESPortDeviceFromTopology(room, kPort1PlayerSlot) != Settings::Device::NONE) {
-        port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+    Settings::ExpansionDevice expansionDevice = m_emu.getExpansionDevice();
+    Settings::NesMultitapDevice nesMultitapDevice = m_emu.getNesMultitapDevice();
+    Settings::FamicomMultitapDevice famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
+
+    if(roomPort1Device != Settings::Device::NONE &&
+       port1Device != std::optional<Settings::Device>(roomPort1Device)) {
+        port1Device = roomPort1Device;
         if(coordinator.isHosting()) {
             m_emu.setPortDevice(Settings::Port::P_1, *port1Device);
         }
     }
-    if(port2Device == std::optional<Settings::Device>(Settings::Device::NONE) &&
-       geraNESPortDeviceFromTopology(room, kPort2PlayerSlot) != Settings::Device::NONE) {
-        port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    if(roomPort2Device != Settings::Device::NONE &&
+       port2Device != std::optional<Settings::Device>(roomPort2Device)) {
+        port2Device = roomPort2Device;
         if(coordinator.isHosting()) {
             m_emu.setPortDevice(Settings::Port::P_2, *port2Device);
+        }
+    }
+    if(roomExpansionDevice != Settings::ExpansionDevice::NONE &&
+       expansionDevice != roomExpansionDevice) {
+        expansionDevice = roomExpansionDevice;
+        if(coordinator.isHosting()) {
+            m_emu.setExpansionDevice(expansionDevice);
+        }
+    }
+    if(roomNesMultitapDevice != Settings::NesMultitapDevice::NONE &&
+       nesMultitapDevice != roomNesMultitapDevice) {
+        nesMultitapDevice = roomNesMultitapDevice;
+        if(coordinator.isHosting()) {
+            m_emu.setNesMultitapDevice(nesMultitapDevice);
+        }
+    }
+    if(roomFamicomMultitapDevice != Settings::FamicomMultitapDevice::NONE &&
+       famicomMultitapDevice != roomFamicomMultitapDevice) {
+        famicomMultitapDevice = roomFamicomMultitapDevice;
+        if(coordinator.isHosting()) {
+            m_emu.setFamicomMultitapDevice(famicomMultitapDevice);
         }
     }
     setGeraNESRoomInputTopology(
         coordinator,
         port1Device,
         port2Device,
-        m_emu.getExpansionDevice(),
-        m_emu.getNesMultitapDevice(),
-        m_emu.getFamicomMultitapDevice()
+        expansionDevice,
+        nesMultitapDevice,
+        famicomMultitapDevice
     );
 }
 

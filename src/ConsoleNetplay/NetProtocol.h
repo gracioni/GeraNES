@@ -10,7 +10,7 @@
 
 namespace ConsoleNetplay {
 
-constexpr uint8_t kProtocolVersion = 11;
+constexpr uint8_t kProtocolVersion = 12;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -132,6 +132,8 @@ struct InputTopologyData
         uint8_t assignable = 0;
         InputGroupId groupId = 0;
         InputDeviceId deviceId = kNoInputDevice;
+        std::string groupLabel;
+        std::string inputLabel;
     };
 
     std::vector<Slot> slots;

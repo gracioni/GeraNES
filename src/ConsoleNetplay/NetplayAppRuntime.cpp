@@ -265,6 +265,7 @@ void NetplayAppRuntime::disconnect()
 
 void NetplayAppRuntime::assignController(ParticipantId participantId, PlayerSlot slot)
 {
+    wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
         if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
             self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
@@ -278,6 +279,7 @@ void NetplayAppRuntime::assignController(ParticipantId participantId, PlayerSlot
 
 void NetplayAppRuntime::addControllerAssignment(ParticipantId participantId, PlayerSlot slot)
 {
+    wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
         if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
             self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
@@ -291,6 +293,7 @@ void NetplayAppRuntime::addControllerAssignment(ParticipantId participantId, Pla
 
 void NetplayAppRuntime::removeControllerAssignment(ParticipantId participantId, PlayerSlot slot)
 {
+    wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
         if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
             self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
@@ -304,6 +307,7 @@ void NetplayAppRuntime::removeControllerAssignment(ParticipantId participantId, 
 
 void NetplayAppRuntime::clearControllerAssignments(ParticipantId participantId)
 {
+    wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
         if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
             self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
@@ -319,6 +323,7 @@ void NetplayAppRuntime::configureInputAssignments(ParticipantId participantId,
                                                   std::vector<PlayerSlot> slots,
                                                   InputTopologyConfigurer configureTopology)
 {
+    wakeRuntimeHost();
     enqueueRuntimeCommand([=, configureTopology = std::move(configureTopology)](NetplayAppRuntime& self) mutable {
         PendingInputTopologyChange change;
         change.participantId = participantId;

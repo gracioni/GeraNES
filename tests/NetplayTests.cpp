@@ -6418,6 +6418,45 @@ TEST_CASE("GeraNES topology apply remaps equivalent assignments across Four Scor
     coordinator.disconnect();
 }
 
+TEST_CASE("Removing the last controller assignment returns host to observer",
+          "[netplay][assignment][observer]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+
+    REQUIRE(coordinator.addControllerAssignment(
+        coordinator.localParticipantId(),
+        GeraNESNetplay::kPort1PlayerSlot
+    ));
+    REQUIRE(coordinator.removeControllerAssignment(
+        coordinator.localParticipantId(),
+        GeraNESNetplay::kPort1PlayerSlot
+    ));
+
+    const ConsoleNetplay::ParticipantInfo* hostParticipant =
+        coordinator.session().findParticipant(coordinator.localParticipantId());
+    REQUIRE(hostParticipant != nullptr);
+    REQUIRE(ConsoleNetplay::participantIsObserver(*hostParticipant));
+    REQUIRE(hostParticipant->controllerAssignments.empty());
+    REQUIRE(hostParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay runtime flow hard-resyncs after an injected desync", "[netplay][runtime][resync]")
 {
     GeraNESTestSupport::requireRomFixture();
