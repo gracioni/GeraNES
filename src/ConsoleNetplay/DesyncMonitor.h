@@ -25,7 +25,7 @@ public:
     void reset();
     Update submitLocalCrc(FrameNumber frame, uint32_t crc32);
     Update submitRemoteCrc(FrameNumber frame, uint32_t crc32);
-    void invalidateLocalHistoryAfter(FrameNumber frame);
+    void invalidateHistoryAfter(FrameNumber frame);
 
 private:
     static constexpr size_t kHistoryCapacity = 512;

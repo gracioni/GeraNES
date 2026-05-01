@@ -5823,7 +5823,7 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
 
 void NetplayCoordinator::invalidateLocalCrcHistoryAfter(FrameNumber frame)
 {
-    m_desyncMonitor.invalidateLocalHistoryAfter(frame);
+    m_desyncMonitor.invalidateHistoryAfter(frame);
 }
 
 bool NetplayCoordinator::beginResync(FrameNumber targetFrame,

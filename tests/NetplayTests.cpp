@@ -385,6 +385,22 @@ TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives befor
     REQUIRE(mismatch.consecutiveMismatchCount == 1u);
 }
 
+TEST_CASE("Netplay desync monitor drops stale remote CRC history after realignment", "[netplay][crc][monitor]")
+{
+    ConsoleNetplay::DesyncMonitor monitor;
+
+    REQUIRE(monitor.submitRemoteCrc(300u, 0x11111111u).compared == false);
+    monitor.invalidateHistoryAfter(200u);
+
+    const auto localOnly = monitor.submitLocalCrc(300u, 0x22222222u);
+    REQUIRE(localOnly.compared == false);
+    REQUIRE(localOnly.mismatchDetected == false);
+
+    const auto remoteMatch = monitor.submitRemoteCrc(300u, 0x22222222u);
+    REQUIRE(remoteMatch.compared == true);
+    REQUIRE(remoteMatch.mismatchDetected == false);
+}
+
 TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
 {
     ConsoleNetplay::RemoteInputStallMonitor monitor;
