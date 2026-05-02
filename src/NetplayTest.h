@@ -97,6 +97,7 @@ public:
         bool assignLateJoinClientToMultitapAfterJoin = false;
         bool hostMultitapAssignedBeforeJoinOnly = false;
         bool clientAssignedOnly = false;
+        bool clientAssignedPort1Only = false;
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
         bool requireHostManualLoadDuringResync = false;
@@ -2073,9 +2074,14 @@ private:
                 return result;
             }
         } else {
-            if(options.clientAssignedOnly) {
+            if(options.clientAssignedOnly || options.clientAssignedPort1Only) {
                 hostPeer.runtime.clearControllerAssignments(*hostId);
-                hostPeer.runtime.assignController(*clientId, 1);
+                hostPeer.runtime.assignController(
+                    *clientId,
+                    options.clientAssignedPort1Only
+                        ? GeraNESNetplay::kPort1PlayerSlot
+                        : GeraNESNetplay::kPort2PlayerSlot
+                );
             } else {
                 hostPeer.runtime.assignController(*hostId, 0);
                 hostPeer.runtime.assignController(*clientId, 1);
@@ -2092,8 +2098,13 @@ private:
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
                            hostParticipant->controllerAssignment ==
-                               (options.clientAssignedOnly ? ConsoleNetplay::kObserverPlayerSlot : 0) &&
-                           clientParticipant->controllerAssignment == 1 &&
+                               ((options.clientAssignedOnly || options.clientAssignedPort1Only)
+                                    ? ConsoleNetplay::kObserverPlayerSlot
+                                    : 0) &&
+                           clientParticipant->controllerAssignment ==
+                               (options.clientAssignedPort1Only
+                                    ? GeraNESNetplay::kPort1PlayerSlot
+                                    : GeraNESNetplay::kPort2PlayerSlot) &&
                            hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&

@@ -1656,8 +1656,13 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
 
     if(result.localSlots != lastLocalAssignedSlots) {
         result.localSlotsChanged = true;
-        inputDriver.reset();
-        result.resetInputDriver = true;
+        if(running) {
+            inputDriver.reanchor(localFrame);
+            result.reanchorInputDriver = true;
+        } else {
+            inputDriver.reset();
+            result.resetInputDriver = true;
+        }
         lastLocalAssignedSlots = result.localSlots;
     }
 

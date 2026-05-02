@@ -2286,6 +2286,54 @@ TEST_CASE("Late-joining assigned client remains deterministic after assignment r
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
 }
 
+TEST_CASE("Netplay web host does not stall when observer host becomes port 2 after client already has port 1",
+          "[netplay][runtime][web][assignment][host-observer][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.assignmentSwapAfterFrames = 24;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-host-observer-to-port2",
+        ""
+    };
+    options.frames = 120;
+    options.inputDelayFrames = 3;
+    options.predictFrames = 8;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.frameStepLimit = 50000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_host_observer_to_port2_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("assignmentSwapTriggered") == true);
+    REQUIRE(report.at("assignmentSwapVerified") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
+}
+
 TEST_CASE("Late-joining Four Score client assignment does not trigger resync storm",
           "[netplay][runtime][late-join][multitap][assignment][regression]")
 {
@@ -2627,6 +2675,127 @@ TEST_CASE("Netplay runtime flow recovers from reconnect and reassignment", "[net
     REQUIRE(report.at("reconnectTriggered") == true);
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
+}
+
+TEST_CASE("Netplay host accepts next local input after observer-to-port2 assignment",
+          "[netplay][assignment][host-local][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 1;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 1927u;
+    room.lastConfirmedFrame = 1927u;
+    room.selectedGameName = "AssignLocalPort2";
+
+    ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
+    hostLocal->connected = true;
+    hostLocal->romLoaded = true;
+    hostLocal->romCompatible = true;
+    hostLocal->role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    hostLocal->controllerAssignments.clear();
+    hostLocal->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+    hostLocal->normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1u;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remoteParticipant);
+
+    host.setLocalSimulationFrame(1927u);
+    REQUIRE(host.assignController(host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot));
+
+    hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
+    REQUIRE(hostLocal->controllerAssignments == std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort2PlayerSlot});
+    REQUIRE(host.localInputs().find(1927u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+
+    host.recordLocalInputFrame(1928u, GeraNESNetplay::kPort2PlayerSlot, 0u);
+
+    REQUIRE(host.localInputs().find(1928u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(hostLocal->lastLocalInputRejectReason == 0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay host accepts confirmed-frontier local input rebase after assignment gap",
+          "[netplay][assignment][host-local][rebase][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 1;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 1927u;
+    room.lastConfirmedFrame = 1927u;
+    room.selectedGameName = "AssignLocalPort2Rebase";
+
+    ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
+    hostLocal->connected = true;
+    hostLocal->romLoaded = true;
+    hostLocal->romCompatible = true;
+    hostLocal->role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    hostLocal->controllerAssignments.clear();
+    hostLocal->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+    hostLocal->normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = 1u;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remoteParticipant);
+
+    host.setLocalSimulationFrame(1927u);
+    REQUIRE(host.assignController(host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot));
+    REQUIRE(host.localInputs().find(1927u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+
+    host.discardTimelineAfter(1926u, false);
+    room.currentFrame = 1927u;
+    room.lastConfirmedFrame = 1927u;
+    host.setLocalSimulationFrame(1927u);
+
+    host.recordLocalInputFrame(1928u, GeraNESNetplay::kPort2PlayerSlot, 0u);
+
+    REQUIRE(host.localInputs().find(1928u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(hostLocal->lastLocalInputRejectReason == 0u);
+
+    host.disconnect();
 }
 
 TEST_CASE("Kicked netplay participant does not auto reconnect", "[netplay][kick][reconnect][unit]")

@@ -5952,9 +5952,15 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
     if(latest != nullptr && frame != latest->frame + 1u) {
         const bool allowConfirmedFrontierRebase =
-            !m_hosting &&
             frame > latest->frame + 1u &&
-            m_session.roomState().lastConfirmedFrame >= frame - 1u;
+            m_session.roomState().lastConfirmedFrame >= frame - 1u &&
+            (!m_hosting ||
+             (latest->confirmed &&
+              m_session.roomState().currentFrame >= frame - 1u)) &&
+            (
+                !m_hosting ||
+                m_session.roomState().recoveryInputMode != RecoveryInputMode::ResyncLocked
+            );
         if(allowConfirmedFrontierRebase) {
             std::ostringstream oss;
             oss << "Accepted local input rebase frame " << frame
