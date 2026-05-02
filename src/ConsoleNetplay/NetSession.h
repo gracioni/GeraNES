@@ -47,6 +47,10 @@ struct ParticipantInfo
     FrameNumber lastReceivedInputFrame = 0;
     FrameNumber lastContiguousInputFrame = 0;
     uint32_t lastReceivedInputSequence = 0;
+    FrameNumber lastObservedInputFrame = 0;
+    uint32_t lastObservedInputSequence = 0;
+    uint32_t lastObservedInputEpoch = 0;
+    PlayerSlot lastObservedInputSlot = kObserverPlayerSlot;
     bool sequenceRebasePending = false;
     std::optional<FrameNumber> pendingMissingInputFrom;
     uint32_t missingInputGapCount = 0;

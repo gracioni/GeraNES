@@ -1424,6 +1424,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         // packets from a previous timeline epoch, to avoid false timeout/recovery loops.
         m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
         m_lastGameplayInputAt[participant->id] = std::chrono::steady_clock::now();
+        participant->lastObservedInputFrame = input.frame;
+        participant->lastObservedInputSequence = input.sequence;
+        participant->lastObservedInputEpoch = input.timelineEpoch;
+        participant->lastObservedInputSlot = input.playerSlot;
     }
     if(!m_hosting &&
        input.authoritativeFrameStartClockMicros != 0u &&
@@ -1453,6 +1457,14 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             pushLog(oss.str());
             return true;
         }
+        recordRejectedInput(participant, "future_epoch");
+        std::ostringstream oss;
+        oss << "Ignored future-epoch input"
+            << " frame " << input.frame
+            << " seq " << input.sequence
+            << " epoch " << input.timelineEpoch
+            << " (current " << m_session.roomState().timelineEpoch << ")";
+        pushLog(oss.str());
         return false;
     }
     m_session.roomState().lastAcceptedRemoteEpoch = input.timelineEpoch;
@@ -2260,6 +2272,10 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
             << " lastReceivedFrame " << participant.lastReceivedInputFrame
             << " lastContiguousFrame " << participant.lastContiguousInputFrame
             << " lastReceivedSeq " << participant.lastReceivedInputSequence
+            << " lastObservedInputFrame " << participant.lastObservedInputFrame
+            << " lastObservedInputSeq " << participant.lastObservedInputSequence
+            << " lastObservedInputEpoch " << participant.lastObservedInputEpoch
+            << " lastObservedInputSlot " << static_cast<unsigned>(participant.lastObservedInputSlot) + 1u
             << " reportedLocalInputFrame " << participant.lastReportedProducedLocalInputFrame
             << " reportedLocalInputSeq " << participant.lastReportedProducedLocalInputSequence
             << " reportedLocalAssignments " << static_cast<unsigned>(participant.lastReportedLocalAssignmentCount)
