@@ -1446,6 +1446,15 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     }
     m_session.roomState().lastAcceptedRemoteEpoch = input.timelineEpoch;
     if(input.playerSlot == kObserverPlayerSlot) {
+        if(participant != nullptr && !participantIsObserver(*participant)) {
+            recordRejectedInput(participant, "observer_input_packet");
+            std::ostringstream oss;
+            oss << "Ignored observer-slot input from assigned participant "
+                << participant->displayName
+                << " frame " << input.frame
+                << " seq " << input.sequence;
+            pushLog(oss.str());
+        }
         return true;
     }
     if(!isPlayableSlot(m_session.roomState(), input.playerSlot)) {
