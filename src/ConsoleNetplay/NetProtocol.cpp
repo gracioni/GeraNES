@@ -372,6 +372,9 @@ void PeerHealthData::serialize(PacketWriter& writer) const
     writer.writePod(lastProducedLocalInputFrame);
     writer.writePod(lastProducedLocalInputSequence);
     writer.writePod(localAssignmentCount);
+    writer.writePod(lastLocalInputRejectReason);
+    writer.writePod(lastLocalInputRejectFrame);
+    writer.writePod(lastLocalInputRejectExpectedFrame);
     writer.writePod(pingMs);
     writer.writePod(jitterMs);
     writer.writePod(sharedClockMicros);
@@ -387,6 +390,9 @@ bool PeerHealthData::deserialize(PacketReader& reader, PeerHealthData& data)
            reader.readPod(data.lastProducedLocalInputFrame) &&
            reader.readPod(data.lastProducedLocalInputSequence) &&
            reader.readPod(data.localAssignmentCount) &&
+           reader.readPod(data.lastLocalInputRejectReason) &&
+           reader.readPod(data.lastLocalInputRejectFrame) &&
+           reader.readPod(data.lastLocalInputRejectExpectedFrame) &&
            reader.readPod(data.pingMs) &&
            reader.readPod(data.jitterMs) &&
            reader.readPod(data.sharedClockMicros) &&

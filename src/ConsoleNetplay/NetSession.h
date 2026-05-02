@@ -40,6 +40,9 @@ struct ParticipantInfo
     FrameNumber lastReportedProducedLocalInputFrame = 0;
     uint32_t lastReportedProducedLocalInputSequence = 0;
     uint8_t lastReportedLocalAssignmentCount = 0;
+    uint8_t lastReportedLocalInputRejectReason = 0;
+    FrameNumber lastReportedLocalInputRejectFrame = 0;
+    FrameNumber lastReportedLocalInputRejectExpectedFrame = 0;
     uint32_t peerHealthSerial = 0;
     FrameNumber lastReceivedInputFrame = 0;
     FrameNumber lastContiguousInputFrame = 0;
@@ -53,6 +56,9 @@ struct ParticipantInfo
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
     std::string lastDecision;
+    uint8_t lastLocalInputRejectReason = 0;
+    FrameNumber lastLocalInputRejectFrame = 0;
+    FrameNumber lastLocalInputRejectExpectedFrame = 0;
     FrameNumber lastRejectedInputFrame = 0;
     uint32_t lastRejectedInputSequence = 0;
     PlayerSlot lastRejectedInputSlot = kObserverPlayerSlot;

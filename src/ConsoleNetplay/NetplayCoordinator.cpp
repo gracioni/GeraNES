@@ -34,6 +34,18 @@ constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
+constexpr uint8_t kLocalInputRejectNone = 0u;
+constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
+constexpr uint8_t kLocalInputRejectNonSequential = 2u;
+
+const char* localInputRejectReasonLabel(uint8_t reason)
+{
+    switch(reason) {
+        case kLocalInputRejectExistingFrame: return "existing_frame";
+        case kLocalInputRejectNonSequential: return "non_sequential_frame";
+        default: return "none";
+    }
+}
 
 std::string participantLabel(const ConsoleNetplay::ParticipantInfo& participant)
 {
@@ -2248,6 +2260,9 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
             << " reportedLocalInputFrame " << participant.lastReportedProducedLocalInputFrame
             << " reportedLocalInputSeq " << participant.lastReportedProducedLocalInputSequence
             << " reportedLocalAssignments " << static_cast<unsigned>(participant.lastReportedLocalAssignmentCount)
+            << " reportedLocalInputRejectReason " << localInputRejectReasonLabel(participant.lastReportedLocalInputRejectReason)
+            << " reportedLocalInputRejectFrame " << participant.lastReportedLocalInputRejectFrame
+            << " reportedLocalInputRejectExpectedFrame " << participant.lastReportedLocalInputRejectExpectedFrame
             << " peerHealthSerial " << participant.peerHealthSerial;
         if(remoteInputIt != m_lastRemoteInputAt.end()) {
             oss << " remoteInputIdleMs " << millisSince(remoteInputIt->second);
@@ -3579,6 +3594,9 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
         participant->lastReportedProducedLocalInputFrame = data.lastProducedLocalInputFrame;
         participant->lastReportedProducedLocalInputSequence = data.lastProducedLocalInputSequence;
         participant->lastReportedLocalAssignmentCount = data.localAssignmentCount;
+        participant->lastReportedLocalInputRejectReason = data.lastLocalInputRejectReason;
+        participant->lastReportedLocalInputRejectFrame = data.lastLocalInputRejectFrame;
+        participant->lastReportedLocalInputRejectExpectedFrame = data.lastLocalInputRejectExpectedFrame;
         participant->sharedClockMicros = data.sharedClockMicros;
         participant->clockSyncRttMicros = data.clockSyncRttMicros;
         participant->sharedClockSynchronized = data.sharedClockSynchronized != 0;
@@ -3714,6 +3732,9 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
         data.localAssignmentCount = static_cast<uint8_t>(
             std::min<size_t>(localAssignments.size(), static_cast<size_t>(std::numeric_limits<uint8_t>::max()))
         );
+        data.lastLocalInputRejectReason = participant->lastLocalInputRejectReason;
+        data.lastLocalInputRejectFrame = participant->lastLocalInputRejectFrame;
+        data.lastLocalInputRejectExpectedFrame = participant->lastLocalInputRejectExpectedFrame;
         for(const TimelineInputEntry& entry : m_localInputs.entries()) {
             if(entry.participantId != m_localParticipantId) continue;
             if(entry.frame > data.lastProducedLocalInputFrame) {
@@ -5776,8 +5797,17 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     normalizedContribution.buttonMaskLo[slot] = buttonMaskLo;
     normalizedContribution.buttonMaskHi[slot] = buttonMaskHi;
 
+    auto updateLocalRejectState = [&](uint8_t reason, FrameNumber rejectFrame, FrameNumber expectedFrame) {
+        if(ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId)) {
+            localParticipant->lastLocalInputRejectReason = reason;
+            localParticipant->lastLocalInputRejectFrame = rejectFrame;
+            localParticipant->lastLocalInputRejectExpectedFrame = expectedFrame;
+        }
+    };
+
     const TimelineInputEntry* existing = m_localInputs.find(frame, m_localParticipantId, slot);
     if(existing != nullptr) {
+        updateLocalRejectState(kLocalInputRejectExistingFrame, frame, frame);
         if(existing->buttonMaskLo != buttonMaskLo ||
            existing->buttonMaskHi != buttonMaskHi ||
            existing->netplayFrame != normalizedContribution) {
@@ -5805,6 +5835,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
                 << " confirmedThrough " << m_session.roomState().lastConfirmedFrame;
             pushLog(oss.str());
         } else {
+        updateLocalRejectState(kLocalInputRejectNonSequential, frame, latest->frame + 1u);
         std::ostringstream oss;
         oss << "Rejected non-sequential local input frame " << frame
             << " for slot " << static_cast<unsigned>(slot) + 1u
@@ -5824,6 +5855,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     entry.sequence = ++m_localInputSequence;
     entry.confirmed = m_hosting;
     m_localInputs.push(entry);
+    updateLocalRejectState(kLocalInputRejectNone, 0u, 0u);
 
     InputFrameData packetData;
     packetData.timelineEpoch = m_session.roomState().timelineEpoch;
