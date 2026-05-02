@@ -355,7 +355,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 forwardKeyEvent(event, true);
 
                 if (isCopyShortcut(event)) {
-                    event.preventDefault();
+                    handleCopyShortcut(event);
                 }
 
                 if (isManagedKey(event.key)) {
@@ -365,10 +365,6 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
 
             input.addEventListener('keyup', function(event) {
                 forwardKeyEvent(event, false);
-
-                if (isCopyShortcut(event)) {
-                    handleCopyShortcut(event);
-                }
 
                 if (isManagedKey(event.key)) {
                     event.preventDefault();
@@ -446,7 +442,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     forwardKeyEvent(event, true);
 
                     if (isCopyShortcut(event)) {
-                        event.preventDefault();
+                        handleCopyShortcut(event);
                     }
                 }, true);
 
@@ -456,10 +452,6 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     }
 
                     forwardKeyEvent(event, false);
-
-                    if (isCopyShortcut(event)) {
-                        handleCopyShortcut(event);
-                    }
                 }, true);
 
                 document.addEventListener('copy', function(event) {
