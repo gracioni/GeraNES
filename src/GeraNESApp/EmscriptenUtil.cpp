@@ -46,6 +46,21 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
         }
 
         function getPreferredClipboardText() {
+            if (typeof window.__geranes_force_clipboard_text === 'string') {
+                return window.__geranes_force_clipboard_text;
+            }
+            const clipboardUpdatedAt =
+                typeof window.__geranes_imgui_clipboard_updated_at === 'number'
+                    ? window.__geranes_imgui_clipboard_updated_at
+                    : 0;
+            const selectionUpdatedAt =
+                typeof window.__geranes_imgui_selection_updated_at === 'number'
+                    ? window.__geranes_imgui_selection_updated_at
+                    : 0;
+            if (clipboardUpdatedAt >= selectionUpdatedAt &&
+                typeof window.__geranes_imgui_clipboard_text === 'string') {
+                return window.__geranes_imgui_clipboard_text;
+            }
             if (typeof window.__geranes_imgui_selection_text === 'string' &&
                 window.__geranes_imgui_selection_text.length > 0) {
                 return window.__geranes_imgui_selection_text;
@@ -63,6 +78,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
 
             function copyTextToClipboard(text, preferDomCopy) {
                 const resolvedText = typeof text === 'string' ? text : "";
+                window.__geranes_force_clipboard_text = resolvedText;
                 window.__geranes_imgui_clipboard_text = resolvedText;
                 window.__geranes_imgui_clipboard_updated_at = Date.now();
 
@@ -81,6 +97,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     } catch (err) {
                         console.warn('document.execCommand(copy) failed:', err);
                     }
+                    delete window.__geranes_force_clipboard_text;
                     document.body.removeChild(textarea);
                     return copied;
                 }
@@ -97,10 +114,13 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     navigator.clipboard.writeText(resolvedText).catch(function(err) {
                         console.warn('navigator.clipboard.writeText failed:', err);
                     });
+                    delete window.__geranes_force_clipboard_text;
                     return true;
                 }
 
-                return fallbackCopy();
+                const copied = fallbackCopy();
+                delete window.__geranes_force_clipboard_text;
+                return copied;
             }
 
             if (typeof window.__geranes_copy_text_to_clipboard !== 'function') {
