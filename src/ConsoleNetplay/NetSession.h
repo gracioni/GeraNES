@@ -50,6 +50,11 @@ struct ParticipantInfo
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
     std::string lastDecision;
+    FrameNumber lastRejectedInputFrame = 0;
+    uint32_t lastRejectedInputSequence = 0;
+    PlayerSlot lastRejectedInputSlot = kObserverPlayerSlot;
+    uint32_t lastRejectedInputEpoch = 0;
+    std::string lastRejectedInputReason;
     bool inputSuspended = false;
     bool inputResumeAwaitingResync = false;
 

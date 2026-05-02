@@ -1420,8 +1420,17 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         m_session.roomState().lastAuthoritativeClockFrame = input.frame;
         m_session.roomState().lastAuthoritativeClockMicros = input.authoritativeFrameStartClockMicros;
     }
+    auto recordRejectedInput = [&](ParticipantInfo* rejectedParticipant, const std::string& reason) {
+        if(rejectedParticipant == nullptr) return;
+        rejectedParticipant->lastRejectedInputFrame = input.frame;
+        rejectedParticipant->lastRejectedInputSequence = input.sequence;
+        rejectedParticipant->lastRejectedInputSlot = input.playerSlot;
+        rejectedParticipant->lastRejectedInputEpoch = input.timelineEpoch;
+        rejectedParticipant->lastRejectedInputReason = reason;
+    };
     if(input.timelineEpoch != m_session.roomState().timelineEpoch) {
         if(input.timelineEpoch < m_session.roomState().timelineEpoch) {
+            recordRejectedInput(participant, "stale_epoch");
             m_session.roomState().lastIgnoredStaleInputEpoch = input.timelineEpoch;
             ++m_session.roomState().staleInputPacketCount;
             std::ostringstream oss;
@@ -1440,10 +1449,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         return true;
     }
     if(!isPlayableSlot(m_session.roomState(), input.playerSlot)) {
+        recordRejectedInput(participant, "invalid_slot");
         pushLog("Ignored input frame with invalid player slot");
         return true;
     }
     if(m_session.roomState().recoveryInputMode == RecoveryInputMode::ResyncLocked) {
+        recordRejectedInput(participant, "recovery_locked");
         noteDroppedGameplayInputDuringRecovery("input_frame", input.frame, input.participantId, input.playerSlot);
         return true;
     }
@@ -1460,8 +1471,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             if(participantIsObserver(*participant)) {
                 // Observers can still emit local input events depending on platform/UI.
                 // Ignore silently to avoid flooding logs every frame.
+                recordRejectedInput(participant, "observer_assignment");
                 return true;
             }
+            recordRejectedInput(participant, "unexpected_assignment");
             std::ostringstream oss;
             oss << "Ignored input for unexpected assignment from " << participant->displayName
                 << ": got " << inputAssignmentLabel(input.playerSlot, m_session.roomState());
@@ -1472,6 +1485,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 
         if(m_hosting && participant->id != m_localParticipantId) {
             if(participant->inputResumeAwaitingResync) {
+                recordRejectedInput(participant, "awaiting_resync");
                 std::ostringstream oss;
                 oss << "Ignoring resumed participant input until authoritative resync completes: "
                     << participant->displayName
@@ -1497,6 +1511,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             allowSequenceBaselineReset &&
             input.sequence != expectedSequence;
         if(input.sequence <= participant->lastReceivedInputSequence && !allowSequenceBaselineReset) {
+            recordRejectedInput(participant, "stale_or_duplicate_sequence");
             std::ostringstream oss;
             oss << "Ignored stale/duplicate input from " << participant->displayName
                 << " frame " << input.frame
@@ -1506,6 +1521,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
         if(input.sequence != expectedSequence && !allowSequenceRebase && !allowClientResyncRebase) {
+            recordRejectedInput(participant, "non_sequential_sequence");
             std::ostringstream oss;
             oss << "Rejected non-sequential input sequence from " << participant->displayName
                 << " seq " << input.sequence
@@ -1525,6 +1541,9 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 existingCommitted->buttonMaskLo != input.buttonMaskLo ||
                 existingCommitted->buttonMaskHi != input.buttonMaskHi ||
                 existingCommitted->netplayFrame.slotPayloads[input.playerSlot] != netplayFrame.slotPayloads[input.playerSlot];
+            recordRejectedInput(participant,
+                                committedMismatch ? "late_committed_input_mismatch"
+                                                  : "late_committed_input_duplicate");
             participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
             participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
             participant->sequenceRebasePending = false;
@@ -1544,6 +1563,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
 
         if(input.frame != expectedFrame && !allowSequenceRebase && !allowClientResyncRebase) {
+            recordRejectedInput(participant, "non_sequential_frame");
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
                 << " frame " << input.frame
@@ -1576,6 +1596,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 : std::max(participant->lastReceivedInputSequence, input.sequence);
         participant->inputSuspended = false;
         participant->sequenceRebasePending = false;
+        participant->lastRejectedInputReason.clear();
     }
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
@@ -2224,6 +2245,13 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         }
         if(peerHealthIt != m_lastPeerHealthAt.end()) {
             oss << " peerHealthIdleMs " << millisSince(peerHealthIt->second);
+        }
+        if(!participant.lastRejectedInputReason.empty()) {
+            oss << " lastRejectedInputReason " << participant.lastRejectedInputReason
+                << " lastRejectedFrame " << participant.lastRejectedInputFrame
+                << " lastRejectedSeq " << participant.lastRejectedInputSequence
+                << " lastRejectedSlot " << static_cast<unsigned>(participant.lastRejectedInputSlot) + 1u
+                << " lastRejectedEpoch " << participant.lastRejectedInputEpoch;
         }
         pushLog(oss.str());
     } else {
