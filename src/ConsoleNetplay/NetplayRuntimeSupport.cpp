@@ -11,6 +11,8 @@ namespace ConsoleNetplay {
 
 namespace {
 
+constexpr FrameNumber kClientHostPlaybackLeadSlackFrames = 2u;
+
 std::string runtimeContentHashKey(const RomValidationData& validation)
 {
     std::ostringstream oss;
@@ -19,6 +21,36 @@ std::string runtimeContentHashKey(const RomValidationData& validation)
         oss << std::setw(2) << static_cast<unsigned>(byte);
     }
     return oss.str();
+}
+
+std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordinator& coordinator,
+                                                             const INetplayConsole& console)
+{
+    if(!coordinator.isActive() || coordinator.isHosting()) {
+        return std::nullopt;
+    }
+
+    const RoomState& room = coordinator.session().roomState();
+    FrameNumber capFrame = std::max(room.currentFrame, room.lastConfirmedFrame);
+
+    if(room.lastAuthoritativeClockFrame != 0u &&
+       room.lastAuthoritativeClockMicros != 0u &&
+       room.sharedClockSynchronized) {
+        const uint64_t nowSharedClockMicros = coordinator.sharedClockNowMicros();
+        const uint64_t frameDtMicros =
+            std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, static_cast<uint64_t>(console.regionFps())));
+        if(nowSharedClockMicros != 0u) {
+            FrameNumber estimatedHostFrameFromClock = room.lastAuthoritativeClockFrame;
+            if(nowSharedClockMicros > room.lastAuthoritativeClockMicros) {
+                estimatedHostFrameFromClock += static_cast<FrameNumber>(
+                    (nowSharedClockMicros - room.lastAuthoritativeClockMicros) / frameDtMicros
+                );
+            }
+            capFrame = std::max(capFrame, estimatedHostFrameFromClock);
+        }
+    }
+
+    return capFrame + kClientHostPlaybackLeadSlackFrames;
 }
 
 } // namespace
@@ -1642,6 +1674,7 @@ void runtimeProduceLocalBufferedInputs(NetplayCoordinator& coordinator,
 void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
                                   ConfirmedInputBufferDriver& inputDriver,
                                   FrameNumber localFrame,
+                                  std::optional<FrameNumber> maxPlaybackFrame,
                                   const ConfirmedInputBufferDriver::PendingFrameConsumer& consumeFrame)
 {
     inputDriver.preparePlaybackFramesForEmulationThread(
@@ -1649,11 +1682,16 @@ void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
         coordinator.isActive(),
         false,
         coordinator.session().roomState().state,
-        localFrame
+        localFrame,
+        maxPlaybackFrame
     );
+    FrameNumber queueLimitFrame = localFrame + inputDriver.prebufferFrames() + inputDriver.predictFrames();
+    if(maxPlaybackFrame.has_value()) {
+        queueLimitFrame = std::min(queueLimitFrame, *maxPlaybackFrame);
+    }
     inputDriver.consumePendingFrames(
         localFrame,
-        localFrame + inputDriver.prebufferFrames() + inputDriver.predictFrames(),
+        queueLimitFrame,
         consumeFrame
     );
 }
@@ -1662,10 +1700,13 @@ void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
                                   ConfirmedInputBufferDriver& inputDriver,
                                   INetplayConsole& console)
 {
+    const std::optional<FrameNumber> maxPlaybackFrame =
+        runtimeClientHostPlaybackCapFrame(coordinator, console);
     runtimePreparePlaybackFrames(
         coordinator,
         inputDriver,
         console.frameCount(),
+        maxPlaybackFrame,
         [&console](const NetplayCoordinator::ConfirmedFrameInputs& confirmed) {
             (void)console.queuePlaybackInputFrame(confirmed);
         }

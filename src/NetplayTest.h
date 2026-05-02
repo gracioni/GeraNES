@@ -1479,9 +1479,11 @@ private:
                                              const std::string& failureReason,
                                              uint32_t lastCheckedFrame,
                                              uint32_t maxStallSteps,
-                                             bool assignmentSwapTriggered = false,
-                                             bool assignmentSwapVerified = false,
-                                             bool assignmentPatternVerified = false)
+                                             uint32_t maxClientAheadOfHostFrames,
+                                             uint32_t maxHostAheadOfClientFrames,
+                                             bool assignmentSwapTriggered,
+                                             bool assignmentSwapVerified,
+                                             bool assignmentPatternVerified)
     {
         nlohmann::json hostReport = buildRuntimePeerReport(hostPeer);
         nlohmann::json clientReport = buildRuntimePeerReport(clientPeer);
@@ -1541,6 +1543,8 @@ private:
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
+            {"maxClientAheadOfHostFrames", maxClientAheadOfHostFrames},
+            {"maxHostAheadOfClientFrames", maxHostAheadOfClientFrames},
             {"assignmentSwapTriggered", assignmentSwapTriggered},
             {"assignmentSwapVerified", assignmentSwapVerified},
             {"assignmentPatternVerified", assignmentPatternVerified},
@@ -1556,6 +1560,59 @@ private:
             {"host", std::move(hostReport)},
             {"client", std::move(clientReport)}
         };
+    }
+
+    template<typename PeerT>
+    static nlohmann::json buildRuntimeReport(const Options& options,
+                                             PeerT& hostPeer,
+                                             PeerT& clientPeer,
+                                             const std::string& status,
+                                             const std::string& failureReason,
+                                             uint32_t lastCheckedFrame,
+                                             uint32_t maxStallSteps)
+    {
+        return buildRuntimeReport(
+            options,
+            hostPeer,
+            clientPeer,
+            status,
+            failureReason,
+            lastCheckedFrame,
+            maxStallSteps,
+            0u,
+            0u,
+            false,
+            false,
+            false
+        );
+    }
+
+    template<typename PeerT>
+    static nlohmann::json buildRuntimeReport(const Options& options,
+                                             PeerT& hostPeer,
+                                             PeerT& clientPeer,
+                                             const std::string& status,
+                                             const std::string& failureReason,
+                                             uint32_t lastCheckedFrame,
+                                             uint32_t maxStallSteps,
+                                             bool assignmentSwapTriggered,
+                                             bool assignmentSwapVerified,
+                                             bool assignmentPatternVerified)
+    {
+        return buildRuntimeReport(
+            options,
+            hostPeer,
+            clientPeer,
+            status,
+            failureReason,
+            lastCheckedFrame,
+            maxStallSteps,
+            0u,
+            0u,
+            assignmentSwapTriggered,
+            assignmentSwapVerified,
+            assignmentPatternVerified
+        );
     }
 
     template<typename PeerT>
@@ -1588,6 +1645,8 @@ private:
         uint32_t stallSteps = 0;
         uint32_t sharedProgressStallSteps = 0;
         uint32_t maxStallSteps = 0;
+        uint32_t maxClientAheadOfHostFrames = 0;
+        uint32_t maxHostAheadOfClientFrames = 0;
         bool wallClockTimedOut = false;
         const auto wallClockStart = std::chrono::steady_clock::now();
         const auto wallClockTimeout =
@@ -1595,6 +1654,17 @@ private:
         const auto wallClockExpired = [&]() {
             return options.wallClockTimeoutSeconds > 0u &&
                    std::chrono::steady_clock::now() - wallClockStart >= wallClockTimeout;
+        };
+        const auto recordLeadWindow = [&]() {
+            const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
+            const uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
+            if(clientFrame > hostFrame) {
+                maxClientAheadOfHostFrames =
+                    std::max<uint32_t>(maxClientAheadOfHostFrames, clientFrame - hostFrame);
+            } else if(hostFrame > clientFrame) {
+                maxHostAheadOfClientFrames =
+                    std::max<uint32_t>(maxHostAheadOfClientFrames, hostFrame - clientFrame);
+            }
         };
 
         const auto cleanup = [&]() {
@@ -2188,7 +2258,7 @@ private:
             if(wallClockExpired()) {
                 wallClockTimedOut = true;
                 failureReason = "Runtime-flow netplay test exceeded wall-clock timeout.";
-                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "timeout", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "timeout", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["wallClockTimedOut"] = true;
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
@@ -2205,6 +2275,7 @@ private:
             }
             const uint32_t hostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t clientFrame = clientPeer.emu.exactEmulationFrame();
+            recordLeadWindow();
             const auto hostLoopSnapshot = hostPeer.runtime.uiSnapshot();
             const auto clientLoopSnapshot = clientPeer.runtime.uiSnapshot();
             const auto hostLocalSlot = localAssignedSlot(hostLoopSnapshot.room, hostLoopSnapshot.localParticipantId);
@@ -2289,6 +2360,7 @@ private:
             } else if((step % clientStepStride) == 0u) {
                 clientPeer.emu.update(clientLoopDtMs);
             }
+            recordLeadWindow();
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
             if(clientRuntimePaused &&
@@ -2325,7 +2397,7 @@ private:
                                clientSwapSnap.room.activeResyncId == 0;
                     }, options.startupTimeoutSteps, 5u)) {
                     failureReason = "Timed out waiting for host/client controller swap and automatic resync.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.exitCode = RESULT_ERROR;
                     cleanup();
                     return result;
@@ -2373,7 +2445,7 @@ private:
                     }
 
                     reconnectTriggered = true;
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2463,14 +2535,14 @@ private:
                    hostManualLoadTriggerIndex < options.hostManualLoadStateFrames.size()) {
                     if(hostSavedManualLoadState.empty()) {
                         failureReason = "Host load-during-resync scenario requested a manual resync before a save state was captured.";
-                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                         result.exitCode = RESULT_ERROR;
                         cleanup();
                         return result;
                     }
                     if(!hostPeer.emu.loadStateFromMemoryAsManualStateChange(hostSavedManualLoadState)) {
                         failureReason = "Host failed to load the saved state while forcing an active resync.";
-                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                         result.exitCode = RESULT_ERROR;
                         cleanup();
                         return result;
@@ -2487,7 +2559,7 @@ private:
                 hostSavedManualLoadState = hostPeer.emu.saveStateToMemory();
                 if(hostSavedManualLoadState.empty()) {
                     failureReason = "Failed to capture host save state for manual load-state scenario.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.exitCode = RESULT_ERROR;
                     cleanup();
                     return result;
@@ -2515,7 +2587,7 @@ private:
 
                 if(hostSavedManualLoadState.empty()) {
                     failureReason = "Host manual load-state scenario triggered before a save state was captured.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.exitCode = RESULT_ERROR;
                     cleanup();
                     return result;
@@ -2591,7 +2663,7 @@ private:
                     clientSnap.room.state == ConsoleNetplay::SessionState::Ended ||
                     clientSnap.room.participants.empty();
                 if(clientDisconnectedNoReconnect && roomClosedObserved) {
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2641,7 +2713,7 @@ private:
                 hostSnap.room.state == ConsoleNetplay::SessionState::Running ||
                 clientSnap.room.state == ConsoleNetplay::SessionState::Running)) {
                 if(!performRuntimeReconnect("disconnect during active or just-observed resync")) {
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.exitCode = RESULT_FAILED;
                     cleanup();
                     return result;
@@ -2673,7 +2745,7 @@ private:
                         failureReason =
                             "Host/client netplay CRC diverged after forced resync at frame " +
                             std::to_string(postResyncCrcMismatchFrame) + ".";
-                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                         result.report["startHostFrame"] = startHostFrame;
                         result.report["startClientFrame"] = startClientFrame;
                         result.report["targetHostFrame"] = targetHostFrame;
@@ -2716,7 +2788,7 @@ private:
                     sharedProgressStallSteps > 240u
                         ? "Runtime flow stalled (no shared host/client frame progress)."
                         : "Runtime flow stalled after session start.";
-                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -2732,7 +2804,7 @@ private:
             if(newHostFrame >= targetHostFrame && newClientFrame >= targetClientFrame) {
                 if(options.reconnectAfterFrames > 0 && !reconnectTriggered) {
                     failureReason = "Reconnect scenario never triggered before reaching the target frame.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2746,7 +2818,7 @@ private:
                 }
                 if(options.hostDisconnectFrame > 0 && !hostDisconnectTriggered) {
                     failureReason = "Host-disconnect scenario never triggered before reaching the target frame.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["desyncInjected"] = desyncInjected;
                     result.report["hardResyncObserved"] = hardResyncObserved;
                     result.report["reconnectTriggered"] = reconnectTriggered;
@@ -2757,7 +2829,7 @@ private:
                 }
                 if(options.reconnectDuringResync && !reconnectTriggered) {
                     failureReason = "Reconnect-during-resync scenario never triggered before reaching the target frame.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2773,7 +2845,7 @@ private:
                     failureReason = !desyncInjected
                         ? "Forced desync scenario never injected the divergence."
                         : "Forced desync scenario completed without observing a hard resync.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2787,7 +2859,7 @@ private:
                 }
                 if(options.assignmentPatternCheck && !assignmentPatternVerified) {
                     failureReason = "Assignment swap completed, but the expected post-swap input pattern was not observed in queued netplay frames.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2807,7 +2879,7 @@ private:
                             : (!manualResyncObserved
                                    ? "Forced resync scenario never observed the room enter resyncing."
                                    : "Forced resync scenario never returned to running after the resync.");
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2828,7 +2900,7 @@ private:
                    hostManualLoadTriggerIndex != options.hostManualLoadStateFrames.size()) {
                     failureReason =
                         "Repeated host load-state scenario never triggered all requested load events.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2868,7 +2940,7 @@ private:
                     if(hostDisconnectCompletionWaitSteps >= hostDisconnectCompletionWaitLimit) {
                         failureReason =
                             "Timed out waiting for client to observe host room closure after intentional disconnect.";
-                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                         result.report["startHostFrame"] = startHostFrame;
                         result.report["startClientFrame"] = startClientFrame;
                         result.report["targetHostFrame"] = targetHostFrame;
@@ -2890,7 +2962,7 @@ private:
                         !clientRuntimePauseTriggered
                             ? "Client runtime pause scenario never triggered before reaching the target frame."
                             : "Client runtime pause scenario never restored before reaching the target frame.";
-                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
                     result.report["targetHostFrame"] = targetHostFrame;
@@ -2907,7 +2979,7 @@ private:
                 }
 
                 settleRuntimeFinalCrc();
-                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.report["startHostFrame"] = startHostFrame;
                 result.report["startClientFrame"] = startClientFrame;
                 result.report["targetHostFrame"] = targetHostFrame;
@@ -2933,7 +3005,7 @@ private:
         }
 
         failureReason = "Runtime-flow netplay test reached the step limit.";
-        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+        result.report = buildRuntimeReport(options, hostPeer, clientPeer, "stalled", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
         result.report["startHostFrame"] = startHostFrame;
         result.report["startClientFrame"] = startClientFrame;
         result.report["targetHostFrame"] = targetHostFrame;

@@ -158,7 +158,8 @@ public:
                                                  bool active,
                                                  bool awaitingSync,
                                                  SessionState state,
-                                                 uint32_t emulationFrame);
+                                                 uint32_t emulationFrame,
+                                                 std::optional<FrameNumber> maxPlaybackFrame = std::nullopt);
 
     void prepareConfirmedFramesForEmulationThread(NetplayCoordinator& coordinator,
                                                   bool active,

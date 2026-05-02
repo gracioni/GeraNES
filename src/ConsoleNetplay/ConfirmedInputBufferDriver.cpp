@@ -354,7 +354,8 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
                                                                          bool active,
                                                                          bool awaitingSync,
                                                                          SessionState state,
-                                                                         uint32_t emulationFrame)
+                                                                         uint32_t emulationFrame,
+                                                                         std::optional<FrameNumber> maxPlaybackFrame)
 {
     if(!active) {
         reset();
@@ -384,7 +385,10 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
             ? hostFallbackThroughFrame
             : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t firstFrame = emulationFrame + 1u;
-    const uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
+    uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
+    if(maxPlaybackFrame.has_value()) {
+        targetThroughFrame = std::min<uint32_t>(targetThroughFrame, *maxPlaybackFrame);
+    }
     const auto allowPredictionForFrame = [delaySlackFrame, predictedThroughFrame](uint32_t frame) {
         return frame > delaySlackFrame && frame <= predictedThroughFrame;
     };
