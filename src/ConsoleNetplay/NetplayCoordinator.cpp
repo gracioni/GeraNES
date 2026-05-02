@@ -2245,6 +2245,9 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
             << " lastReceivedFrame " << participant.lastReceivedInputFrame
             << " lastContiguousFrame " << participant.lastContiguousInputFrame
             << " lastReceivedSeq " << participant.lastReceivedInputSequence
+            << " reportedLocalInputFrame " << participant.lastReportedProducedLocalInputFrame
+            << " reportedLocalInputSeq " << participant.lastReportedProducedLocalInputSequence
+            << " reportedLocalAssignments " << static_cast<unsigned>(participant.lastReportedLocalAssignmentCount)
             << " peerHealthSerial " << participant.peerHealthSerial;
         if(remoteInputIt != m_lastRemoteInputAt.end()) {
             oss << " remoteInputIdleMs " << millisSince(remoteInputIt->second);
@@ -3573,6 +3576,9 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
         participant->jitterMs = data.jitterMs;
         participant->lastReportedCurrentFrame = data.currentFrame;
         participant->lastReportedConfirmedFrame = data.lastConfirmedFrame;
+        participant->lastReportedProducedLocalInputFrame = data.lastProducedLocalInputFrame;
+        participant->lastReportedProducedLocalInputSequence = data.lastProducedLocalInputSequence;
+        participant->lastReportedLocalAssignmentCount = data.localAssignmentCount;
         participant->sharedClockMicros = data.sharedClockMicros;
         participant->clockSyncRttMicros = data.clockSyncRttMicros;
         participant->sharedClockSynchronized = data.sharedClockSynchronized != 0;
@@ -3703,6 +3709,22 @@ void NetplayCoordinator::broadcastPeerHealthIfNeeded()
     data.participantId = m_localParticipantId;
     data.currentFrame = m_localSimulationFrame;
     data.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
+    if(const ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId)) {
+        const std::vector<PlayerSlot> localAssignments = participantAssignments(*participant);
+        data.localAssignmentCount = static_cast<uint8_t>(
+            std::min<size_t>(localAssignments.size(), static_cast<size_t>(std::numeric_limits<uint8_t>::max()))
+        );
+        for(const TimelineInputEntry& entry : m_localInputs.entries()) {
+            if(entry.participantId != m_localParticipantId) continue;
+            if(entry.frame > data.lastProducedLocalInputFrame) {
+                data.lastProducedLocalInputFrame = entry.frame;
+                data.lastProducedLocalInputSequence = entry.sequence;
+            } else if(entry.frame == data.lastProducedLocalInputFrame) {
+                data.lastProducedLocalInputSequence =
+                    std::max(data.lastProducedLocalInputSequence, entry.sequence);
+            }
+        }
+    }
     data.sharedClockMicros = sharedClockNowMicros();
     data.clockSyncRttMicros = m_sharedClockRttMicros;
     data.sharedClockSynchronized = (m_hosting || m_sharedClockSynchronized) ? 1u : 0u;
@@ -5828,11 +5850,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     }
 
     if(!m_connected || m_serverPeer == NetTransport::kInvalidPeerHandle) return;
-    if(m_transport.backend() == NetTransportBackend::WebRTC) {
-        m_transport.sendUnreliable(m_serverPeer, Channel::Gameplay, payload);
-    } else {
-        m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
-    }
+    m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
 }
 
 void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,

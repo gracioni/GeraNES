@@ -14,7 +14,7 @@ namespace ConsoleNetplay {
 class PacketWriter;
 class PacketReader;
 
-constexpr uint8_t kProtocolVersion = 13;
+constexpr uint8_t kProtocolVersion = 14;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -287,6 +287,9 @@ struct PeerHealthData
     ParticipantId participantId = kInvalidParticipantId;
     FrameNumber currentFrame = 0;
     FrameNumber lastConfirmedFrame = 0;
+    FrameNumber lastProducedLocalInputFrame = 0;
+    uint32_t lastProducedLocalInputSequence = 0;
+    uint8_t localAssignmentCount = 0;
     uint16_t pingMs = 0;
     uint16_t jitterMs = 0;
     uint64_t sharedClockMicros = 0;

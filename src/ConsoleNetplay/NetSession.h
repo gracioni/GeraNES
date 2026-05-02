@@ -37,6 +37,9 @@ struct ParticipantInfo
     bool sharedClockSynchronized = false;
     FrameNumber lastReportedCurrentFrame = 0;
     FrameNumber lastReportedConfirmedFrame = 0;
+    FrameNumber lastReportedProducedLocalInputFrame = 0;
+    uint32_t lastReportedProducedLocalInputSequence = 0;
+    uint8_t lastReportedLocalAssignmentCount = 0;
     uint32_t peerHealthSerial = 0;
     FrameNumber lastReceivedInputFrame = 0;
     FrameNumber lastContiguousInputFrame = 0;
