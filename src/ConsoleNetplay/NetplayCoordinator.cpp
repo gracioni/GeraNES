@@ -412,6 +412,7 @@ void NetplayCoordinator::resetSessionState()
     m_reconnectReservationDeadlines.clear();
     m_participantDisplayNameCache.clear();
     m_lastRemoteInputAt.clear();
+    m_lastGameplayInputAt.clear();
     m_lastPeerHealthAt.clear();
     m_lastTransportError.clear();
     clearReconnectAttemptState();
@@ -1422,6 +1423,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         // Count any incoming remote input packet as activity, including stale
         // packets from a previous timeline epoch, to avoid false timeout/recovery loops.
         m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+        m_lastGameplayInputAt[participant->id] = std::chrono::steady_clock::now();
     }
     if(!m_hosting &&
        input.authoritativeFrameStartClockMicros != 0u &&
@@ -2241,6 +2243,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
 
         const auto now = std::chrono::steady_clock::now();
         const auto remoteInputIt = m_lastRemoteInputAt.find(participant.id);
+        const auto gameplayInputIt = m_lastGameplayInputAt.find(participant.id);
         const auto peerHealthIt = m_lastPeerHealthAt.find(participant.id);
         const auto millisSince = [now](const std::chrono::steady_clock::time_point& at) -> uint64_t {
             return static_cast<uint64_t>(
@@ -2266,6 +2269,9 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
             << " peerHealthSerial " << participant.peerHealthSerial;
         if(remoteInputIt != m_lastRemoteInputAt.end()) {
             oss << " remoteInputIdleMs " << millisSince(remoteInputIt->second);
+        }
+        if(gameplayInputIt != m_lastGameplayInputAt.end()) {
+            oss << " gameplayInputIdleMs " << millisSince(gameplayInputIt->second);
         }
         if(peerHealthIt != m_lastPeerHealthAt.end()) {
             oss << " peerHealthIdleMs " << millisSince(peerHealthIt->second);
