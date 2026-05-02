@@ -18,30 +18,11 @@ void imguiSetClipboardText(void*, const char* text)
     EM_ASM({
         const text = UTF8ToString($0);
         window.__geranes_imgui_clipboard_text = text;
+        window.__geranes_imgui_clipboard_updated_at = Date.now();
 
-        if (typeof navigator !== 'undefined' &&
-            navigator.clipboard &&
-            typeof navigator.clipboard.writeText === 'function') {
-            navigator.clipboard.writeText(text).catch(function(err) {
-                console.warn('navigator.clipboard.writeText failed:', err);
-            });
-            return;
+        if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
+            window.__geranes_copy_text_to_clipboard(text, false);
         }
-
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.setAttribute('readonly', '');
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-9999px';
-        textarea.style.top = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-        } catch (err) {
-            console.warn('document.execCommand(copy) failed:', err);
-        }
-        document.body.removeChild(textarea);
     }, g_imguiClipboardText.c_str());
 }
 
@@ -65,6 +46,52 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
         function ensureBridge() {
             if (window.__geranes_imgui_text_input_bridge) {
                 return window.__geranes_imgui_text_input_bridge;
+            }
+
+            function copyTextToClipboard(text, preferDomCopy) {
+                const resolvedText = typeof text === 'string' ? text : "";
+                window.__geranes_imgui_clipboard_text = resolvedText;
+                window.__geranes_imgui_clipboard_updated_at = Date.now();
+
+                function fallbackCopy() {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = resolvedText;
+                    textarea.setAttribute('readonly', '');
+                    textarea.style.position = 'fixed';
+                    textarea.style.left = '-9999px';
+                    textarea.style.top = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    let copied = false;
+                    try {
+                        copied = document.execCommand('copy');
+                    } catch (err) {
+                        console.warn('document.execCommand(copy) failed:', err);
+                    }
+                    document.body.removeChild(textarea);
+                    return copied;
+                }
+
+                if (preferDomCopy) {
+                    if (fallbackCopy()) {
+                        return true;
+                    }
+                }
+
+                if (typeof navigator !== 'undefined' &&
+                    navigator.clipboard &&
+                    typeof navigator.clipboard.writeText === 'function') {
+                    navigator.clipboard.writeText(resolvedText).catch(function(err) {
+                        console.warn('navigator.clipboard.writeText failed:', err);
+                    });
+                    return true;
+                }
+
+                return fallbackCopy();
+            }
+
+            if (typeof window.__geranes_copy_text_to_clipboard !== 'function') {
+                window.__geranes_copy_text_to_clipboard = copyTextToClipboard;
             }
 
             const bridge = {};
@@ -256,12 +283,21 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     key === 'ArrowDown';
             }
 
+            function isCopyShortcut(event) {
+                const key = event && typeof event.key === 'string' ? event.key.toLowerCase() : "";
+                return key === 'c' && !!event && (event.ctrlKey || event.metaKey);
+            }
+
             input.addEventListener('keydown', function(event) {
                 callNative(
                     'injectWebKeyEvent',
                     ['string', 'number', 'number', 'number', 'number', 'number'],
                     [event.key || "", 1, event.ctrlKey ? 1 : 0, event.shiftKey ? 1 : 0, event.altKey ? 1 : 0, event.metaKey ? 1 : 0]
                 );
+
+                if (isCopyShortcut(event)) {
+                    event.preventDefault();
+                }
 
                 if (isManagedKey(event.key)) {
                     event.preventDefault();
@@ -275,6 +311,15 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     [event.key || "", 0, event.ctrlKey ? 1 : 0, event.shiftKey ? 1 : 0, event.altKey ? 1 : 0, event.metaKey ? 1 : 0]
                 );
 
+                if (isCopyShortcut(event)) {
+                    const currentClipboardText =
+                        typeof window.__geranes_imgui_clipboard_text === 'string'
+                            ? window.__geranes_imgui_clipboard_text
+                            : "";
+                    copyTextToClipboard(currentClipboardText, true);
+                    event.preventDefault();
+                }
+
                 if (isManagedKey(event.key)) {
                     event.preventDefault();
                 }
@@ -282,6 +327,17 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
 
             input.addEventListener('compositionstart', function() {
                 bridge.compositionText = "";
+            });
+
+            input.addEventListener('copy', function(event) {
+                const clipboardText =
+                    typeof window.__geranes_imgui_clipboard_text === 'string'
+                        ? window.__geranes_imgui_clipboard_text
+                        : "";
+                if (event && event.clipboardData) {
+                    event.clipboardData.setData('text/plain', clipboardText);
+                    event.preventDefault();
+                }
             });
 
             input.addEventListener('compositionupdate', function(event) {
