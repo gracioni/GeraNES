@@ -7,6 +7,7 @@
 #ifdef __EMSCRIPTEN__
 
 #include <emscripten.h>
+#include <imgui_internal.h>
 
 namespace {
 
@@ -461,10 +462,6 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
         }
 
         const bridge = window.__geranes_imgui_text_input_bridge;
-        if (!want && !bridge) {
-            return;
-        }
-
         const activeBridge = bridge || ensureBridge();
         activeBridge.wantTextInput = want;
 
@@ -712,12 +709,31 @@ void emcriptenInstallImGuiClipboardBackend()
     io.SetClipboardTextFn = imguiSetClipboardText;
     io.GetClipboardTextFn = imguiGetClipboardText;
     io.ClipboardUserData = nullptr;
+    emcriptenSyncImGuiTextInputJs(0);
 }
 
-void emcriptenCacheImGuiSelectionText(const char* text, size_t length)
+void emcriptenSyncImGuiClipboardSelection()
 {
-    if(text != nullptr && length > 0) {
-        g_imguiSelectionText.assign(text, length);
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if(ctx == nullptr) {
+        return;
+    }
+
+    ImGuiInputTextState& state = ctx->InputTextState;
+    if(state.ID != 0 && state.HasSelection()) {
+        const int selection_start = ImMin(state.GetSelectionStart(), state.GetSelectionEnd());
+        const int selection_end = ImMax(state.GetSelectionStart(), state.GetSelectionEnd());
+
+        const char* text_src = state.TextSrc;
+        if(text_src == nullptr) {
+            text_src = state.TextA.Data;
+        }
+
+        if(text_src != nullptr && selection_end > selection_start) {
+            g_imguiSelectionText.assign(text_src + selection_start, text_src + selection_end);
+        } else {
+            g_imguiSelectionText.clear();
+        }
     } else {
         g_imguiSelectionText.clear();
     }

@@ -24,6 +24,7 @@ inline void GeraNESApp::paintGL()
     showGui();
 
 #ifdef __EMSCRIPTEN__
+    emcriptenSyncImGuiClipboardSelection();
     emcriptenSyncImGuiTextInput(ImGui::GetIO().WantTextInput);
 #endif
 

@@ -16,5 +16,4 @@ void emcriptenExportSession();
 void emcriptenSyncImGuiTextInput(bool wantTextInput);
 
 void emcriptenInstallImGuiClipboardBackend();
-
-void emcriptenCacheImGuiSelectionText(const char* text, size_t length);
+void emcriptenSyncImGuiClipboardSelection();

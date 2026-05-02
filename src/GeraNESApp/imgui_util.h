@@ -1,7 +1,6 @@
 #pragma once
 
 #include "imgui_include.h"
-#include "EmscriptenUtil.h"
 #include <algorithm>
 #include <cfloat>
 #include <unordered_map>
@@ -160,20 +159,6 @@ extern "C" {
                                       buf_size,
                                       ImVec2(input_width, input_height <= 0.0f ? 0.0f : input_height),
                                       ImGuiInputTextFlags_ReadOnly);
-#ifdef __EMSCRIPTEN__
-            if (ImGuiInputTextState* state = ImGui::GetInputTextState(ImGui::GetItemID())) {
-                if (state->HasSelection()) {
-                    const int selection_start = ImMin(state->GetSelectionStart(), state->GetSelectionEnd());
-                    const int selection_end = ImMax(state->GetSelectionStart(), state->GetSelectionEnd());
-                    emcriptenCacheImGuiSelectionText(buf + selection_start,
-                                                     static_cast<size_t>(selection_end - selection_start));
-                } else {
-                    emcriptenCacheImGuiSelectionText(nullptr, 0);
-                }
-            } else {
-                emcriptenCacheImGuiSelectionText(nullptr, 0);
-            }
-#endif
             ImGui::PopStyleVar();
 
             ImGuiContext& g = *GImGui;
