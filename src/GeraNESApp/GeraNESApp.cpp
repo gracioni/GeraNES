@@ -1813,6 +1813,9 @@ bool GeraNESApp::initGL()
     const char* glsl_version = "#version 100";
     ImGui_ImplSDL2_InitForOpenGL(this->sdlWindow(), this->glContext());
     ImGui_ImplOpenGL3_Init(glsl_version);
+#ifdef __EMSCRIPTEN__
+    emcriptenInstallImGuiClipboardBackend();
+#endif
 
     glClearColor(0.0, 0.0, 0.0, 0.0);
 

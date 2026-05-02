@@ -13,3 +13,5 @@ void emcriptenImportSession(intptr_t handler);
 void emcriptenExportSession();
 
 void emcriptenSyncImGuiTextInput(bool wantTextInput);
+
+void emcriptenInstallImGuiClipboardBackend();

@@ -1,8 +1,56 @@
 #include "EmscriptenUtil.h"
 
+#include "imgui.h"
+
+#include <string>
+
 #ifdef __EMSCRIPTEN__
 
 #include <emscripten.h>
+
+namespace {
+
+std::string g_imguiClipboardText;
+
+void imguiSetClipboardText(void*, const char* text)
+{
+    g_imguiClipboardText = (text != nullptr) ? text : "";
+    EM_ASM({
+        const text = UTF8ToString($0);
+        window.__geranes_imgui_clipboard_text = text;
+
+        if (typeof navigator !== 'undefined' &&
+            navigator.clipboard &&
+            typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text).catch(function(err) {
+                console.warn('navigator.clipboard.writeText failed:', err);
+            });
+            return;
+        }
+
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+        } catch (err) {
+            console.warn('document.execCommand(copy) failed:', err);
+        }
+        document.body.removeChild(textarea);
+    }, g_imguiClipboardText.c_str());
+}
+
+const char* imguiGetClipboardText(void*)
+{
+    return g_imguiClipboardText.c_str();
+}
+
+} // namespace
 
 EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
     try {
@@ -534,6 +582,14 @@ void emcriptenExportSession() {
 void emcriptenSyncImGuiTextInput(bool wantTextInput)
 {
     emcriptenSyncImGuiTextInputJs(wantTextInput ? 1 : 0);
+}
+
+void emcriptenInstallImGuiClipboardBackend()
+{
+    ImGuiIO& io = ImGui::GetIO();
+    io.SetClipboardTextFn = imguiSetClipboardText;
+    io.GetClipboardTextFn = imguiGetClipboardText;
+    io.ClipboardUserData = nullptr;
 }
 
 #endif
