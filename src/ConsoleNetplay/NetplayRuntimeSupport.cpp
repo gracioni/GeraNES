@@ -401,20 +401,17 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
 
     const FrameNumber confirmedFrame = coordinator.latestConfirmedFrame();
     const FrameNumber lastFrameReadyFrame = runtimeHost.lastFrameReadyFrame();
-    const FrameNumber safeConfirmedFrame =
+    // CRC comparison is only meaningful on confirmed timeline state. Do not
+    // force CRC submissions for freshly loaded/resynced frames until they have
+    // entered the confirmed window on both sides.
+    const FrameNumber crcCheckpointFrame =
         confirmedFrame == 0u ? 0u : std::min(confirmedFrame, lastFrameReadyFrame);
-    const FrameNumber authoritativeCheckpointFrame =
-        (state.lastLoadedAuthoritativeFrame != 0u &&
-         lastFrameReadyFrame == state.lastLoadedAuthoritativeFrame)
-            ? state.lastLoadedAuthoritativeFrame
-            : 0u;
-    const FrameNumber crcCheckpointFrame = std::max(safeConfirmedFrame, authoritativeCheckpointFrame);
     if(crcCheckpointFrame == 0) return result;
 
     const bool periodicDue = crcCheckpointFrame >= state.nextScheduledLocalCrcFrame;
     const bool postRecoveryRapidDue =
         crcCheckpointFrame > state.lastSubmittedLocalCrcFrame &&
-        crcCheckpointFrame <= std::max(state.postRecoveryRapidCrcThroughFrame, authoritativeCheckpointFrame);
+        crcCheckpointFrame <= state.postRecoveryRapidCrcThroughFrame;
     const bool forcedDue =
         state.forceNextConfirmedCrcSubmission &&
         crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
@@ -422,7 +419,7 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
 
     std::optional<uint32_t> crc32 = runtimeHost.netplaySnapshotCrc32ForFrame(crcCheckpointFrame);
     if(!crc32.has_value() &&
-       crcCheckpointFrame == authoritativeCheckpointFrame &&
+       crcCheckpointFrame == lastFrameReadyFrame &&
        runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
         crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
     }
