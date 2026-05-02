@@ -2200,12 +2200,31 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
                 m_localSimulationFrame + 600u
             );
 
+        const auto now = std::chrono::steady_clock::now();
+        const auto remoteInputIt = m_lastRemoteInputAt.find(participant.id);
+        const auto peerHealthIt = m_lastPeerHealthAt.find(participant.id);
+        const auto millisSince = [now](const std::chrono::steady_clock::time_point& at) -> uint64_t {
+            return static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - at).count()
+            );
+        };
+
         std::ostringstream oss;
         oss << "Prediction limit fallback for " << participant.displayName
             << " frame " << targetFrame
             << " slot " << static_cast<unsigned>(slot) + 1u
             << "; synthesized confirmed input without immediate resync"
-            << " classification=prediction_limit_fallback";
+            << " classification=prediction_limit_fallback"
+            << " lastReceivedFrame " << participant.lastReceivedInputFrame
+            << " lastContiguousFrame " << participant.lastContiguousInputFrame
+            << " lastReceivedSeq " << participant.lastReceivedInputSequence
+            << " peerHealthSerial " << participant.peerHealthSerial;
+        if(remoteInputIt != m_lastRemoteInputAt.end()) {
+            oss << " remoteInputIdleMs " << millisSince(remoteInputIt->second);
+        }
+        if(peerHealthIt != m_lastPeerHealthAt.end()) {
+            oss << " peerHealthIdleMs " << millisSince(peerHealthIt->second);
+        }
         pushLog(oss.str());
     } else {
         participant.inputSuspended = true;
