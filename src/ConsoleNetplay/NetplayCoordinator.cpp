@@ -143,9 +143,6 @@ void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::In
         });
     }
     room.inputTopology = std::move(topology);
-    for(auto& participant : room.participants) {
-        participant.normalizeControllerAssignments(&room.inputTopology);
-    }
 }
 
 ConsoleNetplay::NetplayInputFrame makeRoomTopologyNetplayFrame(ConsoleNetplay::FrameNumber frame,
