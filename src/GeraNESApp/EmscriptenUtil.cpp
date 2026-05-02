@@ -14,6 +14,16 @@ namespace {
 std::string g_imguiClipboardText;
 std::string g_imguiSelectionText;
 
+extern "C" {
+EMSCRIPTEN_KEEPALIVE const char* emscriptenGetClipboardTextForBrowserCopy()
+{
+    if(!g_imguiSelectionText.empty()) {
+        return g_imguiSelectionText.c_str();
+    }
+    return g_imguiClipboardText.c_str();
+}
+}
+
 void imguiSetClipboardText(void*, const char* text)
 {
     g_imguiClipboardText = (text != nullptr) ? text : "";
@@ -45,9 +55,28 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             return null;
         }
 
+        function resolveClipboardTextForCopyEvent() {
+            const ccallFn = resolveCcall();
+            if (ccallFn) {
+                try {
+                    const clipboardText = ccallFn('emscriptenGetClipboardTextForBrowserCopy', 'string', [], []);
+                    if (typeof clipboardText === 'string' && clipboardText.length > 0) {
+                        return clipboardText;
+                    }
+                } catch (e) {
+                    console.error('emscriptenGetClipboardTextForBrowserCopy failed:', e);
+                }
+            }
+            return "";
+        }
+
         function getPreferredClipboardText() {
             if (typeof window.__geranes_force_clipboard_text === 'string') {
                 return window.__geranes_force_clipboard_text;
+            }
+            const liveClipboardText = resolveClipboardTextForCopyEvent();
+            if (liveClipboardText.length > 0) {
+                return liveClipboardText;
             }
             const clipboardUpdatedAt =
                 typeof window.__geranes_imgui_clipboard_updated_at === 'number'
@@ -83,14 +112,6 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 window.__geranes_imgui_clipboard_updated_at = Date.now();
 
                 function fallbackCopy() {
-                    const textarea = document.createElement('textarea');
-                    textarea.value = resolvedText;
-                    textarea.setAttribute('readonly', '');
-                    textarea.style.position = 'fixed';
-                    textarea.style.left = '-9999px';
-                    textarea.style.top = '0';
-                    document.body.appendChild(textarea);
-                    textarea.select();
                     let copied = false;
                     try {
                         copied = document.execCommand('copy');
@@ -98,7 +119,6 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                         console.warn('document.execCommand(copy) failed:', err);
                     }
                     delete window.__geranes_force_clipboard_text;
-                    document.body.removeChild(textarea);
                     return copied;
                 }
 
@@ -455,12 +475,8 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 }, true);
 
                 document.addEventListener('copy', function(event) {
-                    if (document.activeElement === input) {
-                        return;
-                    }
-
                     const clipboardText = getPreferredClipboardText();
-                    if (event && event.clipboardData && clipboardText.length > 0) {
+                    if (event && event.clipboardData) {
                         event.clipboardData.setData('text/plain', clipboardText);
                         event.preventDefault();
                     }
