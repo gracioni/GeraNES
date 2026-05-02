@@ -95,6 +95,7 @@ public:
         bool hostAssignedBeforeJoinOnly = false;
         bool assignLateJoinClientAfterJoin = false;
         bool hostMultitapAssignedBeforeJoinOnly = false;
+        bool clientAssignedOnly = false;
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
         bool requireHostManualLoadDuringResync = false;
@@ -1975,8 +1976,13 @@ private:
                 return result;
             }
         } else {
-            hostPeer.runtime.assignController(*hostId, 0);
-            hostPeer.runtime.assignController(*clientId, 1);
+            if(options.clientAssignedOnly) {
+                hostPeer.runtime.clearControllerAssignments(*hostId);
+                hostPeer.runtime.assignController(*clientId, 1);
+            } else {
+                hostPeer.runtime.assignController(*hostId, 0);
+                hostPeer.runtime.assignController(*clientId, 1);
+            }
 
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1988,7 +1994,8 @@ private:
                     const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
-                           hostParticipant->controllerAssignment == 0 &&
+                           hostParticipant->controllerAssignment ==
+                               (options.clientAssignedOnly ? ConsoleNetplay::kObserverPlayerSlot : 0) &&
                            clientParticipant->controllerAssignment == 1 &&
                            hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running &&

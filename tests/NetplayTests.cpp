@@ -25,6 +25,8 @@
 #include "ConsoleNetplay/NetplayConfig.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/NetplayInputFrameSerialization.h"
+#include "ConsoleNetplay/NetProtocol.h"
+#include "ConsoleNetplay/NetSerialization.h"
 #include "ConsoleNetplay/WebRtcPeerConnection.h"
 #include "ConsoleNetplay/WebRtcSignaling.h"
 #include "ConsoleNetplay/WebRtcSignalingClient.h"
@@ -417,6 +419,71 @@ TEST_CASE("Netplay desync monitor drops same-frame CRC history on realignment", 
     const auto remoteMatch = monitor.submitRemoteCrc(200u, 0x22222222u);
     REQUIRE(remoteMatch.compared == true);
     REQUIRE(remoteMatch.mismatchDetected == false);
+}
+
+TEST_CASE("Netplay dynamic topology protocol roundtrip preserves sparse slot metadata",
+          "[netplay][protocol][topology]")
+{
+    ConsoleNetplay::InputTopologyData topology;
+    topology.slots = {
+        ConsoleNetplay::InputTopologyData::Slot{1u, 1u, 1u, 0x0401u, "Port 1", "Standard Controller"},
+        ConsoleNetplay::InputTopologyData::Slot{7u, 1u, 9u, 0x0104u, "Expansion", "Konami Hyper Shot"},
+        ConsoleNetplay::InputTopologyData::Slot{11u, 0u, 12u, 0x0201u, "Four Score", "P1"}
+    };
+
+    ConsoleNetplay::PacketWriter writer;
+    topology.serialize(writer);
+
+    ConsoleNetplay::InputTopologyData decoded;
+    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
+    REQUIRE(ConsoleNetplay::InputTopologyData::deserialize(reader, decoded));
+    REQUIRE(reader.remaining() == 0u);
+    REQUIRE(decoded.slots.size() == topology.slots.size());
+    for(size_t i = 0; i < topology.slots.size(); ++i) {
+        REQUIRE(decoded.slots[i].slot == topology.slots[i].slot);
+        REQUIRE(decoded.slots[i].assignable == topology.slots[i].assignable);
+        REQUIRE(decoded.slots[i].groupId == topology.slots[i].groupId);
+        REQUIRE(decoded.slots[i].deviceId == topology.slots[i].deviceId);
+        REQUIRE(decoded.slots[i].groupLabel == topology.slots[i].groupLabel);
+        REQUIRE(decoded.slots[i].inputLabel == topology.slots[i].inputLabel);
+    }
+}
+
+TEST_CASE("Netplay frame status protocol roundtrip preserves dynamic topology",
+          "[netplay][protocol][topology][frame-status]")
+{
+    ConsoleNetplay::FrameStatusData status;
+    status.timelineEpoch = 17u;
+    status.currentFrame = 321u;
+    status.lastConfirmedFrame = 318u;
+    status.inputDelayFrames = 3u;
+    status.predictFrames = 8u;
+    status.topology.slots = {
+        ConsoleNetplay::InputTopologyData::Slot{2u, 1u, 4u, 0x0402u, "Port 2", "Standard Controller"},
+        ConsoleNetplay::InputTopologyData::Slot{9u, 1u, 9u, 0x0301u, "Famicom Multitap", "P1"}
+    };
+
+    ConsoleNetplay::PacketWriter writer;
+    status.serialize(writer);
+
+    ConsoleNetplay::FrameStatusData decoded;
+    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
+    REQUIRE(ConsoleNetplay::FrameStatusData::deserialize(reader, decoded));
+    REQUIRE(reader.remaining() == 0u);
+    REQUIRE(decoded.timelineEpoch == status.timelineEpoch);
+    REQUIRE(decoded.currentFrame == status.currentFrame);
+    REQUIRE(decoded.lastConfirmedFrame == status.lastConfirmedFrame);
+    REQUIRE(decoded.inputDelayFrames == status.inputDelayFrames);
+    REQUIRE(decoded.predictFrames == status.predictFrames);
+    REQUIRE(decoded.topology.slots.size() == status.topology.slots.size());
+    for(size_t i = 0; i < status.topology.slots.size(); ++i) {
+        REQUIRE(decoded.topology.slots[i].slot == status.topology.slots[i].slot);
+        REQUIRE(decoded.topology.slots[i].assignable == status.topology.slots[i].assignable);
+        REQUIRE(decoded.topology.slots[i].groupId == status.topology.slots[i].groupId);
+        REQUIRE(decoded.topology.slots[i].deviceId == status.topology.slots[i].deviceId);
+        REQUIRE(decoded.topology.slots[i].groupLabel == status.topology.slots[i].groupLabel);
+        REQUIRE(decoded.topology.slots[i].inputLabel == status.topology.slots[i].inputLabel);
+    }
 }
 
 TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
@@ -2254,6 +2321,50 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
         REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
         REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
     }
+}
+
+TEST_CASE("Netplay web runtime keeps advancing when only the client is assigned",
+          "[netplay][runtime][web][regression][client-only]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedOnly = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-client-only-assigned",
+        ""
+    };
+    options.frames = 240;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_client_only_assigned_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
 }
 
 TEST_CASE("Netplay mobile browser bad Wi-Fi acceptance keeps running without resync storm",

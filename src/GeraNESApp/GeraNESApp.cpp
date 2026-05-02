@@ -233,6 +233,31 @@ void GeraNESApp::normalizeTouchControlsTargetForCurrentTopology()
         preferredTouchTargetForTopology(m_emu.getInputTopologySnapshot());
 }
 
+namespace {
+
+std::optional<AppSettings::TouchControlsTarget> touchTargetForNetplaySlot(ConsoleNetplay::PlayerSlot slot)
+{
+    switch(slot) {
+        case GeraNESNetplay::kPort1PlayerSlot: return AppSettings::TouchControlsTarget::Port1Controller;
+        case GeraNESNetplay::kPort2PlayerSlot: return AppSettings::TouchControlsTarget::Port2Controller;
+        case GeraNESNetplay::kExpansionPlayerSlot: return AppSettings::TouchControlsTarget::Expansion;
+        case GeraNESNetplay::kMultitapP1PlayerSlot: return AppSettings::TouchControlsTarget::MultitapP1;
+        case GeraNESNetplay::kMultitapP2PlayerSlot: return AppSettings::TouchControlsTarget::MultitapP2;
+        case GeraNESNetplay::kMultitapP3PlayerSlot: return AppSettings::TouchControlsTarget::MultitapP3;
+        case GeraNESNetplay::kMultitapP4PlayerSlot: return AppSettings::TouchControlsTarget::MultitapP4;
+        default: return std::nullopt;
+    }
+}
+
+bool touchTargetMatchesNetplayAssignment(AppSettings::TouchControlsTarget target,
+                                         ConsoleNetplay::PlayerSlot slot)
+{
+    const auto expected = touchTargetForNetplaySlot(slot);
+    return expected.has_value() && *expected == target;
+}
+
+} // namespace
+
 void GeraNESApp::setIfNegative(std::string& dst, int value)
 {
     dst = value >= 0 ? std::to_string(value) : "";
@@ -1368,7 +1393,31 @@ void GeraNESApp::pollAndPrepareInput()
 
         const auto inputTopology = m_emu.getInputTopologySnapshot();
         const bool touchInputActive = !m_imGuiWantsMouse;
-        const auto touchTarget = AppSettings::instance().data.input.touchControls.target;
+        auto touchTarget = AppSettings::instance().data.input.touchControls.target;
+        const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
+        if(netplaySnapshot.active) {
+            for(const auto& participant : netplaySnapshot.room.participants) {
+                if(participant.id != netplaySnapshot.localParticipantId || participant.controllerAssignments.empty()) {
+                    continue;
+                }
+                const bool targetMatchesLocalAssignment =
+                    std::any_of(
+                        participant.controllerAssignments.begin(),
+                        participant.controllerAssignments.end(),
+                        [touchTarget](ConsoleNetplay::PlayerSlot slot) {
+                            return touchTargetMatchesNetplayAssignment(touchTarget, slot);
+                        }
+                    );
+                if(!targetMatchesLocalAssignment) {
+                    const auto preferredTarget =
+                        touchTargetForNetplaySlot(participant.controllerAssignments.front());
+                    if(preferredTarget.has_value()) {
+                        touchTarget = *preferredTarget;
+                    }
+                }
+                break;
+            }
+        }
         const bool multitapActive =
             inputTopology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
             inputTopology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
