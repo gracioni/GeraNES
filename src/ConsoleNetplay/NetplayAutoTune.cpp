@@ -60,38 +60,6 @@ NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
 
 #else
 
-namespace {
-
-constexpr FrameNumber kDelayDecayPressureCooldownFrames = 600u;
-
-bool isPredictionPressureDecision(const std::string& decision)
-{
-    return decision == "Missing input gap, waiting" ||
-           decision == "Rollback scheduled" ||
-           decision == "Future-frame mismatch, no rollback" ||
-           decision == "Confirmed-frame conflict, hard resync required" ||
-           decision == "Playback stopped: prediction limit reached" ||
-           decision == "Playback stopped: missing input";
-}
-
-bool hasRecentPredictionPressure(const RoomState& room,
-                                 const RollbackStats& stats,
-                                 uint32_t unresolvedPredictedRemoteFrameCount)
-{
-    if(unresolvedPredictedRemoteFrameCount > 0u) {
-        return true;
-    }
-    if(stats.lastDecisionFrame == 0u || room.currentFrame < stats.lastDecisionFrame) {
-        return false;
-    }
-    if(!isPredictionPressureDecision(stats.lastDecision)) {
-        return false;
-    }
-    return (room.currentFrame - stats.lastDecisionFrame) <= kDelayDecayPressureCooldownFrames;
-}
-
-} // namespace
-
 uint8_t NetplayAutoTune::clampDelay(uint32_t frames)
 {
     return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoDelayFrames, std::max<uint32_t>(1u, frames)));
@@ -138,8 +106,8 @@ bool NetplayAutoTune::enabled() const
 }
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                         const RollbackStats& stats,
-                                                         uint32_t unresolvedPredictedRemoteFrameCount,
+                                                         const RollbackStats&,
+                                                         uint32_t,
                                                          uint32_t)
 {
     Recommendations recommendations;
@@ -164,13 +132,6 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
 
     if(room.predictFrames != m_currentFixedPredict) {
         recommendations.predictFrames = m_currentFixedPredict;
-    }
-
-    if(hasRecentPredictionPressure(room, stats, unresolvedPredictedRemoteFrameCount)) {
-        m_stableFrameCount = 0;
-        m_lastStableEvaluationFrame = room.currentFrame;
-        m_lastDecisionReason = "Holding delay due to recent prediction pressure";
-        return recommendations;
     }
 
     if(room.state != SessionState::Running ||

@@ -646,45 +646,6 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
     REQUIRE(*recommendations.inputDelayFrames == 3);
 }
 
-TEST_CASE("Netplay reactive auto delay does not decay while unresolved prediction pressure exists",
-          "[netplay][auto-settings][delay]")
-{
-    ConsoleNetplay::NetplayAutoTune autoSettings;
-    ConsoleNetplay::RoomState room;
-    room.sessionId = 6;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 4;
-    room.predictFrames = 8;
-    room.currentFrame = 1200;
-
-    ConsoleNetplay::RollbackStats stats;
-    const auto recommendations = autoSettings.update(room, stats, 1u, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("prediction pressure") != std::string::npos);
-}
-
-TEST_CASE("Netplay reactive auto delay does not decay immediately after input-gap pressure",
-          "[netplay][auto-settings][delay]")
-{
-    ConsoleNetplay::NetplayAutoTune autoSettings;
-    ConsoleNetplay::RoomState room;
-    room.sessionId = 7;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 4;
-    room.predictFrames = 8;
-    room.currentFrame = 1200;
-
-    ConsoleNetplay::RollbackStats stats;
-    stats.lastDecisionFrame = 1150u;
-    stats.lastDecision = "Missing input gap, waiting";
-
-    const auto recommendations = autoSettings.update(room, stats, 0u, 60);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("prediction pressure") != std::string::npos);
-}
-
 TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
           "[netplay][auto-settings][delay]")
 {
