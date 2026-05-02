@@ -1049,6 +1049,14 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
     );
 
     if(result.running) {
+        constexpr uint32_t kMaxObserverPeerCatchupFrames = 120u;
+        (void)runtimeAdvanceObserverPeerIfNeeded(
+            m_coordinator,
+            m_inputDriver,
+            console,
+            kMaxObserverPeerCatchupFrames
+        );
+
         constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
         (void)advanceToSharedClockIfNeededOnWorker(console, kMaxContinuousClockCatchupFrames);
 
