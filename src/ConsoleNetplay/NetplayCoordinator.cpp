@@ -5828,7 +5828,11 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     }
 
     if(!m_connected || m_serverPeer == NetTransport::kInvalidPeerHandle) return;
-    m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
+    if(m_transport.backend() == NetTransportBackend::WebRTC) {
+        m_transport.sendUnreliable(m_serverPeer, Channel::Gameplay, payload);
+    } else {
+        m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
+    }
 }
 
 void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,
