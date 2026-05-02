@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 
+#include <cstring>
 #include <string>
 
 #ifdef __EMSCRIPTEN__
@@ -14,9 +15,61 @@ namespace {
 std::string g_imguiClipboardText;
 std::string g_imguiSelectionText;
 
+const char* resolveInputTextSelectionSource(const ImGuiInputTextState& state, int& outLength)
+{
+    outLength = 0;
+
+    const int selectionStart = ImMin(state.GetSelectionStart(), state.GetSelectionEnd());
+    const int selectionEnd = ImMax(state.GetSelectionStart(), state.GetSelectionEnd());
+    if(selectionEnd <= selectionStart) {
+        return nullptr;
+    }
+
+    outLength = selectionEnd - selectionStart;
+
+    if(state.TextSrc != nullptr) {
+        return state.TextSrc + selectionStart;
+    }
+
+    if(state.TextA.Data != nullptr && state.TextA.Size > 0) {
+        return state.TextA.Data + selectionStart;
+    }
+
+    if(state.TextToRevertTo.Data != nullptr && state.TextToRevertTo.Size > selectionEnd) {
+        return state.TextToRevertTo.Data + selectionStart;
+    }
+
+    outLength = 0;
+    return nullptr;
+}
+
+void refreshImGuiSelectionTextCache()
+{
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if(ctx == nullptr) {
+        g_imguiSelectionText.clear();
+        return;
+    }
+
+    ImGuiInputTextState& state = ctx->InputTextState;
+    if(state.ID == 0 || !state.HasSelection()) {
+        g_imguiSelectionText.clear();
+        return;
+    }
+
+    int selectionLength = 0;
+    const char* selectionPtr = resolveInputTextSelectionSource(state, selectionLength);
+    if(selectionPtr != nullptr && selectionLength > 0) {
+        g_imguiSelectionText.assign(selectionPtr, static_cast<size_t>(selectionLength));
+    } else {
+        g_imguiSelectionText.clear();
+    }
+}
+
 extern "C" {
 EMSCRIPTEN_KEEPALIVE const char* emscriptenGetClipboardTextForBrowserCopy()
 {
+    refreshImGuiSelectionTextCache();
     if(!g_imguiSelectionText.empty()) {
         return g_imguiSelectionText.c_str();
     }
@@ -742,29 +795,7 @@ void emcriptenInstallImGuiClipboardBackend()
 
 void emcriptenSyncImGuiClipboardSelection()
 {
-    ImGuiContext* ctx = ImGui::GetCurrentContext();
-    if(ctx == nullptr) {
-        return;
-    }
-
-    ImGuiInputTextState& state = ctx->InputTextState;
-    if(state.ID != 0 && state.HasSelection()) {
-        const int selection_start = ImMin(state.GetSelectionStart(), state.GetSelectionEnd());
-        const int selection_end = ImMax(state.GetSelectionStart(), state.GetSelectionEnd());
-
-        const char* text_src = state.TextSrc;
-        if(text_src == nullptr) {
-            text_src = state.TextA.Data;
-        }
-
-        if(text_src != nullptr && selection_end > selection_start) {
-            g_imguiSelectionText.assign(text_src + selection_start, text_src + selection_end);
-        } else {
-            g_imguiSelectionText.clear();
-        }
-    } else {
-        g_imguiSelectionText.clear();
-    }
+    refreshImGuiSelectionTextCache();
 
     EM_ASM({
         const text = UTF8ToString($0, $1);
