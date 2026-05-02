@@ -11,6 +11,7 @@
 namespace {
 
 std::string g_imguiClipboardText;
+std::string g_imguiSelectionText;
 
 void imguiSetClipboardText(void*, const char* text)
 {
@@ -41,6 +42,17 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             if (typeof ccall === 'function') return ccall;
             if (typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') return Module.ccall.bind(Module);
             return null;
+        }
+
+        function getPreferredClipboardText() {
+            if (typeof window.__geranes_imgui_selection_text === 'string' &&
+                window.__geranes_imgui_selection_text.length > 0) {
+                return window.__geranes_imgui_selection_text;
+            }
+            if (typeof window.__geranes_imgui_clipboard_text === 'string') {
+                return window.__geranes_imgui_clipboard_text;
+            }
+            return "";
         }
 
         function ensureBridge() {
@@ -102,6 +114,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             bridge.lastPointerY = 0;
             bridge.compositionText = "";
             bridge.syncedValue = "";
+            bridge.globalKeyHandlersInstalled = false;
 
             const input = document.createElement('input');
             input.id = '__geranes_imgui_text_input';
@@ -288,12 +301,37 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 return key === 'c' && !!event && (event.ctrlKey || event.metaKey);
             }
 
-            input.addEventListener('keydown', function(event) {
+            function isEditableDomTarget(target) {
+                if (!target) {
+                    return false;
+                }
+
+                if (target === input) {
+                    return true;
+                }
+
+                const tagName = typeof target.tagName === 'string' ? target.tagName.toUpperCase() : "";
+                return tagName === 'INPUT' ||
+                    tagName === 'TEXTAREA' ||
+                    tagName === 'SELECT' ||
+                    !!target.isContentEditable;
+            }
+
+            function forwardKeyEvent(event, down) {
                 callNative(
                     'injectWebKeyEvent',
                     ['string', 'number', 'number', 'number', 'number', 'number'],
-                    [event.key || "", 1, event.ctrlKey ? 1 : 0, event.shiftKey ? 1 : 0, event.altKey ? 1 : 0, event.metaKey ? 1 : 0]
+                    [event.key || "", down ? 1 : 0, event.ctrlKey ? 1 : 0, event.shiftKey ? 1 : 0, event.altKey ? 1 : 0, event.metaKey ? 1 : 0]
                 );
+            }
+
+            function handleCopyShortcut(event) {
+                copyTextToClipboard(getPreferredClipboardText(), true);
+                event.preventDefault();
+            }
+
+            input.addEventListener('keydown', function(event) {
+                forwardKeyEvent(event, true);
 
                 if (isCopyShortcut(event)) {
                     event.preventDefault();
@@ -305,19 +343,10 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             });
 
             input.addEventListener('keyup', function(event) {
-                callNative(
-                    'injectWebKeyEvent',
-                    ['string', 'number', 'number', 'number', 'number', 'number'],
-                    [event.key || "", 0, event.ctrlKey ? 1 : 0, event.shiftKey ? 1 : 0, event.altKey ? 1 : 0, event.metaKey ? 1 : 0]
-                );
+                forwardKeyEvent(event, false);
 
                 if (isCopyShortcut(event)) {
-                    const currentClipboardText =
-                        typeof window.__geranes_imgui_clipboard_text === 'string'
-                            ? window.__geranes_imgui_clipboard_text
-                            : "";
-                    copyTextToClipboard(currentClipboardText, true);
-                    event.preventDefault();
+                    handleCopyShortcut(event);
                 }
 
                 if (isManagedKey(event.key)) {
@@ -330,10 +359,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
             });
 
             input.addEventListener('copy', function(event) {
-                const clipboardText =
-                    typeof window.__geranes_imgui_clipboard_text === 'string'
-                        ? window.__geranes_imgui_clipboard_text
-                        : "";
+                const clipboardText = getPreferredClipboardText();
                 if (event && event.clipboardData) {
                     event.clipboardData.setData('text/plain', clipboardText);
                     event.preventDefault();
@@ -386,6 +412,46 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(function(eventName) {
                     canvas.addEventListener(eventName, rememberUserActivation, true);
                 });
+            }
+
+            if (!bridge.globalKeyHandlersInstalled) {
+                bridge.globalKeyHandlersInstalled = true;
+
+                document.addEventListener('keydown', function(event) {
+                    if (document.activeElement === input || isEditableDomTarget(event.target)) {
+                        return;
+                    }
+
+                    forwardKeyEvent(event, true);
+
+                    if (isCopyShortcut(event)) {
+                        event.preventDefault();
+                    }
+                }, true);
+
+                document.addEventListener('keyup', function(event) {
+                    if (document.activeElement === input || isEditableDomTarget(event.target)) {
+                        return;
+                    }
+
+                    forwardKeyEvent(event, false);
+
+                    if (isCopyShortcut(event)) {
+                        handleCopyShortcut(event);
+                    }
+                }, true);
+
+                document.addEventListener('copy', function(event) {
+                    if (document.activeElement === input) {
+                        return;
+                    }
+
+                    const clipboardText = getPreferredClipboardText();
+                    if (event && event.clipboardData && clipboardText.length > 0) {
+                        event.clipboardData.setData('text/plain', clipboardText);
+                        event.preventDefault();
+                    }
+                }, true);
             }
 
             updateInputPosition(bridge.lastPointerX, bridge.lastPointerY);
@@ -646,6 +712,21 @@ void emcriptenInstallImGuiClipboardBackend()
     io.SetClipboardTextFn = imguiSetClipboardText;
     io.GetClipboardTextFn = imguiGetClipboardText;
     io.ClipboardUserData = nullptr;
+}
+
+void emcriptenCacheImGuiSelectionText(const char* text, size_t length)
+{
+    if(text != nullptr && length > 0) {
+        g_imguiSelectionText.assign(text, length);
+    } else {
+        g_imguiSelectionText.clear();
+    }
+
+    EM_ASM({
+        const text = UTF8ToString($0, $1);
+        window.__geranes_imgui_selection_text = text;
+        window.__geranes_imgui_selection_updated_at = Date.now();
+    }, g_imguiSelectionText.data(), static_cast<int>(g_imguiSelectionText.size()));
 }
 
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 void emcriptenFileDialog(intptr_t handler);
@@ -15,3 +16,5 @@ void emcriptenExportSession();
 void emcriptenSyncImGuiTextInput(bool wantTextInput);
 
 void emcriptenInstallImGuiClipboardBackend();
+
+void emcriptenCacheImGuiSelectionText(const char* text, size_t length);
