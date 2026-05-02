@@ -2952,10 +2952,12 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
     if(!AssignControllerData::deserialize(reader, data)) return false;
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
+        // This packet is authoritative host state. Do not preserve local
+        // speculative progress beyond the room's published baseline when the
+        // assignment set changes.
         const FrameNumber assignmentBaselineFrame =
-            std::max({m_localSimulationFrame,
-                      m_session.roomState().currentFrame,
-                      m_session.roomState().lastConfirmedFrame});
+            std::max(m_session.roomState().currentFrame,
+                     m_session.roomState().lastConfirmedFrame);
         const std::vector<PlayerSlot> previousAssignments = participant->controllerAssignments;
         participant->controllerAssignments = data.controllerAssignments;
         participant->normalizeControllerAssignments(&m_session.roomState().inputTopology);
