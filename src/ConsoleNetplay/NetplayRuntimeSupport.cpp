@@ -11,8 +11,6 @@ namespace ConsoleNetplay {
 
 namespace {
 
-constexpr FrameNumber kClientHostPlaybackLeadSlackFrames = 2u;
-
 std::string runtimeContentHashKey(const RomValidationData& validation)
 {
     std::ostringstream oss;
@@ -23,34 +21,14 @@ std::string runtimeContentHashKey(const RomValidationData& validation)
     return oss.str();
 }
 
-std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordinator& coordinator,
-                                                             const INetplayConsole& console)
+std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordinator& coordinator)
 {
     if(!coordinator.isActive() || coordinator.isHosting()) {
         return std::nullopt;
     }
 
     const RoomState& room = coordinator.session().roomState();
-    FrameNumber capFrame = std::max(room.currentFrame, room.lastConfirmedFrame);
-
-    if(room.lastAuthoritativeClockFrame != 0u &&
-       room.lastAuthoritativeClockMicros != 0u &&
-       room.sharedClockSynchronized) {
-        const uint64_t nowSharedClockMicros = coordinator.sharedClockNowMicros();
-        const uint64_t frameDtMicros =
-            std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, static_cast<uint64_t>(console.regionFps())));
-        if(nowSharedClockMicros != 0u) {
-            FrameNumber estimatedHostFrameFromClock = room.lastAuthoritativeClockFrame;
-            if(nowSharedClockMicros > room.lastAuthoritativeClockMicros) {
-                estimatedHostFrameFromClock += static_cast<FrameNumber>(
-                    (nowSharedClockMicros - room.lastAuthoritativeClockMicros) / frameDtMicros
-                );
-            }
-            capFrame = std::max(capFrame, estimatedHostFrameFromClock);
-        }
-    }
-
-    return capFrame + kClientHostPlaybackLeadSlackFrames;
+    return std::max(room.currentFrame, room.lastConfirmedFrame);
 }
 
 } // namespace
@@ -1701,7 +1679,7 @@ void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
                                   INetplayConsole& console)
 {
     const std::optional<FrameNumber> maxPlaybackFrame =
-        runtimeClientHostPlaybackCapFrame(coordinator, console);
+        runtimeClientHostPlaybackCapFrame(coordinator);
     runtimePreparePlaybackFrames(
         coordinator,
         inputDriver,
@@ -1745,6 +1723,11 @@ bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
                                            FrameNumber frame,
                                            NetplayCoordinator::ConfirmedFrameInputs& outFrame)
 {
+    const std::optional<FrameNumber> maxPlaybackFrame = runtimeClientHostPlaybackCapFrame(coordinator);
+    if(maxPlaybackFrame.has_value() && frame > *maxPlaybackFrame) {
+        runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
+        return false;
+    }
     const bool allowPrediction = runtimeShouldAllowPredictionForFrame(coordinator, inputDriver, frame);
     const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
     const FrameNumber predictionCapFrame =

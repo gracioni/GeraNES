@@ -2286,6 +2286,54 @@ TEST_CASE("Late-joining assigned client remains deterministic after assignment r
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
 }
 
+TEST_CASE("Late-joining Four Score client assignment does not trigger resync storm",
+          "[netplay][runtime][late-join][multitap][assignment][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "late-join-four-score-client",
+        ""
+    };
+    options.hostAssignedBeforeJoinOnly = true;
+    options.assignLateJoinClientToMultitapAfterJoin = true;
+    options.frames = 120;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 4;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.frameStepLimit = 50000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_late_join_four_score_client_assignment.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
+}
+
 TEST_CASE("Netplay web runtime keeps advancing when host and client both have inputs", "[netplay][runtime][web][regression]")
 {
     GeraNESTestSupport::requireRomFixture();

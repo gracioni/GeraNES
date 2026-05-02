@@ -4094,6 +4094,15 @@ void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> i
 
     room.inputTopology = std::move(inputTopology);
 
+    FrameStatusData topologyStatus;
+    topologyStatus.timelineEpoch = room.timelineEpoch;
+    topologyStatus.currentFrame = room.currentFrame;
+    topologyStatus.lastConfirmedFrame = room.lastConfirmedFrame;
+    topologyStatus.inputDelayFrames = room.inputDelayFrames;
+    topologyStatus.predictFrames = room.predictFrames;
+    topologyStatus.topology = makeTopologyData(room);
+    m_transport.broadcastReliable(Channel::Control, buildFrameStatusPacket(topologyStatus, room.sessionId));
+
     std::vector<ParticipantId> changedAssignments;
     for(ParticipantInfo& participant : room.participants) {
         if(participantIsObserver(participant)) continue;

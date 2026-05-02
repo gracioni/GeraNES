@@ -94,6 +94,7 @@ public:
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
         bool assignLateJoinClientAfterJoin = false;
+        bool assignLateJoinClientToMultitapAfterJoin = false;
         bool hostMultitapAssignedBeforeJoinOnly = false;
         bool clientAssignedOnly = false;
         bool assignmentPatternCheck = false;
@@ -833,6 +834,7 @@ private:
             {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
+            {"assignLateJoinClientToMultitapAfterJoin", options.assignLateJoinClientToMultitapAfterJoin},
             {"lastCheckedFrame", lastCheckedFrame},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
                 ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
@@ -1540,6 +1542,7 @@ private:
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"requireHostManualLoadDuringResync", options.requireHostManualLoadDuringResync},
             {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
+            {"assignLateJoinClientToMultitapAfterJoin", options.assignLateJoinClientToMultitapAfterJoin},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
@@ -1982,8 +1985,21 @@ private:
                 return result;
             }
 
-            if(options.assignLateJoinClientAfterJoin) {
-                hostPeer.runtime.assignController(*clientId, GeraNESNetplay::kPort2PlayerSlot);
+            if(options.assignLateJoinClientAfterJoin || options.assignLateJoinClientToMultitapAfterJoin) {
+                if(options.assignLateJoinClientToMultitapAfterJoin) {
+                    GeraNESNetplay::configureInputAssignments(
+                        hostPeer.runtime,
+                        *clientId,
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        Settings::ExpansionDevice::NONE,
+                        Settings::NesMultitapDevice::FOUR_SCORE,
+                        Settings::FamicomMultitapDevice::NONE,
+                        {GeraNESNetplay::kMultitapP2PlayerSlot}
+                    );
+                } else {
+                    hostPeer.runtime.assignController(*clientId, GeraNESNetplay::kPort2PlayerSlot);
+                }
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
                         const auto clientSnap = clientPeer.runtime.uiSnapshot();
@@ -1996,15 +2012,26 @@ private:
                         return hostParticipant != nullptr &&
                                clientParticipantHostView != nullptr &&
                                clientLocalParticipant != nullptr &&
-                               hostParticipant->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
-                               clientParticipantHostView->controllerAssignment == GeraNESNetplay::kPort2PlayerSlot &&
-                               clientLocalParticipant->controllerAssignment == GeraNESNetplay::kPort2PlayerSlot &&
+                               hostParticipant->controllerAssignment ==
+                                   (options.assignLateJoinClientToMultitapAfterJoin
+                                        ? GeraNESNetplay::kMultitapP1PlayerSlot
+                                        : GeraNESNetplay::kPort1PlayerSlot) &&
+                               clientParticipantHostView->controllerAssignment ==
+                                   (options.assignLateJoinClientToMultitapAfterJoin
+                                        ? GeraNESNetplay::kMultitapP2PlayerSlot
+                                        : GeraNESNetplay::kPort2PlayerSlot) &&
+                               clientLocalParticipant->controllerAssignment ==
+                                   (options.assignLateJoinClientToMultitapAfterJoin
+                                        ? GeraNESNetplay::kMultitapP2PlayerSlot
+                                        : GeraNESNetplay::kPort2PlayerSlot) &&
                                hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                hostSnap.room.activeResyncId == 0 &&
                                clientSnap.room.activeResyncId == 0;
                     }, options.startupTimeoutSteps, 5u)) {
-                    failureReason = "Timed out waiting for late-joining client assignment and automatic post-assignment resync.";
+                    failureReason = options.assignLateJoinClientToMultitapAfterJoin
+                        ? "Timed out waiting for late-joining Four Score client assignment and automatic post-assignment resync."
+                        : "Timed out waiting for late-joining client assignment and automatic post-assignment resync.";
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                     result.exitCode = RESULT_ERROR;
                     cleanup();
@@ -2345,7 +2372,9 @@ private:
                 );
                 clientPeer.updateLatestInputState(
                     clientRuntimePaused ||
-                            (options.hostAssignedBeforeJoinOnly && !options.assignLateJoinClientAfterJoin) ||
+                            (options.hostAssignedBeforeJoinOnly &&
+                             !options.assignLateJoinClientAfterJoin &&
+                             !options.assignLateJoinClientToMultitapAfterJoin) ||
                             !clientLocalSlot.has_value()
                         ? IEmulationHost::InputState{}
                         : buildRuntimeInputStateForSlot(*clientLocalSlot, effectiveClientButtons)
