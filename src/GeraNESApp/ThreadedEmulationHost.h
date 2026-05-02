@@ -230,18 +230,18 @@ public:
     explicit ThreadedEmulationHost(IAudioOutput& audioOutput);
     ~ThreadedEmulationHost();
 
-    void shutdown();
-    void setPendingInput(const InputState& input);
-    void setFrameInputResolver(FrameInputResolver resolver);
+    void shutdown() override;
+    void setPendingInput(const InputState& input) override;
+    void setFrameInputResolver(FrameInputResolver resolver) override;
 
-    void queueInputForFrame(uint32_t frameNumber, const InputState& input)
+    void queueInputForFrame(uint32_t frameNumber, const InputState& input) override
     {
         postCommand([frameNumber, input](GeraNESEmu& emu) {
             emu.queueInputFrame(buildInputFrameForEmu(emu, frameNumber, input));
         });
     }
 
-    void queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs)
+    void queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs) override
     {
         if(inputs.empty()) return;
         postCommand([inputs](GeraNESEmu& emu) {
@@ -251,11 +251,11 @@ public:
         });
     }
 
-    void setAutoQueuePendingInputOnFrameStart(bool enabled);
-    void setAllowPresenterTimeoutAdvance(bool enabled);
-    void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook);
+    void setAutoQueuePendingInputOnFrameStart(bool enabled) override;
+    void setAllowPresenterTimeoutAdvance(bool enabled) override;
+    void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook) override;
     void setDebugTraceSink(std::function<void(const std::string&)> sink);
-    void postCommand(std::function<void(GeraNESEmu&)> command);
+    void postCommand(std::function<void(GeraNESEmu&)> command) override;
 
     template<typename Fn>
     decltype(auto) withExclusiveAccess(Fn&& fn)
@@ -304,7 +304,7 @@ public:
         return std::forward<Fn>(fn)(m_emu);
     }
 
-    bool open(const std::string& path)
+    bool open(const std::string& path) override
     {
         std::scoped_lock emuLock(m_emuMutex);
         m_hasCachedNetplayCrc = false;
@@ -334,50 +334,50 @@ public:
         return opened;
     }
 
-    std::vector<std::string> getAudioList() const
+    std::vector<std::string> getAudioList() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioDevices;
     }
 
-    IAudioOutput::AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const
+    IAudioOutput::AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const override
     {
         (void)deviceName;
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioFormatOptions;
     }
 
-    std::string currentAudioDeviceName() const
+    std::string currentAudioDeviceName() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioDeviceName;
     }
 
-    int currentAudioSampleRate() const
+    int currentAudioSampleRate() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioSampleRate;
     }
 
-    int currentAudioSampleSize() const
+    int currentAudioSampleSize() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioSampleSize;
     }
 
-    float getAudioVolume() const
+    float getAudioVolume() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioVolume;
     }
 
-    std::string getAudioChannelsJson() const
+    std::string getAudioChannelsJson() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.audioChannelsJson;
     }
 
-    void configAudioDevice(const std::string& deviceName)
+    void configAudioDevice(const std::string& deviceName) override
     {
         postCommand([deviceName, this](GeraNESEmu&) {
             m_audioOutput.config(deviceName);
@@ -385,7 +385,7 @@ public:
         });
     }
 
-    void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize)
+    void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize) override
     {
         postCommand([deviceName, sampleRate, sampleSize, this](GeraNESEmu&) {
             m_audioOutput.config(deviceName, sampleRate, sampleSize);
@@ -393,7 +393,7 @@ public:
         });
     }
 
-    void restartAudio()
+    void restartAudio() override
     {
         postCommand([this](GeraNESEmu&) {
             m_audioOutput.restart();
@@ -401,7 +401,7 @@ public:
         });
     }
 
-    void discardQueuedAudio()
+    void discardQueuedAudio() override
     {
         postCommand([this](GeraNESEmu&) {
             m_audioOutput.discardQueuedAudio();
@@ -409,7 +409,7 @@ public:
         });
     }
 
-    void discardQueuedNetplayInputsAfter(uint32_t frame)
+    void discardQueuedNetplayInputsAfter(uint32_t frame) override
     {
         postCommand([this, frame](GeraNESEmu& emu) {
             emu.discardQueuedInputFramesAfter(frame);
@@ -417,7 +417,7 @@ public:
         });
     }
 
-    std::vector<ManualStateChangeRecord> consumeManualStateChanges()
+    std::vector<ManualStateChangeRecord> consumeManualStateChanges() override
     {
         std::vector<ManualStateChangeRecord> events;
         std::scoped_lock eventLock(m_manualStateChangeMutex);
@@ -426,7 +426,7 @@ public:
         return events;
     }
 
-    void setAudioVolume(float volume)
+    void setAudioVolume(float volume) override
     {
         postCommand([volume, this](GeraNESEmu&) {
             m_audioOutput.setVolume(volume);
@@ -434,7 +434,7 @@ public:
         });
     }
 
-    bool setAudioChannelVolumeById(const std::string& id, float volume)
+    bool setAudioChannelVolumeById(const std::string& id, float volume) override
     {
         postCommand([id, volume, this](GeraNESEmu&) {
             m_audioOutput.setAudioChannelVolumeById(id, volume);
@@ -443,7 +443,7 @@ public:
         return true;
     }
 
-    void setColorPalette(const std::array<uint32_t, 64>& palette)
+    void setColorPalette(const std::array<uint32_t, 64>& palette) override
     {
         postCommand([palette, this](GeraNESEmu& emu) {
             emu.getConsole().ppu().setColorPalette(palette);
@@ -451,7 +451,7 @@ public:
         });
     }
 
-    bool valid() const
+    bool valid() const override
     {
         if(hasDirectEmuAccess()) {
             return m_emu.valid();
@@ -460,46 +460,46 @@ public:
         return m_snapshot.valid;
     }
 
-    void setupRewindSystem(bool enabled, int maxSeconds)
+    void setupRewindSystem(bool enabled, int maxSeconds) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.setupRewindSystem(enabled, maxSeconds);
         });
     }
 
-    void disableSpriteLimit(bool disabled)
+    void disableSpriteLimit(bool disabled) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.disableSpriteLimit(disabled);
         });
     }
 
-    bool spriteLimitDisabled() const
+    bool spriteLimitDisabled() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.spriteLimitDisabled;
     }
 
-    void enableOverclock(bool enabled)
+    void enableOverclock(bool enabled) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.enableOverclock(enabled);
         });
     }
 
-    bool overclocked() const
+    bool overclocked() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.overclocked;
     }
 
-    Settings::Region region() const
+    Settings::Region region() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.region;
     }
 
-    void setRegion(Settings::Region region)
+    void setRegion(Settings::Region region) override
     {
         postCommand([=](GeraNESEmu& emu) {
             if(!emu.valid()) return;
@@ -507,13 +507,13 @@ public:
         });
     }
 
-    bool paused() const
+    bool paused() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.paused;
     }
 
-    void togglePaused()
+    void togglePaused() override
     {
         postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
@@ -521,7 +521,7 @@ public:
         });
     }
 
-    void reset()
+    void reset() override
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         postCommand([](GeraNESEmu& emu) {
@@ -530,7 +530,7 @@ public:
         });
     }
 
-    void saveState(uint8_t slot = 0)
+    void saveState(uint8_t slot = 0) override
     {
         postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
@@ -538,7 +538,7 @@ public:
         });
     }
 
-    void loadState(uint8_t slot = 0)
+    void loadState(uint8_t slot = 0) override
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
         postCommand([slot](GeraNESEmu& emu) {
@@ -547,38 +547,38 @@ public:
         });
     }
 
-    std::optional<Settings::Device> getPortDevice(Settings::Port port) const
+    std::optional<Settings::Device> getPortDevice(Settings::Port port) const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return port == Settings::Port::P_1 ? m_snapshot.port1Device : m_snapshot.port2Device;
     }
 
-    void setPortDevice(Settings::Port port, Settings::Device device)
+    void setPortDevice(Settings::Port port, Settings::Device device) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.setPortDevice(port, device);
         });
     }
 
-    Settings::ExpansionDevice getExpansionDevice() const
+    Settings::ExpansionDevice getExpansionDevice() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.expansionDevice;
     }
 
-    Settings::NesMultitapDevice getNesMultitapDevice() const
+    Settings::NesMultitapDevice getNesMultitapDevice() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nesMultitapDevice;
     }
 
-    Settings::FamicomMultitapDevice getFamicomMultitapDevice() const
+    Settings::FamicomMultitapDevice getFamicomMultitapDevice() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.famicomMultitapDevice;
     }
 
-    InputTopologySnapshot getInputTopologySnapshot() const
+    InputTopologySnapshot getInputTopologySnapshot() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         InputTopologySnapshot snapshot;
@@ -590,89 +590,89 @@ public:
         return snapshot;
     }
 
-    GameDatabase::System currentCartridgeSystem() const
+    GameDatabase::System currentCartridgeSystem() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.cartridgeSystem;
     }
 
-    void setExpansionDevice(Settings::ExpansionDevice device)
+    void setExpansionDevice(Settings::ExpansionDevice device) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.setExpansionDevice(device);
         });
     }
 
-    void setNesMultitapDevice(Settings::NesMultitapDevice device)
+    void setNesMultitapDevice(Settings::NesMultitapDevice device) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.setNesMultitapDevice(device);
         });
     }
 
-    void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
+    void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device) override
     {
         postCommand([=](GeraNESEmu& emu) {
             emu.setFamicomMultitapDevice(device);
         });
     }
 
-    void fdsSwitchDiskSide() { postCommand([](GeraNESEmu& emu) { emu.fdsSwitchDiskSide(); }); }
-    void fdsEjectDisk() { postCommand([](GeraNESEmu& emu) { emu.fdsEjectDisk(); }); }
-    void fdsInsertNextDisk() { postCommand([](GeraNESEmu& emu) { emu.fdsInsertNextDisk(); }); }
-    void vsInsertCoin(int slot) { postCommand([=](GeraNESEmu& emu) { emu.vsInsertCoin(slot); }); }
-    void vsServiceButton(int button) { postCommand([=](GeraNESEmu& emu) { emu.vsServiceButton(button); }); }
+    void fdsSwitchDiskSide() override { postCommand([](GeraNESEmu& emu) { emu.fdsSwitchDiskSide(); }); }
+    void fdsEjectDisk() override { postCommand([](GeraNESEmu& emu) { emu.fdsEjectDisk(); }); }
+    void fdsInsertNextDisk() override { postCommand([](GeraNESEmu& emu) { emu.fdsInsertNextDisk(); }); }
+    void vsInsertCoin(int slot) override { postCommand([=](GeraNESEmu& emu) { emu.vsInsertCoin(slot); }); }
+    void vsServiceButton(int button) override { postCommand([=](GeraNESEmu& emu) { emu.vsServiceButton(button); }); }
 
-    bool isNsfLoaded() const
+    bool isNsfLoaded() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nsfLoaded;
     }
 
-    bool nsfIsPlaying() const
+    bool nsfIsPlaying() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nsfPlaying;
     }
 
-    bool nsfIsPaused() const
+    bool nsfIsPaused() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nsfPaused;
     }
 
-    bool nsfHasEnded() const
+    bool nsfHasEnded() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nsfEnded;
     }
 
-    int nsfTotalSongs() const
+    int nsfTotalSongs() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nsfTotalSongs;
     }
 
-    int nsfCurrentSong() const
+    int nsfCurrentSong() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.nsfCurrentSong;
     }
 
-    void nsfPlay() { postCommand([](GeraNESEmu& emu) { emu.nsfPlay(); }); }
-    void nsfPause() { postCommand([](GeraNESEmu& emu) { emu.nsfPause(); }); }
-    void nsfStop() { postCommand([](GeraNESEmu& emu) { emu.nsfStop(); }); }
-    void nsfNextSong() { postCommand([](GeraNESEmu& emu) { emu.nsfNextSong(); }); }
-    void nsfPrevSong() { postCommand([](GeraNESEmu& emu) { emu.nsfPrevSong(); }); }
-    void nsfSetSong(int song1Based) { postCommand([=](GeraNESEmu& emu) { emu.nsfSetSong(song1Based); }); }
+    void nsfPlay() override { postCommand([](GeraNESEmu& emu) { emu.nsfPlay(); }); }
+    void nsfPause() override { postCommand([](GeraNESEmu& emu) { emu.nsfPause(); }); }
+    void nsfStop() override { postCommand([](GeraNESEmu& emu) { emu.nsfStop(); }); }
+    void nsfNextSong() override { postCommand([](GeraNESEmu& emu) { emu.nsfNextSong(); }); }
+    void nsfPrevSong() override { postCommand([](GeraNESEmu& emu) { emu.nsfPrevSong(); }); }
+    void nsfSetSong(int song1Based) override { postCommand([=](GeraNESEmu& emu) { emu.nsfSetSong(song1Based); }); }
 
-    bool isRewinding() const
+    bool isRewinding() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         return m_snapshot.rewinding;
     }
 
-    uint32_t frameCount() const
+    uint32_t frameCount() const override
     {
         if(hasDirectEmuAccess()) {
             return m_emu.frameCount();
@@ -681,11 +681,11 @@ public:
         return m_snapshot.frameCount;
     }
 
-    uint32_t manualResetGeneration() const;
-    uint32_t manualLoadStateGeneration() const;
-    uint32_t exactEmulationFrame() const;
-    uint32_t getRegionFPS() const;
-    void configureInputBufferCapacity(size_t capacity)
+    uint32_t manualResetGeneration() const override;
+    uint32_t manualLoadStateGeneration() const override;
+    uint32_t exactEmulationFrame() const override;
+    uint32_t getRegionFPS() const override;
+    void configureInputBufferCapacity(size_t capacity) override
     {
         if(hasDirectEmuAccess()) {
             m_emu.configureInputBufferCapacity(capacity);
@@ -696,7 +696,7 @@ public:
         });
     }
 
-    uint32_t inputTimelineEpoch() const
+    uint32_t inputTimelineEpoch() const override
     {
         if(hasDirectEmuAccess()) {
             return m_emu.inputTimelineEpoch();
@@ -705,7 +705,7 @@ public:
         return m_snapshot.inputTimelineEpoch;
     }
 
-    void setInputTimelineEpoch(uint32_t timelineEpoch)
+    void setInputTimelineEpoch(uint32_t timelineEpoch) override
     {
         if(hasDirectEmuAccess()) {
             m_emu.setInputTimelineEpoch(timelineEpoch);
@@ -717,7 +717,7 @@ public:
         });
     }
 
-    void discardQueuedInputFramesAfter(uint32_t frame)
+    void discardQueuedInputFramesAfter(uint32_t frame) override
     {
         if(hasDirectEmuAccess()) {
             m_emu.discardQueuedInputFramesAfter(frame);
@@ -728,20 +728,20 @@ public:
         });
     }
 
-    const uint32_t* getFramebuffer() const;
+    const uint32_t* getFramebuffer() const override;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
-    void setPresenterLockActive(bool active);
-    void setSimulationSuspended(bool suspended);
-    bool update(uint32_t dt);
-    void updateUntilFrame(uint32_t dt);
-    void configureNetplaySnapshots(size_t snapshotCapacity);
-    bool rollbackToFrame(uint32_t frame);
-    std::vector<uint8_t> saveStateToMemory();
-    std::vector<uint8_t> saveNetplayStateToMemory();
-    bool loadStateFromMemory(const std::vector<uint8_t>& data);
-    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data);
-    bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data);
+    void setPresenterLockActive(bool active) override;
+    void setSimulationSuspended(bool suspended) override;
+    bool update(uint32_t dt) override;
+    void updateUntilFrame(uint32_t dt) override;
+    void configureNetplaySnapshots(size_t snapshotCapacity) override;
+    bool rollbackToFrame(uint32_t frame) override;
+    std::vector<uint8_t> saveStateToMemory() override;
+    std::vector<uint8_t> saveNetplayStateToMemory() override;
+    bool loadStateFromMemory(const std::vector<uint8_t>& data) override;
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) override;
+    bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) override;
 
     template<typename InputProvider>
     bool resimulateToFrame(uint32_t targetFrame, InputProvider&& inputProvider)
@@ -774,16 +774,16 @@ public:
         return true;
     }
 
-    uint32_t canonicalStateCrc32();
-    uint32_t canonicalNetplayStateCrc32();
-    uint32_t lastFrameReadyFrame() const;
-    uint32_t lastFrameReadyNetplayCrc32() const;
-    void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32);
-    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const;
-    std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const;
-    bool updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32);
+    uint32_t canonicalStateCrc32() override;
+    uint32_t canonicalNetplayStateCrc32() override;
+    uint32_t lastFrameReadyFrame() const override;
+    uint32_t lastFrameReadyNetplayCrc32() const override;
+    void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) override;
+    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const override;
+    std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const override;
+    bool updateNetplaySnapshotCrc32ForFrame(uint32_t frame, uint32_t canonicalCrc32) override;
     void seedNetplaySnapshot(uint32_t frame,
                              const std::vector<uint8_t>& data,
-                             std::optional<uint32_t> canonicalCrc32 = std::nullopt);
-    NetplayDiagnosticsSnapshot getNetplayDiagnostics() const;
+                             std::optional<uint32_t> canonicalCrc32 = std::nullopt) override;
+    NetplayDiagnosticsSnapshot getNetplayDiagnostics() const override;
 };
