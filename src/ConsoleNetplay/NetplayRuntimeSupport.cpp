@@ -1500,7 +1500,8 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
 uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
                                             ConfirmedInputBufferDriver& inputDriver,
                                             INetplayConsole& console,
-                                            uint32_t maxFrames)
+                                            uint32_t maxFrames,
+                                            bool showDebugLog)
 {
     if(maxFrames == 0u) return 0u;
     if(!coordinator.isActive()) return 0u;
@@ -1536,7 +1537,7 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
         coordinator.setLocalSimulationFrame(console.frameCount());
     }
 
-    if(advancedFrames > 0u) {
+    if(showDebugLog && advancedFrames > 0u) {
         coordinator.appendNetplayLog(
             "Netplay observer-peer catchup advanced " +
             std::to_string(advancedFrames) +

@@ -403,6 +403,7 @@ public:
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;
     PerformanceDiagnostics performanceDiagnostics() const;
+    void clearEventLog();
     void appendNetplayLog(const std::string& message);
     const RollbackStats& predictionStats() const;
     void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached);

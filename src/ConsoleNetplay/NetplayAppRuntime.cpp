@@ -374,6 +374,13 @@ void NetplayAppRuntime::appendNetplayLog(const std::string& message)
     });
 }
 
+void NetplayAppRuntime::clearNetplayLog()
+{
+    enqueueRuntimeCommand([](NetplayAppRuntime& self) {
+        self.m_coordinator.clearEventLog();
+    });
+}
+
 void NetplayAppRuntime::shutdown()
 {
     wakeRuntimeHost();
@@ -1054,7 +1061,8 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
             m_coordinator,
             m_inputDriver,
             console,
-            kMaxObserverPeerCatchupFrames
+            kMaxObserverPeerCatchupFrames,
+            settings.showDebugLog
         );
 
         constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;

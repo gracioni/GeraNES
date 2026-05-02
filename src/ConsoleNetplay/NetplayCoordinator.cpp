@@ -5375,6 +5375,11 @@ NetplayCoordinator::PerformanceDiagnostics NetplayCoordinator::performanceDiagno
     return m_performanceDiagnostics;
 }
 
+void NetplayCoordinator::clearEventLog()
+{
+    m_eventLog.clear();
+}
+
 void NetplayCoordinator::appendNetplayLog(const std::string& message)
 {
     pushLog(message);

@@ -470,7 +470,6 @@ void drawNetplayWindow(bool& showWindow,
 #else
     cfg.autoGameplayTuning = true;
 #endif
-    ImGui::Checkbox("Show netplay debug log##NetplayDebugMode", &cfg.showNetplayDebugLog);
     cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
     cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
@@ -1370,6 +1369,11 @@ void drawNetplayWindow(bool& showWindow,
                           logBuffer.data(),
                           logBuffer.size(),
                           ImVec2(-1.0f, 180.0f));
+    ImGui::Checkbox("Show netplay debug log##NetplayDebugMode", &cfg.showNetplayDebugLog);
+    ImGui::SameLine();
+    if(ImGui::Button("Clear##NetplayLog")) {
+        runtime.clearNetplayLog();
+    }
     if(blockInputs) {
         ImGui::EndDisabled();
     }

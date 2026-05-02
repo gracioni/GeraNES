@@ -184,6 +184,7 @@ public:
     void requestForceResync();
     void toggleHostedSessionPause();
     void appendNetplayLog(const std::string& message);
+    void clearNetplayLog();
     void shutdown();
     void shutdownForUnload();
     bool tryBuildPlaybackFrame(FrameNumber frame,
