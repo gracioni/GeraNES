@@ -81,18 +81,20 @@ void NetplayAppRuntime::enqueuePendingAssignmentMutation(RuntimeCommand command)
 
 void NetplayAppRuntime::processPendingAssignmentMutations()
 {
-    if(assignmentMutationCurrentlyBlocked(m_coordinator)) {
-        return;
-    }
+    while(!assignmentMutationCurrentlyBlocked(m_coordinator)) {
+        RuntimeCommand command;
+        {
+            std::scoped_lock stateLock(m_stateMutex);
+            if(m_pendingAssignmentMutationCommands.empty()) {
+                return;
+            }
+            command = std::move(m_pendingAssignmentMutationCommands.front());
+            m_pendingAssignmentMutationCommands.pop_front();
+        }
 
-    std::deque<RuntimeCommand> commands;
-    {
-        std::scoped_lock stateLock(m_stateMutex);
-        commands.swap(m_pendingAssignmentMutationCommands);
-    }
-
-    for(auto& command : commands) {
-        command(*this);
+        if(command) {
+            command(*this);
+        }
     }
 }
 
