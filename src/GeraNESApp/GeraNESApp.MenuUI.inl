@@ -712,53 +712,54 @@ inline void GeraNESApp::menuBar() {
                 }
 
                 if (ImGui::BeginMenu("Target")) {
-                    auto& touchTarget = AppSettings::instance().data.input.touchControls.target;
+                    auto& configuredTouchTarget = AppSettings::instance().data.input.touchControls.target;
+                    const auto effectiveTouchTarget = effectiveTouchControlsTarget();
 
                     if(ImGui::MenuItem(
                             touchTargetMenuLabel(AppSettings::TouchControlsTarget::Port1Controller).c_str(),
                             nullptr,
-                            touchTarget == AppSettings::TouchControlsTarget::Port1Controller)) {
-                        touchTarget = AppSettings::TouchControlsTarget::Port1Controller;
+                            effectiveTouchTarget == AppSettings::TouchControlsTarget::Port1Controller)) {
+                        configuredTouchTarget = AppSettings::TouchControlsTarget::Port1Controller;
                     }
 
                     if(ImGui::MenuItem(
                             touchTargetMenuLabel(AppSettings::TouchControlsTarget::Port2Controller).c_str(),
                             nullptr,
-                            touchTarget == AppSettings::TouchControlsTarget::Port2Controller)) {
-                        touchTarget = AppSettings::TouchControlsTarget::Port2Controller;
+                            effectiveTouchTarget == AppSettings::TouchControlsTarget::Port2Controller)) {
+                        configuredTouchTarget = AppSettings::TouchControlsTarget::Port2Controller;
                     }
 
                     if(ImGui::MenuItem(
                             touchTargetMenuLabel(AppSettings::TouchControlsTarget::Expansion).c_str(),
                             nullptr,
-                            touchTarget == AppSettings::TouchControlsTarget::Expansion)) {
-                        touchTarget = AppSettings::TouchControlsTarget::Expansion;
+                            effectiveTouchTarget == AppSettings::TouchControlsTarget::Expansion)) {
+                        configuredTouchTarget = AppSettings::TouchControlsTarget::Expansion;
                     }
 
                     if(ImGui::BeginMenu("Multitap")) {
                         if(ImGui::MenuItem(
                                 touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP1).c_str(),
                                 nullptr,
-                                touchTarget == AppSettings::TouchControlsTarget::MultitapP1)) {
-                            touchTarget = AppSettings::TouchControlsTarget::MultitapP1;
+                                effectiveTouchTarget == AppSettings::TouchControlsTarget::MultitapP1)) {
+                            configuredTouchTarget = AppSettings::TouchControlsTarget::MultitapP1;
                         }
                         if(ImGui::MenuItem(
                                 touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP2).c_str(),
                                 nullptr,
-                                touchTarget == AppSettings::TouchControlsTarget::MultitapP2)) {
-                            touchTarget = AppSettings::TouchControlsTarget::MultitapP2;
+                                effectiveTouchTarget == AppSettings::TouchControlsTarget::MultitapP2)) {
+                            configuredTouchTarget = AppSettings::TouchControlsTarget::MultitapP2;
                         }
                         if(ImGui::MenuItem(
                                 touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP3).c_str(),
                                 nullptr,
-                                touchTarget == AppSettings::TouchControlsTarget::MultitapP3)) {
-                            touchTarget = AppSettings::TouchControlsTarget::MultitapP3;
+                                effectiveTouchTarget == AppSettings::TouchControlsTarget::MultitapP3)) {
+                            configuredTouchTarget = AppSettings::TouchControlsTarget::MultitapP3;
                         }
                         if(ImGui::MenuItem(
                                 touchTargetMenuLabel(AppSettings::TouchControlsTarget::MultitapP4).c_str(),
                                 nullptr,
-                                touchTarget == AppSettings::TouchControlsTarget::MultitapP4)) {
-                            touchTarget = AppSettings::TouchControlsTarget::MultitapP4;
+                                effectiveTouchTarget == AppSettings::TouchControlsTarget::MultitapP4)) {
+                            configuredTouchTarget = AppSettings::TouchControlsTarget::MultitapP4;
                         }
 
                         ImGui::EndMenu();

@@ -297,6 +297,7 @@ private:
     static bool isTouchCompatibleExpansionDevice(Settings::ExpansionDevice device);
     static std::string touchTargetMenuLabel(AppSettings::TouchControlsTarget target);
     static AppSettings::TouchControlsTarget preferredTouchTargetForTopology(const IEmulationHost::InputTopologySnapshot& topology);
+    AppSettings::TouchControlsTarget effectiveTouchControlsTarget() const;
     void normalizeTouchControlsTargetForCurrentTopology();
     static void setIfNegative(std::string& dst, int value);
     static void setIfNegativeKb(std::string& dst, int bytesValue);

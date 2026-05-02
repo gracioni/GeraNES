@@ -227,10 +227,54 @@ AppSettings::TouchControlsTarget GeraNESApp::preferredTouchTargetForTopology(
     return AppSettings::TouchControlsTarget::Port1Controller;
 }
 
+namespace {
+
+std::optional<AppSettings::TouchControlsTarget> touchTargetForNetplaySlot(ConsoleNetplay::PlayerSlot slot);
+bool touchTargetMatchesNetplayAssignment(AppSettings::TouchControlsTarget target,
+                                         ConsoleNetplay::PlayerSlot slot);
+
+} // namespace
+
 void GeraNESApp::normalizeTouchControlsTargetForCurrentTopology()
 {
     AppSettings::instance().data.input.touchControls.target =
         preferredTouchTargetForTopology(m_emu.getInputTopologySnapshot());
+}
+
+AppSettings::TouchControlsTarget GeraNESApp::effectiveTouchControlsTarget() const
+{
+    AppSettings::TouchControlsTarget touchTarget =
+        AppSettings::instance().data.input.touchControls.target;
+    const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
+    if(!netplaySnapshot.active) {
+        return touchTarget;
+    }
+
+    for(const auto& participant : netplaySnapshot.room.participants) {
+        if(participant.id != netplaySnapshot.localParticipantId ||
+           participant.controllerAssignments.empty()) {
+            continue;
+        }
+        const bool targetMatchesLocalAssignment =
+            std::any_of(
+                participant.controllerAssignments.begin(),
+                participant.controllerAssignments.end(),
+                [touchTarget](ConsoleNetplay::PlayerSlot slot) {
+                    return touchTargetMatchesNetplayAssignment(touchTarget, slot);
+                }
+            );
+        if(targetMatchesLocalAssignment) {
+            break;
+        }
+        const auto preferredTarget =
+            touchTargetForNetplaySlot(participant.controllerAssignments.front());
+        if(preferredTarget.has_value()) {
+            touchTarget = *preferredTarget;
+        }
+        break;
+    }
+
+    return touchTarget;
 }
 
 namespace {
@@ -1393,31 +1437,7 @@ void GeraNESApp::pollAndPrepareInput()
 
         const auto inputTopology = m_emu.getInputTopologySnapshot();
         const bool touchInputActive = !m_imGuiWantsMouse;
-        auto touchTarget = AppSettings::instance().data.input.touchControls.target;
-        const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
-        if(netplaySnapshot.active) {
-            for(const auto& participant : netplaySnapshot.room.participants) {
-                if(participant.id != netplaySnapshot.localParticipantId || participant.controllerAssignments.empty()) {
-                    continue;
-                }
-                const bool targetMatchesLocalAssignment =
-                    std::any_of(
-                        participant.controllerAssignments.begin(),
-                        participant.controllerAssignments.end(),
-                        [touchTarget](ConsoleNetplay::PlayerSlot slot) {
-                            return touchTargetMatchesNetplayAssignment(touchTarget, slot);
-                        }
-                    );
-                if(!targetMatchesLocalAssignment) {
-                    const auto preferredTarget =
-                        touchTargetForNetplaySlot(participant.controllerAssignments.front());
-                    if(preferredTarget.has_value()) {
-                        touchTarget = *preferredTarget;
-                    }
-                }
-                break;
-            }
-        }
+        const auto touchTarget = effectiveTouchControlsTarget();
         const bool multitapActive =
             inputTopology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
             inputTopology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
