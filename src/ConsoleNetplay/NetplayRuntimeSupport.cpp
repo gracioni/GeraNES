@@ -420,13 +420,11 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
         crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
     if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return result;
 
-    std::optional<uint32_t> crc32;
-    if(crcCheckpointFrame == authoritativeCheckpointFrame &&
+    std::optional<uint32_t> crc32 = runtimeHost.netplaySnapshotCrc32ForFrame(crcCheckpointFrame);
+    if(!crc32.has_value() &&
+       crcCheckpointFrame == authoritativeCheckpointFrame &&
        runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
         crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
-    }
-    if(!crc32.has_value()) {
-        crc32 = runtimeHost.netplaySnapshotCrc32ForFrame(crcCheckpointFrame);
     }
     if(!crc32.has_value() && emu.frameCount() == crcCheckpointFrame) {
         crc32 = emu.canonicalNetplayStateCrc32();
