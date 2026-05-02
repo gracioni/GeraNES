@@ -7697,6 +7697,9 @@ TEST_CASE("Netplay runtime stays deterministic after repeated host load states d
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("hostManualLoadTriggerCount") == options.hostManualLoadStateFrames.size());
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    for(const auto& entry : report.at("host").at("eventLogTail")) {
+        REQUIRE(entry.get<std::string>().find("Ignored late input for already committed frame") == std::string::npos);
+    }
     for(const auto& entry : report.at("client").at("eventLogTail")) {
         REQUIRE(entry.get<std::string>().find("Rejected non-sequential input sequence") == std::string::npos);
     }

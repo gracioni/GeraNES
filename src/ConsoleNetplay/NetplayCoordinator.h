@@ -290,7 +290,8 @@ private:
     void realignAuthoritativeState(FrameNumber loadedFrame,
                                    bool resetInputSequences = false,
                                    uint32_t inputSequenceBase = 0,
-                                   bool preserveConfirmedInputs = true);
+                                   bool preserveConfirmedInputs = true,
+                                   ResyncReason reason = ResyncReason::Unspecified);
     static bool preserveConfirmedInputsAcrossRealignment(ResyncReason reason);
     void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
