@@ -2960,6 +2960,8 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
                      m_session.roomState().lastConfirmedFrame);
         const std::vector<PlayerSlot> previousAssignments = participant->controllerAssignments;
         participant->controllerAssignments = data.controllerAssignments;
+        participant->controllerAssignment =
+            data.controllerAssignments.empty() ? kObserverPlayerSlot : data.controllerAssignments.front();
         participant->normalizeControllerAssignments(&m_session.roomState().inputTopology);
         const bool keepHostRole = participant->id == m_localParticipantId && m_hosting;
         syncParticipantRoleWithAssignments(*participant, keepHostRole);
