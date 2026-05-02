@@ -2964,6 +2964,7 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
         const bool assignmentChanged = previousAssignments != participant->controllerAssignments;
         if(assignmentChanged) {
             discardTimelineStateAfter(assignmentBaselineFrame);
+            invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
             participant->lastReceivedInputFrame = assignmentBaselineFrame;
             participant->lastContiguousInputFrame = assignmentBaselineFrame;
             participant->lastReceivedInputSequence = 0;
