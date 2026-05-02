@@ -1029,8 +1029,11 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         console.frameCount(),
         result.running
     );
-    if(assignmentLayout.layoutChanged && settings.discardQueuedNetplayInputsAfter) {
-        settings.discardQueuedNetplayInputsAfter(console.frameCount());
+    if(assignmentLayout.layoutChanged || assignmentLayout.localSlotsChanged) {
+        console.discardQueuedInputFramesAfter(console.frameCount());
+        if(settings.discardQueuedNetplayInputsAfter) {
+            settings.discardQueuedNetplayInputsAfter(console.frameCount());
+        }
     }
     if(assignmentLayout.reanchorInputDriver) {
         m_rollbackProcessState.lastRecoveryReanchorFrame = console.frameCount();
