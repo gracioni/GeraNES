@@ -212,6 +212,26 @@ bool isPlayableSlot(const ConsoleNetplay::RoomState& room, ConsoleNetplay::Playe
     return descriptor != nullptr && descriptor->assignable;
 }
 
+bool topologyCanRepresentAssignments(const std::vector<ConsoleNetplay::PlayerSlot>& assignments,
+                                     const std::vector<ConsoleNetplay::InputSlotDescriptor>& topology)
+{
+    if(assignments.empty()) {
+        return true;
+    }
+    if(topology.empty()) {
+        return false;
+    }
+    for(const ConsoleNetplay::PlayerSlot slot : assignments) {
+        if(slot == ConsoleNetplay::kObserverPlayerSlot) {
+            continue;
+        }
+        if(findInputSlot(topology, slot) == nullptr) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string controllerAssignmentToast(ConsoleNetplay::PlayerSlot slot,
                                       const ConsoleNetplay::RoomState& room,
                                       const std::string& participantName)
@@ -3077,7 +3097,11 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
         participant->controllerAssignments = data.controllerAssignments;
         participant->controllerAssignment =
             data.controllerAssignments.empty() ? kObserverPlayerSlot : data.controllerAssignments.front();
-        participant->normalizeControllerAssignments(&m_session.roomState().inputTopology);
+        if(topologyCanRepresentAssignments(data.controllerAssignments, m_session.roomState().inputTopology)) {
+            participant->normalizeControllerAssignments(&m_session.roomState().inputTopology);
+        } else {
+            participant->normalizeControllerAssignments();
+        }
         const bool keepHostRole = participant->id == m_localParticipantId && m_hosting;
         syncParticipantRoleWithAssignments(*participant, keepHostRole);
         const bool assignmentChanged = previousAssignments != participant->controllerAssignments;
@@ -4538,10 +4562,10 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.reservationSecondsRemaining = reservationSecondsRemaining;
     participant.role = role;
     participant.controllerAssignments = std::move(controllerAssignments);
-    if(m_session.roomState().inputTopology.empty()) {
-        participant.normalizeControllerAssignments();
-    } else {
+    if(topologyCanRepresentAssignments(participant.controllerAssignments, m_session.roomState().inputTopology)) {
         participant.normalizeControllerAssignments(&m_session.roomState().inputTopology);
+    } else {
+        participant.normalizeControllerAssignments();
     }
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;

@@ -3613,7 +3613,7 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
     host.disconnect();
 }
 
-TEST_CASE("Participant assignments survive reconnect join before topology sync",
+TEST_CASE("Participant assignments survive join before topology catches up",
           "[netplay][reconnect][assignments][unit]")
 {
     ConsoleNetplay::NetplayCoordinator client;
@@ -3628,8 +3628,10 @@ TEST_CASE("Participant assignments survive reconnect join before topology sync",
 
     auto& mutableSession = const_cast<ConsoleNetplay::NetSession&>(client.session());
     auto& room = mutableSession.roomState();
-    room.inputTopology = {};
-    REQUIRE(room.inputTopology.empty());
+    room.inputTopology = {
+        ConsoleNetplay::InputSlotDescriptor{9u, 9u, 0x0301u, true, "Famicom Multitap", "P1"}
+    };
+    REQUIRE_FALSE(room.inputTopology.empty());
     REQUIRE(client.injectParticipantJoinedForTests(participant));
 
     const ConsoleNetplay::ParticipantInfo* joined = client.session().findParticipant(participant.id);
