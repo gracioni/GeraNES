@@ -438,7 +438,7 @@ public:
                                bool allowPrediction,
                                ConfirmedFrameInputs& outFrame,
                                bool allowHostFallback = true);
-    void submitLocalCrc(FrameNumber frame, uint32_t crc32);
+    void submitLocalCrc(FrameNumber frame, uint32_t crc32, const char* source = "local CRC submission");
     void invalidateLocalCrcHistoryAfter(FrameNumber frame);
     bool beginResync(FrameNumber targetFrame,
                      const std::vector<uint8_t>& payload,

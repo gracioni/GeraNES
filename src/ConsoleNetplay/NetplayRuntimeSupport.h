@@ -184,6 +184,7 @@ struct RuntimePeriodicCrcResult
     bool submitted = false;
     FrameNumber submittedFrame = 0;
     uint32_t submittedCrc32 = 0;
+    const char* submittedSource = nullptr;
 };
 
 struct RuntimeAutoStartResult

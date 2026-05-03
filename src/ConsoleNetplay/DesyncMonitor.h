@@ -20,6 +20,8 @@ public:
         bool mismatchResolved = false;
         FrameNumber frame = 0;
         uint8_t consecutiveMismatchCount = 0;
+        std::optional<uint32_t> localCrc32;
+        std::optional<uint32_t> remoteCrc32;
     };
 
     void reset();

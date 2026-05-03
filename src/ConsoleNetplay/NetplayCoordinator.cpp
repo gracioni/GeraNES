@@ -2523,6 +2523,32 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 
 void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source)
 {
+    const auto appendFirstMismatchDebugDetail = [&](std::ostringstream& oss) {
+        if(!m_debugMode || update.consecutiveMismatchCount != 1u) return;
+
+        oss << " debug={";
+        if(update.localCrc32.has_value()) {
+            oss << "localCrc=" << *update.localCrc32;
+        } else {
+            oss << "localCrc=?";
+        }
+        oss << " ";
+        if(update.remoteCrc32.has_value()) {
+            oss << "remoteCrc=" << *update.remoteCrc32;
+        } else {
+            oss << "remoteCrc=?";
+        }
+        oss << " localSimFrame=" << localSimulationFrame()
+            << " roomCurrentFrame=" << m_session.roomState().currentFrame
+            << " confirmedFrame=" << m_session.roomState().lastConfirmedFrame
+            << " lastRemoteCrcFrame=" << m_session.roomState().lastRemoteCrcFrame
+            << " timelineEpoch=" << m_session.roomState().timelineEpoch
+            << " recoveryMode=" << static_cast<uint32_t>(m_session.roomState().recoveryInputMode)
+            << " activeResyncId=" << m_session.roomState().activeResyncId
+            << " pendingResyncAckCount=" << m_session.roomState().pendingResyncAckCount
+            << "}";
+    };
+
     if(update.compared && !update.mismatchDetected &&
        m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
        update.frame >= m_session.roomState().recoveryModeEnteredAtFrame) {
@@ -2541,6 +2567,7 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
             << " classification=post_resync_stabilizing_crc_mismatch"
             << " action=ignored_for_resync_pressure";
+        appendFirstMismatchDebugDetail(oss);
         pushLog(oss.str());
         return;
     }
@@ -2552,6 +2579,7 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
     }
     oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
         << " classification=confirmed_crc_mismatch";
+    appendFirstMismatchDebugDetail(oss);
     pushLog(oss.str());
 
     if(!m_hosting) return;
@@ -6061,12 +6089,12 @@ void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
     }
 }
 
-void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32)
+void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32, const char* source)
 {
     if(!kDesyncMonitorEnabled) return;
     if(m_session.roomState().state != SessionState::Running) return;
 
-    applyDesyncMonitorUpdate(m_desyncMonitor.submitLocalCrc(frame, crc32), "local CRC submission");
+    applyDesyncMonitorUpdate(m_desyncMonitor.submitLocalCrc(frame, crc32), source);
 
     if(!m_connected || !m_transport.isActive()) return;
 

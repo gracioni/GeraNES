@@ -76,6 +76,8 @@ DesyncMonitor::Update DesyncMonitor::evaluateFrame(FrameNumber frame)
     if(!localCrc.has_value() || !remoteCrc.has_value()) {
         return update;
     }
+    update.localCrc32 = localCrc;
+    update.remoteCrc32 = remoteCrc;
     if(*localCrc == 0 || *remoteCrc == 0) {
         return update;
     }

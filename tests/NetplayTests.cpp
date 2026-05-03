@@ -5914,6 +5914,45 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay coordinator emits first-mismatch CRC diagnostics in debug mode",
+          "[netplay][crc][classification][debug]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    coordinator.setDebugMode(true);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 8u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 4u;
+    room.currentFrame = 300u;
+    room.lastConfirmedFrame = 300u;
+
+    coordinator.setLocalSimulationFrame(301u);
+    coordinator.submitLocalCrc(300u, 0x11111111u, "local CRC submission (frame-ready)");
+
+    ConsoleNetplay::CrcReportData report;
+    report.timelineEpoch = room.timelineEpoch;
+    report.frame = 300u;
+    report.crc32 = 0x22222222u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "via remote CRC report"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "debug={localCrc=286331153"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "remoteCrc=572662306"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "confirmedFrame=300"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "timelineEpoch=4"));
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[netplay][crc][stabilization][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
