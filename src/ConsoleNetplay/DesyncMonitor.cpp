@@ -12,24 +12,24 @@ void DesyncMonitor::reset()
     m_consecutiveMismatchCount = 0;
 }
 
-DesyncMonitor::Update DesyncMonitor::submitLocalCrc(FrameNumber frame, uint32_t crc32)
+DesyncMonitor::Update DesyncMonitor::submitLocalCrc(const HistoryEntry& entry)
 {
-    storeHistoryEntry(m_localHistory, frame, crc32);
-    return evaluateFrame(frame);
+    storeHistoryEntry(m_localHistory, entry);
+    return evaluateFrame(entry.frame);
 }
 
-DesyncMonitor::Update DesyncMonitor::submitRemoteCrc(FrameNumber frame, uint32_t crc32)
+DesyncMonitor::Update DesyncMonitor::submitRemoteCrc(const HistoryEntry& entry)
 {
-    storeHistoryEntry(m_remoteHistory, frame, crc32);
-    return evaluateFrame(frame);
+    storeHistoryEntry(m_remoteHistory, entry);
+    return evaluateFrame(entry.frame);
 }
 
 void DesyncMonitor::invalidateHistoryAfter(FrameNumber frame)
 {
-    while(!m_localHistory.empty() && m_localHistory.back().first >= frame) {
+    while(!m_localHistory.empty() && m_localHistory.back().frame >= frame) {
         m_localHistory.pop_back();
     }
-    while(!m_remoteHistory.empty() && m_remoteHistory.back().first >= frame) {
+    while(!m_remoteHistory.empty() && m_remoteHistory.back().frame >= frame) {
         m_remoteHistory.pop_back();
     }
     if(m_lastMismatchFrame >= frame) {
@@ -38,29 +38,27 @@ void DesyncMonitor::invalidateHistoryAfter(FrameNumber frame)
     }
 }
 
-void DesyncMonitor::storeHistoryEntry(std::deque<std::pair<FrameNumber, uint32_t>>& history,
-                                      FrameNumber frame,
-                                      uint32_t crc32)
+void DesyncMonitor::storeHistoryEntry(std::deque<HistoryEntry>& history, const HistoryEntry& entry)
 {
     for(auto it = history.rbegin(); it != history.rend(); ++it) {
-        if(it->first == frame) {
-            it->second = crc32;
+        if(it->frame == entry.frame) {
+            *it = entry;
             return;
         }
     }
 
-    history.emplace_back(frame, crc32);
+    history.emplace_back(entry);
     while(history.size() > kHistoryCapacity) {
         history.pop_front();
     }
 }
 
-std::optional<uint32_t> DesyncMonitor::findHistoryEntry(const std::deque<std::pair<FrameNumber, uint32_t>>& history,
-                                                        FrameNumber frame)
+std::optional<DesyncMonitor::HistoryEntry> DesyncMonitor::findHistoryEntry(const std::deque<HistoryEntry>& history,
+                                                                           FrameNumber frame)
 {
     for(auto it = history.rbegin(); it != history.rend(); ++it) {
-        if(it->first == frame) {
-            return it->second;
+        if(it->frame == frame) {
+            return *it;
         }
     }
     return std::nullopt;
@@ -71,19 +69,21 @@ DesyncMonitor::Update DesyncMonitor::evaluateFrame(FrameNumber frame)
     Update update;
     update.frame = frame;
 
-    const std::optional<uint32_t> localCrc = findHistoryEntry(m_localHistory, frame);
-    const std::optional<uint32_t> remoteCrc = findHistoryEntry(m_remoteHistory, frame);
-    if(!localCrc.has_value() || !remoteCrc.has_value()) {
+    const std::optional<HistoryEntry> localEntry = findHistoryEntry(m_localHistory, frame);
+    const std::optional<HistoryEntry> remoteEntry = findHistoryEntry(m_remoteHistory, frame);
+    if(!localEntry.has_value() || !remoteEntry.has_value()) {
         return update;
     }
-    update.localCrc32 = localCrc;
-    update.remoteCrc32 = remoteCrc;
-    if(*localCrc == 0 || *remoteCrc == 0) {
+    update.localEntry = localEntry;
+    update.remoteEntry = remoteEntry;
+    update.localCrc32 = localEntry->crc32;
+    update.remoteCrc32 = remoteEntry->crc32;
+    if(localEntry->crc32 == 0 || remoteEntry->crc32 == 0) {
         return update;
     }
 
     update.compared = true;
-    if(*localCrc != *remoteCrc) {
+    if(localEntry->crc32 != remoteEntry->crc32) {
         update.mismatchDetected = true;
         if(m_lastMismatchFrame != 0 && frame >= m_lastMismatchFrame) {
             m_consecutiveMismatchCount = static_cast<uint8_t>(

@@ -89,6 +89,9 @@ struct RoomState
     FrameNumber lastConfirmedFrame = 0;
     FrameNumber lastRemoteCrcFrame = 0;
     uint32_t lastRemoteCrc32 = 0;
+    CrcSubmissionSource lastRemoteCrcSubmissionSource = CrcSubmissionSource::Unknown;
+    FrameNumber lastRemoteCrcSenderLocalSimulationFrame = 0;
+    FrameNumber lastRemoteCrcSenderConfirmedFrame = 0;
     uint32_t lastAcceptedRemoteEpoch = 0;
     uint32_t lastIgnoredStaleInputEpoch = 0;
     uint32_t lastIgnoredStaleFrameStatusEpoch = 0;

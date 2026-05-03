@@ -434,6 +434,9 @@ void CrcReportData::serialize(PacketWriter& writer) const
     writer.writePod(frame);
     writer.writePod(crc32);
     writer.writePod(severity);
+    writer.writePod(submissionSource);
+    writer.writePod(senderLocalSimulationFrame);
+    writer.writePod(senderConfirmedFrame);
 }
 
 bool CrcReportData::deserialize(PacketReader& reader, CrcReportData& data)
@@ -441,7 +444,10 @@ bool CrcReportData::deserialize(PacketReader& reader, CrcReportData& data)
     return reader.readPod(data.timelineEpoch) &&
            reader.readPod(data.frame) &&
            reader.readPod(data.crc32) &&
-           reader.readPod(data.severity);
+           reader.readPod(data.severity) &&
+           reader.readPod(data.submissionSource) &&
+           reader.readPod(data.senderLocalSimulationFrame) &&
+           reader.readPod(data.senderConfirmedFrame);
 }
 
 void ResyncBeginData::serialize(PacketWriter& writer) const

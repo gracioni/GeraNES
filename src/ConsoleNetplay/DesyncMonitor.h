@@ -13,6 +13,15 @@ namespace ConsoleNetplay {
 class DesyncMonitor
 {
 public:
+    struct HistoryEntry
+    {
+        FrameNumber frame = 0;
+        uint32_t crc32 = 0;
+        CrcSubmissionSource submissionSource = CrcSubmissionSource::Unknown;
+        FrameNumber localSimulationFrame = 0;
+        FrameNumber confirmedFrame = 0;
+    };
+
     struct Update
     {
         bool compared = false;
@@ -22,26 +31,33 @@ public:
         uint8_t consecutiveMismatchCount = 0;
         std::optional<uint32_t> localCrc32;
         std::optional<uint32_t> remoteCrc32;
+        std::optional<HistoryEntry> localEntry;
+        std::optional<HistoryEntry> remoteEntry;
     };
 
     void reset();
-    Update submitLocalCrc(FrameNumber frame, uint32_t crc32);
-    Update submitRemoteCrc(FrameNumber frame, uint32_t crc32);
+    Update submitLocalCrc(const HistoryEntry& entry);
+    Update submitRemoteCrc(const HistoryEntry& entry);
+    Update submitLocalCrc(FrameNumber frame, uint32_t crc32)
+    {
+        return submitLocalCrc(HistoryEntry{frame, crc32});
+    }
+    Update submitRemoteCrc(FrameNumber frame, uint32_t crc32)
+    {
+        return submitRemoteCrc(HistoryEntry{frame, crc32});
+    }
     void invalidateHistoryAfter(FrameNumber frame);
 
 private:
     static constexpr size_t kHistoryCapacity = 512;
 
-    std::deque<std::pair<FrameNumber, uint32_t>> m_localHistory;
-    std::deque<std::pair<FrameNumber, uint32_t>> m_remoteHistory;
+    std::deque<HistoryEntry> m_localHistory;
+    std::deque<HistoryEntry> m_remoteHistory;
     FrameNumber m_lastMismatchFrame = 0;
     uint8_t m_consecutiveMismatchCount = 0;
 
-    static void storeHistoryEntry(std::deque<std::pair<FrameNumber, uint32_t>>& history,
-                                  FrameNumber frame,
-                                  uint32_t crc32);
-    static std::optional<uint32_t> findHistoryEntry(const std::deque<std::pair<FrameNumber, uint32_t>>& history,
-                                                    FrameNumber frame);
+    static void storeHistoryEntry(std::deque<HistoryEntry>& history, const HistoryEntry& entry);
+    static std::optional<HistoryEntry> findHistoryEntry(const std::deque<HistoryEntry>& history, FrameNumber frame);
     Update evaluateFrame(FrameNumber frame);
 };
 

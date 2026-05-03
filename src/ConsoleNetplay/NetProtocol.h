@@ -14,7 +14,7 @@ namespace ConsoleNetplay {
 class PacketWriter;
 class PacketReader;
 
-constexpr uint8_t kProtocolVersion = 15;
+constexpr uint8_t kProtocolVersion = 16;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -329,6 +329,9 @@ struct CrcReportData
     FrameNumber frame = 0;
     uint32_t crc32 = 0;
     DesyncSeverity severity = DesyncSeverity::NoIssue;
+    CrcSubmissionSource submissionSource = CrcSubmissionSource::Unknown;
+    FrameNumber senderLocalSimulationFrame = 0;
+    FrameNumber senderConfirmedFrame = 0;
 
     void serialize(PacketWriter& writer) const;
     static bool deserialize(PacketReader& reader, CrcReportData& data);

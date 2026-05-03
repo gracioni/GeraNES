@@ -435,17 +435,27 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
     // currently loaded frame-ready/live emulator frame.
     std::optional<uint32_t> crc32;
     const char* submittedSource = nullptr;
+    CrcSubmissionSource submittedSourceKind = CrcSubmissionSource::Unknown;
     if(crcCheckpointFrame == lastFrameReadyFrame &&
        runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
         crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
         submittedSource = "local CRC submission (frame-ready)";
+        submittedSourceKind = CrcSubmissionSource::FrameReady;
     } else if(emu.frameCount() == crcCheckpointFrame) {
         crc32 = emu.canonicalNetplayStateCrc32();
         submittedSource = "local CRC submission (live-canonical)";
+        submittedSourceKind = CrcSubmissionSource::LiveCanonical;
     }
     if(!crc32.has_value()) return result;
 
-    coordinator.submitLocalCrc(crcCheckpointFrame, *crc32, submittedSource);
+    coordinator.submitLocalCrc(
+        crcCheckpointFrame,
+        *crc32,
+        submittedSource,
+        submittedSourceKind,
+        emu.frameCount(),
+        confirmedFrame
+    );
     state.lastSubmittedLocalCrcFrame = crcCheckpointFrame;
     state.forceNextConfirmedCrcSubmission = false;
     if(crcCheckpointFrame >= state.postRecoveryRapidCrcThroughFrame) {

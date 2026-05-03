@@ -5935,18 +5935,32 @@ TEST_CASE("Netplay coordinator emits first-mismatch CRC diagnostics in debug mod
     room.lastConfirmedFrame = 300u;
 
     coordinator.setLocalSimulationFrame(301u);
-    coordinator.submitLocalCrc(300u, 0x11111111u, "local CRC submission (frame-ready)");
+    coordinator.submitLocalCrc(
+        300u,
+        0x11111111u,
+        "local CRC submission (frame-ready)",
+        ConsoleNetplay::CrcSubmissionSource::FrameReady,
+        301u,
+        300u
+    );
 
     ConsoleNetplay::CrcReportData report;
     report.timelineEpoch = room.timelineEpoch;
     report.frame = 300u;
     report.crc32 = 0x22222222u;
+    report.submissionSource = ConsoleNetplay::CrcSubmissionSource::LiveCanonical;
+    report.senderLocalSimulationFrame = 302u;
+    report.senderConfirmedFrame = 300u;
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "via remote CRC report"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "debug={localCrc=286331153"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "remoteCrc=572662306"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "localSource=frame-ready"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "remoteSource=live-canonical"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "localSubmittedSimFrame=301"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "remoteSubmittedSimFrame=302"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "confirmedFrame=300"));
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "timelineEpoch=4"));
 

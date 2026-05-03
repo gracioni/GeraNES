@@ -47,6 +47,15 @@ const char* localInputRejectReasonLabel(uint8_t reason)
     }
 }
 
+const char* crcSubmissionSourceLabel(ConsoleNetplay::CrcSubmissionSource source)
+{
+    switch(source) {
+        case ConsoleNetplay::CrcSubmissionSource::FrameReady: return "frame-ready";
+        case ConsoleNetplay::CrcSubmissionSource::LiveCanonical: return "live-canonical";
+        default: return "unknown";
+    }
+}
+
 std::string participantLabel(const ConsoleNetplay::ParticipantInfo& participant)
 {
     if(!participant.displayName.empty()) {
@@ -2516,7 +2525,19 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 
     m_session.roomState().lastRemoteCrcFrame = report.frame;
     m_session.roomState().lastRemoteCrc32 = report.crc32;
-    applyDesyncMonitorUpdate(m_desyncMonitor.submitRemoteCrc(report.frame, report.crc32), "remote CRC report");
+    m_session.roomState().lastRemoteCrcSubmissionSource = report.submissionSource;
+    m_session.roomState().lastRemoteCrcSenderLocalSimulationFrame = report.senderLocalSimulationFrame;
+    m_session.roomState().lastRemoteCrcSenderConfirmedFrame = report.senderConfirmedFrame;
+    applyDesyncMonitorUpdate(
+        m_desyncMonitor.submitRemoteCrc({
+            report.frame,
+            report.crc32,
+            report.submissionSource,
+            report.senderLocalSimulationFrame,
+            report.senderConfirmedFrame
+        }),
+        "remote CRC report"
+    );
 
     return true;
 }
@@ -2527,17 +2548,33 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         if(!m_debugMode || update.consecutiveMismatchCount != 1u) return;
 
         oss << " debug={";
-        if(update.localCrc32.has_value()) {
-            oss << "localCrc=" << *update.localCrc32;
+        if(update.localEntry.has_value()) {
+            oss << "localCrc=" << update.localEntry->crc32;
         } else {
             oss << "localCrc=?";
         }
-        oss << " ";
-        if(update.remoteCrc32.has_value()) {
-            oss << "remoteCrc=" << *update.remoteCrc32;
+        oss << " localSource="
+            << crcSubmissionSourceLabel(update.localEntry.has_value()
+                                            ? update.localEntry->submissionSource
+                                            : CrcSubmissionSource::Unknown)
+            << " localSubmittedSimFrame="
+            << (update.localEntry.has_value() ? update.localEntry->localSimulationFrame : 0u)
+            << " localSubmittedConfirmedFrame="
+            << (update.localEntry.has_value() ? update.localEntry->confirmedFrame : 0u)
+            << " ";
+        if(update.remoteEntry.has_value()) {
+            oss << "remoteCrc=" << update.remoteEntry->crc32;
         } else {
             oss << "remoteCrc=?";
         }
+        oss << " remoteSource="
+            << crcSubmissionSourceLabel(update.remoteEntry.has_value()
+                                            ? update.remoteEntry->submissionSource
+                                            : CrcSubmissionSource::Unknown)
+            << " remoteSubmittedSimFrame="
+            << (update.remoteEntry.has_value() ? update.remoteEntry->localSimulationFrame : 0u)
+            << " remoteSubmittedConfirmedFrame="
+            << (update.remoteEntry.has_value() ? update.remoteEntry->confirmedFrame : 0u);
         oss << " localSimFrame=" << localSimulationFrame()
             << " roomCurrentFrame=" << m_session.roomState().currentFrame
             << " confirmedFrame=" << m_session.roomState().lastConfirmedFrame
@@ -6089,12 +6126,31 @@ void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
     }
 }
 
-void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32, const char* source)
+void NetplayCoordinator::submitLocalCrc(FrameNumber frame,
+                                        uint32_t crc32,
+                                        const char* source,
+                                        CrcSubmissionSource submissionSource,
+                                        FrameNumber senderLocalSimulationFrame,
+                                        FrameNumber senderConfirmedFrame)
 {
     if(!kDesyncMonitorEnabled) return;
     if(m_session.roomState().state != SessionState::Running) return;
 
-    applyDesyncMonitorUpdate(m_desyncMonitor.submitLocalCrc(frame, crc32), source);
+    const FrameNumber submitLocalSimulationFrame =
+        senderLocalSimulationFrame != 0 ? senderLocalSimulationFrame : localSimulationFrame();
+    const FrameNumber submitConfirmedFrame =
+        senderConfirmedFrame != 0 ? senderConfirmedFrame : m_session.roomState().lastConfirmedFrame;
+
+    applyDesyncMonitorUpdate(
+        m_desyncMonitor.submitLocalCrc({
+            frame,
+            crc32,
+            submissionSource,
+            submitLocalSimulationFrame,
+            submitConfirmedFrame
+        }),
+        source
+    );
 
     if(!m_connected || !m_transport.isActive()) return;
 
@@ -6103,6 +6159,9 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame, uint32_t crc32, const
     report.frame = frame;
     report.crc32 = crc32;
     report.severity = DesyncSeverity::NoIssue;
+    report.submissionSource = submissionSource;
+    report.senderLocalSimulationFrame = submitLocalSimulationFrame;
+    report.senderConfirmedFrame = submitConfirmedFrame;
 
     const std::vector<uint8_t> payload = buildCrcReportPacket(report, m_session.roomState().sessionId);
 

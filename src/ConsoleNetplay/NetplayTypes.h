@@ -32,4 +32,11 @@ enum class DesyncSeverity : uint8_t
     HardResyncRequired
 };
 
+enum class CrcSubmissionSource : uint8_t
+{
+    Unknown = 0,
+    FrameReady,
+    LiveCanonical
+};
+
 } // namespace ConsoleNetplay
