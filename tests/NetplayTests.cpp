@@ -484,10 +484,16 @@ TEST_CASE("Periodic netplay CRC skips historical snapshot checkpoints behind liv
     room.currentFrame = 30u;
     room.lastConfirmedFrame = 30u;
     host.setLocalSimulationFrame(30u);
-    REQUIRE(host.assignController(host.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot));
-    for(uint32_t frame = 1u; frame <= 30u; ++frame) {
-        host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0u);
-    }
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
+    confirmed.frame = 30u;
+    confirmed.netplayFrame =
+        GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(30u, room));
+    ConsoleNetplay::ConfirmedInputFramesData confirmedData{};
+    confirmedData.timelineEpoch = room.timelineEpoch;
+    confirmedData.startFrame = 30u;
+    confirmedData.frameCount = 1u;
+    REQUIRE(host.injectConfirmedPlaybackFramesForTests(confirmedData, {confirmed}));
     REQUIRE(host.latestConfirmedFrame() == 30u);
 
     FakeNetplayStateBridge emu;
@@ -521,10 +527,16 @@ TEST_CASE("Periodic netplay CRC submits live frame-ready CRC at confirmed fronti
     room.currentFrame = 30u;
     room.lastConfirmedFrame = 30u;
     host.setLocalSimulationFrame(30u);
-    REQUIRE(host.assignController(host.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot));
-    for(uint32_t frame = 1u; frame <= 30u; ++frame) {
-        host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0u);
-    }
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
+    confirmed.frame = 30u;
+    confirmed.netplayFrame =
+        GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(30u, room));
+    ConsoleNetplay::ConfirmedInputFramesData confirmedData{};
+    confirmedData.timelineEpoch = room.timelineEpoch;
+    confirmedData.startFrame = 30u;
+    confirmedData.frameCount = 1u;
+    REQUIRE(host.injectConfirmedPlaybackFramesForTests(confirmedData, {confirmed}));
     REQUIRE(host.latestConfirmedFrame() == 30u);
 
     FakeNetplayStateBridge emu;
@@ -544,6 +556,48 @@ TEST_CASE("Periodic netplay CRC submits live frame-ready CRC at confirmed fronti
     REQUIRE(result.submittedFrame == 30u);
     REQUIRE(result.submittedCrc32 == 0x11223344u);
     REQUIRE(state.lastSubmittedLocalCrcFrame == 30u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Periodic netplay CRC waits for frame-ready frontier to catch confirmed frame",
+          "[netplay][crc][runtime][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 33u;
+    room.lastConfirmedFrame = 33u;
+    host.setLocalSimulationFrame(30u);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
+    confirmed.frame = 33u;
+    confirmed.netplayFrame =
+        GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(33u, room));
+    ConsoleNetplay::ConfirmedInputFramesData confirmedData{};
+    confirmedData.timelineEpoch = room.timelineEpoch;
+    confirmedData.startFrame = 33u;
+    confirmedData.frameCount = 1u;
+    REQUIRE(host.injectConfirmedPlaybackFramesForTests(confirmedData, {confirmed}));
+    REQUIRE(host.latestConfirmedFrame() == 33u);
+
+    FakeNetplayStateBridge emu;
+    emu.frameValue = 30u;
+    emu.canonicalCrc32Value = 0xAABBCCDDu;
+
+    FakeNetplayStateHostBridge runtimeHost;
+    runtimeHost.lastFrameReadyFrameValue = 30u;
+    runtimeHost.lastFrameReadyNetplayCrc32Value = 0x11223344u;
+
+    ConsoleNetplay::RuntimePeriodicCrcState state;
+    state.nextScheduledLocalCrcFrame = 30u;
+
+    const auto result = ConsoleNetplay::runtimeSubmitPeriodicLocalCrcIfNeeded(host, emu, runtimeHost, state);
+    REQUIRE(result.submitted == false);
+    REQUIRE(state.lastSubmittedLocalCrcFrame == 0u);
 
     host.disconnect();
 }

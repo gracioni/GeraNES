@@ -411,11 +411,16 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
 
     const FrameNumber confirmedFrame = coordinator.latestConfirmedFrame();
     const FrameNumber lastFrameReadyFrame = runtimeHost.lastFrameReadyFrame();
-    // CRC comparison is only meaningful on confirmed timeline state. Do not
-    // force CRC submissions for freshly loaded/resynced frames until they have
-    // entered the confirmed window on both sides.
+    // CRC comparison is only meaningful once the local emulator has fully
+    // caught up to the currently confirmed frontier. When one peer has already
+    // confirmed future inputs but is still frame-ready on an older frame, the
+    // cached "frame-ready" CRC for that older frame can diverge transiently
+    // from a peer that is only confirmed through the older frame. Wait until
+    // confirmed and frame-ready have converged before submitting periodic CRCs.
     const FrameNumber crcCheckpointFrame =
-        confirmedFrame == 0u ? 0u : std::min(confirmedFrame, lastFrameReadyFrame);
+        confirmedFrame != 0u && confirmedFrame == lastFrameReadyFrame
+            ? confirmedFrame
+            : 0u;
     if(crcCheckpointFrame == 0) return result;
 
     const bool periodicDue = crcCheckpointFrame >= state.nextScheduledLocalCrcFrame;
