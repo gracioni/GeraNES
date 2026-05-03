@@ -86,7 +86,7 @@ void imguiSetClipboardText(void*, const char* text)
         window.__geranes_imgui_clipboard_updated_at = Date.now();
 
         if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
-            window.__geranes_copy_text_to_clipboard(text, false);
+            window.__geranes_copy_text_to_clipboard(text, true);
         }
     }, g_imguiClipboardText.c_str());
 }
@@ -186,6 +186,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     typeof navigator.clipboard.writeText === 'function') {
                     navigator.clipboard.writeText(resolvedText).catch(function(err) {
                         console.warn('navigator.clipboard.writeText failed:', err);
+                        fallbackCopy();
                     });
                     delete window.__geranes_force_clipboard_text;
                     return true;
