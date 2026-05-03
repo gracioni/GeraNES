@@ -166,6 +166,13 @@ void applyTopologyData(ConsoleNetplay::RoomState& room, const ConsoleNetplay::In
     room.inputTopology = std::move(topology);
 }
 
+void renormalizeParticipantsForCurrentTopology(ConsoleNetplay::RoomState& room)
+{
+    for(auto& participant : room.participants) {
+        participant.normalizeControllerAssignments(&room.inputTopology);
+    }
+}
+
 ConsoleNetplay::NetplayInputFrame makeRoomTopologyNetplayFrame(ConsoleNetplay::FrameNumber frame,
                                                         const ConsoleNetplay::RoomState& room)
 {
@@ -2501,6 +2508,7 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
     m_session.roomState().inputDelayFrames = status.inputDelayFrames;
     m_session.roomState().predictFrames = status.predictFrames;
     applyTopologyData(m_session.roomState(), status.topology);
+    renormalizeParticipantsForCurrentTopology(m_session.roomState());
     advanceRecoveryStabilization(status.currentFrame);
     return true;
 }
@@ -3123,6 +3131,7 @@ bool NetplayCoordinator::handleSelectRom(PacketReader& reader)
     m_session.roomState().selectedGameName = gameName;
     m_session.roomState().romValidation = romValidation;
     applyTopologyData(m_session.roomState(), topology);
+    renormalizeParticipantsForCurrentTopology(m_session.roomState());
     if(!activeSession) {
         m_session.roomState().state = SessionState::ValidatingRom;
         for(ParticipantInfo& participant : m_session.roomState().participants) {
@@ -3809,6 +3818,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
     m_session.roomState().predictFrames = data.predictFrames;
     applyTopologyData(m_session.roomState(), data.topology);
+    renormalizeParticipantsForCurrentTopology(m_session.roomState());
     if(!m_hosting &&
        data.state == SessionState::Running &&
        m_awaitingReconnectInitialSync) {
@@ -4528,7 +4538,11 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.reservationSecondsRemaining = reservationSecondsRemaining;
     participant.role = role;
     participant.controllerAssignments = std::move(controllerAssignments);
-    participant.normalizeControllerAssignments(&m_session.roomState().inputTopology);
+    if(m_session.roomState().inputTopology.empty()) {
+        participant.normalizeControllerAssignments();
+    } else {
+        participant.normalizeControllerAssignments(&m_session.roomState().inputTopology);
+    }
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
     if(!m_hosting &&
@@ -5400,6 +5414,27 @@ bool NetplayCoordinator::injectFrameStatusForTests(const FrameStatusData& status
     status.serialize(writer);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleFrameStatus(reader);
+}
+
+bool NetplayCoordinator::injectParticipantJoinedForTests(const ParticipantInfo& participant, uint64_t reconnectToken)
+{
+    PacketWriter writer;
+    writer.writePod(participant.id);
+    writer.writePod(reconnectToken);
+    writer.writePod(static_cast<uint8_t>(participant.connected ? 1 : 0));
+    writer.writePod(static_cast<uint8_t>(participant.reconnectReserved ? 1 : 0));
+    writer.writePod(participant.reservationSecondsRemaining);
+    writer.writePod(participant.role);
+    const uint8_t assignmentCount = static_cast<uint8_t>(
+        std::min(participant.controllerAssignments.size(), static_cast<size_t>(std::numeric_limits<uint8_t>::max()))
+    );
+    writer.writePod(assignmentCount);
+    for(uint8_t index = 0; index < assignmentCount; ++index) {
+        writer.writePod(participant.controllerAssignments[index]);
+    }
+    writer.writeString(participant.displayName);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleParticipantJoined(reader);
 }
 
 bool NetplayCoordinator::injectPeerHealthForTests(const PeerHealthData& health)

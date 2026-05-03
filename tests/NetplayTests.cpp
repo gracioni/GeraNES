@@ -3613,6 +3613,49 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
     host.disconnect();
 }
 
+TEST_CASE("Participant assignments survive reconnect join before topology sync",
+          "[netplay][reconnect][assignments][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator client;
+
+    ConsoleNetplay::ParticipantInfo participant;
+    participant.id = 2u;
+    participant.displayName = "Participant";
+    participant.connected = true;
+    participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot, GeraNESNetplay::kPort2PlayerSlot};
+    participant.normalizeControllerAssignments();
+
+    auto& mutableSession = const_cast<ConsoleNetplay::NetSession&>(client.session());
+    auto& room = mutableSession.roomState();
+    room.inputTopology = {};
+    REQUIRE(room.inputTopology.empty());
+    REQUIRE(client.injectParticipantJoinedForTests(participant));
+
+    const ConsoleNetplay::ParticipantInfo* joined = client.session().findParticipant(participant.id);
+    REQUIRE(joined != nullptr);
+    REQUIRE(joined->controllerAssignments == participant.controllerAssignments);
+    REQUIRE(joined->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot);
+    REQUIRE_FALSE(participantIsObserver(*joined));
+
+    ConsoleNetplay::FrameStatusData status;
+    status.timelineEpoch = 1u;
+    status.currentFrame = 100u;
+    status.lastConfirmedFrame = 100u;
+    status.topology.slots = {
+        ConsoleNetplay::InputTopologyData::Slot{GeraNESNetplay::kPort1PlayerSlot, 1u, 1u, 0x0401u, "Port 1", "Standard Controller"},
+        ConsoleNetplay::InputTopologyData::Slot{GeraNESNetplay::kPort2PlayerSlot, 1u, 2u, 0x0402u, "Port 2", "Standard Controller"}
+    };
+
+    REQUIRE(client.injectFrameStatusForTests(status));
+
+    joined = client.session().findParticipant(participant.id);
+    REQUIRE(joined != nullptr);
+    REQUIRE(joined->controllerAssignments == participant.controllerAssignments);
+    REQUIRE(joined->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot);
+    REQUIRE_FALSE(participantIsObserver(*joined));
+}
+
 TEST_CASE("Client confirmed frame sync does not prefill future local inputs after reconnect-style catchup",
           "[netplay][reconnect][input][client][unit]")
 {

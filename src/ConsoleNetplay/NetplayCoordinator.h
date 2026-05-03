@@ -396,6 +396,7 @@ public:
     bool noteImplicitRemoteInputStallForTests(ParticipantId participantId,
                                               PlayerSlot slot,
                                               FrameNumber frame);
+    bool injectParticipantJoinedForTests(const ParticipantInfo& participant, uint64_t reconnectToken = 0);
     bool injectFrameStatusForTests(const FrameStatusData& status);
     bool injectPeerHealthForTests(const PeerHealthData& health);
     bool injectCrcReportForTests(const CrcReportData& report);
