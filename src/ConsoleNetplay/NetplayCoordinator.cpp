@@ -2148,12 +2148,14 @@ void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantI
     participant->lastDecisionSlot = slot;
     participant->lastDecision = "Implicit stall detected; waiting for peer health";
 
-    std::ostringstream oss;
-    oss << "Implicit input stall detected for " << participantDebugLabel(*participant)
-        << " at frame " << frame
-        << " slot " << static_cast<unsigned>(slot) + 1u
-        << "; waiting for fresh peer health before recovery resync";
-    pushLog(oss.str());
+    if(m_debugMode) {
+        std::ostringstream oss;
+        oss << "Implicit input stall detected for " << participantDebugLabel(*participant)
+            << " at frame " << frame
+            << " slot " << static_cast<unsigned>(slot) + 1u
+            << "; waiting for fresh peer health before recovery resync";
+        pushLog(oss.str());
+    }
 }
 
 void NetplayCoordinator::clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame)
@@ -2162,7 +2164,7 @@ void NetplayCoordinator::clearImplicitRemoteInputStall(ParticipantId participant
     if(!update.cleared) return;
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
-    if(participant != nullptr) {
+    if(participant != nullptr && m_debugMode) {
         std::ostringstream oss;
         oss << "Implicit input stall recovered for " << participantDebugLabel(*participant)
             << " by input frame " << recoveredThroughFrame;
@@ -6486,7 +6488,9 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
 {
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
 
@@ -6502,7 +6506,9 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     if(!m_hosting) return false;
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
     if(!isAssignmentAvailable(slot, m_session.roomState())) return false;
@@ -6581,7 +6587,9 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
     if(!m_hosting) return false;
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
 
@@ -6642,7 +6650,9 @@ bool NetplayCoordinator::clearControllerAssignments(ParticipantId participantId)
     if(!m_hosting) return false;
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
 

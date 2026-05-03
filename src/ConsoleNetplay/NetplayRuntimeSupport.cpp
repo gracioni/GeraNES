@@ -1524,7 +1524,7 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
                                             ConfirmedInputBufferDriver& inputDriver,
                                             INetplayConsole& console,
                                             uint32_t maxFrames,
-                                            bool showDebugLog)
+                                            bool /*showDebugLog*/)
 {
     if(maxFrames == 0u) return 0u;
     if(!coordinator.isActive()) return 0u;
@@ -1558,20 +1558,6 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
         if(!console.updateUntilFrame(frameDt, false)) break;
         ++advancedFrames;
         coordinator.setLocalSimulationFrame(console.frameCount());
-    }
-
-    if(showDebugLog && advancedFrames > 0u) {
-        coordinator.appendNetplayLog(
-            "Netplay observer-peer catchup advanced " +
-            std::to_string(advancedFrames) +
-            " frame(s) localFrame=" +
-            std::to_string(console.frameCount()) +
-            " confirmedThrough=" +
-            std::to_string(confirmedThroughFrame) +
-            " visibleTarget=" +
-            std::to_string(peerVisibleTargetFrame) +
-            " (audio muted)"
-        );
     }
 
     return advancedFrames;

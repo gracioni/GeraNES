@@ -828,6 +828,93 @@ TEST_CASE("Netplay coordinator schedules peer-health stall recovery in normal mo
     host.disconnect();
 }
 
+TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked logs outside debug mode",
+          "[netplay][implicit-stall][coordinator][logging]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 9u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 5u;
+    room.currentFrame = 300u;
+    room.lastConfirmedFrame = 300u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryModeEnteredAtFrame = 300u;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 99u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(301u);
+    REQUIRE(host.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 301u));
+    host.clearEventLog();
+    host.injectPeerHealthForTests(ConsoleNetplay::PeerHealthData{
+        .participantId = 99u,
+        .currentFrame = 302u,
+        .lastConfirmedFrame = 300u
+    });
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Implicit input stall"));
+
+    host.clearEventLog();
+    REQUIRE_FALSE(host.assignController(99u, GeraNESNetplay::kPort2PlayerSlot));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "assignment update blocked during recovery stabilization"));
+
+    host.disconnect();
+
+    ConsoleNetplay::NetplayCoordinator debugHost;
+    hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = debugHost.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+    debugHost.setDebugMode(true);
+
+    auto& debugRoom = const_cast<ConsoleNetplay::RoomState&>(debugHost.session().roomState());
+    debugRoom.sessionId = 10u;
+    debugRoom.state = ConsoleNetplay::SessionState::Running;
+    debugRoom.timelineEpoch = 6u;
+    debugRoom.currentFrame = 300u;
+    debugRoom.lastConfirmedFrame = 300u;
+    debugRoom.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    debugRoom.recoveryModeEnteredAtFrame = 300u;
+
+    ConsoleNetplay::ParticipantInfo debugRemote;
+    debugRemote.id = 99u;
+    debugRemote.displayName = "Client";
+    debugRemote.connected = true;
+    debugRemote.romLoaded = true;
+    debugRemote.romCompatible = true;
+    debugRemote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    debugRemote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    debugRemote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    debugRemote.normalizeControllerAssignments(&debugRoom.inputTopology);
+    debugRoom.participants.push_back(debugRemote);
+
+    debugHost.setLocalSimulationFrame(301u);
+    REQUIRE(debugHost.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 301u));
+    REQUIRE(anyLogLineContains(debugHost.eventLog(), "Implicit input stall detected"));
+
+    debugHost.clearEventLog();
+    REQUIRE_FALSE(debugHost.assignController(99u, GeraNESNetplay::kPort2PlayerSlot));
+    REQUIRE(anyLogLineContains(debugHost.eventLog(), "assignment update blocked during recovery stabilization"));
+
+    debugHost.disconnect();
+}
+
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
 {
     ConsoleNetplay::SelfStallDetector detector;
