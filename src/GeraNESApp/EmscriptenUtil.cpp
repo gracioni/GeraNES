@@ -164,6 +164,14 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 window.__geranes_imgui_clipboard_text = resolvedText;
                 window.__geranes_imgui_clipboard_updated_at = Date.now();
 
+                function releaseForcedClipboardTextSoon(expectedText) {
+                    setTimeout(function() {
+                        if (window.__geranes_force_clipboard_text === expectedText) {
+                            delete window.__geranes_force_clipboard_text;
+                        }
+                    }, 0);
+                }
+
                 function fallbackCopy() {
                     let copied = false;
                     try {
@@ -171,7 +179,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                     } catch (err) {
                         console.warn('document.execCommand(copy) failed:', err);
                     }
-                    delete window.__geranes_force_clipboard_text;
+                    releaseForcedClipboardTextSoon(resolvedText);
                     return copied;
                 }
 
@@ -184,16 +192,18 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 if (typeof navigator !== 'undefined' &&
                     navigator.clipboard &&
                     typeof navigator.clipboard.writeText === 'function') {
-                    navigator.clipboard.writeText(resolvedText).catch(function(err) {
-                        console.warn('navigator.clipboard.writeText failed:', err);
-                        fallbackCopy();
-                    });
-                    delete window.__geranes_force_clipboard_text;
+                    navigator.clipboard.writeText(resolvedText)
+                        .then(function() {
+                            releaseForcedClipboardTextSoon(resolvedText);
+                        })
+                        .catch(function(err) {
+                            console.warn('navigator.clipboard.writeText failed:', err);
+                            fallbackCopy();
+                        });
                     return true;
                 }
 
                 const copied = fallbackCopy();
-                delete window.__geranes_force_clipboard_text;
                 return copied;
             }
 
