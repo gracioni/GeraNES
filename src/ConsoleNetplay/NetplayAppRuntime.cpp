@@ -185,6 +185,34 @@ void NetplayAppRuntime::simulateTransportFailureForTests()
     });
 }
 
+void NetplayAppRuntime::drainRuntimeCommandsForTests()
+{
+    drainRuntimeCommands();
+}
+
+size_t NetplayAppRuntime::pendingInputTopologyChangeCountForTests() const
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    return m_pendingInputTopologyChanges.size();
+}
+
+NetplayCoordinator& NetplayAppRuntime::coordinatorForTests()
+{
+    return m_coordinator;
+}
+
+const NetplayCoordinator& NetplayAppRuntime::coordinatorForTests() const
+{
+    return m_coordinator;
+}
+
+void NetplayAppRuntime::processPendingInputTopologyChangesForTests(INetplayConsole& console,
+                                                                   INetplayStateBridge& stateBridge,
+                                                                   INetplayStateHostBridge& hostBridge)
+{
+    processPendingInputTopologyChanges(console, stateBridge, hostBridge);
+}
+
 void NetplayAppRuntime::setTransportBackend(NetTransportBackend backend)
 {
     enqueueRuntimeCommand([backend](NetplayAppRuntime& self) {
@@ -607,10 +635,17 @@ void NetplayAppRuntime::processPendingInputTopologyChanges(INetplayConsole& cons
                                                            INetplayStateBridge& stateBridge,
                                                            INetplayStateHostBridge& hostBridge)
 {
-    std::deque<PendingInputTopologyChange> changes;
-    changes.swap(m_pendingInputTopologyChanges);
+    while(!assignmentMutationCurrentlyBlocked(m_coordinator)) {
+        PendingInputTopologyChange change;
+        {
+            std::scoped_lock stateLock(m_stateMutex);
+            if(m_pendingInputTopologyChanges.empty()) {
+                return;
+            }
+            change = std::move(m_pendingInputTopologyChanges.front());
+            m_pendingInputTopologyChanges.pop_front();
+        }
 
-    for(auto& change : changes) {
         if(!change.configureTopology) {
             continue;
         }

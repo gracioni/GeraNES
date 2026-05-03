@@ -164,6 +164,13 @@ public:
     void clearIncomingMessageDrops();
     void setReconnectReservationTimeoutForTests(uint32_t seconds);
     void simulateTransportFailureForTests();
+    void drainRuntimeCommandsForTests();
+    size_t pendingInputTopologyChangeCountForTests() const;
+    NetplayCoordinator& coordinatorForTests();
+    const NetplayCoordinator& coordinatorForTests() const;
+    void processPendingInputTopologyChangesForTests(INetplayConsole& console,
+                                                    INetplayStateBridge& stateBridge,
+                                                    INetplayStateHostBridge& hostBridge);
     void setTransportBackend(NetTransportBackend backend);
     void setTransportOptions(const NetTransportOptions& options);
     void configureRollbackWindow(size_t snapshotCapacity);

@@ -25,6 +25,7 @@
 #include "ConsoleNetplay/NetplayConfig.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/NetplayInputFrameSerialization.h"
+#include "ConsoleNetplay/NetplayAppRuntime.h"
 #include "ConsoleNetplay/NetProtocol.h"
 #include "ConsoleNetplay/NetSerialization.h"
 #include "ConsoleNetplay/WebRtcPeerConnection.h"
@@ -372,14 +373,24 @@ public:
     ConsoleNetplay::FrameNumber frameValue = 0;
     uint32_t inputTimelineEpochValue = 0;
     uint32_t canonicalCrc32Value = 0;
+    std::vector<uint8_t> savedStateData = {0xAAu};
+    ConsoleNetplay::FrameNumber lastDiscardedAfterFrame = 0;
+    uint32_t loadStateCallCount = 0;
 
     bool valid() const override { return validValue; }
     ConsoleNetplay::FrameNumber frameCount() const override { return frameValue; }
     uint32_t inputTimelineEpoch() const override { return inputTimelineEpochValue; }
     void setInputTimelineEpoch(uint32_t epoch) override { inputTimelineEpochValue = epoch; }
-    void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber) override {}
+    void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber frame) override
+    {
+        lastDiscardedAfterFrame = frame;
+    }
     bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override { return true; }
-    std::vector<uint8_t> saveNetplayStateToMemory() override { return {}; }
+    std::vector<uint8_t> saveNetplayStateToMemory() override
+    {
+        ++loadStateCallCount;
+        return savedStateData;
+    }
     uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
 };
 
@@ -389,9 +400,13 @@ public:
     ConsoleNetplay::FrameNumber lastFrameReadyFrameValue = 0;
     uint32_t lastFrameReadyNetplayCrc32Value = 0;
     std::unordered_map<ConsoleNetplay::FrameNumber, uint32_t> snapshotCrc32ByFrame;
+    ConsoleNetplay::FrameNumber lastDiscardedNetplayInputsAfterFrame = 0;
 
     void beginPresentationHoldUntilNextFrameReady() override {}
-    void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber) override {}
+    void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber frame) override
+    {
+        lastDiscardedNetplayInputsAfterFrame = frame;
+    }
     ConsoleNetplay::FrameNumber lastFrameReadyFrame() const override { return lastFrameReadyFrameValue; }
     uint32_t lastFrameReadyNetplayCrc32() const override { return lastFrameReadyNetplayCrc32Value; }
     std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber) const override
@@ -413,6 +428,55 @@ public:
     {
         lastFrameReadyFrameValue = frame;
         lastFrameReadyNetplayCrc32Value = canonicalCrc32;
+    }
+};
+
+class FakeNetplayConsole final : public ConsoleNetplay::INetplayConsole
+{
+public:
+    bool validValue = true;
+    uint32_t frameValue = 0;
+    uint32_t regionFpsValue = 60;
+    uint32_t canonicalCrc32Value = 0;
+    std::optional<ConsoleNetplay::NetplayRomSelection> currentRomValue =
+        ConsoleNetplay::NetplayRomSelection{true, "Test ROM", {}};
+    uint32_t applyRemoteInputTopologyCallCount = 0;
+    uint32_t publishCurrentInputTopologyCallCount = 0;
+    ConsoleNetplay::FrameNumber lastDiscardedQueuedInputAfterFrame = 0;
+
+    bool valid() const override { return validValue; }
+    uint32_t frameCount() const override { return frameValue; }
+    uint32_t regionFps() const override { return regionFpsValue; }
+    uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
+    std::optional<ConsoleNetplay::NetplayRomSelection> currentRomSelection() const override
+    {
+        return currentRomValue;
+    }
+    bool loadRollbackState(const std::vector<uint8_t>&) override { return true; }
+    bool updateUntilFrame(uint32_t, bool) override { return true; }
+    void applyRemoteInputTopology(const ConsoleNetplay::RoomState&) override
+    {
+        ++applyRemoteInputTopologyCallCount;
+    }
+    void publishCurrentInputTopology(ConsoleNetplay::NetplayCoordinator&) override
+    {
+        ++publishCurrentInputTopologyCallCount;
+    }
+    ConsoleNetplay::NetplayInputFrame buildLocalInputContribution(ConsoleNetplay::PlayerSlot,
+                                                                  ConsoleNetplay::FrameNumber frame,
+                                                                  const ConsoleNetplay::RoomState& room) const override
+    {
+        return GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room));
+    }
+    bool hasStableQueuedInputFrame(ConsoleNetplay::FrameNumber) const override { return false; }
+    void queueStandaloneBootstrapInputFrame() override {}
+    bool queuePlaybackInputFrame(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs&) override
+    {
+        return true;
+    }
+    void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber frame) override
+    {
+        lastDiscardedQueuedInputAfterFrame = frame;
     }
 };
 }
@@ -600,6 +664,76 @@ TEST_CASE("Periodic netplay CRC waits for frame-ready frontier to catch confirme
     REQUIRE(state.lastSubmittedLocalCrcFrame == 0u);
 
     host.disconnect();
+}
+
+TEST_CASE("Queued topology mutations stay deferred while assignment recovery is blocked",
+          "[netplay][assignment][topology][runtime][regression]")
+{
+    ConsoleNetplay::NetplayAppRuntime runtime;
+    ConsoleNetplay::NetplayCoordinator& coordinator = runtime.coordinatorForTests();
+
+    uint16_t port = 0;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        port = reserveLoopbackPort();
+        hosted = coordinator.host(port, 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 100u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    room.activeResyncId = 77u;
+    coordinator.setLocalSimulationFrame(100u);
+
+    FakeNetplayConsole console;
+    console.frameValue = 100u;
+    console.canonicalCrc32Value = 0x12345678u;
+
+    FakeNetplayStateBridge stateBridge;
+    stateBridge.frameValue = 100u;
+    stateBridge.canonicalCrc32Value = 0x12345678u;
+    stateBridge.savedStateData = {0x10u, 0x20u, 0x30u};
+
+    FakeNetplayStateHostBridge hostBridge;
+    hostBridge.lastFrameReadyFrameValue = 100u;
+    hostBridge.lastFrameReadyNetplayCrc32Value = 0x12345678u;
+
+    bool configureCalled = false;
+    runtime.configureInputAssignments(
+        coordinator.localParticipantId(),
+        {GeraNESNetplay::kPort1PlayerSlot},
+        [&](ConsoleNetplay::NetplayCoordinator&, std::optional<ConsoleNetplay::ParticipantId>, ConsoleNetplay::PlayerSlot) {
+            configureCalled = true;
+        }
+    );
+    runtime.drainRuntimeCommandsForTests();
+
+    REQUIRE(runtime.pendingInputTopologyChangeCountForTests() == 1u);
+
+    runtime.processPendingInputTopologyChangesForTests(console, stateBridge, hostBridge);
+
+    REQUIRE_FALSE(configureCalled);
+    REQUIRE(runtime.pendingInputTopologyChangeCountForTests() == 1u);
+    REQUIRE(room.activeResyncId == 77u);
+    REQUIRE(console.applyRemoteInputTopologyCallCount == 0u);
+
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    room.activeResyncId = 0u;
+    room.pendingResyncAckCount = 0u;
+    const uint32_t previousEpoch = room.timelineEpoch;
+
+    runtime.processPendingInputTopologyChangesForTests(console, stateBridge, hostBridge);
+
+    REQUIRE(configureCalled);
+    REQUIRE(runtime.pendingInputTopologyChangeCountForTests() == 0u);
+    REQUIRE(console.applyRemoteInputTopologyCallCount == 1u);
+    REQUIRE(room.timelineEpoch == previousEpoch + 1u);
+    REQUIRE(room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::Normal);
+
+    coordinator.disconnect();
 }
 
 TEST_CASE("Netplay dynamic topology protocol roundtrip preserves sparse slot metadata",
