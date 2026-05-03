@@ -427,13 +427,17 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
         crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
     if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return result;
 
-    std::optional<uint32_t> crc32 = runtimeHost.netplaySnapshotCrc32ForFrame(crcCheckpointFrame);
-    if(!crc32.has_value() &&
-       crcCheckpointFrame == lastFrameReadyFrame &&
+    // Periodic desync checks should compare the peers' current confirmed state,
+    // not a historical snapshot captured earlier in the session. Historical
+    // per-frame snapshot CRCs can transiently differ even when the two peers'
+    // live canonical states reconverge, which produces isolated false-positive
+    // mismatch reports. Only submit when the confirmed checkpoint is also the
+    // currently loaded frame-ready/live emulator frame.
+    std::optional<uint32_t> crc32;
+    if(crcCheckpointFrame == lastFrameReadyFrame &&
        runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
         crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
-    }
-    if(!crc32.has_value() && emu.frameCount() == crcCheckpointFrame) {
+    } else if(emu.frameCount() == crcCheckpointFrame) {
         crc32 = emu.canonicalNetplayStateCrc32();
     }
     if(!crc32.has_value()) return result;

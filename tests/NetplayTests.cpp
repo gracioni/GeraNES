@@ -364,6 +364,57 @@ public:
 
     std::vector<std::string> messages;
 };
+
+class FakeNetplayStateBridge final : public ConsoleNetplay::INetplayStateBridge
+{
+public:
+    bool validValue = true;
+    ConsoleNetplay::FrameNumber frameValue = 0;
+    uint32_t inputTimelineEpochValue = 0;
+    uint32_t canonicalCrc32Value = 0;
+
+    bool valid() const override { return validValue; }
+    ConsoleNetplay::FrameNumber frameCount() const override { return frameValue; }
+    uint32_t inputTimelineEpoch() const override { return inputTimelineEpochValue; }
+    void setInputTimelineEpoch(uint32_t epoch) override { inputTimelineEpochValue = epoch; }
+    void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber) override {}
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override { return true; }
+    std::vector<uint8_t> saveNetplayStateToMemory() override { return {}; }
+    uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
+};
+
+class FakeNetplayStateHostBridge final : public ConsoleNetplay::INetplayStateHostBridge
+{
+public:
+    ConsoleNetplay::FrameNumber lastFrameReadyFrameValue = 0;
+    uint32_t lastFrameReadyNetplayCrc32Value = 0;
+    std::unordered_map<ConsoleNetplay::FrameNumber, uint32_t> snapshotCrc32ByFrame;
+
+    void beginPresentationHoldUntilNextFrameReady() override {}
+    void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber) override {}
+    ConsoleNetplay::FrameNumber lastFrameReadyFrame() const override { return lastFrameReadyFrameValue; }
+    uint32_t lastFrameReadyNetplayCrc32() const override { return lastFrameReadyNetplayCrc32Value; }
+    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber) const override
+    {
+        return std::nullopt;
+    }
+    std::optional<uint32_t> netplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber frame) const override
+    {
+        if(const auto it = snapshotCrc32ByFrame.find(frame); it != snapshotCrc32ByFrame.end()) {
+            return it->second;
+        }
+        return std::nullopt;
+    }
+    bool updateNetplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber, uint32_t) override { return true; }
+    void seedNetplaySnapshot(ConsoleNetplay::FrameNumber,
+                             const std::vector<uint8_t>&,
+                             std::optional<uint32_t>) override {}
+    void setAuthoritativeFrameReadyState(ConsoleNetplay::FrameNumber frame, uint32_t canonicalCrc32) override
+    {
+        lastFrameReadyFrameValue = frame;
+        lastFrameReadyNetplayCrc32Value = canonicalCrc32;
+    }
+};
 }
 
 TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
@@ -419,6 +470,82 @@ TEST_CASE("Netplay desync monitor drops same-frame CRC history on realignment", 
     const auto remoteMatch = monitor.submitRemoteCrc(200u, 0x22222222u);
     REQUIRE(remoteMatch.compared == true);
     REQUIRE(remoteMatch.mismatchDetected == false);
+}
+
+TEST_CASE("Periodic netplay CRC skips historical snapshot checkpoints behind live frame",
+          "[netplay][crc][runtime][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 30u;
+    room.lastConfirmedFrame = 30u;
+    host.setLocalSimulationFrame(30u);
+    REQUIRE(host.assignController(host.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot));
+    for(uint32_t frame = 1u; frame <= 30u; ++frame) {
+        host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0u);
+    }
+    REQUIRE(host.latestConfirmedFrame() == 30u);
+
+    FakeNetplayStateBridge emu;
+    emu.frameValue = 60u;
+    emu.canonicalCrc32Value = 0xAABBCCDDu;
+
+    FakeNetplayStateHostBridge runtimeHost;
+    runtimeHost.lastFrameReadyFrameValue = 60u;
+    runtimeHost.lastFrameReadyNetplayCrc32Value = 0x11223344u;
+    runtimeHost.snapshotCrc32ByFrame[30u] = 0x55667788u;
+
+    ConsoleNetplay::RuntimePeriodicCrcState state;
+    state.nextScheduledLocalCrcFrame = 30u;
+
+    const auto result = ConsoleNetplay::runtimeSubmitPeriodicLocalCrcIfNeeded(host, emu, runtimeHost, state);
+    REQUIRE(result.submitted == false);
+    REQUIRE(state.lastSubmittedLocalCrcFrame == 0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Periodic netplay CRC submits live frame-ready CRC at confirmed frontier",
+          "[netplay][crc][runtime][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 30u;
+    room.lastConfirmedFrame = 30u;
+    host.setLocalSimulationFrame(30u);
+    REQUIRE(host.assignController(host.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot));
+    for(uint32_t frame = 1u; frame <= 30u; ++frame) {
+        host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0u);
+    }
+    REQUIRE(host.latestConfirmedFrame() == 30u);
+
+    FakeNetplayStateBridge emu;
+    emu.frameValue = 60u;
+    emu.canonicalCrc32Value = 0xAABBCCDDu;
+
+    FakeNetplayStateHostBridge runtimeHost;
+    runtimeHost.lastFrameReadyFrameValue = 30u;
+    runtimeHost.lastFrameReadyNetplayCrc32Value = 0x11223344u;
+    runtimeHost.snapshotCrc32ByFrame[30u] = 0x55667788u;
+
+    ConsoleNetplay::RuntimePeriodicCrcState state;
+    state.nextScheduledLocalCrcFrame = 30u;
+
+    const auto result = ConsoleNetplay::runtimeSubmitPeriodicLocalCrcIfNeeded(host, emu, runtimeHost, state);
+    REQUIRE(result.submitted == true);
+    REQUIRE(result.submittedFrame == 30u);
+    REQUIRE(result.submittedCrc32 == 0x11223344u);
+    REQUIRE(state.lastSubmittedLocalCrcFrame == 30u);
+
+    host.disconnect();
 }
 
 TEST_CASE("Netplay dynamic topology protocol roundtrip preserves sparse slot metadata",
