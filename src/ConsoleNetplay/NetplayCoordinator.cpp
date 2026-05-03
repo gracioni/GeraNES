@@ -5825,7 +5825,7 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
             if(entry == nullptr &&
                m_hosting &&
                !isLocalParticipant &&
-               participant.inputSuspended &&
+               (participant.inputSuspended || participant.inputResumeAwaitingResync) &&
                !participant.sequenceRebasePending &&
                m_session.roomState().recoveryInputMode == RecoveryInputMode::Normal) {
                 ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);

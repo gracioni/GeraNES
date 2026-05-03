@@ -4531,6 +4531,108 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
     client.disconnect();
 }
 
+TEST_CASE("Netplay host prediction-limit fallback synthesizes for reconnecting participant awaiting resync",
+          "[netplay][reconnect][prediction-limit][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        const auto& hostRoom = host.session().roomState();
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            hostRoom.participants.size() >= 2;
+
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
+    hostRoom.selectedGameName = "ReconnectFallback";
+    clientRoom.selectedGameName = "ReconnectFallback";
+    hostRoom.currentFrame = 180;
+    clientRoom.currentFrame = 180;
+    hostRoom.lastConfirmedFrame = 180;
+    clientRoom.lastConfirmedFrame = 180;
+
+    ConsoleNetplay::ParticipantInfo* hostRemote = nullptr;
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        } else {
+            hostRemote = &participant;
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+    REQUIRE(hostRemote != nullptr);
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    hostRemote->inputSuspended = false;
+    hostRemote->inputResumeAwaitingResync = true;
+    hostRemote->sequenceRebasePending = false;
+    hostRemote->lastReceivedInputFrame = 180;
+    hostRemote->lastContiguousInputFrame = 180;
+
+    InputFrame confirmedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(180u, hostRoom);
+    ConsoleNetplay::TimelineInputEntry confirmed{};
+    confirmed.frame = 180u;
+    confirmed.participantId = hostRemote->id;
+    confirmed.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedContribution);
+    confirmed.sequence = 77u;
+    confirmed.confirmed = true;
+    confirmed.predicted = false;
+    const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
+
+    host.setLocalSimulationFrame(180);
+    client.setLocalSimulationFrame(180);
+    host.recordLocalInputFrame(181, GeraNESNetplay::kPort1PlayerSlot, 0);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+    REQUIRE(host.tryBuildPlaybackFrame(181, false, playbackFrame));
+    REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(host.remoteInputs().find(181u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(hostRemote->inputResumeAwaitingResync);
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Netplay observer can request host resync without reconnect side effects",
           "[netplay][resync-request][observer][unit]")
 {
