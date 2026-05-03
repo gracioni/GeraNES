@@ -2179,7 +2179,16 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
     if(room.state != SessionState::Running) return;
 
     const bool confirmedCheckpointReached = room.lastConfirmedFrame >= room.recoveryModeEnteredAtFrame;
-    const bool firstPostRecoveryCrcPassed = room.stabilizationCrcPassCount > 0u;
+    bool connectedNonObserverRemotePresent = false;
+    for(const ParticipantInfo& participant : room.participants) {
+        if(participant.id == m_localParticipantId) continue;
+        if(!participant.connected || participant.reconnectReserved) continue;
+        if(participantIsObserver(participant)) continue;
+        connectedNonObserverRemotePresent = true;
+        break;
+    }
+    const bool firstPostRecoveryCrcPassed =
+        room.stabilizationCrcPassCount > 0u || !connectedNonObserverRemotePresent;
 
     if(room.stabilizationFramesRemaining > 0u && observedFrame > room.stabilizationAnchorFrame) {
         const FrameNumber advancedFrames = observedFrame - room.stabilizationAnchorFrame;

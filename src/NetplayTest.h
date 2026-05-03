@@ -93,6 +93,7 @@ public:
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
+        bool hostAssignedAfterJoinOnly = false;
         bool assignLateJoinClientAfterJoin = false;
         bool assignLateJoinClientToMultitapAfterJoin = false;
         bool hostMultitapAssignedBeforeJoinOnly = false;
@@ -2038,6 +2039,36 @@ private:
                     cleanup();
                     return result;
                 }
+            }
+        } else if(options.hostAssignedAfterJoinOnly) {
+            hostPeer.runtime.clearControllerAssignments(*clientId);
+            hostPeer.runtime.assignController(*hostId, GeraNESNetplay::kPort1PlayerSlot);
+
+            if(!waitFor([&]() {
+                    const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                    const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                    const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                    const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                    if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                    const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                    const auto* clientParticipantHostView = findParticipantInRoom(hostSnap.room, *clientId);
+                    const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                    return hostParticipant != nullptr &&
+                           clientParticipantHostView != nullptr &&
+                           clientLocalParticipant != nullptr &&
+                           hostParticipant->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
+                           clientParticipantHostView->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
+                           clientLocalParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
+                           hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                           clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                           hostSnap.room.activeResyncId == 0 &&
+                           clientSnap.room.activeResyncId == 0;
+                }, options.startupTimeoutSteps, 5u)) {
+                failureReason = "Timed out waiting for host-only assignment after observer join to settle.";
+                result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                result.exitCode = RESULT_ERROR;
+                cleanup();
+                return result;
             }
         } else if(options.hostControllerAndZapperObserverScenario) {
             hostPeer.runtime.clearControllerAssignments(*clientId);

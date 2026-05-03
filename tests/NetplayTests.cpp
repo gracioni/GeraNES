@@ -2676,6 +2676,48 @@ TEST_CASE("Host-input observer sessions stay advancing on runtime and web-style 
     }
 }
 
+TEST_CASE("Netplay web host assignment after observer join stays stable",
+          "[netplay][runtime][web][assignment][host-only-observer][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.hostAssignedAfterJoinOnly = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-host-assigned-after-observer-join",
+        ""
+    };
+    options.frames = 120;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 3;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_host_assigned_after_observer_join_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("singleThreadRuntimeFlow") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+}
+
 TEST_CASE("Netplay clients stay capped to a slow host whether host is observer or assigned",
           "[netplay][runtime][shared-clock][host-cap][observer]")
 {
