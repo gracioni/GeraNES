@@ -507,16 +507,26 @@ inline void GeraNESApp::showGui()
 
             ImGui::Spacing();
 
-            const char* btnLabel = "Clear";
-            ImVec2 btnTextSize = ImGui::CalcTextSize(btnLabel);
-            ImVec2 btnSize = ImVec2(btnTextSize.x + ImGui::GetStyle().FramePadding.x * 2.0f,
-                                    btnTextSize.y + ImGui::GetStyle().FramePadding.y * 2.0f);
+            const char* copyBtnLabel = "Copy";
+            const char* clearBtnLabel = "Clear";
+            const ImGuiStyle& style = ImGui::GetStyle();
+            const ImVec2 copyBtnTextSize = ImGui::CalcTextSize(copyBtnLabel);
+            const ImVec2 clearBtnTextSize = ImGui::CalcTextSize(clearBtnLabel);
+            const ImVec2 copyBtnSize = ImVec2(copyBtnTextSize.x + style.FramePadding.x * 2.0f,
+                                              copyBtnTextSize.y + style.FramePadding.y * 2.0f);
+            const ImVec2 clearBtnSize = ImVec2(clearBtnTextSize.x + style.FramePadding.x * 2.0f,
+                                               clearBtnTextSize.y + style.FramePadding.y * 2.0f);
 
-            float windowWidth = ImGui::GetContentRegionAvail().x;
-            float posX = (windowWidth - btnSize.x) * 0.5f;
+            const float buttonRowWidth = copyBtnSize.x + style.ItemSpacing.x + clearBtnSize.x;
+            const float windowWidth = ImGui::GetContentRegionAvail().x;
+            const float posX = (windowWidth - buttonRowWidth) * 0.5f;
             ImGui::SetCursorPosX(posX);
 
-            if(ImGui::Button(btnLabel, btnSize)) {
+            if(ImGui::Button(copyBtnLabel, copyBtnSize)) {
+                ImGui::SetClipboardText(m_log.c_str());
+            }
+            ImGui::SameLine();
+            if(ImGui::Button(clearBtnLabel, clearBtnSize)) {
                 m_log.clear();
                 m_logBuf.clear();
                 m_logBuf.push_back('\0');

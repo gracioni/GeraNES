@@ -1371,6 +1371,10 @@ void drawNetplayWindow(bool& showWindow,
                           ImVec2(-1.0f, 180.0f));
     ImGui::Checkbox("Show netplay debug log##NetplayDebugMode", &cfg.showNetplayDebugLog);
     ImGui::SameLine();
+    if(ImGui::Button("Copy##NetplayLog")) {
+        ImGui::SetClipboardText(logText.c_str());
+    }
+    ImGui::SameLine();
     if(ImGui::Button("Clear##NetplayLog")) {
         runtime.clearNetplayLog();
     }
