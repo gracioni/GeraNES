@@ -46,6 +46,7 @@ public:
     {
         return submitRemoteCrc(HistoryEntry{frame, crc32});
     }
+    std::optional<HistoryEntry> findLocalHistoryEntry(FrameNumber frame) const;
     void invalidateHistoryAfter(FrameNumber frame);
 
 private:

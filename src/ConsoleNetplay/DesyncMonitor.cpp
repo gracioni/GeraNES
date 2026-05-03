@@ -24,6 +24,11 @@ DesyncMonitor::Update DesyncMonitor::submitRemoteCrc(const HistoryEntry& entry)
     return evaluateFrame(entry.frame);
 }
 
+std::optional<DesyncMonitor::HistoryEntry> DesyncMonitor::findLocalHistoryEntry(FrameNumber frame) const
+{
+    return findHistoryEntry(m_localHistory, frame);
+}
+
 void DesyncMonitor::invalidateHistoryAfter(FrameNumber frame)
 {
     while(!m_localHistory.empty() && m_localHistory.back().frame >= frame) {

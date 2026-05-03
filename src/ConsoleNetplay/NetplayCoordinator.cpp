@@ -4392,6 +4392,7 @@ void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> i
 
     if(room.state == SessionState::Running || room.state == SessionState::Paused) {
         const FrameNumber resyncFrame = std::min(m_localSimulationFrame, room.lastConfirmedFrame);
+        invalidateLocalCrcHistoryAfter(resyncFrame);
         queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
         pushLog("Input topology changed; scheduling automatic resync");
     }
@@ -6299,6 +6300,15 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame,
     }
 }
 
+std::optional<uint32_t> NetplayCoordinator::findRecentLocalCrc(FrameNumber frame) const
+{
+    const std::optional<DesyncMonitor::HistoryEntry> entry = m_desyncMonitor.findLocalHistoryEntry(frame);
+    if(!entry.has_value()) {
+        return std::nullopt;
+    }
+    return entry->crc32;
+}
+
 void NetplayCoordinator::invalidateLocalCrcHistoryAfter(FrameNumber frame)
 {
     m_desyncMonitor.invalidateHistoryAfter(frame);
@@ -6669,6 +6679,7 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     participant->controllerAssignments.push_back(slot);
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
+    invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
     participant->lastReceivedInputFrame = assignmentBaselineFrame;
     participant->lastContiguousInputFrame = assignmentBaselineFrame;
     participant->lastReceivedInputSequence = 0;
@@ -6740,6 +6751,7 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
     }
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
+    invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
     participant->lastReceivedInputFrame = assignmentBaselineFrame;
     participant->lastContiguousInputFrame = assignmentBaselineFrame;
     participant->lastReceivedInputSequence = 0;

@@ -286,7 +286,6 @@ private:
     void applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source);
     bool handleAssignController(PacketReader& reader);
     bool handleStartSession(PacketReader& reader);
-    std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
     void realignAuthoritativeState(FrameNumber loadedFrame,
                                    bool resetInputSequences = false,
                                    uint32_t inputSequenceBase = 0,
@@ -445,6 +444,7 @@ public:
                         CrcSubmissionSource submissionSource = CrcSubmissionSource::Unknown,
                         FrameNumber senderLocalSimulationFrame = 0,
                         FrameNumber senderConfirmedFrame = 0);
+    std::optional<uint32_t> findRecentLocalCrc(FrameNumber frame) const;
     void invalidateLocalCrcHistoryAfter(FrameNumber frame);
     bool beginResync(FrameNumber targetFrame,
                      const std::vector<uint8_t>& payload,
