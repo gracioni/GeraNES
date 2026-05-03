@@ -3613,6 +3613,77 @@ TEST_CASE("Reconnect input rebase accepts reset sequence baseline on host",
     host.disconnect();
 }
 
+TEST_CASE("Reconnect input gap rebase backfills skipped frames on host",
+          "[netplay][reconnect][input][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 17u;
+    room.currentFrame = 10255u;
+    room.lastConfirmedFrame = 10252u;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 2u;
+    remote.displayName = "Participant";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 10252u;
+    remote.lastContiguousInputFrame = 10252u;
+    remote.lastReceivedInputSequence = 0u;
+    remote.normalizeControllerAssignments();
+    room.participants.push_back(remote);
+
+    InputFrame confirmedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(10252u, room);
+    ConsoleNetplay::TimelineInputEntry confirmed{};
+    confirmed.frame = 10252u;
+    confirmed.participantId = remote.id;
+    confirmed.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
+    confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedContribution);
+    confirmed.sequence = 0u;
+    confirmed.confirmed = true;
+    confirmed.predicted = false;
+    const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
+
+    ConsoleNetplay::InputFrameData firstRejected{};
+    firstRejected.timelineEpoch = room.timelineEpoch;
+    firstRejected.frame = 10254u;
+    firstRejected.participantId = remote.id;
+    firstRejected.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
+    firstRejected.sequence = 1u;
+    InputFrame firstRejectedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(10254u, room);
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, firstRejected, firstRejectedContribution));
+
+    ConsoleNetplay::InputFrameData resumedInput{};
+    resumedInput.timelineEpoch = room.timelineEpoch;
+    resumedInput.frame = 10255u;
+    resumedInput.participantId = remote.id;
+    resumedInput.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
+    resumedInput.sequence = 2u;
+    InputFrame resumedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(10255u, room);
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, resumedInput, resumedContribution));
+
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->lastContiguousInputFrame == 10255u);
+    REQUIRE_FALSE(updated->pendingMissingInputFrom.has_value());
+    REQUIRE(host.remoteInputs().find(10253u, remote.id, GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE(host.remoteInputs().find(10254u, remote.id, GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE(host.remoteInputs().find(10255u, remote.id, GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Accepted input gap rebase from Participant frame 10255"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Participant assignments survive join before topology catches up",
           "[netplay][reconnect][assignments][unit]")
 {

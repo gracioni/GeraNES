@@ -232,6 +232,62 @@ bool topologyCanRepresentAssignments(const std::vector<ConsoleNetplay::PlayerSlo
     return true;
 }
 
+void backfillConfirmedRemoteInputGap(ConsoleNetplay::InputTimeline& timeline,
+                                     const ConsoleNetplay::RoomState& room,
+                                     ConsoleNetplay::ParticipantInfo& participant,
+                                     ConsoleNetplay::PlayerSlot slot,
+                                     ConsoleNetplay::FrameNumber startFrame,
+                                     ConsoleNetplay::FrameNumber endFrame)
+{
+    if(startFrame > endFrame) {
+        return;
+    }
+
+    const ConsoleNetplay::TimelineInputEntry* latestConfirmed = timeline.latestConfirmedFor(participant.id, slot);
+    for(ConsoleNetplay::FrameNumber frame = startFrame; frame <= endFrame; ++frame) {
+        const ConsoleNetplay::TimelineInputEntry* existing = timeline.find(frame, participant.id, slot);
+        if(existing != nullptr && existing->confirmed) {
+            latestConfirmed = existing;
+            continue;
+        }
+
+        ConsoleNetplay::TimelineInputEntry synthetic{};
+        if(latestConfirmed != nullptr) {
+            synthetic = *latestConfirmed;
+            synthetic.netplayFrame =
+                ConsoleNetplay::NetplayInputFrame::repeatedFrom(latestConfirmed->netplayFrame, frame);
+            materializeNativeMaskFromPayload(synthetic.netplayFrame, slot);
+            if(synthetic.netplayFrame.buttonMaskLo[slot] == 0u && latestConfirmed->buttonMaskLo != 0u) {
+                synthetic.netplayFrame.buttonMaskLo[slot] = latestConfirmed->buttonMaskLo;
+            }
+            if(synthetic.netplayFrame.buttonMaskHi[slot] == 0u && latestConfirmed->buttonMaskHi != 0u) {
+                synthetic.netplayFrame.buttonMaskHi[slot] = latestConfirmed->buttonMaskHi;
+            }
+            synthetic.buttonMaskLo = synthetic.netplayFrame.buttonMaskLo[slot];
+            synthetic.buttonMaskHi = synthetic.netplayFrame.buttonMaskHi[slot];
+            synthetic.sequence = latestConfirmed->sequence;
+        } else {
+            synthetic.participantId = participant.id;
+            synthetic.playerSlot = slot;
+            synthetic.buttonMaskLo = 0;
+            synthetic.buttonMaskHi = 0;
+            synthetic.netplayFrame = makeRoomTopologyNetplayFrame(frame, room);
+            synthetic.sequence = 0;
+        }
+
+        synthetic.frame = frame;
+        synthetic.participantId = participant.id;
+        synthetic.playerSlot = slot;
+        synthetic.predicted = false;
+        synthetic.confirmed = true;
+        if(existing != nullptr) {
+            synthetic.sequence = existing->sequence;
+        }
+        timeline.push(synthetic);
+        latestConfirmed = timeline.find(frame, participant.id, slot);
+    }
+}
+
 std::string controllerAssignmentToast(ConsoleNetplay::PlayerSlot slot,
                                       const ConsoleNetplay::RoomState& room,
                                       const std::string& participantName)
@@ -1659,6 +1715,16 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             // frame/sequence baseline, or when unreliable gameplay transport
             // drops one or more in-between packets but later frames arrive.
             if(input.frame > expectedFrame) {
+                if(m_hosting && participant->id != m_localParticipantId) {
+                    backfillConfirmedRemoteInputGap(
+                        *destinationTimeline,
+                        m_session.roomState(),
+                        *participant,
+                        input.playerSlot,
+                        expectedFrame,
+                        input.frame - 1u
+                    );
+                }
                 participant->lastContiguousInputFrame = input.frame - 1u;
                 participant->pendingMissingInputFrom.reset();
             }
