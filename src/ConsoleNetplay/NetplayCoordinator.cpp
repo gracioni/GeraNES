@@ -2165,6 +2165,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
 {
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
     const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
@@ -5334,6 +5335,14 @@ bool NetplayCoordinator::injectFrameStatusForTests(const FrameStatusData& status
     return handleFrameStatus(reader);
 }
 
+bool NetplayCoordinator::injectPeerHealthForTests(const PeerHealthData& health)
+{
+    PacketWriter writer;
+    health.serialize(writer);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handlePeerHealth(NetTransport::kInvalidPeerHandle, reader);
+}
+
 bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, const NetplayInputFrame& contribution)
 {
     PacketWriter writer;
@@ -5392,6 +5401,18 @@ bool NetplayCoordinator::markMissingInputGapForTests(ParticipantId participantId
         participant->pendingMissingInputFrom = missingFrame;
         recordMissingInputGap(*participant, missingFrame, receivedFrame, slot);
     }
+    return true;
+}
+
+bool NetplayCoordinator::noteImplicitRemoteInputStallForTests(ParticipantId participantId,
+                                                              PlayerSlot slot,
+                                                              FrameNumber frame)
+{
+    ParticipantInfo* participant = m_session.findParticipant(participantId);
+    if(participant == nullptr) {
+        return false;
+    }
+    noteImplicitRemoteInputStall(participantId, slot, frame);
     return true;
 }
 

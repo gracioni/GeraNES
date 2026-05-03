@@ -680,6 +680,100 @@ TEST_CASE("Netplay remote input stall monitor coalesces alternating adjacent pen
     REQUIRE(freshHealth.recovery.stalledFrame == 3385u);
 }
 
+TEST_CASE("Netplay coordinator ignores peer-health stall recovery during post-resync stabilization",
+          "[netplay][implicit-stall][coordinator][stabilization]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 7u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 1838u;
+    room.lastConfirmedFrame = 1837u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryModeEnteredAtFrame = 1837u;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 99u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(1838u);
+    REQUIRE(host.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 1838u));
+
+    ConsoleNetplay::PeerHealthData health{};
+    health.participantId = 99u;
+    health.currentFrame = 1839u;
+    health.lastConfirmedFrame = 1837u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay coordinator schedules peer-health stall recovery in normal mode",
+          "[netplay][implicit-stall][coordinator][recovery]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 8u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 4u;
+    room.currentFrame = 2083u;
+    room.lastConfirmedFrame = 2082u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 99u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(2083u);
+    REQUIRE(host.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 2083u));
+
+    ConsoleNetplay::PeerHealthData health{};
+    health.participantId = 99u;
+    health.currentFrame = 2084u;
+    health.lastConfirmedFrame = 2082u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->frame == 2082u);
+    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
 {
     ConsoleNetplay::SelfStallDetector detector;

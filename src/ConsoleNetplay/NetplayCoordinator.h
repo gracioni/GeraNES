@@ -393,7 +393,11 @@ public:
                                      FrameNumber missingFrame,
                                      FrameNumber receivedFrame,
                                      PlayerSlot slot);
+    bool noteImplicitRemoteInputStallForTests(ParticipantId participantId,
+                                              PlayerSlot slot,
+                                              FrameNumber frame);
     bool injectFrameStatusForTests(const FrameStatusData& status);
+    bool injectPeerHealthForTests(const PeerHealthData& health);
     bool injectCrcReportForTests(const CrcReportData& report);
     bool injectResyncAckForTests(const ResyncAckData& ack);
     ParticipantId localParticipantId() const;
