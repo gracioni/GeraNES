@@ -64,6 +64,10 @@ inline void GeraNESApp::showGui()
         drawCpuDebuggerWindow();
     }
 
+    if(m_showCpuBreakpointsWindow) {
+        drawCpuBreakpointsWindow();
+    }
+
     if(m_showAboutWindow) {
         SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -566,6 +570,36 @@ inline void GeraNESApp::drawNsfPlayerVisualizer()
 }
 #endif
 
+inline void DrawCpuBreakpointHitSummary(const GeraNESEmu::DebugBreakpointHit& hit)
+{
+    if(!hit.valid) {
+        ImGui::TextDisabled("No breakpoint hit yet.");
+        return;
+    }
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f), "%s", hit.reason.c_str());
+    if(hit.hasAddress) {
+        ImGui::Text(
+            "%s $%04X = %02X  Frame %u  CPU %u  PPU %d,%d",
+            hit.isWrite ? "Write" : "Read",
+            hit.address,
+            hit.value,
+            hit.frame,
+            hit.cpuCycle,
+            hit.ppuScanline,
+            hit.ppuCycle
+        );
+    } else {
+        ImGui::Text(
+            "Frame %u  CPU %u  PPU %d,%d",
+            hit.frame,
+            hit.cpuCycle,
+            hit.ppuScanline,
+            hit.ppuCycle
+        );
+    }
+}
+
 inline void GeraNESApp::drawCpuDebuggerWindow()
 {
     SetNextWindowSizeClamped(ImVec2(860.0f, 620.0f), ImGuiCond_Appearing);
@@ -593,6 +627,13 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         AppSettings::instance().data.debug.cpuDebuggerEnabled = debugEnabled;
         if(debugEnabled && !m_emu.paused()) {
             m_emu.togglePaused();
+        } else if(!debugEnabled) {
+            m_emu.withExclusiveAccess([](auto& emu) {
+                emu.clearDebugBreakpointHit();
+            });
+            if(m_emu.paused()) {
+                m_emu.togglePaused();
+            }
         }
     }
     ImGui::EndDisabled();
@@ -618,6 +659,9 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     const bool paused = m_emu.paused();
     if(paused) {
         if(ImGui::Button("Resume")) {
+            m_emu.withExclusiveAccess([](auto& emu) {
+                emu.clearDebugBreakpointHit();
+            });
             m_emu.togglePaused();
         }
     } else {
@@ -630,6 +674,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     ImGui::BeginDisabled(!paused);
     if(ImGui::Button("Step")) {
         m_emu.withExclusiveAccess([](auto& emu) {
+            emu.clearDebugBreakpointHit();
             emu.debugStepInstruction();
         });
     }
@@ -638,12 +683,20 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     ImGui::SameLine();
     ImGui::TextDisabled(paused ? "Stopped" : "Running");
 
+    ImGui::SameLine();
+    if(ImGui::Button("Breakpoints")) {
+        m_showCpuBreakpointsWindow = true;
+        AppSettings::instance().data.debug.showCpuBreakpoints = true;
+    }
+
     CPU2A03::DebugState cpuState;
     GeraNESEmu::ExecutionPoint execPoint;
+    GeraNESEmu::DebugBreakpointHit breakpointHit;
     std::vector<CPU2A03DebugLine> disassembly;
     m_emu.withExclusiveAccess([&](auto& emu) {
         cpuState = emu.getConsole().cpu().debugState();
         execPoint = emu.executionPoint();
+        breakpointHit = emu.debugBreakpointHit();
         disassembly = CPU2A03Debug::disassembleAround(
             cpuState.pc,
             8,
@@ -653,6 +706,18 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
             }
         );
     });
+
+    ImGui::Separator();
+    DrawCpuBreakpointHitSummary(breakpointHit);
+
+    if(breakpointHit.valid) {
+        ImGui::SameLine();
+        if(ImGui::Button("Clear Hit")) {
+            m_emu.withExclusiveAccess([](auto& emu) {
+                emu.clearDebugBreakpointHit();
+            });
+        }
+    }
 
     ImGui::Separator();
 
@@ -701,6 +766,106 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         }
     }
     ImGui::EndChild();
+
+    ImGui::End();
+}
+
+inline void GeraNESApp::drawCpuBreakpointsWindow()
+{
+    SetNextWindowSizeClamped(ImVec2(620.0f, 620.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if(!ImGui::Begin("CPU Breakpoints", &m_showCpuBreakpointsWindow)) {
+        AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
+        ImGui::End();
+        return;
+    }
+
+    AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
+
+    const bool hasRomLoaded = m_emu.valid();
+    const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
+    const bool debugBlockedByNetplay =
+        netplaySnapshot.active ||
+        netplaySnapshot.hosting ||
+        netplaySnapshot.connected ||
+        netplaySnapshot.reconnecting;
+    const bool debugEnabled = AppSettings::instance().data.debug.cpuDebuggerEnabled;
+
+    GeraNESEmu::DebugBreakpointConfig config;
+    GeraNESEmu::DebugBreakpointHit hit;
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        config = emu.debugBreakpointConfig();
+        hit = emu.debugBreakpointHit();
+    });
+
+    if(!hasRomLoaded) {
+        ImGui::TextDisabled("Load a ROM to configure CPU breakpoints.");
+        ImGui::End();
+        return;
+    }
+
+    if(debugBlockedByNetplay) {
+        ImGui::TextDisabled("CPU breakpoints are disabled while netplay is active.");
+        ImGui::End();
+        return;
+    }
+
+    if(!debugEnabled) {
+        ImGui::TextDisabled("Enable the CPU debugger first. Breakpoints only arm while debug mode is enabled.");
+        ImGui::End();
+        return;
+    }
+
+    bool configChanged = false;
+
+    configChanged |= ImGui::Checkbox("Enable event breakpoints", &config.enabled);
+    ImGui::Separator();
+    ImGui::TextUnformatted("Events");
+    configChanged |= ImGui::Checkbox("PPU NMI start", &config.breakOnNmiStart);
+    configChanged |= ImGui::Checkbox("PPU NMI end", &config.breakOnNmiEnd);
+    configChanged |= ImGui::Checkbox("IRQ start", &config.breakOnIrqStart);
+    configChanged |= ImGui::Checkbox("IRQ end", &config.breakOnIrqEnd);
+    configChanged |= ImGui::Checkbox("Sprite zero hit", &config.breakOnSpriteZeroHit);
+    configChanged |= ImGui::Checkbox("OAM DMA start ($4014)", &config.breakOnOamDmaStart);
+    configChanged |= ImGui::Checkbox("DMC DMA start", &config.breakOnDmcDmaStart);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Register Access");
+    configChanged |= ImGui::Checkbox("PPU register writes", &config.breakOnPpuRegisterWrite);
+    configChanged |= ImGui::Checkbox("PPU register reads", &config.breakOnPpuRegisterRead);
+    configChanged |= ImGui::Checkbox("APU register writes", &config.breakOnApuRegisterWrite);
+    configChanged |= ImGui::Checkbox("APU register reads", &config.breakOnApuRegisterRead);
+    configChanged |= ImGui::Checkbox("Controller reads", &config.breakOnControllerRead);
+    configChanged |= ImGui::Checkbox("Controller writes", &config.breakOnControllerWrite);
+    configChanged |= ImGui::Checkbox("Mapper register writes", &config.breakOnMapperRegisterWrite);
+    configChanged |= ImGui::Checkbox("Mapper register reads", &config.breakOnMapperRegisterRead);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Exact CPU Watch");
+    configChanged |= ImGui::Checkbox("Break on CPU read", &config.breakOnExactCpuRead);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90.0f);
+    configChanged |= ImGui::InputScalar("##ExactCpuReadAddress", ImGuiDataType_U16, &config.exactCpuReadAddress, nullptr, nullptr, "%04X", ImGuiInputTextFlags_CharsHexadecimal);
+    configChanged |= ImGui::Checkbox("Break on CPU write", &config.breakOnExactCpuWrite);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90.0f);
+    configChanged |= ImGui::InputScalar("##ExactCpuWriteAddress", ImGuiDataType_U16, &config.exactCpuWriteAddress, nullptr, nullptr, "%04X", ImGuiInputTextFlags_CharsHexadecimal);
+
+    if(configChanged) {
+        m_emu.withExclusiveAccess([&](auto& emu) {
+            emu.setDebugBreakpointConfig(config);
+        });
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Last Hit");
+    DrawCpuBreakpointHitSummary(hit);
+    if(hit.valid && ImGui::Button("Clear Breakpoint Hit")) {
+        m_emu.withExclusiveAccess([](auto& emu) {
+            emu.clearDebugBreakpointHit();
+        });
+    }
 
     ImGui::End();
 }

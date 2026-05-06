@@ -149,6 +149,7 @@ private:
     bool m_showNetplayWindow = false;
     bool m_showPaletteWindow = false;
     bool m_showCpuDebuggerWindow = false;
+    bool m_showCpuBreakpointsWindow = false;
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
     bool m_showSnesMouseConfigWindow = false;
@@ -167,6 +168,7 @@ private:
     std::string m_log = "";
     bool m_showLogWindow = false;
     UserToastNotifier m_userToast;
+    uint64_t m_lastSeenCpuBreakpointSequence = 0;
 
     std::vector<uint8_t> m_embeddedUiFontData;
 #ifdef ENABLE_NSF_PLAYER
@@ -315,6 +317,8 @@ private:
     void deleteCurrentPalette();
     void drawPaletteWindow();
     void drawCpuDebuggerWindow();
+    void drawCpuBreakpointsWindow();
+    void syncCpuDebugRuntimeState();
 
     void updateMVP();
     void onLog(const std::string& msg, Logger::Type type);

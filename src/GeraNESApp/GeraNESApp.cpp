@@ -806,7 +806,48 @@ void GeraNESApp::syncSettings()
     m_pixelPerfectScale = std::clamp(cfg.video.pixelPerfectScale, 1, 16);
     m_fullScreen = cfg.video.fullScreen;
     m_fullScreenMode = std::clamp(cfg.video.fullScreenMode, 0, 1);
-    m_showCpuDebuggerWindow = cfg.debug.showCpuDebugger;
+    AppSettings::instance().data.debug.cpuDebuggerEnabled = false;
+    m_showCpuDebuggerWindow = false;
+    m_showCpuBreakpointsWindow = false;
+    AppSettings::instance().data.debug.showCpuDebugger = false;
+    AppSettings::instance().data.debug.showCpuBreakpoints = false;
+}
+
+void GeraNESApp::syncCpuDebugRuntimeState()
+{
+    const auto debugNetplaySnapshot = m_netplayRuntime.uiSnapshot();
+    const bool debugBlockedByNetplay =
+        debugNetplaySnapshot.active ||
+        debugNetplaySnapshot.hosting ||
+        debugNetplaySnapshot.connected ||
+        debugNetplaySnapshot.reconnecting;
+
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        emu.setDebugBreakpointsArmed(
+            AppSettings::instance().data.debug.cpuDebuggerEnabled &&
+            !debugBlockedByNetplay
+        );
+    });
+
+    if(!m_emu.valid()) {
+        return;
+    }
+
+    uint64_t breakpointSequence = 0;
+    bool breakpointValid = false;
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        const auto& hit = emu.debugBreakpointHit();
+        breakpointSequence = hit.sequence;
+        breakpointValid = hit.valid;
+    });
+
+    if(breakpointValid && breakpointSequence != 0 && breakpointSequence != m_lastSeenCpuBreakpointSequence) {
+        m_lastSeenCpuBreakpointSequence = breakpointSequence;
+        m_showCpuDebuggerWindow = true;
+        m_showCpuBreakpointsWindow = true;
+        AppSettings::instance().data.debug.showCpuDebugger = true;
+        AppSettings::instance().data.debug.showCpuBreakpoints = true;
+    }
 }
 
 void GeraNESApp::createShortcuts()
@@ -869,6 +910,11 @@ void GeraNESApp::createShortcuts()
     m_shortcuts.add(ShortcutManager::Data{"cpuDebugger", "CPU Debugger", "Alt+D", [this]() {
         m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
         AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
+    }});
+
+    m_shortcuts.add(ShortcutManager::Data{"cpuBreakpoints", "CPU Breakpoints", "Alt+B", [this]() {
+        m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
+        AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
     }});
 }
 
@@ -2166,6 +2212,7 @@ void GeraNESApp::mainLoop()
     dispatch_queued_calls();
     applyEffectiveRewindSettings();
     pollAndPrepareInput();
+    syncCpuDebugRuntimeState();
 
     m_fpsTimer += dt;
 
@@ -2228,6 +2275,7 @@ void GeraNESApp::mainLoop()
                 netplayPacingOverrideActive,
                 true
             );
+            syncCpuDebugRuntimeState();
             return;
         }
 
@@ -2263,6 +2311,8 @@ void GeraNESApp::mainLoop()
             render();
         }
     }
+    syncCpuDebugRuntimeState();
+
     m_frameCounter++;
 }
 

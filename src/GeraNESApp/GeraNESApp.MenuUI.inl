@@ -834,6 +834,13 @@ inline void GeraNESApp::menuBar() {
                 AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
             }
 
+            auto breakpointShortcut = m_shortcuts.get("cpuBreakpoints");
+            const char* breakpointKey = (breakpointShortcut != nullptr) ? breakpointShortcut->shortcut.c_str() : nullptr;
+            if(ImGui::MenuItem("CPU Breakpoints", breakpointKey, m_showCpuBreakpointsWindow)) {
+                m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
+                AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
+            }
+
             ImGui::Separator();
 
             if (ImGui::MenuItem("Log"))

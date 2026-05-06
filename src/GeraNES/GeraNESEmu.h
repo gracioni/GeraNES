@@ -41,6 +41,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <utility>
 
 enum class AccessType
@@ -70,6 +71,46 @@ public:
         uint32_t cpuCycle = 0;
         uint32_t cpuCyclesRemaining = 0;
         uint64_t emulationTick = 0;
+    };
+
+    struct DebugBreakpointConfig
+    {
+        bool enabled = false;
+        bool breakOnNmiStart = false;
+        bool breakOnNmiEnd = false;
+        bool breakOnIrqStart = false;
+        bool breakOnIrqEnd = false;
+        bool breakOnSpriteZeroHit = false;
+        bool breakOnPpuRegisterWrite = false;
+        bool breakOnPpuRegisterRead = false;
+        bool breakOnApuRegisterWrite = false;
+        bool breakOnApuRegisterRead = false;
+        bool breakOnControllerWrite = false;
+        bool breakOnControllerRead = false;
+        bool breakOnMapperRegisterWrite = false;
+        bool breakOnMapperRegisterRead = false;
+        bool breakOnOamDmaStart = false;
+        bool breakOnDmcDmaStart = false;
+        bool breakOnExactCpuRead = false;
+        bool breakOnExactCpuWrite = false;
+        uint16_t exactCpuReadAddress = 0x0000;
+        uint16_t exactCpuWriteAddress = 0x0000;
+    };
+
+    struct DebugBreakpointHit
+    {
+        bool valid = false;
+        std::string reason;
+        bool hasAddress = false;
+        uint16_t address = 0x0000;
+        uint8_t value = 0x00;
+        bool isWrite = false;
+        uint32_t frame = 0;
+        uint32_t cpuCycle = 0;
+        uint64_t emulationTick = 0;
+        int ppuScanline = 0;
+        int ppuCycle = 0;
+        uint64_t sequence = 0;
     };
 
     enum class StateLoadAudioPolicy
@@ -123,6 +164,10 @@ private:
     bool m_speedBoost;
     bool m_paused;
     static constexpr int SPEED_BOOST_MULTIPLIER = 3;
+
+    DebugBreakpointConfig m_debugBreakpointConfig;
+    DebugBreakpointHit m_debugBreakpointHit;
+    bool m_debugBreakpointsArmed = false;
 
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
@@ -633,6 +678,9 @@ private:
                     if constexpr(accessType == AccessType::Write)
                     {
                         uint16_t addr = static_cast<uint16_t>(data) << 8;
+                        if(m_debugBreakpointConfig.breakOnOamDmaStart) {
+                            triggerDebugBreakpoint("OAM DMA start", static_cast<uint16_t>(0x4014), data, true, true);
+                        }
                         m_cpu.startOamDma(addr);
                     }
                     break;
@@ -801,6 +849,8 @@ private:
             ? static_cast<uint16_t>(addr)
             : 0xFFFF;
 
+        processDebugBusAccess<accessType>(static_cast<uint16_t>(addr), data);
+
         if constexpr(accessType == AccessType::Read)
             return data;
     }
@@ -851,6 +901,9 @@ private:
     }
 
     void onDMCRequest(uint16_t addr, bool reload) {
+        if(m_debugBreakpointConfig.breakOnDmcDmaStart) {
+            triggerDebugBreakpoint(reload ? "DMC DMA reload" : "DMC DMA start", addr, 0x00, false, true);
+        }
         m_cpu.startDmcDma(addr, reload);
     }
 
@@ -938,6 +991,117 @@ private:
         m_netplayLoadStateResult = loaded;
     }
 
+    bool debugBreakpointsActive() const
+    {
+        return m_debugBreakpointsArmed &&
+               m_debugBreakpointConfig.enabled &&
+               m_cartridge.isValid() &&
+               !m_halt;
+    }
+
+    void triggerDebugBreakpoint(const std::string& reason,
+                                uint16_t address = 0x0000,
+                                uint8_t value = 0x00,
+                                bool isWrite = false,
+                                bool hasAddress = false)
+    {
+        if(!debugBreakpointsActive()) {
+            return;
+        }
+
+        m_debugBreakpointHit.valid = true;
+        m_debugBreakpointHit.reason = reason;
+        m_debugBreakpointHit.hasAddress = hasAddress;
+        m_debugBreakpointHit.address = address;
+        m_debugBreakpointHit.value = value;
+        m_debugBreakpointHit.isWrite = isWrite;
+        m_debugBreakpointHit.frame = m_frameCounter;
+        m_debugBreakpointHit.cpuCycle = static_cast<uint32_t>(m_cpu.cycleCounter());
+        m_debugBreakpointHit.emulationTick = m_emulationTickCounter;
+        m_debugBreakpointHit.ppuScanline = m_ppu.scanline();
+        m_debugBreakpointHit.ppuCycle = m_ppu.cycle();
+        ++m_debugBreakpointHit.sequence;
+        m_paused = true;
+    }
+
+    template<AccessType accessType>
+    void processDebugBusAccess(uint16_t addr, uint8_t value)
+    {
+        if(!debugBreakpointsActive()) {
+            return;
+        }
+
+        const bool isWrite = accessType == AccessType::Write;
+
+        if(!isWrite && m_debugBreakpointConfig.breakOnExactCpuRead && addr == m_debugBreakpointConfig.exactCpuReadAddress) {
+            triggerDebugBreakpoint("CPU read watch", addr, value, false, true);
+            return;
+        }
+        if(isWrite && m_debugBreakpointConfig.breakOnExactCpuWrite && addr == m_debugBreakpointConfig.exactCpuWriteAddress) {
+            triggerDebugBreakpoint("CPU write watch", addr, value, true, true);
+            return;
+        }
+
+        if(addr >= 0x2000 && addr < 0x4000) {
+            const uint16_t basePpuRegister = static_cast<uint16_t>(0x2000 | (addr & 0x0007));
+            if(isWrite && m_debugBreakpointConfig.breakOnPpuRegisterWrite) {
+                switch(basePpuRegister) {
+                    case 0x2000:
+                    case 0x2001:
+                    case 0x2003:
+                    case 0x2004:
+                    case 0x2005:
+                    case 0x2006:
+                    case 0x2007:
+                        triggerDebugBreakpoint("PPU register write", basePpuRegister, value, true, true);
+                        return;
+                }
+            }
+            if(!isWrite && m_debugBreakpointConfig.breakOnPpuRegisterRead) {
+                switch(basePpuRegister) {
+                    case 0x2002:
+                    case 0x2004:
+                    case 0x2007:
+                        triggerDebugBreakpoint("PPU register read", basePpuRegister, value, false, true);
+                        return;
+                }
+            }
+        }
+
+        if(addr >= 0x4000 && addr < 0x4018) {
+            if(isWrite && m_debugBreakpointConfig.breakOnApuRegisterWrite) {
+                if((addr <= 0x4015 || addr == 0x4017) && addr != 0x4016) {
+                    triggerDebugBreakpoint("APU register write", addr, value, true, true);
+                    return;
+                }
+            }
+            if(!isWrite && m_debugBreakpointConfig.breakOnApuRegisterRead && addr == 0x4015) {
+                triggerDebugBreakpoint("APU register read", addr, value, false, true);
+                return;
+            }
+            if(isWrite && m_debugBreakpointConfig.breakOnControllerWrite && addr == 0x4016) {
+                triggerDebugBreakpoint("Controller register write", addr, value, true, true);
+                return;
+            }
+            if(!isWrite && m_debugBreakpointConfig.breakOnControllerRead && (addr == 0x4016 || addr == 0x4017)) {
+                triggerDebugBreakpoint("Controller register read", addr, value, false, true);
+                return;
+            }
+        }
+
+        if(isWrite && m_debugBreakpointConfig.breakOnMapperRegisterWrite && addr >= 0x4020) {
+            triggerDebugBreakpoint("Mapper register write", addr, value, true, true);
+            return;
+        }
+
+        if(!isWrite &&
+           m_debugBreakpointConfig.breakOnMapperRegisterRead &&
+           addr >= 0x4020 &&
+           addr < 0x6000) {
+            triggerDebugBreakpoint("Mapper register read", addr, value, false, true);
+        }
+    }
+
     static bool executionPointLessThan(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
     {
         if(lhs.frame != rhs.frame) return lhs.frame < rhs.frame;
@@ -994,6 +1158,9 @@ private:
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
             silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
+        const bool nmiBefore = m_ppu.nmiLineActive();
+        const bool irqBefore = m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag();
+        const bool sprite0Before = m_ppu.sprite0Hit();
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -1049,6 +1216,24 @@ private:
         if(m_halt) {
             close();
             return false;
+        }
+
+        const bool nmiAfter = m_ppu.nmiLineActive();
+        if(!nmiBefore && nmiAfter && m_debugBreakpointConfig.breakOnNmiStart) {
+            triggerDebugBreakpoint("PPU NMI start");
+        } else if(nmiBefore && !nmiAfter && m_debugBreakpointConfig.breakOnNmiEnd) {
+            triggerDebugBreakpoint("PPU NMI end");
+        }
+
+        const bool irqAfter = m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag();
+        if(!irqBefore && irqAfter && m_debugBreakpointConfig.breakOnIrqStart) {
+            triggerDebugBreakpoint("IRQ start");
+        } else if(irqBefore && !irqAfter && m_debugBreakpointConfig.breakOnIrqEnd) {
+            triggerDebugBreakpoint("IRQ end");
+        }
+
+        if(!sprite0Before && m_ppu.sprite0Hit() && m_debugBreakpointConfig.breakOnSpriteZeroHit) {
+            triggerDebugBreakpoint("PPU sprite zero hit");
         }
 
         return true;
@@ -1243,6 +1428,7 @@ public:
         m_runningLoop = false;
         m_speedBoost = false;
         m_paused = false;
+        clearDebugBreakpointHit();
         m_nsfPlayer.init();
         m_prevNsfSelect = false;
         m_prevNsfStart = false;
@@ -2048,6 +2234,47 @@ public:
     bool paused() const
     {
         return m_paused;
+    }
+
+    void setDebugBreakpointsArmed(bool armed)
+    {
+        m_debugBreakpointsArmed = armed;
+        if(!armed) {
+            clearDebugBreakpointHit();
+        }
+    }
+
+    void setDebugBreakpointConfig(const DebugBreakpointConfig& config)
+    {
+        m_debugBreakpointConfig = config;
+        if(!m_debugBreakpointConfig.enabled) {
+            clearDebugBreakpointHit();
+        }
+    }
+
+    const DebugBreakpointConfig& debugBreakpointConfig() const
+    {
+        return m_debugBreakpointConfig;
+    }
+
+    const DebugBreakpointHit& debugBreakpointHit() const
+    {
+        return m_debugBreakpointHit;
+    }
+
+    void clearDebugBreakpointHit()
+    {
+        m_debugBreakpointHit.valid = false;
+        m_debugBreakpointHit.reason.clear();
+        m_debugBreakpointHit.hasAddress = false;
+        m_debugBreakpointHit.address = 0x0000;
+        m_debugBreakpointHit.value = 0x00;
+        m_debugBreakpointHit.isWrite = false;
+        m_debugBreakpointHit.frame = 0;
+        m_debugBreakpointHit.cpuCycle = 0;
+        m_debugBreakpointHit.emulationTick = 0;
+        m_debugBreakpointHit.ppuScanline = 0;
+        m_debugBreakpointHit.ppuCycle = 0;
     }
 
     void togglePaused()

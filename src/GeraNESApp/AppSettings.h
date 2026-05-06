@@ -238,8 +238,9 @@ public:
         bool showFps = false;
         bool cpuDebuggerEnabled = false;
         bool showCpuDebugger = false;
+        bool showCpuBreakpoints = false;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps, cpuDebuggerEnabled, showCpuDebugger)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps, cpuDebuggerEnabled, showCpuDebugger, showCpuBreakpoints)
     };
 
     struct Netplay {

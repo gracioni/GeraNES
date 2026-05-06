@@ -1923,6 +1923,18 @@ yyy NN YYYYY XXXXX
         return m_scanline;
     }
 
+    GERANES_INLINE int cycle() const {
+        return m_cycle;
+    }
+
+    GERANES_INLINE bool sprite0Hit() const {
+        return m_sprite0Hit;
+    }
+
+    GERANES_INLINE bool nmiLineActive() const {
+        return m_VBlankHasStarted && m_NMIOnVBlank;
+    }
+
     GERANES_INLINE void writeOAMDATA(uint8_t data)
     {
         if(!isActivelyRendering()) {
