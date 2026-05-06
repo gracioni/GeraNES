@@ -43,6 +43,7 @@ inline void GeraNESApp::menuBar() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
         if (ImGui::BeginMenu("File"))
         {
+            const bool hasRomLoaded = m_emu.valid();
             auto sc = m_shortcuts.get("openRom");
             if( sc != nullptr) {
 
@@ -50,6 +51,10 @@ inline void GeraNESApp::menuBar() {
                 {
                     sc->action();
                 }
+            }
+
+            if(ImGui::MenuItem("Close ROM", nullptr, false, hasRomLoaded && !netplayRomChangeRestricted)) {
+                closeRomAction();
             }
 
             #ifdef __EMSCRIPTEN__

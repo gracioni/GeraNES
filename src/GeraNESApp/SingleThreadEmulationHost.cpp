@@ -218,6 +218,10 @@ void SingleThreadEmulationHost::onFrameReady()
 {
     recordFrameReadyNetplayState(m_emu);
     m_holdPresentedFramebufferUntilFrameReady = false;
+    if(!m_emu.valid()) {
+        std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
+        return;
+    }
     std::memcpy(
         m_presentedFramebuffer.data(),
         m_emu.getFramebuffer(),
@@ -228,6 +232,10 @@ void SingleThreadEmulationHost::onFrameReady()
 void SingleThreadEmulationHost::refreshPresentedFramebuffer()
 {
     if(m_holdPresentedFramebufferUntilFrameReady) return;
+    if(!m_emu.valid()) {
+        std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
+        return;
+    }
     std::memcpy(
         m_presentedFramebuffer.data(),
         m_emu.getFramebuffer(),

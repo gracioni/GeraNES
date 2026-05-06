@@ -186,6 +186,26 @@ void GeraNESApp::resetAction()
     m_emu.reset();
 }
 
+void GeraNESApp::closeRomAction()
+{
+    if(!m_emu.valid()) return;
+    if(isNetplayRomChangeRestricted()) {
+        notifyNetplayRomChangeRestrictedAction("Close ROM");
+        return;
+    }
+
+    m_emu.closeRom();
+    setTitle("GeraNES");
+    m_framebufferUploadCopy.assign(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0u);
+    m_textureUploadBuffer.assign(256u * 256u, 0u);
+
+    if(m_texture != 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_texture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, m_textureUploadBuffer.data());
+    }
+}
+
 bool GeraNESApp::shouldSuppressRewindForNetplay() const
 {
     const auto snapshot = m_netplayRuntime.uiSnapshot();
@@ -906,7 +926,7 @@ void GeraNESApp::createShortcuts()
         AppSettings::instance().data.video.fullScreen = m_fullScreen;
     }});
 
-    m_shortcuts.add(ShortcutManager::Data{"openRom", "Open Rom", "Alt+O", [this]() {
+    m_shortcuts.add(ShortcutManager::Data{"openRom", "Open ROM", "Alt+O", [this]() {
         if(isNetplayRomChangeRestricted()) {
             notifyNetplayRomChangeRestrictedAction("Open ROM");
             return;

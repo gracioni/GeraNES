@@ -343,6 +343,7 @@ private:
     void notifyNetplayPauseRestrictedAction();
     void togglePauseAction();
     void resetAction();
+    void closeRomAction();
     bool shouldSuppressRewindForNetplay() const;
     void applyEffectiveRewindSettings();
     static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device);

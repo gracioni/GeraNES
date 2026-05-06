@@ -380,6 +380,14 @@ public:
         });
     }
 
+    void closeRom() override
+    {
+        resetFreeRunningPacing();
+        m_hasCachedNetplayCrc = false;
+        m_emu.close();
+        refreshPresentedFramebuffer();
+    }
+
     void saveState(uint8_t slot = 0)
      override{
         postCommand([slot](GeraNESEmu& emu) {

@@ -165,6 +165,7 @@ public:
     virtual bool paused() const = 0;
     virtual void togglePaused() = 0;
     virtual void reset() = 0;
+    virtual void closeRom() = 0;
     virtual void saveState(uint8_t slot = 0) = 0;
     virtual void loadState(uint8_t slot = 0) = 0;
     virtual std::optional<Settings::Device> getPortDevice(Settings::Port port) const = 0;

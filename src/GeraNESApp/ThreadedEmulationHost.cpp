@@ -244,13 +244,20 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     if(!holdPresentedFramebuffer && m_framebufferDirty) {
         {
             std::scoped_lock framebufferLock(m_framebufferMutex);
-            const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
-            std::memcpy(
-                m_framebuffers[backIndex].data(),
-                m_emu.getFramebuffer(),
-                m_framebuffers[backIndex].size() * sizeof(uint32_t)
-            );
-            m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+            if(valid) {
+                const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
+                std::memcpy(
+                    m_framebuffers[backIndex].data(),
+                    m_emu.getFramebuffer(),
+                    m_framebuffers[backIndex].size() * sizeof(uint32_t)
+                );
+                m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+            } else {
+                for(auto& framebuffer : m_framebuffers) {
+                    std::fill(framebuffer.begin(), framebuffer.end(), 0u);
+                }
+                m_frontFramebufferIndex.store(0, std::memory_order_release);
+            }
         }
         m_framebufferDirty = false;
     }

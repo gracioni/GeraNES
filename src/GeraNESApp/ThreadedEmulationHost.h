@@ -530,6 +530,22 @@ public:
         });
     }
 
+    void closeRom() override
+    {
+        m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
+        postCommand([this](GeraNESEmu& emu) {
+            m_hasCachedNetplayCrc = false;
+            emu.close();
+            {
+                std::scoped_lock framebufferLock(m_framebufferMutex);
+                for(auto& framebuffer : m_framebuffers) {
+                    std::fill(framebuffer.begin(), framebuffer.end(), 0u);
+                }
+            }
+            m_frontFramebufferIndex.store(0, std::memory_order_release);
+        });
+    }
+
     void saveState(uint8_t slot = 0) override
     {
         postCommand([slot](GeraNESEmu& emu) {
