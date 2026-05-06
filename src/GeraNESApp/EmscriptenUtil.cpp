@@ -174,10 +174,35 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
 
                 function fallbackCopy() {
                     let copied = false;
+                    const activeElement = document.activeElement;
+                    const helper = document.createElement('textarea');
+                    helper.value = resolvedText;
+                    helper.setAttribute('readonly', '');
+                    helper.style.position = 'fixed';
+                    helper.style.left = '-9999px';
+                    helper.style.top = '0';
+                    helper.style.opacity = '0';
+                    helper.style.pointerEvents = 'none';
+
                     try {
+                        document.body.appendChild(helper);
+                        helper.focus({ preventScroll: true });
+                        helper.select();
+                        helper.setSelectionRange(0, helper.value.length);
                         copied = document.execCommand('copy');
                     } catch (err) {
                         console.warn('document.execCommand(copy) failed:', err);
+                    } finally {
+                        if (helper.parentNode) {
+                            helper.parentNode.removeChild(helper);
+                        }
+                        if (activeElement && typeof activeElement.focus === 'function') {
+                            try {
+                                activeElement.focus({ preventScroll: true });
+                            } catch (_) {
+                                try { activeElement.focus(); } catch (_) {}
+                            }
+                        }
                     }
                     releaseForcedClipboardTextSoon(resolvedText);
                     return copied;
