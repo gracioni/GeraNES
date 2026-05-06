@@ -133,6 +133,12 @@ private:
     GLuint m_texture = 0;
     std::vector<uint32_t> m_framebufferUploadCopy;
     std::vector<uint32_t> m_textureUploadBuffer;
+    GLuint m_ppuNametableTexture = 0;
+    GLuint m_ppuChrTexture = 0;
+    GLuint m_ppuEventTexture = 0;
+    std::vector<uint32_t> m_ppuNametableBuffer;
+    std::vector<uint32_t> m_ppuChrBuffer;
+    std::vector<uint32_t> m_ppuEventBuffer;
 
     bool m_fullScreen = false;
     int m_fullScreenMode = 0;
@@ -180,6 +186,9 @@ private:
     bool m_showShaderStackWindow = false;
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
+    bool m_showPpuViewerWindow = false;
+    bool m_showEventViewerWindow = false;
+    bool m_ppuEventViewerEnabled = false;
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
     bool m_showSnesMouseConfigWindow = false;
@@ -199,6 +208,8 @@ private:
     bool m_showLogWindow = false;
     UserToastNotifier m_userToast;
     uint64_t m_lastSeenCpuBreakpointSequence = 0;
+    int m_selectedPpuEventIndex = -1;
+    uint32_t m_selectedPpuEventFrame = 0;
 
     std::vector<uint8_t> m_embeddedUiFontData;
 #ifdef ENABLE_NSF_PLAYER
@@ -355,6 +366,8 @@ private:
     void createNewPalette();
     void deleteCurrentPalette();
     void drawPaletteWindow();
+    void drawPpuViewerWindow();
+    void drawEventViewerWindow();
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
     void syncCpuDebugRuntimeState();

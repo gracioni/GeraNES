@@ -1364,6 +1364,18 @@ GeraNESApp::~GeraNESApp()
         glDeleteTextures(1, &m_texture);
         m_texture = 0;
     }
+    if(m_ppuNametableTexture != 0) {
+        glDeleteTextures(1, &m_ppuNametableTexture);
+        m_ppuNametableTexture = 0;
+    }
+    if(m_ppuChrTexture != 0) {
+        glDeleteTextures(1, &m_ppuChrTexture);
+        m_ppuChrTexture = 0;
+    }
+    if(m_ppuEventTexture != 0) {
+        glDeleteTextures(1, &m_ppuEventTexture);
+        m_ppuEventTexture = 0;
+    }
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();

@@ -113,6 +113,16 @@ public:
         uint64_t sequence = 0;
     };
 
+    struct PpuRegisterAccessEvent
+    {
+        uint16_t address = 0x0000;
+        uint8_t value = 0x00;
+        uint16_t scanline = 0;
+        uint16_t cycle = 0;
+        uint32_t frame = 0;
+        bool isWrite = false;
+    };
+
     enum class StateLoadAudioPolicy
     {
         ResetOutput,
@@ -168,6 +178,9 @@ private:
     DebugBreakpointConfig m_debugBreakpointConfig;
     DebugBreakpointHit m_debugBreakpointHit;
     bool m_debugBreakpointsArmed = false;
+    bool m_ppuEventTraceEnabled = false;
+    std::vector<PpuRegisterAccessEvent> m_ppuRegisterAccessEvents;
+    static constexpr size_t MAX_PPU_REGISTER_ACCESS_EVENTS = 4096;
 
     //do not serialize bellow atributtes
     bool m_saveStateFlag;
@@ -864,6 +877,7 @@ private:
 
     void onFrameStart() {
         m_4011WriteCounter = 0;
+        m_ppuRegisterAccessEvents.clear();
         m_cartridge.applyExternalActions(
             m_hardwareActions.consumeFdsPendingActions(
                 m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::FDS
@@ -1027,11 +1041,41 @@ private:
     template<AccessType accessType>
     void processDebugBusAccess(uint16_t addr, uint8_t value)
     {
+        const bool isWrite = accessType == AccessType::Write;
+
+        if(addr >= 0x2000 && addr < 0x4000 && m_ppuEventTraceEnabled) {
+            const uint16_t basePpuRegister = static_cast<uint16_t>(0x2000 | (addr & 0x0007));
+            const bool shouldRecordWrite =
+                isWrite &&
+                (basePpuRegister == 0x2000 ||
+                 basePpuRegister == 0x2001 ||
+                 basePpuRegister == 0x2003 ||
+                 basePpuRegister == 0x2004 ||
+                 basePpuRegister == 0x2005 ||
+                 basePpuRegister == 0x2006 ||
+                 basePpuRegister == 0x2007);
+            const bool shouldRecordRead =
+                !isWrite &&
+                (basePpuRegister == 0x2002 ||
+                 basePpuRegister == 0x2004 ||
+                 basePpuRegister == 0x2007);
+
+            if((shouldRecordWrite || shouldRecordRead) &&
+               m_ppuRegisterAccessEvents.size() < MAX_PPU_REGISTER_ACCESS_EVENTS) {
+                m_ppuRegisterAccessEvents.push_back({
+                    basePpuRegister,
+                    value,
+                    static_cast<uint16_t>(std::max(0, m_ppu.scanline())),
+                    static_cast<uint16_t>(std::max(0, m_ppu.cycle())),
+                    m_frameCounter,
+                    isWrite
+                });
+            }
+        }
+
         if(!debugBreakpointsActive()) {
             return;
         }
-
-        const bool isWrite = accessType == AccessType::Write;
 
         if(!isWrite && m_debugBreakpointConfig.breakOnExactCpuRead && addr == m_debugBreakpointConfig.exactCpuReadAddress) {
             triggerDebugBreakpoint("CPU read watch", addr, value, false, true);
@@ -1486,6 +1530,7 @@ public:
     {
         m_cartridge.clear();
         m_ppu.clearFramebuffer();
+        m_ppuRegisterAccessEvents.clear();
         m_rewind.destroy();
     }
 
@@ -2260,6 +2305,24 @@ public:
     const DebugBreakpointHit& debugBreakpointHit() const
     {
         return m_debugBreakpointHit;
+    }
+
+    void enablePpuEventTrace(bool enabled)
+    {
+        m_ppuEventTraceEnabled = enabled;
+        if(!enabled) {
+            m_ppuRegisterAccessEvents.clear();
+        }
+    }
+
+    bool ppuEventTraceEnabled() const
+    {
+        return m_ppuEventTraceEnabled;
+    }
+
+    const std::vector<PpuRegisterAccessEvent>& ppuRegisterAccessEvents() const
+    {
+        return m_ppuRegisterAccessEvents;
     }
 
     void clearDebugBreakpointHit()

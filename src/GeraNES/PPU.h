@@ -985,14 +985,46 @@ yyy NN YYYYY XXXXX
 
 */
 
-    int getCursorX()
+    int getCursorX() const
     {
         return m_debugCursorX;
     }
 
-    int getCursorY()
+    int getCursorY() const
     {        
         return m_debugCursorY;
+    }
+
+    uint8_t debugPeekPpuMemory(uint16_t addr) const
+    {
+        addr = normalizePpuAddress(addr);
+
+        if(addr < 0x2000) {
+            return const_cast<Cartridge&>(m_cartridge).readChr(addr);
+        }
+
+        if(addr < 0x3F00) {
+            const uint16_t nameTableAddr = normalizeNameTableAddress(addr);
+            const uint8_t addrIndex = static_cast<uint8_t>((nameTableAddr - 0x2000) >> 10);
+
+            uint8_t ret = 0;
+            if(m_cartridge.useCustomNameTable(addrIndex & 0x03)) {
+                ret = const_cast<Cartridge&>(m_cartridge).readCustomNameTable(addrIndex & 0x03, nameTableAddr & 0x3FF);
+            }
+            else {
+                const int index = const_cast<Cartridge&>(m_cartridge).mirroring(addrIndex & 0x03);
+                ret = m_nameTable[index & 3][nameTableAddr & 0x3FF];
+            }
+
+            return const_cast<Cartridge&>(m_cartridge).transformNameTableRead(addrIndex & 0x03, nameTableAddr & 0x3FF, ret);
+        }
+
+        return m_palette[normalizePaletteAddress(addr) - 0x3F00];
+    }
+
+    int debugBackgroundPatternTableAddress() const
+    {
+        return m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
     }
 
     GERANES_INLINE_HOT void evaluateSprites()

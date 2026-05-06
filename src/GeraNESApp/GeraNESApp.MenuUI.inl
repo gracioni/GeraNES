@@ -835,6 +835,14 @@ inline void GeraNESApp::menuBar() {
 
         if (ImGui::BeginMenu("Tools"))
         {
+            if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow)) {
+                m_showPpuViewerWindow = !m_showPpuViewerWindow;
+            }
+
+            if(ImGui::MenuItem("Event Viewer", nullptr, m_showEventViewerWindow)) {
+                m_showEventViewerWindow = !m_showEventViewerWindow;
+            }
+
             auto debugShortcut = m_shortcuts.get("cpuDebugger");
             const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
             if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow)) {
@@ -1211,6 +1219,459 @@ inline void GeraNESApp::drawShaderStackWindow()
     ImGui::Separator();
     ImGui::TextDisabled("Passes run top to bottom. Remove every pass to go back to the default shader.");
     ImGui::EndChild();
+
+    ImGui::End();
+}
+
+inline void GeraNESApp::drawPpuViewerWindow()
+{
+    constexpr int kNametableWidth = 512;
+    constexpr int kNametableHeight = 480;
+    constexpr int kChrWidth = 256;
+    constexpr int kChrHeight = 128;
+
+    ImGui::SetNextWindowSize(ImVec2(980.0f, 860.0f), ImGuiCond_Appearing);
+
+    if(!ImGui::Begin("PPU Viewer", &m_showPpuViewerWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if(!m_emu.valid()) {
+        ImGui::TextDisabled("Load a ROM to inspect PPU data.");
+        ImGui::End();
+        return;
+    }
+
+    if(m_ppuNametableTexture == 0) {
+        glGenTextures(1, &m_ppuNametableTexture);
+        glBindTexture(GL_TEXTURE_2D, m_ppuNametableTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kNametableWidth, kNametableHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    }
+
+    if(m_ppuChrTexture == 0) {
+        glGenTextures(1, &m_ppuChrTexture);
+        glBindTexture(GL_TEXTURE_2D, m_ppuChrTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kChrWidth, kChrHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    }
+
+    if(m_ppuNametableBuffer.size() != static_cast<size_t>(kNametableWidth * kNametableHeight)) {
+        m_ppuNametableBuffer.resize(static_cast<size_t>(kNametableWidth * kNametableHeight));
+    }
+
+    if(m_ppuChrBuffer.size() != static_cast<size_t>(kChrWidth * kChrHeight)) {
+        m_ppuChrBuffer.resize(static_cast<size_t>(kChrWidth * kChrHeight));
+    }
+
+    std::array<uint8_t, 0x2000> chrData = {};
+    std::array<uint8_t, 0x1000> nametableData = {};
+    std::array<uint8_t, 0x20> paletteData = {};
+    std::array<uint32_t, 64> rgbPalette = {};
+    int scrollX = 0;
+    int scrollY = 0;
+    int backgroundPatternTableAddress = 0x0000;
+
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        const PPU& ppu = emu.getConsole().ppu();
+
+        rgbPalette = ppu.colorPalette();
+        scrollX = ppu.getCursorX();
+        scrollY = ppu.getCursorY();
+        backgroundPatternTableAddress = ppu.debugBackgroundPatternTableAddress();
+
+        for(size_t i = 0; i < chrData.size(); ++i) {
+            chrData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(i));
+        }
+
+        for(size_t i = 0; i < nametableData.size(); ++i) {
+            nametableData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + i));
+        }
+
+        for(size_t i = 0; i < paletteData.size(); ++i) {
+            paletteData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + i));
+        }
+    });
+
+    const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
+        return rgbPalette[paletteEntry & 0x3F];
+    };
+
+    const uint8_t universalBackground = static_cast<uint8_t>(paletteData[0] & 0x3F);
+
+    for(int y = 0; y < kNametableHeight; ++y) {
+        const int nameTableRow = y >= 240 ? 2 : 0;
+        const int localY = y % 240;
+        const int tileY = localY >> 3;
+        const int fineY = localY & 0x07;
+
+        for(int x = 0; x < kNametableWidth; ++x) {
+            const int nameTableIndex = nameTableRow + (x >= 256 ? 1 : 0);
+            const int localX = x & 0xFF;
+            const int tileX = localX >> 3;
+            const int fineX = localX & 0x07;
+            const int nameTableBase = nameTableIndex * 0x400;
+            const uint8_t tileIndex = nametableData[static_cast<size_t>(nameTableBase + (tileY * 32) + tileX)];
+            const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((tileY >> 2) * 8) + (tileX >> 2))];
+            const int attrShift = ((tileY & 0x02) << 1) | (tileX & 0x02);
+            const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
+            const int patternAddr = backgroundPatternTableAddress + (tileIndex * 16) + fineY;
+            const uint8_t lowPlane = chrData[static_cast<size_t>(patternAddr)];
+            const uint8_t highPlane = chrData[static_cast<size_t>(patternAddr + 8)];
+            const int bit = 7 - fineX;
+            const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
+
+            uint8_t paletteEntry = universalBackground;
+            if(colorIndex != 0) {
+                paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>((paletteIndex * 4) + colorIndex)] & 0x3F);
+            }
+
+            m_ppuNametableBuffer[static_cast<size_t>((y * kNametableWidth) + x)] = colorForPaletteEntry(paletteEntry);
+        }
+    }
+
+    for(int table = 0; table < 2; ++table) {
+        const int tableBase = table * 0x1000;
+        const int xOffset = table * 128;
+
+        for(int tileY = 0; tileY < 16; ++tileY) {
+            for(int tileX = 0; tileX < 16; ++tileX) {
+                const int tileIndex = (tileY * 16) + tileX;
+
+                for(int fineY = 0; fineY < 8; ++fineY) {
+                    const uint8_t lowPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
+                    const uint8_t highPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
+
+                    for(int fineX = 0; fineX < 8; ++fineX) {
+                        const int bit = 7 - fineX;
+                        const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
+                        uint8_t paletteEntry = universalBackground;
+                        if(colorIndex != 0) {
+                            paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(colorIndex)] & 0x3F);
+                        }
+
+                        const int dstX = xOffset + (tileX * 8) + fineX;
+                        const int dstY = (tileY * 8) + fineY;
+                        m_ppuChrBuffer[static_cast<size_t>((dstY * kChrWidth) + dstX)] = colorForPaletteEntry(paletteEntry);
+                    }
+                }
+            }
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, m_ppuNametableTexture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kNametableWidth, kNametableHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuNametableBuffer.data());
+    glBindTexture(GL_TEXTURE_2D, m_ppuChrTexture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kChrWidth, kChrHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuChrBuffer.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    ImGui::Text("Scroll: X=%d  Y=%d", scrollX, scrollY);
+    ImGui::SameLine();
+    ImGui::TextDisabled("Background pattern table: $%04X", backgroundPatternTableAddress);
+    ImGui::Separator();
+
+    if(ImGui::BeginChild("PpuViewerScroll", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted("Nametables");
+        ImGui::Image(
+            static_cast<ImTextureID>(static_cast<uintptr_t>(m_ppuNametableTexture)),
+            ImVec2(static_cast<float>(kNametableWidth), static_cast<float>(kNametableHeight))
+        );
+
+        const ImVec2 imageMin = ImGui::GetItemRectMin();
+        const ImVec2 imageMax = ImGui::GetItemRectMax();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const float clampedScrollY = static_cast<float>(std::clamp(scrollY, 0, kNametableHeight - 1));
+        const float clampedScrollX = static_cast<float>(std::clamp(scrollX, 0, kNametableWidth - 1));
+
+        drawList->AddLine(
+            ImVec2(imageMin.x, imageMin.y + clampedScrollY),
+            ImVec2(imageMax.x, imageMin.y + clampedScrollY),
+            IM_COL32(255, 64, 64, 255),
+            1.0f
+        );
+        drawList->AddLine(
+            ImVec2(imageMin.x + clampedScrollX, imageMin.y),
+            ImVec2(imageMin.x + clampedScrollX, imageMax.y),
+            IM_COL32(255, 64, 64, 255),
+            1.0f
+        );
+        ImGui::EndGroup();
+
+        ImGui::SameLine();
+
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted("CHR / Pattern Tables");
+        ImGui::TextDisabled("Left: $0000   Right: $1000");
+        ImGui::Image(
+            static_cast<ImTextureID>(static_cast<uintptr_t>(m_ppuChrTexture)),
+            ImVec2(static_cast<float>(kChrWidth * 2), static_cast<float>(kChrHeight * 2))
+        );
+        ImGui::EndGroup();
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
+
+inline void GeraNESApp::drawEventViewerWindow()
+{
+    constexpr int kEventWidth = 341;
+    constexpr int kEventHeight = 312;
+    constexpr int kVisibleFrameWidth = 256;
+    constexpr int kVisibleFrameHeight = 240;
+    constexpr int kVisibleFrameXOffset = 1;
+    constexpr float kScale = 2.0f;
+    constexpr float kEventDotRadius = 2.0f;
+    constexpr float kEventHitRadius = 6.0f;
+
+    ImGui::SetNextWindowSize(ImVec2(860.0f, 720.0f), ImGuiCond_Appearing);
+
+    if(!ImGui::Begin("Event Viewer", &m_showEventViewerWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if(!m_emu.valid()) {
+        ImGui::TextDisabled("Load a ROM to inspect PPU events.");
+        ImGui::End();
+        return;
+    }
+
+    bool traceEnabled = m_ppuEventViewerEnabled;
+    if(ImGui::Checkbox("Enable Event Viewer", &traceEnabled)) {
+        m_ppuEventViewerEnabled = traceEnabled;
+        m_emu.withExclusiveAccess([&](auto& emu) {
+            emu.enablePpuEventTrace(traceEnabled);
+        });
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Reads are blue, writes are red. Full PPU frame: 341x312.");
+    ImGui::Separator();
+
+    if(m_ppuEventTexture == 0) {
+        glGenTextures(1, &m_ppuEventTexture);
+        glBindTexture(GL_TEXTURE_2D, m_ppuEventTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kEventWidth, kEventHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    }
+
+    if(m_ppuEventBuffer.size() != static_cast<size_t>(kEventWidth * kEventHeight)) {
+        m_ppuEventBuffer.resize(static_cast<size_t>(kEventWidth * kEventHeight));
+    }
+
+    std::vector<GeraNESEmu::PpuRegisterAccessEvent> ppuEvents;
+    std::vector<uint32_t> eventFramebuffer;
+
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        if(emu.ppuEventTraceEnabled() != m_ppuEventViewerEnabled) {
+            emu.enablePpuEventTrace(m_ppuEventViewerEnabled);
+        }
+
+        ppuEvents = emu.ppuRegisterAccessEvents();
+        const PPU& ppu = emu.getConsole().ppu();
+        const uint32_t* framebuffer = ppu.getFramebuffer();
+        eventFramebuffer.assign(framebuffer, framebuffer + (kVisibleFrameWidth * kVisibleFrameHeight));
+    });
+
+    std::fill(m_ppuEventBuffer.begin(), m_ppuEventBuffer.end(), 0xFF000000u);
+    if(!eventFramebuffer.empty()) {
+        for(int y = 0; y < kVisibleFrameHeight; ++y) {
+            const size_t srcOffset = static_cast<size_t>(y * kVisibleFrameWidth);
+            const size_t dstOffset = static_cast<size_t>((y * kEventWidth) + kVisibleFrameXOffset);
+            std::copy_n(eventFramebuffer.begin() + static_cast<std::ptrdiff_t>(srcOffset),
+                        kVisibleFrameWidth,
+                        m_ppuEventBuffer.begin() + static_cast<std::ptrdiff_t>(dstOffset));
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, m_ppuEventTexture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kEventWidth, kEventHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuEventBuffer.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    const bool paused = m_emu.paused();
+    const uint32_t currentFrame = ppuEvents.empty() ? 0u : ppuEvents.front().frame;
+    if(ppuEvents.empty() || m_selectedPpuEventFrame != currentFrame ||
+       m_selectedPpuEventIndex < 0 ||
+       m_selectedPpuEventIndex >= static_cast<int>(ppuEvents.size())) {
+        m_selectedPpuEventIndex = -1;
+        m_selectedPpuEventFrame = currentFrame;
+    }
+
+    const auto registerName = [](uint16_t address) -> const char* {
+        switch(address) {
+            case 0x2000: return "PPUCTRL";
+            case 0x2001: return "PPUMASK";
+            case 0x2002: return "PPUSTATUS";
+            case 0x2003: return "OAMADDR";
+            case 0x2004: return "OAMDATA";
+            case 0x2005: return "PPUSCROLL";
+            case 0x2006: return "PPUADDR";
+            case 0x2007: return "PPUDATA";
+            default: return "PPU?";
+        }
+    };
+
+    ImGui::Text("Events in current frame: %d", static_cast<int>(ppuEvents.size()));
+    ImGui::SameLine();
+    ImGui::TextDisabled("Frame %u", currentFrame);
+    if(!paused) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Pause emulation to inspect event tooltips.");
+    }
+
+    if(m_selectedPpuEventIndex >= 0) {
+        const auto& selectedEvent = ppuEvents[static_cast<size_t>(m_selectedPpuEventIndex)];
+        ImGui::Text(
+            "Selected: #%d %s %s ($%04X) value $%02X at scanline %u cycle %u",
+            m_selectedPpuEventIndex,
+            selectedEvent.isWrite ? "Write" : "Read",
+            registerName(selectedEvent.address),
+            static_cast<unsigned int>(selectedEvent.address),
+            static_cast<unsigned int>(selectedEvent.value),
+            static_cast<unsigned int>(selectedEvent.scanline),
+            static_cast<unsigned int>(selectedEvent.cycle)
+        );
+    } else {
+        ImGui::TextDisabled("Selected: none");
+    }
+    ImGui::Separator();
+
+    int hoveredEventIndex = -1;
+    bool scrollTableToSelection = false;
+
+    if(ImGui::BeginChild("EventViewerImageScroll", ImVec2(0.0f, 320.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::Image(
+            static_cast<ImTextureID>(static_cast<uintptr_t>(m_ppuEventTexture)),
+            ImVec2(static_cast<float>(kEventWidth) * kScale, static_cast<float>(kEventHeight) * kScale)
+        );
+
+        const bool imageHovered = ImGui::IsItemHovered();
+        if(m_ppuEventViewerEnabled) {
+            const ImVec2 imageMin = ImGui::GetItemRectMin();
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            float bestDistanceSq = kEventHitRadius * kEventHitRadius;
+            const ImVec2 mousePos = ImGui::GetIO().MousePos;
+
+            for(size_t i = 0; i < ppuEvents.size(); ++i) {
+                const auto& event = ppuEvents[i];
+                if(event.scanline >= kEventHeight) {
+                    continue;
+                }
+
+                const int x = std::clamp(static_cast<int>(event.cycle), 0, kEventWidth - 1);
+                const int y = std::clamp(static_cast<int>(event.scanline), 0, kEventHeight - 1);
+                const ImU32 color = event.isWrite ? IM_COL32(255, 64, 64, 255) : IM_COL32(64, 200, 255, 255);
+                const ImVec2 center(
+                    imageMin.x + (static_cast<float>(x) + 0.5f) * kScale,
+                    imageMin.y + (static_cast<float>(y) + 0.5f) * kScale
+                );
+                drawList->AddCircleFilled(center, kEventDotRadius, color);
+
+                if(paused && imageHovered) {
+                    const float dx = mousePos.x - center.x;
+                    const float dy = mousePos.y - center.y;
+                    const float distanceSq = (dx * dx) + (dy * dy);
+                    if(distanceSq <= bestDistanceSq) {
+                        bestDistanceSq = distanceSq;
+                        hoveredEventIndex = static_cast<int>(i);
+                    }
+                }
+            }
+
+            if(m_selectedPpuEventIndex >= 0) {
+                const auto& selectedEvent = ppuEvents[static_cast<size_t>(m_selectedPpuEventIndex)];
+                if(selectedEvent.scanline < kEventHeight) {
+                    const int x = std::clamp(static_cast<int>(selectedEvent.cycle), 0, kEventWidth - 1);
+                    const int y = std::clamp(static_cast<int>(selectedEvent.scanline), 0, kEventHeight - 1);
+                    const ImVec2 center(
+                        imageMin.x + (static_cast<float>(x) + 0.5f) * kScale,
+                        imageMin.y + (static_cast<float>(y) + 0.5f) * kScale
+                    );
+                    drawList->AddCircle(center, kEventHitRadius, IM_COL32(255, 255, 0, 255), 0, 2.0f);
+                }
+            }
+
+            if(hoveredEventIndex >= 0) {
+                const auto& hoveredEvent = ppuEvents[static_cast<size_t>(hoveredEventIndex)];
+                ImGui::BeginTooltip();
+                ImGui::Text("#%d  %s", hoveredEventIndex, hoveredEvent.isWrite ? "Write" : "Read");
+                ImGui::Text("%s ($%04X)", registerName(hoveredEvent.address), static_cast<unsigned int>(hoveredEvent.address));
+                ImGui::Text("Value: $%02X", static_cast<unsigned int>(hoveredEvent.value));
+                ImGui::Text("Scanline: %u", static_cast<unsigned int>(hoveredEvent.scanline));
+                ImGui::Text("Cycle: %u", static_cast<unsigned int>(hoveredEvent.cycle));
+                ImGui::Text("Frame: %u", hoveredEvent.frame);
+                ImGui::EndTooltip();
+            }
+
+            if(paused && hoveredEventIndex >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                m_selectedPpuEventIndex = hoveredEventIndex;
+                m_selectedPpuEventFrame = currentFrame;
+                scrollTableToSelection = true;
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    const ImGuiTableFlags tableFlags =
+        ImGuiTableFlags_Borders |
+        ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_ScrollY |
+        ImGuiTableFlags_Resizable |
+        ImGuiTableFlags_SizingStretchProp;
+
+    if(ImGui::BeginTable("EventViewerTable", 6, tableFlags, ImVec2(0.0f, 0.0f))) {
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 42.0f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 56.0f);
+        ImGui::TableSetupColumn("Register", ImGuiTableColumnFlags_WidthFixed, 92.0f);
+        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("Scanline", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+        ImGui::TableSetupColumn("Cycle", ImGuiTableColumnFlags_WidthFixed, 58.0f);
+        ImGui::TableHeadersRow();
+
+        for(size_t i = 0; i < ppuEvents.size(); ++i) {
+            const auto& event = ppuEvents[i];
+            const bool selected = m_selectedPpuEventIndex == static_cast<int>(i);
+
+            ImGui::TableNextRow();
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::TableSetColumnIndex(0);
+            if(ImGui::Selectable("##event-row", selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
+                m_selectedPpuEventIndex = static_cast<int>(i);
+                m_selectedPpuEventFrame = currentFrame;
+            }
+            if(selected && scrollTableToSelection) {
+                ImGui::SetScrollHereY(0.5f);
+            }
+            ImGui::SameLine();
+            ImGui::Text("%d", static_cast<int>(i));
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(event.isWrite ? "Write" : "Read");
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%s", registerName(event.address));
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("$%02X", static_cast<unsigned int>(event.value));
+            ImGui::TableSetColumnIndex(4);
+            ImGui::Text("%u", static_cast<unsigned int>(event.scanline));
+            ImGui::TableSetColumnIndex(5);
+            ImGui::Text("%u", static_cast<unsigned int>(event.cycle));
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndTable();
+    }
 
     ImGui::End();
 }

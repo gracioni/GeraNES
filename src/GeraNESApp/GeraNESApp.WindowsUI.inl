@@ -64,6 +64,14 @@ inline void GeraNESApp::showGui()
         drawShaderStackWindow();
     }
 
+    if(m_showPpuViewerWindow) {
+        drawPpuViewerWindow();
+    }
+
+    if(m_showEventViewerWindow) {
+        drawEventViewerWindow();
+    }
+
     if(m_showCpuDebuggerWindow) {
         drawCpuDebuggerWindow();
     }
