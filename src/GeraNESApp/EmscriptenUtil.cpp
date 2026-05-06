@@ -109,9 +109,7 @@ void emcriptenCopyTextToClipboardExact(const char* text)
         window.__geranes_imgui_clipboard_updated_at = Date.now();
         window.__geranes_force_clipboard_text = text;
 
-        if (typeof window.__geranes_request_clipboard_copy === 'function') {
-            window.__geranes_request_clipboard_copy(text);
-        } else if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
+        if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
             window.__geranes_copy_text_to_clipboard(text, true);
         }
     }, g_imguiClipboardText.c_str());
@@ -188,7 +186,7 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                         if (window.__geranes_force_clipboard_text === expectedText) {
                             delete window.__geranes_force_clipboard_text;
                         }
-                    }, 0);
+                    }, 50);
                 }
 
                 function fallbackCopy() {
