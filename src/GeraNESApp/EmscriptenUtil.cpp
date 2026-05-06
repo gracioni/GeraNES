@@ -85,7 +85,9 @@ void imguiSetClipboardText(void*, const char* text)
         window.__geranes_imgui_clipboard_text = text;
         window.__geranes_imgui_clipboard_updated_at = Date.now();
 
-        if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
+        if (typeof window.__geranes_request_clipboard_copy === 'function') {
+            window.__geranes_request_clipboard_copy(text);
+        } else if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
             window.__geranes_copy_text_to_clipboard(text, true);
         }
     }, g_imguiClipboardText.c_str());
@@ -234,6 +236,26 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
 
             if (typeof window.__geranes_copy_text_to_clipboard !== 'function') {
                 window.__geranes_copy_text_to_clipboard = copyTextToClipboard;
+            }
+
+            function consumePendingClipboardCopy() {
+                if (typeof window.__geranes_pending_clipboard_copy_text !== 'string') {
+                    return false;
+                }
+
+                const pendingText = window.__geranes_pending_clipboard_copy_text;
+                delete window.__geranes_pending_clipboard_copy_text;
+                copyTextToClipboard(pendingText, true);
+                return true;
+            }
+
+            if (typeof window.__geranes_request_clipboard_copy !== 'function') {
+                window.__geranes_request_clipboard_copy = function(text) {
+                    const resolvedText = typeof text === 'string' ? text : "";
+                    window.__geranes_pending_clipboard_copy_text = resolvedText;
+                    window.__geranes_imgui_clipboard_text = resolvedText;
+                    window.__geranes_imgui_clipboard_updated_at = Date.now();
+                };
             }
 
             const bridge = {};
@@ -538,6 +560,11 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                 ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(function(eventName) {
                     canvas.addEventListener(eventName, rememberUserActivation, true);
                 });
+                ['pointerup', 'mouseup', 'touchend', 'click'].forEach(function(eventName) {
+                    canvas.addEventListener(eventName, function() {
+                        consumePendingClipboardCopy();
+                    }, false);
+                });
             }
 
             if (!bridge.globalKeyHandlersInstalled) {
@@ -570,6 +597,12 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
                         event.preventDefault();
                     }
                 }, true);
+
+                ['pointerup', 'mouseup', 'touchend', 'click'].forEach(function(eventName) {
+                    document.addEventListener(eventName, function() {
+                        consumePendingClipboardCopy();
+                    }, false);
+                });
             }
 
             updateInputPosition(bridge.lastPointerX, bridge.lastPointerY);
