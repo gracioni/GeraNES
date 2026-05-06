@@ -320,6 +320,13 @@ void SDLOpenGLWindow::setTitle(const std::string& title)
     SDL_SetWindowTitle(m_window, title.c_str());
 }
 
+std::string SDLOpenGLWindow::title() const
+{
+    if(m_window == NULL) return {};
+    const char* currentTitle = SDL_GetWindowTitle(m_window);
+    return currentTitle != nullptr ? std::string(currentTitle) : std::string();
+}
+
 bool SDLOpenGLWindow::initGL()
 {
     return true;

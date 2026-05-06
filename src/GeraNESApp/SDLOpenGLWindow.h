@@ -72,6 +72,7 @@ public:
 
     bool create(const std::string& title, int x, int y, int w, int h, Uint32 flags);
     void setTitle(const std::string& title);
+    std::string title() const;
 
     virtual bool initGL();
 

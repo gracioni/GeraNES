@@ -87,7 +87,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
 
             const ImVec2 textSize = ImGui::CalcTextSize(label);
             drawList->AddText(
-                ImVec2(min.x + (controlButtonWidth - textSize.x) * 0.5f, min.y + (controlButtonHeight - textSize.y) * 0.5f - 1.0f),
+                ImVec2(min.x + (controlButtonWidth - textSize.x) * 0.5f, min.y + (controlButtonHeight - textSize.y) * 0.5f),
                 textColor,
                 label
             );
@@ -106,15 +106,15 @@ inline void GeraNESApp::drawCustomWindowChrome()
             resetAction();
         }
 
-        const char* titleText = "GeraNES";
-        const ImVec2 titleTextSize = ImGui::CalcTextSize(titleText);
+        const std::string chromeTitle = title().empty() ? std::string("GeraNES") : title();
+        const ImVec2 titleTextSize = ImGui::CalcTextSize(chromeTitle.c_str());
         drawList->AddText(
             ImVec2(
                 resetButtonMin.x + controlButtonWidth + 22.0f,
                 winPos.y + (titleBarHeight - titleTextSize.y) * 0.5f - 1.0f
             ),
             IM_COL32(56, 56, 60, 255),
-            titleText
+            chromeTitle.c_str()
         );
 
         ImGui::SetCursorScreenPos(ImVec2(winPos.x + controlsLeft + controlsWidth + 24.0f, winPos.y + 6.0f));
@@ -769,7 +769,7 @@ inline void DrawCpuBreakpointHitSummary(const GeraNESEmu::DebugBreakpointHit& hi
         return;
     }
 
-    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f), "%s", hit.reason.c_str());
+    ImGui::TextColored(ImVec4(0.72f, 0.16f, 0.16f, 1.0f), "%s", hit.reason.c_str());
     if(hit.hasAddress) {
         ImGui::Text(
             "%s $%04X = %02X  Frame %u  CPU %u  PPU %d,%d",
@@ -941,7 +941,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         for(const CPU2A03DebugLine& line : disassembly) {
             if(line.isCurrent) {
                 ImGui::TextColored(
-                    ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
+                    ImVec4(0.72f, 0.16f, 0.16f, 1.0f),
                     "> %04X  %-8s  %s",
                     line.address,
                     line.bytes.c_str(),

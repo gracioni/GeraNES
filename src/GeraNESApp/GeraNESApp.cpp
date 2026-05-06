@@ -783,7 +783,7 @@ void GeraNESApp::openFile(const char* path)
     if(m_emu.open(path)) {
         normalizeTouchControlsTargetForCurrentTopology();
         const std::string filename = fs::path(path).filename().string();
-        this->setTitle((std::string("GeraNES (") + filename + ")").c_str());
+        this->setTitle(std::string("GeraNES - ") + filename);
         Logger::instance().log("Rom loaded", Logger::Type::USER);
         m_netplayRuntime.refreshLocalRomSelectionImmediate();
     } else {
@@ -888,9 +888,7 @@ void GeraNESApp::syncCpuDebugRuntimeState()
     if(breakpointValid && breakpointSequence != 0 && breakpointSequence != m_lastSeenCpuBreakpointSequence) {
         m_lastSeenCpuBreakpointSequence = breakpointSequence;
         m_showCpuDebuggerWindow = true;
-        m_showCpuBreakpointsWindow = true;
         AppSettings::instance().data.debug.showCpuDebugger = true;
-        AppSettings::instance().data.debug.showCpuBreakpoints = true;
     }
 }
 
