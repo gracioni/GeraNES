@@ -1190,6 +1190,12 @@ inline void GeraNESApp::drawShaderStackWindow()
             if(parameters.empty()) {
                 ImGui::TextDisabled("This shader exposes no #pragma parameter entries.");
             } else {
+                if(ImGui::Button("Reset To Default")) {
+                    configuredPass.parameters.clear();
+                    updateShaderConfig();
+                }
+                ImGui::Separator();
+
                 for(const ShaderPass::Parameter& parameter : parameters) {
                     float value = parameter.value;
                     const std::string sliderId = parameter.label + "##" + parameter.name;

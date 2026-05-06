@@ -66,32 +66,30 @@ inline void GeraNESApp::paintGL()
         SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
 
         if(!m_shaderPasses.empty() && drawableW > 0 && drawableH > 0) {
-            const bool needsOffscreenTargets = m_shaderPasses.size() > 1;
+            const size_t passCount = m_shaderPasses.size();
+            const bool needsOffscreenTargets = passCount > 1;
             if(!needsOffscreenTargets || ensurePostProcessTargets(drawableW, drawableH)) {
                 const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+                const GLboolean blendEnabled = glIsEnabled(GL_BLEND);
                 if(cullEnabled) glDisable(GL_CULL_FACE);
+                if(blendEnabled) glDisable(GL_BLEND);
+                glDisable(GL_DEPTH_TEST);
 
-                GLuint sourceTexture = m_texture;
-                glm::vec2 sourceSize(256.0f, 256.0f);
-
-                for(size_t i = 0; i < m_shaderPasses.size(); ++i) {
-                    const bool finalPass = i + 1 == m_shaderPasses.size();
+                auto drawPass = [&](ShaderPass& pass,
+                                    GLuint sourceTexture,
+                                    const glm::vec2& sourceSize,
+                                    bool finalPass,
+                                    GLuint targetFbo) {
                     if(finalPass) m_vao.bind();
                     else m_postProcessVao.bind();
 
-                    if(!finalPass) {
-                        glBindFramebuffer(GL_FRAMEBUFFER, m_postProcessTargets[i % m_postProcessTargets.size()].fbo);
-                    } else {
-                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                    }
-
+                    glBindFramebuffer(GL_FRAMEBUFFER, targetFbo);
                     glViewport(0, 0, drawableW, drawableH);
                     glClear(GL_COLOR_BUFFER_BIT);
 
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, sourceTexture);
 
-                    ShaderPass& pass = m_shaderPasses[i];
                     if(pass.program.bind()) {
                         pass.program.setUniformValue("MVPMatrix", finalPass ? m_mvp : glm::mat4(1.0f));
                         pass.program.setUniformValue("Texture", 0);
@@ -105,19 +103,32 @@ inline void GeraNESApp::paintGL()
                         }
 
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
                         pass.program.release();
                     }
 
                     if(finalPass) m_vao.release();
                     else m_postProcessVao.release();
+                };
 
-                    if(!finalPass) {
-                        sourceTexture = m_postProcessTargets[i % m_postProcessTargets.size()].texture;
-                        sourceSize = glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH));
+                if(passCount == 1) {
+                    drawPass(m_shaderPasses.front(), m_texture, glm::vec2(256.0f, 256.0f), true, 0);
+                } else {
+                    GLuint sourceTexture = m_texture;
+                    glm::vec2 sourceSize(256.0f, 256.0f);
+
+                    for(size_t i = 0; i < passCount; ++i) {
+                        const bool finalPass = i + 1 == passCount;
+                        const GLuint targetFbo = finalPass ? 0 : m_postProcessTargets[i % m_postProcessTargets.size()].fbo;
+                        drawPass(m_shaderPasses[i], sourceTexture, sourceSize, finalPass, targetFbo);
+
+                        if(!finalPass) {
+                            sourceTexture = m_postProcessTargets[i % m_postProcessTargets.size()].texture;
+                            sourceSize = glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH));
+                        }
                     }
                 }
 
+                if(blendEnabled) glEnable(GL_BLEND);
                 if(cullEnabled) glEnable(GL_CULL_FACE);
             }
         }
