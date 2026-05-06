@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "GeraNESApp/AppSettings.h"
+#include "GeraNESApp/EmscriptenUtil.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/GeraNESNetplayAssignmentHelpers.h"
@@ -1372,7 +1373,11 @@ void drawNetplayWindow(bool& showWindow,
     ImGui::Checkbox("Show netplay debug log##NetplayDebugMode", &cfg.showNetplayDebugLog);
     ImGui::SameLine();
     if(ImGui::Button("Copy##NetplayLog")) {
+#ifdef __EMSCRIPTEN__
+        emcriptenCopyTextToClipboardExact(logText.c_str());
+#else
         ImGui::SetClipboardText(logText.c_str());
+#endif
     }
     ImGui::SameLine();
     if(ImGui::Button("Clear##NetplayLog")) {

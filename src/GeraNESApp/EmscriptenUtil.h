@@ -17,3 +17,4 @@ void emcriptenSyncImGuiTextInput(bool wantTextInput);
 
 void emcriptenInstallImGuiClipboardBackend();
 void emcriptenSyncImGuiClipboardSelection();
+void emcriptenCopyTextToClipboardExact(const char* text);

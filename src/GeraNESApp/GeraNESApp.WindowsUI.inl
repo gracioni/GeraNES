@@ -523,7 +523,11 @@ inline void GeraNESApp::showGui()
             ImGui::SetCursorPosX(posX);
 
             if(ImGui::Button(copyBtnLabel, copyBtnSize)) {
+#ifdef __EMSCRIPTEN__
+                emcriptenCopyTextToClipboardExact(m_log.c_str());
+#else
                 ImGui::SetClipboardText(m_log.c_str());
+#endif
             }
             ImGui::SameLine();
             if(ImGui::Button(clearBtnLabel, clearBtnSize)) {

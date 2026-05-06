@@ -93,6 +93,23 @@ void imguiSetClipboardText(void*, const char* text)
     }, g_imguiClipboardText.c_str());
 }
 
+void emcriptenCopyTextToClipboardExact(const char* text)
+{
+    g_imguiClipboardText = (text != nullptr) ? text : "";
+    EM_ASM({
+        const text = UTF8ToString($0);
+        window.__geranes_imgui_clipboard_text = text;
+        window.__geranes_imgui_clipboard_updated_at = Date.now();
+        window.__geranes_force_clipboard_text = text;
+
+        if (typeof window.__geranes_request_clipboard_copy === 'function') {
+            window.__geranes_request_clipboard_copy(text);
+        } else if (typeof window.__geranes_copy_text_to_clipboard === 'function') {
+            window.__geranes_copy_text_to_clipboard(text, true);
+        }
+    }, g_imguiClipboardText.c_str());
+}
+
 const char* imguiGetClipboardText(void*)
 {
     return g_imguiClipboardText.c_str();
