@@ -93,6 +93,13 @@ void imguiSetClipboardText(void*, const char* text)
     }, g_imguiClipboardText.c_str());
 }
 
+const char* imguiGetClipboardText(void*)
+{
+    return g_imguiClipboardText.c_str();
+}
+
+} // namespace
+
 void emcriptenCopyTextToClipboardExact(const char* text)
 {
     g_imguiClipboardText = (text != nullptr) ? text : "";
@@ -109,13 +116,6 @@ void emcriptenCopyTextToClipboardExact(const char* text)
         }
     }, g_imguiClipboardText.c_str());
 }
-
-const char* imguiGetClipboardText(void*)
-{
-    return g_imguiClipboardText.c_str();
-}
-
-} // namespace
 
 EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
     try {
