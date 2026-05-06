@@ -1481,7 +1481,12 @@ void GeraNESApp::updateShaderConfig()
     std::vector<ShaderPass> loadedPasses;
     loadedPasses.reserve(video.shaderStack.size());
 
-    for(const std::string& shaderName : video.shaderStack) {
+    for(auto& configuredPass : video.shaderStack) {
+        const std::string& shaderName = configuredPass.label;
+        if(shaderName.empty() || !configuredPass.enabled) {
+            continue;
+        }
+
         const ShaderItem* item = findShaderByLabel(shaderName);
         if(item == nullptr) {
             Logger::instance().log("Shader not found: " + shaderName + ". Skipping pass.", Logger::Type::WARNING);
@@ -1491,7 +1496,8 @@ void GeraNESApp::updateShaderConfig()
         ShaderPass pass;
         pass.label = item->label;
         pass.path = item->path;
-        if(compileShaderProgram(pass.program, pass.path)) {
+        pass.enabled = configuredPass.enabled;
+        if(compileShaderProgram(pass.program, pass.path, &configuredPass.parameters, &pass.parameters)) {
             loadedPasses.push_back(std::move(pass));
         } else {
             Logger::instance().log("Failed to load shader " + shaderName + ". Skipping pass.", Logger::Type::WARNING);
@@ -1501,10 +1507,9 @@ void GeraNESApp::updateShaderConfig()
     if(loadedPasses.empty()) {
         ShaderPass pass;
         pass.label = "default";
-        if(!compileShaderProgram(pass.program, "")) return;
+        if(!compileShaderProgram(pass.program, "", nullptr, &pass.parameters)) return;
         loadedPasses.push_back(std::move(pass));
-        video.shaderStack.clear();
-        video.shaderName.clear();
+        if(video.shaderStack.empty()) video.shaderName.clear();
     } else {
         video.shaderName = loadedPasses.front().label;
     }
@@ -1981,10 +1986,41 @@ bool GeraNESApp::loadShader(const std::string& path)
     if(m_shaderPasses.empty()) {
         m_shaderPasses.emplace_back();
     }
-    return compileShaderProgram(m_shaderPasses.front().program, path);
+    return compileShaderProgram(m_shaderPasses.front().program, path, nullptr, &m_shaderPasses.front().parameters);
 }
 
-bool GeraNESApp::compileShaderProgram(GLShaderProgram& program, const std::string& path)
+std::vector<GeraNESApp::ShaderPass::Parameter> GeraNESApp::parseShaderParameters(const std::string& shaderText) const
+{
+    std::vector<ShaderPass::Parameter> parameters;
+    std::regex parameterPattern(R"shader(^\s*#pragma\s+parameter\s+([A-Za-z_][A-Za-z0-9_]*)\s+"([^"]*)"\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s*$)shader");
+
+    std::istringstream stream(shaderText);
+    std::string line;
+    while(std::getline(stream, line)) {
+        std::smatch match;
+        if(!std::regex_match(line, match, parameterPattern)) continue;
+
+        ShaderPass::Parameter parameter;
+        parameter.name = match[1].str();
+        parameter.label = match[2].str();
+        parameter.defaultValue = std::stof(match[3].str());
+        parameter.minValue = std::stof(match[4].str());
+        parameter.maxValue = std::stof(match[5].str());
+        parameter.step = std::stof(match[6].str());
+        parameter.value = parameter.defaultValue;
+        parameters.push_back(std::move(parameter));
+    }
+
+    return parameters;
+}
+
+std::string GeraNESApp::sanitizeShaderTextForCompilation(const std::string& shaderText) const
+{
+    std::regex pragmaPattern(R"(^\s*#pragma\s+parameter[^\n]*\n?)", std::regex::icase | std::regex::multiline);
+    return std::regex_replace(shaderText, pragmaPattern, "");
+}
+
+bool GeraNESApp::compileShaderProgram(GLShaderProgram& program, const std::string& path, const std::map<std::string, float>* parameterValues, std::vector<ShaderPass::Parameter>* outParameters)
 {
     auto fs2 = cmrc::resources::get_filesystem();
     auto shaderFile = fs2.open("resources/default.glsl");
@@ -1994,6 +2030,20 @@ bool GeraNESApp::compileShaderProgram(GLShaderProgram& program, const std::strin
         std::ifstream file(path);
         shaderText = std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     }
+
+    std::vector<ShaderPass::Parameter> parameters = parseShaderParameters(shaderText);
+    for(ShaderPass::Parameter& parameter : parameters) {
+        if(parameterValues == nullptr) continue;
+        auto it = parameterValues->find(parameter.name);
+        if(it != parameterValues->end()) {
+            parameter.value = std::clamp(it->second, parameter.minValue, parameter.maxValue);
+        }
+    }
+    if(outParameters != nullptr) {
+        *outParameters = parameters;
+    }
+
+    shaderText = sanitizeShaderTextForCompilation(shaderText);
 
     const std::string shaderLabel = path.empty() ? "default shader" : path;
     auto shaderErrorText = [&shaderLabel](const char* stage, const std::string& driverLog) {
@@ -2018,11 +2068,13 @@ bool GeraNESApp::compileShaderProgram(GLShaderProgram& program, const std::strin
     std::regex versionPattern(R"(^#version[^\n]*\n)", std::regex::icase);
 
     if(std::regex_search(shaderText, versionPattern)) {
-        vertexText = std::regex_replace(shaderText, versionPattern, R"($&#define VERTEX)" "\n");
-        fragmentText = std::regex_replace(shaderText, versionPattern, R"($&#define FRAGMENT)" "\n");
+        const std::string parameterDefine = parameters.empty() ? "" : "#define PARAMETER_UNIFORM\n";
+        vertexText = std::regex_replace(shaderText, versionPattern, std::string("$&") + parameterDefine + "#define VERTEX\n");
+        fragmentText = std::regex_replace(shaderText, versionPattern, std::string("$&") + parameterDefine + "#define FRAGMENT\n");
     } else {
-        vertexText = "#define VERTEX\n" + shaderText;
-        fragmentText = "#define FRAGMENT\n" + shaderText;
+        const std::string parameterDefine = parameters.empty() ? "" : "#define PARAMETER_UNIFORM\n";
+        vertexText = parameterDefine + "#define VERTEX\n" + shaderText;
+        fragmentText = parameterDefine + "#define FRAGMENT\n" + shaderText;
     }
 
     program.destroy();

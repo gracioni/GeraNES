@@ -101,8 +101,20 @@ private:
     GLVertexBufferObject m_postProcessVbo;
 
     struct ShaderPass {
+        struct Parameter {
+            std::string name;
+            std::string label;
+            float value = 0.0f;
+            float defaultValue = 0.0f;
+            float minValue = 0.0f;
+            float maxValue = 1.0f;
+            float step = 0.1f;
+        };
+
         std::string label;
         std::string path;
+        bool enabled = true;
+        std::vector<Parameter> parameters;
         GLShaderProgram program;
     };
 
@@ -332,7 +344,9 @@ private:
     void removeRomDatabaseEditor();
     void loadPaletteList();
     const ShaderItem* findShaderByLabel(const std::string& label) const;
-    bool compileShaderProgram(GLShaderProgram& program, const std::string& path);
+    std::vector<ShaderPass::Parameter> parseShaderParameters(const std::string& shaderText) const;
+    std::string sanitizeShaderTextForCompilation(const std::string& shaderText) const;
+    bool compileShaderProgram(GLShaderProgram& program, const std::string& path, const std::map<std::string, float>* parameterValues, std::vector<ShaderPass::Parameter>* outParameters);
     void destroyPostProcessTargets();
     bool ensurePostProcessTargets(int width, int height);
     void drawShaderStackWindow();

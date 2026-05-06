@@ -275,8 +275,16 @@ void AppSettings::load()
     std::ifstream file(settingsFilePath());
 
     if(file.is_open()) {
-        nlohmann::json auxData = nlohmann::json::parse(file);
-        auxData.get_to(data);
+        try {
+            nlohmann::json auxData = nlohmann::json::parse(file);
+            auxData.get_to(data);
+        } catch(const std::exception& ex) {
+            Logger::instance().log(
+                std::string("Failed to load settings.json, using defaults: ") + ex.what(),
+                Logger::Type::WARNING
+            );
+            data = Data{};
+        }
     }
 
 #ifdef __EMSCRIPTEN__

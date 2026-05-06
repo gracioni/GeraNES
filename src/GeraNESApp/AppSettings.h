@@ -102,10 +102,18 @@ public:
 
     struct Video {
 
+        struct ShaderPass {
+            std::string label = "";
+            bool enabled = true;
+            std::map<std::string, float> parameters;
+
+            NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(ShaderPass, label, enabled, parameters)
+        };
+
         int vsyncMode = 1;
         int filterMode = 0;
         std::string shaderName = "";
-        std::vector<std::string> shaderStack;
+        std::vector<ShaderPass> shaderStack;
         int scaleMode = 0;
         int pixelPerfectScale = 3;
         bool horizontalStretch = false;
@@ -134,10 +142,24 @@ public:
             const Video defaults;
             value.vsyncMode = j.value("vsyncMode", defaults.vsyncMode);
             value.filterMode = j.value("filterMode", defaults.filterMode);
-            value.shaderName = j.value("shaderName", defaults.shaderName);
-            value.shaderStack = j.value("shaderStack", defaults.shaderStack);
-            if(value.shaderStack.empty() && !value.shaderName.empty()) {
-                value.shaderStack.push_back(value.shaderName);
+            value.shaderName = defaults.shaderName;
+            value.shaderStack.clear();
+            if(j.contains("shaderStack") && j["shaderStack"].is_array()) {
+                bool validShaderStack = true;
+                for(const auto& item : j["shaderStack"]) {
+                    if(item.is_object()) {
+                        value.shaderStack.push_back(item.get<ShaderPass>());
+                    } else {
+                        validShaderStack = false;
+                        break;
+                    }
+                }
+                if(validShaderStack && !value.shaderStack.empty()) {
+                    value.shaderName = value.shaderStack.front().label;
+                } else {
+                    value.shaderStack.clear();
+                    value.shaderName.clear();
+                }
             }
             value.horizontalStretch = j.value("horizontalStretch", defaults.horizontalStretch);
             value.scaleMode = j.value("scaleMode", value.horizontalStretch ? 1 : defaults.scaleMode);

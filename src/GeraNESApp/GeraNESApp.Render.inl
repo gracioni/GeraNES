@@ -100,6 +100,9 @@ inline void GeraNESApp::paintGL()
                         pass.program.setUniformValue("OutputSize", glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH)));
                         pass.program.setUniformValue("TextureSize", sourceSize);
                         pass.program.setUniformValue("InputSize", sourceSize);
+                        for(const ShaderPass::Parameter& parameter : pass.parameters) {
+                            pass.program.setUniformValue(parameter.name.c_str(), parameter.value);
+                        }
 
                         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 

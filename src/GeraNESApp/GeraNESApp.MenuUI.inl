@@ -176,6 +176,7 @@ inline void GeraNESApp::menuBar() {
                     if(ImGui::MenuItem("Use default", nullptr, usingDefaultShader)) {
                         AppSettings::instance().data.video.shaderStack.clear();
                         AppSettings::instance().data.video.shaderName.clear();
+                        m_selectedShaderStackIndex = -1;
                         updateShaderConfig();
                     }
 
@@ -187,7 +188,8 @@ inline void GeraNESApp::menuBar() {
                         ImGui::Separator();
                         for(size_t i = 0; i < AppSettings::instance().data.video.shaderStack.size(); ++i) {
                             const std::string label =
-                                std::to_string(i + 1) + ". " + AppSettings::instance().data.video.shaderStack[i];
+                                std::to_string(i + 1) + ". " + AppSettings::instance().data.video.shaderStack[i].label +
+                                (AppSettings::instance().data.video.shaderStack[i].enabled ? "" : " (off)");
                             ImGui::TextUnformatted(label.c_str());
                         }
                     }
@@ -1095,7 +1097,10 @@ inline void GeraNESApp::drawShaderStackWindow()
     const bool canAdd = !shaderList.empty() && m_selectedAvailableShaderIndex >= 0 &&
         m_selectedAvailableShaderIndex < static_cast<int>(shaderList.size());
     if(ImGui::Button("Add Pass") && canAdd) {
-        shaderStack.push_back(shaderList[static_cast<size_t>(m_selectedAvailableShaderIndex)].label);
+        AppSettings::Video::ShaderPass pass;
+        pass.label = shaderList[static_cast<size_t>(m_selectedAvailableShaderIndex)].label;
+        pass.enabled = true;
+        shaderStack.push_back(std::move(pass));
         m_selectedShaderStackIndex = static_cast<int>(shaderStack.size()) - 1;
         updateShaderConfig();
     }
@@ -1113,15 +1118,24 @@ inline void GeraNESApp::drawShaderStackWindow()
 
     ImGui::Separator();
 
-    if(ImGui::BeginChild("ShaderStackPasses", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 2.0f), true)) {
+    if(ImGui::BeginChild("ShaderStackPasses", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 8.0f), true)) {
         if(shaderStack.empty()) {
             ImGui::TextDisabled("Default shader only.");
         } else {
             for(size_t i = 0; i < shaderStack.size(); ++i) {
-                const std::string rowLabel = std::to_string(i + 1) + ". " + shaderStack[i];
-                if(ImGui::Selectable(rowLabel.c_str(), m_selectedShaderStackIndex == static_cast<int>(i))) {
+                auto& pass = shaderStack[i];
+                ImGui::PushID(static_cast<int>(i));
+                bool enabled = pass.enabled;
+                if(ImGui::Checkbox("##Enabled", &enabled)) {
+                    pass.enabled = enabled;
+                    updateShaderConfig();
+                }
+                ImGui::SameLine();
+                const std::string rowLabel = std::to_string(i + 1) + ". " + pass.label;
+                if(ImGui::Selectable(rowLabel.c_str(), m_selectedShaderStackIndex == static_cast<int>(i), ImGuiSelectableFlags_SpanAvailWidth)) {
                     m_selectedShaderStackIndex = static_cast<int>(i);
                 }
+                ImGui::PopID();
             }
         }
     }
@@ -1153,6 +1167,40 @@ inline void GeraNESApp::drawShaderStackWindow()
         updateShaderConfig();
     }
     if(!hasEntries) ImGui::EndDisabled();
+
+    if(activeIndex >= 0 && activeIndex < static_cast<int>(shaderStack.size())) {
+        auto& configuredPass = shaderStack[static_cast<size_t>(activeIndex)];
+        const ShaderItem* configuredItem = findShaderByLabel(configuredPass.label);
+        ImGui::Separator();
+        ImGui::Text("Parameters: %s", configuredPass.label.c_str());
+
+        if(configuredItem == nullptr) {
+            ImGui::TextDisabled("Shader file not found.");
+        } else {
+            std::ifstream shaderFile(configuredItem->path);
+            std::string shaderText((std::istreambuf_iterator<char>(shaderFile)), std::istreambuf_iterator<char>());
+            std::vector<ShaderPass::Parameter> parameters = parseShaderParameters(shaderText);
+            for(ShaderPass::Parameter& parameter : parameters) {
+                auto it = configuredPass.parameters.find(parameter.name);
+                if(it != configuredPass.parameters.end()) {
+                    parameter.value = std::clamp(it->second, parameter.minValue, parameter.maxValue);
+                }
+            }
+
+            if(parameters.empty()) {
+                ImGui::TextDisabled("This shader exposes no #pragma parameter entries.");
+            } else {
+                for(const ShaderPass::Parameter& parameter : parameters) {
+                    float value = parameter.value;
+                    const std::string sliderId = parameter.label + "##" + parameter.name;
+                    if(ImGui::SliderFloat(sliderId.c_str(), &value, parameter.minValue, parameter.maxValue, "%.3f")) {
+                        configuredPass.parameters[parameter.name] = value;
+                        updateShaderConfig();
+                    }
+                }
+            }
+        }
+    }
 
     ImGui::Separator();
     ImGui::TextDisabled("Passes run top to bottom. Remove every pass to go back to the default shader.");
