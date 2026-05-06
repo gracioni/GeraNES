@@ -19,17 +19,19 @@ void GeraNESApp::updateMVP()
 
 void GeraNESApp::onLog(const std::string& msg, Logger::Type type)
 {
+    const std::string safeMsg = msg.empty() ? "Unknown error." : msg;
+
     if(type == Logger::Type::USER) {
-        m_userToast.show(msg);
+        m_userToast.show(safeMsg);
         return;
     }
 
     std::ofstream file(LOG_FILE, std::ios_base::app);
-    file << msg << std::endl;
-    std::cout << msg << std::endl;
+    file << safeMsg << std::endl;
+    std::cout << safeMsg << std::endl;
 
     if(type == Logger::Type::ERROR) {
-        m_errorMessage = msg;
+        m_errorMessage = safeMsg;
         m_showErrorWindow = true;
 
         if(!m_emu.valid()) {
@@ -46,7 +48,7 @@ void GeraNESApp::onLog(const std::string& msg, Logger::Type type)
         case Logger::Type::USER: break;
     }
 
-    m_log += msgType + msg + "\n";
+    m_log += msgType + safeMsg + "\n";
 
     const size_t needed = m_log.size() + 1;
     if(m_logBuf.capacity() < needed) {
@@ -1042,12 +1044,13 @@ GeraNESApp::GeraNESApp()
 void GeraNESApp::loadShaderList()
 {
     const char* SHADER_DIR = "shaders/";
+    shaderList.clear();
 
     const std::string dir = fs::path(SHADER_DIR).parent_path().string();
     if(!fs::exists(dir)) fs::create_directory(dir);
 
     for(const auto& entry : fs::directory_iterator(dir)) {
-        if(fs::is_regular_file(entry.path())) {
+        if(fs::is_regular_file(entry.path()) && entry.path().extension() == ".glsl") {
             ShaderItem item = {entry.path().filename().string(), entry.path().string()};
             shaderList.push_back(item);
         }
@@ -1150,6 +1153,14 @@ void GeraNESApp::loadPaletteList()
     std::sort(m_paletteList.begin() + 1, m_paletteList.end(), [](const PaletteItem& a, const PaletteItem& b) {
         return a.name < b.name;
     });
+}
+
+const GeraNESApp::ShaderItem* GeraNESApp::findShaderByLabel(const std::string& label) const
+{
+    auto it = std::find_if(shaderList.begin(), shaderList.end(), [&label](const ShaderItem& item) {
+        return item.label == label;
+    });
+    return it != shaderList.end() ? &(*it) : nullptr;
 }
 
 void GeraNESApp::applyPalette(const std::array<uint32_t, 64>& colors, const std::string& name)
@@ -1348,6 +1359,11 @@ GeraNESApp::~GeraNESApp()
 {
     m_emu.shutdown();
     m_netplayRuntime.shutdownForUnload();
+    destroyPostProcessTargets();
+    if(m_texture != 0) {
+        glDeleteTextures(1, &m_texture);
+        m_texture = 0;
+    }
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
@@ -1460,25 +1476,40 @@ void GeraNESApp::updateFilterConfig()
 
 void GeraNESApp::updateShaderConfig()
 {
-    bool loaded = false;
-    const std::string& shaderName = AppSettings::instance().data.video.shaderName;
+    auto& video = AppSettings::instance().data.video;
 
-    if(shaderName != "") {
-        for(const ShaderItem& item : shaderList) {
-            if(item.label == shaderName) {
-                loaded = loadShader(item.path);
-                break;
-            }
+    std::vector<ShaderPass> loadedPasses;
+    loadedPasses.reserve(video.shaderStack.size());
+
+    for(const std::string& shaderName : video.shaderStack) {
+        const ShaderItem* item = findShaderByLabel(shaderName);
+        if(item == nullptr) {
+            Logger::instance().log("Shader not found: " + shaderName + ". Skipping pass.", Logger::Type::WARNING);
+            continue;
+        }
+
+        ShaderPass pass;
+        pass.label = item->label;
+        pass.path = item->path;
+        if(compileShaderProgram(pass.program, pass.path)) {
+            loadedPasses.push_back(std::move(pass));
+        } else {
+            Logger::instance().log("Failed to load shader " + shaderName + ". Skipping pass.", Logger::Type::WARNING);
         }
     }
 
-    if(!loaded) {
-        if(shaderName != "") {
-            Logger::instance().log("Failed to load shader " + shaderName + ". Using default shader.", Logger::Type::WARNING);
-            AppSettings::instance().data.video.shaderName = "";
-        }
-        loadShader("");
+    if(loadedPasses.empty()) {
+        ShaderPass pass;
+        pass.label = "default";
+        if(!compileShaderProgram(pass.program, "")) return;
+        loadedPasses.push_back(std::move(pass));
+        video.shaderStack.clear();
+        video.shaderName.clear();
+    } else {
+        video.shaderName = loadedPasses.front().label;
     }
+
+    m_shaderPasses = std::move(loadedPasses);
 }
 
 void GeraNESApp::pollAndPrepareInput()
@@ -1897,8 +1928,37 @@ bool GeraNESApp::initGL()
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(2 * sizeof(GLfloat)));
 
+    glDisableVertexAttribArray(2);
+    glVertexAttrib4f(2, 1.0f, 1.0f, 1.0f, 1.0f);
+
     m_vbo.release();
     m_vao.release();
+
+    if(!m_postProcessVbo.isCreated()) {
+        m_postProcessVbo.create();
+    }
+    if(!m_postProcessVao.isCreated()) {
+        m_postProcessVao.create();
+    }
+
+    const std::array<GLfloat, 16> fullscreenQuad = {
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 0.0f,
+        -1.0f,  1.0f, 0.0f, 1.0f,
+         1.0f,  1.0f, 1.0f, 1.0f
+    };
+    m_postProcessVbo.allocate(fullscreenQuad.data(), static_cast<int>(sizeof(fullscreenQuad)));
+
+    m_postProcessVao.bind();
+    m_postProcessVbo.bind();
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, 0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(2 * sizeof(GLfloat)));
+    glDisableVertexAttribArray(2);
+    glVertexAttrib4f(2, 1.0f, 1.0f, 1.0f, 1.0f);
+    m_postProcessVbo.release();
+    m_postProcessVao.release();
 
     glGenTextures(1, &m_texture);
     glBindTexture(GL_TEXTURE_2D, m_texture);
@@ -1918,6 +1978,14 @@ bool GeraNESApp::initGL()
 
 bool GeraNESApp::loadShader(const std::string& path)
 {
+    if(m_shaderPasses.empty()) {
+        m_shaderPasses.emplace_back();
+    }
+    return compileShaderProgram(m_shaderPasses.front().program, path);
+}
+
+bool GeraNESApp::compileShaderProgram(GLShaderProgram& program, const std::string& path)
+{
     auto fs2 = cmrc::resources::get_filesystem();
     auto shaderFile = fs2.open("resources/default.glsl");
     std::string shaderText(shaderFile.begin(), shaderFile.end());
@@ -1926,6 +1994,23 @@ bool GeraNESApp::loadShader(const std::string& path)
         std::ifstream file(path);
         shaderText = std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     }
+
+    const std::string shaderLabel = path.empty() ? "default shader" : path;
+    auto shaderErrorText = [&shaderLabel](const char* stage, const std::string& driverLog) {
+        if(driverLog.empty()) {
+            return std::string("Failed to compile ") + stage + " for " + shaderLabel +
+                ". The graphics driver returned an empty error log.";
+        }
+        return std::string("Failed to compile ") + stage + " for " + shaderLabel + ":\n" + driverLog;
+    };
+
+    auto shaderLinkErrorText = [&shaderLabel](const std::string& driverLog) {
+        if(driverLog.empty()) {
+            return std::string("Failed to link shader program for ") + shaderLabel +
+                ". The graphics driver returned an empty error log.";
+        }
+        return std::string("Failed to link shader program for ") + shaderLabel + ":\n" + driverLog;
+    };
 
     std::string vertexText;
     std::string fragmentText;
@@ -1940,30 +2025,84 @@ bool GeraNESApp::loadShader(const std::string& path)
         fragmentText = "#define FRAGMENT\n" + shaderText;
     }
 
-    m_shaderProgram.destroy();
-    m_shaderProgram.create();
+    program.destroy();
+    program.create();
 
-    if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())) {
-        Logger::instance().log(std::string("vertex shader errors:\n") + m_shaderProgram.lastError(), Logger::Type::ERROR);
-        m_shaderProgram.destroy();
+    if(!program.addShaderFromSourceCode(GLShaderProgram::Vertex, vertexText.c_str())) {
+        Logger::instance().log(shaderErrorText("vertex shader", program.lastError()), Logger::Type::ERROR);
+        program.destroy();
         return false;
     }
 
-    if(!m_shaderProgram.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())) {
-        Logger::instance().log(std::string("fragment shader errors:\n") + m_shaderProgram.lastError(), Logger::Type::ERROR);
-        m_shaderProgram.destroy();
+    if(!program.addShaderFromSourceCode(GLShaderProgram::Fragment, fragmentText.c_str())) {
+        Logger::instance().log(shaderErrorText("fragment shader", program.lastError()), Logger::Type::ERROR);
+        program.destroy();
         return false;
     }
 
-    m_shaderProgram.bindAttributeLocation("VertexCoord", 0);
-    m_shaderProgram.bindAttributeLocation("TexCoord", 1);
+    program.bindAttributeLocation("VertexCoord", 0);
+    program.bindAttributeLocation("TexCoord", 1);
+    program.bindAttributeLocation("COLOR", 2);
 
-    if(!m_shaderProgram.link()) {
-        Logger::instance().log(std::string("shader link error: ") + m_shaderProgram.lastError(), Logger::Type::ERROR);
-        m_shaderProgram.destroy();
+    if(!program.link()) {
+        Logger::instance().log(shaderLinkErrorText(program.lastError()), Logger::Type::ERROR);
+        program.destroy();
         return false;
     }
 
+    return true;
+}
+
+void GeraNESApp::destroyPostProcessTargets()
+{
+    for(PostProcessTarget& target : m_postProcessTargets) {
+        if(target.fbo != 0) {
+            glDeleteFramebuffers(1, &target.fbo);
+            target.fbo = 0;
+        }
+        if(target.texture != 0) {
+            glDeleteTextures(1, &target.texture);
+            target.texture = 0;
+        }
+        target.width = 0;
+        target.height = 0;
+    }
+}
+
+bool GeraNESApp::ensurePostProcessTargets(int width, int height)
+{
+    if(width <= 0 || height <= 0) return false;
+
+    for(PostProcessTarget& target : m_postProcessTargets) {
+        if(target.fbo != 0 && target.texture != 0 && target.width == width && target.height == height) {
+            continue;
+        }
+
+        if(target.fbo == 0) glGenFramebuffers(1, &target.fbo);
+        if(target.texture == 0) glGenTextures(1, &target.texture);
+
+        glBindTexture(GL_TEXTURE_2D, target.texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.texture, 0);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            Logger::instance().log("Failed to create post-process framebuffer.", Logger::Type::ERROR);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            return false;
+        }
+
+        target.width = width;
+        target.height = height;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
     return true;
 }
 

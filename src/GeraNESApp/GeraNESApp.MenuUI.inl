@@ -172,20 +172,26 @@ inline void GeraNESApp::menuBar() {
                 }
 
                 if (ImGui::BeginMenu("Shader")) {
-
-                    if(ImGui::MenuItem("default", nullptr, AppSettings::instance().data.video.shaderName == "")) {
-                        AppSettings::instance().data.video.shaderName = "";
+                    const bool usingDefaultShader = AppSettings::instance().data.video.shaderStack.empty();
+                    if(ImGui::MenuItem("Use default", nullptr, usingDefaultShader)) {
+                        AppSettings::instance().data.video.shaderStack.clear();
+                        AppSettings::instance().data.video.shaderName.clear();
                         updateShaderConfig();
                     }
 
-                    if(shaderList.size() > 0) ImGui::Separator();
+                    if(ImGui::MenuItem("Stack editor...")) {
+                        m_showShaderStackWindow = true;
+                    }
 
-                    for(const ShaderItem& item: shaderList) {
-                        if(ImGui::MenuItem(item.label.c_str(), nullptr, item.label == AppSettings::instance().data.video.shaderName)) {
-                            AppSettings::instance().data.video.shaderName = item.label;
-                            updateShaderConfig();
+                    if(!AppSettings::instance().data.video.shaderStack.empty()) {
+                        ImGui::Separator();
+                        for(size_t i = 0; i < AppSettings::instance().data.video.shaderStack.size(); ++i) {
+                            const std::string label =
+                                std::to_string(i + 1) + ". " + AppSettings::instance().data.video.shaderStack[i];
+                            ImGui::TextUnformatted(label.c_str());
                         }
                     }
+
                     ImGui::EndMenu();
                 }
 
@@ -1038,6 +1044,118 @@ inline void GeraNESApp::drawPaletteWindow()
         }
         ImGui::EndChild();
     }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
+
+inline void GeraNESApp::drawShaderStackWindow()
+{
+    ImGui::SetNextWindowSize(ImVec2(700.0f, 440.0f), ImGuiCond_Appearing);
+
+    if(!ImGui::Begin("Shader Stack", &m_showShaderStackWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    auto& shaderStack = AppSettings::instance().data.video.shaderStack;
+    if(shaderList.empty()) {
+        ImGui::TextDisabled("No .glsl shader files found in shaders/.");
+        ImGui::TextDisabled("Drop .glsl files there and reopen this window.");
+        ImGui::End();
+        return;
+    }
+
+    m_selectedAvailableShaderIndex = std::clamp(m_selectedAvailableShaderIndex, 0, static_cast<int>(shaderList.size()) - 1);
+    if(shaderStack.empty()) {
+        m_selectedShaderStackIndex = -1;
+    } else {
+        if(m_selectedShaderStackIndex < 0 || m_selectedShaderStackIndex >= static_cast<int>(shaderStack.size())) {
+            m_selectedShaderStackIndex = static_cast<int>(shaderStack.size()) - 1;
+        }
+    }
+
+    ImGui::BeginChild("AvailableShaders", ImVec2(280.0f, 0.0f), true);
+    ImGui::TextUnformatted("Available");
+    ImGui::Separator();
+    for(size_t i = 0; i < shaderList.size(); ++i) {
+        const bool selected = m_selectedAvailableShaderIndex == static_cast<int>(i);
+        if(ImGui::Selectable(shaderList[i].label.c_str(), selected)) {
+            m_selectedAvailableShaderIndex = static_cast<int>(i);
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("ShaderStackEditor", ImVec2(0.0f, 0.0f), true);
+    ImGui::TextUnformatted("Passes");
+    ImGui::Separator();
+
+    const bool canAdd = !shaderList.empty() && m_selectedAvailableShaderIndex >= 0 &&
+        m_selectedAvailableShaderIndex < static_cast<int>(shaderList.size());
+    if(ImGui::Button("Add Pass") && canAdd) {
+        shaderStack.push_back(shaderList[static_cast<size_t>(m_selectedAvailableShaderIndex)].label);
+        m_selectedShaderStackIndex = static_cast<int>(shaderStack.size()) - 1;
+        updateShaderConfig();
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Clear Stack")) {
+        shaderStack.clear();
+        m_selectedShaderStackIndex = -1;
+        updateShaderConfig();
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Reload")) {
+        loadShaderList();
+        updateShaderConfig();
+    }
+
+    ImGui::Separator();
+
+    if(ImGui::BeginChild("ShaderStackPasses", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 2.0f), true)) {
+        if(shaderStack.empty()) {
+            ImGui::TextDisabled("Default shader only.");
+        } else {
+            for(size_t i = 0; i < shaderStack.size(); ++i) {
+                const std::string rowLabel = std::to_string(i + 1) + ". " + shaderStack[i];
+                if(ImGui::Selectable(rowLabel.c_str(), m_selectedShaderStackIndex == static_cast<int>(i))) {
+                    m_selectedShaderStackIndex = static_cast<int>(i);
+                }
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    const bool hasEntries = !shaderStack.empty();
+    const int activeIndex = hasEntries
+        ? std::clamp(m_selectedShaderStackIndex, 0, static_cast<int>(shaderStack.size()) - 1)
+        : -1;
+
+    if(!hasEntries) ImGui::BeginDisabled();
+    if(ImGui::Button("Up") && activeIndex > 0) {
+        std::swap(shaderStack[static_cast<size_t>(m_selectedShaderStackIndex)], shaderStack[static_cast<size_t>(m_selectedShaderStackIndex - 1)]);
+        --m_selectedShaderStackIndex;
+        updateShaderConfig();
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Down") && activeIndex >= 0 && activeIndex + 1 < static_cast<int>(shaderStack.size())) {
+        std::swap(shaderStack[static_cast<size_t>(m_selectedShaderStackIndex)], shaderStack[static_cast<size_t>(m_selectedShaderStackIndex + 1)]);
+        ++m_selectedShaderStackIndex;
+        updateShaderConfig();
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Remove") && activeIndex >= 0) {
+        shaderStack.erase(shaderStack.begin() + activeIndex);
+        if(shaderStack.empty()) m_selectedShaderStackIndex = -1;
+        else if(activeIndex >= static_cast<int>(shaderStack.size())) m_selectedShaderStackIndex = static_cast<int>(shaderStack.size()) - 1;
+        else m_selectedShaderStackIndex = activeIndex;
+        updateShaderConfig();
+    }
+    if(!hasEntries) ImGui::EndDisabled();
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Passes run top to bottom. Remove every pass to go back to the default shader.");
     ImGui::EndChild();
 
     ImGui::End();

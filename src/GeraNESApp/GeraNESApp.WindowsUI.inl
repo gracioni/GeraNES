@@ -60,6 +60,10 @@ inline void GeraNESApp::showGui()
         drawPaletteWindow();
     }
 
+    if(m_showShaderStackWindow) {
+        drawShaderStackWindow();
+    }
+
     if(m_showCpuDebuggerWindow) {
         drawCpuDebuggerWindow();
     }

@@ -104,7 +104,8 @@ public:
 
         int vsyncMode = 1;
         int filterMode = 0;
-        std::string shaderName = "";  
+        std::string shaderName = "";
+        std::vector<std::string> shaderStack;
         int scaleMode = 0;
         int pixelPerfectScale = 3;
         bool horizontalStretch = false;
@@ -118,6 +119,7 @@ public:
                 {"vsyncMode", value.vsyncMode},
                 {"filterMode", value.filterMode},
                 {"shaderName", value.shaderName},
+                {"shaderStack", value.shaderStack},
                 {"scaleMode", value.scaleMode},
                 {"pixelPerfectScale", value.pixelPerfectScale},
                 {"horizontalStretch", value.horizontalStretch},
@@ -133,6 +135,10 @@ public:
             value.vsyncMode = j.value("vsyncMode", defaults.vsyncMode);
             value.filterMode = j.value("filterMode", defaults.filterMode);
             value.shaderName = j.value("shaderName", defaults.shaderName);
+            value.shaderStack = j.value("shaderStack", defaults.shaderStack);
+            if(value.shaderStack.empty() && !value.shaderName.empty()) {
+                value.shaderStack.push_back(value.shaderName);
+            }
             value.horizontalStretch = j.value("horizontalStretch", defaults.horizontalStretch);
             value.scaleMode = j.value("scaleMode", value.horizontalStretch ? 1 : defaults.scaleMode);
             value.pixelPerfectScale = j.value("pixelPerfectScale", defaults.pixelPerfectScale);

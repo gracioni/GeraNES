@@ -27,6 +27,11 @@ public:
 
     void log(std::string_view s, Type type = Type::INFO)
     {
+        if(s.empty()) {
+            signalLog(std::string(), type);
+            return;
+        }
+
         size_t start = 0;
 
         while (true)
@@ -35,11 +40,17 @@ public:
 
             if (end == std::string::npos)
             {
-                signalLog(std::string(s.substr(start)), type);
+                std::string_view part = s.substr(start);
+                if(!part.empty()) {
+                    signalLog(std::string(part), type);
+                }
                 break;
             }
 
-            signalLog(std::string(s.substr(start, end - start)), type);
+            std::string_view part = s.substr(start, end - start);
+            if(!part.empty()) {
+                signalLog(std::string(part), type);
+            }
             start = end + 1;
         }
     }

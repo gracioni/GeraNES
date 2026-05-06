@@ -32,6 +32,37 @@ public:
 
     enum ShaderType {Vertex, Fragment};
 
+    GLShaderProgram() = default;
+    GLShaderProgram(const GLShaderProgram&) = delete;
+    GLShaderProgram& operator=(const GLShaderProgram&) = delete;
+
+    GLShaderProgram(GLShaderProgram&& other) noexcept
+        : m_programs(std::move(other.m_programs)),
+          m_shaderProgram(other.m_shaderProgram),
+          m_linked(other.m_linked),
+          m_lastError(std::move(other.m_lastError)),
+          m_uniformLocations(std::move(other.m_uniformLocations))
+    {
+        other.m_shaderProgram = 0;
+        other.m_linked = false;
+    }
+
+    GLShaderProgram& operator=(GLShaderProgram&& other) noexcept
+    {
+        if(this != &other) {
+            destroy();
+            m_programs = std::move(other.m_programs);
+            m_shaderProgram = other.m_shaderProgram;
+            m_linked = other.m_linked;
+            m_lastError = std::move(other.m_lastError);
+            m_uniformLocations = std::move(other.m_uniformLocations);
+
+            other.m_shaderProgram = 0;
+            other.m_linked = false;
+        }
+        return *this;
+    }
+
     void create() {        
 
         if(m_shaderProgram == 0)

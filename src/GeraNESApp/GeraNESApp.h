@@ -97,13 +97,30 @@ private:
 
     GLVertexArrayObject m_vao;
     GLVertexBufferObject m_vbo;
+    GLVertexArrayObject m_postProcessVao;
+    GLVertexBufferObject m_postProcessVbo;
 
-    GLShaderProgram m_shaderProgram;
+    struct ShaderPass {
+        std::string label;
+        std::string path;
+        GLShaderProgram program;
+    };
+
+    struct PostProcessTarget {
+        GLuint fbo = 0;
+        GLuint texture = 0;
+        int width = 0;
+        int height = 0;
+    };
+
+    std::vector<ShaderPass> m_shaderPasses;
+    std::array<PostProcessTarget, 2> m_postProcessTargets = {};
 
     bool m_updateObjectsFlag = true;
 
     GLuint m_texture = 0;
     std::vector<uint32_t> m_framebufferUploadCopy;
+    std::vector<uint32_t> m_textureUploadBuffer;
 
     bool m_fullScreen = false;
     int m_fullScreenMode = 0;
@@ -148,6 +165,7 @@ private:
     bool m_showRomDatabaseWindow = false;
     bool m_showNetplayWindow = false;
     bool m_showPaletteWindow = false;
+    bool m_showShaderStackWindow = false;
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
     bool m_showArkanoidNesConfigWindow = false;
@@ -274,6 +292,8 @@ private:
     };
 
     std::vector<ShaderItem> shaderList;
+    int m_selectedAvailableShaderIndex = 0;
+    int m_selectedShaderStackIndex = -1;
     std::vector<PaletteItem> m_paletteList;
     std::array<uint32_t, 64> m_editPalette = {};
     std::string m_selectedPaletteName = "";
@@ -311,6 +331,11 @@ private:
     void saveRomDatabaseEditor();
     void removeRomDatabaseEditor();
     void loadPaletteList();
+    const ShaderItem* findShaderByLabel(const std::string& label) const;
+    bool compileShaderProgram(GLShaderProgram& program, const std::string& path);
+    void destroyPostProcessTargets();
+    bool ensurePostProcessTargets(int width, int height);
+    void drawShaderStackWindow();
     void applyPalette(const std::array<uint32_t, 64>& colors, const std::string& name);
     void saveCurrentPalette();
     void createNewPalette();

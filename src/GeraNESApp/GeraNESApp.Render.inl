@@ -5,9 +5,26 @@ inline void GeraNESApp::render()
     m_emu.copyFramebuffer(m_framebufferUploadCopy);
     if(m_framebufferUploadCopy.size() < PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) return;
 
+    const int textureWidth = 256;
+    const int textureHeight = 256;
+    const int activeTop = m_clipHeightValue;
+    const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
+
+    if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight)) {
+        m_textureUploadBuffer.assign(static_cast<size_t>(textureWidth * textureHeight), 0u);
+    } else {
+        std::fill(m_textureUploadBuffer.begin(), m_textureUploadBuffer.end(), 0u);
+    }
+
+    for(int y = activeTop; y < activeBottom; ++y) {
+        const uint32_t* srcRow = m_framebufferUploadCopy.data() + static_cast<size_t>(y) * textureWidth;
+        uint32_t* dstRow = m_textureUploadBuffer.data() + static_cast<size_t>(y) * textureWidth;
+        std::memcpy(dstRow, srcRow, static_cast<size_t>(textureWidth) * sizeof(uint32_t));
+    }
+
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_texture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, m_clipHeightValue, 256, 240 - 2 * m_clipHeightValue, GL_RGBA, GL_UNSIGNED_BYTE, m_framebufferUploadCopy.data() + m_clipHeightValue * 256);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, textureWidth, textureHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_textureUploadBuffer.data());
 }
 
 inline void GeraNESApp::paintGL()
@@ -37,8 +54,6 @@ inline void GeraNESApp::paintGL()
         updateBuffers();
     }
 
-    m_vao.bind();
-
     if(
 #ifdef ENABLE_NSF_PLAYER
        !m_emu.isNsfLoaded()
@@ -46,30 +61,64 @@ inline void GeraNESApp::paintGL()
        true
 #endif
     ) {
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_texture);
+        int drawableW = 0;
+        int drawableH = 0;
+        SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
 
-        if(m_shaderProgram.bind()) {
-            int drawableW = 0;
-            int drawableH = 0;
-            SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
+        if(!m_shaderPasses.empty() && drawableW > 0 && drawableH > 0) {
+            const bool needsOffscreenTargets = m_shaderPasses.size() > 1;
+            if(!needsOffscreenTargets || ensurePostProcessTargets(drawableW, drawableH)) {
+                const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+                if(cullEnabled) glDisable(GL_CULL_FACE);
 
-            m_shaderProgram.setUniformValue("MVPMatrix", m_mvp);
-            m_shaderProgram.setUniformValue("Texture", 0);
+                GLuint sourceTexture = m_texture;
+                glm::vec2 sourceSize(256.0f, 256.0f);
 
-            m_shaderProgram.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
-            m_shaderProgram.setUniformValue("FrameCount", m_emu.frameCount());
-            m_shaderProgram.setUniformValue("OutputSize", glm::vec2((float)drawableW, (float)drawableH));
-            m_shaderProgram.setUniformValue("TextureSize", glm::vec2(256, 256));
-            m_shaderProgram.setUniformValue("InputSize", glm::vec2(256, 256));
+                for(size_t i = 0; i < m_shaderPasses.size(); ++i) {
+                    const bool finalPass = i + 1 == m_shaderPasses.size();
+                    if(finalPass) m_vao.bind();
+                    else m_postProcessVao.bind();
 
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                    if(!finalPass) {
+                        glBindFramebuffer(GL_FRAMEBUFFER, m_postProcessTargets[i % m_postProcessTargets.size()].fbo);
+                    } else {
+                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    }
 
-            m_shaderProgram.release();
+                    glViewport(0, 0, drawableW, drawableH);
+                    glClear(GL_COLOR_BUFFER_BIT);
+
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, sourceTexture);
+
+                    ShaderPass& pass = m_shaderPasses[i];
+                    if(pass.program.bind()) {
+                        pass.program.setUniformValue("MVPMatrix", finalPass ? m_mvp : glm::mat4(1.0f));
+                        pass.program.setUniformValue("Texture", 0);
+                        pass.program.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
+                        pass.program.setUniformValue("FrameCount", m_emu.frameCount());
+                        pass.program.setUniformValue("OutputSize", glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH)));
+                        pass.program.setUniformValue("TextureSize", sourceSize);
+                        pass.program.setUniformValue("InputSize", sourceSize);
+
+                        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+                        pass.program.release();
+                    }
+
+                    if(finalPass) m_vao.release();
+                    else m_postProcessVao.release();
+
+                    if(!finalPass) {
+                        sourceTexture = m_postProcessTargets[i % m_postProcessTargets.size()].texture;
+                        sourceSize = glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH));
+                    }
+                }
+
+                if(cullEnabled) glEnable(GL_CULL_FACE);
+            }
         }
     }
-
-    m_vao.release();
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
