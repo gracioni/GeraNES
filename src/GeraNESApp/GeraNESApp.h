@@ -51,6 +51,7 @@ namespace fs = std::filesystem;
 #include "GeraNESNetplay/GeraNESNetplayMenuHelpers.h"
 
 #include "GeraNES/defines.h"
+#include "GeraNES/CPU2A03Debug.h"
 
 #ifdef __EMSCRIPTEN__
     #include "GeraNESApp/OpenALAudioOutput.h"
@@ -147,6 +148,7 @@ private:
     bool m_showRomDatabaseWindow = false;
     bool m_showNetplayWindow = false;
     bool m_showPaletteWindow = false;
+    bool m_showCpuDebuggerWindow = false;
     bool m_showArkanoidNesConfigWindow = false;
     bool m_showArkanoidFamicomConfigWindow = false;
     bool m_showSnesMouseConfigWindow = false;
@@ -312,6 +314,7 @@ private:
     void createNewPalette();
     void deleteCurrentPalette();
     void drawPaletteWindow();
+    void drawCpuDebuggerWindow();
 
     void updateMVP();
     void onLog(const std::string& msg, Logger::Type type);

@@ -367,6 +367,20 @@ private:
 
 public:
 
+    struct DebugState
+    {
+        uint16_t pc = 0;
+        uint8_t sp = 0;
+        uint8_t a = 0;
+        uint8_t x = 0;
+        uint8_t y = 0;
+        uint8_t status = 0;
+        unsigned int cycleCounter = 0;
+        uint8_t opcode = 0;
+        uint16_t addr = 0;
+        int currentInstructionCycle = 0;
+    };
+
     SigSlot::Signal<const std::string&> signalError;
 
     CPU2A03(Ibus& bus, Console& console) : m_bus(bus), m_console(console), m_dma(bus, console)   {
@@ -1443,6 +1457,22 @@ public:
 
     unsigned int cycleCounter() const {
         return m_cyclesCounter;
+    }
+
+    DebugState debugState() const
+    {
+        return DebugState{
+            m_pc,
+            m_sp,
+            m_a,
+            m_x,
+            m_y,
+            m_status,
+            m_cyclesCounter,
+            m_opcode,
+            m_addr,
+            m_currentInstructionCycle
+        };
     }
 
 };

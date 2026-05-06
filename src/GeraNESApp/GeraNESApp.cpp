@@ -806,6 +806,7 @@ void GeraNESApp::syncSettings()
     m_pixelPerfectScale = std::clamp(cfg.video.pixelPerfectScale, 1, 16);
     m_fullScreen = cfg.video.fullScreen;
     m_fullScreenMode = std::clamp(cfg.video.fullScreenMode, 0, 1);
+    m_showCpuDebuggerWindow = cfg.debug.showCpuDebugger;
 }
 
 void GeraNESApp::createShortcuts()
@@ -863,6 +864,11 @@ void GeraNESApp::createShortcuts()
 
     m_shortcuts.add(ShortcutManager::Data{"pause", "Pause", "Alt+P", [this]() {
         togglePauseAction();
+    }});
+
+    m_shortcuts.add(ShortcutManager::Data{"cpuDebugger", "CPU Debugger", "Alt+D", [this]() {
+        m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
+        AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
     }});
 }
 

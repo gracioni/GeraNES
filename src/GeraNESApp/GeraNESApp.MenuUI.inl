@@ -827,6 +827,15 @@ inline void GeraNESApp::menuBar() {
 
         if (ImGui::BeginMenu("Tools"))
         {
+            auto debugShortcut = m_shortcuts.get("cpuDebugger");
+            const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
+            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow)) {
+                m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
+                AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
+            }
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Log"))
             {
                 m_showLogWindow = true;

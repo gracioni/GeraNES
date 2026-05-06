@@ -236,8 +236,10 @@ public:
     struct Debug {
 
         bool showFps = false;
+        bool cpuDebuggerEnabled = false;
+        bool showCpuDebugger = false;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps, cpuDebuggerEnabled, showCpuDebugger)
     };
 
     struct Netplay {

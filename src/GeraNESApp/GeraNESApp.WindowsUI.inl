@@ -60,6 +60,10 @@ inline void GeraNESApp::showGui()
         drawPaletteWindow();
     }
 
+    if(m_showCpuDebuggerWindow) {
+        drawCpuDebuggerWindow();
+    }
+
     if(m_showAboutWindow) {
         SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -561,6 +565,145 @@ inline void GeraNESApp::drawNsfPlayerVisualizer()
     );
 }
 #endif
+
+inline void GeraNESApp::drawCpuDebuggerWindow()
+{
+    SetNextWindowSizeClamped(ImVec2(860.0f, 620.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if(!ImGui::Begin("CPU Debugger", &m_showCpuDebuggerWindow)) {
+        AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
+        ImGui::End();
+        return;
+    }
+
+    AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
+
+    const bool hasRomLoaded = m_emu.valid();
+    const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
+    const bool debugBlockedByNetplay =
+        netplaySnapshot.active ||
+        netplaySnapshot.hosting ||
+        netplaySnapshot.connected ||
+        netplaySnapshot.reconnecting;
+
+    bool debugEnabled = AppSettings::instance().data.debug.cpuDebuggerEnabled;
+    ImGui::BeginDisabled(!hasRomLoaded || debugBlockedByNetplay);
+    if(ImGui::Checkbox("Enable debugger", &debugEnabled)) {
+        AppSettings::instance().data.debug.cpuDebuggerEnabled = debugEnabled;
+        if(debugEnabled && !m_emu.paused()) {
+            m_emu.togglePaused();
+        }
+    }
+    ImGui::EndDisabled();
+
+    if(!hasRomLoaded) {
+        ImGui::TextDisabled("Load a ROM to inspect CPU state.");
+        ImGui::End();
+        return;
+    }
+
+    if(debugBlockedByNetplay) {
+        ImGui::TextDisabled("CPU debugging is disabled while netplay is active.");
+        ImGui::End();
+        return;
+    }
+
+    if(!debugEnabled) {
+        ImGui::TextDisabled("Enable the debugger to pause, step, and inspect CPU state.");
+        ImGui::End();
+        return;
+    }
+
+    const bool paused = m_emu.paused();
+    if(paused) {
+        if(ImGui::Button("Resume")) {
+            m_emu.togglePaused();
+        }
+    } else {
+        if(ImGui::Button("Pause")) {
+            m_emu.togglePaused();
+        }
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!paused);
+    if(ImGui::Button("Step")) {
+        m_emu.withExclusiveAccess([](auto& emu) {
+            emu.debugStepInstruction();
+        });
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    ImGui::TextDisabled(paused ? "Stopped" : "Running");
+
+    CPU2A03::DebugState cpuState;
+    GeraNESEmu::ExecutionPoint execPoint;
+    std::vector<CPU2A03DebugLine> disassembly;
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        cpuState = emu.getConsole().cpu().debugState();
+        execPoint = emu.executionPoint();
+        disassembly = CPU2A03Debug::disassembleAround(
+            cpuState.pc,
+            8,
+            24,
+            [&](uint16_t addr) {
+                return emu.debugPeekCpuMemory(addr);
+            }
+        );
+    });
+
+    ImGui::Separator();
+
+    if(ImGui::BeginTable("CpuRegisters", 4, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("PC  %04X", cpuState.pc);
+        ImGui::TableNextColumn(); ImGui::Text("A   %02X", cpuState.a);
+        ImGui::TableNextColumn(); ImGui::Text("X   %02X", cpuState.x);
+        ImGui::TableNextColumn(); ImGui::Text("Y   %02X", cpuState.y);
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("SP  %02X", cpuState.sp);
+        ImGui::TableNextColumn(); ImGui::Text("P   %02X", cpuState.status);
+        ImGui::TableNextColumn(); ImGui::Text("Flags  %s", CPU2A03Debug::formatStatus(cpuState.status).c_str());
+        ImGui::TableNextColumn(); ImGui::Text("Frame  %u", execPoint.frame);
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("CPU Cycles  %u", cpuState.cycleCounter);
+        ImGui::TableNextColumn(); ImGui::Text("Tick  %llu", static_cast<unsigned long long>(execPoint.emulationTick));
+        ImGui::TableNextColumn(); ImGui::Text("Pending Cycles  %u", execPoint.cpuCyclesRemaining);
+        ImGui::TableNextColumn(); ImGui::Text("Last Opcode  %02X", cpuState.opcode);
+        ImGui::EndTable();
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Disassembly");
+
+    if(ImGui::BeginChild("CpuDisassembly", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar)) {
+        for(const CPU2A03DebugLine& line : disassembly) {
+            if(line.isCurrent) {
+                ImGui::TextColored(
+                    ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
+                    "> %04X  %-8s  %s",
+                    line.address,
+                    line.bytes.c_str(),
+                    line.mnemonic.c_str()
+                );
+            } else {
+                ImGui::Text(
+                    "  %04X  %-8s  %s",
+                    line.address,
+                    line.bytes.c_str(),
+                    line.mnemonic.c_str()
+                );
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
 
 inline void GeraNESApp::showOverlay()
 {

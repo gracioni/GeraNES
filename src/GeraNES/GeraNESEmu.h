@@ -1490,6 +1490,35 @@ public:
         accessBus<AccessType::Write>(addr,data);
     }    
 
+    uint8_t debugPeekCpuMemory(uint16_t addr) const
+    {
+        switch(addr >> 12) {
+            case 0:
+            case 1:
+                return m_ram[addr & 0x7FF];
+
+            case 6:
+            case 7:
+                return const_cast<Cartridge&>(m_cartridge).readSaveRam(addr & 0x1FFF);
+
+            default:
+                break;
+        }
+
+        if(addr >= 0x8000) {
+            return const_cast<Cartridge&>(m_cartridge).readPrg(addr & 0x7FFF);
+        }
+
+        if(addr >= 0x4020) {
+            if(m_cartridge.isNsf()) {
+                return const_cast<Cartridge&>(m_cartridge).readMapperRegisterAbsolute(addr, m_openBus);
+            }
+            return const_cast<Cartridge&>(m_cartridge).readMapperRegister(addr & 0x1FFF, m_openBus);
+        }
+
+        return m_openBus;
+    }
+
     /**
      * Return true on new frame
      */
@@ -1586,6 +1615,52 @@ public:
         m_vsyncAudioCompMsAcc = 0.0;
         m_vsyncAudioSkipMsDebt = 0;
         return true;
+    }
+
+    bool debugStepInstruction()
+    {
+        applyPendingNsfControllerActions();
+        if(!m_cartridge.isValid() || m_halt) return false;
+
+        const bool wasPaused = m_paused;
+        m_paused = false;
+
+        const uint32_t audioRenderCycles = m_cyclesPerSecond;
+        uint32_t renderedAudioMs = 0;
+        bool frameReady = false;
+        bool steppedInstruction = false;
+        bool advancedAny = false;
+
+        m_runningLoop = true;
+        while(!steppedInstruction) {
+            const int cyclesBefore = m_cpuCyclesAcc;
+            if(!stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, frameReady, true)) {
+                break;
+            }
+
+            advancedAny = true;
+            if(cyclesBefore == 1 && m_cpuCyclesAcc > 1) {
+                steppedInstruction = true;
+            }
+        }
+        m_lastAudioRenderedMs = renderedAudioMs;
+        m_runningLoop = false;
+
+        if(m_saveStateFlag) {
+            _saveState(m_pendingSaveStateSlot);
+            m_saveStateFlag = false;
+        }
+
+        if(m_loadStateFlag) {
+            _loadState(m_pendingLoadStateSlot);
+            m_loadStateFlag = false;
+        }
+
+        processDeferredNetplaySnapshot();
+        processDeferredNetplayLoad();
+
+        m_paused = wasPaused;
+        return advancedAny && steppedInstruction;
     }
 
     ExecutionPoint executionPoint() const
