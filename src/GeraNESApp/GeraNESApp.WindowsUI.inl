@@ -1,11 +1,191 @@
 #pragma once
 
+inline void GeraNESApp::drawCustomWindowChrome()
+{
+    if(!useCustomWindowChrome()) return;
+
+    ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+    const float titleBarHeight = customTitleBarHeight();
+    const float buttonWidth = 34.0f;
+    const float buttonHeight = 24.0f;
+    const float buttonSpacing = 8.0f;
+    const float rightInset = 12.0f;
+    const float buttonRowWidth = buttonWidth * 3.0f + buttonSpacing * 2.0f;
+    const float ledSize = 12.0f;
+    const float controlButtonWidth = 108.0f;
+    const float controlButtonHeight = 26.0f;
+    const float controlSpacing = 12.0f;
+    const float controlsLeft = 18.0f;
+    const float controlsTop = 9.0f;
+    const float controlsWidth = ledSize + 14.0f + controlButtonWidth * 2.0f + controlSpacing;
+
+    ImGui::SetNextWindowViewport(mainViewport->ID);
+    ImGui::SetNextWindowPos(mainViewport->Pos);
+    ImGui::SetNextWindowSize(ImVec2(mainViewport->Size.x, titleBarHeight));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 8.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.82f, 0.82f, 0.79f, 1.0f));
+
+    if(ImGui::Begin(
+        "##GeraNESCustomChrome",
+        nullptr,
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus
+    )) {
+        const ImVec2 winPos = ImGui::GetWindowPos();
+        const ImVec2 winSize = ImGui::GetWindowSize();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(winPos, ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), IM_COL32(208, 208, 202, 255));
+        drawList->AddRectFilled(ImVec2(winPos.x, winPos.y + winSize.y - 6.0f), ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), IM_COL32(185, 42, 42, 255));
+        const ImVec2 ledMin(winPos.x + controlsLeft, winPos.y + controlsTop + 7.0f);
+        const ImVec2 ledMax(ledMin.x + ledSize, ledMin.y + ledSize);
+        drawList->AddRectFilled(ledMin, ledMax, IM_COL32(78, 220, 255, 255), 2.0f);
+        drawList->AddRect(ledMin, ledMax, IM_COL32(170, 245, 255, 220), 2.0f);
+        drawList->AddRectFilledMultiColor(
+            ImVec2(ledMin.x + 2.0f, ledMin.y + 2.0f),
+            ImVec2(ledMax.x - 2.0f, ledMax.y - 2.0f),
+            IM_COL32(220, 250, 255, 255),
+            IM_COL32(92, 215, 255, 255),
+            IM_COL32(40, 150, 235, 255),
+            IM_COL32(145, 235, 255, 255)
+        );
+
+        auto drawChromeControlButton = [&](const ImVec2& min, const char* id, const char* label, bool enabled) -> bool {
+            const ImVec2 max(min.x + controlButtonWidth, min.y + controlButtonHeight);
+            const ImU32 outerColor = enabled ? IM_COL32(138, 138, 132, 255) : IM_COL32(154, 154, 150, 255);
+            const ImU32 innerColor = enabled ? IM_COL32(112, 112, 108, 255) : IM_COL32(132, 132, 128, 255);
+            const ImU32 highlightColor = enabled ? IM_COL32(182, 182, 176, 255) : IM_COL32(194, 194, 190, 220);
+            const ImU32 shadowColor = enabled ? IM_COL32(58, 58, 56, 255) : IM_COL32(104, 104, 100, 220);
+            const ImU32 textColor = enabled ? IM_COL32(165, 28, 28, 255) : IM_COL32(126, 126, 124, 255);
+
+            drawList->AddRectFilled(min, max, outerColor, 2.0f);
+            drawList->AddRectFilled(ImVec2(min.x + 2.0f, min.y + 2.0f), ImVec2(max.x - 2.0f, max.y - 2.0f), innerColor, 2.0f);
+            drawList->AddLine(ImVec2(min.x + 3.0f, min.y + 3.0f), ImVec2(max.x - 3.0f, min.y + 3.0f), highlightColor, 1.0f);
+            drawList->AddLine(ImVec2(min.x + 3.0f, min.y + 3.0f), ImVec2(min.x + 3.0f, max.y - 3.0f), highlightColor, 1.0f);
+            drawList->AddLine(ImVec2(min.x + 2.0f, max.y - 3.0f), ImVec2(max.x - 2.0f, max.y - 3.0f), shadowColor, 1.0f);
+            drawList->AddLine(ImVec2(max.x - 3.0f, min.y + 2.0f), ImVec2(max.x - 3.0f, max.y - 3.0f), shadowColor, 1.0f);
+
+            ImGui::SetCursorScreenPos(min);
+            if(!enabled) {
+                ImGui::BeginDisabled();
+            }
+            const bool pressed = ImGui::InvisibleButton(id, ImVec2(controlButtonWidth, controlButtonHeight));
+            const bool hovered = ImGui::IsItemHovered();
+            const bool active = ImGui::IsItemActive();
+            if(!enabled) {
+                ImGui::EndDisabled();
+            }
+            if(hovered || active) {
+                const ImU32 overlay = active ? IM_COL32(255, 255, 255, 26) : IM_COL32(255, 255, 255, 14);
+                drawList->AddRectFilled(ImVec2(min.x + 2.0f, min.y + 2.0f), ImVec2(max.x - 2.0f, max.y - 2.0f), overlay, 2.0f);
+            }
+
+            const ImVec2 textSize = ImGui::CalcTextSize(label);
+            drawList->AddText(
+                ImVec2(min.x + (controlButtonWidth - textSize.x) * 0.5f, min.y + (controlButtonHeight - textSize.y) * 0.5f - 1.0f),
+                textColor,
+                label
+            );
+            return pressed;
+        };
+
+        const ImVec2 powerButtonMin(winPos.x + controlsLeft + ledSize + 14.0f, winPos.y + controlsTop);
+        const ImVec2 resetButtonMin(powerButtonMin.x + controlButtonWidth + controlSpacing, powerButtonMin.y);
+        const bool powerEnabled = true;
+        const bool resetEnabled = m_emu.valid() && !isNetplayClientRestricted();
+
+        if(drawChromeControlButton(powerButtonMin, "##ChromePower", "POWER", powerEnabled)) {
+            quit();
+        }
+        if(drawChromeControlButton(resetButtonMin, "##ChromeReset", "RESET", resetEnabled)) {
+            resetAction();
+        }
+
+        const char* titleText = "GeraNES";
+        const ImVec2 titleTextSize = ImGui::CalcTextSize(titleText);
+        drawList->AddText(
+            ImVec2(
+                resetButtonMin.x + controlButtonWidth + 22.0f,
+                winPos.y + (titleBarHeight - titleTextSize.y) * 0.5f - 1.0f
+            ),
+            IM_COL32(56, 56, 60, 255),
+            titleText
+        );
+
+        ImGui::SetCursorScreenPos(ImVec2(winPos.x + controlsLeft + controlsWidth + 24.0f, winPos.y + 6.0f));
+        ImGui::InvisibleButton("##ChromeDragArea", ImVec2(std::max(0.0f, winSize.x - (controlsLeft + controlsWidth + 24.0f) - buttonRowWidth - rightInset - 10.0f), titleBarHeight - 12.0f));
+        const bool dragAreaHovered = ImGui::IsItemHovered();
+        const bool dragAreaActive = ImGui::IsItemActive();
+        if(dragAreaHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+            if(isMaximized()) restoreWindow();
+            else maximizeWindow();
+        }
+        if(dragAreaActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left) && !isMaximized()) {
+            int mouseX = 0;
+            int mouseY = 0;
+            SDL_GetGlobalMouseState(&mouseX, &mouseY);
+            if(!m_customChromeDragging) {
+                m_customChromeDragging = true;
+                m_customChromeDragStartMouseX = mouseX;
+                m_customChromeDragStartMouseY = mouseY;
+                SDL_GetWindowPosition(sdlWindow(), &m_customChromeDragStartWindowX, &m_customChromeDragStartWindowY);
+            }
+            SDL_SetWindowPosition(
+                sdlWindow(),
+                m_customChromeDragStartWindowX + (mouseX - m_customChromeDragStartMouseX),
+                m_customChromeDragStartWindowY + (mouseY - m_customChromeDragStartMouseY)
+            );
+        }
+        if(!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            m_customChromeDragging = false;
+        }
+
+        ImGui::SetCursorScreenPos(ImVec2(winPos.x + winSize.x - buttonRowWidth - rightInset, winPos.y + 10.0f));
+        auto chromeButton = [&](const char* id, const char* label, const ImVec4& color) -> bool {
+            ImGui::PushStyleColor(ImGuiCol_Button, color);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x + 0.08f, color.y + 0.08f, color.z + 0.08f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(std::max(0.0f, color.x - 0.06f), std::max(0.0f, color.y - 0.06f), std::max(0.0f, color.z - 0.06f), 1.0f));
+            const bool pressed = ImGui::Button(id, ImVec2(buttonWidth, buttonHeight));
+            const ImVec2 min = ImGui::GetItemRectMin();
+            const ImVec2 max = ImGui::GetItemRectMax();
+            const ImVec2 size = ImGui::CalcTextSize(label);
+            drawList->AddText(ImVec2(min.x + (buttonWidth - size.x) * 0.5f, min.y + (buttonHeight - size.y) * 0.5f - 1.0f), IM_COL32(248, 248, 248, 255), label);
+            drawList->AddRect(min, max, IM_COL32(35, 35, 35, 160), 4.0f);
+            ImGui::PopStyleColor(3);
+            return pressed;
+        };
+
+        if(chromeButton("##ChromeMinimize", "-", ImVec4(0.38f, 0.40f, 0.44f, 1.0f))) {
+            minimizeWindow();
+        }
+        ImGui::SameLine(0.0f, buttonSpacing);
+        if(chromeButton("##ChromeMaximize", isMaximized() ? "o" : "+", ImVec4(0.45f, 0.47f, 0.50f, 1.0f))) {
+            if(isMaximized()) restoreWindow();
+            else maximizeWindow();
+        }
+        ImGui::SameLine(0.0f, buttonSpacing);
+        if(chromeButton("##ChromeClose", "x", ImVec4(0.70f, 0.18f, 0.18f, 1.0f))) {
+            quit();
+        }
+    }
+    ImGui::End();
+
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
+}
+
 inline void GeraNESApp::showGui()
 {
     const ImVec2 viewportCenter = ImGui::GetMainViewport()->GetCenter();
 
     float lastMenuBarHeight = m_menuBarHeight;
 
+    drawCustomWindowChrome();
     if(m_showMenuBar) menuBar();
     else m_menuBarHeight = 0;
 
@@ -889,11 +1069,12 @@ inline void GeraNESApp::showOverlay()
     if(AppSettings::instance().data.debug.showFps) {
         const int fontSize = 32;
         ImFont* fpsFont = m_fontFps != nullptr ? m_fontFps : ImGui::GetFont();
+        const SDL_Rect clientArea = emulatorClientArea();
 
         std::string fpsText = std::to_string(m_fps);
         ImVec2 fpsTextSize = fpsFont->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
 
-        const ImVec2 pos = ImVec2(width() - fpsTextSize.x - 32, 40);
+        const ImVec2 pos = ImVec2(width() - fpsTextSize.x - 32, static_cast<float>(clientArea.y) + 8.0f);
 
         DrawTextOutlined(drawList, fpsFont, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
     }

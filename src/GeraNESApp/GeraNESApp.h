@@ -257,6 +257,12 @@ private:
     Uint64 m_mainLoopCounterRemainder = 0;
 
     Rect m_nesScreenRect = {{0,0}, {1,1}};
+    bool m_customWindowChromeEnabled = true;
+    bool m_customChromeDragging = false;
+    int m_customChromeDragStartMouseX = 0;
+    int m_customChromeDragStartMouseY = 0;
+    int m_customChromeDragStartWindowX = 0;
+    int m_customChromeDragStartWindowY = 0;
 
     bool m_imGuiWantsMouse = false;
     bool m_cursorVisible = true;
@@ -445,6 +451,13 @@ public:
 
     void showGui();
     void showOverlay();
+    bool useCustomWindowChrome();
+    float customTitleBarHeight();
+    float customSideFrameWidth();
+    float customBottomFrameHeight();
+    float customContentTopPadding();
+    SDL_Rect emulatorClientArea();
+    void drawCustomWindowChrome();
  
 };
 

@@ -5,9 +5,42 @@ inline void GeraNESApp::menuBar() {
     bool show_menu = true;
     const bool netplayClientRestricted = isNetplayClientRestricted();
     const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
+    const bool usingCustomChrome = useCustomWindowChrome();
+    bool menuBarVisible = false;
+    bool menuHostBegun = false;
 
-    if (show_menu && ImGui::BeginMainMenuBar())
-    {
+    if(show_menu) {
+        if(usingCustomChrome) {
+            ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+            const float menuHeight = ImGui::GetFrameHeight();
+            ImGui::SetNextWindowViewport(mainViewport->ID);
+            ImGui::SetNextWindowPos(ImVec2(mainViewport->Pos.x, mainViewport->Pos.y + customTitleBarHeight()));
+            ImGui::SetNextWindowSize(ImVec2(mainViewport->Size.x, menuHeight));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 0.0f));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.72f, 0.72f, 0.69f, 0.0f));
+            ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.72f, 0.72f, 0.69f, 1.0f));
+            menuHostBegun = ImGui::Begin(
+                "##GeraNESMainMenuHost",
+                nullptr,
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoDocking |
+                ImGuiWindowFlags_NoBringToFrontOnFocus |
+                ImGuiWindowFlags_MenuBar
+            );
+            if(menuHostBegun) {
+                menuBarVisible = ImGui::BeginMenuBar();
+            }
+        } else {
+            menuBarVisible = ImGui::BeginMainMenuBar();
+        }
+    }
+
+    if(menuBarVisible) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
         if (ImGui::BeginMenu("File"))
         {
             auto sc = m_shortcuts.get("openRom");
@@ -886,10 +919,27 @@ inline void GeraNESApp::menuBar() {
             m_showAboutWindow = true;
         }
 
-        ImGui::EndMainMenuBar();
+        ImGui::PopStyleVar();
+
+        if(usingCustomChrome) {
+            ImGui::EndMenuBar();
+            m_menuBarHeight = static_cast<int>(std::round(ImGui::GetWindowHeight()));
+        } else {
+            ImGui::EndMainMenuBar();
+            m_menuBarHeight = static_cast<int>(std::round(ImGui::GetFrameHeight()));
+        }
+    }
+    else {
+        m_menuBarHeight = 0;
     }
 
-    m_menuBarHeight = ImGui::GetFrameHeight();
+    if(usingCustomChrome) {
+        if(menuHostBegun) {
+            ImGui::End();
+        }
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(3);
+    }
 }
 
 inline void GeraNESApp::collectAudioChannelsFromJson(const std::string& jsonStr, const char* source, std::vector<AudioChannelControl>& out)

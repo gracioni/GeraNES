@@ -104,12 +104,14 @@ public:
 
     bool isFullScreen();
     bool setFullScreen(bool state, bool exclusive = false);
+    void setBordered(bool bordered);
 
     void minimizeWindow();
     void restoreWindow();
     void maximizeWindow();
 
     bool isMinimized() const;
+    bool isMaximized() const;
 
     int getVSync() const;
     void setVSync(int vsync) const;

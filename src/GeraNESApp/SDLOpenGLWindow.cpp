@@ -499,6 +499,12 @@ bool SDLOpenGLWindow::setFullScreen(bool state, bool exclusive)
 #endif
 }
 
+void SDLOpenGLWindow::setBordered(bool bordered)
+{
+    if(m_window == NULL) return;
+    SDL_SetWindowBordered(m_window, bordered ? SDL_TRUE : SDL_FALSE);
+}
+
 void SDLOpenGLWindow::minimizeWindow()
 {
     SDL_MinimizeWindow(m_window);
@@ -518,6 +524,12 @@ bool SDLOpenGLWindow::isMinimized() const
 {
     if(m_window == NULL) return false;
     return (SDL_GetWindowFlags(m_window) & SDL_WINDOW_MINIMIZED) != 0;
+}
+
+bool SDLOpenGLWindow::isMaximized() const
+{
+    if(m_window == NULL) return false;
+    return (SDL_GetWindowFlags(m_window) & SDL_WINDOW_MAXIMIZED) != 0;
 }
 
 int SDLOpenGLWindow::getVSync() const

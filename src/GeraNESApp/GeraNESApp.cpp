@@ -17,6 +17,48 @@ void GeraNESApp::updateMVP()
     m_mvp = proj * glm::mat4(1.0f);
 }
 
+bool GeraNESApp::useCustomWindowChrome()
+{
+#ifdef __EMSCRIPTEN__
+    return false;
+#else
+    return m_customWindowChromeEnabled && !isFullScreen();
+#endif
+}
+
+float GeraNESApp::customTitleBarHeight()
+{
+    return useCustomWindowChrome() ? 44.0f : 0.0f;
+}
+
+float GeraNESApp::customSideFrameWidth()
+{
+    return 0.0f;
+}
+
+float GeraNESApp::customBottomFrameHeight()
+{
+    return 0.0f;
+}
+
+float GeraNESApp::customContentTopPadding()
+{
+    return 0.0f;
+}
+
+SDL_Rect GeraNESApp::emulatorClientArea()
+{
+    const int side = static_cast<int>(std::round(customSideFrameWidth()));
+    const int top = static_cast<int>(std::round(customTitleBarHeight() + static_cast<float>(m_menuBarHeight) + customContentTopPadding()));
+    const int bottom = static_cast<int>(std::round(customBottomFrameHeight()));
+    return SDL_Rect{
+        side,
+        top,
+        std::max(0, width() - side * 2),
+        std::max(0, height() - top - bottom)
+    };
+}
+
 void GeraNESApp::onLog(const std::string& msg, Logger::Type type)
 {
     const std::string safeMsg = msg.empty() ? "Unknown error." : msg;
@@ -1868,6 +1910,7 @@ bool GeraNESApp::initGL()
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 #ifndef __EMSCRIPTEN__
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    setBordered(!m_customWindowChromeEnabled);
 #endif
 
     {
@@ -2187,7 +2230,7 @@ void GeraNESApp::updateBuffers()
         data[base + 2u] = u;
         data[base + 3u] = v;
     };
-    SDL_Rect clientArea = {0, m_menuBarHeight, this->width(), std::max(0, this->height() - m_menuBarHeight)};
+    SDL_Rect clientArea = emulatorClientArea();
     int drawableW = 0;
     int drawableH = 0;
     SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
@@ -2270,7 +2313,7 @@ void GeraNESApp::updateBuffers()
     }
     m_vbo.release();
 
-    if(m_touch) m_touch->setTopMargin(m_menuBarHeight);
+    if(m_touch) m_touch->setTopMargin(emulatorClientArea().y);
 }
 
 bool GeraNESApp::onEvent(SDL_Event& event)
