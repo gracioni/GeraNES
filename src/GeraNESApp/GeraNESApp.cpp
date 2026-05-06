@@ -1866,6 +1866,9 @@ bool GeraNESApp::initGL()
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+#ifndef __EMSCRIPTEN__
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+#endif
 
     {
         auto fs = cmrc::resources::get_filesystem();

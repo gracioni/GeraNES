@@ -135,4 +135,13 @@ inline void GeraNESApp::paintGL()
     }
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#ifndef __EMSCRIPTEN__
+    if(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        SDL_Window* backupWindow = SDL_GL_GetCurrentWindow();
+        SDL_GLContext backupContext = SDL_GL_GetCurrentContext();
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+        SDL_GL_MakeCurrent(backupWindow, backupContext);
+    }
+#endif
 }

@@ -122,7 +122,7 @@ INCLUDE_DIRECTORIES(${stb_SOURCE_DIR})
 FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG v1.92.5
+        GIT_TAG v1.92.5-docking
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
 )

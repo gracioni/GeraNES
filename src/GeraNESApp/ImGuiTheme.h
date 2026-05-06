@@ -55,4 +55,8 @@ inline void ApplyImGuiTheme()
     colors[ImGuiCol_PlotLines] = ImVec4(0.50f, 0.78f, 0.90f, 1.00f);
     colors[ImGuiCol_PlotHistogram] = ImVec4(0.50f, 0.90f, 0.75f, 1.00f);
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.21f, 0.53f, 0.77f, 0.45f);
+    if(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        style.WindowRounding = 0.0f;
+        colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
 }
