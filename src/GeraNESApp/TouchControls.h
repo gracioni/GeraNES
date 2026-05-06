@@ -7,6 +7,8 @@
 #include <SDL.h>
 #include <glm/glm.hpp>
 
+#include "imgui_include.h"
+
 #include "AppSettings.h"
 
 #include "GeraNESApp/InputManager.h"
@@ -100,7 +102,7 @@ public:
     void onResize(int screenWidth, int screenHeight);
     void onEvent(SDL_Event& ev);
     const Buttons& buttons();
-    void draw(ImDrawList* drawList);
+    void draw(ImDrawList* drawList, ImVec2 origin = ImVec2(0.0f, 0.0f));
     void update(Uint64 dt);
 
 };

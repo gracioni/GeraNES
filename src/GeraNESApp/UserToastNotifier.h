@@ -20,5 +20,5 @@ private:
 
 public:
     void show(const std::string& message);
-    void draw(ImDrawList* drawList, float viewportWidth, float viewportHeight, ImFont* font = nullptr);
+    void draw(ImDrawList* drawList, ImVec2 origin, float viewportWidth, float viewportHeight, ImFont* font = nullptr);
 };

@@ -1064,7 +1064,9 @@ inline void GeraNESApp::drawCpuBreakpointsWindow()
 
 inline void GeraNESApp::showOverlay()
 {
-    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+    ImDrawList* drawList = ImGui::GetForegroundDrawList(mainViewport);
+    const ImVec2 overlayOrigin = mainViewport != nullptr ? mainViewport->Pos : ImVec2(0.0f, 0.0f);
 
     if(AppSettings::instance().data.debug.showFps) {
         const int fontSize = 32;
@@ -1074,11 +1076,14 @@ inline void GeraNESApp::showOverlay()
         std::string fpsText = std::to_string(m_fps);
         ImVec2 fpsTextSize = fpsFont->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
 
-        const ImVec2 pos = ImVec2(width() - fpsTextSize.x - 32, static_cast<float>(clientArea.y) + 8.0f);
+        const ImVec2 pos = ImVec2(
+            overlayOrigin.x + width() - fpsTextSize.x - 32,
+            overlayOrigin.y + static_cast<float>(clientArea.y) + 8.0f
+        );
 
         DrawTextOutlined(drawList, fpsFont, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
     }
-    m_userToast.draw(drawList, static_cast<float>(width()), static_cast<float>(height()), m_fontToast);
+    m_userToast.draw(drawList, overlayOrigin, static_cast<float>(width()), static_cast<float>(height()), m_fontToast);
 
-    m_touch->draw(drawList);
+    m_touch->draw(drawList, overlayOrigin);
 }

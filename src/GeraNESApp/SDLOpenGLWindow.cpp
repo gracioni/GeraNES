@@ -8,6 +8,37 @@
 SDLOpenGLWindow* instance = NULL;
 #endif
 
+namespace {
+SDL_HitTestResult borderlessWindowHitTest(SDL_Window* window, const SDL_Point* area, void* data)
+{
+    auto* self = reinterpret_cast<SDLOpenGLWindow*>(data);
+    if(window == nullptr || area == nullptr || self == nullptr) return SDL_HITTEST_NORMAL;
+    if(self->isFullScreen() || self->isMaximized()) return SDL_HITTEST_NORMAL;
+    if((SDL_GetWindowFlags(window) & SDL_WINDOW_BORDERLESS) == 0) return SDL_HITTEST_NORMAL;
+
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(window, &width, &height);
+    if(width <= 0 || height <= 0) return SDL_HITTEST_NORMAL;
+
+    constexpr int border = 6;
+    const bool left = area->x < border;
+    const bool right = area->x >= width - border;
+    const bool top = area->y < border;
+    const bool bottom = area->y >= height - border;
+
+    if(top && left) return SDL_HITTEST_RESIZE_TOPLEFT;
+    if(top && right) return SDL_HITTEST_RESIZE_TOPRIGHT;
+    if(bottom && left) return SDL_HITTEST_RESIZE_BOTTOMLEFT;
+    if(bottom && right) return SDL_HITTEST_RESIZE_BOTTOMRIGHT;
+    if(left) return SDL_HITTEST_RESIZE_LEFT;
+    if(right) return SDL_HITTEST_RESIZE_RIGHT;
+    if(top) return SDL_HITTEST_RESIZE_TOP;
+    if(bottom) return SDL_HITTEST_RESIZE_BOTTOM;
+    return SDL_HITTEST_NORMAL;
+}
+}
+
 void SDLOpenGLWindow::swapBuffers()
 {
     SDL_GL_SwapWindow(m_window);
@@ -272,6 +303,7 @@ bool SDLOpenGLWindow::create(const std::string& title, int x, int y, int w, int 
 
     syncDrawableSize(false);
     m_lastDisplayIndex = SDL_GetWindowDisplayIndex(m_window);
+    SDL_SetWindowHitTest(m_window, borderlessWindowHitTest, this);
 
     initGL();
 

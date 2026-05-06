@@ -243,7 +243,7 @@ const TouchControls::Buttons& TouchControls::buttons()
     return m_buttons;
 }
 
-void TouchControls::draw(ImDrawList* drawList)
+void TouchControls::draw(ImDrawList* drawList, ImVec2 origin)
 {
     if(!AppSettings::instance().data.input.touchControls.enabled) {
         return;
@@ -257,7 +257,7 @@ void TouchControls::draw(ImDrawList* drawList)
         glm::vec2 min, max;
         rewindNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_rewindTexture->id(),
-                           ImVec2{min.x, min.y}, ImVec2{max.x, max.y}, ImVec2(0, 0), ImVec2(1, 1),
+                           ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
@@ -267,7 +267,7 @@ void TouchControls::draw(ImDrawList* drawList)
         digitalPadNode->getAbsoluteRect(min, max);
 
         drawList->AddImage(m_digitalPagTexture->id(),
-                           ImVec2{min.x, min.y}, ImVec2{max.x, max.y}, ImVec2(0, 0), ImVec2(1, 1),
+                           ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
@@ -276,7 +276,7 @@ void TouchControls::draw(ImDrawList* drawList)
         glm::vec2 min, max;
         selectNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.select ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
-                           ImVec2{min.x, min.y}, ImVec2{max.x, max.y}, ImVec2(0, 0), ImVec2(1, 1),
+                           ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
@@ -285,7 +285,7 @@ void TouchControls::draw(ImDrawList* drawList)
         glm::vec2 min, max;
         startNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.start ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
-                           ImVec2{min.x, min.y}, ImVec2{max.x, max.y}, ImVec2(0, 0), ImVec2(1, 1),
+                           ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
@@ -294,7 +294,7 @@ void TouchControls::draw(ImDrawList* drawList)
         glm::vec2 min, max;
         bNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.b ? m_rightButtonPressedTexture->id() : m_rightButtonTexture->id(),
-                           ImVec2{min.x, min.y}, ImVec2{max.x, max.y}, ImVec2(0, 0), ImVec2(1, 1),
+                           ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
@@ -303,7 +303,7 @@ void TouchControls::draw(ImDrawList* drawList)
         glm::vec2 min, max;
         aNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.a ? m_rightButtonPressedTexture->id() : m_rightButtonTexture->id(),
-                           ImVec2{min.x, min.y}, ImVec2{max.x, max.y}, ImVec2(0, 0), ImVec2(1, 1),
+                           ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 }

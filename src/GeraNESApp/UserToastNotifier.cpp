@@ -8,7 +8,7 @@ void UserToastNotifier::show(const std::string& message)
     m_fadeUntil = m_showUntil + FADE_MS;
 }
 
-void UserToastNotifier::draw(ImDrawList* drawList, float viewportWidth, float viewportHeight, ImFont* font)
+void UserToastNotifier::draw(ImDrawList* drawList, ImVec2 origin, float viewportWidth, float viewportHeight, ImFont* font)
 {
     if(drawList == nullptr || m_message.empty()) return;
     (void)viewportWidth;
@@ -30,7 +30,7 @@ void UserToastNotifier::draw(ImDrawList* drawList, float viewportWidth, float vi
 
     ImFont* activeFont = font != nullptr ? font : ImGui::GetFont();
     ImVec2 textSize = activeFont->CalcTextSizeA(FONT_SIZE, FLT_MAX, 0.0f, m_message.c_str());
-    ImVec2 textPos = ImVec2(margin.x, viewportHeight - margin.y - textSize.y);
+    ImVec2 textPos = ImVec2(origin.x + margin.x, origin.y + viewportHeight - margin.y - textSize.y);
 
     ImVec2 boxMin = ImVec2(textPos.x - 8.0f, textPos.y - 6.0f);
     ImVec2 boxMax = ImVec2(textPos.x + textSize.x + 10.0f, textPos.y + textSize.y + 6.0f);
