@@ -108,14 +108,12 @@ inline void GeraNESApp::drawCustomWindowChrome()
 
         const std::string chromeTitle = title().empty() ? std::string("GeraNES") : title();
         const ImVec2 titleTextSize = ImGui::CalcTextSize(chromeTitle.c_str());
-        drawList->AddText(
-            ImVec2(
-                resetButtonMin.x + controlButtonWidth + 22.0f,
-                winPos.y + (titleBarHeight - titleTextSize.y) * 0.5f - 1.0f
-            ),
-            IM_COL32(56, 56, 60, 255),
-            chromeTitle.c_str()
+        const ImVec2 titlePos(
+            resetButtonMin.x + controlButtonWidth + 22.0f,
+            winPos.y + (titleBarHeight - titleTextSize.y) * 0.5f - 1.0f
         );
+        const ImU32 titleColor = IM_COL32(176, 38, 38, 255);
+        drawList->AddText(ImVec2(titlePos.x, titlePos.y), titleColor, chromeTitle.c_str());
 
         ImGui::SetCursorScreenPos(ImVec2(winPos.x + controlsLeft + controlsWidth + 24.0f, winPos.y + 6.0f));
         ImGui::InvisibleButton("##ChromeDragArea", ImVec2(std::max(0.0f, winSize.x - (controlsLeft + controlsWidth + 24.0f) - buttonRowWidth - rightInset - 10.0f), titleBarHeight - 12.0f));
@@ -360,25 +358,18 @@ inline void GeraNESApp::showGui()
             ImGui::TextWrapped("%s", m_romDbEditor.statusMessage.c_str());
         }
         else {
-                ImVec4 color = m_romDbEditor.foundInDatabase ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f) : ImVec4(0.9f, 0.7f, 0.2f, 1.0f);
-                ImGui::TextColored(color, "%s", m_romDbEditor.statusMessage.c_str());
+                const ImVec4 statusColor = m_romDbEditor.foundInDatabase
+                    ? ImVec4(0.20f, 0.45f, 0.20f, 1.0f)
+                    : ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive);
+                ImGui::TextColored(statusColor, "%s", m_romDbEditor.statusMessage.c_str());
                 ImGui::Separator();
 
                 const bool compareWithSaved = m_romDbEditor.foundInDatabase;
                 auto isChanged = [&](const std::string& a, const std::string& b) {
                     return compareWithSaved && a != b;
                 };
-                auto pushChangedStyle = [](bool changed) {
-                    if(!changed) return;
-                    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.35f, 0.08f, 0.08f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.45f, 0.12f, 0.12f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.55f, 0.16f, 0.16f, 1.0f));
-                };
-                auto popChangedStyle = [](bool changed) {
-                    if(changed) ImGui::PopStyleColor(3);
-                };
 
-                auto drawStringEnumCombo = [&](const char* id, std::string& value, const std::vector<std::pair<const char*, const char*>>& options, bool changed) {
+                auto drawStringEnumCombo = [&](const char* id, std::string& value, const std::vector<std::pair<const char*, const char*>>& options) {
                     int current = 0;
                     for(size_t i = 0; i < options.size(); ++i) {
                         if(value == options[i].first) {
@@ -387,7 +378,6 @@ inline void GeraNESApp::showGui()
                         }
                     }
 
-                    pushChangedStyle(changed);
                     if(ImGui::BeginCombo(id, options[current].second)) {
                         for(size_t i = 0; i < options.size(); ++i) {
                             const bool selected = static_cast<int>(i) == current;
@@ -398,10 +388,9 @@ inline void GeraNESApp::showGui()
                         }
                         ImGui::EndCombo();
                     }
-                    popChangedStyle(changed);
                 };
 
-                auto drawIntEnumCombo = [&](const char* id, std::string& value, const std::vector<std::pair<int, const char*>>& options, bool changed) {
+                auto drawIntEnumCombo = [&](const char* id, std::string& value, const std::vector<std::pair<int, const char*>>& options) {
                     int parsed = 0;
                     try { parsed = value.empty() ? options.front().first : std::stoi(value); } catch(...) { parsed = options.front().first; }
 
@@ -413,7 +402,6 @@ inline void GeraNESApp::showGui()
                         }
                     }
 
-                    pushChangedStyle(changed);
                     if(ImGui::BeginCombo(id, options[current].second)) {
                         for(size_t i = 0; i < options.size(); ++i) {
                             const bool selected = static_cast<int>(i) == current;
@@ -424,41 +412,47 @@ inline void GeraNESApp::showGui()
                         }
                         ImGui::EndCombo();
                     }
-                    popChangedStyle(changed);
                 };
 
                 bool ch = false;
                 ch = isChanged(m_romDbEditor.PrgChrCrc32, m_romDbSaved.PrgChrCrc32);
-                pushChangedStyle(ch);
+                if(ch) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+                }
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("PrgChrCrc32");
+                if(ch) {
+                    ImGui::PopStyleColor();
+                }
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(-1.0f);
                 ImGui::InputText("##PrgChrCrc32", &m_romDbEditor.PrgChrCrc32, ImGuiInputTextFlags_ReadOnly);
-                popChangedStyle(ch);
 
-                auto drawLabelCell = [&](const char* label) {
+                auto drawLabelCell = [&](const char* label, bool changed = false) {
                     ImGui::TableNextColumn();
+                    if(changed) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+                    }
                     ImGui::AlignTextToFramePadding();
                     ImGui::TextUnformatted(label);
+                    if(changed) {
+                        ImGui::PopStyleColor();
+                    }
                 };
-                auto drawInputTextCell = [&](const char* id, std::string& value, const std::string& savedValue) {
+                auto drawInputTextCell = [&](const char* id, std::string& value) {
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1.0f);
-                    bool changed = isChanged(value, savedValue);
-                    pushChangedStyle(changed);
                     ImGui::InputText(id, &value);
-                    popChangedStyle(changed);
                 };
-                auto drawStringEnumCell = [&](const char* id, std::string& value, const std::string& savedValue, const std::vector<std::pair<const char*, const char*>>& options) {
+                auto drawStringEnumCell = [&](const char* id, std::string& value, const std::vector<std::pair<const char*, const char*>>& options) {
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1.0f);
-                    drawStringEnumCombo(id, value, options, isChanged(value, savedValue));
+                    drawStringEnumCombo(id, value, options);
                 };
-                auto drawIntEnumCell = [&](const char* id, std::string& value, const std::string& savedValue, const std::vector<std::pair<int, const char*>>& options) {
+                auto drawIntEnumCell = [&](const char* id, std::string& value, const std::vector<std::pair<int, const char*>>& options) {
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1.0f);
-                    drawIntEnumCombo(id, value, options, isChanged(value, savedValue));
+                    drawIntEnumCombo(id, value, options);
                 };
                 auto drawEmptyPair = [&]() {
                     ImGui::TableNextColumn();
@@ -473,8 +467,8 @@ inline void GeraNESApp::showGui()
                     ImGui::TableSetupColumn("ValueB", ImGuiTableColumnFlags_WidthStretch, 1.0f);
 
                     ImGui::TableNextRow();
-                    drawLabelCell("System");
-                    drawStringEnumCell("##System", m_romDbEditor.System, m_romDbSaved.System, {
+                    drawLabelCell("System", isChanged(m_romDbEditor.System, m_romDbSaved.System));
+                    drawStringEnumCell("##System", m_romDbEditor.System, {
                         {"", "Default"},
                         {"NesNtsc", "NesNtsc"},
                         {"NesPal", "NesPal"},
@@ -485,20 +479,20 @@ inline void GeraNESApp::showGui()
                         {"FDS", "FDS"},
                         {"FamicomNetworkSystem", "FamicomNetworkSystem"},
                     });
-                    drawLabelCell("Mapper");
-                    drawInputTextCell("##Mapper", m_romDbEditor.Mapper, m_romDbSaved.Mapper);
+                    drawLabelCell("Mapper", isChanged(m_romDbEditor.Mapper, m_romDbSaved.Mapper));
+                    drawInputTextCell("##Mapper", m_romDbEditor.Mapper);
 
                     ImGui::TableNextRow();
-                    drawLabelCell("Board");
-                    drawInputTextCell("##Board", m_romDbEditor.Board, m_romDbSaved.Board);
-                    drawLabelCell("SubMapperId");
-                    drawInputTextCell("##SubMapperId", m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId);
+                    drawLabelCell("Board", isChanged(m_romDbEditor.Board, m_romDbSaved.Board));
+                    drawInputTextCell("##Board", m_romDbEditor.Board);
+                    drawLabelCell("SubMapperId", isChanged(m_romDbEditor.SubMapperId, m_romDbSaved.SubMapperId));
+                    drawInputTextCell("##SubMapperId", m_romDbEditor.SubMapperId);
 
                     ImGui::TableNextRow();
-                    drawLabelCell("PCB");
-                    drawInputTextCell("##PCB", m_romDbEditor.PCB, m_romDbSaved.PCB);
-                    drawLabelCell("Mirroring");
-                    drawStringEnumCell("##Mirroring", m_romDbEditor.Mirroring, m_romDbSaved.Mirroring, {
+                    drawLabelCell("PCB", isChanged(m_romDbEditor.PCB, m_romDbSaved.PCB));
+                    drawInputTextCell("##PCB", m_romDbEditor.PCB);
+                    drawLabelCell("Mirroring", isChanged(m_romDbEditor.Mirroring, m_romDbSaved.Mirroring));
+                    drawStringEnumCell("##Mirroring", m_romDbEditor.Mirroring, {
                         {"", "Default"},
                         {"h", "Horizontal"},
                         {"v", "Vertical"},
@@ -508,10 +502,10 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("Chip");
-                    drawInputTextCell("##Chip", m_romDbEditor.Chip, m_romDbSaved.Chip);
-                    drawLabelCell("InputType");
-                    drawIntEnumCell("##InputType", m_romDbEditor.InputType, m_romDbSaved.InputType, {
+                    drawLabelCell("Chip", isChanged(m_romDbEditor.Chip, m_romDbSaved.Chip));
+                    drawInputTextCell("##Chip", m_romDbEditor.Chip);
+                    drawLabelCell("InputType", isChanged(m_romDbEditor.InputType, m_romDbSaved.InputType));
+                    drawIntEnumCell("##InputType", m_romDbEditor.InputType, {
                         {0, "Unspecified"}, {1, "StandardControllers"}, {2, "FourScore"}, {3, "FourPlayerAdapter"},
                         {4, "VsSystem"}, {5, "VsSystemSwapped"}, {6, "VsSystemSwapAB"}, {7, "VsZapper"},
                         {8, "Zapper"}, {9, "TwoZappers"}, {10, "BandaiHypershot"}, {11, "PowerPadSideA"},
@@ -528,10 +522,10 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("PrgRomSize");
-                    drawInputTextCell("##PrgRomSize", m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize);
-                    drawLabelCell("VsSystemType");
-                    drawIntEnumCell("##VsSystemType", m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType, {
+                    drawLabelCell("PrgRomSize", isChanged(m_romDbEditor.PrgRomSize, m_romDbSaved.PrgRomSize));
+                    drawInputTextCell("##PrgRomSize", m_romDbEditor.PrgRomSize);
+                    drawLabelCell("VsSystemType", isChanged(m_romDbEditor.VsSystemType, m_romDbSaved.VsSystemType));
+                    drawIntEnumCell("##VsSystemType", m_romDbEditor.VsSystemType, {
                         {0, "Default"},
                         {1, "RbiBaseballProtection"},
                         {2, "TkoBoxingProtection"},
@@ -542,10 +536,10 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("ChrRomSize");
-                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize);
-                    drawLabelCell("VsPpuModel");
-                    drawIntEnumCell("##VsPpuModel", m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel, {
+                    drawLabelCell("ChrRomSize", isChanged(m_romDbEditor.ChrRomSize, m_romDbSaved.ChrRomSize));
+                    drawInputTextCell("##ChrRomSize", m_romDbEditor.ChrRomSize);
+                    drawLabelCell("VsPpuModel", isChanged(m_romDbEditor.VsPpuModel, m_romDbSaved.VsPpuModel));
+                    drawIntEnumCell("##VsPpuModel", m_romDbEditor.VsPpuModel, {
                         {0, "Ppu2C02"},
                         {1, "Ppu2C03"},
                         {2, "Ppu2C04A"},
@@ -560,33 +554,30 @@ inline void GeraNESApp::showGui()
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("SaveRamSize");
-                    drawInputTextCell("##SaveRamSize", m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize);
-                    drawLabelCell("BusConflicts");
-                    drawStringEnumCell("##BusConflicts", m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts, {
+                    drawLabelCell("SaveRamSize", isChanged(m_romDbEditor.SaveRamSize, m_romDbSaved.SaveRamSize));
+                    drawInputTextCell("##SaveRamSize", m_romDbEditor.SaveRamSize);
+                    drawLabelCell("BusConflicts", isChanged(m_romDbEditor.BusConflicts, m_romDbSaved.BusConflicts));
+                    drawStringEnumCell("##BusConflicts", m_romDbEditor.BusConflicts, {
                         {"", "Default"},
                         {"Y", "Yes"},
                         {"N", "No"},
                     });
 
                     ImGui::TableNextRow();
-                    drawLabelCell("ChrRamSize");
-                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize);
+                    drawLabelCell("ChrRamSize", isChanged(m_romDbEditor.ChrRamSize, m_romDbSaved.ChrRamSize));
+                    drawInputTextCell("##ChrRamSize", m_romDbEditor.ChrRamSize);
                     drawEmptyPair();
 
                     ImGui::TableNextRow();
-                    drawLabelCell("WorkRamSize");
-                    drawInputTextCell("##WorkRamSize", m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize);
-                    drawLabelCell("HasBattery");
+                    drawLabelCell("WorkRamSize", isChanged(m_romDbEditor.WorkRamSize, m_romDbSaved.WorkRamSize));
+                    drawInputTextCell("##WorkRamSize", m_romDbEditor.WorkRamSize);
+                    drawLabelCell("HasBattery", isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery));
                     ImGui::TableNextColumn();
                     {
                         bool hasBattery = m_romDbEditor.HasBattery == "1";
-                        const bool changed = isChanged(m_romDbEditor.HasBattery, m_romDbSaved.HasBattery);
-                        pushChangedStyle(changed);
                         if(ImGui::Checkbox("##HasBattery", &hasBattery)) {
                             m_romDbEditor.HasBattery = hasBattery ? "1" : "0";
                         }
-                        popChangedStyle(changed);
                     }
 
                     ImGui::EndTable();

@@ -632,7 +632,9 @@ void drawNetplayWindow(bool& showWindow,
                              ImVec2(520.0f, roomTableHeight))) {
             ImGui::TableSetupColumn("Room");
             ImGui::TableSetupColumn("Has Password", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
             ImGui::TableHeadersRow();
+            ImGui::PopStyleColor();
 
             for(size_t roomIndex = 0; roomIndex < roomBrowser.rooms.size(); ++roomIndex) {
                 const auto& listedRoom = roomBrowser.rooms[roomIndex];
@@ -1269,7 +1271,9 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::TableSetupColumn("ROM", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Net", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
         ImGui::TableHeadersRow();
+        ImGui::PopStyleColor();
 
         for(const ParticipantInfo* participantPtr : sortedParticipants) {
             const ParticipantInfo& participant = *participantPtr;

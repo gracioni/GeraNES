@@ -6,6 +6,7 @@ inline void GeraNESApp::menuBar() {
     const bool netplayClientRestricted = isNetplayClientRestricted();
     const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
     const bool usingCustomChrome = useCustomWindowChrome();
+    const ImVec4 menuBarColor(0.38f, 0.40f, 0.44f, 1.0f);
     bool menuBarVisible = false;
     bool menuHostBegun = false;
 
@@ -19,8 +20,8 @@ inline void GeraNESApp::menuBar() {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.72f, 0.72f, 0.69f, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.72f, 0.72f, 0.69f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(menuBarColor.x, menuBarColor.y, menuBarColor.z, 0.0f));
+            ImGui::PushStyleColor(ImGuiCol_MenuBarBg, menuBarColor);
             menuHostBegun = ImGui::Begin(
                 "##GeraNESMainMenuHost",
                 nullptr,
@@ -35,13 +36,21 @@ inline void GeraNESApp::menuBar() {
                 menuBarVisible = ImGui::BeginMenuBar();
             }
         } else {
+            ImGui::PushStyleColor(ImGuiCol_MenuBarBg, menuBarColor);
             menuBarVisible = ImGui::BeginMainMenuBar();
         }
     }
 
     if(menuBarVisible) {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
-        if (ImGui::BeginMenu("File"))
+        auto beginTopMenu = [](const char* label, bool enabled = true) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
+            const bool open = ImGui::BeginMenu(label, enabled);
+            ImGui::PopStyleColor();
+            return open;
+        };
+
+        if (beginTopMenu("File"))
         {
             const bool hasRomLoaded = m_emu.valid();
             auto sc = m_shortcuts.get("openRom");
@@ -103,7 +112,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Emulator", !netplayClientRestricted))
+        if (beginTopMenu("Emulator", !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
             int& saveStateSlot = AppSettings::instance().data.saveStateSlot;
@@ -181,7 +190,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("Options"))
+        if (beginTopMenu("Options"))
         {
             if (ImGui::BeginMenu("Video"))
             {
@@ -829,7 +838,7 @@ inline void GeraNESApp::menuBar() {
         }
 
 #ifdef ENABLE_NSF_PLAYER
-        if (ImGui::BeginMenu("NSF", m_emu.isNsfLoaded()))
+        if (beginTopMenu("NSF", m_emu.isNsfLoaded()))
         {
             const bool isPlaying = m_emu.nsfIsPlaying();
             const bool isPaused = m_emu.nsfIsPaused();
@@ -871,7 +880,7 @@ inline void GeraNESApp::menuBar() {
         }
 #endif
 
-        if (ImGui::BeginMenu("Tools"))
+        if (beginTopMenu("Tools"))
         {
             if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow)) {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
@@ -919,10 +928,12 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
         if (ImGui::MenuItem("About"))
         {
             m_showAboutWindow = true;
         }
+        ImGui::PopStyleColor();
 
         ImGui::PopStyleVar();
 
@@ -944,6 +955,8 @@ inline void GeraNESApp::menuBar() {
         }
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(3);
+    } else if(show_menu) {
+        ImGui::PopStyleColor();
     }
 }
 
@@ -1692,7 +1705,9 @@ inline void GeraNESApp::drawEventViewerWindow()
         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("Scanline", ImGuiTableColumnFlags_WidthFixed, 72.0f);
         ImGui::TableSetupColumn("Cycle", ImGuiTableColumnFlags_WidthFixed, 58.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
         ImGui::TableHeadersRow();
+        ImGui::PopStyleColor();
 
         for(size_t i = 0; i < ppuEvents.size(); ++i) {
             const auto& event = ppuEvents[i];

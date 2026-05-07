@@ -48,8 +48,11 @@ inline void ApplyImGuiTheme()
     colors[ImGuiCol_ButtonHovered] = ImVec4(0.70f, 0.70f, 0.67f, 1.00f);
     colors[ImGuiCol_ButtonActive] = ImVec4(0.58f, 0.58f, 0.55f, 1.00f);
     colors[ImGuiCol_Header] = ImVec4(0.72f, 0.16f, 0.16f, 0.82f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.80f, 0.20f, 0.20f, 0.92f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.78f, 0.24f, 0.24f, 0.92f);
     colors[ImGuiCol_HeaderActive] = ImVec4(0.63f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.38f, 0.40f, 0.44f, 1.00f);
+    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.54f, 0.54f, 0.57f, 0.90f);
+    colors[ImGuiCol_TableBorderLight] = ImVec4(0.66f, 0.66f, 0.69f, 0.60f);
     colors[ImGuiCol_Separator] = ImVec4(0.44f, 0.44f, 0.46f, 0.85f);
     colors[ImGuiCol_ResizeGrip] = ImVec4(0.72f, 0.16f, 0.16f, 0.35f);
     colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.82f, 0.22f, 0.22f, 0.70f);
