@@ -218,30 +218,8 @@ inline void GeraNESApp::menuBar() {
                     ImGui::EndMenu();
                 }
 
-                if (ImGui::BeginMenu("Shader")) {
-                    const bool usingDefaultShader = AppSettings::instance().data.video.shaderStack.empty();
-                    if(ImGui::MenuItem("Use default", nullptr, usingDefaultShader)) {
-                        AppSettings::instance().data.video.shaderStack.clear();
-                        AppSettings::instance().data.video.shaderName.clear();
-                        m_selectedShaderStackIndex = -1;
-                        updateShaderConfig();
-                    }
-
-                    if(ImGui::MenuItem("Stack editor...")) {
-                        m_showShaderStackWindow = true;
-                    }
-
-                    if(!AppSettings::instance().data.video.shaderStack.empty()) {
-                        ImGui::Separator();
-                        for(size_t i = 0; i < AppSettings::instance().data.video.shaderStack.size(); ++i) {
-                            const std::string label =
-                                std::to_string(i + 1) + ". " + AppSettings::instance().data.video.shaderStack[i].label +
-                                (AppSettings::instance().data.video.shaderStack[i].enabled ? "" : " (off)");
-                            ImGui::TextUnformatted(label.c_str());
-                        }
-                    }
-
-                    ImGui::EndMenu();
+                if(ImGui::MenuItem("Shader")) {
+                    m_showShaderStackWindow = true;
                 }
 
                 if (ImGui::MenuItem("Palette")) {
