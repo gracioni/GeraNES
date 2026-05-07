@@ -2283,6 +2283,9 @@ public:
 
     void setDebugBreakpointsArmed(bool armed)
     {
+        if(m_debugBreakpointsArmed == armed) {
+            return;
+        }
         m_debugBreakpointsArmed = armed;
         if(!armed) {
             clearDebugBreakpointHit();

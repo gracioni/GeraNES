@@ -906,14 +906,15 @@ inline void GeraNESApp::menuBar() {
 
             auto debugShortcut = m_shortcuts.get("cpuDebugger");
             const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow)) {
+            const bool netplayBlocksCpuDebug = isNetplayBlockingCpuDebug();
+            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow, !netplayBlocksCpuDebug)) {
                 m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
                 AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
             }
 
             auto breakpointShortcut = m_shortcuts.get("cpuBreakpoints");
             const char* breakpointKey = (breakpointShortcut != nullptr) ? breakpointShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem("CPU Breakpoints", breakpointKey, m_showCpuBreakpointsWindow)) {
+            if(ImGui::MenuItem("CPU Breakpoints", breakpointKey, m_showCpuBreakpointsWindow, !netplayBlocksCpuDebug)) {
                 m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
                 AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
             }

@@ -879,19 +879,23 @@ void GeraNESApp::syncSettings()
 
 void GeraNESApp::syncCpuDebugRuntimeState()
 {
-    const auto debugNetplaySnapshot = m_netplayRuntime.uiSnapshot();
-    const bool debugBlockedByNetplay =
-        debugNetplaySnapshot.active ||
-        debugNetplaySnapshot.hosting ||
-        debugNetplaySnapshot.connected ||
-        debugNetplaySnapshot.reconnecting;
+    auto& debugSettings = AppSettings::instance().data.debug;
+    if(m_pendingEnableCpuDebuggerAfterNetplayDisconnect && !isNetplayBlockingCpuDebug()) {
+        m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
+        debugSettings.cpuDebuggerEnabled = true;
+        if(m_emu.valid() && !m_emu.paused()) {
+            m_emu.togglePaused();
+        }
+    }
 
-    m_emu.withExclusiveAccess([&](auto& emu) {
-        emu.setDebugBreakpointsArmed(
-            AppSettings::instance().data.debug.cpuDebuggerEnabled &&
-            !debugBlockedByNetplay
-        );
-    });
+    if(!debugSettings.cpuDebuggerEnabled) {
+        return;
+    }
+
+    if(isNetplayBlockingCpuDebug()) {
+        disableCpuDebugging();
+        return;
+    }
 
     if(!m_emu.valid()) {
         return;
@@ -900,7 +904,8 @@ void GeraNESApp::syncCpuDebugRuntimeState()
     uint64_t breakpointSequence = 0;
     bool breakpointValid = false;
     m_emu.withExclusiveAccess([&](auto& emu) {
-        const auto& hit = emu.debugBreakpointHit();
+        emu.setDebugBreakpointsArmed(true);
+        const GeraNESEmu::DebugBreakpointHit& hit = emu.debugBreakpointHit();
         breakpointSequence = hit.sequence;
         breakpointValid = hit.valid;
     });
@@ -910,6 +915,48 @@ void GeraNESApp::syncCpuDebugRuntimeState()
         m_showCpuDebuggerWindow = true;
         AppSettings::instance().data.debug.showCpuDebugger = true;
     }
+}
+
+void GeraNESApp::disableCpuDebugging()
+{
+    AppSettings::instance().data.debug.cpuDebuggerEnabled = false;
+    AppSettings::instance().data.debug.showCpuDebugger = false;
+    AppSettings::instance().data.debug.showCpuBreakpoints = false;
+    m_showCpuDebuggerWindow = false;
+    m_showCpuBreakpointsWindow = false;
+    m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
+    m_lastSeenCpuBreakpointSequence = 0;
+
+    m_emu.withExclusiveAccess([](auto& emu) {
+        emu.setDebugBreakpointsArmed(false);
+        emu.clearDebugBreakpointHit();
+    });
+}
+
+void GeraNESApp::requestEnableCpuDebugger()
+{
+    if(isNetplayBlockingCpuDebug()) {
+        disableCpuDebugging();
+        m_pendingEnableCpuDebuggerAfterNetplayDisconnect = true;
+        m_netplayRuntime.disconnect();
+        m_userToast.show("Netplay disconnected so CPU debugger can be enabled");
+        return;
+    }
+
+    AppSettings::instance().data.debug.cpuDebuggerEnabled = true;
+    m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
+    if(m_emu.valid() && !m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+}
+
+bool GeraNESApp::isNetplayBlockingCpuDebug() const
+{
+    const auto snapshot = m_netplayRuntime.uiSnapshot();
+    return snapshot.active ||
+           snapshot.hosting ||
+           snapshot.connected ||
+           snapshot.reconnecting;
 }
 
 void GeraNESApp::createShortcuts()
@@ -2479,7 +2526,6 @@ void GeraNESApp::mainLoop()
     dispatch_queued_calls();
     applyEffectiveRewindSettings();
     pollAndPrepareInput();
-    syncCpuDebugRuntimeState();
 
     m_fpsTimer += dt;
 
@@ -2542,7 +2588,10 @@ void GeraNESApp::mainLoop()
                 netplayPacingOverrideActive,
                 true
             );
-            syncCpuDebugRuntimeState();
+            if(AppSettings::instance().data.debug.cpuDebuggerEnabled ||
+               m_pendingEnableCpuDebuggerAfterNetplayDisconnect) {
+                syncCpuDebugRuntimeState();
+            }
             return;
         }
 
@@ -2578,7 +2627,10 @@ void GeraNESApp::mainLoop()
             render();
         }
     }
-    syncCpuDebugRuntimeState();
+    if(AppSettings::instance().data.debug.cpuDebuggerEnabled ||
+       m_pendingEnableCpuDebuggerAfterNetplayDisconnect) {
+        syncCpuDebugRuntimeState();
+    }
 
     m_frameCounter++;
 }

@@ -208,6 +208,7 @@ private:
     bool m_showLogWindow = false;
     UserToastNotifier m_userToast;
     uint64_t m_lastSeenCpuBreakpointSequence = 0;
+    bool m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
 
@@ -378,6 +379,9 @@ private:
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
     void syncCpuDebugRuntimeState();
+    void disableCpuDebugging();
+    void requestEnableCpuDebugger();
+    bool isNetplayBlockingCpuDebug() const;
 
     void updateMVP();
     void onLog(const std::string& msg, Logger::Type type);

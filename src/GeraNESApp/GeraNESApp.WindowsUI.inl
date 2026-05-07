@@ -869,15 +869,12 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         netplaySnapshot.reconnecting;
 
     bool debugEnabled = AppSettings::instance().data.debug.cpuDebuggerEnabled;
-    ImGui::BeginDisabled(!hasRomLoaded || debugBlockedByNetplay);
+    ImGui::BeginDisabled(!hasRomLoaded);
     if(ImGui::Checkbox("Enable debugger", &debugEnabled)) {
-        AppSettings::instance().data.debug.cpuDebuggerEnabled = debugEnabled;
-        if(debugEnabled && !m_emu.paused()) {
-            m_emu.togglePaused();
-        } else if(!debugEnabled) {
-            m_emu.withExclusiveAccess([](auto& emu) {
-                emu.clearDebugBreakpointHit();
-            });
+        if(debugEnabled) {
+            requestEnableCpuDebugger();
+        } else {
+            disableCpuDebugging();
             if(m_emu.paused()) {
                 m_emu.togglePaused();
             }
@@ -892,7 +889,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     }
 
     if(debugBlockedByNetplay) {
-        ImGui::TextDisabled("CPU debugging is disabled while netplay is active.");
+        ImGui::TextDisabled("Enabling the CPU debugger disconnects the current netplay session.");
         ImGui::End();
         return;
     }
