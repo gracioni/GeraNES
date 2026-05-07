@@ -1,14 +1,129 @@
 #pragma once
 
+inline void GeraNESApp::fillNoRomStaticFramebuffer()
+{
+    if(m_framebufferUploadCopy.size() != static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)) {
+        m_framebufferUploadCopy.assign(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT), 0u);
+    }
+
+    auto hash32 = [](uint32_t value) -> uint32_t {
+        value ^= value >> 16;
+        value *= 0x7feb352du;
+        value ^= value >> 15;
+        value *= 0x846ca68bu;
+        value ^= value >> 16;
+        return value;
+    };
+
+    const uint32_t tick = static_cast<uint32_t>(SDL_GetTicks());
+    const uint32_t frameSeed = tick / 16u;
+    const uint32_t slowSeed = tick / 61u;
+    const uint32_t coarseSeed = tick / 97u;
+    const int syncBandCenter = static_cast<int>((tick / 4u) % static_cast<uint32_t>(PPU::SCREEN_HEIGHT + 72)) - 36;
+    const int syncBandWidth = 10 + static_cast<int>(hash32(slowSeed ^ 0x2468ace1u) % 8u);
+    const int tearBandA = static_cast<int>(hash32(slowSeed ^ 0x51f2ab13u) % 211u);
+    const int tearBandB = static_cast<int>(hash32(slowSeed ^ 0x9e3779b9u) % 197u);
+    const int tearBandC = static_cast<int>(hash32(slowSeed ^ 0xa24baed4u) % 193u);
+    const int tearOffsetA = static_cast<int>(hash32(frameSeed ^ 0x1b56c4e9u) % 17u) - 8;
+    const int tearOffsetB = static_cast<int>(hash32((frameSeed / 2u) ^ 0x7f4a7c15u) % 13u) - 6;
+    const int tearOffsetC = static_cast<int>(hash32((frameSeed / 3u) ^ 0x52dce729u) % 11u) - 5;
+    const int dropoutBand = static_cast<int>(hash32(slowSeed ^ 0xc13fa9a9u) % 223u);
+    const int vignetteStrength = 10 + static_cast<int>(hash32(coarseSeed ^ 0x31415926u) % 10u);
+
+    for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+        int rowShift = 0;
+        if(y >= tearBandA && y < tearBandA + 3) rowShift = tearOffsetA;
+        if(y >= tearBandB && y < tearBandB + 2) rowShift += tearOffsetB;
+        if(y >= tearBandC && y < tearBandC + 1) rowShift += tearOffsetC;
+
+        const int syncDistance = std::abs(y - syncBandCenter);
+        const int syncBoost = std::max(0, 56 - (syncDistance * 56) / std::max(1, syncBandWidth));
+        const int scanlineBias = (y & 1) == 0 ? 7 : -9;
+        const int rowDropout = (y >= dropoutBand && y < dropoutBand + 2) ? -34 : 0;
+        uint32_t* dstRow = m_framebufferUploadCopy.data() + static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
+
+        for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
+            const int sampleX = (x + rowShift + PPU::SCREEN_WIDTH) % PPU::SCREEN_WIDTH;
+            const uint32_t fineNoise = hash32(
+                static_cast<uint32_t>(sampleX) * 73856093u ^
+                static_cast<uint32_t>(y) * 19349663u ^
+                frameSeed * 83492791u
+            );
+            const uint32_t coarseNoise = hash32(
+                static_cast<uint32_t>(sampleX >> 2) * 2654435761u ^
+                static_cast<uint32_t>(y >> 1) * 2246822519u ^
+                coarseSeed * 3266489917u
+            );
+            const uint32_t cloudNoise = hash32(
+                static_cast<uint32_t>(sampleX / 9) * 1597334677u ^
+                static_cast<uint32_t>(y / 7) * 3812015801u ^
+                slowSeed * 668265263u
+            );
+            const uint32_t streakNoise = hash32(
+                static_cast<uint32_t>(sampleX / 20) * 122949829u ^
+                static_cast<uint32_t>(y) * 275604541u ^
+                slowSeed * 198491317u
+            );
+
+            const uint32_t previousPixel = dstRow[x];
+            const int previousLuma =
+                (static_cast<int>(previousPixel & 0xFFu) +
+                 static_cast<int>((previousPixel >> 8) & 0xFFu) +
+                 static_cast<int>((previousPixel >> 16) & 0xFFu)) / 3;
+
+            int value = 92;
+            value += static_cast<int>((fineNoise >> 24) & 0xFF) - 128;
+            value += (static_cast<int>((coarseNoise >> 24) & 0xFF) - 128) / 3;
+            value += (static_cast<int>((cloudNoise >> 24) & 0xFF) - 128) / 5;
+            value += (static_cast<int>((streakNoise >> 24) & 0xFF) - 128) / 6;
+            value += syncBoost;
+            value += scanlineBias;
+            value += rowDropout;
+
+            const int edgeFalloffX = std::abs(x - (PPU::SCREEN_WIDTH / 2));
+            const int edgeFalloffY = std::abs(y - (PPU::SCREEN_HEIGHT / 2));
+            value -= (edgeFalloffX * vignetteStrength) / 256;
+            value -= (edgeFalloffY * vignetteStrength) / 220;
+
+            if((fineNoise & 0x1ffu) == 0u) value += 95;
+            if(((coarseNoise >> 8) & 0x3ffu) < 3u) value -= 55;
+            if(((streakNoise >> 11) & 0xffu) > 244u) value += 24;
+
+            // Blend with the previous idle frame to create shimmer instead of full random replacement.
+            value = (value * 7 + previousLuma * 5) / 12;
+
+            value = std::clamp(value, 0, 255);
+
+            const uint8_t base = static_cast<uint8_t>(value);
+            const uint8_t red = static_cast<uint8_t>(std::clamp(value - 11 + static_cast<int>((cloudNoise >> 9) & 0x7), 0, 255));
+            const uint8_t green = static_cast<uint8_t>(std::clamp(value + static_cast<int>((fineNoise >> 13) & 0x7) - 4, 0, 255));
+            const uint8_t blue = static_cast<uint8_t>(std::clamp(value + 10 + static_cast<int>((coarseNoise >> 17) & 0x7), 0, 255));
+
+            dstRow[x] = 0xFF000000u |
+                        static_cast<uint32_t>(red) |
+                        (static_cast<uint32_t>(green) << 8) |
+                        (static_cast<uint32_t>(blue) << 16);
+
+            if(base > 248 && ((fineNoise >> 5) & 0x3u) == 0u && x + 1 < PPU::SCREEN_WIDTH) {
+                dstRow[x + 1] = dstRow[x];
+            }
+        }
+    }
+}
+
 inline void GeraNESApp::render()
 {
-    m_emu.copyFramebuffer(m_framebufferUploadCopy);
-    if(m_framebufferUploadCopy.size() < PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) return;
-
     const int textureWidth = 256;
     const int textureHeight = 256;
     const int activeTop = m_clipHeightValue;
     const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
+
+    if(!m_emu.valid()) {
+        fillNoRomStaticFramebuffer();
+    } else {
+        m_emu.copyFramebuffer(m_framebufferUploadCopy);
+    }
+    if(m_framebufferUploadCopy.size() < PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) return;
 
     if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight)) {
         m_textureUploadBuffer.assign(static_cast<size_t>(textureWidth * textureHeight), 0u);

@@ -382,6 +382,7 @@ private:
     void disableCpuDebugging();
     void requestEnableCpuDebugger();
     bool isNetplayBlockingCpuDebug() const;
+    void fillNoRomStaticFramebuffer();
 
     void updateMVP();
     void onLog(const std::string& msg, Logger::Type type);
