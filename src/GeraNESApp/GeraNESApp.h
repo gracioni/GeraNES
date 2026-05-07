@@ -324,6 +324,8 @@ private:
     std::vector<ShaderItem> shaderList;
     int m_selectedAvailableShaderIndex = 0;
     int m_selectedShaderStackIndex = -1;
+    std::string m_selectedShaderPresetName = "";
+    std::string m_shaderPresetNameInput = "";
     std::vector<PaletteItem> m_paletteList;
     std::array<uint32_t, 64> m_editPalette = {};
     std::string m_selectedPaletteName = "";

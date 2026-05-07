@@ -114,6 +114,7 @@ public:
         int filterMode = 0;
         std::string shaderName = "";
         std::vector<ShaderPass> shaderStack;
+        std::map<std::string, std::vector<ShaderPass>> shaderPresets;
         int scaleMode = 0;
         int pixelPerfectScale = 3;
         bool horizontalStretch = false;
@@ -128,6 +129,7 @@ public:
                 {"filterMode", value.filterMode},
                 {"shaderName", value.shaderName},
                 {"shaderStack", value.shaderStack},
+                {"shaderPresets", value.shaderPresets},
                 {"scaleMode", value.scaleMode},
                 {"pixelPerfectScale", value.pixelPerfectScale},
                 {"horizontalStretch", value.horizontalStretch},
@@ -144,6 +146,7 @@ public:
             value.filterMode = j.value("filterMode", defaults.filterMode);
             value.shaderName = defaults.shaderName;
             value.shaderStack.clear();
+            value.shaderPresets.clear();
             if(j.contains("shaderStack") && j["shaderStack"].is_array()) {
                 bool validShaderStack = true;
                 for(const auto& item : j["shaderStack"]) {
@@ -159,6 +162,25 @@ public:
                 } else {
                     value.shaderStack.clear();
                     value.shaderName.clear();
+                }
+            }
+            if(j.contains("shaderPresets") && j["shaderPresets"].is_object()) {
+                for(const auto& [presetName, presetValue] : j["shaderPresets"].items()) {
+                    if(presetName.empty() || !presetValue.is_array()) continue;
+
+                    std::vector<ShaderPass> presetStack;
+                    bool validPreset = true;
+                    for(const auto& item : presetValue) {
+                        if(item.is_object()) {
+                            presetStack.push_back(item.get<ShaderPass>());
+                        } else {
+                            validPreset = false;
+                            break;
+                        }
+                    }
+                    if(validPreset) {
+                        value.shaderPresets[presetName] = std::move(presetStack);
+                    }
                 }
             }
             value.horizontalStretch = j.value("horizontalStretch", defaults.horizontalStretch);

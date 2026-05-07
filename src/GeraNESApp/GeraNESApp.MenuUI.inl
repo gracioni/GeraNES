@@ -1119,7 +1119,9 @@ inline void GeraNESApp::drawShaderStackWindow()
         return;
     }
 
-    auto& shaderStack = AppSettings::instance().data.video.shaderStack;
+    auto& video = AppSettings::instance().data.video;
+    auto& shaderStack = video.shaderStack;
+    auto& shaderPresets = video.shaderPresets;
     if(shaderList.empty()) {
         ImGui::TextDisabled("No .glsl shader files found in shaders/.");
         ImGui::TextDisabled("Drop .glsl files there and reopen this window.");
@@ -1135,6 +1137,89 @@ inline void GeraNESApp::drawShaderStackWindow()
             m_selectedShaderStackIndex = static_cast<int>(shaderStack.size()) - 1;
         }
     }
+
+    if(!m_selectedShaderPresetName.empty() && shaderPresets.find(m_selectedShaderPresetName) == shaderPresets.end()) {
+        m_selectedShaderPresetName.clear();
+    }
+    if(m_selectedShaderPresetName.empty() && !shaderPresets.empty()) {
+        m_selectedShaderPresetName = shaderPresets.begin()->first;
+    }
+    if(m_shaderPresetNameInput.empty() && !m_selectedShaderPresetName.empty()) {
+        m_shaderPresetNameInput = m_selectedShaderPresetName;
+    }
+
+    auto trimPresetName = [](std::string name) {
+        const size_t first = name.find_first_not_of(" \t\r\n");
+        if(first == std::string::npos) return std::string{};
+        const size_t last = name.find_last_not_of(" \t\r\n");
+        return name.substr(first, last - first + 1);
+    };
+    auto applyPresetSelection = [this](const std::string& name) {
+        m_selectedShaderPresetName = name;
+        m_shaderPresetNameInput = name;
+    };
+
+    ImGui::SetNextItemWidth(220.0f);
+    ImGui::InputTextWithHint("##ShaderPresetName", "Preset name", &m_shaderPresetNameInput);
+    ImGui::SameLine();
+    if(ImGui::Button("Save Preset")) {
+        const std::string presetName = trimPresetName(m_shaderPresetNameInput);
+        if(presetName.empty()) {
+            Logger::instance().log("Preset name cannot be empty.", Logger::Type::USER);
+        } else {
+            shaderPresets[presetName] = shaderStack;
+            applyPresetSelection(presetName);
+            AppSettings::instance().save();
+            Logger::instance().log("Shader preset saved: " + presetName, Logger::Type::USER);
+        }
+    }
+    ImGui::SameLine();
+    const std::string presetPreview = m_selectedShaderPresetName.empty() ? "Load preset..." : m_selectedShaderPresetName;
+    ImGui::SetNextItemWidth(220.0f);
+    if(ImGui::BeginCombo("##ShaderPresetList", presetPreview.c_str())) {
+        for(const auto& [presetName, presetStack] : shaderPresets) {
+            (void)presetStack;
+            const bool selected = presetName == m_selectedShaderPresetName;
+            if(ImGui::Selectable(presetName.c_str(), selected)) {
+                applyPresetSelection(presetName);
+            }
+            if(selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    const bool hasSelectedPreset = !m_selectedShaderPresetName.empty();
+    if(!hasSelectedPreset) ImGui::BeginDisabled();
+    if(ImGui::Button("Load Preset")) {
+        const auto presetIt = shaderPresets.find(m_selectedShaderPresetName);
+        if(presetIt != shaderPresets.end()) {
+            shaderStack = presetIt->second;
+            m_selectedShaderStackIndex = shaderStack.empty() ? -1 : 0;
+            updateShaderConfig();
+            AppSettings::instance().save();
+            Logger::instance().log("Shader preset loaded: " + m_selectedShaderPresetName, Logger::Type::USER);
+        }
+    }
+    if(!hasSelectedPreset) ImGui::EndDisabled();
+    ImGui::SameLine();
+    if(!hasSelectedPreset) ImGui::BeginDisabled();
+    if(ImGui::Button("Delete Preset")) {
+        const std::string presetName = m_selectedShaderPresetName;
+        if(!presetName.empty()) {
+            shaderPresets.erase(presetName);
+            if(shaderPresets.empty()) {
+                m_selectedShaderPresetName.clear();
+                m_shaderPresetNameInput.clear();
+            } else {
+                applyPresetSelection(shaderPresets.begin()->first);
+            }
+            AppSettings::instance().save();
+            Logger::instance().log("Shader preset deleted: " + presetName, Logger::Type::USER);
+        }
+    }
+    if(!hasSelectedPreset) ImGui::EndDisabled();
+
+    ImGui::Separator();
 
     ImGui::BeginChild("AvailableShaders", ImVec2(280.0f, 0.0f), true);
     ImGui::TextUnformatted("Available");
