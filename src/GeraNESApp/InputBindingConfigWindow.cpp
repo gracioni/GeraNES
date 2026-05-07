@@ -7,6 +7,7 @@
 #include "imgui_util.h"
 #include "util/sdl_util.h"
 
+#include "GeraNESApp/ImGuiTheme.h"
 #include "GeraNESApp/InputManager.h"
 
 void InputBindingConfigWindow::startCapture(int index)
@@ -103,7 +104,9 @@ void InputBindingConfigWindow::update()
         if(ImGui::BeginTable("InputBindingTable", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)) {
             ImGui::TableSetupColumn("Button");
             ImGui::TableSetupColumn("Input");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
             ImGui::TableHeadersRow();
+            ImGui::PopStyleColor();
 
             for(int i = 0; i < static_cast<int>(m_inputInfo->bindingCount()); i++) {
                 ImGui::TableNextRow();

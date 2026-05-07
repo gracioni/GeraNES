@@ -6,7 +6,7 @@ inline void GeraNESApp::menuBar() {
     const bool netplayClientRestricted = isNetplayClientRestricted();
     const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
     const bool usingCustomChrome = useCustomWindowChrome();
-    const ImVec4 menuBarColor(0.38f, 0.40f, 0.44f, 1.0f);
+    const ImVec4 menuBarColor = ImGuiTheme::chromeMenuBar();
     bool menuBarVisible = false;
     bool menuHostBegun = false;
 
@@ -44,7 +44,7 @@ inline void GeraNESApp::menuBar() {
     if(menuBarVisible) {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
         auto beginTopMenu = [](const char* label, bool enabled = true) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
             const bool open = ImGui::BeginMenu(label, enabled);
             ImGui::PopStyleColor();
             return open;
@@ -882,6 +882,20 @@ inline void GeraNESApp::menuBar() {
 
         if (beginTopMenu("Tools"))
         {
+            if (ImGui::MenuItem("Log"))
+            {
+                m_showLogWindow = true;
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Netplay"))
+            {
+                m_showNetplayWindow = true;
+            }
+
+            ImGui::Separator();
+
             if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow)) {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }
@@ -906,16 +920,6 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem("Log"))
-            {
-                m_showLogWindow = true;
-            }
-
-            if (ImGui::MenuItem("Netplay"))
-            {
-                m_showNetplayWindow = true;
-            }
-
             if (ImGui::BeginMenu("Advanced"))
             {
                 if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
@@ -928,7 +932,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
         if (ImGui::MenuItem("About"))
         {
             m_showAboutWindow = true;
@@ -1297,8 +1301,10 @@ inline void GeraNESApp::drawPpuViewerWindow()
     constexpr int kNametableHeight = 480;
     constexpr int kChrWidth = 256;
     constexpr int kChrHeight = 128;
+    constexpr float kPaletteSwatchSize = 18.0f;
+    constexpr float kPaletteSwatchSpacing = 4.0f;
 
-    ImGui::SetNextWindowSize(ImVec2(980.0f, 860.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(1080.0f, 650.0f), ImGuiCond_Appearing);
 
     if(!ImGui::Begin("PPU Viewer", &m_showPpuViewerWindow)) {
         ImGui::End();
@@ -1443,6 +1449,40 @@ inline void GeraNESApp::drawPpuViewerWindow()
     ImGui::Text("Scroll: X=%d  Y=%d", scrollX, scrollY);
     ImGui::SameLine();
     ImGui::TextDisabled("Background pattern table: $%04X", backgroundPatternTableAddress);
+    ImGui::Spacing();
+
+    auto drawPaletteStrip = [&](const char* label, int paletteBaseIndex, int displayBaseAddress) {
+        ImGui::BeginGroup();
+        ImGui::Text("%s $%04X", label, displayBaseAddress);
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+
+        for(int i = 0; i < 4; ++i) {
+            const uint8_t paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(paletteBaseIndex + i)] & 0x3F);
+            const ImVec2 swatchMin(start.x + i * (kPaletteSwatchSize + kPaletteSwatchSpacing), start.y);
+            const ImVec2 swatchMax(swatchMin.x + kPaletteSwatchSize, swatchMin.y + kPaletteSwatchSize);
+            drawList->AddRectFilled(swatchMin, swatchMax, colorForPaletteEntry(paletteEntry), 3.0f);
+            drawList->AddRect(swatchMin, swatchMax, ImGuiTheme::toU32(ImGuiTheme::textDisabled()), 3.0f);
+        }
+
+        ImGui::Dummy(ImVec2((kPaletteSwatchSize * 4.0f) + (kPaletteSwatchSpacing * 3.0f), kPaletteSwatchSize));
+        ImGui::EndGroup();
+    };
+
+    ImGui::TextUnformatted("PPU Palettes");
+    for(int paletteIndex = 0; paletteIndex < 4; ++paletteIndex) {
+        if(paletteIndex > 0) {
+            ImGui::SameLine();
+        }
+        drawPaletteStrip(("BG " + std::to_string(paletteIndex)).c_str(), paletteIndex * 4, 0x3F00 + paletteIndex * 4);
+    }
+    ImGui::NewLine();
+    for(int paletteIndex = 0; paletteIndex < 4; ++paletteIndex) {
+        if(paletteIndex > 0) {
+            ImGui::SameLine();
+        }
+        drawPaletteStrip(("SPR " + std::to_string(paletteIndex)).c_str(), 0x10 + paletteIndex * 4, 0x3F10 + paletteIndex * 4);
+    }
     ImGui::Separator();
 
     if(ImGui::BeginChild("PpuViewerScroll", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
@@ -1462,15 +1502,59 @@ inline void GeraNESApp::drawPpuViewerWindow()
         drawList->AddLine(
             ImVec2(imageMin.x, imageMin.y + clampedScrollY),
             ImVec2(imageMax.x, imageMin.y + clampedScrollY),
-            IM_COL32(255, 64, 64, 255),
+            ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
             1.0f
         );
         drawList->AddLine(
             ImVec2(imageMin.x + clampedScrollX, imageMin.y),
             ImVec2(imageMin.x + clampedScrollX, imageMax.y),
-            IM_COL32(255, 64, 64, 255),
+            ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
             1.0f
         );
+
+        const ImVec2 mousePos = ImGui::GetIO().MousePos;
+        if(ImGui::IsItemHovered()) {
+            const int hoveredX = std::clamp(static_cast<int>(mousePos.x - imageMin.x), 0, kNametableWidth - 1);
+            const int hoveredY = std::clamp(static_cast<int>(mousePos.y - imageMin.y), 0, kNametableHeight - 1);
+            const int tileX = hoveredX / 8;
+            const int tileY = hoveredY / 8;
+            const int nameTableIndex = (tileY >= 30 ? 2 : 0) + (tileX >= 32 ? 1 : 0);
+            const int localTileX = tileX % 32;
+            const int localTileY = tileY % 30;
+            const uint16_t tileAddress = static_cast<uint16_t>(0x2000 + nameTableIndex * 0x400 + localTileY * 32 + localTileX);
+            const int nameTableBase = nameTableIndex * 0x400;
+            const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((localTileY >> 2) * 8) + (localTileX >> 2))];
+            const int attrShift = ((localTileY & 0x02) << 1) | (localTileX & 0x02);
+            const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
+
+            const ImVec2 tileMin(imageMin.x + tileX * 8.0f, imageMin.y + tileY * 8.0f);
+            const ImVec2 tileMax(tileMin.x + 8.0f, tileMin.y + 8.0f);
+            drawList->AddRect(tileMin, tileMax, ImGuiTheme::toU32(ImGuiTheme::eventWrite()), 0.0f, 0, 2.0f);
+
+            ImGui::BeginTooltip();
+            ImGui::Text("Nametable tile");
+            ImGui::Text("Tile: (%d, %d)", tileX, tileY);
+            ImGui::Text("Nametable addr: $%04X", static_cast<unsigned int>(tileAddress));
+            ImGui::Text("Tile index: $%02X", static_cast<unsigned int>(nametableData[static_cast<size_t>(tileAddress - 0x2000)]));
+            ImGui::Text("BG palette: %u ($3F%02X-$3F%02X)",
+                        static_cast<unsigned int>(paletteIndex),
+                        static_cast<unsigned int>(paletteIndex * 4),
+                        static_cast<unsigned int>(paletteIndex * 4 + 3));
+            ImGui::Separator();
+            for(int i = 0; i < 4; ++i) {
+                if(i > 0) {
+                    ImGui::SameLine();
+                }
+                const int paletteOffset = static_cast<int>(paletteIndex) * 4 + i;
+                const uint8_t paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(paletteOffset)] & 0x3F);
+                const ImVec2 swatchMin = ImGui::GetCursorScreenPos();
+                const ImVec2 swatchMax(swatchMin.x + 16.0f, swatchMin.y + 16.0f);
+                ImGui::Dummy(ImVec2(16.0f, 16.0f));
+                ImGui::GetWindowDrawList()->AddRectFilled(swatchMin, swatchMax, colorForPaletteEntry(paletteEntry), 2.0f);
+                ImGui::GetWindowDrawList()->AddRect(swatchMin, swatchMax, ImGuiTheme::toU32(ImGuiTheme::textDisabled()), 2.0f);
+            }
+            ImGui::EndTooltip();
+        }
         ImGui::EndGroup();
 
         ImGui::SameLine();
@@ -1482,6 +1566,29 @@ inline void GeraNESApp::drawPpuViewerWindow()
             static_cast<ImTextureID>(static_cast<uintptr_t>(m_ppuChrTexture)),
             ImVec2(static_cast<float>(kChrWidth * 2), static_cast<float>(kChrHeight * 2))
         );
+
+        const ImVec2 chrImageMin = ImGui::GetItemRectMin();
+        if(ImGui::IsItemHovered()) {
+            const int hoveredX = std::clamp(static_cast<int>((ImGui::GetIO().MousePos.x - chrImageMin.x) / 2.0f), 0, kChrWidth - 1);
+            const int hoveredY = std::clamp(static_cast<int>((ImGui::GetIO().MousePos.y - chrImageMin.y) / 2.0f), 0, kChrHeight - 1);
+            const int tileX = hoveredX / 8;
+            const int tileY = hoveredY / 8;
+            const int tableIndex = tileX >= 16 ? 1 : 0;
+            const int localTileX = tileX % 16;
+            const int tileIndex = tileY * 16 + localTileX;
+            const uint16_t tileAddress = static_cast<uint16_t>(tableIndex * 0x1000 + tileIndex * 16);
+
+            const ImVec2 tileMin(chrImageMin.x + tileX * 16.0f, chrImageMin.y + tileY * 16.0f);
+            const ImVec2 tileMax(tileMin.x + 16.0f, tileMin.y + 16.0f);
+            drawList->AddRect(tileMin, tileMax, ImGuiTheme::toU32(ImGuiTheme::eventWrite()), 0.0f, 0, 2.0f);
+
+            ImGui::BeginTooltip();
+            ImGui::Text("CHR tile");
+            ImGui::Text("Tile: (%d, %d)", tileX, tileY);
+            ImGui::Text("Tile index: $%02X", static_cast<unsigned int>(tileIndex));
+            ImGui::Text("Pattern addr: $%04X", static_cast<unsigned int>(tileAddress));
+            ImGui::EndTooltip();
+        }
         ImGui::EndGroup();
     }
     ImGui::EndChild();
@@ -1639,7 +1746,9 @@ inline void GeraNESApp::drawEventViewerWindow()
 
                 const int x = std::clamp(static_cast<int>(event.cycle), 0, kEventWidth - 1);
                 const int y = std::clamp(static_cast<int>(event.scanline), 0, kEventHeight - 1);
-                const ImU32 color = event.isWrite ? IM_COL32(255, 64, 64, 255) : IM_COL32(64, 200, 255, 255);
+                const ImU32 color = event.isWrite
+                    ? ImGuiTheme::toU32(ImGuiTheme::eventWrite())
+                    : ImGuiTheme::toU32(ImGuiTheme::info());
                 const ImVec2 center(
                     imageMin.x + (static_cast<float>(x) + 0.5f) * kScale,
                     imageMin.y + (static_cast<float>(y) + 0.5f) * kScale
@@ -1666,7 +1775,7 @@ inline void GeraNESApp::drawEventViewerWindow()
                         imageMin.x + (static_cast<float>(x) + 0.5f) * kScale,
                         imageMin.y + (static_cast<float>(y) + 0.5f) * kScale
                     );
-                    drawList->AddCircle(center, kEventHitRadius, IM_COL32(255, 255, 0, 255), 0, 2.0f);
+                    drawList->AddCircle(center, kEventHitRadius, ImGuiTheme::toU32(ImGuiTheme::warning()), 0, 2.0f);
                 }
             }
 
@@ -1705,7 +1814,7 @@ inline void GeraNESApp::drawEventViewerWindow()
         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("Scanline", ImGuiTableColumnFlags_WidthFixed, 72.0f);
         ImGui::TableSetupColumn("Cycle", ImGuiTableColumnFlags_WidthFixed, 58.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
         ImGui::TableHeadersRow();
         ImGui::PopStyleColor();
 

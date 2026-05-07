@@ -25,7 +25,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 8.0f));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.82f, 0.82f, 0.79f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGuiTheme::windowBg());
 
     if(ImGui::Begin(
         "##GeraNESCustomChrome",
@@ -112,7 +112,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
             resetButtonMin.x + controlButtonWidth + 22.0f,
             winPos.y + (titleBarHeight - titleTextSize.y) * 0.5f - 1.0f
         );
-        const ImU32 titleColor = IM_COL32(176, 38, 38, 255);
+        const ImU32 titleColor = ImGuiTheme::toU32(ImGuiTheme::accentActive());
         drawList->AddText(ImVec2(titlePos.x, titlePos.y), titleColor, chromeTitle.c_str());
 
         ImGui::SetCursorScreenPos(ImVec2(winPos.x + controlsLeft + controlsWidth + 24.0f, winPos.y + 6.0f));
@@ -144,30 +144,94 @@ inline void GeraNESApp::drawCustomWindowChrome()
         }
 
         ImGui::SetCursorScreenPos(ImVec2(winPos.x + winSize.x - buttonRowWidth - rightInset, winPos.y + 10.0f));
-        auto chromeButton = [&](const char* id, const char* label, const ImVec4& color) -> bool {
+        enum class ChromeCaptionButtonIcon {
+            Minimize,
+            Maximize,
+            Restore,
+            Close
+        };
+        auto chromeButton = [&](const char* id, ChromeCaptionButtonIcon icon, const ImVec4& color) -> bool {
             ImGui::PushStyleColor(ImGuiCol_Button, color);
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x + 0.08f, color.y + 0.08f, color.z + 0.08f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(std::max(0.0f, color.x - 0.06f), std::max(0.0f, color.y - 0.06f), std::max(0.0f, color.z - 0.06f), 1.0f));
             const bool pressed = ImGui::Button(id, ImVec2(buttonWidth, buttonHeight));
             const ImVec2 min = ImGui::GetItemRectMin();
             const ImVec2 max = ImGui::GetItemRectMax();
-            const ImVec2 size = ImGui::CalcTextSize(label);
-            drawList->AddText(ImVec2(min.x + (buttonWidth - size.x) * 0.5f, min.y + (buttonHeight - size.y) * 0.5f - 1.0f), IM_COL32(248, 248, 248, 255), label);
+            const ImU32 iconColor = IM_COL32(248, 248, 248, 255);
+            const float stroke = 1.2f;
+            const ImVec2 center(min.x + buttonWidth * 0.5f, min.y + buttonHeight * 0.5f);
+
+            switch(icon) {
+                case ChromeCaptionButtonIcon::Minimize:
+                    drawList->AddLine(
+                        ImVec2(center.x - 5.0f, center.y + 4.0f),
+                        ImVec2(center.x + 5.0f, center.y + 4.0f),
+                        iconColor,
+                        stroke
+                    );
+                    break;
+                case ChromeCaptionButtonIcon::Maximize:
+                    drawList->AddRect(
+                        ImVec2(center.x - 5.0f, center.y - 5.0f),
+                        ImVec2(center.x + 5.0f, center.y + 5.0f),
+                        iconColor,
+                        0.0f,
+                        0,
+                        stroke
+                    );
+                    break;
+                case ChromeCaptionButtonIcon::Restore:
+                    drawList->AddRect(
+                        ImVec2(center.x - 4.0f, center.y - 2.0f),
+                        ImVec2(center.x + 2.0f, center.y + 4.0f),
+                        iconColor,
+                        0.0f,
+                        0,
+                        stroke
+                    );
+                    drawList->AddLine(
+                        ImVec2(center.x - 1.0f, center.y - 5.0f),
+                        ImVec2(center.x + 4.0f, center.y - 5.0f),
+                        iconColor,
+                        stroke
+                    );
+                    drawList->AddLine(
+                        ImVec2(center.x + 4.0f, center.y - 5.0f),
+                        ImVec2(center.x + 4.0f, center.y + 0.0f),
+                        iconColor,
+                        stroke
+                    );
+                    break;
+                case ChromeCaptionButtonIcon::Close:
+                    drawList->AddLine(
+                        ImVec2(center.x - 4.5f, center.y - 4.5f),
+                        ImVec2(center.x + 4.5f, center.y + 4.5f),
+                        iconColor,
+                        stroke
+                    );
+                    drawList->AddLine(
+                        ImVec2(center.x + 4.5f, center.y - 4.5f),
+                        ImVec2(center.x - 4.5f, center.y + 4.5f),
+                        iconColor,
+                        stroke
+                    );
+                    break;
+            }
             drawList->AddRect(min, max, IM_COL32(35, 35, 35, 160), 4.0f);
             ImGui::PopStyleColor(3);
             return pressed;
         };
 
-        if(chromeButton("##ChromeMinimize", "-", ImVec4(0.38f, 0.40f, 0.44f, 1.0f))) {
+        if(chromeButton("##ChromeMinimize", ChromeCaptionButtonIcon::Minimize, ImGuiTheme::chromeButton())) {
             minimizeWindow();
         }
         ImGui::SameLine(0.0f, buttonSpacing);
-        if(chromeButton("##ChromeMaximize", isMaximized() ? "o" : "+", ImVec4(0.45f, 0.47f, 0.50f, 1.0f))) {
+        if(chromeButton("##ChromeMaximize", isMaximized() ? ChromeCaptionButtonIcon::Restore : ChromeCaptionButtonIcon::Maximize, ImGuiTheme::chromeButtonAlt())) {
             if(isMaximized()) restoreWindow();
             else maximizeWindow();
         }
         ImGui::SameLine(0.0f, buttonSpacing);
-        if(chromeButton("##ChromeClose", "x", ImVec4(0.70f, 0.18f, 0.18f, 1.0f))) {
+        if(chromeButton("##ChromeClose", ChromeCaptionButtonIcon::Close, ImGuiTheme::chromeCloseButton())) {
             quit();
         }
     }
@@ -359,8 +423,8 @@ inline void GeraNESApp::showGui()
         }
         else {
                 const ImVec4 statusColor = m_romDbEditor.foundInDatabase
-                    ? ImVec4(0.20f, 0.45f, 0.20f, 1.0f)
-                    : ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive);
+                    ? ImGuiTheme::success()
+                    : ImGuiTheme::accentActive();
                 ImGui::TextColored(statusColor, "%s", m_romDbEditor.statusMessage.c_str());
                 ImGui::Separator();
 
@@ -760,7 +824,7 @@ inline void DrawCpuBreakpointHitSummary(const GeraNESEmu::DebugBreakpointHit& hi
         return;
     }
 
-    ImGui::TextColored(ImVec4(0.72f, 0.16f, 0.16f, 1.0f), "%s", hit.reason.c_str());
+    ImGui::TextColored(ImGuiTheme::accent(), "%s", hit.reason.c_str());
     if(hit.hasAddress) {
         ImGui::Text(
             "%s $%04X = %02X  Frame %u  CPU %u  PPU %d,%d",
@@ -932,7 +996,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         for(const CPU2A03DebugLine& line : disassembly) {
             if(line.isCurrent) {
                 ImGui::TextColored(
-                    ImVec4(0.72f, 0.16f, 0.16f, 1.0f),
+                    ImGuiTheme::accent(),
                     "> %04X  %-8s  %s",
                     line.address,
                     line.bytes.c_str(),

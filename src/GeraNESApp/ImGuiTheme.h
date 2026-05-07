@@ -2,6 +2,98 @@
 
 #include "imgui_include.h"
 
+namespace ImGuiTheme {
+inline ImVec4 text()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+}
+
+inline ImVec4 textDisabled()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+}
+
+inline ImVec4 textOnAccent()
+{
+    return ImVec4(0.95f, 0.95f, 0.96f, 1.0f);
+}
+
+inline ImVec4 windowBg()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+}
+
+inline ImVec4 accent()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_Header);
+}
+
+inline ImVec4 accentHovered()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered);
+}
+
+inline ImVec4 accentActive()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive);
+}
+
+inline ImVec4 tableHeaderBg()
+{
+    return ImGui::GetStyleColorVec4(ImGuiCol_TableHeaderBg);
+}
+
+inline ImVec4 chromeMenuBar()
+{
+    return ImVec4(0.38f, 0.40f, 0.44f, 1.0f);
+}
+
+inline ImVec4 chromeButton()
+{
+    return ImVec4(0.38f, 0.40f, 0.44f, 1.0f);
+}
+
+inline ImVec4 chromeButtonAlt()
+{
+    return ImVec4(0.45f, 0.47f, 0.50f, 1.0f);
+}
+
+inline ImVec4 chromeCloseButton()
+{
+    return ImVec4(0.70f, 0.18f, 0.18f, 1.0f);
+}
+
+inline ImVec4 success()
+{
+    return ImVec4(0.20f, 0.45f, 0.20f, 1.0f);
+}
+
+inline ImVec4 warning()
+{
+    return accentActive();
+}
+
+inline ImVec4 error()
+{
+    return ImVec4(0.95f, 0.35f, 0.35f, 1.0f);
+}
+
+inline ImVec4 info()
+{
+    return ImVec4(0.45f, 0.80f, 0.95f, 1.0f);
+}
+
+inline ImVec4 eventWrite()
+{
+    return ImVec4(1.0f, 0.25f, 0.25f, 1.0f);
+}
+
+inline ImU32 toU32(const ImVec4& color)
+{
+    return ImGui::ColorConvertFloat4ToU32(color);
+}
+}
+
 inline void ApplyImGuiTheme()
 {
     ImGui::StyleColorsLight();
@@ -58,7 +150,7 @@ inline void ApplyImGuiTheme()
     colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.82f, 0.22f, 0.22f, 0.70f);
     colors[ImGuiCol_ResizeGripActive] = ImVec4(0.88f, 0.28f, 0.28f, 0.90f);
     colors[ImGuiCol_Tab] = ImVec4(0.69f, 0.69f, 0.66f, 1.00f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.77f, 0.77f, 0.74f, 1.00f);
+    colors[ImGuiCol_TabHovered] = colors[ImGuiCol_HeaderHovered];
     colors[ImGuiCol_TabActive] = ImVec4(0.78f, 0.24f, 0.24f, 0.92f);
     colors[ImGuiCol_TabUnfocused] = ImVec4(0.67f, 0.67f, 0.64f, 1.00f);
     colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.72f, 0.72f, 0.69f, 1.00f);

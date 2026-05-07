@@ -11,6 +11,7 @@
 
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/EmscriptenUtil.h"
+#include "GeraNESApp/ImGuiTheme.h"
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/GeraNESNetplayAssignmentHelpers.h"
@@ -248,7 +249,7 @@ void drawNetplayWindow(bool& showWindow,
             ImGui::TextWrapped("Leave the password empty to create a public room.");
         }
         if(!signalingConfig.valid()) {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Configure signaling URL and room id for WebRTC.");
+            ImGui::TextColored(ImGuiTheme::accentActive(), "Configure signaling URL and room id for WebRTC.");
         } else if(!(hostMode && cfg.useEmbeddedSignalingServer)) {
             ImGui::TextWrapped("Manual signaling will use %s (room %s).", cfg.signalingUrl.c_str(), cfg.signalingRoomId.c_str());
         }
@@ -479,7 +480,7 @@ void drawNetplayWindow(bool& showWindow,
 
     if(snapshot.reconnecting) {
         ImGui::TextColored(
-            ImVec4(0.95f, 0.8f, 0.35f, 1.0f),
+            ImGuiTheme::accentActive(),
             "Reconnecting to host... %us",
             static_cast<unsigned>(snapshot.reconnectSecondsRemaining)
         );
@@ -490,14 +491,14 @@ void drawNetplayWindow(bool& showWindow,
     } else if(connecting) {
         if(usingWebRtc) {
             ImGui::TextColored(
-                ImVec4(0.45f, 0.8f, 0.95f, 1.0f),
+                ImGuiTheme::info(),
                 "Joining room %s via %s...",
                 cfg.signalingRoomId.c_str(),
                 cfg.signalingUrl.c_str()
             );
         } else {
             ImGui::TextColored(
-                ImVec4(0.45f, 0.8f, 0.95f, 1.0f),
+                ImGuiTheme::info(),
                 "Trying to connect to %s:%d...",
                 cfg.hostName.c_str(),
                 cfg.port
@@ -534,7 +535,7 @@ void drawNetplayWindow(bool& showWindow,
                 }
                 ImGui::EndDisabled();
                 if(!canHost) {
-                    ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "Load a ROM before creating a room.");
+                    ImGui::TextColored(ImGuiTheme::accentActive(), "Load a ROM before creating a room.");
                 }
                 ImGui::EndTabItem();
             }
@@ -632,7 +633,7 @@ void drawNetplayWindow(bool& showWindow,
                              ImVec2(520.0f, roomTableHeight))) {
             ImGui::TableSetupColumn("Room");
             ImGui::TableSetupColumn("Has Password", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
             ImGui::TableHeadersRow();
             ImGui::PopStyleColor();
 
@@ -715,7 +716,7 @@ void drawNetplayWindow(bool& showWindow,
 
     if(!snapshot.lastError.empty()) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.3f, 1.0f), "%s", snapshot.lastError.c_str());
+        ImGui::TextColored(ImGuiTheme::error(), "%s", snapshot.lastError.c_str());
     }
 
     if(ImGui::CollapsingHeader("Session##NetplaySession")) {
@@ -930,13 +931,13 @@ void drawNetplayWindow(bool& showWindow,
         }
         ImGui::EndDisabled();
         if(!snapshot.sessionBlockedReason.empty()) {
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "%s", snapshot.sessionBlockedReason.c_str());
+            ImGui::TextColored(ImGuiTheme::accentActive(), "%s", snapshot.sessionBlockedReason.c_str());
         }
     }
 
     if(room.state == SessionState::Resyncing) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f),
+        ImGui::TextColored(ImGuiTheme::accentActive(),
                            "Resyncing to frame %u. Waiting for %u ACK(s).",
                            room.resyncTargetFrame,
                            room.pendingResyncAckCount);
@@ -1271,7 +1272,7 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::TableSetupColumn("ROM", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Net", ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableSetupColumn("Admin", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.96f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
         ImGui::TableHeadersRow();
         ImGui::PopStyleColor();
 
@@ -1298,9 +1299,9 @@ void drawNetplayWindow(bool& showWindow,
                 const std::string preview = participantAssignmentsLabel(participant, room);
                 const float comboHeight = ImGui::GetFrameHeight();
                 for(PlayerSlot slot : participant.controllerAssignments) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.12f, 0.12f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75f, 0.18f, 0.18f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.90f, 0.22f, 0.22f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGuiTheme::accentActive());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGuiTheme::accentHovered());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGuiTheme::accent());
                     if(ImGui::Button(("X##assignment" + std::to_string(participant.id) + "_" + std::to_string(slot)).c_str(), ImVec2(comboHeight, 0.0f))) {
                         runtime.removeControllerAssignment(participant.id, slot);
                     }
@@ -1328,9 +1329,9 @@ void drawNetplayWindow(bool& showWindow,
                 !participant.romLoaded ? "Not loaded" :
                 participant.romCompatible ? "ROM OK" : "Mismatch";
             ImVec4 romColor =
-                !participant.romLoaded ? ImVec4(0.85f, 0.65f, 0.25f, 1.0f) :
-                participant.romCompatible ? ImVec4(0.35f, 0.9f, 0.35f, 1.0f) :
-                ImVec4(0.95f, 0.35f, 0.35f, 1.0f);
+                !participant.romLoaded ? ImGuiTheme::accentActive() :
+                participant.romCompatible ? ImGuiTheme::success() :
+                ImGuiTheme::error();
             ImGui::TextColored(romColor, "%s", romLabel);
             ImGui::TableNextColumn();
             if(participant.id == snapshot.localParticipantId) {
