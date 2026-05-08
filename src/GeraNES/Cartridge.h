@@ -283,280 +283,475 @@
 class Cartridge
 {
 private:
+    using MapperWritePrgFn = void (*)(BaseMapper*, int, uint8_t);
+    using MapperReadPrgFn = uint8_t (*)(BaseMapper*, int);
+    using MapperWriteSaveRamFn = void (*)(BaseMapper*, int, uint8_t);
+    using MapperReadSaveRamFn = uint8_t (*)(BaseMapper*, int);
+    using MapperWriteChrFn = void (*)(BaseMapper*, int, uint8_t);
+    using MapperReadChrFn = uint8_t (*)(BaseMapper*, int);
+    using MapperWriteMapperRegisterFn = void (*)(BaseMapper*, int, uint8_t);
+    using MapperReadMapperRegisterFn = uint8_t (*)(BaseMapper*, int, uint8_t);
+    using MapperWriteMapperRegisterAbsoluteFn = void (*)(BaseMapper*, uint16_t, uint8_t);
+    using MapperReadMapperRegisterAbsoluteFn = uint8_t (*)(BaseMapper*, uint16_t, uint8_t);
+    using MapperMirroringTypeFn = MirroringType (*)(BaseMapper*);
+    using MapperGetInterruptFlagFn = bool (*)(BaseMapper*);
+    using MapperSetA12StateFn = void (*)(BaseMapper*, bool);
+    using MapperCycleFn = void (*)(BaseMapper*);
+    using MapperUseCustomNameTableFn = bool (*)(BaseMapper*, uint8_t);
+    using MapperReadCustomNameTableFn = uint8_t (*)(BaseMapper*, uint8_t, uint16_t);
+    using MapperWriteCustomNameTableFn = void (*)(BaseMapper*, uint8_t, uint16_t, uint8_t);
+    using MapperOnScanlineStartFn = void (*)(BaseMapper*, bool, int);
+    using MapperSetPpuFetchSourceFn = void (*)(BaseMapper*, bool);
+    using MapperTransformNameTableReadFn = uint8_t (*)(BaseMapper*, uint8_t, uint16_t, uint8_t);
+    using MapperSetSpriteSize8x16Fn = void (*)(BaseMapper*, bool);
+    using MapperSetPpuMaskFn = void (*)(BaseMapper*, uint8_t);
+    using MapperOnPpuStatusReadFn = void (*)(BaseMapper*, bool);
+    using MapperOnPpuReadFn = void (*)(BaseMapper*, uint16_t);
+    using MapperOnPpuCycleFn = void (*)(BaseMapper*, int, int, bool, bool);
+    using MapperOnCpuReadFn = void (*)(BaseMapper*, uint16_t);
+    using MapperOnCpuWriteFn = void (*)(BaseMapper*, uint16_t, uint8_t);
+    using MapperApplyExternalActionsFn = void (*)(BaseMapper*, uint8_t);
+    using MapperGetExpansionAudioSampleFn = float (*)(BaseMapper*);
+    using MapperGetMixWeightFn = float (*)(BaseMapper*);
+    using MapperGetExpansionOutputGainFn = float (*)(BaseMapper*);
+
+    template<typename MapperT>
+    static void fastWritePrg(BaseMapper* mapper, int addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::writePrg(addr, data); }
+    template<typename MapperT>
+    static uint8_t fastReadPrg(BaseMapper* mapper, int addr) { return static_cast<MapperT*>(mapper)->MapperT::readPrg(addr); }
+    template<typename MapperT>
+    static void fastWriteSaveRam(BaseMapper* mapper, int addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::writeSaveRam(addr, data); }
+    template<typename MapperT>
+    static uint8_t fastReadSaveRam(BaseMapper* mapper, int addr) { return static_cast<MapperT*>(mapper)->MapperT::readSaveRam(addr); }
+    template<typename MapperT>
+    static void fastWriteChr(BaseMapper* mapper, int addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::writeChr(addr, data); }
+    template<typename MapperT>
+    static uint8_t fastReadChr(BaseMapper* mapper, int addr) { return static_cast<MapperT*>(mapper)->MapperT::readChr(addr); }
+    template<typename MapperT>
+    static void fastWriteMapperRegister(BaseMapper* mapper, int addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::writeMapperRegister(addr, data); }
+    template<typename MapperT>
+    static uint8_t fastReadMapperRegister(BaseMapper* mapper, int addr, uint8_t openBusData) { return static_cast<MapperT*>(mapper)->MapperT::readMapperRegister(addr, openBusData); }
+    template<typename MapperT>
+    static void fastWriteMapperRegisterAbsolute(BaseMapper* mapper, uint16_t addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::writeMapperRegisterAbsolute(addr, data); }
+    template<typename MapperT>
+    static uint8_t fastReadMapperRegisterAbsolute(BaseMapper* mapper, uint16_t addr, uint8_t openBusData) { return static_cast<MapperT*>(mapper)->MapperT::readMapperRegisterAbsolute(addr, openBusData); }
+    template<typename MapperT>
+    static MirroringType fastMirroringType(BaseMapper* mapper) { return static_cast<MapperT*>(mapper)->MapperT::mirroringType(); }
+    template<typename MapperT>
+    static bool fastGetInterruptFlag(BaseMapper* mapper) { return static_cast<MapperT*>(mapper)->MapperT::getInterruptFlag(); }
+    template<typename MapperT>
+    static void fastSetA12State(BaseMapper* mapper, bool state) { static_cast<MapperT*>(mapper)->MapperT::setA12State(state); }
+    template<typename MapperT>
+    static void fastCycle(BaseMapper* mapper) { static_cast<MapperT*>(mapper)->MapperT::cycle(); }
+    template<typename MapperT>
+    static bool fastUseCustomNameTable(BaseMapper* mapper, uint8_t index) { return static_cast<MapperT*>(mapper)->MapperT::useCustomNameTable(index); }
+    template<typename MapperT>
+    static uint8_t fastReadCustomNameTable(BaseMapper* mapper, uint8_t index, uint16_t addr) { return static_cast<MapperT*>(mapper)->MapperT::readCustomNameTable(index, addr); }
+    template<typename MapperT>
+    static void fastWriteCustomNameTable(BaseMapper* mapper, uint8_t index, uint16_t addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::writeCustomNameTable(index, addr, data); }
+    template<typename MapperT>
+    static void fastOnScanlineStart(BaseMapper* mapper, bool renderingEnabled, int scanline) { static_cast<MapperT*>(mapper)->MapperT::onScanlineStart(renderingEnabled, scanline); }
+    template<typename MapperT>
+    static void fastSetPpuFetchSource(BaseMapper* mapper, bool isSpriteFetch) { static_cast<MapperT*>(mapper)->MapperT::setPpuFetchSource(isSpriteFetch); }
+    template<typename MapperT>
+    static uint8_t fastTransformNameTableRead(BaseMapper* mapper, uint8_t index, uint16_t addr, uint8_t value) { return static_cast<MapperT*>(mapper)->MapperT::transformNameTableRead(index, addr, value); }
+    template<typename MapperT>
+    static void fastSetSpriteSize8x16(BaseMapper* mapper, bool sprite8x16) { static_cast<MapperT*>(mapper)->MapperT::setSpriteSize8x16(sprite8x16); }
+    template<typename MapperT>
+    static void fastSetPpuMask(BaseMapper* mapper, uint8_t mask) { static_cast<MapperT*>(mapper)->MapperT::setPpuMask(mask); }
+    template<typename MapperT>
+    static void fastOnPpuStatusRead(BaseMapper* mapper, bool vblankSet) { static_cast<MapperT*>(mapper)->MapperT::onPpuStatusRead(vblankSet); }
+    template<typename MapperT>
+    static void fastOnPpuRead(BaseMapper* mapper, uint16_t addr) { static_cast<MapperT*>(mapper)->MapperT::onPpuRead(addr); }
+    template<typename MapperT>
+    static void fastOnPpuCycle(BaseMapper* mapper, int scanline, int cycle, bool isRendering, bool isPreLine) { static_cast<MapperT*>(mapper)->MapperT::onPpuCycle(scanline, cycle, isRendering, isPreLine); }
+    template<typename MapperT>
+    static void fastOnCpuRead(BaseMapper* mapper, uint16_t addr) { static_cast<MapperT*>(mapper)->MapperT::onCpuRead(addr); }
+    template<typename MapperT>
+    static void fastOnCpuWrite(BaseMapper* mapper, uint16_t addr, uint8_t data) { static_cast<MapperT*>(mapper)->MapperT::onCpuWrite(addr, data); }
+    template<typename MapperT>
+    static void fastApplyExternalActions(BaseMapper* mapper, uint8_t pending) { static_cast<MapperT*>(mapper)->MapperT::applyExternalActions(pending); }
+    template<typename MapperT>
+    static float fastGetExpansionAudioSample(BaseMapper* mapper) { return static_cast<MapperT*>(mapper)->MapperT::getExpansionAudioSample(); }
+    template<typename MapperT>
+    static float fastGetMixWeight(BaseMapper* mapper) { return static_cast<MapperT*>(mapper)->MapperT::getMixWeight(); }
+    template<typename MapperT>
+    static float fastGetExpansionOutputGain(BaseMapper* mapper) { return static_cast<MapperT*>(mapper)->MapperT::getExpansionOutputGain(); }
 
     BaseMapper* m_mapper;
     ICartridgeData* m_nesCartridgeData;
     DummyMapper m_dummyMapper;
+    MapperWritePrgFn m_writePrgFn;
+    MapperReadPrgFn m_readPrgFn;
+    MapperWriteSaveRamFn m_writeSaveRamFn;
+    MapperReadSaveRamFn m_readSaveRamFn;
+    MapperWriteChrFn m_writeChrFn;
+    MapperReadChrFn m_readChrFn;
+    MapperWriteMapperRegisterFn m_writeMapperRegisterFn;
+    MapperReadMapperRegisterFn m_readMapperRegisterFn;
+    MapperWriteMapperRegisterAbsoluteFn m_writeMapperRegisterAbsoluteFn;
+    MapperReadMapperRegisterAbsoluteFn m_readMapperRegisterAbsoluteFn;
+    MapperMirroringTypeFn m_mirroringTypeFn;
+    MapperGetInterruptFlagFn m_getInterruptFlagFn;
+    MapperSetA12StateFn m_setA12StateFn;
+    MapperCycleFn m_cycleFn;
+    MapperUseCustomNameTableFn m_useCustomNameTableFn;
+    MapperReadCustomNameTableFn m_readCustomNameTableFn;
+    MapperWriteCustomNameTableFn m_writeCustomNameTableFn;
+    MapperOnScanlineStartFn m_onScanlineStartFn;
+    MapperSetPpuFetchSourceFn m_setPpuFetchSourceFn;
+    MapperTransformNameTableReadFn m_transformNameTableReadFn;
+    MapperSetSpriteSize8x16Fn m_setSpriteSize8x16Fn;
+    MapperSetPpuMaskFn m_setPpuMaskFn;
+    MapperOnPpuStatusReadFn m_onPpuStatusReadFn;
+    MapperOnPpuReadFn m_onPpuReadFn;
+    MapperOnPpuCycleFn m_onPpuCycleFn;
+    MapperOnCpuReadFn m_onCpuReadFn;
+    MapperOnCpuWriteFn m_onCpuWriteFn;
+    MapperApplyExternalActionsFn m_applyExternalActionsFn;
+    MapperGetExpansionAudioSampleFn m_getExpansionAudioSampleFn;
+    MapperGetMixWeightFn m_getMixWeightFn;
+    MapperGetExpansionOutputGainFn m_getExpansionOutputGainFn;
 
     bool m_isValid;
 
     RomFile m_romFile;
 
+    template<typename MapperT>
+    void assignMapperDispatch()
+    {
+        m_writePrgFn = &fastWritePrg<MapperT>;
+        m_readPrgFn = &fastReadPrg<MapperT>;
+        m_writeSaveRamFn = &fastWriteSaveRam<MapperT>;
+        m_readSaveRamFn = &fastReadSaveRam<MapperT>;
+        m_writeChrFn = &fastWriteChr<MapperT>;
+        m_readChrFn = &fastReadChr<MapperT>;
+        m_writeMapperRegisterFn = &fastWriteMapperRegister<MapperT>;
+        m_readMapperRegisterFn = &fastReadMapperRegister<MapperT>;
+        m_writeMapperRegisterAbsoluteFn = &fastWriteMapperRegisterAbsolute<MapperT>;
+        m_readMapperRegisterAbsoluteFn = &fastReadMapperRegisterAbsolute<MapperT>;
+        m_mirroringTypeFn = &fastMirroringType<MapperT>;
+        m_getInterruptFlagFn = &fastGetInterruptFlag<MapperT>;
+        m_setA12StateFn = &fastSetA12State<MapperT>;
+        m_cycleFn = &fastCycle<MapperT>;
+        m_useCustomNameTableFn = &fastUseCustomNameTable<MapperT>;
+        m_readCustomNameTableFn = &fastReadCustomNameTable<MapperT>;
+        m_writeCustomNameTableFn = &fastWriteCustomNameTable<MapperT>;
+        m_onScanlineStartFn = &fastOnScanlineStart<MapperT>;
+        m_setPpuFetchSourceFn = &fastSetPpuFetchSource<MapperT>;
+        m_transformNameTableReadFn = &fastTransformNameTableRead<MapperT>;
+        m_setSpriteSize8x16Fn = &fastSetSpriteSize8x16<MapperT>;
+        m_setPpuMaskFn = &fastSetPpuMask<MapperT>;
+        m_onPpuStatusReadFn = &fastOnPpuStatusRead<MapperT>;
+        m_onPpuReadFn = &fastOnPpuRead<MapperT>;
+        m_onPpuCycleFn = &fastOnPpuCycle<MapperT>;
+        m_onCpuReadFn = &fastOnCpuRead<MapperT>;
+        m_onCpuWriteFn = &fastOnCpuWrite<MapperT>;
+        m_applyExternalActionsFn = &fastApplyExternalActions<MapperT>;
+        m_getExpansionAudioSampleFn = &fastGetExpansionAudioSample<MapperT>;
+        m_getMixWeightFn = &fastGetMixWeight<MapperT>;
+        m_getExpansionOutputGainFn = &fastGetExpansionOutputGain<MapperT>;
+    }
+
+    void assignDefaultMapperDispatch()
+    {
+        assignMapperDispatch<BaseMapper>();
+    }
+
+    template<typename MapperT>
+    BaseMapper* createMapperAndBind(ICartridgeData& cd)
+    {
+        assignMapperDispatch<MapperT>();
+        return BaseMapper::create<MapperT>(cd);
+    }
+
+    void configureMapperDispatch()
+    {
+        if(m_nesCartridgeData == nullptr || m_mapper == &m_dummyMapper) {
+            assignDefaultMapperDispatch();
+            return;
+        }
+
+        switch(m_nesCartridgeData->mapperId()) {
+            case 0: assignMapperDispatch<Mapper000>(); return;
+            case 1: assignMapperDispatch<Mapper001>(); return;
+            case 2: assignMapperDispatch<Mapper002>(); return;
+            case 3: assignMapperDispatch<Mapper003>(); return;
+            case 4:
+                if(m_nesCartridgeData->subMapperId() == 3) assignMapperDispatch<Mapper004_3>();
+                else assignMapperDispatch<Mapper004>();
+                return;
+            default:
+                assignDefaultMapperDispatch();
+                return;
+        }
+    }
+
     BaseMapper* CreateMapper()
     {
         switch(m_nesCartridgeData->mapperId())
         {
-        case 0: return BaseMapper::create<Mapper000>(*m_nesCartridgeData);
-        case 1: return BaseMapper::create<Mapper001>(*m_nesCartridgeData);
-        case 2: return BaseMapper::create<Mapper002>(*m_nesCartridgeData);
-        case 3: return BaseMapper::create<Mapper003>(*m_nesCartridgeData);
+        case 0: return createMapperAndBind<Mapper000>(*m_nesCartridgeData);
+        case 1: return createMapperAndBind<Mapper001>(*m_nesCartridgeData);
+        case 2: return createMapperAndBind<Mapper002>(*m_nesCartridgeData);
+        case 3: return createMapperAndBind<Mapper003>(*m_nesCartridgeData);
         case 4: {
             if(m_nesCartridgeData->subMapperId() == 3) {
-                return BaseMapper::create<Mapper004_3>(*m_nesCartridgeData);
+                return createMapperAndBind<Mapper004_3>(*m_nesCartridgeData);
             }
-            return BaseMapper::create<Mapper004>(*m_nesCartridgeData);
+            return createMapperAndBind<Mapper004>(*m_nesCartridgeData);
         }
-        case 5: return BaseMapper::create<Mapper005>(*m_nesCartridgeData);
-        case 6: return BaseMapper::create<Mapper006>(*m_nesCartridgeData);
-        case 7: return BaseMapper::create<Mapper007>(*m_nesCartridgeData);
-        case 8: return BaseMapper::create<Mapper008>(*m_nesCartridgeData);
-        case 9: return BaseMapper::create<Mapper009>(*m_nesCartridgeData);
-        case 10: return BaseMapper::create<Mapper010>(*m_nesCartridgeData);
-        case 11: return BaseMapper::create<Mapper011>(*m_nesCartridgeData);
-        case 12: return BaseMapper::create<Mapper012>(*m_nesCartridgeData);
-        case 13: return BaseMapper::create<Mapper013>(*m_nesCartridgeData);
-        case 14: return BaseMapper::create<Mapper014>(*m_nesCartridgeData);
-        case 15: return BaseMapper::create<Mapper015>(*m_nesCartridgeData);
-        case 16: return BaseMapper::create<Mapper016>(*m_nesCartridgeData);
-        case 17: return BaseMapper::create<Mapper017>(*m_nesCartridgeData);
-        case 18: return BaseMapper::create<Mapper018>(*m_nesCartridgeData);
-        case 19: return BaseMapper::create<Mapper019>(*m_nesCartridgeData);
-        case 20: return BaseMapper::create<Mapper020>(*m_nesCartridgeData);
-        case 21: return BaseMapper::create<Mapper021>(*m_nesCartridgeData);
-        case 22: return BaseMapper::create<Mapper022>(*m_nesCartridgeData);
-        case 23: return BaseMapper::create<Mapper023>(*m_nesCartridgeData);
-        case 24: return BaseMapper::create<Mapper024>(*m_nesCartridgeData);
-        case 25: return BaseMapper::create<Mapper025>(*m_nesCartridgeData);
-        case 26: return BaseMapper::create<Mapper026>(*m_nesCartridgeData);
-        case 27: return BaseMapper::create<Mapper027>(*m_nesCartridgeData);
-        case 28: return BaseMapper::create<Mapper028>(*m_nesCartridgeData);
-        case 29: return BaseMapper::create<Mapper029>(*m_nesCartridgeData);
-        case 30: return BaseMapper::create<Mapper030>(*m_nesCartridgeData);
-        case 31: return BaseMapper::create<Mapper031>(*m_nesCartridgeData);
-        case 32: return BaseMapper::create<Mapper032>(*m_nesCartridgeData);
-        case 33: return BaseMapper::create<Mapper033>(*m_nesCartridgeData);
-        case 34: return BaseMapper::create<Mapper034>(*m_nesCartridgeData);
-        case 35: return BaseMapper::create<Mapper035>(*m_nesCartridgeData);
-        case 36: return BaseMapper::create<Mapper036>(*m_nesCartridgeData);
-        case 37: return BaseMapper::create<Mapper037>(*m_nesCartridgeData);
-        case 38: return BaseMapper::create<Mapper038>(*m_nesCartridgeData);
-        case 39: return BaseMapper::create<Mapper039>(*m_nesCartridgeData);
-        case 40: return BaseMapper::create<Mapper040>(*m_nesCartridgeData);
-        case 41: return BaseMapper::create<Mapper041>(*m_nesCartridgeData);
-        case 42: return BaseMapper::create<Mapper042>(*m_nesCartridgeData);
-        case 43: return BaseMapper::create<Mapper043>(*m_nesCartridgeData);
-        case 44: return BaseMapper::create<Mapper044>(*m_nesCartridgeData);
-        case 45: return BaseMapper::create<Mapper045>(*m_nesCartridgeData);
-        case 46: return BaseMapper::create<Mapper046>(*m_nesCartridgeData);
-        case 47: return BaseMapper::create<Mapper047>(*m_nesCartridgeData);
-        case 48: return BaseMapper::create<Mapper048>(*m_nesCartridgeData);
-        case 49: return BaseMapper::create<Mapper049>(*m_nesCartridgeData);
-        case 50: return BaseMapper::create<Mapper050>(*m_nesCartridgeData);
-        case 51: return BaseMapper::create<Mapper051>(*m_nesCartridgeData);
-        case 52: return BaseMapper::create<Mapper052>(*m_nesCartridgeData);
-        case 53: return BaseMapper::create<Mapper053>(*m_nesCartridgeData);
-        case 54: return BaseMapper::create<Mapper054>(*m_nesCartridgeData);
-        case 55: return BaseMapper::create<Mapper055>(*m_nesCartridgeData);
-        case 56: return BaseMapper::create<Mapper056>(*m_nesCartridgeData);
-        case 57: return BaseMapper::create<Mapper057>(*m_nesCartridgeData);
-        case 58: return BaseMapper::create<Mapper058>(*m_nesCartridgeData);
-        case 59: return BaseMapper::create<Mapper059>(*m_nesCartridgeData);
-        case 60: return BaseMapper::create<Mapper060>(*m_nesCartridgeData);
-        case 61: return BaseMapper::create<Mapper061>(*m_nesCartridgeData);
-        case 62: return BaseMapper::create<Mapper062>(*m_nesCartridgeData);
-        case 63: return BaseMapper::create<Mapper063>(*m_nesCartridgeData);
-        case 64: return BaseMapper::create<Mapper064>(*m_nesCartridgeData);
-        case 65: return BaseMapper::create<Mapper065>(*m_nesCartridgeData);
-        case 66: return BaseMapper::create<Mapper066>(*m_nesCartridgeData);
-        case 67: return BaseMapper::create<Mapper067>(*m_nesCartridgeData);
-        case 68: return BaseMapper::create<Mapper068>(*m_nesCartridgeData);
-        case 69: return BaseMapper::create<Mapper069>(*m_nesCartridgeData);
-        case 70: return BaseMapper::create<Mapper070>(*m_nesCartridgeData);
-        case 71: return BaseMapper::create<Mapper071>(*m_nesCartridgeData);
-        case 72: return BaseMapper::create<Mapper072>(*m_nesCartridgeData);
-        case 73: return BaseMapper::create<Mapper073>(*m_nesCartridgeData);
-        case 74: return BaseMapper::create<Mapper074>(*m_nesCartridgeData);
-        case 75: return BaseMapper::create<Mapper075>(*m_nesCartridgeData);
-        case 76: return BaseMapper::create<Mapper076>(*m_nesCartridgeData);
-        case 77: return BaseMapper::create<Mapper077>(*m_nesCartridgeData);
-        case 78: return BaseMapper::create<Mapper078>(*m_nesCartridgeData);
-        case 79: return BaseMapper::create<Mapper079>(*m_nesCartridgeData);
-        case 80: return BaseMapper::create<Mapper080>(*m_nesCartridgeData);
-        case 81: return BaseMapper::create<Mapper081>(*m_nesCartridgeData);
-        case 82: return BaseMapper::create<Mapper082>(*m_nesCartridgeData);
-        case 83: return BaseMapper::create<Mapper083>(*m_nesCartridgeData);
-        case 84: return BaseMapper::create<Mapper084>(*m_nesCartridgeData);
-        case 85: return BaseMapper::create<Mapper085>(*m_nesCartridgeData);
-        case 86: return BaseMapper::create<Mapper086>(*m_nesCartridgeData);
-        case 87: return BaseMapper::create<Mapper087>(*m_nesCartridgeData);
-        case 88: return BaseMapper::create<Mapper088>(*m_nesCartridgeData);
-        case 89: return BaseMapper::create<Mapper089>(*m_nesCartridgeData);
-        case 90: return BaseMapper::create<Mapper090>(*m_nesCartridgeData);
-        case 91: return BaseMapper::create<Mapper091>(*m_nesCartridgeData);
-        case 92: return BaseMapper::create<Mapper092>(*m_nesCartridgeData);
-        case 93: return BaseMapper::create<Mapper093>(*m_nesCartridgeData);
-        case 94: return BaseMapper::create<Mapper094>(*m_nesCartridgeData);
-        case 95: return BaseMapper::create<Mapper095>(*m_nesCartridgeData);
-        case 96: return BaseMapper::create<Mapper096>(*m_nesCartridgeData);
-        case 97: return BaseMapper::create<Mapper097>(*m_nesCartridgeData);
-        case 98: return BaseMapper::create<Mapper098>(*m_nesCartridgeData);
-        case 99: return BaseMapper::create<Mapper099>(*m_nesCartridgeData);
-        case 100: return BaseMapper::create<Mapper100>(*m_nesCartridgeData);
-        case 101: return BaseMapper::create<Mapper101>(*m_nesCartridgeData);
-        case 102: return BaseMapper::create<Mapper102>(*m_nesCartridgeData);
-        case 103: return BaseMapper::create<Mapper103>(*m_nesCartridgeData);
-        case 104: return BaseMapper::create<Mapper104>(*m_nesCartridgeData);
-        case 105: return BaseMapper::create<Mapper105>(*m_nesCartridgeData);
-        case 106: return BaseMapper::create<Mapper106>(*m_nesCartridgeData);
-        case 107: return BaseMapper::create<Mapper107>(*m_nesCartridgeData);
-        case 108: return BaseMapper::create<Mapper108>(*m_nesCartridgeData);
-        case 109: return BaseMapper::create<Mapper109>(*m_nesCartridgeData);
-        case 110: return BaseMapper::create<Mapper110>(*m_nesCartridgeData);
-        case 111: return BaseMapper::create<Mapper111>(*m_nesCartridgeData);
-        case 112: return BaseMapper::create<Mapper112>(*m_nesCartridgeData);
-        case 113: return BaseMapper::create<Mapper113>(*m_nesCartridgeData);
-        case 114: return BaseMapper::create<Mapper114>(*m_nesCartridgeData);
-        case 115: return BaseMapper::create<Mapper115>(*m_nesCartridgeData);
-        case 116: return BaseMapper::create<Mapper116>(*m_nesCartridgeData);
-        case 117: return BaseMapper::create<Mapper117>(*m_nesCartridgeData);
-        case 118: return BaseMapper::create<Mapper118>(*m_nesCartridgeData);
-        case 119: return BaseMapper::create<Mapper119>(*m_nesCartridgeData);
-        case 120: return BaseMapper::create<Mapper120>(*m_nesCartridgeData);
-        case 121: return BaseMapper::create<Mapper121>(*m_nesCartridgeData);
-        case 122: return BaseMapper::create<Mapper122>(*m_nesCartridgeData);
-        case 123: return BaseMapper::create<Mapper123>(*m_nesCartridgeData);
-        case 124: return BaseMapper::create<Mapper124>(*m_nesCartridgeData);
-        case 125: return BaseMapper::create<Mapper125>(*m_nesCartridgeData);
-        case 126: return BaseMapper::create<Mapper126>(*m_nesCartridgeData);
-        case 127: return BaseMapper::create<Mapper127>(*m_nesCartridgeData);
-        case 128: return BaseMapper::create<Mapper128>(*m_nesCartridgeData);
-        case 129: return BaseMapper::create<Mapper129>(*m_nesCartridgeData);
-        case 130: return BaseMapper::create<Mapper130>(*m_nesCartridgeData);
-        case 131: return BaseMapper::create<Mapper131>(*m_nesCartridgeData);
-        case 132: return BaseMapper::create<Mapper132>(*m_nesCartridgeData);
-        case 133: return BaseMapper::create<Mapper133>(*m_nesCartridgeData);
-        case 134: return BaseMapper::create<Mapper134>(*m_nesCartridgeData);
-        case 135: return BaseMapper::create<Mapper135>(*m_nesCartridgeData);
-        case 136: return BaseMapper::create<Mapper136>(*m_nesCartridgeData);
-        case 137: return BaseMapper::create<Mapper137>(*m_nesCartridgeData);
-        case 138: return BaseMapper::create<Mapper138>(*m_nesCartridgeData);
-        case 139: return BaseMapper::create<Mapper139>(*m_nesCartridgeData);
-        case 140: return BaseMapper::create<Mapper140>(*m_nesCartridgeData);
-        case 141: return BaseMapper::create<Mapper141>(*m_nesCartridgeData);
-        case 142: return BaseMapper::create<Mapper142>(*m_nesCartridgeData);
-        case 143: return BaseMapper::create<Mapper143>(*m_nesCartridgeData);
-        case 144: return BaseMapper::create<Mapper144>(*m_nesCartridgeData);
-        case 145: return BaseMapper::create<Mapper145>(*m_nesCartridgeData);
-        case 146: return BaseMapper::create<Mapper146>(*m_nesCartridgeData);
-        case 147: return BaseMapper::create<Mapper147>(*m_nesCartridgeData);
-        case 148: return BaseMapper::create<Mapper148>(*m_nesCartridgeData);
-        case 149: return BaseMapper::create<Mapper149>(*m_nesCartridgeData);
-        case 150: return BaseMapper::create<Mapper150>(*m_nesCartridgeData);
-        case 151: return BaseMapper::create<Mapper151>(*m_nesCartridgeData);
-        case 152: return BaseMapper::create<Mapper152>(*m_nesCartridgeData);
-        case 153: return BaseMapper::create<Mapper153>(*m_nesCartridgeData);
-        case 154: return BaseMapper::create<Mapper154>(*m_nesCartridgeData);
-        case 155: return BaseMapper::create<Mapper155>(*m_nesCartridgeData);
-        case 156: return BaseMapper::create<Mapper156>(*m_nesCartridgeData);
-        case 157: return BaseMapper::create<Mapper157>(*m_nesCartridgeData);
-        case 158: return BaseMapper::create<Mapper158>(*m_nesCartridgeData);
-        case 159: return BaseMapper::create<Mapper159>(*m_nesCartridgeData);
-        case 160: return BaseMapper::create<Mapper160>(*m_nesCartridgeData);
-        case 161: return BaseMapper::create<Mapper161>(*m_nesCartridgeData);
-        case 162: return BaseMapper::create<Mapper162>(*m_nesCartridgeData);
-        case 163: return BaseMapper::create<Mapper163>(*m_nesCartridgeData);
-        case 164: return BaseMapper::create<Mapper164>(*m_nesCartridgeData);
-        case 165: return BaseMapper::create<Mapper165>(*m_nesCartridgeData);
-        case 166: return BaseMapper::create<Mapper166>(*m_nesCartridgeData);
-        case 167: return BaseMapper::create<Mapper167>(*m_nesCartridgeData);
-        case 168: return BaseMapper::create<Mapper168>(*m_nesCartridgeData);
-        case 169: return BaseMapper::create<Mapper169>(*m_nesCartridgeData);
-        case 170: return BaseMapper::create<Mapper170>(*m_nesCartridgeData);
-        case 171: return BaseMapper::create<Mapper171>(*m_nesCartridgeData);
-        case 172: return BaseMapper::create<Mapper172>(*m_nesCartridgeData);
-        case 173: return BaseMapper::create<Mapper173>(*m_nesCartridgeData);
-        case 174: return BaseMapper::create<Mapper174>(*m_nesCartridgeData);
-        case 175: return BaseMapper::create<Mapper175>(*m_nesCartridgeData);
-        case 176: return BaseMapper::create<Mapper176>(*m_nesCartridgeData);
-        case 177: return BaseMapper::create<Mapper177>(*m_nesCartridgeData);
-        case 178: return BaseMapper::create<Mapper178>(*m_nesCartridgeData);
-        case 179: return BaseMapper::create<Mapper179>(*m_nesCartridgeData);
-        case 180: return BaseMapper::create<Mapper180>(*m_nesCartridgeData);
-        case 181: return BaseMapper::create<Mapper181>(*m_nesCartridgeData);
-        case 182: return BaseMapper::create<Mapper182>(*m_nesCartridgeData);
-        case 184: return BaseMapper::create<Mapper184>(*m_nesCartridgeData);
-        case 185: return BaseMapper::create<Mapper185>(*m_nesCartridgeData);
-        case 186: return BaseMapper::create<Mapper186>(*m_nesCartridgeData);
-        case 187: return BaseMapper::create<Mapper187>(*m_nesCartridgeData);
-        case 188: return BaseMapper::create<Mapper188>(*m_nesCartridgeData);
-        case 189: return BaseMapper::create<Mapper189>(*m_nesCartridgeData);
-        case 190: return BaseMapper::create<Mapper190>(*m_nesCartridgeData);
-        case 191: return BaseMapper::create<Mapper191>(*m_nesCartridgeData);
-        case 192: return BaseMapper::create<Mapper192>(*m_nesCartridgeData);
-        case 193: return BaseMapper::create<Mapper193>(*m_nesCartridgeData);
-        case 194: return BaseMapper::create<Mapper194>(*m_nesCartridgeData);
-        case 195: return BaseMapper::create<Mapper195>(*m_nesCartridgeData);
-        case 196: return BaseMapper::create<Mapper196>(*m_nesCartridgeData);
-        case 197: return BaseMapper::create<Mapper197>(*m_nesCartridgeData);
-        case 198: return BaseMapper::create<Mapper198>(*m_nesCartridgeData);
-        case 199: return BaseMapper::create<Mapper199>(*m_nesCartridgeData);
-        case 200: return BaseMapper::create<Mapper200>(*m_nesCartridgeData);
-        case 201: return BaseMapper::create<Mapper201>(*m_nesCartridgeData);
-        case 203: return BaseMapper::create<Mapper203>(*m_nesCartridgeData);
-        case 204: return BaseMapper::create<Mapper204>(*m_nesCartridgeData);
-        case 205: return BaseMapper::create<Mapper205>(*m_nesCartridgeData);
-        case 206: return BaseMapper::create<Mapper206>(*m_nesCartridgeData);
-        case 207: return BaseMapper::create<Mapper207>(*m_nesCartridgeData);
-        case 208: return BaseMapper::create<Mapper208>(*m_nesCartridgeData);
-        case 209: return BaseMapper::create<Mapper209>(*m_nesCartridgeData);
-        case 210: return BaseMapper::create<Mapper210>(*m_nesCartridgeData);
-        case 211: return BaseMapper::create<Mapper211>(*m_nesCartridgeData);
-        case 212: return BaseMapper::create<Mapper212>(*m_nesCartridgeData);
-        case 213: return BaseMapper::create<Mapper213>(*m_nesCartridgeData);
-        case 214: return BaseMapper::create<Mapper214>(*m_nesCartridgeData);
-        case 215: return BaseMapper::create<Mapper215>(*m_nesCartridgeData);
-        case 216: return BaseMapper::create<Mapper216>(*m_nesCartridgeData);
-        case 217: return BaseMapper::create<Mapper217>(*m_nesCartridgeData);
-        case 218: return BaseMapper::create<Mapper218>(*m_nesCartridgeData);
-        case 219: return BaseMapper::create<Mapper219>(*m_nesCartridgeData);
-        case 220: return BaseMapper::create<Mapper220>(*m_nesCartridgeData);
-        case 221: return BaseMapper::create<Mapper221>(*m_nesCartridgeData);
-        case 222: return BaseMapper::create<Mapper222>(*m_nesCartridgeData);
-        case 223: return BaseMapper::create<Mapper223>(*m_nesCartridgeData);
-        case 224: return BaseMapper::create<Mapper224>(*m_nesCartridgeData);
-        case 225: return BaseMapper::create<Mapper225>(*m_nesCartridgeData);
-        case 226: return BaseMapper::create<Mapper226>(*m_nesCartridgeData);
-        case 227: return BaseMapper::create<Mapper227>(*m_nesCartridgeData);
-        case 228: return BaseMapper::create<Mapper228>(*m_nesCartridgeData);
-        case 229: return BaseMapper::create<Mapper229>(*m_nesCartridgeData);
-        case 230: return BaseMapper::create<Mapper230>(*m_nesCartridgeData);
-        case 231: return BaseMapper::create<Mapper231>(*m_nesCartridgeData);
-        case 232: return BaseMapper::create<Mapper232>(*m_nesCartridgeData);
-        case 233: return BaseMapper::create<Mapper233>(*m_nesCartridgeData);
-        case 234: return BaseMapper::create<Mapper234>(*m_nesCartridgeData);
-        case 235: return BaseMapper::create<Mapper235>(*m_nesCartridgeData);
-        case 236: return BaseMapper::create<Mapper236>(*m_nesCartridgeData);
-        case 237: return BaseMapper::create<Mapper237>(*m_nesCartridgeData);
-        case 238: return BaseMapper::create<Mapper238>(*m_nesCartridgeData);
-        case 239: return BaseMapper::create<Mapper239>(*m_nesCartridgeData);
-        case 240: return BaseMapper::create<Mapper240>(*m_nesCartridgeData);
-        case 241: return BaseMapper::create<Mapper241>(*m_nesCartridgeData);
-        case 242: return BaseMapper::create<Mapper242>(*m_nesCartridgeData);
-        case 243: return BaseMapper::create<Mapper243>(*m_nesCartridgeData);
-        case 244: return BaseMapper::create<Mapper244>(*m_nesCartridgeData);
-        case 245: return BaseMapper::create<Mapper245>(*m_nesCartridgeData);
-        case 246: return BaseMapper::create<Mapper246>(*m_nesCartridgeData);
-        case 247: return BaseMapper::create<Mapper247>(*m_nesCartridgeData);
-        case 248: return BaseMapper::create<Mapper248>(*m_nesCartridgeData);
-        case 249: return BaseMapper::create<Mapper249>(*m_nesCartridgeData);
-        case 250: return BaseMapper::create<Mapper250>(*m_nesCartridgeData);
-        case 251: return BaseMapper::create<Mapper251>(*m_nesCartridgeData);
-        case 252: return BaseMapper::create<Mapper252>(*m_nesCartridgeData);
-        case 253: return BaseMapper::create<Mapper253>(*m_nesCartridgeData);
-        case 254: return BaseMapper::create<Mapper254>(*m_nesCartridgeData);
-        case 255: return BaseMapper::create<Mapper255>(*m_nesCartridgeData);
+        case 5: return createMapperAndBind<Mapper005>(*m_nesCartridgeData);
+        case 6: return createMapperAndBind<Mapper006>(*m_nesCartridgeData);
+        case 7: return createMapperAndBind<Mapper007>(*m_nesCartridgeData);
+        case 8: return createMapperAndBind<Mapper008>(*m_nesCartridgeData);
+        case 9: return createMapperAndBind<Mapper009>(*m_nesCartridgeData);
+        case 10: return createMapperAndBind<Mapper010>(*m_nesCartridgeData);
+        case 11: return createMapperAndBind<Mapper011>(*m_nesCartridgeData);
+        case 12: return createMapperAndBind<Mapper012>(*m_nesCartridgeData);
+        case 13: return createMapperAndBind<Mapper013>(*m_nesCartridgeData);
+        case 14: return createMapperAndBind<Mapper014>(*m_nesCartridgeData);
+        case 15: return createMapperAndBind<Mapper015>(*m_nesCartridgeData);
+        case 16: return createMapperAndBind<Mapper016>(*m_nesCartridgeData);
+        case 17: return createMapperAndBind<Mapper017>(*m_nesCartridgeData);
+        case 18: return createMapperAndBind<Mapper018>(*m_nesCartridgeData);
+        case 19: return createMapperAndBind<Mapper019>(*m_nesCartridgeData);
+        case 20: return createMapperAndBind<Mapper020>(*m_nesCartridgeData);
+        case 21: return createMapperAndBind<Mapper021>(*m_nesCartridgeData);
+        case 22: return createMapperAndBind<Mapper022>(*m_nesCartridgeData);
+        case 23: return createMapperAndBind<Mapper023>(*m_nesCartridgeData);
+        case 24: return createMapperAndBind<Mapper024>(*m_nesCartridgeData);
+        case 25: return createMapperAndBind<Mapper025>(*m_nesCartridgeData);
+        case 26: return createMapperAndBind<Mapper026>(*m_nesCartridgeData);
+        case 27: return createMapperAndBind<Mapper027>(*m_nesCartridgeData);
+        case 28: return createMapperAndBind<Mapper028>(*m_nesCartridgeData);
+        case 29: return createMapperAndBind<Mapper029>(*m_nesCartridgeData);
+        case 30: return createMapperAndBind<Mapper030>(*m_nesCartridgeData);
+        case 31: return createMapperAndBind<Mapper031>(*m_nesCartridgeData);
+        case 32: return createMapperAndBind<Mapper032>(*m_nesCartridgeData);
+        case 33: return createMapperAndBind<Mapper033>(*m_nesCartridgeData);
+        case 34: return createMapperAndBind<Mapper034>(*m_nesCartridgeData);
+        case 35: return createMapperAndBind<Mapper035>(*m_nesCartridgeData);
+        case 36: return createMapperAndBind<Mapper036>(*m_nesCartridgeData);
+        case 37: return createMapperAndBind<Mapper037>(*m_nesCartridgeData);
+        case 38: return createMapperAndBind<Mapper038>(*m_nesCartridgeData);
+        case 39: return createMapperAndBind<Mapper039>(*m_nesCartridgeData);
+        case 40: return createMapperAndBind<Mapper040>(*m_nesCartridgeData);
+        case 41: return createMapperAndBind<Mapper041>(*m_nesCartridgeData);
+        case 42: return createMapperAndBind<Mapper042>(*m_nesCartridgeData);
+        case 43: return createMapperAndBind<Mapper043>(*m_nesCartridgeData);
+        case 44: return createMapperAndBind<Mapper044>(*m_nesCartridgeData);
+        case 45: return createMapperAndBind<Mapper045>(*m_nesCartridgeData);
+        case 46: return createMapperAndBind<Mapper046>(*m_nesCartridgeData);
+        case 47: return createMapperAndBind<Mapper047>(*m_nesCartridgeData);
+        case 48: return createMapperAndBind<Mapper048>(*m_nesCartridgeData);
+        case 49: return createMapperAndBind<Mapper049>(*m_nesCartridgeData);
+        case 50: return createMapperAndBind<Mapper050>(*m_nesCartridgeData);
+        case 51: return createMapperAndBind<Mapper051>(*m_nesCartridgeData);
+        case 52: return createMapperAndBind<Mapper052>(*m_nesCartridgeData);
+        case 53: return createMapperAndBind<Mapper053>(*m_nesCartridgeData);
+        case 54: return createMapperAndBind<Mapper054>(*m_nesCartridgeData);
+        case 55: return createMapperAndBind<Mapper055>(*m_nesCartridgeData);
+        case 56: return createMapperAndBind<Mapper056>(*m_nesCartridgeData);
+        case 57: return createMapperAndBind<Mapper057>(*m_nesCartridgeData);
+        case 58: return createMapperAndBind<Mapper058>(*m_nesCartridgeData);
+        case 59: return createMapperAndBind<Mapper059>(*m_nesCartridgeData);
+        case 60: return createMapperAndBind<Mapper060>(*m_nesCartridgeData);
+        case 61: return createMapperAndBind<Mapper061>(*m_nesCartridgeData);
+        case 62: return createMapperAndBind<Mapper062>(*m_nesCartridgeData);
+        case 63: return createMapperAndBind<Mapper063>(*m_nesCartridgeData);
+        case 64: return createMapperAndBind<Mapper064>(*m_nesCartridgeData);
+        case 65: return createMapperAndBind<Mapper065>(*m_nesCartridgeData);
+        case 66: return createMapperAndBind<Mapper066>(*m_nesCartridgeData);
+        case 67: return createMapperAndBind<Mapper067>(*m_nesCartridgeData);
+        case 68: return createMapperAndBind<Mapper068>(*m_nesCartridgeData);
+        case 69: return createMapperAndBind<Mapper069>(*m_nesCartridgeData);
+        case 70: return createMapperAndBind<Mapper070>(*m_nesCartridgeData);
+        case 71: return createMapperAndBind<Mapper071>(*m_nesCartridgeData);
+        case 72: return createMapperAndBind<Mapper072>(*m_nesCartridgeData);
+        case 73: return createMapperAndBind<Mapper073>(*m_nesCartridgeData);
+        case 74: return createMapperAndBind<Mapper074>(*m_nesCartridgeData);
+        case 75: return createMapperAndBind<Mapper075>(*m_nesCartridgeData);
+        case 76: return createMapperAndBind<Mapper076>(*m_nesCartridgeData);
+        case 77: return createMapperAndBind<Mapper077>(*m_nesCartridgeData);
+        case 78: return createMapperAndBind<Mapper078>(*m_nesCartridgeData);
+        case 79: return createMapperAndBind<Mapper079>(*m_nesCartridgeData);
+        case 80: return createMapperAndBind<Mapper080>(*m_nesCartridgeData);
+        case 81: return createMapperAndBind<Mapper081>(*m_nesCartridgeData);
+        case 82: return createMapperAndBind<Mapper082>(*m_nesCartridgeData);
+        case 83: return createMapperAndBind<Mapper083>(*m_nesCartridgeData);
+        case 84: return createMapperAndBind<Mapper084>(*m_nesCartridgeData);
+        case 85: return createMapperAndBind<Mapper085>(*m_nesCartridgeData);
+        case 86: return createMapperAndBind<Mapper086>(*m_nesCartridgeData);
+        case 87: return createMapperAndBind<Mapper087>(*m_nesCartridgeData);
+        case 88: return createMapperAndBind<Mapper088>(*m_nesCartridgeData);
+        case 89: return createMapperAndBind<Mapper089>(*m_nesCartridgeData);
+        case 90: return createMapperAndBind<Mapper090>(*m_nesCartridgeData);
+        case 91: return createMapperAndBind<Mapper091>(*m_nesCartridgeData);
+        case 92: return createMapperAndBind<Mapper092>(*m_nesCartridgeData);
+        case 93: return createMapperAndBind<Mapper093>(*m_nesCartridgeData);
+        case 94: return createMapperAndBind<Mapper094>(*m_nesCartridgeData);
+        case 95: return createMapperAndBind<Mapper095>(*m_nesCartridgeData);
+        case 96: return createMapperAndBind<Mapper096>(*m_nesCartridgeData);
+        case 97: return createMapperAndBind<Mapper097>(*m_nesCartridgeData);
+        case 98: return createMapperAndBind<Mapper098>(*m_nesCartridgeData);
+        case 99: return createMapperAndBind<Mapper099>(*m_nesCartridgeData);
+        case 100: return createMapperAndBind<Mapper100>(*m_nesCartridgeData);
+        case 101: return createMapperAndBind<Mapper101>(*m_nesCartridgeData);
+        case 102: return createMapperAndBind<Mapper102>(*m_nesCartridgeData);
+        case 103: return createMapperAndBind<Mapper103>(*m_nesCartridgeData);
+        case 104: return createMapperAndBind<Mapper104>(*m_nesCartridgeData);
+        case 105: return createMapperAndBind<Mapper105>(*m_nesCartridgeData);
+        case 106: return createMapperAndBind<Mapper106>(*m_nesCartridgeData);
+        case 107: return createMapperAndBind<Mapper107>(*m_nesCartridgeData);
+        case 108: return createMapperAndBind<Mapper108>(*m_nesCartridgeData);
+        case 109: return createMapperAndBind<Mapper109>(*m_nesCartridgeData);
+        case 110: return createMapperAndBind<Mapper110>(*m_nesCartridgeData);
+        case 111: return createMapperAndBind<Mapper111>(*m_nesCartridgeData);
+        case 112: return createMapperAndBind<Mapper112>(*m_nesCartridgeData);
+        case 113: return createMapperAndBind<Mapper113>(*m_nesCartridgeData);
+        case 114: return createMapperAndBind<Mapper114>(*m_nesCartridgeData);
+        case 115: return createMapperAndBind<Mapper115>(*m_nesCartridgeData);
+        case 116: return createMapperAndBind<Mapper116>(*m_nesCartridgeData);
+        case 117: return createMapperAndBind<Mapper117>(*m_nesCartridgeData);
+        case 118: return createMapperAndBind<Mapper118>(*m_nesCartridgeData);
+        case 119: return createMapperAndBind<Mapper119>(*m_nesCartridgeData);
+        case 120: return createMapperAndBind<Mapper120>(*m_nesCartridgeData);
+        case 121: return createMapperAndBind<Mapper121>(*m_nesCartridgeData);
+        case 122: return createMapperAndBind<Mapper122>(*m_nesCartridgeData);
+        case 123: return createMapperAndBind<Mapper123>(*m_nesCartridgeData);
+        case 124: return createMapperAndBind<Mapper124>(*m_nesCartridgeData);
+        case 125: return createMapperAndBind<Mapper125>(*m_nesCartridgeData);
+        case 126: return createMapperAndBind<Mapper126>(*m_nesCartridgeData);
+        case 127: return createMapperAndBind<Mapper127>(*m_nesCartridgeData);
+        case 128: return createMapperAndBind<Mapper128>(*m_nesCartridgeData);
+        case 129: return createMapperAndBind<Mapper129>(*m_nesCartridgeData);
+        case 130: return createMapperAndBind<Mapper130>(*m_nesCartridgeData);
+        case 131: return createMapperAndBind<Mapper131>(*m_nesCartridgeData);
+        case 132: return createMapperAndBind<Mapper132>(*m_nesCartridgeData);
+        case 133: return createMapperAndBind<Mapper133>(*m_nesCartridgeData);
+        case 134: return createMapperAndBind<Mapper134>(*m_nesCartridgeData);
+        case 135: return createMapperAndBind<Mapper135>(*m_nesCartridgeData);
+        case 136: return createMapperAndBind<Mapper136>(*m_nesCartridgeData);
+        case 137: return createMapperAndBind<Mapper137>(*m_nesCartridgeData);
+        case 138: return createMapperAndBind<Mapper138>(*m_nesCartridgeData);
+        case 139: return createMapperAndBind<Mapper139>(*m_nesCartridgeData);
+        case 140: return createMapperAndBind<Mapper140>(*m_nesCartridgeData);
+        case 141: return createMapperAndBind<Mapper141>(*m_nesCartridgeData);
+        case 142: return createMapperAndBind<Mapper142>(*m_nesCartridgeData);
+        case 143: return createMapperAndBind<Mapper143>(*m_nesCartridgeData);
+        case 144: return createMapperAndBind<Mapper144>(*m_nesCartridgeData);
+        case 145: return createMapperAndBind<Mapper145>(*m_nesCartridgeData);
+        case 146: return createMapperAndBind<Mapper146>(*m_nesCartridgeData);
+        case 147: return createMapperAndBind<Mapper147>(*m_nesCartridgeData);
+        case 148: return createMapperAndBind<Mapper148>(*m_nesCartridgeData);
+        case 149: return createMapperAndBind<Mapper149>(*m_nesCartridgeData);
+        case 150: return createMapperAndBind<Mapper150>(*m_nesCartridgeData);
+        case 151: return createMapperAndBind<Mapper151>(*m_nesCartridgeData);
+        case 152: return createMapperAndBind<Mapper152>(*m_nesCartridgeData);
+        case 153: return createMapperAndBind<Mapper153>(*m_nesCartridgeData);
+        case 154: return createMapperAndBind<Mapper154>(*m_nesCartridgeData);
+        case 155: return createMapperAndBind<Mapper155>(*m_nesCartridgeData);
+        case 156: return createMapperAndBind<Mapper156>(*m_nesCartridgeData);
+        case 157: return createMapperAndBind<Mapper157>(*m_nesCartridgeData);
+        case 158: return createMapperAndBind<Mapper158>(*m_nesCartridgeData);
+        case 159: return createMapperAndBind<Mapper159>(*m_nesCartridgeData);
+        case 160: return createMapperAndBind<Mapper160>(*m_nesCartridgeData);
+        case 161: return createMapperAndBind<Mapper161>(*m_nesCartridgeData);
+        case 162: return createMapperAndBind<Mapper162>(*m_nesCartridgeData);
+        case 163: return createMapperAndBind<Mapper163>(*m_nesCartridgeData);
+        case 164: return createMapperAndBind<Mapper164>(*m_nesCartridgeData);
+        case 165: return createMapperAndBind<Mapper165>(*m_nesCartridgeData);
+        case 166: return createMapperAndBind<Mapper166>(*m_nesCartridgeData);
+        case 167: return createMapperAndBind<Mapper167>(*m_nesCartridgeData);
+        case 168: return createMapperAndBind<Mapper168>(*m_nesCartridgeData);
+        case 169: return createMapperAndBind<Mapper169>(*m_nesCartridgeData);
+        case 170: return createMapperAndBind<Mapper170>(*m_nesCartridgeData);
+        case 171: return createMapperAndBind<Mapper171>(*m_nesCartridgeData);
+        case 172: return createMapperAndBind<Mapper172>(*m_nesCartridgeData);
+        case 173: return createMapperAndBind<Mapper173>(*m_nesCartridgeData);
+        case 174: return createMapperAndBind<Mapper174>(*m_nesCartridgeData);
+        case 175: return createMapperAndBind<Mapper175>(*m_nesCartridgeData);
+        case 176: return createMapperAndBind<Mapper176>(*m_nesCartridgeData);
+        case 177: return createMapperAndBind<Mapper177>(*m_nesCartridgeData);
+        case 178: return createMapperAndBind<Mapper178>(*m_nesCartridgeData);
+        case 179: return createMapperAndBind<Mapper179>(*m_nesCartridgeData);
+        case 180: return createMapperAndBind<Mapper180>(*m_nesCartridgeData);
+        case 181: return createMapperAndBind<Mapper181>(*m_nesCartridgeData);
+        case 182: return createMapperAndBind<Mapper182>(*m_nesCartridgeData);
+        case 184: return createMapperAndBind<Mapper184>(*m_nesCartridgeData);
+        case 185: return createMapperAndBind<Mapper185>(*m_nesCartridgeData);
+        case 186: return createMapperAndBind<Mapper186>(*m_nesCartridgeData);
+        case 187: return createMapperAndBind<Mapper187>(*m_nesCartridgeData);
+        case 188: return createMapperAndBind<Mapper188>(*m_nesCartridgeData);
+        case 189: return createMapperAndBind<Mapper189>(*m_nesCartridgeData);
+        case 190: return createMapperAndBind<Mapper190>(*m_nesCartridgeData);
+        case 191: return createMapperAndBind<Mapper191>(*m_nesCartridgeData);
+        case 192: return createMapperAndBind<Mapper192>(*m_nesCartridgeData);
+        case 193: return createMapperAndBind<Mapper193>(*m_nesCartridgeData);
+        case 194: return createMapperAndBind<Mapper194>(*m_nesCartridgeData);
+        case 195: return createMapperAndBind<Mapper195>(*m_nesCartridgeData);
+        case 196: return createMapperAndBind<Mapper196>(*m_nesCartridgeData);
+        case 197: return createMapperAndBind<Mapper197>(*m_nesCartridgeData);
+        case 198: return createMapperAndBind<Mapper198>(*m_nesCartridgeData);
+        case 199: return createMapperAndBind<Mapper199>(*m_nesCartridgeData);
+        case 200: return createMapperAndBind<Mapper200>(*m_nesCartridgeData);
+        case 201: return createMapperAndBind<Mapper201>(*m_nesCartridgeData);
+        case 203: return createMapperAndBind<Mapper203>(*m_nesCartridgeData);
+        case 204: return createMapperAndBind<Mapper204>(*m_nesCartridgeData);
+        case 205: return createMapperAndBind<Mapper205>(*m_nesCartridgeData);
+        case 206: return createMapperAndBind<Mapper206>(*m_nesCartridgeData);
+        case 207: return createMapperAndBind<Mapper207>(*m_nesCartridgeData);
+        case 208: return createMapperAndBind<Mapper208>(*m_nesCartridgeData);
+        case 209: return createMapperAndBind<Mapper209>(*m_nesCartridgeData);
+        case 210: return createMapperAndBind<Mapper210>(*m_nesCartridgeData);
+        case 211: return createMapperAndBind<Mapper211>(*m_nesCartridgeData);
+        case 212: return createMapperAndBind<Mapper212>(*m_nesCartridgeData);
+        case 213: return createMapperAndBind<Mapper213>(*m_nesCartridgeData);
+        case 214: return createMapperAndBind<Mapper214>(*m_nesCartridgeData);
+        case 215: return createMapperAndBind<Mapper215>(*m_nesCartridgeData);
+        case 216: return createMapperAndBind<Mapper216>(*m_nesCartridgeData);
+        case 217: return createMapperAndBind<Mapper217>(*m_nesCartridgeData);
+        case 218: return createMapperAndBind<Mapper218>(*m_nesCartridgeData);
+        case 219: return createMapperAndBind<Mapper219>(*m_nesCartridgeData);
+        case 220: return createMapperAndBind<Mapper220>(*m_nesCartridgeData);
+        case 221: return createMapperAndBind<Mapper221>(*m_nesCartridgeData);
+        case 222: return createMapperAndBind<Mapper222>(*m_nesCartridgeData);
+        case 223: return createMapperAndBind<Mapper223>(*m_nesCartridgeData);
+        case 224: return createMapperAndBind<Mapper224>(*m_nesCartridgeData);
+        case 225: return createMapperAndBind<Mapper225>(*m_nesCartridgeData);
+        case 226: return createMapperAndBind<Mapper226>(*m_nesCartridgeData);
+        case 227: return createMapperAndBind<Mapper227>(*m_nesCartridgeData);
+        case 228: return createMapperAndBind<Mapper228>(*m_nesCartridgeData);
+        case 229: return createMapperAndBind<Mapper229>(*m_nesCartridgeData);
+        case 230: return createMapperAndBind<Mapper230>(*m_nesCartridgeData);
+        case 231: return createMapperAndBind<Mapper231>(*m_nesCartridgeData);
+        case 232: return createMapperAndBind<Mapper232>(*m_nesCartridgeData);
+        case 233: return createMapperAndBind<Mapper233>(*m_nesCartridgeData);
+        case 234: return createMapperAndBind<Mapper234>(*m_nesCartridgeData);
+        case 235: return createMapperAndBind<Mapper235>(*m_nesCartridgeData);
+        case 236: return createMapperAndBind<Mapper236>(*m_nesCartridgeData);
+        case 237: return createMapperAndBind<Mapper237>(*m_nesCartridgeData);
+        case 238: return createMapperAndBind<Mapper238>(*m_nesCartridgeData);
+        case 239: return createMapperAndBind<Mapper239>(*m_nesCartridgeData);
+        case 240: return createMapperAndBind<Mapper240>(*m_nesCartridgeData);
+        case 241: return createMapperAndBind<Mapper241>(*m_nesCartridgeData);
+        case 242: return createMapperAndBind<Mapper242>(*m_nesCartridgeData);
+        case 243: return createMapperAndBind<Mapper243>(*m_nesCartridgeData);
+        case 244: return createMapperAndBind<Mapper244>(*m_nesCartridgeData);
+        case 245: return createMapperAndBind<Mapper245>(*m_nesCartridgeData);
+        case 246: return createMapperAndBind<Mapper246>(*m_nesCartridgeData);
+        case 247: return createMapperAndBind<Mapper247>(*m_nesCartridgeData);
+        case 248: return createMapperAndBind<Mapper248>(*m_nesCartridgeData);
+        case 249: return createMapperAndBind<Mapper249>(*m_nesCartridgeData);
+        case 250: return createMapperAndBind<Mapper250>(*m_nesCartridgeData);
+        case 251: return createMapperAndBind<Mapper251>(*m_nesCartridgeData);
+        case 252: return createMapperAndBind<Mapper252>(*m_nesCartridgeData);
+        case 253: return createMapperAndBind<Mapper253>(*m_nesCartridgeData);
+        case 254: return createMapperAndBind<Mapper254>(*m_nesCartridgeData);
+        case 255: return createMapperAndBind<Mapper255>(*m_nesCartridgeData);
 #ifdef ENABLE_NSF_PLAYER
-        case _NsfFormat::NSF_MAPPER_ID: return BaseMapper::create<MapperNSF>(*m_nesCartridgeData);
+        case _NsfFormat::NSF_MAPPER_ID: return createMapperAndBind<MapperNSF>(*m_nesCartridgeData);
 #endif
 
         }         
@@ -571,6 +766,7 @@ public:
         m_isValid = false;
         m_mapper = &m_dummyMapper;
         m_nesCartridgeData = NULL;
+        assignDefaultMapperDispatch();
     }
 
     ~Cartridge()
@@ -588,6 +784,7 @@ public:
 
         m_mapper = &m_dummyMapper;
         m_nesCartridgeData = NULL;
+        assignDefaultMapperDispatch();
 
         m_isValid = false;        
     }
@@ -759,57 +956,57 @@ public:
 
     GERANES_INLINE void writePrg(int addr, uint8_t data)
     {
-        m_mapper->writePrg(addr,data);
+        m_writePrgFn(m_mapper, addr, data);
     }
 
     GERANES_INLINE uint8_t readPrg(int addr)
     {
-        return m_mapper->readPrg(addr);
+        return m_readPrgFn(m_mapper, addr);
     }
 
     GERANES_INLINE void writeSaveRam(int addr, uint8_t data)
     {
-        m_mapper->writeSaveRam(addr,data);
+        m_writeSaveRamFn(m_mapper, addr, data);
     }
 
     GERANES_INLINE uint8_t readSaveRam(int addr)
     {
-        return m_mapper->readSaveRam(addr);
+        return m_readSaveRamFn(m_mapper, addr);
     }
 
     GERANES_INLINE void writeChr(int addr, uint8_t data)
     {
-        m_mapper->writeChr(addr,data);
+        m_writeChrFn(m_mapper, addr, data);
     }
 
     GERANES_INLINE uint8_t readChr(int addr)
     {
-        return m_mapper->readChr(addr);
+        return m_readChrFn(m_mapper, addr);
     }
 
     GERANES_INLINE void writeMapperRegister(int addr, uint8_t data)
     {
-        m_mapper->writeMapperRegister(addr,data);
+        m_writeMapperRegisterFn(m_mapper, addr, data);
     }
 
     GERANES_INLINE uint8_t readMapperRegister(int addr, uint8_t openBusData)
     {
-        return m_mapper->readMapperRegister(addr,openBusData);
+        return m_readMapperRegisterFn(m_mapper, addr, openBusData);
     }
 
     GERANES_INLINE void writeMapperRegisterAbsolute(uint16_t addr, uint8_t data)
     {
-        m_mapper->writeMapperRegisterAbsolute(addr, data);
+        m_writeMapperRegisterAbsoluteFn(m_mapper, addr, data);
     }
 
     GERANES_INLINE uint8_t readMapperRegisterAbsolute(uint16_t addr, uint8_t openBusData)
     {
-        return m_mapper->readMapperRegisterAbsolute(addr, openBusData);
+        return m_readMapperRegisterAbsoluteFn(m_mapper, addr, openBusData);
     }
 
     GERANES_INLINE MirroringType getMirroringType()
     {
-        return m_mapper->mirroringType();
+        return m_mirroringTypeFn(m_mapper);
     }
 
     //return nametable index with preperly mirroring
@@ -819,7 +1016,7 @@ public:
         static const uint8_t VERTICAL_MIRROR[] = {0,1,0,1};
         static const uint8_t FOUR_SCREEN_MIRROR[] = {0,1,2,3};
 
-        switch(m_mapper->mirroringType()){
+        switch(m_mirroringTypeFn(m_mapper)){
 
             case MirroringType::HORIZONTAL:
                 return HORIZONTAL_MIRROR[blockIndex];
@@ -838,82 +1035,82 @@ public:
 
     GERANES_INLINE bool getInterruptFlag()
     {
-        return m_mapper->getInterruptFlag();
+        return m_getInterruptFlagFn(m_mapper);
     }
 
     GERANES_INLINE void setA12State(bool state)
     {
-        m_mapper->setA12State(state);
+        m_setA12StateFn(m_mapper, state);
     }
 
     GERANES_INLINE void cycle()
     {    
-        m_mapper->cycle();
+        m_cycleFn(m_mapper);
     }    
 
     GERANES_INLINE_HOT bool useCustomNameTable(uint8_t index)
     {
-        return m_mapper->useCustomNameTable(index);
+        return m_useCustomNameTableFn(m_mapper, index);
     }
 
     GERANES_INLINE_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr)
     {
-        return m_mapper->readCustomNameTable(index,addr);
+        return m_readCustomNameTableFn(m_mapper, index, addr);
     }
 
     GERANES_INLINE_HOT void writeCustomNameTable(uint8_t index, uint16_t addr, uint8_t data)
     {
-        m_mapper->writeCustomNameTable(index,addr,data);
+        m_writeCustomNameTableFn(m_mapper, index, addr, data);
     }
 
     GERANES_INLINE void onScanlineStart(bool renderingEnabled, int scanline)
     {
-        m_mapper->onScanlineStart(renderingEnabled, scanline);
+        m_onScanlineStartFn(m_mapper, renderingEnabled, scanline);
     }
 
     GERANES_INLINE void setPpuFetchSource(bool isSpriteFetch)
     {
-        m_mapper->setPpuFetchSource(isSpriteFetch);
+        m_setPpuFetchSourceFn(m_mapper, isSpriteFetch);
     }
 
     GERANES_INLINE uint8_t transformNameTableRead(uint8_t index, uint16_t addr, uint8_t value)
     {
-        return m_mapper->transformNameTableRead(index, addr, value);
+        return m_transformNameTableReadFn(m_mapper, index, addr, value);
     }
 
     GERANES_INLINE void setSpriteSize8x16(bool sprite8x16)
     {
-        m_mapper->setSpriteSize8x16(sprite8x16);
+        m_setSpriteSize8x16Fn(m_mapper, sprite8x16);
     }
 
     GERANES_INLINE void setPpuMask(uint8_t mask)
     {
-        m_mapper->setPpuMask(mask);
+        m_setPpuMaskFn(m_mapper, mask);
     }
 
     GERANES_INLINE void onPpuStatusRead(bool vblankSet)
     {
-        m_mapper->onPpuStatusRead(vblankSet);
+        m_onPpuStatusReadFn(m_mapper, vblankSet);
     }
 
     GERANES_INLINE void onPpuRead(uint16_t addr)
     {
-        m_mapper->onPpuRead(addr);
+        m_onPpuReadFn(m_mapper, addr);
     }
 
     GERANES_INLINE void onPpuCycle(int scanline, int cycle, bool isRendering, bool isPreLine)
     {
-        m_mapper->onPpuCycle(scanline, cycle, isRendering, isPreLine);
+        m_onPpuCycleFn(m_mapper, scanline, cycle, isRendering, isPreLine);
     }
 
     GERANES_INLINE void onCpuRead(uint16_t addr)
     {
-        m_mapper->onCpuRead(addr);
+        m_onCpuReadFn(m_mapper, addr);
     }
 
     GERANES_INLINE void onCpuWrite(uint16_t addr, uint8_t data)
     {
-        m_mapper->onCpuWrite(addr, data);
+        m_onCpuWriteFn(m_mapper, addr, data);
     }
 
 #ifdef ENABLE_NSF_PLAYER
@@ -930,17 +1127,17 @@ public:
 
     GERANES_INLINE float getExpansionAudioSample()
     {
-        return m_mapper->getExpansionAudioSample();
+        return m_getExpansionAudioSampleFn(m_mapper);
     }
 
     GERANES_INLINE float getMixWeight() const
     {
-        return m_mapper->getMixWeight();
+        return m_getMixWeightFn(m_mapper);
     }
 
     GERANES_INLINE float getExpansionOutputGain() const
     {
-        return m_mapper->getExpansionOutputGain();
+        return m_getExpansionOutputGainFn(m_mapper);
     }
 
     GERANES_INLINE std::string getMapperAudioChannelsJson() const
@@ -955,7 +1152,7 @@ public:
 
     GERANES_INLINE void applyExternalActions(uint8_t pending)
     {
-        m_mapper->applyExternalActions(pending);
+        m_applyExternalActionsFn(m_mapper, pending);
     }
 
     GERANES_INLINE GameDatabase::System system() const
@@ -1190,5 +1387,6 @@ public:
     }
 
 };
+
 
 
