@@ -1802,6 +1802,10 @@ public:
             }
             if(!advanced) break;
 
+            if(m_paused) {
+                break;
+            }
+
             if constexpr(waitForNewFrame)
                 loop = !ret;
             else
@@ -1877,6 +1881,10 @@ public:
                 break;
             }
 
+            if(m_paused) {
+                break;
+            }
+
             advancedAny = true;
             if(cyclesBefore == 1 && m_cpuCyclesAcc > 1) {
                 steppedInstruction = true;
@@ -1945,6 +1953,11 @@ public:
 
             bool frameReady = false;
             if(!stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, frameReady, true)) {
+                restoreSilentAudio();
+                return false;
+            }
+
+            if(m_paused) {
                 restoreSilentAudio();
                 return false;
             }
