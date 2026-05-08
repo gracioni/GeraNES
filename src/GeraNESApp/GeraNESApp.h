@@ -286,6 +286,7 @@ private:
     uint32_t m_lastMainLoopDtMs = 0;
     uint64_t m_presenterFrameAccumScaled = 0;
     uint32_t m_presenterStepRemainder = 0;
+    int m_lastTextureUploadClipHeightValue = -1;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
@@ -455,7 +456,7 @@ public:
     void drawNsfPlayerVisualizer();
 #endif
 
-    virtual void paintGL() override;
+    virtual bool paintGL() override;
 
     void showGui();
     void showOverlay();

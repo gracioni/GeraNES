@@ -117,22 +117,24 @@ inline void GeraNESApp::render()
     const int textureHeight = 256;
     const int activeTop = m_clipHeightValue;
     const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
+    const uint32_t* framebuffer = nullptr;
 
     if(!m_emu.valid()) {
         fillNoRomStaticFramebuffer();
+        framebuffer = m_framebufferUploadCopy.data();
     } else {
-        m_emu.copyFramebuffer(m_framebufferUploadCopy);
+        framebuffer = m_emu.getFramebuffer();
     }
-    if(m_framebufferUploadCopy.size() < PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) return;
+    if(framebuffer == nullptr) return;
 
-    if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight)) {
+    if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight) ||
+       m_lastTextureUploadClipHeightValue != m_clipHeightValue) {
         m_textureUploadBuffer.assign(static_cast<size_t>(textureWidth * textureHeight), 0u);
-    } else {
-        std::fill(m_textureUploadBuffer.begin(), m_textureUploadBuffer.end(), 0u);
+        m_lastTextureUploadClipHeightValue = m_clipHeightValue;
     }
 
     for(int y = activeTop; y < activeBottom; ++y) {
-        const uint32_t* srcRow = m_framebufferUploadCopy.data() + static_cast<size_t>(y) * textureWidth;
+        const uint32_t* srcRow = framebuffer + static_cast<size_t>(y) * textureWidth;
         uint32_t* dstRow = m_textureUploadBuffer.data() + static_cast<size_t>(y) * textureWidth;
         std::memcpy(dstRow, srcRow, static_cast<size_t>(textureWidth) * sizeof(uint32_t));
     }
@@ -142,8 +144,10 @@ inline void GeraNESApp::render()
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, textureWidth, textureHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_textureUploadBuffer.data());
 }
 
-inline void GeraNESApp::paintGL()
+inline bool GeraNESApp::paintGL()
 {
+    mainLoop();
+
     glClear(GL_COLOR_BUFFER_BIT);
 
     ImGui_ImplOpenGL3_NewFrame();
@@ -161,8 +165,6 @@ inline void GeraNESApp::paintGL()
 #endif
 
     ImGui::Render();
-
-    mainLoop();
 
     if(m_updateObjectsFlag) {
         m_updateObjectsFlag = false;
@@ -259,4 +261,5 @@ inline void GeraNESApp::paintGL()
         SDL_GL_MakeCurrent(backupWindow, backupContext);
     }
 #endif
+    return true;
 }

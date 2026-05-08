@@ -6,9 +6,8 @@
 
 CMRC_DECLARE(resources);
 
-void TouchControls::testDownButton(std::string_view id, glm::vec2 point, const std::function<void()>& callback)
+void TouchControls::testDownButton(const yoga_raii::Node::Ptr& node, glm::vec2 point, const std::function<void()>& callback)
 {
-    auto node = m_root->getById(std::string(id));
     if(node) {
         glm::vec2 min, max;
         node->getAbsoluteRect(min, max);
@@ -117,6 +116,19 @@ void TouchControls::createLayout()
         m_root->setWidth(m_screenWidth);
         m_root->setHeight(m_screenHeight);
         m_root->calculateLayout();
+        m_rewindNode = m_root->getById("main/top/rewind");
+        m_digitalPadNode = m_root->getById("main/bottom/digital-pad/draw");
+        m_selectNode = m_root->getById("main/bottom/mid/select/draw");
+        m_startNode = m_root->getById("main/bottom/mid/start/draw");
+        m_bNode = m_root->getById("main/bottom/right/b/draw");
+        m_aNode = m_root->getById("main/bottom/right/a/draw");
+    } else {
+        m_rewindNode = nullptr;
+        m_digitalPadNode = nullptr;
+        m_selectNode = nullptr;
+        m_startNode = nullptr;
+        m_bNode = nullptr;
+        m_aNode = nullptr;
     }
 }
 
@@ -180,33 +192,33 @@ void TouchControls::onEvent(SDL_Event& ev)
     }
 
     if(evtDown) {
-        testDownButton("main/top/rewind", point, [&]() {
+        testDownButton(m_rewindNode, point, [&]() {
             m_buttons.rewind = true;
             rewindFingerId = index;
         });
 
-        testDownButton("main/bottom/digital-pad/draw", point, [&]() {
+        testDownButton(m_digitalPadNode, point, [&]() {
             thumbIndex = index;
-            thumbCenter = m_root->getById("main/bottom/digital-pad/draw")->getAbsoluteCenter();
+            thumbCenter = m_digitalPadNode->getAbsoluteCenter();
             updateDigitalPad(index, point);
         });
 
-        testDownButton("main/bottom/mid/select/draw", point, [&]() {
+        testDownButton(m_selectNode, point, [&]() {
             m_buttons.select = true;
             selectFingerId = index;
         });
 
-        testDownButton("main/bottom/mid/start/draw", point, [&]() {
+        testDownButton(m_startNode, point, [&]() {
             m_buttons.start = true;
             startFingerId = index;
         });
 
-        testDownButton("main/bottom/right/b/draw", point, [&]() {
+        testDownButton(m_bNode, point, [&]() {
             m_buttons.b = true;
             bFingerId = index;
         });
 
-        testDownButton("main/bottom/right/a/draw", point, [&]() {
+        testDownButton(m_aNode, point, [&]() {
             m_buttons.a = true;
             aFingerId = index;
         });
@@ -252,56 +264,50 @@ void TouchControls::draw(ImDrawList* drawList, ImVec2 origin)
     const int transparency = static_cast<int>(AppSettings::instance().data.input.touchControls.transparency * 255);
     const int opacity = 255 - transparency;
 
-    auto rewindNode = m_root->getById("main/top/rewind");
-    if(rewindNode) {
+    if(m_rewindNode) {
         glm::vec2 min, max;
-        rewindNode->getAbsoluteRect(min, max);
+        m_rewindNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_rewindTexture->id(),
                            ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
-    auto digitalPadNode = m_root->getById("main/bottom/digital-pad/draw");
-    if(digitalPadNode) {
+    if(m_digitalPadNode) {
         glm::vec2 min, max;
-        digitalPadNode->getAbsoluteRect(min, max);
+        m_digitalPadNode->getAbsoluteRect(min, max);
 
         drawList->AddImage(m_digitalPagTexture->id(),
                            ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
-    auto selectNode = m_root->getById("main/bottom/mid/select/draw");
-    if(selectNode) {
+    if(m_selectNode) {
         glm::vec2 min, max;
-        selectNode->getAbsoluteRect(min, max);
+        m_selectNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.select ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
                            ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
-    auto startNode = m_root->getById("main/bottom/mid/start/draw");
-    if(startNode) {
+    if(m_startNode) {
         glm::vec2 min, max;
-        startNode->getAbsoluteRect(min, max);
+        m_startNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.start ? m_midButtonPressedTexture->id() : m_midButtonTexture->id(),
                            ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
-    auto bNode = m_root->getById("main/bottom/right/b/draw");
-    if(bNode) {
+    if(m_bNode) {
         glm::vec2 min, max;
-        bNode->getAbsoluteRect(min, max);
+        m_bNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.b ? m_rightButtonPressedTexture->id() : m_rightButtonTexture->id(),
                            ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));
     }
 
-    auto aNode = m_root->getById("main/bottom/right/a/draw");
-    if(aNode) {
+    if(m_aNode) {
         glm::vec2 min, max;
-        aNode->getAbsoluteRect(min, max);
+        m_aNode->getAbsoluteRect(min, max);
         drawList->AddImage(m_buttons.a ? m_rightButtonPressedTexture->id() : m_rightButtonTexture->id(),
                            ImVec2{origin.x + min.x, origin.y + min.y}, ImVec2{origin.x + max.x, origin.y + max.y}, ImVec2(0, 0), ImVec2(1, 1),
                            IM_COL32(255, 255, 255, opacity));

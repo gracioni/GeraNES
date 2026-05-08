@@ -80,6 +80,12 @@ private:
     glm::vec2 m_dpi;
 
     yoga_raii::Node::Ptr m_root = nullptr;
+    yoga_raii::Node::Ptr m_rewindNode = nullptr;
+    yoga_raii::Node::Ptr m_digitalPadNode = nullptr;
+    yoga_raii::Node::Ptr m_selectNode = nullptr;
+    yoga_raii::Node::Ptr m_startNode = nullptr;
+    yoga_raii::Node::Ptr m_bNode = nullptr;
+    yoga_raii::Node::Ptr m_aNode = nullptr;
 
     glm::vec4 m_margin = {0,0,0,0};
 
@@ -90,7 +96,7 @@ private:
     std::shared_ptr<GLTexture> m_rightButtonTexture;
     std::shared_ptr<GLTexture> m_rightButtonPressedTexture;
 
-    void testDownButton(std::string_view id, glm::vec2 point, const std::function<void()>& callback);
+    void testDownButton(const yoga_raii::Node::Ptr& node, glm::vec2 point, const std::function<void()>& callback);
     void updateDigitalPad(SDL_FingerID eventFingerIndex, glm::vec2 point );
 
 public:

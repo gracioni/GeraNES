@@ -127,9 +127,9 @@ void SDLOpenGLWindow::mainLoop()
     syncDrawableSize(true);
     syncDisplayIndex();
 
-    paintGL();
-
-    swapBuffers();
+    if(paintGL()) {
+        swapBuffers();
+    }
 }
 
 #ifdef _WIN32
@@ -222,8 +222,9 @@ void SDLOpenGLWindow::nativeMoveSizeLoopStep(bool force)
     SDL_GL_MakeCurrent(m_window, m_context);
     syncDrawableSize(true);
     syncDisplayIndex();
-    paintGL();
-    swapBuffers();
+    if(paintGL()) {
+        swapBuffers();
+    }
 }
 
 void SDLOpenGLWindow::installWindowsSubclass()
@@ -384,8 +385,9 @@ void SDLOpenGLWindow::onWindowDisplayChanged(int displayIndex)
     (void)displayIndex;
 }
 
-void SDLOpenGLWindow::paintGL()
+bool SDLOpenGLWindow::paintGL()
 {
+    return true;
 }
 
 SDLOpenGLWindow::~SDLOpenGLWindow()

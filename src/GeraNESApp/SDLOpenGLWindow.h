@@ -84,7 +84,7 @@ public:
     virtual bool onEvent(SDL_Event& e);
     virtual void onWindowsTitleBarInteractionChanged(bool active);
     virtual void onWindowDisplayChanged(int displayIndex);
-    virtual void paintGL();
+    virtual bool paintGL();
 
     virtual ~SDLOpenGLWindow();
 
