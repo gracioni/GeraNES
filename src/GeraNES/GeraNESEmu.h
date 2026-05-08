@@ -163,6 +163,7 @@ private:
     double m_vsyncAudioCompMsAcc;
     int m_vsyncAudioSkipMsDebt;
     uint64_t m_emulationTickCounter;
+    bool m_audioOutputRewinding = false;
 
     uint8_t m_openBus;
     uint16_t m_prevControllerReadAddr;
@@ -948,6 +949,8 @@ private:
                 m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
             }
         }
+        m_audioOutputRewinding = m_rewind.isRewinding();
+        m_audioOutput.setRewinding(m_audioOutputRewinding);
         m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
         m_audioOutput.setExpansionAudioVolume(1.0f);
         m_apu.updateAudioOutput();
@@ -973,6 +976,7 @@ private:
         m_pendingNsfPrevSong = false;
         m_applyingPendingNsfActions = false;
         m_forceSilentAudio = false;
+        m_audioOutputRewinding = m_rewind.isRewinding();
         m_currentPlaybackFrameRenderedAudibly = false;
         m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
@@ -1168,8 +1172,11 @@ private:
             return false;
         }
 
-        m_audioOutput.setRewinding(m_rewind.isRewinding());
-        m_audioOutput.setExpansionAudioVolume(1.0f);
+        const bool rewinding = m_rewind.isRewinding();
+        if(m_audioOutputRewinding != rewinding) {
+            m_audioOutput.setRewinding(rewinding);
+            m_audioOutputRewinding = rewinding;
+        }
         bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
         const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
         m_audioOutput.render(ms, silentRender);
@@ -1505,6 +1512,7 @@ public:
 
         if(wasRewinding != isRewinding) {
             m_audioOutput.setRewinding(isRewinding);
+            m_audioOutputRewinding = isRewinding;
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
             m_lastAudioRenderedMs = 0;

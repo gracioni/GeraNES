@@ -45,6 +45,22 @@ class APU
     uint8_t m_writeChannelsData;
     uint8_t m_last4017Value;
 
+    // Audio device parameters only need to be pushed when the generated
+    // channel state actually changes.
+    bool m_audioOutputStateDirty = true;
+    int m_cachedExpansionSourceRateHz = 0;
+    int m_cachedPulse1Duty = -1;
+    int m_cachedPulse2Duty = -1;
+    int m_cachedPulse1Period = -1;
+    int m_cachedPulse2Period = -1;
+    int m_cachedTrianglePeriod = -1;
+    int m_cachedNoisePeriod = -1;
+    int m_cachedPulse1Volume = -1;
+    int m_cachedPulse2Volume = -1;
+    int m_cachedTriangleVolume = -1;
+    int m_cachedNoiseVolume = -1;
+    int m_cachedNoiseMode = -1;
+
 public:
 
 
@@ -109,6 +125,23 @@ public:
     }
 
 private:
+    void invalidateAudioOutputState()
+    {
+        m_audioOutputStateDirty = true;
+        m_cachedExpansionSourceRateHz = 0;
+        m_cachedPulse1Duty = -1;
+        m_cachedPulse2Duty = -1;
+        m_cachedPulse1Period = -1;
+        m_cachedPulse2Period = -1;
+        m_cachedTrianglePeriod = -1;
+        m_cachedNoisePeriod = -1;
+        m_cachedPulse1Volume = -1;
+        m_cachedPulse2Volume = -1;
+        m_cachedTriangleVolume = -1;
+        m_cachedNoiseVolume = -1;
+        m_cachedNoiseMode = -1;
+    }
+
     void powerOnReset()
     {
         m_pulse1.init();
@@ -130,6 +163,7 @@ private:
         m_writeChannelsAddr = 0;
         m_writeChannelsData = 0;
         m_last4017Value = 0x00;
+        invalidateAudioOutputState();
 
         //After reset or power-up, APU acts as if $4017 were written with $00 from
         //9 to 12 clocks before first instruction begins.
@@ -160,6 +194,7 @@ public:
         m_writeChannelsFlag = false;
         m_writeChannelsAddr = 0;
         m_writeChannelsData = 0;
+        invalidateAudioOutputState();
 
         // On reset, the frame counter behaves as if the last mode value were
         // written again shortly before execution resumes. The IRQ inhibit bit
@@ -330,40 +365,93 @@ public:
 
     void updateAudioOutput()
     {
-        m_audioOutput.setExpansionSourceRateHz(m_settings.CPUClockHz());
-        m_audioOutput.setExpansionAudioVolume(1.0f);
-
-        switch(m_pulse1.getDuty())
-        {
-        case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.125f); break;
-        case 1: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.25f); break;
-        case 2: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.5f); break;
-        case 3: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.75f); break;
-        }        
-
-        const float CPUClock = m_settings.CPUClockHz();
-
-        //f = CPU / (16 * (t + 1))
-        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Pulse_1, CPUClock/16.0f/(m_pulse1.getPeriod()+1) );
-        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Pulse_1, (float)m_pulse1.getVolume()/15.0f );
-
-        switch(m_pulse2.getDuty())
-        {
-        case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.125f); break;
-        case 1: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.25f); break;
-        case 2: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.5f); break;
-        case 3: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.75f); break;
+        const int expansionSourceRateHz = m_settings.CPUClockHz();
+        if(m_audioOutputStateDirty || m_cachedExpansionSourceRateHz != expansionSourceRateHz) {
+            m_audioOutput.setExpansionSourceRateHz(expansionSourceRateHz);
+            m_audioOutput.setExpansionAudioVolume(1.0f);
+            m_cachedExpansionSourceRateHz = expansionSourceRateHz;
         }
 
-        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Pulse_2, CPUClock/16.0f/(m_pulse2.getPeriod()+1) );
-        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Pulse_2, (float)m_pulse2.getVolume()/15.0f );
+        const int pulse1Duty = m_pulse1.getDuty();
+        if(m_audioOutputStateDirty || m_cachedPulse1Duty != pulse1Duty) {
+            switch(pulse1Duty)
+            {
+            case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.125f); break;
+            case 1: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.25f); break;
+            case 2: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.5f); break;
+            case 3: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_1, 0.75f); break;
+            }
+            m_cachedPulse1Duty = pulse1Duty;
+        }
 
-        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Triangle, (CPUClock/16.0f/2.0f)/(m_triangle.getPeriod()+1) );
-        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Triangle, (float)m_triangle.getVolume()/15.0f );
+        const int pulse2Duty = m_pulse2.getDuty();
+        if(m_audioOutputStateDirty || m_cachedPulse2Duty != pulse2Duty) {
+            switch(pulse2Duty)
+            {
+            case 0: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.125f); break;
+            case 1: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.25f); break;
+            case 2: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.5f); break;
+            case 3: m_audioOutput.setPulseDutyCycle(IAudioOutput::PulseChannel::Pulse_2, 0.75f); break;
+            }
+            m_cachedPulse2Duty = pulse2Duty;
+        }
 
-        m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Noise, CPUClock/(m_noise.getPeriod()) );
-        m_audioOutput.setChannelVolume(IAudioOutput::Channel::Noise, (float)m_noise.getVolume()/15.0f );
-        m_audioOutput.setNoiseMetallic( m_noise.getMode() );
+        const float cpuClock = static_cast<float>(expansionSourceRateHz);
+        const int pulse1Period = m_pulse1.getPeriod();
+        if(m_audioOutputStateDirty || m_cachedPulse1Period != pulse1Period) {
+            m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Pulse_1, cpuClock / 16.0f / (pulse1Period + 1));
+            m_cachedPulse1Period = pulse1Period;
+        }
+
+        const int pulse1Volume = m_pulse1.getVolume();
+        if(m_audioOutputStateDirty || m_cachedPulse1Volume != pulse1Volume) {
+            m_audioOutput.setChannelVolume(IAudioOutput::Channel::Pulse_1, static_cast<float>(pulse1Volume) / 15.0f);
+            m_cachedPulse1Volume = pulse1Volume;
+        }
+
+        const int pulse2Period = m_pulse2.getPeriod();
+        if(m_audioOutputStateDirty || m_cachedPulse2Period != pulse2Period) {
+            m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Pulse_2, cpuClock / 16.0f / (pulse2Period + 1));
+            m_cachedPulse2Period = pulse2Period;
+        }
+
+        const int pulse2Volume = m_pulse2.getVolume();
+        if(m_audioOutputStateDirty || m_cachedPulse2Volume != pulse2Volume) {
+            m_audioOutput.setChannelVolume(IAudioOutput::Channel::Pulse_2, static_cast<float>(pulse2Volume) / 15.0f);
+            m_cachedPulse2Volume = pulse2Volume;
+        }
+
+        const int trianglePeriod = m_triangle.getPeriod();
+        if(m_audioOutputStateDirty || m_cachedTrianglePeriod != trianglePeriod) {
+            m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Triangle, (cpuClock / 16.0f / 2.0f) / (trianglePeriod + 1));
+            m_cachedTrianglePeriod = trianglePeriod;
+        }
+
+        const int triangleVolume = m_triangle.getVolume();
+        if(m_audioOutputStateDirty || m_cachedTriangleVolume != triangleVolume) {
+            m_audioOutput.setChannelVolume(IAudioOutput::Channel::Triangle, static_cast<float>(triangleVolume) / 15.0f);
+            m_cachedTriangleVolume = triangleVolume;
+        }
+
+        const int noisePeriod = m_noise.getPeriod();
+        if(m_audioOutputStateDirty || m_cachedNoisePeriod != noisePeriod) {
+            m_audioOutput.setChannelFrequency(IAudioOutput::Channel::Noise, cpuClock / noisePeriod);
+            m_cachedNoisePeriod = noisePeriod;
+        }
+
+        const int noiseVolume = m_noise.getVolume();
+        if(m_audioOutputStateDirty || m_cachedNoiseVolume != noiseVolume) {
+            m_audioOutput.setChannelVolume(IAudioOutput::Channel::Noise, static_cast<float>(noiseVolume) / 15.0f);
+            m_cachedNoiseVolume = noiseVolume;
+        }
+
+        const int noiseMode = m_noise.getMode() ? 1 : 0;
+        if(m_audioOutputStateDirty || m_cachedNoiseMode != noiseMode) {
+            m_audioOutput.setNoiseMetallic(m_noise.getMode());
+            m_cachedNoiseMode = noiseMode;
+        }
+
+        m_audioOutputStateDirty = false;
     }
 
 
