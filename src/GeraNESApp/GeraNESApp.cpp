@@ -11,6 +11,36 @@
 #include <iomanip>
 #include <sstream>
 
+#ifdef __EMSCRIPTEN__
+    #include <emscripten.h>
+#endif
+
+namespace {
+#ifdef __EMSCRIPTEN__
+constexpr Uint64 kWebMainLoopCounterFrequency = 1000000u;
+
+Uint64 currentMainLoopCounter()
+{
+    return static_cast<Uint64>(emscripten_get_now() * 1000.0);
+}
+
+Uint64 currentMainLoopCounterFrequency()
+{
+    return kWebMainLoopCounterFrequency;
+}
+#else
+Uint64 currentMainLoopCounter()
+{
+    return SDL_GetPerformanceCounter();
+}
+
+Uint64 currentMainLoopCounterFrequency()
+{
+    return SDL_GetPerformanceFrequency();
+}
+#endif
+}
+
 void GeraNESApp::updateMVP()
 {
     glm::mat4 proj = glm::ortho(0.0f, static_cast<float>(this->width()), static_cast<float>(this->height()), 0.0f, -1.0f, 1.0f);
@@ -965,8 +995,8 @@ void GeraNESApp::createShortcuts()
         m_fullScreen = !this->isFullScreen();
         this->setFullScreen(m_fullScreen, m_fullScreenMode == 1);
         updateVSyncConfig();
-        m_mainLoopLastCounter = SDL_GetPerformanceCounter();
-        m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+        m_mainLoopLastCounter = currentMainLoopCounter();
+        m_mainLoopCounterFrequency = currentMainLoopCounterFrequency();
         m_mainLoopCounterRemainder = 0;
         m_presenterFrameAccumScaled = 0;
         m_presenterStepRemainder = 0;
@@ -1397,8 +1427,8 @@ void GeraNESApp::restartAudioModule()
 
 void GeraNESApp::onWebVisibilityChanged(bool visible)
 {
-    m_mainLoopLastCounter = SDL_GetPerformanceCounter();
-    m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+    m_mainLoopLastCounter = currentMainLoopCounter();
+    m_mainLoopCounterFrequency = currentMainLoopCounterFrequency();
     m_mainLoopCounterRemainder = 0;
     m_lastMainLoopDtMs = 0;
     m_hasLastMousePosition = false;
@@ -2487,8 +2517,8 @@ void GeraNESApp::onWindowDisplayChanged(int displayIndex)
 {
     (void)displayIndex;
     updateVSyncConfig();
-    m_mainLoopLastCounter = SDL_GetPerformanceCounter();
-    m_mainLoopCounterFrequency = SDL_GetPerformanceFrequency();
+    m_mainLoopLastCounter = currentMainLoopCounter();
+    m_mainLoopCounterFrequency = currentMainLoopCounterFrequency();
     m_mainLoopCounterRemainder = 0;
     m_presenterFrameAccumScaled = 0;
     m_presenterStepRemainder = 0;
@@ -2498,8 +2528,8 @@ void GeraNESApp::mainLoop()
 {
     updateCursor();
 
-    const Uint64 counterNow = SDL_GetPerformanceCounter();
-    Uint64 counterFreq = SDL_GetPerformanceFrequency();
+    const Uint64 counterNow = currentMainLoopCounter();
+    Uint64 counterFreq = currentMainLoopCounterFrequency();
     if(counterFreq == 0) {
         counterFreq = 1;
     }
