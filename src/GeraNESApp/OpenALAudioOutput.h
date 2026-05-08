@@ -11,8 +11,15 @@
 class OpenALAudioOutput : public AudioOutputBase
 {
 private:
+#ifdef __EMSCRIPTEN__
+    // Web audio benefits from smaller per-buffer chunks and a deeper queue so
+    // mobile browser scheduling jitter does not underrun the source.
+    static const size_t N_BUFFERS = 8;
+    static constexpr float BUFFER_TIME = 0.12f;
+#else
     static const size_t N_BUFFERS = 3;
     static constexpr float BUFFER_TIME = 0.1f;
+#endif
 
     ALCdevice* m_device = nullptr;
     ALCcontext* m_context = nullptr;
