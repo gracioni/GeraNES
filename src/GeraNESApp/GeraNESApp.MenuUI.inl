@@ -280,6 +280,7 @@ inline void GeraNESApp::menuBar() {
                     }
                 }
 
+                #ifndef __EMSCRIPTEN__
                 if (ImGui::BeginMenu("Fullscreen Mode")) {
                     for(int i = 0; i < static_cast<int>(FULLSCREEN_MODE_LABELS.size()); ++i) {
                         if(ImGui::MenuItem(FULLSCREEN_MODE_LABELS[static_cast<size_t>(i)], nullptr, m_fullScreenMode == i)) {
@@ -299,6 +300,7 @@ inline void GeraNESApp::menuBar() {
                     }
                     ImGui::EndMenu();
                 }
+                #endif
 
                 ImGui::Separator();
                 if (ImGui::MenuItem("Show FPS", nullptr, &AppSettings::instance().data.debug.showFps))
@@ -1112,9 +1114,9 @@ inline void GeraNESApp::drawPaletteWindow()
 
 inline void GeraNESApp::drawShaderStackWindow()
 {
-    ImGui::SetNextWindowSize(ImVec2(700.0f, 440.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(800.0f, 440.0f), ImGuiCond_Appearing);
 
-    if(!ImGui::Begin("Shader Stack", &m_showShaderStackWindow)) {
+    if(!ImGui::Begin("Shader", &m_showShaderStackWindow)) {
         ImGui::End();
         return;
     }
