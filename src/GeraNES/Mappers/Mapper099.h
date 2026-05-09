@@ -5,6 +5,9 @@
 // Nintendo Vs. System (iNES Mapper 99)
 class Mapper099 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_OnCpuWrite;
+
 private:
     bool m_bankSelect = false; // OUT2 ($4016 bit 2)
 

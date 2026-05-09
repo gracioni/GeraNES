@@ -6,6 +6,9 @@
 
 class Mapper111 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_UseCustomNameTable;
+
 private:
     std::array<uint8_t, 0x4000> m_chrRamGtrom = {};
     uint8_t m_prgMask = 0;

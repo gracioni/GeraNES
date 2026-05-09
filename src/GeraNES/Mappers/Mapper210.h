@@ -5,6 +5,7 @@
 class Mapper210 : public Mapper019 {
 
 public:
+    static constexpr uint32_t kMapperHookCaps = 0;
 
     Mapper210(ICartridgeData& cd) : Mapper019(cd)
     {

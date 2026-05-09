@@ -11,6 +11,9 @@
 // - PPU $0800-$2FFF behaves like 10KB of RAM in practice for emulation.
 class Mapper077 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_UseCustomNameTable;
+
 private:
     std::array<uint8_t, 0x2800> m_chrNtRam = {};
     uint8_t m_prgBank = 0;

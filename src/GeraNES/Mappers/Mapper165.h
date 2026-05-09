@@ -4,6 +4,11 @@
 
 class Mapper165 : public Mapper004
 {
+public:
+    static constexpr uint32_t kMapperHookCaps =
+        Mapper004::kMapperHookCaps |
+        BaseMapper::HookCap_OnPpuRead;
+
 private:
     bool m_chrLatch[2] = {false, false};
     bool m_needUpdate = true;

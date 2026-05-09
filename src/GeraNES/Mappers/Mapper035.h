@@ -4,6 +4,9 @@
 
 class Mapper035 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_SetA12State;
+
 private:
     uint8_t m_prgBank[4] = {0, 1, 2, 3};
     uint8_t m_chrBank[8] = {0, 1, 2, 3, 4, 5, 6, 7};

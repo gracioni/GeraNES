@@ -9,6 +9,8 @@
 //(HxROM)
 class Mapper004 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_SetA12State;
 
 protected:
 

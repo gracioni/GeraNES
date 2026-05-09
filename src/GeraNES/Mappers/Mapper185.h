@@ -5,6 +5,9 @@
 // CNROM with CHR-ROM disable protection
 class Mapper185 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_OnCpuRead;
+
 private:
 
     uint8_t m_chrReg = 0;

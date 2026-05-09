@@ -5,6 +5,9 @@
 // iNES Mapper 222
 class Mapper222 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_SetA12State;
+
 private:
     uint8_t m_prgReg[2] = {0};
     uint8_t m_chrReg[8] = {0};

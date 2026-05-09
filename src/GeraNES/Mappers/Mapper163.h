@@ -4,6 +4,9 @@
 
 class Mapper163 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_OnPpuRead;
+
 private:
     uint8_t m_regs[5] = {0};
     bool m_toggle = true;

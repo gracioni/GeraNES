@@ -16,6 +16,20 @@ namespace fs = std::filesystem;
 
 class BaseMapper
 {
+public:
+    enum HookCapability : uint32_t {
+        HookCap_SetA12State = 1u << 0,
+        HookCap_UseCustomNameTable = 1u << 1,
+        HookCap_SetPpuFetchSource = 1u << 2,
+        HookCap_TransformNameTableRead = 1u << 3,
+        HookCap_OnPpuRead = 1u << 4,
+        HookCap_OnPpuCycle = 1u << 5,
+        HookCap_OnCpuRead = 1u << 6,
+        HookCap_OnCpuWrite = 1u << 7,
+    };
+
+    static constexpr uint32_t kMapperHookCaps = 0;
+
 protected:    
 
     template<BankSize bs>

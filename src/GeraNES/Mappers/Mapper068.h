@@ -5,6 +5,9 @@
 // Sunsoft-4 (iNES Mapper 68)
 class Mapper068 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_UseCustomNameTable;
+
 private:
     uint8_t m_prgBank = 0;
     uint8_t m_prgMask = 0;

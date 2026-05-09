@@ -5,6 +5,12 @@
 // J.Y. Company ASIC (iNES Mapper 90)
 class Mapper090 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps =
+        BaseMapper::HookCap_SetA12State |
+        BaseMapper::HookCap_OnPpuRead |
+        BaseMapper::HookCap_OnCpuWrite;
+
 private:
     enum class IrqSource : uint8_t
     {

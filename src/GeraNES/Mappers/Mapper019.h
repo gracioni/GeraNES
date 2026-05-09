@@ -12,6 +12,8 @@
 
 class Mapper019 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_UseCustomNameTable;
 
 private:
 

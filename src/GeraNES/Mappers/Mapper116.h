@@ -5,6 +5,9 @@
 // iNES Mapper 116
 class Mapper116 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_SetA12State;
+
 private:
     uint8_t m_mode = 0;
 

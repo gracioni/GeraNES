@@ -4,6 +4,9 @@
 
 class Mapper096 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_OnPpuRead;
+
 private:
     uint8_t m_outerChrBank = 0;
     uint8_t m_innerChrBank = 0;

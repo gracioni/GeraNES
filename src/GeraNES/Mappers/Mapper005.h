@@ -21,6 +21,15 @@
 // - Expansion audio (2 pulse channels + PCM DAC) ($5000-$5015)
 class Mapper005 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps =
+        BaseMapper::HookCap_UseCustomNameTable |
+        BaseMapper::HookCap_SetPpuFetchSource |
+        BaseMapper::HookCap_TransformNameTableRead |
+        BaseMapper::HookCap_OnPpuRead |
+        BaseMapper::HookCap_OnPpuCycle |
+        BaseMapper::HookCap_OnCpuRead;
+
 private:
     uint8_t m_prgMode = 3;
     uint8_t m_chrMode = 3;

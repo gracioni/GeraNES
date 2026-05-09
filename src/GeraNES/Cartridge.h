@@ -412,6 +412,7 @@ private:
     MapperGetExpansionAudioSampleFn m_getExpansionAudioSampleFn;
     MapperGetMixWeightFn m_getMixWeightFn;
     MapperGetExpansionOutputGainFn m_getExpansionOutputGainFn;
+    uint32_t m_mapperHookCaps;
 
     bool m_isValid;
 
@@ -420,6 +421,7 @@ private:
     template<typename MapperT>
     void assignMapperDispatch()
     {
+        m_mapperHookCaps = MapperT::kMapperHookCaps;
         m_writePrgFn = &fastWritePrg<MapperT>;
         m_readPrgFn = &fastReadPrg<MapperT>;
         m_writeSaveRamFn = &fastWriteSaveRam<MapperT>;
@@ -451,6 +453,11 @@ private:
         m_getExpansionAudioSampleFn = &fastGetExpansionAudioSample<MapperT>;
         m_getMixWeightFn = &fastGetMixWeight<MapperT>;
         m_getExpansionOutputGainFn = &fastGetExpansionOutputGain<MapperT>;
+    }
+
+    GERANES_INLINE bool hasMapperHookCap(uint32_t cap) const
+    {
+        return (m_mapperHookCaps & cap) != 0;
     }
 
     void assignDefaultMapperDispatch()
@@ -1040,6 +1047,9 @@ public:
 
     GERANES_INLINE void setA12State(bool state)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_SetA12State)) {
+            return;
+        }
         m_setA12StateFn(m_mapper, state);
     }
 
@@ -1050,6 +1060,9 @@ public:
 
     GERANES_INLINE_HOT bool useCustomNameTable(uint8_t index)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_UseCustomNameTable)) {
+            return false;
+        }
         return m_useCustomNameTableFn(m_mapper, index);
     }
 
@@ -1070,11 +1083,17 @@ public:
 
     GERANES_INLINE void setPpuFetchSource(bool isSpriteFetch)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_SetPpuFetchSource)) {
+            return;
+        }
         m_setPpuFetchSourceFn(m_mapper, isSpriteFetch);
     }
 
     GERANES_INLINE uint8_t transformNameTableRead(uint8_t index, uint16_t addr, uint8_t value)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_TransformNameTableRead)) {
+            return value;
+        }
         return m_transformNameTableReadFn(m_mapper, index, addr, value);
     }
 
@@ -1095,21 +1114,33 @@ public:
 
     GERANES_INLINE void onPpuRead(uint16_t addr)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_OnPpuRead)) {
+            return;
+        }
         m_onPpuReadFn(m_mapper, addr);
     }
 
     GERANES_INLINE void onPpuCycle(int scanline, int cycle, bool isRendering, bool isPreLine)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_OnPpuCycle)) {
+            return;
+        }
         m_onPpuCycleFn(m_mapper, scanline, cycle, isRendering, isPreLine);
     }
 
     GERANES_INLINE void onCpuRead(uint16_t addr)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_OnCpuRead)) {
+            return;
+        }
         m_onCpuReadFn(m_mapper, addr);
     }
 
     GERANES_INLINE void onCpuWrite(uint16_t addr, uint8_t data)
     {
+        if(!hasMapperHookCap(BaseMapper::HookCap_OnCpuWrite)) {
+            return;
+        }
         m_onCpuWriteFn(m_mapper, addr, data);
     }
 

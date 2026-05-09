@@ -7,6 +7,9 @@
 // Submapper 1: EJ-006-1 (M2 IRQ, selectable mirroring)
 class Mapper091 : public BaseMapper
 {
+public:
+    static constexpr uint32_t kMapperHookCaps = BaseMapper::HookCap_SetA12State;
+
 private:
     uint8_t m_subMapper = 0;
 
