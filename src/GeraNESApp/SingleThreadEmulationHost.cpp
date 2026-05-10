@@ -218,6 +218,8 @@ void SingleThreadEmulationHost::onFrameReady()
 {
     recordFrameReadyNetplayState(m_emu);
     m_holdPresentedFramebufferUntilFrameReady = false;
+    refreshPpuViewerSnapshot();
+    refreshPpuEventViewerSnapshot();
     if(!m_emu.valid()) {
         std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
         return;
@@ -241,6 +243,72 @@ void SingleThreadEmulationHost::refreshPresentedFramebuffer()
         m_emu.getFramebuffer(),
         m_presentedFramebuffer.size() * sizeof(uint32_t)
     );
+}
+
+void SingleThreadEmulationHost::refreshPpuViewerSnapshot()
+{
+    if(!m_ppuViewerCaptureEnabled) {
+        return;
+    }
+
+    const uint32_t frameCount = m_emu.frameCount();
+    if(m_ppuViewerSnapshot.valid && m_ppuViewerSnapshot.frameCount == frameCount) {
+        return;
+    }
+
+    m_ppuViewerSnapshot = {};
+    m_ppuViewerSnapshot.valid = m_emu.valid();
+    m_ppuViewerSnapshot.frameCount = frameCount;
+    if(!m_ppuViewerSnapshot.valid) {
+        return;
+    }
+
+    const PPU& ppu = m_emu.getConsole().ppu();
+    m_ppuViewerSnapshot.rgbPalette = ppu.colorPalette();
+    m_ppuViewerSnapshot.scrollX = ppu.getCursorX();
+    m_ppuViewerSnapshot.scrollY = ppu.getCursorY();
+    m_ppuViewerSnapshot.backgroundPatternTableAddress = ppu.debugBackgroundPatternTableAddress();
+    for(size_t i = 0; i < m_ppuViewerSnapshot.chrData.size(); ++i) {
+        m_ppuViewerSnapshot.chrData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(i));
+    }
+    for(size_t i = 0; i < m_ppuViewerSnapshot.nametableData.size(); ++i) {
+        m_ppuViewerSnapshot.nametableData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + i));
+    }
+    for(size_t i = 0; i < m_ppuViewerSnapshot.paletteData.size(); ++i) {
+        m_ppuViewerSnapshot.paletteData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + i));
+    }
+}
+
+void SingleThreadEmulationHost::refreshPpuEventViewerSnapshot()
+{
+    if(m_emu.ppuEventTraceEnabled() != m_ppuEventViewerCaptureEnabled) {
+        m_emu.enablePpuEventTrace(m_ppuEventViewerCaptureEnabled);
+    }
+
+    if(!m_ppuEventViewerCaptureEnabled) {
+        m_ppuEventViewerSnapshot = {};
+        return;
+    }
+
+    const uint32_t frameCount = m_emu.frameCount();
+    if(m_ppuEventViewerSnapshot.valid &&
+       m_ppuEventViewerSnapshot.traceEnabled &&
+       m_ppuEventViewerSnapshot.frameCount == frameCount) {
+        return;
+    }
+
+    m_ppuEventViewerSnapshot = {};
+    m_ppuEventViewerSnapshot.valid = m_emu.valid();
+    m_ppuEventViewerSnapshot.traceEnabled = true;
+    m_ppuEventViewerSnapshot.frameCount = frameCount;
+    m_ppuEventViewerSnapshot.events = m_emu.ppuRegisterAccessEvents();
+    if(m_ppuEventViewerSnapshot.valid) {
+        const uint32_t* framebuffer = m_emu.getConsole().ppu().getFramebuffer();
+        m_ppuEventViewerSnapshot.framebuffer.assign(
+            framebuffer,
+            framebuffer + (PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)
+        );
+    }
 }
 
 SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)
@@ -308,6 +376,42 @@ void SingleThreadEmulationHost::setPreAdvanceHook(std::function<void(GeraNESEmu&
 void SingleThreadEmulationHost::setDebugTraceSink(std::function<void(const std::string&)> sink)
 {
     (void)sink;
+}
+
+void SingleThreadEmulationHost::setPpuViewerCaptureEnabled(bool enabled)
+{
+    if(m_ppuViewerCaptureEnabled == enabled) {
+        return;
+    }
+    m_ppuViewerCaptureEnabled = enabled;
+    if(!enabled) {
+        m_ppuViewerSnapshot = {};
+    } else {
+        serviceBackgroundWork();
+        refreshPpuViewerSnapshot();
+    }
+}
+
+bool SingleThreadEmulationHost::getPpuViewerSnapshot(PpuViewerSnapshot& out) const
+{
+    out = m_ppuViewerSnapshot;
+    return out.valid;
+}
+
+void SingleThreadEmulationHost::setPpuEventViewerCaptureEnabled(bool enabled)
+{
+    if(m_ppuEventViewerCaptureEnabled == enabled) {
+        return;
+    }
+    m_ppuEventViewerCaptureEnabled = enabled;
+    serviceBackgroundWork();
+    refreshPpuEventViewerSnapshot();
+}
+
+bool SingleThreadEmulationHost::getPpuEventViewerSnapshot(PpuEventViewerSnapshot& out) const
+{
+    out = m_ppuEventViewerSnapshot;
+    return out.valid || out.traceEnabled;
 }
 
 void SingleThreadEmulationHost::postCommand(std::function<void(GeraNESEmu&)> command)

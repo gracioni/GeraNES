@@ -33,6 +33,8 @@ public:
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
     using InputTopologySnapshot = IEmulationHost::InputTopologySnapshot;
+    using PpuViewerSnapshot = EmulationHostTypes::PpuViewerSnapshot;
+    using PpuEventViewerSnapshot = EmulationHostTypes::PpuEventViewerSnapshot;
 
 private:
     static InputFrame buildInputFrameForEmu(GeraNESEmu& emu,
@@ -184,6 +186,10 @@ private:
     bool m_freeRunningClockInitialized = false;
     std::chrono::steady_clock::time_point m_freeRunningNextTick{};
     std::function<void(GeraNESEmu&)> m_preAdvanceHook;
+    PpuViewerSnapshot m_ppuViewerSnapshot;
+    PpuEventViewerSnapshot m_ppuEventViewerSnapshot;
+    bool m_ppuViewerCaptureEnabled = false;
+    bool m_ppuEventViewerCaptureEnabled = false;
 
     void resetFreeRunningPacing();
     void applyPendingInput();
@@ -193,6 +199,8 @@ private:
     void serviceBackgroundWork();
     void onFrameReady();
     void refreshPresentedFramebuffer();
+    void refreshPpuViewerSnapshot();
+    void refreshPpuEventViewerSnapshot();
 
 public:
     explicit SingleThreadEmulationHost(IAudioOutput& audioOutput);
@@ -208,6 +216,10 @@ public:
     void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook) override;
     void setDebugTraceSink(std::function<void(const std::string&)> sink);
     void postCommand(std::function<void(GeraNESEmu&)> command) override;
+    void setPpuViewerCaptureEnabled(bool enabled);
+    bool getPpuViewerSnapshot(PpuViewerSnapshot& out) const;
+    void setPpuEventViewerCaptureEnabled(bool enabled);
+    bool getPpuEventViewerSnapshot(PpuEventViewerSnapshot& out) const;
 
     template<typename Fn>
     decltype(auto) withExclusiveAccess(Fn&& fn)

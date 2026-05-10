@@ -177,7 +177,8 @@ inline void GeraNESApp::menuBar() {
             const bool pauseSelected = netplayPauseActive
                 ? (m_netplayRuntime.uiSnapshot().room.state == ConsoleNetplay::SessionState::Paused)
                 : m_emu.paused();
-            if(ImGui::MenuItem("Pause", pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted())) {
+            const bool debugOwnsFlowControl = AppSettings::instance().data.debug.cpuDebuggerEnabled;
+            if(ImGui::MenuItem("Pause", pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted() && !debugOwnsFlowControl)) {
                 togglePauseAction();
             }
 
@@ -887,9 +888,14 @@ inline void GeraNESApp::menuBar() {
             auto debugShortcut = m_shortcuts.get("cpuDebugger");
             const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
             const bool netplayBlocksCpuDebug = isNetplayBlockingCpuDebug();
-            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow, !netplayBlocksCpuDebug)) {
+            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow)) {
                 m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
                 AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
+                if(m_showCpuDebuggerWindow) {
+                    requestEnableCpuDebugger();
+                } else {
+                    disableCpuDebugging();
+                }
             }
 
             auto breakpointShortcut = m_shortcuts.get("cpuBreakpoints");
@@ -1378,10 +1384,13 @@ inline void GeraNESApp::drawPpuViewerWindow()
     }
 
     if(!m_emu.valid()) {
+        m_emu.setPpuViewerCaptureEnabled(false);
         ImGui::TextDisabled("Load a ROM to inspect PPU data.");
         ImGui::End();
         return;
     }
+
+    m_emu.setPpuViewerCaptureEnabled(true);
 
     if(m_ppuNametableTexture == 0) {
         glGenTextures(1, &m_ppuNametableTexture);
@@ -1411,34 +1420,21 @@ inline void GeraNESApp::drawPpuViewerWindow()
         m_ppuChrBuffer.resize(static_cast<size_t>(kChrWidth * kChrHeight));
     }
 
-    std::array<uint8_t, 0x2000> chrData = {};
-    std::array<uint8_t, 0x1000> nametableData = {};
-    std::array<uint8_t, 0x20> paletteData = {};
-    std::array<uint32_t, 64> rgbPalette = {};
-    int scrollX = 0;
-    int scrollY = 0;
-    int backgroundPatternTableAddress = 0x0000;
-
-    m_emu.withExclusiveAccess([&](auto& emu) {
-        const PPU& ppu = emu.getConsole().ppu();
-
-        rgbPalette = ppu.colorPalette();
-        scrollX = ppu.getCursorX();
-        scrollY = ppu.getCursorY();
-        backgroundPatternTableAddress = ppu.debugBackgroundPatternTableAddress();
-
-        for(size_t i = 0; i < chrData.size(); ++i) {
-            chrData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(i));
-        }
-
-        for(size_t i = 0; i < nametableData.size(); ++i) {
-            nametableData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + i));
-        }
-
-        for(size_t i = 0; i < paletteData.size(); ++i) {
-            paletteData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + i));
-        }
-    });
+    EmulationHost::PpuViewerSnapshot viewerSnapshot;
+    if(!m_emu.getPpuViewerSnapshot(viewerSnapshot) || !viewerSnapshot.valid) {
+        ImGui::TextDisabled("Waiting for PPU snapshot...");
+        ImGui::End();
+        return;
+    }
+    const auto& chrData = viewerSnapshot.chrData;
+    const auto& nametableData = viewerSnapshot.nametableData;
+    const auto& paletteData = viewerSnapshot.paletteData;
+    const auto& rgbPalette = viewerSnapshot.rgbPalette;
+    const int scrollX = viewerSnapshot.scrollX;
+    const int scrollY = viewerSnapshot.scrollY;
+    const int backgroundPatternTableAddress = viewerSnapshot.backgroundPatternTableAddress;
+    const bool refreshViewer = m_ppuViewerCachedFrame != viewerSnapshot.frameCount;
+    m_ppuViewerCachedFrame = viewerSnapshot.frameCount;
 
     const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
         return rgbPalette[paletteEntry & 0x3F];
@@ -1446,71 +1442,73 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
     const uint8_t universalBackground = static_cast<uint8_t>(paletteData[0] & 0x3F);
 
-    for(int y = 0; y < kNametableHeight; ++y) {
-        const int nameTableRow = y >= 240 ? 2 : 0;
-        const int localY = y % 240;
-        const int tileY = localY >> 3;
-        const int fineY = localY & 0x07;
+    if(refreshViewer) {
+        for(int y = 0; y < kNametableHeight; ++y) {
+            const int nameTableRow = y >= 240 ? 2 : 0;
+            const int localY = y % 240;
+            const int tileY = localY >> 3;
+            const int fineY = localY & 0x07;
 
-        for(int x = 0; x < kNametableWidth; ++x) {
-            const int nameTableIndex = nameTableRow + (x >= 256 ? 1 : 0);
-            const int localX = x & 0xFF;
-            const int tileX = localX >> 3;
-            const int fineX = localX & 0x07;
-            const int nameTableBase = nameTableIndex * 0x400;
-            const uint8_t tileIndex = nametableData[static_cast<size_t>(nameTableBase + (tileY * 32) + tileX)];
-            const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((tileY >> 2) * 8) + (tileX >> 2))];
-            const int attrShift = ((tileY & 0x02) << 1) | (tileX & 0x02);
-            const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
-            const int patternAddr = backgroundPatternTableAddress + (tileIndex * 16) + fineY;
-            const uint8_t lowPlane = chrData[static_cast<size_t>(patternAddr)];
-            const uint8_t highPlane = chrData[static_cast<size_t>(patternAddr + 8)];
-            const int bit = 7 - fineX;
-            const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
+            for(int x = 0; x < kNametableWidth; ++x) {
+                const int nameTableIndex = nameTableRow + (x >= 256 ? 1 : 0);
+                const int localX = x & 0xFF;
+                const int tileX = localX >> 3;
+                const int fineX = localX & 0x07;
+                const int nameTableBase = nameTableIndex * 0x400;
+                const uint8_t tileIndex = nametableData[static_cast<size_t>(nameTableBase + (tileY * 32) + tileX)];
+                const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((tileY >> 2) * 8) + (tileX >> 2))];
+                const int attrShift = ((tileY & 0x02) << 1) | (tileX & 0x02);
+                const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
+                const int patternAddr = backgroundPatternTableAddress + (tileIndex * 16) + fineY;
+                const uint8_t lowPlane = chrData[static_cast<size_t>(patternAddr)];
+                const uint8_t highPlane = chrData[static_cast<size_t>(patternAddr + 8)];
+                const int bit = 7 - fineX;
+                const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
 
-            uint8_t paletteEntry = universalBackground;
-            if(colorIndex != 0) {
-                paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>((paletteIndex * 4) + colorIndex)] & 0x3F);
+                uint8_t paletteEntry = universalBackground;
+                if(colorIndex != 0) {
+                    paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>((paletteIndex * 4) + colorIndex)] & 0x3F);
+                }
+
+                m_ppuNametableBuffer[static_cast<size_t>((y * kNametableWidth) + x)] = colorForPaletteEntry(paletteEntry);
             }
-
-            m_ppuNametableBuffer[static_cast<size_t>((y * kNametableWidth) + x)] = colorForPaletteEntry(paletteEntry);
         }
-    }
 
-    for(int table = 0; table < 2; ++table) {
-        const int tableBase = table * 0x1000;
-        const int xOffset = table * 128;
+        for(int table = 0; table < 2; ++table) {
+            const int tableBase = table * 0x1000;
+            const int xOffset = table * 128;
 
-        for(int tileY = 0; tileY < 16; ++tileY) {
-            for(int tileX = 0; tileX < 16; ++tileX) {
-                const int tileIndex = (tileY * 16) + tileX;
+            for(int tileY = 0; tileY < 16; ++tileY) {
+                for(int tileX = 0; tileX < 16; ++tileX) {
+                    const int tileIndex = (tileY * 16) + tileX;
 
-                for(int fineY = 0; fineY < 8; ++fineY) {
-                    const uint8_t lowPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
-                    const uint8_t highPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
+                    for(int fineY = 0; fineY < 8; ++fineY) {
+                        const uint8_t lowPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
+                        const uint8_t highPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
 
-                    for(int fineX = 0; fineX < 8; ++fineX) {
-                        const int bit = 7 - fineX;
-                        const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
-                        uint8_t paletteEntry = universalBackground;
-                        if(colorIndex != 0) {
-                            paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(colorIndex)] & 0x3F);
+                        for(int fineX = 0; fineX < 8; ++fineX) {
+                            const int bit = 7 - fineX;
+                            const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
+                            uint8_t paletteEntry = universalBackground;
+                            if(colorIndex != 0) {
+                                paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(colorIndex)] & 0x3F);
+                            }
+
+                            const int dstX = xOffset + (tileX * 8) + fineX;
+                            const int dstY = (tileY * 8) + fineY;
+                            m_ppuChrBuffer[static_cast<size_t>((dstY * kChrWidth) + dstX)] = colorForPaletteEntry(paletteEntry);
                         }
-
-                        const int dstX = xOffset + (tileX * 8) + fineX;
-                        const int dstY = (tileY * 8) + fineY;
-                        m_ppuChrBuffer[static_cast<size_t>((dstY * kChrWidth) + dstX)] = colorForPaletteEntry(paletteEntry);
                     }
                 }
             }
         }
-    }
 
-    glBindTexture(GL_TEXTURE_2D, m_ppuNametableTexture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kNametableWidth, kNametableHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuNametableBuffer.data());
-    glBindTexture(GL_TEXTURE_2D, m_ppuChrTexture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kChrWidth, kChrHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuChrBuffer.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
+        glBindTexture(GL_TEXTURE_2D, m_ppuNametableTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kNametableWidth, kNametableHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuNametableBuffer.data());
+        glBindTexture(GL_TEXTURE_2D, m_ppuChrTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kChrWidth, kChrHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuChrBuffer.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
 
     ImGui::Text("Scroll: X=%d  Y=%d", scrollX, scrollY);
     ImGui::SameLine();
@@ -1676,24 +1674,21 @@ inline void GeraNESApp::drawEventViewerWindow()
     ImGui::SetNextWindowSize(ImVec2(860.0f, 720.0f), ImGuiCond_Appearing);
 
     if(!ImGui::Begin("Event Viewer", &m_showEventViewerWindow)) {
+        m_emu.setPpuEventViewerCaptureEnabled(false);
         ImGui::End();
         return;
     }
 
     if(!m_emu.valid()) {
+        m_emu.setPpuEventViewerCaptureEnabled(false);
+        m_ppuEventViewerEnabled = false;
         ImGui::TextDisabled("Load a ROM to inspect PPU events.");
         ImGui::End();
         return;
     }
 
-    bool traceEnabled = m_ppuEventViewerEnabled;
-    if(ImGui::Checkbox("Enable Event Viewer", &traceEnabled)) {
-        m_ppuEventViewerEnabled = traceEnabled;
-        m_emu.withExclusiveAccess([&](auto& emu) {
-            emu.enablePpuEventTrace(traceEnabled);
-        });
-    }
-    ImGui::SameLine();
+    m_ppuEventViewerEnabled = true;
+    m_emu.setPpuEventViewerCaptureEnabled(true);
     ImGui::TextDisabled("Reads are blue, writes are red. Full PPU frame: 341x312.");
     ImGui::Separator();
 
@@ -1711,34 +1706,35 @@ inline void GeraNESApp::drawEventViewerWindow()
         m_ppuEventBuffer.resize(static_cast<size_t>(kEventWidth * kEventHeight));
     }
 
-    std::vector<GeraNESEmu::PpuRegisterAccessEvent> ppuEvents;
-    std::vector<uint32_t> eventFramebuffer;
+    EmulationHost::PpuEventViewerSnapshot eventSnapshot;
+    const bool hasEventSnapshot = m_emu.getPpuEventViewerSnapshot(eventSnapshot);
+    const bool refreshEventViewer =
+        hasEventSnapshot &&
+        (m_eventViewerCachedFrame != eventSnapshot.frameCount ||
+         m_eventViewerCachedTraceEnabled != eventSnapshot.traceEnabled);
 
-    m_emu.withExclusiveAccess([&](auto& emu) {
-        if(emu.ppuEventTraceEnabled() != m_ppuEventViewerEnabled) {
-            emu.enablePpuEventTrace(m_ppuEventViewerEnabled);
+    if(refreshEventViewer) {
+        m_cachedPpuEvents = eventSnapshot.events;
+        std::fill(m_ppuEventBuffer.begin(), m_ppuEventBuffer.end(), 0xFF000000u);
+        if(!eventSnapshot.framebuffer.empty()) {
+            for(int y = 0; y < kVisibleFrameHeight; ++y) {
+                const size_t srcOffset = static_cast<size_t>(y * kVisibleFrameWidth);
+                const size_t dstOffset = static_cast<size_t>((y * kEventWidth) + kVisibleFrameXOffset);
+                std::copy_n(eventSnapshot.framebuffer.data() + srcOffset,
+                            kVisibleFrameWidth,
+                            m_ppuEventBuffer.begin() + static_cast<std::ptrdiff_t>(dstOffset));
+            }
         }
 
-        ppuEvents = emu.ppuRegisterAccessEvents();
-        const PPU& ppu = emu.getConsole().ppu();
-        const uint32_t* framebuffer = ppu.getFramebuffer();
-        eventFramebuffer.assign(framebuffer, framebuffer + (kVisibleFrameWidth * kVisibleFrameHeight));
-    });
+        glBindTexture(GL_TEXTURE_2D, m_ppuEventTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kEventWidth, kEventHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuEventBuffer.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
 
-    std::fill(m_ppuEventBuffer.begin(), m_ppuEventBuffer.end(), 0xFF000000u);
-    if(!eventFramebuffer.empty()) {
-        for(int y = 0; y < kVisibleFrameHeight; ++y) {
-            const size_t srcOffset = static_cast<size_t>(y * kVisibleFrameWidth);
-            const size_t dstOffset = static_cast<size_t>((y * kEventWidth) + kVisibleFrameXOffset);
-            std::copy_n(eventFramebuffer.begin() + static_cast<std::ptrdiff_t>(srcOffset),
-                        kVisibleFrameWidth,
-                        m_ppuEventBuffer.begin() + static_cast<std::ptrdiff_t>(dstOffset));
-        }
+        m_eventViewerCachedFrame = eventSnapshot.frameCount;
+        m_eventViewerCachedTraceEnabled = eventSnapshot.traceEnabled;
     }
 
-    glBindTexture(GL_TEXTURE_2D, m_ppuEventTexture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kEventWidth, kEventHeight, GL_RGBA, GL_UNSIGNED_BYTE, m_ppuEventBuffer.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
+    const auto& ppuEvents = m_cachedPpuEvents;
 
     const bool paused = m_emu.paused();
     const uint32_t currentFrame = ppuEvents.empty() ? 0u : ppuEvents.front().frame;

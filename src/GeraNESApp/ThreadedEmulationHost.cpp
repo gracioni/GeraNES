@@ -182,6 +182,80 @@ void ThreadedEmulationHost::onCommand(std::function<void(GeraNESEmu&)> command)
     m_presenterCv.notify_one();
 }
 
+void ThreadedEmulationHost::refreshPpuViewerSnapshotLocked(uint32_t frameCount)
+{
+    if(!m_ppuViewerCaptureEnabled) {
+        return;
+    }
+
+    std::scoped_lock snapshotLock(m_ppuViewerSnapshotMutex);
+    if(m_ppuViewerSnapshot.valid && m_ppuViewerSnapshot.frameCount == frameCount) {
+        return;
+    }
+
+    PpuViewerSnapshot snapshot;
+    snapshot.valid = m_emu.valid();
+    snapshot.frameCount = frameCount;
+    if(snapshot.valid) {
+        const PPU& ppu = m_emu.getConsole().ppu();
+        snapshot.rgbPalette = ppu.colorPalette();
+        snapshot.scrollX = ppu.getCursorX();
+        snapshot.scrollY = ppu.getCursorY();
+        snapshot.backgroundPatternTableAddress = ppu.debugBackgroundPatternTableAddress();
+        for(size_t i = 0; i < snapshot.chrData.size(); ++i) {
+            snapshot.chrData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(i));
+        }
+        for(size_t i = 0; i < snapshot.nametableData.size(); ++i) {
+            snapshot.nametableData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + i));
+        }
+        for(size_t i = 0; i < snapshot.paletteData.size(); ++i) {
+            snapshot.paletteData[i] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + i));
+        }
+    }
+
+    m_ppuViewerSnapshot = std::move(snapshot);
+}
+
+void ThreadedEmulationHost::refreshPpuEventViewerSnapshotLocked(uint32_t frameCount)
+{
+    const bool traceEnabled = m_ppuEventViewerCaptureEnabled;
+    if(m_emu.ppuEventTraceEnabled() != traceEnabled) {
+        m_emu.enablePpuEventTrace(traceEnabled);
+    }
+
+    if(!traceEnabled) {
+        std::scoped_lock snapshotLock(m_ppuEventViewerSnapshotMutex);
+        m_ppuEventViewerSnapshot.valid = false;
+        m_ppuEventViewerSnapshot.traceEnabled = false;
+        m_ppuEventViewerSnapshot.frameCount = frameCount;
+        m_ppuEventViewerSnapshot.events.clear();
+        m_ppuEventViewerSnapshot.framebuffer.clear();
+        return;
+    }
+
+    std::scoped_lock snapshotLock(m_ppuEventViewerSnapshotMutex);
+    if(m_ppuEventViewerSnapshot.valid &&
+       m_ppuEventViewerSnapshot.traceEnabled &&
+       m_ppuEventViewerSnapshot.frameCount == frameCount) {
+        return;
+    }
+
+    PpuEventViewerSnapshot snapshot;
+    snapshot.valid = m_emu.valid();
+    snapshot.traceEnabled = traceEnabled;
+    snapshot.frameCount = frameCount;
+    snapshot.events = m_emu.ppuRegisterAccessEvents();
+    if(snapshot.valid) {
+        const uint32_t* framebuffer = m_emu.getConsole().ppu().getFramebuffer();
+        snapshot.framebuffer.assign(
+            framebuffer,
+            framebuffer + (PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)
+        );
+    }
+
+    m_ppuEventViewerSnapshot = std::move(snapshot);
+}
+
 void ThreadedEmulationHost::refreshSnapshotLocked()
 {
     const bool valid = m_emu.valid();
@@ -212,6 +286,9 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const int nsfCurrentSong = m_emu.nsfCurrentSong();
     const uint32_t lastFrameReadyFrame = m_lastFrameReadyFrameValue;
     const uint32_t lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+
+    refreshPpuViewerSnapshotLocked(frameCount);
+    refreshPpuEventViewerSnapshotLocked(frameCount);
 
     constexpr auto kSlowSnapshotRefreshInterval = std::chrono::milliseconds(250);
     const auto now = std::chrono::steady_clock::now();
@@ -520,6 +597,47 @@ void ThreadedEmulationHost::postCommand(std::function<void(GeraNESEmu&)> command
     m_workerWakeRequested.store(true, std::memory_order_release);
     m_signalCommand(std::move(command));
     m_presenterCv.notify_one();
+}
+
+void ThreadedEmulationHost::setPpuViewerCaptureEnabled(bool enabled)
+{
+    if(m_ppuViewerCaptureEnabled == enabled) {
+        return;
+    }
+    std::scoped_lock emuLock(m_emuMutex);
+    m_ppuViewerCaptureEnabled = enabled;
+    if(!enabled) {
+        std::scoped_lock snapshotLock(m_ppuViewerSnapshotMutex);
+        m_ppuViewerSnapshot = {};
+    } else {
+        refreshPpuViewerSnapshotLocked(m_emu.frameCount());
+    }
+    refreshSnapshotLocked();
+}
+
+bool ThreadedEmulationHost::getPpuViewerSnapshot(PpuViewerSnapshot& out) const
+{
+    std::scoped_lock snapshotLock(m_ppuViewerSnapshotMutex);
+    out = m_ppuViewerSnapshot;
+    return out.valid;
+}
+
+void ThreadedEmulationHost::setPpuEventViewerCaptureEnabled(bool enabled)
+{
+    if(m_ppuEventViewerCaptureEnabled == enabled) {
+        return;
+    }
+    std::scoped_lock emuLock(m_emuMutex);
+    m_ppuEventViewerCaptureEnabled = enabled;
+    refreshPpuEventViewerSnapshotLocked(m_emu.frameCount());
+    refreshSnapshotLocked();
+}
+
+bool ThreadedEmulationHost::getPpuEventViewerSnapshot(PpuEventViewerSnapshot& out) const
+{
+    std::scoped_lock snapshotLock(m_ppuEventViewerSnapshotMutex);
+    out = m_ppuEventViewerSnapshot;
+    return out.valid || out.traceEnabled;
 }
 
 uint32_t ThreadedEmulationHost::manualResetGeneration() const

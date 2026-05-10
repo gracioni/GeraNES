@@ -113,6 +113,28 @@ struct EmulationHostTypes
         Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
         Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
     };
+
+    struct PpuViewerSnapshot
+    {
+        bool valid = false;
+        uint32_t frameCount = 0;
+        std::array<uint8_t, 0x2000> chrData = {};
+        std::array<uint8_t, 0x1000> nametableData = {};
+        std::array<uint8_t, 0x20> paletteData = {};
+        std::array<uint32_t, 64> rgbPalette = {};
+        int scrollX = 0;
+        int scrollY = 0;
+        int backgroundPatternTableAddress = 0x0000;
+    };
+
+    struct PpuEventViewerSnapshot
+    {
+        bool valid = false;
+        bool traceEnabled = false;
+        uint32_t frameCount = 0;
+        std::vector<GeraNESEmu::PpuRegisterAccessEvent> events;
+        std::vector<uint32_t> framebuffer;
+    };
 };
 
 class IEmulationHost : public SigSlot::SigSlotBase

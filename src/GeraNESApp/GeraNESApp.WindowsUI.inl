@@ -308,10 +308,15 @@ inline void GeraNESApp::showGui()
 
     if(m_showPpuViewerWindow) {
         drawPpuViewerWindow();
+    } else {
+        m_emu.setPpuViewerCaptureEnabled(false);
     }
 
     if(m_showEventViewerWindow) {
         drawEventViewerWindow();
+    } else {
+        m_ppuEventViewerEnabled = false;
+        m_emu.setPpuEventViewerCaptureEnabled(false);
     }
 
     if(m_showCpuDebuggerWindow) {
@@ -855,6 +860,9 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     if(!ImGui::Begin("CPU Debugger", &m_showCpuDebuggerWindow)) {
         AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
         ImGui::End();
+        if(!m_showCpuDebuggerWindow) {
+            disableCpuDebugging();
+        }
         return;
     }
 
@@ -868,49 +876,52 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         netplaySnapshot.connected ||
         netplaySnapshot.reconnecting;
 
-    bool debugEnabled = AppSettings::instance().data.debug.cpuDebuggerEnabled;
-    ImGui::BeginDisabled(!hasRomLoaded);
-    if(ImGui::Checkbox("Enable debugger", &debugEnabled)) {
-        if(debugEnabled) {
-            requestEnableCpuDebugger();
-        } else {
-            disableCpuDebugging();
-            if(m_emu.paused()) {
-                m_emu.togglePaused();
-            }
-        }
-    }
-    ImGui::EndDisabled();
-
     if(!hasRomLoaded) {
         ImGui::TextDisabled("Load a ROM to inspect CPU state.");
         ImGui::End();
+        if(!m_showCpuDebuggerWindow) {
+            disableCpuDebugging();
+        }
         return;
     }
 
     if(debugBlockedByNetplay) {
-        ImGui::TextDisabled("Enabling the CPU debugger disconnects the current netplay session.");
+        ImGui::TextDisabled("Opening the CPU debugger disconnects the current netplay session.");
         ImGui::End();
+        if(!m_showCpuDebuggerWindow) {
+            disableCpuDebugging();
+        }
         return;
     }
 
-    if(!debugEnabled) {
-        ImGui::TextDisabled("Enable the debugger to pause, step, and inspect CPU state.");
+    if(!AppSettings::instance().data.debug.cpuDebuggerEnabled) {
+        requestEnableCpuDebugger();
+    }
+
+    if(!AppSettings::instance().data.debug.cpuDebuggerEnabled) {
+        ImGui::TextDisabled("Waiting for CPU debugger to become available.");
         ImGui::End();
+        if(!m_showCpuDebuggerWindow) {
+            disableCpuDebugging();
+        }
         return;
     }
 
     const bool paused = m_emu.paused();
     if(paused) {
         if(ImGui::Button("Resume")) {
+            m_cpuDebuggerAutoPaused = false;
             m_emu.withExclusiveAccess([](auto& emu) {
                 emu.clearDebugBreakpointHit();
+                emu.setPaused(false);
             });
-            m_emu.togglePaused();
         }
     } else {
         if(ImGui::Button("Pause")) {
-            m_emu.togglePaused();
+            m_cpuDebuggerAutoPaused = false;
+            m_emu.withExclusiveAccess([](auto& emu) {
+                emu.setPaused(true);
+            });
         }
     }
 
@@ -1012,6 +1023,10 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     ImGui::EndChild();
 
     ImGui::End();
+
+    if(!m_showCpuDebuggerWindow) {
+        disableCpuDebugging();
+    }
 }
 
 inline void GeraNESApp::drawCpuBreakpointsWindow()

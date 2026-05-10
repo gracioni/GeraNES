@@ -33,6 +33,8 @@ public:
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
     using InputTopologySnapshot = IEmulationHost::InputTopologySnapshot;
+    using PpuViewerSnapshot = EmulationHostTypes::PpuViewerSnapshot;
+    using PpuEventViewerSnapshot = EmulationHostTypes::PpuEventViewerSnapshot;
 
 private:
     static InputFrame buildInputFrameForEmu(GeraNESEmu& emu,
@@ -199,6 +201,12 @@ private:
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)
     };
     Snapshot m_snapshot;
+    mutable std::mutex m_ppuViewerSnapshotMutex;
+    PpuViewerSnapshot m_ppuViewerSnapshot;
+    mutable std::mutex m_ppuEventViewerSnapshotMutex;
+    PpuEventViewerSnapshot m_ppuEventViewerSnapshot;
+    bool m_ppuViewerCaptureEnabled = false;
+    bool m_ppuEventViewerCaptureEnabled = false;
     mutable std::mutex m_pendingInputMutex;
     InputState m_pendingInput;
     mutable std::mutex m_frameInputResolverMutex;
@@ -214,6 +222,8 @@ private:
     void applyPendingInputLocked();
     void onCommand(std::function<void(GeraNESEmu&)> command);
     void refreshSnapshotLocked();
+    void refreshPpuViewerSnapshotLocked(uint32_t frameCount);
+    void refreshPpuEventViewerSnapshotLocked(uint32_t frameCount);
     void onFrameReadyLocked();
     void workerLoop(std::stop_token stopToken);
     static thread_local const ThreadedEmulationHost* t_directAccessHost;
@@ -256,6 +266,10 @@ public:
     void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook) override;
     void setDebugTraceSink(std::function<void(const std::string&)> sink);
     void postCommand(std::function<void(GeraNESEmu&)> command) override;
+    void setPpuViewerCaptureEnabled(bool enabled);
+    bool getPpuViewerSnapshot(PpuViewerSnapshot& out) const;
+    void setPpuEventViewerCaptureEnabled(bool enabled);
+    bool getPpuEventViewerSnapshot(PpuEventViewerSnapshot& out) const;
 
     template<typename Fn>
     decltype(auto) withExclusiveAccess(Fn&& fn)

@@ -195,6 +195,9 @@ void GeraNESApp::notifyNetplayPauseRestrictedAction()
 void GeraNESApp::togglePauseAction()
 {
     if(!m_emu.valid()) return;
+    if(AppSettings::instance().data.debug.cpuDebuggerEnabled) {
+        return;
+    }
     if(canUseNetplaySessionPause()) {
         m_netplayRuntime.toggleHostedSessionPause();
         return;
@@ -914,7 +917,10 @@ void GeraNESApp::syncCpuDebugRuntimeState()
         m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
         debugSettings.cpuDebuggerEnabled = true;
         if(m_emu.valid() && !m_emu.paused()) {
-            m_emu.togglePaused();
+            m_cpuDebuggerAutoPaused = true;
+            m_emu.withExclusiveAccess([](auto& emu) {
+                emu.setPaused(true);
+            });
         }
     }
 
@@ -956,11 +962,19 @@ void GeraNESApp::disableCpuDebugging()
     m_showCpuBreakpointsWindow = false;
     m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
     m_lastSeenCpuBreakpointSequence = 0;
+    const bool shouldResumeSimulation = m_emu.valid() && m_emu.paused();
+    m_cpuDebuggerAutoPaused = false;
 
     m_emu.withExclusiveAccess([](auto& emu) {
         emu.setDebugBreakpointsArmed(false);
         emu.clearDebugBreakpointHit();
     });
+
+    if(shouldResumeSimulation) {
+        m_emu.withExclusiveAccess([](auto& emu) {
+            emu.setPaused(false);
+        });
+    }
 }
 
 void GeraNESApp::requestEnableCpuDebugger()
@@ -975,8 +989,12 @@ void GeraNESApp::requestEnableCpuDebugger()
 
     AppSettings::instance().data.debug.cpuDebuggerEnabled = true;
     m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
+    m_cpuDebuggerAutoPaused = false;
     if(m_emu.valid() && !m_emu.paused()) {
-        m_emu.togglePaused();
+        m_cpuDebuggerAutoPaused = true;
+        m_emu.withExclusiveAccess([](auto& emu) {
+            emu.setPaused(true);
+        });
     }
 }
 
@@ -1049,6 +1067,11 @@ void GeraNESApp::createShortcuts()
     m_shortcuts.add(ShortcutManager::Data{"cpuDebugger", "CPU Debugger", "Alt+D", [this]() {
         m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
         AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
+        if(m_showCpuDebuggerWindow) {
+            requestEnableCpuDebugger();
+        } else {
+            disableCpuDebugging();
+        }
     }});
 
     m_shortcuts.add(ShortcutManager::Data{"cpuBreakpoints", "CPU Breakpoints", "Alt+B", [this]() {

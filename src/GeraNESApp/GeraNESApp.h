@@ -139,6 +139,10 @@ private:
     std::vector<uint32_t> m_ppuNametableBuffer;
     std::vector<uint32_t> m_ppuChrBuffer;
     std::vector<uint32_t> m_ppuEventBuffer;
+    uint32_t m_ppuViewerCachedFrame = UINT32_MAX;
+    uint32_t m_eventViewerCachedFrame = UINT32_MAX;
+    bool m_eventViewerCachedTraceEnabled = false;
+    std::vector<GeraNESEmu::PpuRegisterAccessEvent> m_cachedPpuEvents;
 
     bool m_fullScreen = false;
     int m_fullScreenMode = 0;
@@ -209,6 +213,7 @@ private:
     UserToastNotifier m_userToast;
     uint64_t m_lastSeenCpuBreakpointSequence = 0;
     bool m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
+    bool m_cpuDebuggerAutoPaused = false;
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
 
