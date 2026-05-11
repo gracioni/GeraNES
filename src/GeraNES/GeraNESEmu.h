@@ -133,6 +133,8 @@ public:
         uint16_t virtualScrollY = 0;
         uint16_t backgroundPatternTableAddress = 0x0000;
         std::array<uint8_t, 0x2000> chrData = {};
+        std::array<uint8_t, 0x1000> nametableData = {};
+        std::array<uint8_t, 0x20> paletteData = {};
     };
 
     enum class StateLoadAudioPolicy
@@ -949,6 +951,12 @@ private:
 
                 for(uint16_t addr = 0; addr < 0x2000; ++addr) {
                     lineState.chrData[addr] = m_ppu.debugPeekPpuMemory(addr);
+                }
+                for(uint16_t addr = 0; addr < 0x1000; ++addr) {
+                    lineState.nametableData[addr] = m_ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + addr));
+                }
+                for(uint16_t addr = 0; addr < 0x20; ++addr) {
+                    lineState.paletteData[addr] = m_ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + addr));
                 }
             }
         }

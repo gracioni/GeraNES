@@ -1481,7 +1481,6 @@ inline void GeraNESApp::drawPpuViewerWindow()
         return wrapped;
     };
 
-    const uint8_t universalBackground = static_cast<uint8_t>(paletteData[0] & 0x3F);
     const auto findScanlineTraceState = [&](int visibleScanline) -> const GeraNESEmu::PpuViewerScanlineState* {
         if(!m_ppuViewerLiveScanlineUpdates ||
            visibleScanline < 0 ||
@@ -1606,14 +1605,31 @@ inline void GeraNESApp::drawPpuViewerWindow()
             stableScrollSpans = std::move(mergedSpans);
         }
 
-        const auto representativeValue = [](const std::vector<int>& values) {
+        const auto representativeWrappedValue = [](const std::vector<int>& values, int range) {
             if(values.empty()) {
                 return 0;
             }
 
-            std::vector<int> sorted = values;
-            std::sort(sorted.begin(), sorted.end());
-            return sorted[sorted.size() / 2];
+            const int anchor = values.front();
+            std::vector<int> unwrapped;
+            unwrapped.reserve(values.size());
+
+            for(int value : values) {
+                int delta = value - anchor;
+                if(delta > range / 2) {
+                    delta -= range;
+                } else if(delta < -(range / 2)) {
+                    delta += range;
+                }
+                unwrapped.push_back(anchor + delta);
+            }
+
+            std::sort(unwrapped.begin(), unwrapped.end());
+            int representative = unwrapped[unwrapped.size() / 2] % range;
+            if(representative < 0) {
+                representative += range;
+            }
+            return representative;
         };
 
         for(auto& span : stableScrollSpans) {
@@ -1648,10 +1664,10 @@ inline void GeraNESApp::drawPpuViewerWindow()
             }
 
             if(!rawXs.empty()) {
-                span.rawScrollX = representativeValue(rawXs);
-                span.rawScrollY = representativeValue(rawYs);
-                span.virtualScrollX = representativeValue(virtualXs);
-                span.virtualScrollY = representativeValue(virtualYs);
+                span.rawScrollX = representativeWrappedValue(rawXs, 256);
+                span.rawScrollY = representativeWrappedValue(rawYs, 240);
+                span.virtualScrollX = representativeWrappedValue(virtualXs, 512);
+                span.virtualScrollY = representativeWrappedValue(virtualYs, 480);
             }
         }
 
@@ -1666,17 +1682,43 @@ inline void GeraNESApp::drawPpuViewerWindow()
         }
     }
 
+    const auto findTraceStateForNametableRow = [&](int nametableY) -> const GeraNESEmu::PpuViewerScanlineState* {
+        if(!m_ppuViewerLiveScanlineUpdates) {
+            return nullptr;
+        }
+
+        for(const auto& span : stableScrollSpans) {
+            const int spanLength = span.endScanline - span.startScanline + 1;
+            if(spanLength <= 0) {
+                continue;
+            }
+
+            const int cursorY = wrapCoord(span.virtualScrollY + span.startScanline, kNametableHeight);
+            const int delta = wrapCoord(nametableY - cursorY, kNametableHeight);
+            if(delta >= spanLength) {
+                continue;
+            }
+
+            return findScanlineTraceState(span.startScanline + delta);
+        }
+
+        return nullptr;
+    };
+
     if(refreshViewer) {
         for(int y = 0; y < kNametableHeight; ++y) {
             const int nameTableRow = y >= 240 ? 2 : 0;
             const int localY = y % 240;
             const int tileY = localY >> 3;
             const int fineY = localY & 0x07;
-            const auto* lineState = findScanlineTraceState(localY);
+            const auto* lineState = findTraceStateForNametableRow(y);
             const auto& rowChrData = lineState ? lineState->chrData : chrData;
+            const auto& rowNametableData = lineState ? lineState->nametableData : nametableData;
+            const auto& rowPaletteData = lineState ? lineState->paletteData : paletteData;
             const int rowBackgroundPatternTableAddress = lineState
                 ? static_cast<int>(lineState->backgroundPatternTableAddress)
                 : backgroundPatternTableAddress;
+            const uint8_t rowUniversalBackground = static_cast<uint8_t>(rowPaletteData[0] & 0x3F);
 
             for(int x = 0; x < kNametableWidth; ++x) {
                 const int nameTableIndex = nameTableRow + (x >= 256 ? 1 : 0);
@@ -1684,8 +1726,8 @@ inline void GeraNESApp::drawPpuViewerWindow()
                 const int tileX = localX >> 3;
                 const int fineX = localX & 0x07;
                 const int nameTableBase = nameTableIndex * 0x400;
-                const uint8_t tileIndex = nametableData[static_cast<size_t>(nameTableBase + (tileY * 32) + tileX)];
-                const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((tileY >> 2) * 8) + (tileX >> 2))];
+                const uint8_t tileIndex = rowNametableData[static_cast<size_t>(nameTableBase + (tileY * 32) + tileX)];
+                const uint8_t attrByte = rowNametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((tileY >> 2) * 8) + (tileX >> 2))];
                 const int attrShift = ((tileY & 0x02) << 1) | (tileX & 0x02);
                 const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
                 const int patternAddr = rowBackgroundPatternTableAddress + (tileIndex * 16) + fineY;
@@ -1694,9 +1736,9 @@ inline void GeraNESApp::drawPpuViewerWindow()
                 const int bit = 7 - fineX;
                 const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
 
-                uint8_t paletteEntry = universalBackground;
+                uint8_t paletteEntry = rowUniversalBackground;
                 if(colorIndex != 0) {
-                    paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>((paletteIndex * 4) + colorIndex)] & 0x3F);
+                    paletteEntry = static_cast<uint8_t>(rowPaletteData[static_cast<size_t>((paletteIndex * 4) + colorIndex)] & 0x3F);
                 }
 
                 m_ppuNametableBuffer[static_cast<size_t>((y * kNametableWidth) + x)] = colorForPaletteEntry(paletteEntry);
@@ -1713,22 +1755,20 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
                     for(int fineY = 0; fineY < 8; ++fineY) {
                         const int dstY = (tileY * 8) + fineY;
-                        const int traceScanline = std::clamp(
-                            (dstY * 240) / kChrHeight,
-                            0,
-                            239
-                        );
-                        const auto* chrLineState = findScanlineTraceState(traceScanline);
+                        const int nametableY = (dstY * kNametableHeight) / kChrHeight;
+                        const auto* chrLineState = findTraceStateForNametableRow(nametableY);
                         const auto& chrSource = chrLineState ? chrLineState->chrData : chrData;
+                        const auto& chrPaletteData = chrLineState ? chrLineState->paletteData : paletteData;
+                        const uint8_t chrUniversalBackground = static_cast<uint8_t>(chrPaletteData[0] & 0x3F);
                         const uint8_t lowPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
                         const uint8_t highPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
 
                         for(int fineX = 0; fineX < 8; ++fineX) {
                             const int bit = 7 - fineX;
                             const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
-                            uint8_t paletteEntry = universalBackground;
+                            uint8_t paletteEntry = chrUniversalBackground;
                             if(colorIndex != 0) {
-                                paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(colorIndex)] & 0x3F);
+                                paletteEntry = static_cast<uint8_t>(chrPaletteData[static_cast<size_t>(colorIndex)] & 0x3F);
                             }
 
                             const int dstX = xOffset + (tileX * 8) + fineX;
