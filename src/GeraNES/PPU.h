@@ -1010,10 +1010,13 @@ yyy NN YYYYY XXXXX
 
     int getVirtualScrollX() const
     {
-        int scrollX = getRawScrollX();
         const uint16_t reg = (m_renderLine && m_renderingEnabled) ? m_reg_v : m_reg_t;
-        if((reg >> 10) & 0x01) {
-            scrollX += 256;
+        int scrollX = (((reg >> 10) & 0x01) << 8) | ((reg & 0x1F) << 3) | (m_reg_x & 0x07);
+        if(m_renderLine && m_renderingEnabled) {
+            scrollX = (scrollX - 16) % 512;
+            if(scrollX < 0) {
+                scrollX += 512;
+            }
         }
         return scrollX;
     }

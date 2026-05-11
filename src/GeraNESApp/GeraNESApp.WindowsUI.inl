@@ -310,12 +310,12 @@ inline void GeraNESApp::showGui()
         drawPpuViewerWindow();
     } else {
         m_emu.setPpuViewerCaptureEnabled(false, false);
-        if(m_ppuViewerMidFrameTraceActive) {
+        if(m_ppuViewerScanlineTraceActive) {
             m_emu.withExclusiveAccess([](auto& emu) {
-                emu.enablePpuViewerMidFrameTrace(false);
+                emu.enablePpuViewerScanlineTrace(false);
             });
-            m_ppuViewerMidFrameTraceActive = false;
-            m_ppuViewerMidFrameLineStates.clear();
+            m_ppuViewerScanlineTraceActive = false;
+            m_ppuViewerScanlineStates.clear();
         }
     }
 

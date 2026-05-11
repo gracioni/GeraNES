@@ -1383,36 +1383,36 @@ inline void GeraNESApp::drawPpuViewerWindow()
         return;
     }
 
-    auto syncPpuViewerMidFrameTrace = [&](bool enabled) {
-        if(m_ppuViewerMidFrameTraceActive == enabled) {
+    auto syncPpuViewerScanlineTrace = [&](bool enabled) {
+        if(m_ppuViewerScanlineTraceActive == enabled) {
             return;
         }
 
         m_emu.withExclusiveAccess([enabled](auto& emu) {
-            emu.enablePpuViewerMidFrameTrace(enabled);
+            emu.enablePpuViewerScanlineTrace(enabled);
         });
-        m_ppuViewerMidFrameTraceActive = enabled;
+        m_ppuViewerScanlineTraceActive = enabled;
 
         if(!enabled) {
-            m_ppuViewerMidFrameLineStates.clear();
+            m_ppuViewerScanlineStates.clear();
         }
     };
 
     if(!m_emu.valid()) {
-        syncPpuViewerMidFrameTrace(false);
+        syncPpuViewerScanlineTrace(false);
         m_emu.setPpuViewerCaptureEnabled(false, false);
         ImGui::TextDisabled("Load a ROM to inspect PPU data.");
         ImGui::End();
         return;
     }
 
-    ImGui::Checkbox("Live mid-frame updates", &m_ppuViewerMidFrameUpdates);
+    ImGui::Checkbox("Live mid-frame updates", &m_ppuViewerLiveScanlineUpdates);
     ImGui::SameLine();
     ImGui::TextDisabled("Shows CHR/scroll changes during the current frame. Higher cost.");
     ImGui::Separator();
 
-    syncPpuViewerMidFrameTrace(m_ppuViewerMidFrameUpdates);
-    m_emu.setPpuViewerCaptureEnabled(true, m_ppuViewerMidFrameUpdates);
+    syncPpuViewerScanlineTrace(m_ppuViewerLiveScanlineUpdates);
+    m_emu.setPpuViewerCaptureEnabled(true, m_ppuViewerLiveScanlineUpdates);
 
     if(m_ppuNametableTexture == 0) {
         glGenTextures(1, &m_ppuNametableTexture);
@@ -1457,32 +1457,39 @@ inline void GeraNESApp::drawPpuViewerWindow()
     const int backgroundPatternTableAddress = viewerSnapshot.backgroundPatternTableAddress;
     const bool refreshViewer =
         m_ppuViewerCachedFrame != viewerSnapshot.frameCount ||
-        (m_ppuViewerMidFrameUpdates &&
+        (m_ppuViewerLiveScanlineUpdates &&
          (m_ppuViewerCachedScanline != viewerSnapshot.ppuScanline ||
           m_ppuViewerCachedCycle != viewerSnapshot.ppuCycle));
     m_ppuViewerCachedFrame = viewerSnapshot.frameCount;
     m_ppuViewerCachedScanline = viewerSnapshot.ppuScanline;
     m_ppuViewerCachedCycle = viewerSnapshot.ppuCycle;
 
-    if(refreshViewer && m_ppuViewerMidFrameUpdates) {
-        m_ppuViewerMidFrameLineStates = m_emu.withExclusiveAccess([](const auto& emu) {
-            return emu.ppuViewerMidFrameLineStates();
+    if(refreshViewer && m_ppuViewerLiveScanlineUpdates) {
+        m_ppuViewerScanlineStates = m_emu.withExclusiveAccess([](const auto& emu) {
+            return emu.ppuViewerScanlineStates();
         });
     }
 
     const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
         return rgbPalette[paletteEntry & 0x3F];
     };
+    const auto wrapCoord = [](int value, int range) {
+        int wrapped = value % range;
+        if(wrapped < 0) {
+            wrapped += range;
+        }
+        return wrapped;
+    };
 
     const uint8_t universalBackground = static_cast<uint8_t>(paletteData[0] & 0x3F);
-    const auto findMidFrameLineState = [&](int visibleScanline) -> const GeraNESEmu::PpuViewerMidFrameLineState* {
-        if(!m_ppuViewerMidFrameUpdates ||
+    const auto findScanlineTraceState = [&](int visibleScanline) -> const GeraNESEmu::PpuViewerScanlineState* {
+        if(!m_ppuViewerLiveScanlineUpdates ||
            visibleScanline < 0 ||
-           visibleScanline >= static_cast<int>(m_ppuViewerMidFrameLineStates.size())) {
+           visibleScanline >= static_cast<int>(m_ppuViewerScanlineStates.size())) {
             return nullptr;
         }
 
-        const auto& lineState = m_ppuViewerMidFrameLineStates[static_cast<size_t>(visibleScanline)];
+        const auto& lineState = m_ppuViewerScanlineStates[static_cast<size_t>(visibleScanline)];
         return lineState.valid ? &lineState : nullptr;
     };
 
@@ -1500,12 +1507,16 @@ inline void GeraNESApp::drawPpuViewerWindow()
     int displayScrollX = scrollX;
     int displayScrollY = scrollY;
     int displayBackgroundPatternTableAddress = backgroundPatternTableAddress;
-    if(m_ppuViewerMidFrameUpdates && !m_ppuViewerMidFrameLineStates.empty()) {
+    if(m_ppuViewerLiveScanlineUpdates && !m_ppuViewerScanlineStates.empty()) {
         std::vector<ScrollSpan> rawSpans;
-        rawSpans.reserve(m_ppuViewerMidFrameLineStates.size());
+        rawSpans.reserve(m_ppuViewerScanlineStates.size());
+        const auto sameRegionKey = [](const ScrollSpan& a, const ScrollSpan& b) {
+            return a.virtualScrollX == b.virtualScrollX &&
+                   a.virtualScrollY == b.virtualScrollY;
+        };
 
-        for(size_t scanline = 0; scanline < m_ppuViewerMidFrameLineStates.size(); ++scanline) {
-            const auto* lineState = findMidFrameLineState(static_cast<int>(scanline));
+        for(size_t scanline = 0; scanline < m_ppuViewerScanlineStates.size(); ++scanline) {
+            const auto* lineState = findScanlineTraceState(static_cast<int>(scanline));
             if(lineState == nullptr) {
                 continue;
             }
@@ -1539,24 +1550,116 @@ inline void GeraNESApp::drawPpuViewerWindow()
             }
         }
 
-        constexpr int kMinStableSpanLines = 8;
-        stableScrollSpans.reserve(rawSpans.size());
-        for(const auto& span : rawSpans) {
-            const int spanLength = span.endScanline - span.startScanline + 1;
-            if(spanLength >= kMinStableSpanLines) {
-                stableScrollSpans.push_back(span);
+        constexpr int kTransientSpanLines = 8;
+        if(!rawSpans.empty()) {
+            std::vector<ScrollSpan> mergedSpans = rawSpans;
+            bool changed = true;
+
+            while(changed) {
+                changed = false;
+                for(size_t i = 0; i < mergedSpans.size(); ++i) {
+                    const int spanLength = mergedSpans[i].endScanline - mergedSpans[i].startScanline + 1;
+                    if(spanLength > kTransientSpanLines) {
+                        continue;
+                    }
+
+                    if(i == 0 && mergedSpans.size() > 1) {
+                        mergedSpans[1].startScanline = mergedSpans[0].startScanline;
+                        mergedSpans.erase(mergedSpans.begin());
+                        changed = true;
+                        break;
+                    }
+
+                    if(i + 1 == mergedSpans.size() && mergedSpans.size() > 1) {
+                        mergedSpans[i - 1].endScanline = mergedSpans[i].endScanline;
+                        mergedSpans.erase(mergedSpans.begin() + static_cast<std::ptrdiff_t>(i));
+                        changed = true;
+                        break;
+                    }
+
+                    if(i > 0 && i + 1 < mergedSpans.size()) {
+                        if(sameRegionKey(mergedSpans[i - 1], mergedSpans[i + 1])) {
+                            mergedSpans[i - 1].endScanline = mergedSpans[i + 1].endScanline;
+                            mergedSpans.erase(
+                                mergedSpans.begin() + static_cast<std::ptrdiff_t>(i),
+                                mergedSpans.begin() + static_cast<std::ptrdiff_t>(i + 2)
+                            );
+                            changed = true;
+                            break;
+                        }
+
+                        const int prevLength = mergedSpans[i - 1].endScanline - mergedSpans[i - 1].startScanline + 1;
+                        const int nextLength = mergedSpans[i + 1].endScanline - mergedSpans[i + 1].startScanline + 1;
+                        if(prevLength >= nextLength) {
+                            mergedSpans[i - 1].endScanline = mergedSpans[i].endScanline;
+                            mergedSpans.erase(mergedSpans.begin() + static_cast<std::ptrdiff_t>(i));
+                        } else {
+                            mergedSpans[i + 1].startScanline = mergedSpans[i].startScanline;
+                            mergedSpans.erase(mergedSpans.begin() + static_cast<std::ptrdiff_t>(i));
+                        }
+                        changed = true;
+                        break;
+                    }
+                }
             }
+
+            stableScrollSpans = std::move(mergedSpans);
         }
 
-        if(stableScrollSpans.empty() && !rawSpans.empty()) {
-            stableScrollSpans.push_back(rawSpans.front());
+        const auto representativeValue = [](const std::vector<int>& values) {
+            if(values.empty()) {
+                return 0;
+            }
+
+            std::vector<int> sorted = values;
+            std::sort(sorted.begin(), sorted.end());
+            return sorted[sorted.size() / 2];
+        };
+
+        for(auto& span : stableScrollSpans) {
+            std::vector<int> rawXs;
+            std::vector<int> rawYs;
+            std::vector<int> virtualXs;
+            std::vector<int> virtualYs;
+
+            for(int scanline = span.startScanline; scanline <= span.endScanline; ++scanline) {
+                const auto* lineState = findScanlineTraceState(scanline);
+                if(lineState == nullptr) {
+                    continue;
+                }
+
+                rawXs.push_back(static_cast<int>(lineState->rawScrollX));
+
+                int rawY = static_cast<int>(lineState->rawScrollY) - scanline;
+                rawY %= 240;
+                if(rawY < 0) {
+                    rawY += 240;
+                }
+                rawYs.push_back(rawY);
+
+                virtualXs.push_back(static_cast<int>(lineState->virtualScrollX));
+
+                int virtualY = static_cast<int>(lineState->virtualScrollY) - scanline;
+                virtualY %= 480;
+                if(virtualY < 0) {
+                    virtualY += 480;
+                }
+                virtualYs.push_back(virtualY);
+            }
+
+            if(!rawXs.empty()) {
+                span.rawScrollX = representativeValue(rawXs);
+                span.rawScrollY = representativeValue(rawYs);
+                span.virtualScrollX = representativeValue(virtualXs);
+                span.virtualScrollY = representativeValue(virtualYs);
+            }
         }
 
         if(!stableScrollSpans.empty()) {
             const auto& firstSpan = stableScrollSpans.front();
             displayScrollX = firstSpan.virtualScrollX;
             displayScrollY = firstSpan.virtualScrollY;
-            if(const auto* firstLineState = findMidFrameLineState(firstSpan.startScanline)) {
+            if(const auto* firstLineState = findScanlineTraceState(firstSpan.startScanline)) {
                 displayBackgroundPatternTableAddress =
                     static_cast<int>(firstLineState->backgroundPatternTableAddress);
             }
@@ -1569,7 +1672,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
             const int localY = y % 240;
             const int tileY = localY >> 3;
             const int fineY = localY & 0x07;
-            const auto* lineState = findMidFrameLineState(localY);
+            const auto* lineState = findScanlineTraceState(localY);
             const auto& rowChrData = lineState ? lineState->chrData : chrData;
             const int rowBackgroundPatternTableAddress = lineState
                 ? static_cast<int>(lineState->backgroundPatternTableAddress)
@@ -1615,7 +1718,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
                             0,
                             239
                         );
-                        const auto* chrLineState = findMidFrameLineState(traceScanline);
+                        const auto* chrLineState = findScanlineTraceState(traceScanline);
                         const auto& chrSource = chrLineState ? chrLineState->chrData : chrData;
                         const uint8_t lowPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
                         const uint8_t highPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
@@ -1643,7 +1746,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
-    if(m_ppuViewerMidFrameUpdates && !stableScrollSpans.empty()) {
+    if(m_ppuViewerLiveScanlineUpdates && !stableScrollSpans.empty()) {
         ImGui::Text("Scroll regions: %d", static_cast<int>(stableScrollSpans.size()));
         ImGui::SameLine();
         ImGui::TextDisabled("Background pattern table: $%04X", displayBackgroundPatternTableAddress);
@@ -1654,36 +1757,30 @@ inline void GeraNESApp::drawPpuViewerWindow()
     }
     ImGui::SameLine();
     ImGui::TextDisabled("PPU: %d,%d", viewerSnapshot.ppuScanline, viewerSnapshot.ppuCycle);
-    if(m_ppuViewerMidFrameUpdates) {
+    if(m_ppuViewerLiveScanlineUpdates) {
         const int tracedLines = static_cast<int>(std::count_if(
-            m_ppuViewerMidFrameLineStates.begin(),
-            m_ppuViewerMidFrameLineStates.end(),
+            m_ppuViewerScanlineStates.begin(),
+            m_ppuViewerScanlineStates.end(),
             [](const auto& lineState) { return lineState.valid; }
         ));
         ImGui::SameLine();
         ImGui::TextDisabled("Trace lines: %d", tracedLines);
     }
-    if(m_ppuViewerMidFrameUpdates && !stableScrollSpans.empty()) {
+    if(m_ppuViewerLiveScanlineUpdates && !stableScrollSpans.empty()) {
         const int maxRegionsToShow = std::min(static_cast<int>(stableScrollSpans.size()), 4);
         for(int i = 0; i < maxRegionsToShow; ++i) {
             const auto& span = stableScrollSpans[static_cast<size_t>(i)];
-            const int effectiveVirtualY =
-                (span.virtualScrollY + span.startScanline) % kNametableHeight;
+            const int screenStart = span.startScanline;
+            const int cursorY =
+                (span.virtualScrollY + screenStart) % kNametableHeight;
+            const int cursorX = span.virtualScrollX;
             ImGui::Text(
-                "Region %d: lines %d-%d  X=%d  virtualY=%d  effectiveY=%d",
+                "Region %d: lines %d-%d  cursorX=%d  cursorY=%d",
                 i + 1,
-                span.startScanline,
+                screenStart,
                 span.endScanline,
-                span.virtualScrollX,
-                span.virtualScrollY,
-                effectiveVirtualY
-            );
-            ImGui::TextDisabled(
-                "Region %d raw: X=%d  Y=%d  screenStart=%d",
-                i + 1,
-                span.rawScrollX,
-                span.rawScrollY,
-                span.startScanline
+                cursorX,
+                cursorY
             );
         }
     }
@@ -1734,46 +1831,25 @@ inline void GeraNESApp::drawPpuViewerWindow()
         const ImVec2 imageMin = ImGui::GetItemRectMin();
         const ImVec2 imageMax = ImGui::GetItemRectMax();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const auto wrapCoord = [](int value, int range) {
-            int wrapped = value % range;
-            if(wrapped < 0) {
-                wrapped += range;
-            }
-            return wrapped;
+        const auto visibleMarkerCoord = [](int wrapped, int maxInclusive) {
+            return std::clamp(wrapped, 0, std::max(0, maxInclusive));
         };
-        if(!(m_ppuViewerMidFrameUpdates && !stableScrollSpans.empty())) {
-            const float clampedScrollY = static_cast<float>(wrapCoord(displayScrollY, kNametableHeight));
-            const float clampedScrollX = static_cast<float>(wrapCoord(displayScrollX, kNametableWidth));
-
-            drawList->AddLine(
-                ImVec2(imageMin.x, imageMin.y + clampedScrollY),
-                ImVec2(imageMax.x, imageMin.y + clampedScrollY),
-                ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
-                1.0f
-            );
-            drawList->AddLine(
-                ImVec2(imageMin.x + clampedScrollX, imageMin.y),
-                ImVec2(imageMin.x + clampedScrollX, imageMax.y),
-                ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
-                1.0f
-            );
-        }
-
-        if(m_ppuViewerMidFrameUpdates && !m_ppuViewerMidFrameLineStates.empty()) {
-            const auto visibleMarkerCoord = [](int wrapped, int maxInclusive) {
-                return std::clamp(wrapped, 2, std::max(2, maxInclusive - 2));
-            };
+        const float time = static_cast<float>(ImGui::GetTime());
+        const auto animatedGuideColor = [&](size_t index) -> ImU32 {
+            const float hue = std::fmod(time * 1.5f + static_cast<float>(index) * 0.21f, 1.0f);
+            return ImGui::ColorConvertFloat4ToU32(ImColor::HSV(hue, 0.85f, 1.0f));
+        };
+        if(m_ppuViewerLiveScanlineUpdates && !m_ppuViewerScanlineStates.empty()) {
             for(size_t i = 0; i < stableScrollSpans.size(); ++i) {
                 const auto& span = stableScrollSpans[i];
-                const uint32_t lineColor = (i & 1u) == 0u
-                    ? ImGuiTheme::toU32(ImGuiTheme::eventWrite())
-                    : ImGuiTheme::toU32(ImGuiTheme::warning());
+                const int screenStart = span.startScanline;
+                const ImU32 guideColor = animatedGuideColor(i);
                 const int wrappedX = visibleMarkerCoord(
                     wrapCoord(span.virtualScrollX, kNametableWidth),
                     kNametableWidth - 1
                 );
                 const int wrappedY = visibleMarkerCoord(
-                    wrapCoord(span.virtualScrollY + span.startScanline, kNametableHeight),
+                    wrapCoord(span.virtualScrollY + screenStart, kNametableHeight),
                     kNametableHeight - 1
                 );
                 const float markerX = imageMin.x +
@@ -1785,22 +1861,44 @@ inline void GeraNESApp::drawPpuViewerWindow()
                 drawList->AddLine(
                     ImVec2(markerX, imageMin.y),
                     ImVec2(markerX, imageMax.y),
-                    lineColor,
+                    guideColor,
                     thickness
                 );
                 drawList->AddLine(
                     ImVec2(imageMin.x, markerY),
                     ImVec2(imageMax.x, markerY),
-                    lineColor,
+                    guideColor,
                     thickness
                 );
                 const std::string label = "R" + std::to_string(i + 1);
                 drawList->AddText(
                     ImVec2(markerX + 4.0f, markerY + 2.0f),
-                    lineColor,
+                    guideColor,
                     label.c_str()
                 );
             }
+        } else {
+            const ImU32 guideColor = animatedGuideColor(0);
+            const float clampedScrollY = static_cast<float>(visibleMarkerCoord(
+                wrapCoord(displayScrollY, kNametableHeight),
+                kNametableHeight - 1
+            ));
+            const float clampedScrollX = static_cast<float>(visibleMarkerCoord(
+                wrapCoord(displayScrollX, kNametableWidth),
+                kNametableWidth - 1
+            ));
+            drawList->AddLine(
+                ImVec2(imageMin.x, imageMin.y + clampedScrollY),
+                ImVec2(imageMax.x, imageMin.y + clampedScrollY),
+                guideColor,
+                1.0f
+            );
+            drawList->AddLine(
+                ImVec2(imageMin.x + clampedScrollX, imageMin.y),
+                ImVec2(imageMin.x + clampedScrollX, imageMax.y),
+                guideColor,
+                1.0f
+            );
         }
 
         const ImVec2 mousePos = ImGui::GetIO().MousePos;

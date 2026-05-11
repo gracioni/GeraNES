@@ -124,7 +124,7 @@ public:
         bool isWrite = false;
     };
 
-    struct PpuViewerMidFrameLineState
+    struct PpuViewerScanlineState
     {
         bool valid = false;
         uint16_t rawScrollX = 0;
@@ -196,8 +196,8 @@ private:
     static constexpr size_t MAX_PPU_REGISTER_ACCESS_EVENTS = 4096;
 
     //do not serialize bellow atributtes
-    bool m_ppuViewerMidFrameTraceEnabled = false;
-    std::vector<PpuViewerMidFrameLineState> m_ppuViewerMidFrameLineStates;
+    bool m_ppuViewerScanlineTraceEnabled = false;
+    std::vector<PpuViewerScanlineState> m_ppuViewerScanlineStates;
     bool m_saveStateFlag;
     bool m_loadStateFlag;
     uint8_t m_pendingSaveStateSlot = 0;
@@ -893,14 +893,6 @@ private:
     void onFrameStart() {
         m_4011WriteCounter = 0;
         m_ppuRegisterAccessEvents.clear();
-        if(m_ppuViewerMidFrameTraceEnabled) {
-            if(m_ppuViewerMidFrameLineStates.size() != 240u) {
-                m_ppuViewerMidFrameLineStates.resize(240u);
-            }
-            for(auto& lineState : m_ppuViewerMidFrameLineStates) {
-                lineState.valid = false;
-            }
-        }
         m_cartridge.applyExternalActions(
             m_hardwareActions.consumeFdsPendingActions(
                 m_cartridge.isValid() && m_cartridge.system() == GameDatabase::System::FDS
@@ -935,15 +927,14 @@ private:
         if(m_portDevice2) m_portDevice2->onScanlineChanged();
         if(m_expansionDevice) m_expansionDevice->onScanlineChanged();
         m_cartridge.onScanlineStart(m_ppu.isActivelyRendering(), m_ppu.scanline());
-
-        if(m_ppuViewerMidFrameTraceEnabled) {
+        if(m_ppuViewerScanlineTraceEnabled) {
             const int scanline = m_ppu.scanline();
             if(scanline >= 0 && scanline < 240) {
-                if(m_ppuViewerMidFrameLineStates.size() != 240u) {
-                    m_ppuViewerMidFrameLineStates.resize(240u);
+                if(m_ppuViewerScanlineStates.size() != 240u) {
+                    m_ppuViewerScanlineStates.resize(240u);
                 }
 
-                auto& lineState = m_ppuViewerMidFrameLineStates[static_cast<size_t>(scanline)];
+                auto& lineState = m_ppuViewerScanlineStates[static_cast<size_t>(scanline)];
                 lineState.valid = true;
                 const int rawScrollX = m_ppu.getRawScrollX();
                 const int rawScrollY = m_ppu.getRawScrollY();
@@ -1446,6 +1437,14 @@ public:
 
     void onPPUFrameStart()
     {
+        if(m_ppuViewerScanlineTraceEnabled) {
+            if(m_ppuViewerScanlineStates.size() != 240u) {
+                m_ppuViewerScanlineStates.resize(240u);
+            }
+            for(auto& lineState : m_ppuViewerScanlineStates) {
+                lineState.valid = false;
+            }
+        }
         m_frameStarted = true;        
     }
 
@@ -2397,26 +2396,26 @@ public:
         return m_ppuRegisterAccessEvents;
     }
 
-    void enablePpuViewerMidFrameTrace(bool enabled)
+    void enablePpuViewerScanlineTrace(bool enabled)
     {
-        m_ppuViewerMidFrameTraceEnabled = enabled;
+        m_ppuViewerScanlineTraceEnabled = enabled;
         if(enabled) {
-            if(m_ppuViewerMidFrameLineStates.size() != 240u) {
-                m_ppuViewerMidFrameLineStates.resize(240u);
+            if(m_ppuViewerScanlineStates.size() != 240u) {
+                m_ppuViewerScanlineStates.resize(240u);
             }
         } else {
-            m_ppuViewerMidFrameLineStates.clear();
+            m_ppuViewerScanlineStates.clear();
         }
     }
 
-    bool ppuViewerMidFrameTraceEnabled() const
+    bool ppuViewerScanlineTraceEnabled() const
     {
-        return m_ppuViewerMidFrameTraceEnabled;
+        return m_ppuViewerScanlineTraceEnabled;
     }
 
-    const std::vector<PpuViewerMidFrameLineState>& ppuViewerMidFrameLineStates() const
+    const std::vector<PpuViewerScanlineState>& ppuViewerScanlineStates() const
     {
-        return m_ppuViewerMidFrameLineStates;
+        return m_ppuViewerScanlineStates;
     }
 
     void clearDebugBreakpointHit()

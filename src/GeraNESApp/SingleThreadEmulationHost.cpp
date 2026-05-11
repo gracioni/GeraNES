@@ -257,7 +257,7 @@ void SingleThreadEmulationHost::refreshPpuViewerSnapshot()
     const int ppuCycle = ppu.cycle();
     if(m_ppuViewerSnapshot.valid &&
        m_ppuViewerSnapshot.frameCount == frameCount &&
-       (!m_ppuViewerMidFrameCaptureEnabled ||
+       (!m_ppuViewerScanlineCaptureEnabled ||
         (m_ppuViewerSnapshot.ppuScanline == ppuScanline &&
          m_ppuViewerSnapshot.ppuCycle == ppuCycle))) {
         return;
@@ -386,13 +386,13 @@ void SingleThreadEmulationHost::setDebugTraceSink(std::function<void(const std::
     (void)sink;
 }
 
-void SingleThreadEmulationHost::setPpuViewerCaptureEnabled(bool enabled, bool midFrame)
+void SingleThreadEmulationHost::setPpuViewerCaptureEnabled(bool enabled, bool scanlineTrace)
 {
-    if(m_ppuViewerCaptureEnabled == enabled && m_ppuViewerMidFrameCaptureEnabled == midFrame) {
+    if(m_ppuViewerCaptureEnabled == enabled && m_ppuViewerScanlineCaptureEnabled == scanlineTrace) {
         return;
     }
     m_ppuViewerCaptureEnabled = enabled;
-    m_ppuViewerMidFrameCaptureEnabled = enabled && midFrame;
+    m_ppuViewerScanlineCaptureEnabled = enabled && scanlineTrace;
     if(!enabled) {
         m_ppuViewerSnapshot = {};
     } else {
