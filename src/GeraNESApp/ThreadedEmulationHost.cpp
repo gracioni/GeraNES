@@ -188,16 +188,25 @@ void ThreadedEmulationHost::refreshPpuViewerSnapshotLocked(uint32_t frameCount)
         return;
     }
 
+    const PPU& ppu = m_emu.getConsole().ppu();
+    const int ppuScanline = ppu.scanline();
+    const int ppuCycle = ppu.cycle();
+
     std::scoped_lock snapshotLock(m_ppuViewerSnapshotMutex);
-    if(m_ppuViewerSnapshot.valid && m_ppuViewerSnapshot.frameCount == frameCount) {
+    if(m_ppuViewerSnapshot.valid &&
+       m_ppuViewerSnapshot.frameCount == frameCount &&
+       (!m_ppuViewerMidFrameCaptureEnabled ||
+        (m_ppuViewerSnapshot.ppuScanline == ppuScanline &&
+         m_ppuViewerSnapshot.ppuCycle == ppuCycle))) {
         return;
     }
 
     PpuViewerSnapshot snapshot;
     snapshot.valid = m_emu.valid();
     snapshot.frameCount = frameCount;
+    snapshot.ppuScanline = ppuScanline;
+    snapshot.ppuCycle = ppuCycle;
     if(snapshot.valid) {
-        const PPU& ppu = m_emu.getConsole().ppu();
         snapshot.rgbPalette = ppu.colorPalette();
         snapshot.scrollX = ppu.getCursorX();
         snapshot.scrollY = ppu.getCursorY();
@@ -599,13 +608,14 @@ void ThreadedEmulationHost::postCommand(std::function<void(GeraNESEmu&)> command
     m_presenterCv.notify_one();
 }
 
-void ThreadedEmulationHost::setPpuViewerCaptureEnabled(bool enabled)
+void ThreadedEmulationHost::setPpuViewerCaptureEnabled(bool enabled, bool midFrame)
 {
-    if(m_ppuViewerCaptureEnabled == enabled) {
+    if(m_ppuViewerCaptureEnabled == enabled && m_ppuViewerMidFrameCaptureEnabled == midFrame) {
         return;
     }
     std::scoped_lock emuLock(m_emuMutex);
     m_ppuViewerCaptureEnabled = enabled;
+    m_ppuViewerMidFrameCaptureEnabled = enabled && midFrame;
     if(!enabled) {
         std::scoped_lock snapshotLock(m_ppuViewerSnapshotMutex);
         m_ppuViewerSnapshot = {};

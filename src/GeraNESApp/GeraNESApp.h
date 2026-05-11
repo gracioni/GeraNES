@@ -139,7 +139,11 @@ private:
     std::vector<uint32_t> m_ppuNametableBuffer;
     std::vector<uint32_t> m_ppuChrBuffer;
     std::vector<uint32_t> m_ppuEventBuffer;
+    std::vector<GeraNESEmu::PpuViewerMidFrameLineState> m_ppuViewerMidFrameLineStates;
     uint32_t m_ppuViewerCachedFrame = UINT32_MAX;
+    int m_ppuViewerCachedScanline = -1;
+    int m_ppuViewerCachedCycle = -1;
+    bool m_ppuViewerMidFrameTraceActive = false;
     uint32_t m_eventViewerCachedFrame = UINT32_MAX;
     bool m_eventViewerCachedTraceEnabled = false;
     std::vector<GeraNESEmu::PpuRegisterAccessEvent> m_cachedPpuEvents;
@@ -191,6 +195,7 @@ private:
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
     bool m_showPpuViewerWindow = false;
+    bool m_ppuViewerMidFrameUpdates = false;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
     bool m_showArkanoidNesConfigWindow = false;

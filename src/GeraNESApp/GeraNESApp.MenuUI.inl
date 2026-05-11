@@ -1383,14 +1383,36 @@ inline void GeraNESApp::drawPpuViewerWindow()
         return;
     }
 
+    auto syncPpuViewerMidFrameTrace = [&](bool enabled) {
+        if(m_ppuViewerMidFrameTraceActive == enabled) {
+            return;
+        }
+
+        m_emu.withExclusiveAccess([enabled](auto& emu) {
+            emu.enablePpuViewerMidFrameTrace(enabled);
+        });
+        m_ppuViewerMidFrameTraceActive = enabled;
+
+        if(!enabled) {
+            m_ppuViewerMidFrameLineStates.clear();
+        }
+    };
+
     if(!m_emu.valid()) {
-        m_emu.setPpuViewerCaptureEnabled(false);
+        syncPpuViewerMidFrameTrace(false);
+        m_emu.setPpuViewerCaptureEnabled(false, false);
         ImGui::TextDisabled("Load a ROM to inspect PPU data.");
         ImGui::End();
         return;
     }
 
-    m_emu.setPpuViewerCaptureEnabled(true);
+    ImGui::Checkbox("Live mid-frame updates", &m_ppuViewerMidFrameUpdates);
+    ImGui::SameLine();
+    ImGui::TextDisabled("Shows CHR/scroll changes during the current frame. Higher cost.");
+    ImGui::Separator();
+
+    syncPpuViewerMidFrameTrace(m_ppuViewerMidFrameUpdates);
+    m_emu.setPpuViewerCaptureEnabled(true, m_ppuViewerMidFrameUpdates);
 
     if(m_ppuNametableTexture == 0) {
         glGenTextures(1, &m_ppuNametableTexture);
@@ -1433,14 +1455,113 @@ inline void GeraNESApp::drawPpuViewerWindow()
     const int scrollX = viewerSnapshot.scrollX;
     const int scrollY = viewerSnapshot.scrollY;
     const int backgroundPatternTableAddress = viewerSnapshot.backgroundPatternTableAddress;
-    const bool refreshViewer = m_ppuViewerCachedFrame != viewerSnapshot.frameCount;
+    const bool refreshViewer =
+        m_ppuViewerCachedFrame != viewerSnapshot.frameCount ||
+        (m_ppuViewerMidFrameUpdates &&
+         (m_ppuViewerCachedScanline != viewerSnapshot.ppuScanline ||
+          m_ppuViewerCachedCycle != viewerSnapshot.ppuCycle));
     m_ppuViewerCachedFrame = viewerSnapshot.frameCount;
+    m_ppuViewerCachedScanline = viewerSnapshot.ppuScanline;
+    m_ppuViewerCachedCycle = viewerSnapshot.ppuCycle;
+
+    if(refreshViewer && m_ppuViewerMidFrameUpdates) {
+        m_ppuViewerMidFrameLineStates = m_emu.withExclusiveAccess([](const auto& emu) {
+            return emu.ppuViewerMidFrameLineStates();
+        });
+    }
 
     const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
         return rgbPalette[paletteEntry & 0x3F];
     };
 
     const uint8_t universalBackground = static_cast<uint8_t>(paletteData[0] & 0x3F);
+    const auto findMidFrameLineState = [&](int visibleScanline) -> const GeraNESEmu::PpuViewerMidFrameLineState* {
+        if(!m_ppuViewerMidFrameUpdates ||
+           visibleScanline < 0 ||
+           visibleScanline >= static_cast<int>(m_ppuViewerMidFrameLineStates.size())) {
+            return nullptr;
+        }
+
+        const auto& lineState = m_ppuViewerMidFrameLineStates[static_cast<size_t>(visibleScanline)];
+        return lineState.valid ? &lineState : nullptr;
+    };
+
+    struct ScrollSpan
+    {
+        int startScanline = 0;
+        int endScanline = 0;
+        int rawScrollX = 0;
+        int rawScrollY = 0;
+        int virtualScrollX = 0;
+        int virtualScrollY = 0;
+    };
+
+    std::vector<ScrollSpan> stableScrollSpans;
+    int displayScrollX = scrollX;
+    int displayScrollY = scrollY;
+    int displayBackgroundPatternTableAddress = backgroundPatternTableAddress;
+    if(m_ppuViewerMidFrameUpdates && !m_ppuViewerMidFrameLineStates.empty()) {
+        std::vector<ScrollSpan> rawSpans;
+        rawSpans.reserve(m_ppuViewerMidFrameLineStates.size());
+
+        for(size_t scanline = 0; scanline < m_ppuViewerMidFrameLineStates.size(); ++scanline) {
+            const auto* lineState = findMidFrameLineState(static_cast<int>(scanline));
+            if(lineState == nullptr) {
+                continue;
+            }
+
+            const int lineRawScrollX = static_cast<int>(lineState->rawScrollX);
+            int lineRawScrollY = static_cast<int>(lineState->rawScrollY) - static_cast<int>(scanline);
+            lineRawScrollY %= 240;
+            if(lineRawScrollY < 0) {
+                lineRawScrollY += 240;
+            }
+            const int lineVirtualScrollX = static_cast<int>(lineState->virtualScrollX);
+            int lineVirtualScrollY = static_cast<int>(lineState->virtualScrollY) - static_cast<int>(scanline);
+            lineVirtualScrollY %= 480;
+            if(lineVirtualScrollY < 0) {
+                lineVirtualScrollY += 480;
+            }
+
+            if(rawSpans.empty() ||
+               rawSpans.back().virtualScrollX != lineVirtualScrollX ||
+               rawSpans.back().virtualScrollY != lineVirtualScrollY) {
+                rawSpans.push_back(ScrollSpan{
+                    static_cast<int>(scanline),
+                    static_cast<int>(scanline),
+                    lineRawScrollX,
+                    lineRawScrollY,
+                    lineVirtualScrollX,
+                    lineVirtualScrollY
+                });
+            } else {
+                rawSpans.back().endScanline = static_cast<int>(scanline);
+            }
+        }
+
+        constexpr int kMinStableSpanLines = 8;
+        stableScrollSpans.reserve(rawSpans.size());
+        for(const auto& span : rawSpans) {
+            const int spanLength = span.endScanline - span.startScanline + 1;
+            if(spanLength >= kMinStableSpanLines) {
+                stableScrollSpans.push_back(span);
+            }
+        }
+
+        if(stableScrollSpans.empty() && !rawSpans.empty()) {
+            stableScrollSpans.push_back(rawSpans.front());
+        }
+
+        if(!stableScrollSpans.empty()) {
+            const auto& firstSpan = stableScrollSpans.front();
+            displayScrollX = firstSpan.virtualScrollX;
+            displayScrollY = firstSpan.virtualScrollY;
+            if(const auto* firstLineState = findMidFrameLineState(firstSpan.startScanline)) {
+                displayBackgroundPatternTableAddress =
+                    static_cast<int>(firstLineState->backgroundPatternTableAddress);
+            }
+        }
+    }
 
     if(refreshViewer) {
         for(int y = 0; y < kNametableHeight; ++y) {
@@ -1448,6 +1569,11 @@ inline void GeraNESApp::drawPpuViewerWindow()
             const int localY = y % 240;
             const int tileY = localY >> 3;
             const int fineY = localY & 0x07;
+            const auto* lineState = findMidFrameLineState(localY);
+            const auto& rowChrData = lineState ? lineState->chrData : chrData;
+            const int rowBackgroundPatternTableAddress = lineState
+                ? static_cast<int>(lineState->backgroundPatternTableAddress)
+                : backgroundPatternTableAddress;
 
             for(int x = 0; x < kNametableWidth; ++x) {
                 const int nameTableIndex = nameTableRow + (x >= 256 ? 1 : 0);
@@ -1459,9 +1585,9 @@ inline void GeraNESApp::drawPpuViewerWindow()
                 const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((tileY >> 2) * 8) + (tileX >> 2))];
                 const int attrShift = ((tileY & 0x02) << 1) | (tileX & 0x02);
                 const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
-                const int patternAddr = backgroundPatternTableAddress + (tileIndex * 16) + fineY;
-                const uint8_t lowPlane = chrData[static_cast<size_t>(patternAddr)];
-                const uint8_t highPlane = chrData[static_cast<size_t>(patternAddr + 8)];
+                const int patternAddr = rowBackgroundPatternTableAddress + (tileIndex * 16) + fineY;
+                const uint8_t lowPlane = rowChrData[static_cast<size_t>(patternAddr)];
+                const uint8_t highPlane = rowChrData[static_cast<size_t>(patternAddr + 8)];
                 const int bit = 7 - fineX;
                 const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
 
@@ -1483,8 +1609,16 @@ inline void GeraNESApp::drawPpuViewerWindow()
                     const int tileIndex = (tileY * 16) + tileX;
 
                     for(int fineY = 0; fineY < 8; ++fineY) {
-                        const uint8_t lowPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
-                        const uint8_t highPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
+                        const int dstY = (tileY * 8) + fineY;
+                        const int traceScanline = std::clamp(
+                            (dstY * 240) / kChrHeight,
+                            0,
+                            239
+                        );
+                        const auto* chrLineState = findMidFrameLineState(traceScanline);
+                        const auto& chrSource = chrLineState ? chrLineState->chrData : chrData;
+                        const uint8_t lowPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
+                        const uint8_t highPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
 
                         for(int fineX = 0; fineX < 8; ++fineX) {
                             const int bit = 7 - fineX;
@@ -1495,7 +1629,6 @@ inline void GeraNESApp::drawPpuViewerWindow()
                             }
 
                             const int dstX = xOffset + (tileX * 8) + fineX;
-                            const int dstY = (tileY * 8) + fineY;
                             m_ppuChrBuffer[static_cast<size_t>((dstY * kChrWidth) + dstX)] = colorForPaletteEntry(paletteEntry);
                         }
                     }
@@ -1510,9 +1643,50 @@ inline void GeraNESApp::drawPpuViewerWindow()
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
-    ImGui::Text("Scroll: X=%d  Y=%d", scrollX, scrollY);
+    if(m_ppuViewerMidFrameUpdates && !stableScrollSpans.empty()) {
+        ImGui::Text("Scroll regions: %d", static_cast<int>(stableScrollSpans.size()));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Background pattern table: $%04X", displayBackgroundPatternTableAddress);
+    } else {
+        ImGui::Text("Scroll: X=%d  Y=%d", displayScrollX, displayScrollY);
+        ImGui::SameLine();
+        ImGui::TextDisabled("Background pattern table: $%04X", displayBackgroundPatternTableAddress);
+    }
     ImGui::SameLine();
-    ImGui::TextDisabled("Background pattern table: $%04X", backgroundPatternTableAddress);
+    ImGui::TextDisabled("PPU: %d,%d", viewerSnapshot.ppuScanline, viewerSnapshot.ppuCycle);
+    if(m_ppuViewerMidFrameUpdates) {
+        const int tracedLines = static_cast<int>(std::count_if(
+            m_ppuViewerMidFrameLineStates.begin(),
+            m_ppuViewerMidFrameLineStates.end(),
+            [](const auto& lineState) { return lineState.valid; }
+        ));
+        ImGui::SameLine();
+        ImGui::TextDisabled("Trace lines: %d", tracedLines);
+    }
+    if(m_ppuViewerMidFrameUpdates && !stableScrollSpans.empty()) {
+        const int maxRegionsToShow = std::min(static_cast<int>(stableScrollSpans.size()), 4);
+        for(int i = 0; i < maxRegionsToShow; ++i) {
+            const auto& span = stableScrollSpans[static_cast<size_t>(i)];
+            const int effectiveVirtualY =
+                (span.virtualScrollY + span.startScanline) % kNametableHeight;
+            ImGui::Text(
+                "Region %d: lines %d-%d  X=%d  virtualY=%d  effectiveY=%d",
+                i + 1,
+                span.startScanline,
+                span.endScanline,
+                span.virtualScrollX,
+                span.virtualScrollY,
+                effectiveVirtualY
+            );
+            ImGui::TextDisabled(
+                "Region %d raw: X=%d  Y=%d  screenStart=%d",
+                i + 1,
+                span.rawScrollX,
+                span.rawScrollY,
+                span.startScanline
+            );
+        }
+    }
     ImGui::Spacing();
 
     auto drawPaletteStrip = [&](const char* label, int paletteBaseIndex, int displayBaseAddress) {
@@ -1560,21 +1734,74 @@ inline void GeraNESApp::drawPpuViewerWindow()
         const ImVec2 imageMin = ImGui::GetItemRectMin();
         const ImVec2 imageMax = ImGui::GetItemRectMax();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const float clampedScrollY = static_cast<float>(std::clamp(scrollY, 0, kNametableHeight - 1));
-        const float clampedScrollX = static_cast<float>(std::clamp(scrollX, 0, kNametableWidth - 1));
+        const auto wrapCoord = [](int value, int range) {
+            int wrapped = value % range;
+            if(wrapped < 0) {
+                wrapped += range;
+            }
+            return wrapped;
+        };
+        if(!(m_ppuViewerMidFrameUpdates && !stableScrollSpans.empty())) {
+            const float clampedScrollY = static_cast<float>(wrapCoord(displayScrollY, kNametableHeight));
+            const float clampedScrollX = static_cast<float>(wrapCoord(displayScrollX, kNametableWidth));
 
-        drawList->AddLine(
-            ImVec2(imageMin.x, imageMin.y + clampedScrollY),
-            ImVec2(imageMax.x, imageMin.y + clampedScrollY),
-            ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
-            1.0f
-        );
-        drawList->AddLine(
-            ImVec2(imageMin.x + clampedScrollX, imageMin.y),
-            ImVec2(imageMin.x + clampedScrollX, imageMax.y),
-            ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
-            1.0f
-        );
+            drawList->AddLine(
+                ImVec2(imageMin.x, imageMin.y + clampedScrollY),
+                ImVec2(imageMax.x, imageMin.y + clampedScrollY),
+                ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
+                1.0f
+            );
+            drawList->AddLine(
+                ImVec2(imageMin.x + clampedScrollX, imageMin.y),
+                ImVec2(imageMin.x + clampedScrollX, imageMax.y),
+                ImGuiTheme::toU32(ImGuiTheme::eventWrite()),
+                1.0f
+            );
+        }
+
+        if(m_ppuViewerMidFrameUpdates && !m_ppuViewerMidFrameLineStates.empty()) {
+            const auto visibleMarkerCoord = [](int wrapped, int maxInclusive) {
+                return std::clamp(wrapped, 2, std::max(2, maxInclusive - 2));
+            };
+            for(size_t i = 0; i < stableScrollSpans.size(); ++i) {
+                const auto& span = stableScrollSpans[i];
+                const uint32_t lineColor = (i & 1u) == 0u
+                    ? ImGuiTheme::toU32(ImGuiTheme::eventWrite())
+                    : ImGuiTheme::toU32(ImGuiTheme::warning());
+                const int wrappedX = visibleMarkerCoord(
+                    wrapCoord(span.virtualScrollX, kNametableWidth),
+                    kNametableWidth - 1
+                );
+                const int wrappedY = visibleMarkerCoord(
+                    wrapCoord(span.virtualScrollY + span.startScanline, kNametableHeight),
+                    kNametableHeight - 1
+                );
+                const float markerX = imageMin.x +
+                    static_cast<float>(wrappedX);
+                const float markerY = imageMin.y +
+                    static_cast<float>(wrappedY);
+                const float thickness = (i == 0) ? 2.0f : 1.0f;
+
+                drawList->AddLine(
+                    ImVec2(markerX, imageMin.y),
+                    ImVec2(markerX, imageMax.y),
+                    lineColor,
+                    thickness
+                );
+                drawList->AddLine(
+                    ImVec2(imageMin.x, markerY),
+                    ImVec2(imageMax.x, markerY),
+                    lineColor,
+                    thickness
+                );
+                const std::string label = "R" + std::to_string(i + 1);
+                drawList->AddText(
+                    ImVec2(markerX + 4.0f, markerY + 2.0f),
+                    lineColor,
+                    label.c_str()
+                );
+            }
+        }
 
         const ImVec2 mousePos = ImGui::GetIO().MousePos;
         if(ImGui::IsItemHovered()) {

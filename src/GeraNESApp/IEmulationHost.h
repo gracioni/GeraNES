@@ -118,6 +118,8 @@ struct EmulationHostTypes
     {
         bool valid = false;
         uint32_t frameCount = 0;
+        int ppuScanline = 0;
+        int ppuCycle = 0;
         std::array<uint8_t, 0x2000> chrData = {};
         std::array<uint8_t, 0x1000> nametableData = {};
         std::array<uint8_t, 0x20> paletteData = {};

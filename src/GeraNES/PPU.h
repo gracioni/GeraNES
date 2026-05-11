@@ -985,14 +985,57 @@ yyy NN YYYYY XXXXX
 
 */
 
+    int getRawScrollX() const
+    {
+        if(m_renderLine && m_renderingEnabled) {
+            int scrollX = ((m_reg_v & 0x1F) << 3) | (m_reg_x & 0x07);
+            scrollX = (scrollX - 16) % 256;
+            if(scrollX < 0) {
+                scrollX += 256;
+            }
+            return scrollX;
+        }
+
+        return ((m_reg_t & 0x1F) << 3) | (m_reg_x & 0x07);
+    }
+
+    int getRawScrollY() const
+    {
+        if(m_renderLine && m_renderingEnabled) {
+            return (((m_reg_v >> 5) & 0x1F) << 3) | ((m_reg_v >> 12) & 0x07);
+        }
+
+        return (((m_reg_t >> 5) & 0x1F) << 3) | ((m_reg_t >> 12) & 0x07);
+    }
+
+    int getVirtualScrollX() const
+    {
+        int scrollX = getRawScrollX();
+        const uint16_t reg = (m_renderLine && m_renderingEnabled) ? m_reg_v : m_reg_t;
+        if((reg >> 10) & 0x01) {
+            scrollX += 256;
+        }
+        return scrollX;
+    }
+
+    int getVirtualScrollY() const
+    {
+        int scrollY = getRawScrollY();
+        const uint16_t reg = (m_renderLine && m_renderingEnabled) ? m_reg_v : m_reg_t;
+        if((reg >> 11) & 0x01) {
+            scrollY += 240;
+        }
+        return scrollY;
+    }
+
     int getCursorX() const
     {
-        return m_debugCursorX;
+        return getVirtualScrollX();
     }
 
     int getCursorY() const
-    {        
-        return m_debugCursorY;
+    {
+        return getVirtualScrollY();
     }
 
     uint8_t debugPeekPpuMemory(uint16_t addr) const
@@ -1836,6 +1879,7 @@ yyy NN YYYYY XXXXX
         //put base nametable address in bits 10 and 11 of reg_t
         m_reg_t &= 0xF3FF;
         m_reg_t |= ((static_cast<uint16_t>(data & 0x03)) << 10);
+        calculateDebugCursor();
 
         m_VRAMAddressIncrement = (data&0x04) ? 32 : 1;
         m_sprite8x8PatternTableAddress = (data&0x08) ? true : false;
