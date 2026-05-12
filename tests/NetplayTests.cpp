@@ -375,7 +375,8 @@ public:
     uint32_t canonicalCrc32Value = 0;
     std::vector<uint8_t> savedStateData = {0xAAu};
     ConsoleNetplay::FrameNumber lastDiscardedAfterFrame = 0;
-    uint32_t loadStateCallCount = 0;
+    uint32_t saveStateCallCount = 0;
+    uint32_t loadStateOnCleanBootCallCount = 0;
 
     bool valid() const override { return validValue; }
     ConsoleNetplay::FrameNumber frameCount() const override { return frameValue; }
@@ -385,10 +386,14 @@ public:
     {
         lastDiscardedAfterFrame = frame;
     }
-    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override { return true; }
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override
+    {
+        ++loadStateOnCleanBootCallCount;
+        return true;
+    }
     std::vector<uint8_t> saveNetplayStateToMemory() override
     {
-        ++loadStateCallCount;
+        ++saveStateCallCount;
         return savedStateData;
     }
     uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
@@ -662,6 +667,54 @@ TEST_CASE("Periodic netplay CRC waits for frame-ready frontier to catch confirme
     const auto result = ConsoleNetplay::runtimeSubmitPeriodicLocalCrcIfNeeded(host, emu, runtimeHost, state);
     REQUIRE(result.submitted == false);
     REQUIRE(state.lastSubmittedLocalCrcFrame == 0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Host rollback-recovery resync fallback reloads authoritative state locally",
+          "[netplay][runtime][rollback][host-resync]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 96u;
+    host.setLocalSimulationFrame(100u);
+    host.rescheduleRollbackFrame(95u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.reanchor(96u);
+
+    FakeNetplayConsole console;
+    console.frameValue = 100u;
+
+    FakeNetplayStateBridge emu;
+    emu.frameValue = 100u;
+    emu.canonicalCrc32Value = 0x2468ACE0u;
+    emu.savedStateData = {0x10u, 0x20u, 0x30u, 0x40u};
+
+    FakeNetplayStateHostBridge runtimeHost;
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
+
+    const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+        host,
+        inputDriver,
+        console,
+        emu,
+        runtimeHost,
+        rollbackState,
+        rollbackSettings
+    );
+
+    REQUIRE(result.consumed);
+    REQUIRE(result.startedAuthoritativeResync);
+    REQUIRE(emu.loadStateOnCleanBootCallCount == 1u);
+    REQUIRE(runtimeHost.lastFrameReadyFrameValue == 100u);
+    REQUIRE(runtimeHost.lastFrameReadyNetplayCrc32Value == 0x2468ACE0u);
 
     host.disconnect();
 }

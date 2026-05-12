@@ -1201,7 +1201,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
             const std::vector<uint8_t> statePayload =
                 runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, currentFrame, false);
             const RuntimeAuthoritativeStateResult stateResult =
-                runtimeBeginAuthoritativeResyncWithoutLocalReload(
+                runtimeBeginAuthoritativeResync(
                     coordinator,
                     inputDriver,
                     emu,
