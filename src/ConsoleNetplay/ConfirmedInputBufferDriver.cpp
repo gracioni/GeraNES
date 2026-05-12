@@ -206,7 +206,13 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
 
     seedInitialPrebufferIfNeeded(coordinator, localSlots, room, buildLocalInput);
 
-    const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
+    uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
+    if(!coordinator.isHosting() && exactFrame < confirmedThroughFrame) {
+        targetBufferedThroughFrame = std::max(
+            targetBufferedThroughFrame,
+            confirmedThroughFrame + m_prebufferFrames
+        );
+    }
 
     while(m_producedThroughFrame < targetBufferedThroughFrame) {
         ++m_producedThroughFrame;

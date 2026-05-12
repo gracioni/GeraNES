@@ -3129,6 +3129,57 @@ TEST_CASE("Netplay mobile-style client assignment stays converged without confir
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
 }
 
+TEST_CASE("Netplay observer host with client port 1 assignment does not skip post-resync client inputs",
+          "[netplay][runtime][web][assignment][mobile-wifi][host-observer][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "observer-host-client-port1-assigned",
+        ""
+    };
+    options.frames = 360;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.frameStepLimit = 16000;
+    options.wallClockTimeoutSeconds = 45;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_observer_host_client_port1_assigned_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=late_committed_input_duplicate"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=prediction_limit_fallback"));
+}
+
 TEST_CASE("Netplay delayed client-only assignment does not trigger confirmed-desync storm",
           "[netplay][runtime][web][assignment][delayed][regression]")
 {

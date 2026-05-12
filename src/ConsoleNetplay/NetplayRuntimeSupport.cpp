@@ -1116,10 +1116,23 @@ RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
     if(currentState == SessionState::Running &&
        previousState.has_value() &&
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
-        const FrameNumber anchorFrame =
-            std::max({coordinator.session().roomState().lastConfirmedFrame,
-                      coordinator.session().roomState().currentFrame,
-                      coordinator.localSimulationFrame()});
+        FrameNumber anchorFrame = 0u;
+        if(*previousState == SessionState::Resyncing) {
+            // After a recovery load, the local peer must resume input
+            // production from the authoritative/confirmed frontier, not from
+            // the host's latest advertised current frame. Jumping to
+            // `currentFrame` skips the early post-resync input window, which
+            // causes the host to synthesize fallback inputs and later reject
+            // the real client packets as late duplicates.
+            anchorFrame = std::max(
+                lastLoadedAuthoritativeFrame,
+                coordinator.session().roomState().lastConfirmedFrame
+            );
+        } else {
+            anchorFrame = std::max({coordinator.session().roomState().lastConfirmedFrame,
+                                    coordinator.session().roomState().currentFrame,
+                                    coordinator.localSimulationFrame()});
+        }
         inputDriver.reanchor(anchorFrame);
         rollbackState.lastRecoveryReanchorFrame = anchorFrame;
         periodicCrcState.postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
@@ -1426,7 +1439,29 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
         if(console.frameCount() >= confirmedThroughFrame) return 0u;
     }
 
-    if(estimatedLagFrames > maxFrames) {
+    const ParticipantId localParticipantId = coordinator.localParticipantId();
+    const bool localPeerHasPlayableAssignment =
+        std::any_of(
+            room.participants.begin(),
+            room.participants.end(),
+            [localParticipantId](const ParticipantInfo& participant) {
+                return participant.id == localParticipantId && !participantIsObserver(participant);
+            }
+        );
+    const bool connectedRemotePlayablePeerPresent =
+        std::any_of(
+            room.participants.begin(),
+            room.participants.end(),
+            [localParticipantId](const ParticipantInfo& participant) {
+                return participant.id != localParticipantId &&
+                       participant.connected &&
+                       !participantIsObserver(participant);
+            }
+        );
+    const bool allowSoloPlayablePeerOverBudgetCatchup =
+        localPeerHasPlayableAssignment && !connectedRemotePlayablePeerPresent;
+
+    if(estimatedLagFrames > maxFrames && !allowSoloPlayablePeerOverBudgetCatchup) {
         constexpr auto kLargeLagPersistence = std::chrono::milliseconds(250);
         constexpr auto kSharedClockResyncRequestCooldown = std::chrono::milliseconds(1500);
         const auto now = std::chrono::steady_clock::now();
@@ -1683,9 +1718,6 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
                    lastLocalAssignedSlots.end();
         }
     );
-    const bool assignmentChangeRecoveryActive =
-        coordinator.session().roomState().activeResyncReason == ResyncReason::AssignmentChanged;
-
     if(!lastAssignmentLayoutKey.empty() && result.layoutKey != lastAssignmentLayoutKey) {
         result.layoutChanged = true;
         if(running) {
@@ -1701,13 +1733,14 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
     if(result.localSlots != lastLocalAssignedSlots) {
         result.localSlotsChanged = true;
         if(running) {
-            // Only rewind to the confirmed frontier when the local peer has
-            // gained a newly assigned slot. That peer needs to regenerate the
-            // post-assignment input window from the authoritative baseline.
+            // A newly assigned local slot must start from the confirmed
+            // frontier, not from the peer's current emulation frame. Reusing
+            // the current frame skips the first post-assignment local input
+            // frame and immediately turns the next produced input into a
+            // non-sequential reject.
             inputDriver.reanchor(
-                gainedNewLocalSlot &&
-                assignmentChangeRecoveryActive
-                    ? assignmentAnchorFrame
+                gainedNewLocalSlot
+                    ? coordinator.session().roomState().lastConfirmedFrame
                     : std::max(localFrame, coordinator.session().roomState().lastConfirmedFrame)
             );
             result.reanchorInputDriver = true;
