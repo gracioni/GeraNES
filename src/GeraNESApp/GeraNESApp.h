@@ -196,7 +196,6 @@ private:
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
     bool m_showPpuViewerWindow = false;
-    bool m_ppuViewerLiveScanlineUpdates = false;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
     bool m_showArkanoidNesConfigWindow = false;
