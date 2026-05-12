@@ -1116,7 +1116,10 @@ RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
     if(currentState == SessionState::Running &&
        previousState.has_value() &&
        (*previousState == SessionState::Starting || *previousState == SessionState::Resyncing)) {
-        const FrameNumber anchorFrame = coordinator.session().roomState().lastConfirmedFrame;
+        const FrameNumber anchorFrame =
+            std::max({coordinator.session().roomState().lastConfirmedFrame,
+                      coordinator.session().roomState().currentFrame,
+                      coordinator.localSimulationFrame()});
         inputDriver.reanchor(anchorFrame);
         rollbackState.lastRecoveryReanchorFrame = anchorFrame;
         periodicCrcState.postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
@@ -1191,6 +1194,9 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshotData =
         runtimeHost.netplaySnapshotForFrame(*rollbackFrame);
     if(!snapshotData.has_value()) {
+        if(state.lastMissingRollbackSnapshotFrame != *rollbackFrame) {
+            state.consecutiveMissingRollbackSnapshotDeferrals = 0;
+        }
         const bool shouldLog =
             state.lastMissingRollbackSnapshotFrame != *rollbackFrame ||
             state.lastMissingRollbackSnapshotLocalFrame != currentFrame;
@@ -1198,6 +1204,19 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
 
         if(coordinator.isHosting()) {
+            if(state.consecutiveMissingRollbackSnapshotDeferrals < 1u) {
+                ++state.consecutiveMissingRollbackSnapshotDeferrals;
+                coordinator.rescheduleRollbackFrame(*rollbackFrame);
+                if(shouldLog) {
+                    coordinator.appendNetplayLog(
+                        "Netplay rollback snapshot unavailable at frame " +
+                        std::to_string(*rollbackFrame) +
+                        "; retrying rollback on next host tick before forcing authoritative resync"
+                    );
+                }
+                return result;
+            }
+            state.consecutiveMissingRollbackSnapshotDeferrals = 0;
             const std::vector<uint8_t> statePayload =
                 runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, currentFrame, false);
             const RuntimeAuthoritativeStateResult stateResult =
@@ -1254,6 +1273,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         }
         return result;
     }
+    state.consecutiveMissingRollbackSnapshotDeferrals = 0;
 
     result.rollbackFromFrame = currentFrame;
     if(!console.loadRollbackState(**snapshotData) || !console.valid()) {
@@ -1650,11 +1670,26 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
     RuntimeAssignmentLayoutResult result;
     result.localSlots = runtimeLocalAssignedSlots(coordinator);
     result.layoutKey = runtimeAssignmentLayoutKey(coordinator);
+    const FrameNumber assignmentAnchorFrame =
+        std::max({localFrame,
+                  coordinator.localSimulationFrame(),
+                  coordinator.session().roomState().currentFrame,
+                  coordinator.session().roomState().lastConfirmedFrame});
+    const bool gainedNewLocalSlot = std::any_of(
+        result.localSlots.begin(),
+        result.localSlots.end(),
+        [&lastLocalAssignedSlots](PlayerSlot slot) {
+            return std::find(lastLocalAssignedSlots.begin(), lastLocalAssignedSlots.end(), slot) ==
+                   lastLocalAssignedSlots.end();
+        }
+    );
+    const bool assignmentChangeRecoveryActive =
+        coordinator.session().roomState().activeResyncReason == ResyncReason::AssignmentChanged;
 
     if(!lastAssignmentLayoutKey.empty() && result.layoutKey != lastAssignmentLayoutKey) {
         result.layoutChanged = true;
         if(running) {
-            inputDriver.reanchor(localFrame);
+            inputDriver.reanchor(assignmentAnchorFrame);
             result.reanchorInputDriver = true;
         } else {
             inputDriver.reset();
@@ -1666,7 +1701,15 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
     if(result.localSlots != lastLocalAssignedSlots) {
         result.localSlotsChanged = true;
         if(running) {
-            inputDriver.reanchor(localFrame);
+            // Only rewind to the confirmed frontier when the local peer has
+            // gained a newly assigned slot. That peer needs to regenerate the
+            // post-assignment input window from the authoritative baseline.
+            inputDriver.reanchor(
+                gainedNewLocalSlot &&
+                assignmentChangeRecoveryActive
+                    ? assignmentAnchorFrame
+                    : std::max(localFrame, coordinator.session().roomState().lastConfirmedFrame)
+            );
             result.reanchorInputDriver = true;
         } else {
             inputDriver.reset();

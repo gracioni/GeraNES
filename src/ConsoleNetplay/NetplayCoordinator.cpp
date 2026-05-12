@@ -2179,6 +2179,10 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
     if(room.state != SessionState::Running) return;
 
     const bool confirmedCheckpointReached = room.lastConfirmedFrame >= room.recoveryModeEnteredAtFrame;
+    bool localPeerHasPlayableAssignment = false;
+    if(const ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId)) {
+        localPeerHasPlayableAssignment = !participantIsObserver(*localParticipant);
+    }
     bool connectedNonObserverRemotePresent = false;
     for(const ParticipantInfo& participant : room.participants) {
         if(participant.id == m_localParticipantId) continue;
@@ -2188,7 +2192,9 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
         break;
     }
     const bool firstPostRecoveryCrcPassed =
-        room.stabilizationCrcPassCount > 0u || !connectedNonObserverRemotePresent;
+        room.stabilizationCrcPassCount > 0u ||
+        !connectedNonObserverRemotePresent ||
+        !localPeerHasPlayableAssignment;
 
     if(room.stabilizationFramesRemaining > 0u && observedFrame > room.stabilizationAnchorFrame) {
         const FrameNumber advancedFrames = observedFrame - room.stabilizationAnchorFrame;
@@ -2754,6 +2760,7 @@ bool NetplayCoordinator::preserveConfirmedInputsAcrossRealignment(ResyncReason r
     // same causal timeline. Manual host load/reset replaces that timeline, so
     // old confirmed inputs must not be projected onto the loaded frame.
     switch(reason) {
+        case ResyncReason::AssignmentChanged:
         case ResyncReason::HostReset:
         case ResyncReason::HostLoadedState:
             return false;

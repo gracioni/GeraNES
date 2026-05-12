@@ -3071,6 +3071,208 @@ TEST_CASE("Netplay web runtime keeps advancing when only the client is assigned"
     REQUIRE(report.at("client").at("connected") == true);
     REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
     REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
+}
+
+TEST_CASE("Netplay mobile-style client assignment stays converged without confirmed-desync storm",
+          "[netplay][runtime][web][assignment][mobile-wifi][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedOnly = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "mobile-client-only-assigned",
+        ""
+    };
+    options.frames = 360;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.frameStepLimit = 16000;
+    options.wallClockTimeoutSeconds = 45;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_mobile_client_only_assigned_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
+}
+
+TEST_CASE("Netplay assignment runtime matrix avoids assignment-path errors",
+          "[netplay][runtime][assignment][matrix]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    struct Scenario
+    {
+        const char* roomName;
+        const char* reportName;
+        uint32_t frames = 120;
+        uint32_t inputDelayFrames = 1;
+        uint32_t predictFrames = 8;
+        uint32_t networkPumpStride = 2;
+        uint32_t hostLoopDtMs = 8;
+        uint32_t clientLoopDtMs = 33;
+        uint32_t hostStepStride = 1;
+        uint32_t clientStepStride = 2;
+        uint32_t frameStepLimit = 50000;
+        uint32_t wallClockTimeoutSeconds = 60;
+        uint32_t gameplayReceiveDelayMs = 0;
+        bool hostAssignedBeforeJoinOnly = false;
+        bool assignLateJoinClientAfterJoin = false;
+        bool assignLateJoinClientToMultitapAfterJoin = false;
+        bool hostAssignedAfterJoinOnly = false;
+        bool hostMultitapAssignedBeforeJoinOnly = false;
+        bool clientAssignedOnly = false;
+        bool clientAssignedPort1Only = false;
+        uint32_t assignmentSwapAfterFrames = 0;
+        uint32_t maxHostHardResyncs = 2;
+        uint32_t maxClientHardResyncs = 1;
+    };
+
+    const std::vector<Scenario> scenarios = {
+        {
+            "matrix-late-join-assigned-client",
+            "netplay_assignment_matrix_late_join_assigned_client.json",
+            80, 2, 8, 2, 8, 33, 1, 2, 40000, 60, 0,
+            true, true, false, false, false, false, false, 0, 1, 1
+        },
+        {
+            "matrix-late-join-four-score-client",
+            "netplay_assignment_matrix_late_join_four_score_client.json",
+            120, 1, 4, 2, 8, 33, 1, 2, 50000, 60, 0,
+            true, false, true, false, false, false, false, 0, 1, 1
+        },
+        {
+            "matrix-host-after-observer-join",
+            "netplay_assignment_matrix_host_after_observer_join.json",
+            120, 1, 8, 2, 8, 33, 1, 2, 50000, 60, 0,
+            false, false, false, true, false, false, false, 0, 1, 1
+        },
+        {
+            "matrix-host-observer-to-port2",
+            "netplay_assignment_matrix_host_observer_to_port2.json",
+            120, 3, 8, 2, 8, 33, 1, 2, 50000, 60, 0,
+            false, false, false, false, false, false, true, 24, 2, 1
+        },
+        {
+            "matrix-client-only-port2",
+            "netplay_assignment_matrix_client_only_port2.json",
+            240, 1, 3, 2, 8, 33, 1, 2, 50000, 60, 0,
+            false, false, false, false, false, true, false, 0, 2, 1
+        },
+        {
+            "matrix-client-only-port1",
+            "netplay_assignment_matrix_client_only_port1.json",
+            160, 1, 8, 2, 8, 33, 1, 2, 50000, 60, 0,
+            false, false, false, false, false, false, true, 0, 2, 1
+        },
+        {
+            "matrix-mobile-client-only",
+            "netplay_assignment_matrix_mobile_client_only.json",
+            360, 1, 8, 5, 8, 50, 1, 3, 16000, 45, 45,
+            false, false, false, false, false, true, false, 0, 2, 1
+        }
+    };
+
+    const std::array<const char*, 8> forbiddenLogFragments = {
+        "Rejected non-sequential local input",
+        "Rejected non-sequential input from",
+        "Rejected non-sequential input sequence",
+        "Ignored input for unexpected assignment",
+        "Post-resync stabilization failed",
+        "assignment update blocked during recovery stabilization",
+        "Participant left",
+        "Post-resync delay buffer wait timed out"
+    };
+
+    for(const Scenario& scenario : scenarios) {
+        INFO("room=" << scenario.roomName);
+
+        const uint16_t signalingPort = reserveLoopbackPort();
+        LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+        NetplayTest::Options options;
+        options.romPath = GeraNESTestSupport::romPath().string();
+        options.appFlow = true;
+        options.runtimeFlow = true;
+        options.singleThreadRuntimeFlow = true;
+        options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+        options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+            "ws://127.0.0.1:" + std::to_string(signalingPort),
+            scenario.roomName,
+            ""
+        };
+        options.frames = scenario.frames;
+        options.inputDelayFrames = scenario.inputDelayFrames;
+        options.predictFrames = scenario.predictFrames;
+        options.networkPumpStride = scenario.networkPumpStride;
+        options.hostLoopDtMs = scenario.hostLoopDtMs;
+        options.clientLoopDtMs = scenario.clientLoopDtMs;
+        options.hostStepStride = scenario.hostStepStride;
+        options.clientStepStride = scenario.clientStepStride;
+        options.frameStepLimit = scenario.frameStepLimit;
+        options.wallClockTimeoutSeconds = scenario.wallClockTimeoutSeconds;
+        options.gameplayReceiveDelayMs = scenario.gameplayReceiveDelayMs;
+        options.hostAssignedBeforeJoinOnly = scenario.hostAssignedBeforeJoinOnly;
+        options.assignLateJoinClientAfterJoin = scenario.assignLateJoinClientAfterJoin;
+        options.assignLateJoinClientToMultitapAfterJoin = scenario.assignLateJoinClientToMultitapAfterJoin;
+        options.hostAssignedAfterJoinOnly = scenario.hostAssignedAfterJoinOnly;
+        options.hostMultitapAssignedBeforeJoinOnly = scenario.hostMultitapAssignedBeforeJoinOnly;
+        options.clientAssignedOnly = scenario.clientAssignedOnly;
+        options.clientAssignedPort1Only = scenario.clientAssignedPort1Only;
+        options.assignmentSwapAfterFrames = scenario.assignmentSwapAfterFrames;
+        options.reportPath = GeraNESTestSupport::reportPath(scenario.reportName).string();
+
+        REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+        const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+        INFO(report.dump(2));
+        REQUIRE(report.at("status") == "ok");
+        REQUIRE(report.at("host").at("runtimeRunning") == true);
+        REQUIRE(report.at("client").at("runtimeRunning") == true);
+        REQUIRE(report.at("host").at("connected") == true);
+        REQUIRE(report.at("client").at("connected") == true);
+        REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+        REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= scenario.maxHostHardResyncs);
+        REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= scenario.maxClientHardResyncs);
+
+        for(const char* fragment : forbiddenLogFragments) {
+            REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), fragment));
+            REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), fragment));
+        }
+    }
 }
 
 TEST_CASE("Netplay mobile browser bad Wi-Fi acceptance keeps running without resync storm",
@@ -8012,6 +8214,56 @@ TEST_CASE("Host marks newly assigned remote participant for sequence rebase",
     REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kPort1PlayerSlot));
     REQUIRE(clientParticipant->sequenceRebasePending);
     REQUIRE(clientParticipant->lastReceivedInputSequence == 0u);
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Runtime assignment sync reanchors host to authoritative baseline when observer becomes assigned",
+          "[netplay][assignment][runtime][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 3u;
+    room.lastConfirmedFrame = 3u;
+
+    ConsoleNetplay::ParticipantInfo* hostParticipant =
+        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
+    REQUIRE(hostParticipant != nullptr);
+    hostParticipant->controllerAssignments.clear();
+    hostParticipant->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+    hostParticipant->normalizeControllerAssignments(&room.inputTopology);
+
+    coordinator.setLocalSimulationFrame(3u);
+
+    std::string lastAssignmentLayoutKey;
+    std::vector<ConsoleNetplay::PlayerSlot> lastLocalAssignedSlots;
+
+    REQUIRE(coordinator.assignController(coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot));
+    room.activeResyncReason = ConsoleNetplay::ResyncReason::AssignmentChanged;
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.reanchor(0u);
+
+    const auto result = ConsoleNetplay::runtimeSyncAssignmentLayout(
+        coordinator,
+        inputDriver,
+        lastAssignmentLayoutKey,
+        lastLocalAssignedSlots,
+        0u,
+        true
+    );
+
+    REQUIRE(result.localSlotsChanged);
+    REQUIRE(result.reanchorInputDriver);
+    REQUIRE(inputDriver.producedThroughFrame() == 3u);
+    REQUIRE(inputDriver.queuedThroughFrame() == 3u);
 
     coordinator.disconnect();
 }

@@ -225,6 +225,7 @@ struct RuntimeRollbackProcessState
     FrameNumber lastMissingRollbackSnapshotFrame = 0;
     FrameNumber lastMissingRollbackSnapshotLocalFrame = 0;
     FrameNumber lastRecoveryReanchorFrame = 0;
+    uint8_t consecutiveMissingRollbackSnapshotDeferrals = 0;
 };
 
 struct RuntimeRollbackProcessSettings
