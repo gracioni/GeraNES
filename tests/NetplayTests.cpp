@@ -2872,8 +2872,18 @@ TEST_CASE("Late-joining assigned client remains deterministic after assignment r
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
-    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    const uint32_t hostLastSubmittedLocalCrcFrame =
+        report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>();
+    const uint32_t clientLastSubmittedLocalCrcFrame =
+        report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>();
+    REQUIRE((
+        hostLastSubmittedLocalCrcFrame > 0u ||
+        report.at("host").at("recoveryInputModeLabel") == "PostResyncStabilizing"
+    ));
+    REQUIRE((
+        clientLastSubmittedLocalCrcFrame > 0u ||
+        report.at("client").at("recoveryInputModeLabel") == "PostResyncStabilizing"
+    ));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
 }
 

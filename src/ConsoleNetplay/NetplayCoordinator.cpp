@@ -6180,6 +6180,9 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     const TimelineInputEntry* latest = m_localInputs.latestFor(m_localParticipantId, slot);
     if(latest != nullptr && frame != latest->frame + 1u) {
+        const bool ignoreStalePreReanchorInput =
+            frame < latest->frame + 1u &&
+            m_session.roomState().lastConfirmedFrame >= latest->frame;
         const bool allowConfirmedFrontierRebase =
             frame > latest->frame + 1u &&
             m_session.roomState().lastConfirmedFrame >= frame - 1u &&
@@ -6190,7 +6193,16 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
                 !m_hosting ||
                 m_session.roomState().recoveryInputMode != RecoveryInputMode::ResyncLocked
             );
-        if(allowConfirmedFrontierRebase) {
+        if(ignoreStalePreReanchorInput) {
+            updateLocalRejectState(kLocalInputRejectExistingFrame, frame, latest->frame + 1u);
+            std::ostringstream oss;
+            oss << "Ignored stale local input frame " << frame
+                << " for slot " << static_cast<unsigned>(slot) + 1u
+                << " expected " << (latest->frame + 1u)
+                << " confirmedThrough " << m_session.roomState().lastConfirmedFrame;
+            pushLog(oss.str());
+            return;
+        } else if(allowConfirmedFrontierRebase) {
             std::ostringstream oss;
             oss << "Accepted local input rebase frame " << frame
                 << " for slot " << static_cast<unsigned>(slot) + 1u

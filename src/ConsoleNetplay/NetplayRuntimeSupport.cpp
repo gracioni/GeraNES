@@ -1585,6 +1585,14 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
     if(!coordinator.isActive()) return 0u;
     if(coordinator.session().roomState().state != SessionState::Running) return 0u;
     if(!console.valid()) return 0u;
+    if(coordinator.isHosting()) {
+        // The host already advances through the normal emulation cadence. A
+        // second observer catch-up loop can make an observer-host outrun the
+        // real-time client that is actually producing the authoritative
+        // gameplay input stream, which turns valid client inputs into late
+        // duplicates.
+        return 0u;
+    }
 
     const std::vector<PlayerSlot> localSlots = runtimeLocalAssignedSlots(coordinator);
     if(!localSlots.empty()) return 0u;
