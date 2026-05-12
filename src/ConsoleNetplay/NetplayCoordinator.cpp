@@ -6667,6 +6667,21 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
 
     std::vector<ParticipantId> changedParticipants;
     std::vector<std::pair<PlayerSlot, std::string>> assignmentToasts;
+    const FrameNumber assignmentBaselineFrame =
+        std::max({m_localSimulationFrame,
+                  m_session.roomState().currentFrame,
+                  m_session.roomState().lastConfirmedFrame});
+    const auto resetAssignmentParticipantState = [&](ParticipantInfo& changedParticipant) {
+        changedParticipant.lastReceivedInputFrame = assignmentBaselineFrame;
+        changedParticipant.lastContiguousInputFrame = assignmentBaselineFrame;
+        changedParticipant.lastReceivedInputSequence = 0;
+        changedParticipant.sequenceRebasePending = true;
+        changedParticipant.pendingMissingInputFrom.reset();
+        if(changedParticipant.id == m_localParticipantId) {
+            m_localInputSequence = 0;
+        }
+    };
+
     for(ParticipantInfo& other : m_session.roomState().participants) {
         if(other.id != participantId && participantHasAssignment(other, slot) && slot != kObserverPlayerSlot) {
             other.controllerAssignments.erase(
@@ -6674,29 +6689,18 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
                 other.controllerAssignments.end()
             );
             syncParticipantRoleWithAssignments(other, other.id == m_localParticipantId);
+            resetAssignmentParticipantState(other);
             changedParticipants.push_back(other.id);
             assignmentToasts.emplace_back(participantIsObserver(other) ? kObserverPlayerSlot : other.controllerAssignment,
                                          participantLabel(other));
         }
     }
 
-    const FrameNumber assignmentBaselineFrame =
-        std::max({m_localSimulationFrame,
-                  m_session.roomState().currentFrame,
-                  m_session.roomState().lastConfirmedFrame});
     participant->controllerAssignments.push_back(slot);
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
     invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
-    participant->lastReceivedInputFrame = assignmentBaselineFrame;
-    participant->lastContiguousInputFrame = assignmentBaselineFrame;
-    participant->lastReceivedInputSequence = 0;
-    participant->pendingMissingInputFrom.reset();
-    if(participantId == m_localParticipantId) {
-        m_localInputSequence = 0;
-    }
-    participant->lastReceivedInputFrame = assignmentBaselineFrame;
-    participant->lastContiguousInputFrame = assignmentBaselineFrame;
+    resetAssignmentParticipantState(*participant);
     seedNeutralInputBaseline(participantId, slot, assignmentBaselineFrame);
     changedParticipants.push_back(participantId);
     assignmentToasts.emplace_back(slot, participantLabel(*participant));
@@ -6750,6 +6754,16 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         std::max({m_localSimulationFrame,
                   m_session.roomState().currentFrame,
                   m_session.roomState().lastConfirmedFrame});
+    const auto resetAssignmentParticipantState = [&](ParticipantInfo& changedParticipant) {
+        changedParticipant.lastReceivedInputFrame = assignmentBaselineFrame;
+        changedParticipant.lastContiguousInputFrame = assignmentBaselineFrame;
+        changedParticipant.lastReceivedInputSequence = 0;
+        changedParticipant.sequenceRebasePending = true;
+        changedParticipant.pendingMissingInputFrom.reset();
+        if(changedParticipant.id == m_localParticipantId) {
+            m_localInputSequence = 0;
+        }
+    };
     participant->controllerAssignments.erase(
         std::remove(participant->controllerAssignments.begin(), participant->controllerAssignments.end(), slot),
         participant->controllerAssignments.end()
@@ -6760,13 +6774,7 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
     invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
-    participant->lastReceivedInputFrame = assignmentBaselineFrame;
-    participant->lastContiguousInputFrame = assignmentBaselineFrame;
-    participant->lastReceivedInputSequence = 0;
-    participant->pendingMissingInputFrom.reset();
-    if(participantId == m_localParticipantId) {
-        m_localInputSequence = 0;
-    }
+    resetAssignmentParticipantState(*participant);
     refreshHostRoomState();
 
     const AssignControllerData data = makeAssignControllerData(*participant);

@@ -7966,9 +7966,52 @@ TEST_CASE("Host preassigned input can be transferred to connected client and hos
     REQUIRE(clientParticipant != nullptr);
     REQUIRE(ConsoleNetplay::participantIsObserver(*hostParticipant));
     REQUIRE(hostParticipant->controllerAssignments.empty());
+    REQUIRE(hostParticipant->sequenceRebasePending);
     REQUIRE(clientParticipant->controllerAssignments ==
             std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot});
     REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kPort1PlayerSlot));
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Host marks newly assigned remote participant for sequence rebase",
+          "[netplay][assignment][topology][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    REQUIRE(coordinator.addControllerAssignment(remote.id, GeraNESNetplay::kPort1PlayerSlot));
+
+    const ConsoleNetplay::ParticipantInfo* clientParticipant =
+        coordinator.session().findParticipant(remote.id);
+    REQUIRE(clientParticipant != nullptr);
+    REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kPort1PlayerSlot));
+    REQUIRE(clientParticipant->sequenceRebasePending);
+    REQUIRE(clientParticipant->lastReceivedInputSequence == 0u);
 
     coordinator.disconnect();
 }
