@@ -3129,6 +3129,114 @@ TEST_CASE("Netplay mobile-style client assignment stays converged without confir
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
 }
 
+TEST_CASE("Netplay delayed client-only assignment does not trigger confirmed-desync storm",
+          "[netplay][runtime][web][assignment][delayed][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.delayedClientAssignmentAfterFrames = 720;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "delayed-client-only-assignment",
+        ""
+    };
+    options.frames = 1080;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.frameStepLimit = 40000;
+    options.wallClockTimeoutSeconds = 90;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_delayed_client_only_assignment_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Beginning authoritative resync reason ConfirmedDesync"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Netplay rollback snapshot unavailable"));
+}
+
+TEST_CASE("Netplay delayed client-only assignment stays stable when observer client is already pressing input",
+          "[netplay][runtime][web][assignment][delayed][observer-input][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.clientReportsInputWhileObserver = true;
+    options.mirrorLatestInputStateToPendingInput = true;
+    options.delayedClientAssignmentAfterFrames = 720;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "delayed-client-observer-input-assignment",
+        ""
+    };
+    options.frames = 1080;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.frameStepLimit = 40000;
+    options.wallClockTimeoutSeconds = 90;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_delayed_client_observer_input_assignment_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("connected") == true);
+    REQUIRE(report.at("client").at("connected") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Beginning authoritative resync reason ConfirmedDesync"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Netplay rollback snapshot unavailable"));
+}
+
 TEST_CASE("Netplay assignment runtime matrix avoids assignment-path errors",
           "[netplay][runtime][assignment][matrix]")
 {

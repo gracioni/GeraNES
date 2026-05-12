@@ -70,6 +70,7 @@ public:
         uint32_t predictionScriptFrameCount = 0;
         uint32_t reconnectAfterFrames = 0;
         uint32_t assignmentSwapAfterFrames = 0;
+        uint32_t delayedClientAssignmentAfterFrames = 0;
         uint32_t forceManualResyncFrame = 0;
         uint32_t forceHostResetFrame = 0;
         uint32_t dropClientIncomingResyncChunkMessages = 0;
@@ -99,6 +100,8 @@ public:
         bool hostMultitapAssignedBeforeJoinOnly = false;
         bool clientAssignedOnly = false;
         bool clientAssignedPort1Only = false;
+        bool clientReportsInputWhileObserver = false;
+        bool mirrorLatestInputStateToPendingInput = false;
         bool assignmentPatternCheck = false;
         bool hostControllerAndZapperObserverScenario = false;
         bool requireHostManualLoadDuringResync = false;
@@ -246,6 +249,7 @@ private:
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
+        bool mirrorLatestInputStateToPendingInput = false;
 
         explicit RuntimePeerStateT(const std::string& peerName, bool isHost, uint32_t seed)
             : name(peerName)
@@ -279,6 +283,9 @@ private:
         void updateLatestInputState(const IEmulationHost::InputState& inputState)
         {
             latestInputState = inputState;
+            if(mirrorLatestInputStateToPendingInput) {
+                emu.setPendingInput(inputState);
+            }
         }
     };
 
@@ -1026,6 +1033,7 @@ private:
             {"inputDelayFrames", options.inputDelayFrames},
             {"predictFrames", options.predictFrames},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
+            {"delayedClientAssignmentAfterFrames", options.delayedClientAssignmentAfterFrames},
             {"assignmentSwapTriggered", assignmentSwapTriggered},
             {"assignmentSwapVerified", assignmentSwapVerified},
             {"assignmentPatternVerified", assignmentPatternVerified},
@@ -1546,6 +1554,9 @@ private:
             {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
             {"assignLateJoinClientToMultitapAfterJoin", options.assignLateJoinClientToMultitapAfterJoin},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
+            {"delayedClientAssignmentAfterFrames", options.delayedClientAssignmentAfterFrames},
+            {"clientReportsInputWhileObserver", options.clientReportsInputWhileObserver},
+            {"mirrorLatestInputStateToPendingInput", options.mirrorLatestInputStateToPendingInput},
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
             {"maxClientAheadOfHostFrames", maxClientAheadOfHostFrames},
@@ -1626,6 +1637,8 @@ private:
         RunArtifacts result;
         PeerT hostPeer("Host", true, options.hostInputSeed);
         PeerT clientPeer("Client", false, options.clientInputSeed);
+        hostPeer.mirrorLatestInputStateToPendingInput = options.mirrorLatestInputStateToPendingInput;
+        clientPeer.mirrorLatestInputStateToPendingInput = options.mirrorLatestInputStateToPendingInput;
         std::ofstream hostTraceFile;
         std::ofstream clientTraceFile;
         if(options.captureHostTrace) {
@@ -2105,20 +2118,21 @@ private:
                 return result;
             }
         } else {
-            if(options.clientAssignedOnly || options.clientAssignedPort1Only) {
-                hostPeer.runtime.clearControllerAssignments(*hostId);
-                hostPeer.runtime.assignController(
-                    *clientId,
-                    options.clientAssignedPort1Only
-                        ? GeraNESNetplay::kPort1PlayerSlot
-                        : GeraNESNetplay::kPort2PlayerSlot
-                );
-            } else {
-                hostPeer.runtime.assignController(*hostId, 0);
-                hostPeer.runtime.assignController(*clientId, 1);
-            }
+            const auto applyDefaultControllerAssignmentAndWait = [&]() -> bool {
+                if(options.clientAssignedOnly || options.clientAssignedPort1Only) {
+                    hostPeer.runtime.clearControllerAssignments(*hostId);
+                    hostPeer.runtime.assignController(
+                        *clientId,
+                        options.clientAssignedPort1Only
+                            ? GeraNESNetplay::kPort1PlayerSlot
+                            : GeraNESNetplay::kPort2PlayerSlot
+                    );
+                } else {
+                    hostPeer.runtime.assignController(*hostId, 0);
+                    hostPeer.runtime.assignController(*clientId, 1);
+                }
 
-            if(!waitFor([&]() {
+                return waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
                     const auto clientSnap = clientPeer.runtime.uiSnapshot();
                     const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
@@ -2140,7 +2154,13 @@ private:
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
                            clientSnap.room.activeResyncId == 0;
-                }, options.startupTimeoutSteps, 5u)) {
+                }, options.startupTimeoutSteps, 5u);
+            };
+
+            const bool delayedClientOnlyAssignmentPending =
+                options.delayedClientAssignmentAfterFrames > 0 &&
+                (options.clientAssignedOnly || options.clientAssignedPort1Only);
+            if(!delayedClientOnlyAssignmentPending && !applyDefaultControllerAssignmentAndWait()) {
                 failureReason = "Timed out waiting for controller assignment sync and automatic post-assignment resync.";
                 result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
                 result.exitCode = RESULT_ERROR;
@@ -2168,6 +2188,10 @@ private:
         bool assignmentSwapTriggered = false;
         bool assignmentSwapVerified = false;
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
+        bool delayedClientAssignmentTriggered =
+            !(options.delayedClientAssignmentAfterFrames > 0 &&
+              (options.clientAssignedOnly || options.clientAssignedPort1Only));
+        bool delayedClientAssignmentVerified = delayedClientAssignmentTriggered;
         bool manualResyncTriggered = false;
         bool hostResetTriggered = false;
         bool hostDisconnectTriggered = false;
@@ -2417,9 +2441,13 @@ private:
                             (options.hostAssignedBeforeJoinOnly &&
                              !options.assignLateJoinClientAfterJoin &&
                              !options.assignLateJoinClientToMultitapAfterJoin) ||
-                            !clientLocalSlot.has_value()
+                            (!clientLocalSlot.has_value() &&
+                             !options.clientReportsInputWhileObserver)
                         ? IEmulationHost::InputState{}
-                        : buildRuntimeInputStateForSlot(*clientLocalSlot, effectiveClientButtons)
+                        : buildRuntimeInputStateForSlot(
+                            clientLocalSlot.value_or(GeraNESNetplay::kPort1PlayerSlot),
+                            effectiveClientButtons
+                        )
                 );
             }
 
@@ -2440,6 +2468,48 @@ private:
                    clientRuntimePauseHostFrame + options.clientRuntimePauseDurationFrames) {
                 clientPeer.emu.setSimulationSuspended(false);
                 clientRuntimePauseRestored = true;
+            }
+
+            if(!delayedClientAssignmentTriggered &&
+               hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.delayedClientAssignmentAfterFrames &&
+               clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.delayedClientAssignmentAfterFrames) {
+                hostPeer.runtime.clearControllerAssignments(*hostId);
+                hostPeer.runtime.assignController(
+                    *clientId,
+                    options.clientAssignedPort1Only
+                        ? GeraNESNetplay::kPort1PlayerSlot
+                        : GeraNESNetplay::kPort2PlayerSlot
+                );
+                delayedClientAssignmentTriggered = true;
+
+                if(!waitFor([&]() {
+                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                        const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                        const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                        if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                        const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                        const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                        return hostParticipant != nullptr &&
+                               clientParticipant != nullptr &&
+                               hostParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
+                               clientParticipant->controllerAssignment ==
+                                   (options.clientAssignedPort1Only
+                                        ? GeraNESNetplay::kPort1PlayerSlot
+                                        : GeraNESNetplay::kPort2PlayerSlot) &&
+                               hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                               clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                               hostSnap.room.activeResyncId == 0 &&
+                               clientSnap.room.activeResyncId == 0;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for delayed controller assignment sync and automatic post-assignment resync.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+
+                delayedClientAssignmentVerified = true;
             }
 
             if(options.assignmentSwapAfterFrames > 0 &&

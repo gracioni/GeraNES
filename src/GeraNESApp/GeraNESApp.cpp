@@ -1991,7 +1991,8 @@ void GeraNESApp::pollAndPrepareInput()
             std::scoped_lock stateLock(m_netplayInputStateMutex);
             m_netplayLatestInputState = inputState;
         }
-        m_emu.setPendingInput(inputState);
+        const bool netplayActive = m_netplayRuntime.uiSnapshot().active;
+        m_emu.setPendingInput(netplayActive ? IEmulationHost::InputState{} : inputState);
     } else {
         m_emu.setPendingInput({});
     }
