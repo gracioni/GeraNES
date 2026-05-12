@@ -1376,7 +1376,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
     constexpr float kPaletteSwatchSize = 18.0f;
     constexpr float kPaletteSwatchSpacing = 4.0f;
 
-    ImGui::SetNextWindowSize(ImVec2(1080.0f, 650.0f), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(1080.0f, 860.0f), ImGuiCond_Appearing);
 
     if(!ImGui::Begin("PPU Viewer", &m_showPpuViewerWindow)) {
         ImGui::End();
@@ -1395,6 +1395,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
         if(!enabled) {
             m_ppuViewerScanlineStates.clear();
+            m_ppuViewerScanlineSnapshots.clear();
         }
     };
 
@@ -1465,9 +1466,11 @@ inline void GeraNESApp::drawPpuViewerWindow()
     m_ppuViewerCachedCycle = viewerSnapshot.ppuCycle;
 
     if(refreshViewer && m_ppuViewerLiveScanlineUpdates) {
-        m_ppuViewerScanlineStates = m_emu.withExclusiveAccess([](const auto& emu) {
-            return emu.ppuViewerScanlineStates();
+        const auto traceData = m_emu.withExclusiveAccess([](const auto& emu) {
+            return std::make_pair(emu.ppuViewerScanlineStates(), emu.ppuViewerScanlineSnapshots());
         });
+        m_ppuViewerScanlineStates = std::move(traceData.first);
+        m_ppuViewerScanlineSnapshots = std::move(traceData.second);
     }
 
     const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
@@ -1490,6 +1493,17 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
         const auto& lineState = m_ppuViewerScanlineStates[static_cast<size_t>(visibleScanline)];
         return lineState.valid ? &lineState : nullptr;
+    };
+    const auto findScanlineTraceSnapshot =
+        [&](const GeraNESEmu::PpuViewerScanlineState* lineState)
+            -> const GeraNESEmu::PpuViewerScanlineSnapshot* {
+        if(lineState == nullptr ||
+           lineState->snapshotIndex == 0xFFFF ||
+           lineState->snapshotIndex >= m_ppuViewerScanlineSnapshots.size()) {
+            return nullptr;
+        }
+
+        return &m_ppuViewerScanlineSnapshots[lineState->snapshotIndex];
     };
 
     struct ScrollSpan
@@ -1712,9 +1726,10 @@ inline void GeraNESApp::drawPpuViewerWindow()
             const int tileY = localY >> 3;
             const int fineY = localY & 0x07;
             const auto* lineState = findTraceStateForNametableRow(y);
-            const auto& rowChrData = lineState ? lineState->chrData : chrData;
-            const auto& rowNametableData = lineState ? lineState->nametableData : nametableData;
-            const auto& rowPaletteData = lineState ? lineState->paletteData : paletteData;
+            const auto* lineSnapshot = findScanlineTraceSnapshot(lineState);
+            const auto& rowChrData = lineSnapshot ? lineSnapshot->chrData : chrData;
+            const auto& rowNametableData = lineSnapshot ? lineSnapshot->nametableData : nametableData;
+            const auto& rowPaletteData = lineSnapshot ? lineSnapshot->paletteData : paletteData;
             const int rowBackgroundPatternTableAddress = lineState
                 ? static_cast<int>(lineState->backgroundPatternTableAddress)
                 : backgroundPatternTableAddress;
@@ -1757,8 +1772,9 @@ inline void GeraNESApp::drawPpuViewerWindow()
                         const int dstY = (tileY * 8) + fineY;
                         const int nametableY = (dstY * kNametableHeight) / kChrHeight;
                         const auto* chrLineState = findTraceStateForNametableRow(nametableY);
-                        const auto& chrSource = chrLineState ? chrLineState->chrData : chrData;
-                        const auto& chrPaletteData = chrLineState ? chrLineState->paletteData : paletteData;
+                        const auto* chrLineSnapshot = findScanlineTraceSnapshot(chrLineState);
+                        const auto& chrSource = chrLineSnapshot ? chrLineSnapshot->chrData : chrData;
+                        const auto& chrPaletteData = chrLineSnapshot ? chrLineSnapshot->paletteData : paletteData;
                         const uint8_t chrUniversalBackground = static_cast<uint8_t>(chrPaletteData[0] & 0x3F);
                         const uint8_t lowPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
                         const uint8_t highPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
@@ -1807,22 +1823,25 @@ inline void GeraNESApp::drawPpuViewerWindow()
         ImGui::TextDisabled("Trace lines: %d", tracedLines);
     }
     if(m_ppuViewerLiveScanlineUpdates && !stableScrollSpans.empty()) {
-        const int maxRegionsToShow = std::min(static_cast<int>(stableScrollSpans.size()), 4);
-        for(int i = 0; i < maxRegionsToShow; ++i) {
-            const auto& span = stableScrollSpans[static_cast<size_t>(i)];
-            const int screenStart = span.startScanline;
-            const int cursorY =
-                (span.virtualScrollY + screenStart) % kNametableHeight;
-            const int cursorX = span.virtualScrollX;
-            ImGui::Text(
-                "Region %d: lines %d-%d  cursorX=%d  cursorY=%d",
-                i + 1,
-                screenStart,
-                span.endScanline,
-                cursorX,
-                cursorY
-            );
+        const float regionBoxHeight = ImGui::GetTextLineHeightWithSpacing() * 5.5f;
+        if(ImGui::BeginChild("PpuViewerRegions", ImVec2(0.0f, regionBoxHeight), true)) {
+            for(size_t i = 0; i < stableScrollSpans.size(); ++i) {
+                const auto& span = stableScrollSpans[i];
+                const int screenStart = span.startScanline;
+                const int cursorY =
+                    (span.virtualScrollY + screenStart) % kNametableHeight;
+                const int cursorX = span.virtualScrollX;
+                ImGui::Text(
+                    "Region %d: lines %d-%d  cursorX=%d  cursorY=%d",
+                    static_cast<int>(i) + 1,
+                    screenStart,
+                    span.endScanline,
+                    cursorX,
+                    cursorY
+                );
+            }
         }
+        ImGui::EndChild();
     }
     ImGui::Spacing();
 

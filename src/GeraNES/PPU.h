@@ -143,6 +143,9 @@ private:
     uint8_t m_nameTable[4][0x400]; //4x 1KB
 
     uint8_t m_palette[0x20]; //32 Bytes
+    uint32_t m_debugChrGeneration = 0;
+    uint32_t m_debugNametableGeneration = 0;
+    uint32_t m_debugPaletteGeneration = 0;
 
     uint8_t m_primaryOam[0x100]; //256 bytes
 
@@ -296,6 +299,7 @@ private:
             m_cartridge.setPpuFetchSource(m_isSpritePatternFetch);
             if constexpr(writeFlag) {
                 m_cartridge.writeChr(addr,data);
+                ++m_debugChrGeneration;
             }
             else {
                 uint8_t value = m_cartridge.readChr(addr);
@@ -311,6 +315,7 @@ private:
 
             if constexpr(writeFlag) {
                 writeNameTable(addrIndex, nameTableAddr, data);
+                ++m_debugNametableGeneration;
             }
             else {
                 uint8_t value = readNameTable(addrIndex, nameTableAddr);
@@ -325,6 +330,7 @@ private:
 
             if constexpr(writeFlag) {
                 m_palette[paletteAddr - 0x3F00] = data;
+                ++m_debugPaletteGeneration;
             }
             else {
                 uint8_t value = m_palette[paletteAddr - 0x3F00];
@@ -677,6 +683,9 @@ public:
         m_reg_x = 0;
         m_reg_t = 0;
         m_reg_w = false;
+        m_debugChrGeneration = 0;
+        m_debugNametableGeneration = 0;
+        m_debugPaletteGeneration = 0;
 
         m_oddFrameFlag = false;
 
@@ -1039,6 +1048,21 @@ yyy NN YYYYY XXXXX
     int getCursorY() const
     {
         return getVirtualScrollY();
+    }
+
+    uint32_t debugChrGeneration() const
+    {
+        return m_debugChrGeneration;
+    }
+
+    uint32_t debugNametableGeneration() const
+    {
+        return m_debugNametableGeneration;
+    }
+
+    uint32_t debugPaletteGeneration() const
+    {
+        return m_debugPaletteGeneration;
     }
 
     uint8_t debugPeekPpuMemory(uint16_t addr) const

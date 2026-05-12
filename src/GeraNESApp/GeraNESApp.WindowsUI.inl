@@ -316,6 +316,7 @@ inline void GeraNESApp::showGui()
             });
             m_ppuViewerScanlineTraceActive = false;
             m_ppuViewerScanlineStates.clear();
+            m_ppuViewerScanlineSnapshots.clear();
         }
     }
 

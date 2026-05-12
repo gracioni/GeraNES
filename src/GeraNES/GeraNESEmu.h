@@ -132,6 +132,14 @@ public:
         uint16_t virtualScrollX = 0;
         uint16_t virtualScrollY = 0;
         uint16_t backgroundPatternTableAddress = 0x0000;
+        uint16_t snapshotIndex = 0xFFFF;
+    };
+
+    struct PpuViewerScanlineSnapshot
+    {
+        uint32_t chrGeneration = 0;
+        uint32_t nametableGeneration = 0;
+        uint32_t paletteGeneration = 0;
         std::array<uint8_t, 0x2000> chrData = {};
         std::array<uint8_t, 0x1000> nametableData = {};
         std::array<uint8_t, 0x20> paletteData = {};
@@ -200,6 +208,7 @@ private:
     //do not serialize bellow atributtes
     bool m_ppuViewerScanlineTraceEnabled = false;
     std::vector<PpuViewerScanlineState> m_ppuViewerScanlineStates;
+    std::vector<PpuViewerScanlineSnapshot> m_ppuViewerScanlineSnapshots;
     bool m_saveStateFlag;
     bool m_loadStateFlag;
     uint8_t m_pendingSaveStateSlot = 0;
@@ -942,21 +951,60 @@ private:
                 const int rawScrollY = m_ppu.getRawScrollY();
                 const int virtualScrollX = m_ppu.getVirtualScrollX();
                 const int virtualScrollY = m_ppu.getVirtualScrollY();
+                const uint32_t chrGeneration = m_ppu.debugChrGeneration();
+                const uint32_t nametableGeneration = m_ppu.debugNametableGeneration();
+                const uint32_t paletteGeneration = m_ppu.debugPaletteGeneration();
                 lineState.rawScrollX = static_cast<uint16_t>(rawScrollX);
                 lineState.rawScrollY = static_cast<uint16_t>(rawScrollY);
                 lineState.virtualScrollX = static_cast<uint16_t>(virtualScrollX);
                 lineState.virtualScrollY = static_cast<uint16_t>(virtualScrollY);
                 lineState.backgroundPatternTableAddress =
                     static_cast<uint16_t>(m_ppu.debugBackgroundPatternTableAddress());
+                lineState.snapshotIndex = 0xFFFF;
 
-                for(uint16_t addr = 0; addr < 0x2000; ++addr) {
-                    lineState.chrData[addr] = m_ppu.debugPeekPpuMemory(addr);
+                bool reusePreviousSnapshot = false;
+                if(scanline > 0) {
+                    const auto& prevLineState =
+                        m_ppuViewerScanlineStates[static_cast<size_t>(scanline - 1)];
+                    if(prevLineState.valid &&
+                       prevLineState.rawScrollX == lineState.rawScrollX &&
+                       prevLineState.rawScrollY == lineState.rawScrollY &&
+                       prevLineState.virtualScrollX == lineState.virtualScrollX &&
+                       prevLineState.virtualScrollY == lineState.virtualScrollY &&
+                       prevLineState.backgroundPatternTableAddress == lineState.backgroundPatternTableAddress &&
+                       prevLineState.snapshotIndex != 0xFFFF &&
+                       prevLineState.snapshotIndex < m_ppuViewerScanlineSnapshots.size()) {
+                        const auto& prevSnapshot =
+                            m_ppuViewerScanlineSnapshots[prevLineState.snapshotIndex];
+                        reusePreviousSnapshot =
+                            prevSnapshot.chrGeneration == chrGeneration &&
+                            prevSnapshot.nametableGeneration == nametableGeneration &&
+                            prevSnapshot.paletteGeneration == paletteGeneration;
+                        if(reusePreviousSnapshot) {
+                            lineState.snapshotIndex = prevLineState.snapshotIndex;
+                        }
+                    }
                 }
-                for(uint16_t addr = 0; addr < 0x1000; ++addr) {
-                    lineState.nametableData[addr] = m_ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + addr));
-                }
-                for(uint16_t addr = 0; addr < 0x20; ++addr) {
-                    lineState.paletteData[addr] = m_ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + addr));
+
+                if(!reusePreviousSnapshot) {
+                    PpuViewerScanlineSnapshot snapshot;
+                    snapshot.chrGeneration = chrGeneration;
+                    snapshot.nametableGeneration = nametableGeneration;
+                    snapshot.paletteGeneration = paletteGeneration;
+                    for(uint16_t addr = 0; addr < 0x2000; ++addr) {
+                        snapshot.chrData[addr] = m_ppu.debugPeekPpuMemory(addr);
+                    }
+                    for(uint16_t addr = 0; addr < 0x1000; ++addr) {
+                        snapshot.nametableData[addr] =
+                            m_ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x2000 + addr));
+                    }
+                    for(uint16_t addr = 0; addr < 0x20; ++addr) {
+                        snapshot.paletteData[addr] =
+                            m_ppu.debugPeekPpuMemory(static_cast<uint16_t>(0x3F00 + addr));
+                    }
+                    m_ppuViewerScanlineSnapshots.push_back(std::move(snapshot));
+                    lineState.snapshotIndex =
+                        static_cast<uint16_t>(m_ppuViewerScanlineSnapshots.size() - 1);
                 }
             }
         }
@@ -1451,7 +1499,9 @@ public:
             }
             for(auto& lineState : m_ppuViewerScanlineStates) {
                 lineState.valid = false;
+                lineState.snapshotIndex = 0xFFFF;
             }
+            m_ppuViewerScanlineSnapshots.clear();
         }
         m_frameStarted = true;        
     }
@@ -2413,6 +2463,7 @@ public:
             }
         } else {
             m_ppuViewerScanlineStates.clear();
+            m_ppuViewerScanlineSnapshots.clear();
         }
     }
 
@@ -2424,6 +2475,11 @@ public:
     const std::vector<PpuViewerScanlineState>& ppuViewerScanlineStates() const
     {
         return m_ppuViewerScanlineStates;
+    }
+
+    const std::vector<PpuViewerScanlineSnapshot>& ppuViewerScanlineSnapshots() const
+    {
+        return m_ppuViewerScanlineSnapshots;
     }
 
     void clearDebugBreakpointHit()

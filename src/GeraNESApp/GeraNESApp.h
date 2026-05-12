@@ -140,6 +140,7 @@ private:
     std::vector<uint32_t> m_ppuChrBuffer;
     std::vector<uint32_t> m_ppuEventBuffer;
     std::vector<GeraNESEmu::PpuViewerScanlineState> m_ppuViewerScanlineStates;
+    std::vector<GeraNESEmu::PpuViewerScanlineSnapshot> m_ppuViewerScanlineSnapshots;
     uint32_t m_ppuViewerCachedFrame = UINT32_MAX;
     int m_ppuViewerCachedScanline = -1;
     int m_ppuViewerCachedCycle = -1;
