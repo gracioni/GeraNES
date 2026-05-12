@@ -3419,14 +3419,15 @@ bool NetplayCoordinator::handleResyncBegin(PacketReader& reader)
     m_awaitingReconnectInitialSync = false;
     const bool preserveInputSequences =
         preserveInputSequencesForResync(data.reason, initialSessionSync, data.targetFrame);
+    m_session.roomState().timelineEpoch = data.timelineEpoch;
 
-        realignAuthoritativeState(
-            data.targetFrame,
-            !preserveInputSequences,
-            data.inputSequenceBase,
-            preserveConfirmedInputsAcrossRealignment(data.reason),
-            data.reason
-        );
+    realignAuthoritativeState(
+        data.targetFrame,
+        !preserveInputSequences,
+        data.inputSequenceBase,
+        preserveConfirmedInputsAcrossRealignment(data.reason),
+        data.reason
+    );
     m_incomingResync = IncomingResyncTransfer{};
     m_incomingResync->resyncId = data.resyncId;
     m_incomingResync->targetFrame = data.targetFrame;
@@ -5865,10 +5866,8 @@ uint8_t NetplayCoordinator::predictFrames() const
 void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 {
     ConfirmedFrameInputs stored = frame;
-    if(stored.netplayFrame.frame != stored.frame) {
-        stored.netplayFrame.frame = stored.frame;
-        stored.netplayFrame.timelineEpoch = m_session.roomState().timelineEpoch;
-    }
+    stored.netplayFrame.frame = stored.frame;
+    stored.netplayFrame.timelineEpoch = m_session.roomState().timelineEpoch;
 
     if(frame.authoritativeFrameStartClockMicros != 0u) {
         m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
