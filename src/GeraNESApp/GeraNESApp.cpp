@@ -2465,10 +2465,12 @@ bool GeraNESApp::onEvent(SDL_Event& event)
 
     switch(event.type) {
         case SDL_KEYDOWN: {
-            if(imGuiWantsKeyboard) break;
-
             std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
-            if(event.key.keysym.mod & KMOD_ALT) keyName = "Alt+" + keyName;
+            const bool hasAltModifier = (event.key.keysym.mod & KMOD_ALT) != 0;
+            if(hasAltModifier) keyName = "Alt+" + keyName;
+            const bool allowGlobalShortcutWhileImGuiFocused = hasAltModifier || keyName == "Escape";
+
+            if(imGuiWantsKeyboard && !allowGlobalShortcutWhileImGuiFocused) break;
 
             m_shortcuts.invokeShortcut(keyName);
 
