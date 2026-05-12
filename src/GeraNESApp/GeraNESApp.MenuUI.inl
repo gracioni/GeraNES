@@ -930,7 +930,7 @@ inline void GeraNESApp::menuBar() {
 
         if(usingCustomChrome) {
             ImGui::EndMenuBar();
-            m_menuBarHeight = static_cast<int>(std::round(ImGui::GetWindowHeight()));
+            m_menuBarHeight = static_cast<int>(std::round(ImGui::GetFrameHeight()));
         } else {
             ImGui::EndMainMenuBar();
             m_menuBarHeight = static_cast<int>(std::round(ImGui::GetFrameHeight()));
