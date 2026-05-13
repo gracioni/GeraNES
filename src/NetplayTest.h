@@ -1937,7 +1937,8 @@ private:
             return result;
         }
 
-        if(!options.hostAssignedBeforeJoinOnly) {
+        if(!options.hostAssignedBeforeJoinOnly &&
+           !options.hostMultitapAssignedBeforeJoinOnly) {
             const uint32_t observerOnlyHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t observerOnlyClientFrame = clientPeer.emu.exactEmulationFrame();
             if(!waitFor([&]() {

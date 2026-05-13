@@ -775,7 +775,11 @@ bool NetplayCoordinator::sendConfirmedFramesToPeer(NetTransport::PeerHandle peer
     FrameNumber frame = startFrame;
     const FrameNumber latestFrame = latestPublishedConfirmedFrame();
     while(frame <= latestFrame) {
+        ConfirmedFrameInputs reconstructedFrame;
         const ConfirmedFrameInputs* confirmed = findConfirmedFrame(frame);
+        if(confirmed == nullptr && tryAssembleConfirmedFrame(frame, reconstructedFrame)) {
+            confirmed = &reconstructedFrame;
+        }
         if(confirmed == nullptr) {
             break;
         }
@@ -4653,7 +4657,16 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     }
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
+    const bool packetIdentifiesLocalParticipant =
+        !m_hosting &&
+        reconnectToken != 0 &&
+        (m_localReconnectToken == 0 || reconnectToken == m_localReconnectToken);
+    const bool isLocalParticipantUpdate =
+        !m_hosting &&
+        (participantId == m_localParticipantId || packetIdentifiesLocalParticipant);
+
     if(!m_hosting &&
+       !isLocalParticipantUpdate &&
        participantId != m_localParticipantId &&
        participant.connected &&
        !participant.reconnectReserved) {
@@ -4664,17 +4677,14 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     }
     m_lastRemoteInputAt[participant.id] = std::chrono::steady_clock::now();
 
-    const bool isLocalParticipantUpdate =
-        !m_hosting &&
-        (participantId == m_localParticipantId ||
-         m_localParticipantId == kInvalidParticipantId);
     if(isLocalParticipantUpdate) {
         const bool completedAutomaticReconnect =
             m_reconnectPending ||
             m_reconnectAttemptInFlight;
-        if(m_localParticipantId == kInvalidParticipantId) {
+        if(m_localParticipantId == kInvalidParticipantId || packetIdentifiesLocalParticipant) {
             m_localParticipantId = participantId;
         }
+        participant.sequenceRebasePending = false;
         m_connected = participant.connected && !participant.reconnectReserved;
         if(participant.reconnectToken != 0) {
             m_localReconnectToken = participant.reconnectToken;
@@ -6127,9 +6137,18 @@ void NetplayCoordinator::publishConfirmedFramesIfReady()
     data.startFrame = pendingFrames.front().frame;
     data.frameCount = static_cast<uint16_t>(pendingFrames.size());
 
+    const NetTransport::PeerHandle gameplayExceptPeer =
+        activeResyncIsTargeted()
+            ? peerFromParticipantId(m_activeResyncTargetParticipantId)
+            : NetTransport::kInvalidPeerHandle;
     m_transport.broadcastReliable(
         Channel::Gameplay,
-        buildConfirmedInputFramesPacket(data, std::span<const ConfirmedFrameInputs>(pendingFrames.data(), pendingFrames.size()), m_session.roomState().sessionId)
+        buildConfirmedInputFramesPacket(
+            data,
+            std::span<const ConfirmedFrameInputs>(pendingFrames.data(), pendingFrames.size()),
+            m_session.roomState().sessionId
+        ),
+        gameplayExceptPeer
     );
 
     m_lastBroadcastConfirmedFrame = pendingFrames.back().frame;
@@ -6251,7 +6270,11 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
 
     if(m_hosting) {
         synthesizeSuspendedRemoteInputsUpTo(frame);
-        m_transport.broadcastUnreliable(Channel::Gameplay, payload);
+        const NetTransport::PeerHandle gameplayExceptPeer =
+            activeResyncIsTargeted()
+                ? peerFromParticipantId(m_activeResyncTargetParticipantId)
+                : NetTransport::kInvalidPeerHandle;
+        m_transport.broadcastUnreliable(Channel::Gameplay, payload, gameplayExceptPeer);
         publishConfirmedFramesIfReady();
         return;
     }

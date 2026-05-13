@@ -411,15 +411,16 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
 
     const FrameNumber confirmedFrame = coordinator.latestConfirmedFrame();
     const FrameNumber lastFrameReadyFrame = runtimeHost.lastFrameReadyFrame();
-    // CRC comparison is only meaningful once the local emulator has fully
-    // caught up to the currently confirmed frontier. When one peer has already
-    // confirmed future inputs but is still frame-ready on an older frame, the
-    // cached "frame-ready" CRC for that older frame can diverge transiently
-    // from a peer that is only confirmed through the older frame. Wait until
-    // confirmed and frame-ready have converged before submitting periodic CRCs.
+    // Use the most recent fully materialized frame-ready checkpoint, but only
+    // once it is part of the confirmed frontier. This avoids reviving stale
+    // historical snapshot CRCs while still allowing periodic/resync CRC
+    // exchange to continue when confirmed playback stays slightly ahead of the
+    // local frame-ready cursor during steady-state buffering.
     const FrameNumber crcCheckpointFrame =
-        confirmedFrame != 0u && confirmedFrame == lastFrameReadyFrame
-            ? confirmedFrame
+        confirmedFrame != 0u &&
+        lastFrameReadyFrame != 0u &&
+        lastFrameReadyFrame <= confirmedFrame
+            ? lastFrameReadyFrame
             : 0u;
     if(crcCheckpointFrame == 0) return result;
 
