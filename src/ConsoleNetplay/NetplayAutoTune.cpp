@@ -11,61 +11,6 @@ constexpr uint8_t kMinimumPressureResponsiveDelayFrames = 3;
 
 }
 
-#ifdef __EMSCRIPTEN__
-
-void NetplayAutoTune::setEnabled(bool enabled)
-{
-    m_enabled = enabled;
-    if(!m_enabled) {
-        m_snapshot.lastDecisionReason = "Automatic gameplay tuning unavailable on Emscripten";
-    }
-}
-
-bool NetplayAutoTune::enabled() const
-{
-    return m_enabled;
-}
-
-NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                         const RollbackStats&,
-                                                         uint32_t,
-                                                         uint32_t)
-{
-    constexpr uint8_t kFixedDelayFrames = 3;
-    constexpr uint8_t kFixedPredictFrames = 8;
-
-    Recommendations recommendations;
-    m_snapshot.enabled = m_enabled;
-    m_snapshot.currentRecommendedDelay = kFixedDelayFrames;
-    m_snapshot.currentFixedPredict = kFixedPredictFrames;
-    if(!m_enabled) {
-        m_snapshot.lastDecisionReason = "Automatic gameplay tuning unavailable on Emscripten";
-        return recommendations;
-    }
-
-    if(room.inputDelayFrames != kFixedDelayFrames) {
-        recommendations.inputDelayFrames = kFixedDelayFrames;
-    }
-    if(room.predictFrames != kFixedPredictFrames) {
-        recommendations.predictFrames = kFixedPredictFrames;
-    }
-
-    m_snapshot.lastDecisionReason = "Fixed tuning active: input delay 3, predict 8";
-    return recommendations;
-}
-
-NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(const RoomState&, ResyncReason)
-{
-    return {};
-}
-
-NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
-{
-    return m_snapshot;
-}
-
-#else
-
 uint8_t NetplayAutoTune::clampDelay(uint32_t frames)
 {
     return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoDelayFrames, std::max<uint32_t>(1u, frames)));
@@ -249,7 +194,5 @@ NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
     snapshot.lastDecisionReason = m_lastDecisionReason;
     return snapshot;
 }
-
-#endif
 
 } // namespace ConsoleNetplay

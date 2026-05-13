@@ -28,24 +28,6 @@ public:
         std::optional<uint8_t> predictFrames;
     };
 
-#ifdef __EMSCRIPTEN__
-public:
-    void setEnabled(bool enabled);
-    bool enabled() const;
-
-    Recommendations update(const RoomState& room,
-                           const RollbackStats& stats,
-                           uint32_t unresolvedPredictedRemoteFrameCount,
-                           uint32_t fps);
-    Recommendations recommendForImpendingResync(const RoomState& room, ResyncReason reason);
-
-    Snapshot snapshot() const;
-
-private:
-    bool m_enabled = true;
-    Snapshot m_snapshot;
-#else
-
 private:
     bool m_enabled = true;
     uint32_t m_lastSessionId = 0;
@@ -77,7 +59,6 @@ public:
     Recommendations recommendForImpendingResync(const RoomState& room, ResyncReason reason);
 
     Snapshot snapshot() const;
-#endif
 };
 
 } // namespace ConsoleNetplay
