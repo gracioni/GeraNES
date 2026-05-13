@@ -2527,6 +2527,7 @@ public:
         if(value != m_settings.region()) {
             m_settings.setRegion(value);
             m_audioOutput.init();
+            m_apu.refreshAudioOutputState();
             m_rewind.reset();
             updateCyclesPerSecond();
         }

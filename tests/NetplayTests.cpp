@@ -194,6 +194,72 @@ public:
     }
 };
 
+class TrackingAudioOutput : public AudioOutputBase
+{
+public:
+    uint32_t initCalls = 0;
+    uint32_t channelVolumeCalls = 0;
+    uint32_t channelFrequencyCalls = 0;
+    uint32_t pulseDutyCalls = 0;
+    uint32_t noiseMetallicCalls = 0;
+    uint32_t expansionSourceRateCalls = 0;
+    uint32_t expansionVolumeCalls = 0;
+
+    bool init() override
+    {
+        ++initCalls;
+        AudioOutputBase::init();
+        initChannels(outputSampleRate());
+        return true;
+    }
+
+    void setChannelVolume(Channel channel, float volume) override
+    {
+        ++channelVolumeCalls;
+        AudioOutputBase::setChannelVolume(channel, volume);
+    }
+
+    void setChannelFrequency(Channel channel, float frequency) override
+    {
+        ++channelFrequencyCalls;
+        AudioOutputBase::setChannelFrequency(channel, frequency);
+    }
+
+    void setPulseDutyCycle(PulseChannel pulseChannel, float duty) override
+    {
+        ++pulseDutyCalls;
+        AudioOutputBase::setPulseDutyCycle(pulseChannel, duty);
+    }
+
+    void setNoiseMetallic(bool state) override
+    {
+        ++noiseMetallicCalls;
+        AudioOutputBase::setNoiseMetallic(state);
+    }
+
+    void setExpansionSourceRateHz(int rateHz) override
+    {
+        ++expansionSourceRateCalls;
+        AudioOutputBase::setExpansionSourceRateHz(rateHz);
+    }
+
+    void setExpansionAudioVolume(float volume) override
+    {
+        ++expansionVolumeCalls;
+        AudioOutputBase::setExpansionAudioVolume(volume);
+    }
+
+    void resetSetterCounters()
+    {
+        channelVolumeCalls = 0;
+        channelFrequencyCalls = 0;
+        pulseDutyCalls = 0;
+        noiseMetallicCalls = 0;
+        expansionSourceRateCalls = 0;
+        expansionVolumeCalls = 0;
+    }
+};
+
 void queueFrameAndAdvance(GeraNESEmu& emu, uint32_t frame, bool speculative = false)
 {
     InputFrame inputFrame = emu.createInputFrame(frame);
@@ -9000,6 +9066,24 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(emu.frameCount() == 2u);
     REQUIRE(audio.discardQueuedAudioCalls > 0);
     REQUIRE(audio.clearAudioBuffersCalls > 0);
+}
+
+TEST_CASE("Changing region republishes cached APU audio state after audio reinit", "[audio][region][regression]")
+{
+    TrackingAudioOutput audio;
+    GeraNESEmu emu(audio);
+
+    audio.resetSetterCounters();
+
+    emu.setRegion(Settings::Region::PAL);
+
+    REQUIRE(audio.initCalls == 1);
+    REQUIRE(audio.channelVolumeCalls > 0);
+    REQUIRE(audio.channelFrequencyCalls > 0);
+    REQUIRE(audio.pulseDutyCalls > 0);
+    REQUIRE(audio.noiseMetallicCalls > 0);
+    REQUIRE(audio.expansionSourceRateCalls > 0);
+    REQUIRE(audio.expansionVolumeCalls > 0);
 }
 
 TEST_CASE("Netplay speculative playback produces no audio render", "[netplay][audio][prediction]")
