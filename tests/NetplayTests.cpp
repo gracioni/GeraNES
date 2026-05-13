@@ -1549,6 +1549,32 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     REQUIRE(*recommendations.inputDelayFrames == 2);
 }
 
+TEST_CASE("Netplay reactive auto delay bypasses temporary block while still below resilience floor",
+          "[netplay][auto-settings][delay]")
+{
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
+    room.sessionId = 6;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    room.inputDelayFrames = 1;
+    room.predictFrames = 8;
+    room.currentFrame = 900;
+    room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
+
+    auto recommendations =
+        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 2);
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("below the responsiveness floor") != std::string::npos);
+
+    room.inputDelayFrames = *recommendations.inputDelayFrames;
+    recommendations =
+        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 3);
+}
+
 TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
           "[netplay][auto-settings][delay]")
 {
@@ -3206,6 +3232,60 @@ TEST_CASE("Netplay mobile-style client assignment stays converged without confir
     REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
     REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
+}
+
+TEST_CASE("Netplay mobile-style client assignment raises delay under post-resync stale packet pressure",
+          "[netplay][runtime][web][assignment][mobile-wifi][resync-pressure][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedOnly = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "mobile-client-resync-pressure",
+        ""
+    };
+    options.frames = 420;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.forceManualResyncFrame = 72;
+    options.spamClientInputDuringResync = true;
+    options.frameStepLimit = 22000;
+    options.wallClockTimeoutSeconds = 60;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_mobile_client_resync_pressure_regression.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("manualResyncTriggered") == true);
+    REQUIRE(report.at("manualResyncObserved") == true);
+    REQUIRE(report.at("manualResyncCompleted") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("roomInputDelayFrames").get<uint32_t>() >= 2u);
+    REQUIRE(report.at("client").at("roomInputDelayFrames").get<uint32_t>() >= 2u);
+    REQUIRE(report.at("host").at("staleInputPacketCount").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 4u);
 }
 
 TEST_CASE("Netplay observer host with client port 1 assignment does not skip post-resync client inputs",

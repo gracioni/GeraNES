@@ -1415,6 +1415,8 @@ private:
             {"currentFrame", snapshot.localSimulationFrame},
             {"publishedConfirmedFrame", snapshot.publishedConfirmedFrame},
             {"roomLastConfirmedFrame", snapshot.room.lastConfirmedFrame},
+            {"roomInputDelayFrames", snapshot.room.inputDelayFrames},
+            {"roomPredictFrames", snapshot.room.predictFrames},
             {"confirmedThroughFrame", snapshot.room.lastConfirmedFrame},
             {"lastRemoteCrcFrame", snapshot.room.lastRemoteCrcFrame},
             {"lastRemoteCrc32", snapshot.room.lastRemoteCrc32},

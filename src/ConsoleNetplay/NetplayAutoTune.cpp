@@ -5,6 +5,12 @@
 
 namespace ConsoleNetplay {
 
+namespace {
+
+constexpr uint8_t kMinimumPressureResponsiveDelayFrames = 3;
+
+}
+
 #ifdef __EMSCRIPTEN__
 
 void NetplayAutoTune::setEnabled(bool enabled)
@@ -199,14 +205,16 @@ NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(co
         return recommendations;
     }
 
-    if(room.currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame) {
+    const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
+    const bool belowResponsiveDelayFloor = currentDelay < kMinimumPressureResponsiveDelayFrames;
+    if(room.currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame &&
+       !belowResponsiveDelayFloor) {
         m_lastDecisionReason =
             "Reactive delay increase blocked until frame " +
             std::to_string(room.autoTuneDelayIncreaseBlockedUntilFrame);
         return recommendations;
     }
 
-    const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
     const uint8_t targetDelay = clampDelay(static_cast<uint32_t>(currentDelay) + 1u);
     m_stableFrameCount = 0;
     m_lastStableEvaluationFrame = room.currentFrame;
@@ -215,9 +223,11 @@ NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(co
         recommendations.inputDelayFrames = targetDelay;
         m_currentRecommendedDelay = targetDelay;
         m_lastAdjustmentFrame = room.currentFrame;
-        m_lastDecisionReason =
-            "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
-            " before reactive resync";
+        m_lastDecisionReason = belowResponsiveDelayFloor
+            ? "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
+                  " before reactive resync despite temporary block because current delay was below the responsiveness floor"
+            : "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
+                  " before reactive resync";
     } else {
         m_currentRecommendedDelay = currentDelay;
         m_lastDecisionReason =
