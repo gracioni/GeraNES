@@ -1032,6 +1032,54 @@ TEST_CASE("Netplay coordinator schedules peer-health stall recovery in normal mo
     host.disconnect();
 }
 
+TEST_CASE("Netplay coordinator suppresses peer-health stall recovery when assigned client reports input progress",
+          "[netplay][implicit-stall][coordinator][assignment]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 10u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 4u;
+    room.currentFrame = 2083u;
+    room.lastConfirmedFrame = 2082u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 99u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(2083u);
+    REQUIRE(host.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 2083u));
+
+    ConsoleNetplay::PeerHealthData health{};
+    health.participantId = 99u;
+    health.currentFrame = 2084u;
+    health.lastConfirmedFrame = 2082u;
+    health.localAssignmentCount = 1u;
+    health.lastProducedLocalInputFrame = 2090u;
+    health.lastProducedLocalInputSequence = 77u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked logs outside debug mode",
           "[netplay][implicit-stall][coordinator][logging]")
 {

@@ -2294,6 +2294,27 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
     if(!update.shouldScheduleResync) return;
 
+    const bool peerReportsAssignedLocalInputProgress =
+        participant.lastReportedLocalAssignmentCount > 0u &&
+        participant.lastReportedProducedLocalInputFrame >= update.recovery.stalledFrame &&
+        participant.lastReportedLocalInputRejectReason == kLocalInputRejectNone;
+    if(peerReportsAssignedLocalInputProgress) {
+        participant.lastDecisionFrame = update.recovery.stalledFrame;
+        participant.lastDecisionSlot = update.recovery.playerSlot;
+        participant.lastDecision =
+            "Peer health reports assigned local input progress; suppressing false stall recovery";
+        if(m_debugMode) {
+            std::ostringstream oss;
+            oss << "Fresh peer health from " << participantDebugLabel(participant)
+                << " reported assigned local input progress through frame "
+                << participant.lastReportedProducedLocalInputFrame
+                << " after pending stall at frame " << update.recovery.stalledFrame
+                << "; suppressing recovery resync";
+            pushLog(oss.str());
+        }
+        return;
+    }
+
     const FrameNumber resyncFrame =
         m_session.roomState().lastConfirmedFrame > 0
             ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
