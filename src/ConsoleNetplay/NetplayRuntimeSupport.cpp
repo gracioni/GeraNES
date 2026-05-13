@@ -1923,6 +1923,8 @@ SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinat
     snapshot.pendingResyncAckCount = room.pendingResyncAckCount;
     snapshot.localSimulationFrame = localSimulationFrame;
     snapshot.confirmedFrame = room.lastConfirmedFrame;
+    snapshot.inputDelayFrames = room.inputDelayFrames;
+    snapshot.predictFrames = room.predictFrames;
     snapshot.playbackStopCount = coordinator.predictionStats().playbackStopCount;
     snapshot.rollbackScheduledCount = coordinator.predictionStats().rollbackScheduledCount;
 

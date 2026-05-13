@@ -1184,8 +1184,10 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     snapshot.connectedRemoteParticipantCount = 1u;
     snapshot.localSimulationFrame = 100u;
     snapshot.confirmedFrame = 96u;
-    snapshot.maxRemoteReportedCurrentFrame = 98u;
-    snapshot.maxRemoteReportedConfirmedFrame = 94u;
+    snapshot.maxRemoteReportedCurrentFrame = 80u;
+    snapshot.maxRemoteReportedConfirmedFrame = 76u;
+    snapshot.inputDelayFrames = 1u;
+    snapshot.predictFrames = 8u;
 
     const auto start = std::chrono::steady_clock::now();
     auto update = detector.update(snapshot, start);
@@ -1212,6 +1214,32 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     REQUIRE(update.shouldResync);
 }
 
+TEST_CASE("Netplay host stall detector ignores nearby remote peer backlog within playback tolerance", "[netplay][host-stall][unit]")
+{
+    ConsoleNetplay::SelfStallDetector detector;
+    ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
+    snapshot.active = true;
+    snapshot.hosting = true;
+    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Host;
+    snapshot.sessionState = ConsoleNetplay::SessionState::Running;
+    snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    snapshot.timelineEpoch = 4u;
+    snapshot.connectedRemoteParticipantCount = 1u;
+    snapshot.localSimulationFrame = 3950u;
+    snapshot.confirmedFrame = 3949u;
+    snapshot.maxRemoteReportedCurrentFrame = 3944u;
+    snapshot.maxRemoteReportedConfirmedFrame = 3944u;
+    snapshot.inputDelayFrames = 1u;
+    snapshot.predictFrames = 8u;
+
+    const auto start = std::chrono::steady_clock::now();
+    auto update = detector.update(snapshot, start);
+    REQUIRE_FALSE(update.shouldResync);
+
+    update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
+    REQUIRE_FALSE(update.shouldResync);
+}
+
 TEST_CASE("Netplay self stall detector triggers on client freeze even if remote progress advances", "[netplay][host-stall][client][unit]")
 {
     ConsoleNetplay::SelfStallDetector detector;
@@ -1227,6 +1255,8 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     snapshot.confirmedFrame = 296u;
     snapshot.maxRemoteReportedCurrentFrame = 305u;
     snapshot.maxRemoteReportedConfirmedFrame = 304u;
+    snapshot.inputDelayFrames = 1u;
+    snapshot.predictFrames = 8u;
 
     const auto start = std::chrono::steady_clock::now();
     auto update = detector.update(snapshot, start);

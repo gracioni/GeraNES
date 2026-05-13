@@ -42,6 +42,12 @@ SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapsh
         return result;
     }
 
+    if(hostIsWaitingWithinRemoteTolerance(snapshot, current)) {
+        m_progressBaseline = current;
+        m_lastProgressAt = now;
+        return result;
+    }
+
     if(now < m_cooldownUntil) {
         return result;
     }
@@ -92,6 +98,8 @@ SelfStallDetector::ProgressSample SelfStallDetector::makeSample(const Snapshot& 
         snapshot.confirmedFrame,
         snapshot.maxRemoteReportedCurrentFrame,
         snapshot.maxRemoteReportedConfirmedFrame,
+        snapshot.inputDelayFrames,
+        snapshot.predictFrames,
         snapshot.playbackStopCount,
         snapshot.rollbackScheduledCount
     };
@@ -109,6 +117,28 @@ uint32_t SelfStallDetector::churnSince(const ProgressSample& baseline, const Pro
     const uint32_t rollbackScheduledDelta =
         current.rollbackScheduledCount - baseline.rollbackScheduledCount;
     return std::max(playbackStopDelta, rollbackScheduledDelta);
+}
+
+bool SelfStallDetector::hostIsWaitingWithinRemoteTolerance(const Snapshot& snapshot,
+                                                           const ProgressSample& current)
+{
+    if(!snapshot.hosting || snapshot.connectedRemoteParticipantCount == 0u) {
+        return false;
+    }
+
+    const FrameNumber toleranceFrames =
+        std::max<FrameNumber>(6u, snapshot.inputDelayFrames + snapshot.predictFrames + 2u);
+    const FrameNumber remoteCurrentLag =
+        current.localSimulationFrame > current.maxRemoteReportedCurrentFrame
+            ? (current.localSimulationFrame - current.maxRemoteReportedCurrentFrame)
+            : 0u;
+    const FrameNumber remoteConfirmedLag =
+        current.confirmedFrame > current.maxRemoteReportedConfirmedFrame
+            ? (current.confirmedFrame - current.maxRemoteReportedConfirmedFrame)
+            : 0u;
+
+    return remoteCurrentLag <= toleranceFrames &&
+           remoteConfirmedLag <= toleranceFrames;
 }
 
 } // namespace ConsoleNetplay
