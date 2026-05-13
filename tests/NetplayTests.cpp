@@ -3247,6 +3247,14 @@ TEST_CASE("Netplay observer host with client port 1 assignment does not skip pos
 
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     INFO(report.dump(2));
+    const auto findParticipantByName = [](const nlohmann::json& participants, const char* name) -> const nlohmann::json* {
+        for(const auto& participant : participants) {
+            if(participant.at("name") == name) {
+                return &participant;
+            }
+        }
+        return nullptr;
+    };
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
@@ -3257,6 +3265,13 @@ TEST_CASE("Netplay observer host with client port 1 assignment does not skip pos
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=late_committed_input_duplicate"));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=prediction_limit_fallback"));
+    const nlohmann::json* hostViewOfClient =
+        findParticipantByName(report.at("host").at("participants"), "Client");
+    REQUIRE(hostViewOfClient != nullptr);
+    const uint32_t hostLocalFrame = report.at("host").at("localSimulationFrame").get<uint32_t>();
+    const uint32_t hostClientContiguousFrame =
+        hostViewOfClient->at("lastContiguousInputFrame").get<uint32_t>();
+    REQUIRE(hostClientContiguousFrame <= hostLocalFrame + 16u);
 }
 
 TEST_CASE("Netplay observer host keeps assigned client input stream contiguous under long asymmetric runtime",
