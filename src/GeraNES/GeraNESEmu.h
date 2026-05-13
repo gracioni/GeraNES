@@ -1395,6 +1395,7 @@ private:
         if(dt > 34) {
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
+            m_apu.refreshAudioOutputState();
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
@@ -1620,6 +1621,7 @@ public:
             m_audioOutputRewinding = isRewinding;
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
+            m_apu.refreshAudioOutputState();
             m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
@@ -1630,6 +1632,7 @@ public:
     {
         if(m_speedBoost && !state) {
             m_audioOutput.init();
+            m_apu.refreshAudioOutputState();
         }
         m_speedBoost = state;
     }

@@ -110,6 +110,12 @@ public:
         return m_sample;
     }
 
+    void refreshAudioOutputState()
+    {
+        invalidateAudioOutputState();
+        updateAudioOutput();
+    }
+
     void processDmcControlDelays()
     {
         m_sample.processControlDelays();
