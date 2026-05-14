@@ -37,6 +37,7 @@ constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
+constexpr uint8_t kConfirmedDesyncRecentMismatchThreshold = 3;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
@@ -3075,6 +3076,7 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         oss << " via " << source;
     }
     oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
+        << " recent=" << static_cast<uint32_t>(update.recentMismatchCount)
         << " classification=confirmed_crc_mismatch";
     appendFirstMismatchDebugDetail(oss);
     pushLog(oss.str());
@@ -3090,15 +3092,32 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         }
     }
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
-    if(update.consecutiveMismatchCount < kConfirmedDesyncResyncMismatchThreshold) {
+    const bool sustainedConsecutiveMismatch =
+        update.consecutiveMismatchCount >= kConfirmedDesyncResyncMismatchThreshold;
+    const bool sustainedRecentMismatch =
+        update.recentMismatchCount >= kConfirmedDesyncRecentMismatchThreshold;
+    if(!sustainedConsecutiveMismatch && !sustainedRecentMismatch) {
         std::ostringstream wait;
         wait << "CRC mismatch below hard-resync threshold consecutive="
              << static_cast<uint32_t>(update.consecutiveMismatchCount)
              << " required="
              << static_cast<uint32_t>(kConfirmedDesyncResyncMismatchThreshold)
+             << " recent="
+             << static_cast<uint32_t>(update.recentMismatchCount)
+             << " recentRequired="
+             << static_cast<uint32_t>(kConfirmedDesyncRecentMismatchThreshold)
              << "; waiting for next confirmed CRC checkpoint";
         pushLog(wait.str());
         return;
+    }
+    if(sustainedRecentMismatch && !sustainedConsecutiveMismatch) {
+        std::ostringstream escalate;
+        escalate << "CRC mismatch recent-window threshold reached recent="
+                 << static_cast<uint32_t>(update.recentMismatchCount)
+                 << " required="
+                 << static_cast<uint32_t>(kConfirmedDesyncRecentMismatchThreshold)
+                 << " classification=confirmed_crc_mismatch_recent_window";
+        pushLog(escalate.str());
     }
     queuePendingHostResync(update.frame, ResyncReason::ConfirmedDesync);
 }

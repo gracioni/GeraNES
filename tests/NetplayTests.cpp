@@ -719,6 +719,52 @@ TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives befor
     REQUIRE(mismatch.mismatchDetected == true);
     REQUIRE(mismatch.frame == 120u);
     REQUIRE(mismatch.consecutiveMismatchCount == 1u);
+    REQUIRE(mismatch.recentMismatchCount == 1u);
+}
+
+TEST_CASE("Netplay desync monitor tracks sparse recent CRC mismatches", "[netplay][crc][monitor]")
+{
+    ConsoleNetplay::DesyncMonitor monitor;
+
+    REQUIRE(monitor.submitLocalCrc(120u, 0x11111111u).compared == false);
+    auto update = monitor.submitRemoteCrc(120u, 0x22222222u);
+    REQUIRE(update.mismatchDetected);
+    REQUIRE(update.consecutiveMismatchCount == 1u);
+    REQUIRE(update.recentMismatchCount == 1u);
+
+    REQUIRE(monitor.submitLocalCrc(150u, 0x33333333u).compared == false);
+    update = monitor.submitRemoteCrc(150u, 0x33333333u);
+    REQUIRE(update.compared);
+    REQUIRE_FALSE(update.mismatchDetected);
+    REQUIRE(update.mismatchResolved);
+
+    REQUIRE(monitor.submitLocalCrc(240u, 0x44444444u).compared == false);
+    update = monitor.submitRemoteCrc(240u, 0x55555555u);
+    REQUIRE(update.mismatchDetected);
+    REQUIRE(update.consecutiveMismatchCount == 1u);
+    REQUIRE(update.recentMismatchCount == 2u);
+
+    REQUIRE(monitor.submitLocalCrc(360u, 0x66666666u).compared == false);
+    update = monitor.submitRemoteCrc(360u, 0x77777777u);
+    REQUIRE(update.mismatchDetected);
+    REQUIRE(update.consecutiveMismatchCount == 2u);
+    REQUIRE(update.recentMismatchCount == 3u);
+}
+
+TEST_CASE("Netplay desync monitor expires old sparse CRC mismatches", "[netplay][crc][monitor]")
+{
+    ConsoleNetplay::DesyncMonitor monitor;
+
+    REQUIRE(monitor.submitLocalCrc(120u, 0x11111111u).compared == false);
+    REQUIRE(monitor.submitRemoteCrc(120u, 0x22222222u).recentMismatchCount == 1u);
+
+    REQUIRE(monitor.submitLocalCrc(150u, 0x33333333u).compared == false);
+    REQUIRE_FALSE(monitor.submitRemoteCrc(150u, 0x33333333u).mismatchDetected);
+
+    REQUIRE(monitor.submitLocalCrc(780u, 0x44444444u).compared == false);
+    const auto update = monitor.submitRemoteCrc(780u, 0x55555555u);
+    REQUIRE(update.mismatchDetected);
+    REQUIRE(update.recentMismatchCount == 1u);
 }
 
 TEST_CASE("Netplay desync monitor drops stale remote CRC history after realignment", "[netplay][crc][monitor]")
@@ -8258,6 +8304,59 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay coordinator escalates sparse repeated CRC mismatches",
+          "[netplay][crc][classification][unit][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 77u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 420u;
+    room.lastConfirmedFrame = 420u;
+
+    ConsoleNetplay::CrcReportData report;
+    report.timelineEpoch = room.timelineEpoch;
+
+    coordinator.submitLocalCrc(120u, 0x11111111u);
+    report.frame = 120u;
+    report.crc32 = 0x22222222u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(150u, 0x33333333u);
+    report.frame = 150u;
+    report.crc32 = 0x33333333u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(240u, 0x44444444u);
+    report.frame = 240u;
+    report.crc32 = 0x55555555u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+
+    coordinator.submitLocalCrc(360u, 0x66666666u);
+    report.frame = 360u;
+    report.crc32 = 0x77777777u;
+    REQUIRE(coordinator.injectCrcReportForTests(report));
+
+    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
+        coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pendingResync.has_value());
+    REQUIRE(pendingResync->frame == 360u);
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch_recent_window"));
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay coordinator emits first-mismatch CRC diagnostics in debug mode",
           "[netplay][crc][classification][debug]")
 {
@@ -11406,6 +11505,44 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
 
     REQUIRE(cleanBoot.frameCount() == dirtyReplay.frameCount());
     REQUIRE(cleanBoot.canonicalNetplayStateCrc32() == dirtyReplay.canonicalNetplayStateCrc32());
+}
+
+TEST_CASE("Netplay canonical CRC ignores queued future input at frame-ready checkpoints",
+          "[netplay][crc][canonical][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu noFutureInput(DummyAudioOutput::instance());
+    REQUIRE(noFutureInput.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(noFutureInput.valid());
+
+    const uint32_t frameDt =
+        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, noFutureInput.getRegionFPS()));
+
+    InputFrame frame0 = noFutureInput.createInputFrame(0u);
+    frame0.p1A = true;
+    frame0.timelineEpoch = noFutureInput.inputTimelineEpoch();
+    noFutureInput.queueInputFrame(frame0);
+
+    REQUIRE(noFutureInput.updateUntilFrame(frameDt));
+    REQUIRE(noFutureInput.frameCount() == 1u);
+
+    const std::vector<uint8_t> clonedState = noFutureInput.saveStateToMemory();
+    REQUIRE_FALSE(clonedState.empty());
+
+    GeraNESEmu futureInputQueued(DummyAudioOutput::instance());
+    REQUIRE(futureInputQueued.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(futureInputQueued.loadStateFromMemoryOnCleanBoot(clonedState));
+    REQUIRE(futureInputQueued.valid());
+    REQUIRE(futureInputQueued.frameCount() == 1u);
+    REQUIRE(noFutureInput.canonicalNetplayStateCrc32() == futureInputQueued.canonicalNetplayStateCrc32());
+
+    InputFrame futureFrame = futureInputQueued.createInputFrame(1u);
+    futureFrame.p1Right = true;
+    futureFrame.timelineEpoch = futureInputQueued.inputTimelineEpoch();
+    REQUIRE(futureInputQueued.queueInputFrame(futureFrame) == InputBuffer::EnqueueResult::Inserted);
+
+    REQUIRE(noFutureInput.canonicalNetplayStateCrc32() == futureInputQueued.canonicalNetplayStateCrc32());
 }
 
 TEST_CASE("Netplay runtime confirmed divergence requires hard resync", "[netplay][runtime][desync][hard-resync]")
