@@ -12,17 +12,10 @@ namespace ConsoleNetplay {
 class SelfStallDetector
 {
 public:
-    enum class Role : uint8_t
-    {
-        Host,
-        Client
-    };
-
     struct Snapshot
     {
         bool active = false;
         bool hosting = false;
-        Role role = Role::Host;
         SessionState sessionState = SessionState::Lobby;
         RecoveryInputMode recoveryInputMode = RecoveryInputMode::Normal;
         uint32_t timelineEpoch = 0;

@@ -400,6 +400,8 @@ public:
     bool injectPeerHealthForTests(const PeerHealthData& health);
     bool injectCrcReportForTests(const CrcReportData& report);
     bool injectResyncAckForTests(const ResyncAckData& ack);
+    bool injectResyncBeginForTests(const ResyncBeginData& begin);
+    bool injectResyncChunkForTests(const ResyncChunkData& chunk, std::span<const uint8_t> payload);
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;

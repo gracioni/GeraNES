@@ -1869,7 +1869,9 @@ void runtimeRecordPlaybackStop(NetplayCoordinator& coordinator,
 {
     const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
     const FrameNumber predictedThroughFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.predictFrames());
+        confirmedThroughFrame +
+        static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
+        static_cast<FrameNumber>(inputDriver.predictFrames());
     const bool predictionLimitReached = frame > predictedThroughFrame;
     coordinator.recordPlaybackStop(frame, predictionLimitReached);
 }
@@ -1913,9 +1915,6 @@ SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinat
     SelfStallDetector::Snapshot snapshot;
     snapshot.active = coordinator.isActive();
     snapshot.hosting = coordinator.isHosting();
-    snapshot.role = coordinator.isHosting()
-        ? SelfStallDetector::Role::Host
-        : SelfStallDetector::Role::Client;
     snapshot.sessionState = room.state;
     snapshot.recoveryInputMode = room.recoveryInputMode;
     snapshot.timelineEpoch = room.timelineEpoch;

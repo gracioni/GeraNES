@@ -5673,6 +5673,26 @@ bool NetplayCoordinator::injectResyncAckForTests(const ResyncAckData& ack)
     return handleResyncAck(reader);
 }
 
+bool NetplayCoordinator::injectResyncBeginForTests(const ResyncBeginData& begin)
+{
+    PacketWriter writer;
+    begin.serialize(writer);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleResyncBegin(reader);
+}
+
+bool NetplayCoordinator::injectResyncChunkForTests(const ResyncChunkData& chunk,
+                                                   std::span<const uint8_t> payload)
+{
+    PacketWriter writer;
+    ResyncChunkData chunkWithSize = chunk;
+    chunkWithSize.size = static_cast<uint16_t>(payload.size());
+    chunkWithSize.serialize(writer);
+    writer.writeBytes(payload);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleResyncChunk(reader);
+}
+
 ParticipantId NetplayCoordinator::localParticipantId() const
 {
     return m_localParticipantId;
@@ -5919,6 +5939,14 @@ void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
         return;
     }
     m_performanceDiagnostics.confirmedFrameStore.record(false, 0);
+
+    if(!m_confirmedFrames.empty() && frame.frame < m_confirmedFrames.back().frame) {
+        std::ostringstream oss;
+        oss << "Confirmed frame history received out-of-order frame "
+            << frame.frame
+            << " after " << m_confirmedFrames.back().frame;
+        pushLog(oss.str());
+    }
 
     if(m_confirmedFrames.size() >= kConfirmedFrameHistoryCapacity) {
         m_confirmedFrameIndex.erase(m_confirmedFrames.front().frame);

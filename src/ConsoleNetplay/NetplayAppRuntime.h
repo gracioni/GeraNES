@@ -80,6 +80,7 @@ public:
         FrameNumber latestPredictedRemoteFrame = 0;
         NetplayRuntimeDiagnostics runtimeDiagnostics;
         std::string sessionBlockedReason;
+        std::string recoveryStatusText;
         std::vector<std::string> eventLog;
     };
 

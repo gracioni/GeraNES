@@ -91,7 +91,6 @@ ConfirmedInputBufferDriver::PlaybackQueueStats ConfirmedInputBufferDriver::playb
 
 void ConfirmedInputBufferDriver::reset()
 {
-    m_inputProductionAccumulatorMs = 0.0;
     m_producedThroughFrame = 0;
     m_queuedThroughFrame = 0;
     m_lastProduceHadLocalSlots = false;
@@ -101,7 +100,6 @@ void ConfirmedInputBufferDriver::reset()
 
 void ConfirmedInputBufferDriver::reanchor(uint32_t frame)
 {
-    m_inputProductionAccumulatorMs = 0.0;
     m_producedThroughFrame = frame;
     m_queuedThroughFrame = frame;
     m_lastProduceHadLocalSlots = false;
@@ -194,14 +192,12 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
         return;
     }
     if(awaitingSync) {
-        m_inputProductionAccumulatorMs = 0.0;
         m_lastProduceHadLocalSlots = false;
         std::scoped_lock pendingLock(m_pendingFramesMutex);
         m_pendingFrames.clear();
         return;
     }
     if(state != SessionState::Running) {
-        m_inputProductionAccumulatorMs = 0.0;
         return;
     }
 
@@ -220,7 +216,6 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
         if(m_queuedThroughFrame > m_producedThroughFrame) {
             m_queuedThroughFrame = m_producedThroughFrame;
         }
-        m_inputProductionAccumulatorMs = 0.0;
         return;
     }
 
@@ -248,7 +243,6 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
             );
         }
     }
-    m_inputProductionAccumulatorMs = 0.0;
 }
 
 void ConfirmedInputBufferDriver::produceLocalBufferedInputMasks(NetplayCoordinator& coordinator,

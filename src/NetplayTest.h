@@ -1461,6 +1461,7 @@ private:
             {"playbackStopCount", snapshot.predictionStats.playbackStopCount},
             {"confirmedConflictCount", snapshot.predictionStats.confirmedFrameConflictCount},
             {"sessionBlockedReason", snapshot.sessionBlockedReason},
+            {"recoveryStatusText", snapshot.recoveryStatusText},
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
             {"inputBufferSize", inputBufferSize},

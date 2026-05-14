@@ -1217,6 +1217,12 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     snapshot.latestPredictedRemoteFrame = coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = runtimeDiagnostics;
     snapshot.sessionBlockedReason = sessionBlockedReason;
+    snapshot.recoveryStatusText =
+        "Recovery mode " +
+        std::to_string(static_cast<unsigned>(snapshot.room.recoveryInputMode)) +
+        ", last rollback target " + std::to_string(lastRollbackTargetFrame) +
+        ", last recovery reanchor " + std::to_string(lastRecoveryReanchorFrame) +
+        ", hard resyncs " + std::to_string(snapshot.predictionStats.hardResyncCount);
     snapshot.eventLog = coordinator.eventLog();
     return snapshot;
 }

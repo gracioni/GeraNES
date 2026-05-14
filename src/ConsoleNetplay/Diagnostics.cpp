@@ -52,8 +52,8 @@ void RollbackStats::recordRollback(FrameNumber fromFrame, FrameNumber toFrame)
     lastRollbackFromFrame = fromFrame;
     lastRollbackToFrame = toFrame;
 
-    if(toFrame >= fromFrame) {
-        const uint32_t distance = toFrame - fromFrame;
+    if(fromFrame > toFrame) {
+        const uint32_t distance = fromFrame - toFrame;
         if(distance > maxRollbackDistance) {
             maxRollbackDistance = distance;
         }

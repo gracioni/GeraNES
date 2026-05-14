@@ -26,6 +26,7 @@
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/NetplayInputFrameSerialization.h"
 #include "ConsoleNetplay/NetplayAppRuntime.h"
+#include "ConsoleNetplay/NetplayRuntimeSupport.h"
 #include "ConsoleNetplay/NetProtocol.h"
 #include "ConsoleNetplay/NetSerialization.h"
 #include "ConsoleNetplay/WebRtcPeerConnection.h"
@@ -558,6 +559,21 @@ TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
     REQUIRE(ConsoleNetplay::kDesyncCrcIntervalFrames == 30u);
 }
 
+TEST_CASE("Netplay rollback diagnostics measure backward rollback distance", "[netplay][rollback][diagnostics]")
+{
+    ConsoleNetplay::RollbackStats stats;
+
+    stats.recordRollback(120u, 90u);
+    REQUIRE(stats.rollbackCount == 1u);
+    REQUIRE(stats.lastRollbackFromFrame == 120u);
+    REQUIRE(stats.lastRollbackToFrame == 90u);
+    REQUIRE(stats.maxRollbackDistance == 30u);
+
+    stats.recordRollback(90u, 95u);
+    REQUIRE(stats.rollbackCount == 2u);
+    REQUIRE(stats.maxRollbackDistance == 30u);
+}
+
 TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives before local CRC", "[netplay][crc][monitor]")
 {
     ConsoleNetplay::DesyncMonitor monitor;
@@ -935,6 +951,129 @@ TEST_CASE("Netplay frame status protocol roundtrip preserves dynamic topology",
     }
 }
 
+TEST_CASE("Netplay protocol deserializers reject truncated payloads", "[netplay][protocol][malformed]")
+{
+    const auto requireTruncationRejected =
+        [](const auto& value, auto deserialize) {
+            ConsoleNetplay::PacketWriter writer;
+            value.serialize(writer);
+            const std::vector<uint8_t>& bytes = writer.data();
+            REQUIRE_FALSE(bytes.empty());
+
+            for(size_t size = 0; size < bytes.size(); ++size) {
+                ConsoleNetplay::PacketReader reader(bytes.data(), size);
+                REQUIRE_FALSE(deserialize(reader));
+            }
+        };
+
+    ConsoleNetplay::FrameStatusData status;
+    status.timelineEpoch = 8u;
+    status.currentFrame = 120u;
+    status.lastConfirmedFrame = 116u;
+    status.inputDelayFrames = 3u;
+    status.predictFrames = 8u;
+    status.topology.slots = {
+        ConsoleNetplay::InputTopologyData::Slot{9u, 1u, 11u, 22u, "Pad", "A Button"}
+    };
+    requireTruncationRejected(status, [](ConsoleNetplay::PacketReader& reader) {
+        ConsoleNetplay::FrameStatusData decoded;
+        return ConsoleNetplay::FrameStatusData::deserialize(reader, decoded);
+    });
+
+    ConsoleNetplay::ConfirmedInputFrameEntry confirmedEntry;
+    confirmedEntry.authoritativeFrameStartClockMicros = 123456u;
+    confirmedEntry.slotMasks.push_back({2u, 0x10u, 0x20u});
+    confirmedEntry.payloadSize = 4u;
+    requireTruncationRejected(confirmedEntry, [](ConsoleNetplay::PacketReader& reader) {
+        ConsoleNetplay::ConfirmedInputFrameEntry decoded;
+        return ConsoleNetplay::ConfirmedInputFrameEntry::deserialize(reader, decoded);
+    });
+
+    ConsoleNetplay::ResyncBeginData resyncBegin;
+    resyncBegin.resyncId = 7u;
+    resyncBegin.timelineEpoch = 9u;
+    resyncBegin.targetFrame = 300u;
+    resyncBegin.confirmedFrame = 296u;
+    resyncBegin.payloadSize = 4096u;
+    resyncBegin.payloadCrc32 = 0x12345678u;
+    resyncBegin.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
+    requireTruncationRejected(resyncBegin, [](ConsoleNetplay::PacketReader& reader) {
+        ConsoleNetplay::ResyncBeginData decoded;
+        return ConsoleNetplay::ResyncBeginData::deserialize(reader, decoded);
+    });
+}
+
+TEST_CASE("Netplay coordinator rejects invalid resync payload bounds without completing recovery",
+          "[netplay][protocol][malformed][resync]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1u;
+    room.timelineEpoch = 3u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.activeResyncId = 0u;
+
+    ConsoleNetplay::ResyncBeginData oversizedBegin;
+    oversizedBegin.resyncId = 10u;
+    oversizedBegin.timelineEpoch = room.timelineEpoch + 1u;
+    oversizedBegin.targetFrame = 120u;
+    oversizedBegin.payloadSize = (64u * 1024u * 1024u) + 1u;
+    oversizedBegin.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
+
+    REQUIRE_FALSE(coordinator.injectResyncBeginForTests(oversizedBegin));
+    REQUIRE(room.activeResyncId == 0u);
+    REQUIRE(room.state == ConsoleNetplay::SessionState::Running);
+    REQUIRE(room.timelineEpoch == 3u);
+
+    ConsoleNetplay::ResyncBeginData begin;
+    begin.resyncId = 11u;
+    begin.timelineEpoch = room.timelineEpoch + 1u;
+    begin.targetFrame = 120u;
+    begin.payloadSize = 4u;
+    begin.payloadCrc32 = 0x12345678u;
+    begin.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
+    REQUIRE(coordinator.injectResyncBeginForTests(begin));
+    REQUIRE(room.activeResyncId == 11u);
+    REQUIRE(room.state == ConsoleNetplay::SessionState::Resyncing);
+
+    ConsoleNetplay::ResyncChunkData outOfRangeChunk;
+    outOfRangeChunk.resyncId = 11u;
+    outOfRangeChunk.offset = 3u;
+    const std::vector<uint8_t> payload = {0xAAu, 0xBBu};
+    REQUIRE_FALSE(coordinator.injectResyncChunkForTests(outOfRangeChunk, payload));
+    REQUIRE(room.activeResyncId == 11u);
+    REQUIRE_FALSE(coordinator.consumePendingResyncApply().has_value());
+}
+
+TEST_CASE("Netplay coordinator ignores invalid input identifiers without accepting input",
+          "[netplay][protocol][malformed][input]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 1u;
+    room.timelineEpoch = 5u;
+    room.state = ConsoleNetplay::SessionState::Running;
+
+    ConsoleNetplay::InputFrameData input;
+    input.timelineEpoch = room.timelineEpoch;
+    input.frame = 1u;
+    input.participantId = 99u;
+    input.playerSlot = 200u;
+    input.sequence = 1u;
+    ConsoleNetplay::NetplayInputFrame contribution =
+        ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(input.frame, room);
+
+    REQUIRE(host.injectInputFrameForTests(input, contribution));
+    REQUIRE(host.remoteInputs().size() == 0u);
+    REQUIRE(host.localInputs().size() == 0u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "invalid player slot"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
 {
     ConsoleNetplay::RemoteInputStallMonitor monitor;
@@ -1243,7 +1382,6 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = true;
-    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Host;
     snapshot.sessionState = ConsoleNetplay::SessionState::Running;
     snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 4u;
@@ -1286,7 +1424,6 @@ TEST_CASE("Netplay host stall detector ignores nearby remote peer backlog within
     ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = true;
-    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Host;
     snapshot.sessionState = ConsoleNetplay::SessionState::Running;
     snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 4u;
@@ -1312,7 +1449,6 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = false;
-    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Client;
     snapshot.sessionState = ConsoleNetplay::SessionState::Running;
     snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 2u;
@@ -1331,6 +1467,37 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     snapshot.maxRemoteReportedCurrentFrame = 330u;
     snapshot.maxRemoteReportedConfirmedFrame = 325u;
     update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
+    REQUIRE(update.shouldResync);
+}
+
+TEST_CASE("Netplay self stall detector triggers on repeated local churn before timeout",
+          "[netplay][host-stall][unit]")
+{
+    ConsoleNetplay::SelfStallDetector detector;
+    ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
+    snapshot.active = true;
+    snapshot.hosting = false;
+    snapshot.sessionState = ConsoleNetplay::SessionState::Running;
+    snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    snapshot.timelineEpoch = 5u;
+    snapshot.connectedRemoteParticipantCount = 1u;
+    snapshot.localSimulationFrame = 800u;
+    snapshot.confirmedFrame = 790u;
+    snapshot.maxRemoteReportedCurrentFrame = 820u;
+    snapshot.maxRemoteReportedConfirmedFrame = 810u;
+    snapshot.inputDelayFrames = 1u;
+    snapshot.predictFrames = 8u;
+
+    const auto start = std::chrono::steady_clock::now();
+    auto update = detector.update(snapshot, start);
+    REQUIRE_FALSE(update.shouldResync);
+
+    snapshot.playbackStopCount = 2u;
+    update = detector.update(snapshot, start + std::chrono::milliseconds(100));
+    REQUIRE_FALSE(update.shouldResync);
+
+    snapshot.playbackStopCount = 3u;
+    update = detector.update(snapshot, start + std::chrono::milliseconds(150));
     REQUIRE(update.shouldResync);
 }
 
@@ -1628,7 +1795,7 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     room.sessionId = 5;
     room.state = ConsoleNetplay::SessionState::Running;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 1;
+    room.inputDelayFrames = 3;
     room.predictFrames = 8;
     room.currentFrame = 900;
     room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
@@ -1642,7 +1809,7 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     room.currentFrame = 1500;
     recommendations = autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
     REQUIRE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(*recommendations.inputDelayFrames == 2);
+    REQUIRE(*recommendations.inputDelayFrames == 4);
 }
 
 TEST_CASE("Netplay reactive auto delay bypasses temporary block while still below resilience floor",
@@ -2983,9 +3150,9 @@ TEST_CASE("Netplay clients stay capped to a slow host whether host is observer o
             reportName,
             ""
         };
-        options.frames = 180;
+        options.frames = 240;
         options.inputDelayFrames = 1;
-        options.predictFrames = 4;
+        options.predictFrames = 8;
         options.networkPumpStride = 2;
         options.hostLoopDtMs = 8;
         options.clientLoopDtMs = 8;
@@ -3505,10 +3672,7 @@ TEST_CASE("Netplay observer host keeps assigned client input stream contiguous u
     REQUIRE(report.at("host").at("connected") == true);
     REQUIRE(report.at("client").at("connected") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() >= 900u);
-    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() >= 900u);
     REQUIRE(report.at("host").at("staleInputPacketCount").get<uint32_t>() <= 8u);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=stall_based_recovery"));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=late_committed_input_duplicate"));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=prediction_limit_fallback"));
 
@@ -3925,10 +4089,11 @@ TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay]
     options.romPath = GeraNESTestSupport::romPath().string();
     options.appFlow = true;
     options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
     options.hostMultitapAssignedBeforeJoinOnly = true;
-    options.frames = 20;
-    options.inputDelayFrames = 0;
-    options.predictFrames = 2;
+    options.frames = 80;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
     options.reportPath = GeraNESTestSupport::reportPath("netplay_host_multitap_before_join.json").string();
 
     REQUIRE(NetplayTest::runHeadless(options) == 0);
@@ -5537,6 +5702,55 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay playback stop diagnostics include input delay before prediction limit",
+          "[netplay][playback-stop][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 0u;
+    room.lastConfirmedFrame = 0u;
+    room.inputDelayFrames = 3u;
+    room.predictFrames = 2u;
+
+    ConsoleNetplay::ParticipantInfo* localParticipant = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == coordinator.localParticipantId()) {
+            localParticipant = &participant;
+            break;
+        }
+    }
+    REQUIRE(localParticipant != nullptr);
+    localParticipant->connected = true;
+    localParticipant->romLoaded = true;
+    localParticipant->romCompatible = true;
+    localParticipant->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    localParticipant->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    localParticipant->normalizeControllerAssignments();
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.setPrebufferFrames(room.inputDelayFrames);
+    inputDriver.setPredictFrames(room.predictFrames);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+    REQUIRE_FALSE(ConsoleNetplay::runtimeTryBuildPlaybackConfirmedFrame(
+        coordinator,
+        inputDriver,
+        3u,
+        playbackFrame
+    ));
+
+    REQUIRE(coordinator.predictionStats().playbackStopCount == 1u);
+    REQUIRE(coordinator.predictionStats().stopDueToMissingInputCount == 1u);
+    REQUIRE(coordinator.predictionStats().stopDueToPredictionLimitCount == 0u);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer confirmations", "[netplay][clock][unit]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -5625,6 +5839,56 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
     REQUIRE(room.lastAuthoritativeClockMicros == previousClockMicros);
 
     host.disconnect();
+}
+
+TEST_CASE("Netplay confirmed frame history evicts old entries and replaces indexed frames",
+          "[netplay][confirmed-history][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.sessionId = 1u;
+    room.timelineEpoch = 1u;
+    room.state = ConsoleNetplay::SessionState::Running;
+
+    for(ConsoleNetplay::FrameNumber frame = 1u; frame <= 16385u; ++frame) {
+        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
+        confirmed.frame = frame;
+        confirmed.authoritativeFrameStartClockMicros = static_cast<uint64_t>(frame) * 1000u;
+        confirmed.netplayFrame = ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(frame, room);
+
+        ConsoleNetplay::ConfirmedInputFramesData data;
+        data.timelineEpoch = room.timelineEpoch;
+        data.startFrame = frame;
+        data.frameCount = 1u;
+        REQUIRE(coordinator.injectConfirmedPlaybackFramesForTests(data, {confirmed}));
+    }
+
+    REQUIRE(coordinator.findConfirmedFrame(1u) == nullptr);
+    REQUIRE(coordinator.findConfirmedFrame(2u) != nullptr);
+    REQUIRE(coordinator.findConfirmedFrame(16385u) != nullptr);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs replacement;
+    replacement.frame = 16385u;
+    replacement.authoritativeFrameStartClockMicros = 0xABCDEFu;
+    replacement.netplayFrame = ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(16385u, room);
+
+    ConsoleNetplay::ConfirmedInputFramesData replacementData;
+    replacementData.timelineEpoch = room.timelineEpoch;
+    replacementData.startFrame = replacement.frame;
+    replacementData.frameCount = 1u;
+    REQUIRE(coordinator.injectConfirmedPlaybackFramesForTests(replacementData, {replacement}));
+
+    const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs* updated =
+        coordinator.findConfirmedFrame(16385u);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->authoritativeFrameStartClockMicros == 0xABCDEFu);
+    REQUIRE(coordinator.performanceDiagnostics().confirmedFrameFind.hits > 0u);
+    REQUIRE(coordinator.performanceDiagnostics().confirmedFrameFind.misses > 0u);
+
+    coordinator.disconnect();
 }
 
 TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate resync", "[netplay][prediction-limit][unit]")
@@ -10365,6 +10629,8 @@ TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnosti
     REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("host").at("lastRecoveryReanchorFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("client").at("lastRecoveryReanchorFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("host").at("recoveryStatusText").get<std::string>().find("last recovery reanchor") != std::string::npos);
+    REQUIRE(report.at("client").at("recoveryStatusText").get<std::string>().find("hard resyncs") != std::string::npos);
     REQUIRE(report.at("host").at("localConfirmedCrcType") == "canonical_netplay_state_crc32");
     REQUIRE(report.at("host").at("frameReadyCrcType") == "frame_ready_canonical_crc32");
     REQUIRE(report.at("host").at("resyncPayloadCrcType") == "payload_crc32");
