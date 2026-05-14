@@ -289,9 +289,10 @@ public:
             m_nextDelay += (m_jitter ? 3 : 4);
 
             if(m_mode) {
-                // Immediately run all units / do not update audio output here
+                // Immediately run all units.
                 updateEnvelopsAndLinearCounters();
                 updateLengthCountersAndSweeps();
+                refreshAudioOutputState();
             }
 
             if(m_interruptInhibitFlag) {
@@ -346,6 +347,7 @@ public:
                 break;
         }
 
+        refreshAudioOutputState();
     }
 
     void updateEnvelopsAndLinearCounters()
