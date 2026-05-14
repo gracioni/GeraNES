@@ -39,6 +39,7 @@ constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 1;
 constexpr uint8_t kConfirmedDesyncRecentMismatchThreshold = 1;
 constexpr uint32_t kRemoteCrcPublicationLagResyncFrames = ConsoleNetplay::kDesyncCrcIntervalFrames * 4u;
+constexpr uint16_t kResyncRequestSourceCrcMismatch = 4u;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
@@ -3056,8 +3057,10 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(!update.mismatchDetected) return;
 
-    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
-       update.frame >= m_session.roomState().recoveryModeEnteredAtFrame) {
+    const bool postResyncStabilizationMismatch =
+        m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
+        update.frame >= m_session.roomState().recoveryModeEnteredAtFrame;
+    if(postResyncStabilizationMismatch) {
         std::ostringstream oss;
         oss << "CRC mismatch observed during post-resync stabilization on frame " << update.frame;
         if(source != nullptr && *source != '\0') {
@@ -3065,24 +3068,57 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         }
         oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
             << " classification=post_resync_stabilizing_crc_mismatch"
-            << " action=ignored_for_resync_pressure";
+            << " action=scheduling_resync";
         appendFirstMismatchDebugDetail(oss);
         pushLog(oss.str());
+    } else {
+        std::ostringstream oss;
+        oss << "CRC mismatch detected on frame " << update.frame;
+        if(source != nullptr && *source != '\0') {
+            oss << " via " << source;
+        }
+        oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
+            << " recent=" << static_cast<uint32_t>(update.recentMismatchCount)
+            << " classification=confirmed_crc_mismatch";
+        appendFirstMismatchDebugDetail(oss);
+        pushLog(oss.str());
+    }
+
+    if(!m_hosting) {
+        if(m_session.roomState().state != SessionState::Running) return;
+        if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
+
+        ResyncRequestData request;
+        request.reason = ResyncReason::ConfirmedDesync;
+        request.localFrame = localSimulationFrame();
+        request.estimatedHostFrame = m_session.roomState().currentFrame;
+        request.confirmedThroughFrame = m_session.roomState().lastConfirmedFrame;
+        request.source = kResyncRequestSourceCrcMismatch;
+        if(request.localFrame > request.estimatedHostFrame) {
+            request.lagFrames = static_cast<uint16_t>(
+                std::min<FrameNumber>(
+                    std::numeric_limits<uint16_t>::max(),
+                    request.localFrame - request.estimatedHostFrame
+                )
+            );
+        }
+        if(request.confirmedThroughFrame > update.frame) {
+            request.catchupBudgetFrames = static_cast<uint16_t>(
+                std::min<FrameNumber>(
+                    std::numeric_limits<uint16_t>::max(),
+                    request.confirmedThroughFrame - update.frame
+                )
+            );
+        }
+        if(requestHostResync(request)) {
+            std::ostringstream requestLog;
+            requestLog << "Requested host resync after local CRC mismatch"
+                       << " frame " << update.frame
+                       << " classification=confirmed_crc_mismatch_client_request";
+            pushLog(requestLog.str());
+        }
         return;
     }
-
-    std::ostringstream oss;
-    oss << "CRC mismatch detected on frame " << update.frame;
-    if(source != nullptr && *source != '\0') {
-        oss << " via " << source;
-    }
-    oss << " consecutive=" << static_cast<uint32_t>(update.consecutiveMismatchCount)
-        << " recent=" << static_cast<uint32_t>(update.recentMismatchCount)
-        << " classification=confirmed_crc_mismatch";
-    appendFirstMismatchDebugDetail(oss);
-    pushLog(oss.str());
-
-    if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
     for(const ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;

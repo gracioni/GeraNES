@@ -7247,6 +7247,109 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
     client.disconnect();
 }
 
+TEST_CASE("Client requests host resync on first local CRC mismatch",
+          "[netplay][resync-request][crc][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 2, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 120 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.session().roomState().participants.size() >= 2u &&
+            client.session().roomState().participants.size() >= 2u &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
+    hostRoom.selectedGameName = "CrcMismatch";
+    clientRoom.selectedGameName = "CrcMismatch";
+    hostRoom.timelineEpoch = 5u;
+    clientRoom.timelineEpoch = 5u;
+    hostRoom.currentFrame = 300u;
+    clientRoom.currentFrame = 298u;
+    hostRoom.lastConfirmedFrame = 300u;
+    clientRoom.lastConfirmedFrame = 300u;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(302u);
+    client.setLocalSimulationFrame(298u);
+
+    client.submitLocalCrc(300u, 0x11111111u);
+
+    ConsoleNetplay::CrcReportData hostReport;
+    hostReport.timelineEpoch = clientRoom.timelineEpoch;
+    hostReport.frame = 300u;
+    hostReport.crc32 = 0x22222222u;
+    hostReport.submissionSource = ConsoleNetplay::CrcSubmissionSource::FrameReady;
+    hostReport.senderLocalSimulationFrame = 302u;
+    hostReport.senderConfirmedFrame = 300u;
+    REQUIRE(client.injectCrcReportForTests(hostReport));
+    REQUIRE(anyLogLineContains(client.eventLog(), "classification=confirmed_crc_mismatch_client_request"));
+
+    bool received = false;
+    for(int step = 0; step < 120 && !received; ++step) {
+        client.update(0);
+        host.update(0);
+        const auto pending = host.consumePendingHostResyncFrame();
+        if(pending.has_value()) {
+            REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+            REQUIRE(pending->frame == 300u);
+            REQUIRE(anyLogLineContains(host.eventLog(), "source 4"));
+            received = true;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+
+    REQUIRE(received);
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {
@@ -8723,7 +8826,7 @@ TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay post-resync stabilization CRC mismatch is provisional pressure",
+TEST_CASE("Netplay post-resync stabilization CRC mismatch schedules immediate resync",
           "[netplay][crc][stabilization][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
@@ -8760,8 +8863,12 @@ TEST_CASE("Netplay post-resync stabilization CRC mismatch is provisional pressur
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=post_resync_stabilizing_crc_mismatch"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "action=scheduling_resync"));
     REQUIRE_FALSE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
-    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+    const auto pending = coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->frame == 241u);
+    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
 
     coordinator.disconnect();
 }
