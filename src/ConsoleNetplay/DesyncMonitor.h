@@ -29,6 +29,7 @@ public:
         bool mismatchResolved = false;
         FrameNumber frame = 0;
         uint8_t consecutiveMismatchCount = 0;
+        uint8_t recentMismatchCount = 0;
         std::optional<uint32_t> localCrc32;
         std::optional<uint32_t> remoteCrc32;
         std::optional<HistoryEntry> localEntry;
@@ -51,14 +52,17 @@ public:
 
 private:
     static constexpr size_t kHistoryCapacity = 512;
+    static constexpr FrameNumber kRecentMismatchWindowFrames = 600;
 
     std::deque<HistoryEntry> m_localHistory;
     std::deque<HistoryEntry> m_remoteHistory;
+    std::deque<FrameNumber> m_recentMismatchFrames;
     FrameNumber m_lastMismatchFrame = 0;
     uint8_t m_consecutiveMismatchCount = 0;
 
     static void storeHistoryEntry(std::deque<HistoryEntry>& history, const HistoryEntry& entry);
     static std::optional<HistoryEntry> findHistoryEntry(const std::deque<HistoryEntry>& history, FrameNumber frame);
+    void pruneRecentMismatchFrames(FrameNumber frame);
     Update evaluateFrame(FrameNumber frame);
 };
 
