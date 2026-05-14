@@ -1087,7 +1087,7 @@ RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
         *previousState == SessionState::Resyncing &&
         currentState != SessionState::Resyncing;
     if(enteringResync || leavingResync) {
-        controls.restartAudio();
+        controls.discardQueuedAudio();
     }
     if(enteringResync) {
         const FrameNumber discardAfterFrame =
@@ -1164,6 +1164,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const RuntimeRollbackProcessSettings& settings)
 {
     RuntimeRollbackProcessResult result;
+    (void)emu;
     std::optional<FrameNumber> rollbackFrame = coordinator.consumePendingRollbackFrame();
     if(!rollbackFrame.has_value()) return result;
     result.consumed = true;
@@ -1225,6 +1226,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
                room.activeResyncId != 0u ||
                room.pendingResyncAckCount != 0u) {
                 state.consecutiveMissingRollbackSnapshotDeferrals = 0;
+                (void)coordinator.discardPendingHostResyncFrame(ResyncReason::ConfirmedDesync);
                 if(*rollbackFrame > room.recoveryModeEnteredAtFrame) {
                     coordinator.rescheduleRollbackFrame(*rollbackFrame);
                 }
@@ -1243,6 +1245,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
             if(state.consecutiveMissingRollbackSnapshotDeferrals <
                kHostMissingRollbackSnapshotDeferralsBeforeResync) {
                 ++state.consecutiveMissingRollbackSnapshotDeferrals;
+                (void)coordinator.discardPendingHostResyncFrame(ResyncReason::ConfirmedDesync);
                 coordinator.rescheduleRollbackFrame(*rollbackFrame);
                 if(shouldLog && (state.consecutiveMissingRollbackSnapshotDeferrals == 1u ||
                                  settings.showDebugLog)) {
@@ -1259,37 +1262,12 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
                 return result;
             }
             state.consecutiveMissingRollbackSnapshotDeferrals = 0;
-            const std::vector<uint8_t> statePayload =
-                runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, currentFrame, false);
-            const RuntimeAuthoritativeStateResult stateResult =
-                runtimeBeginAuthoritativeResync(
-                    coordinator,
-                    inputDriver,
-                    emu,
-                    runtimeHost,
-                    currentFrame,
-                    statePayload,
-                    false,
-                    ResyncReason::ConfirmedDesync
-                );
-            if(stateResult.started) {
-                result.startedAuthoritativeResync = true;
-                if(stateResult.reanchorFrame != 0) {
-                    state.lastRecoveryReanchorFrame = stateResult.reanchorFrame;
-                    result.reanchorFrame = stateResult.reanchorFrame;
-                }
-                if(shouldLog) {
-                    coordinator.appendNetplayLog(
-                        "Netplay rollback snapshot unavailable; started authoritative resync at frame " +
-                        std::to_string(currentFrame) +
-                        " instead of rollback to frame " +
-                        std::to_string(*rollbackFrame)
-                    );
-                }
-            } else if(shouldLog) {
+            (void)coordinator.discardPendingHostResyncFrame(ResyncReason::ConfirmedDesync);
+            if(shouldLog) {
                 coordinator.appendNetplayLog(
-                    "Netplay rollback failed: snapshot unavailable for frame " +
-                    std::to_string(*rollbackFrame)
+                    "Netplay rollback snapshot unavailable at frame " +
+                    std::to_string(*rollbackFrame) +
+                    "; suppressing rollback-driven hard resync and waiting for confirmed CRC checkpoints"
                 );
             }
             return result;

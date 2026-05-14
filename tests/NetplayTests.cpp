@@ -623,6 +623,25 @@ public:
         lastDiscardedQueuedInputAfterFrame = frame;
     }
 };
+
+class FakeRuntimeSessionControls final : public ConsoleNetplay::INetplayRuntimeSessionControls
+{
+public:
+    ConsoleNetplay::FrameNumber frameValue = 0;
+    uint32_t restartAudioCallCount = 0;
+    uint32_t discardQueuedAudioCallCount = 0;
+    ConsoleNetplay::FrameNumber lastDiscardedInputsAfterFrame = 0;
+    bool simulationSuspended = false;
+
+    ConsoleNetplay::FrameNumber frameCount() const override { return frameValue; }
+    void restartAudio() override { ++restartAudioCallCount; }
+    void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber frame) override
+    {
+        lastDiscardedInputsAfterFrame = frame;
+    }
+    void discardQueuedAudio() override { ++discardQueuedAudioCallCount; }
+    void setSimulationSuspended(bool suspended) override { simulationSuspended = suspended; }
+};
 }
 
 TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
@@ -827,7 +846,7 @@ TEST_CASE("Periodic netplay CRC submits the latest frame-ready checkpoint within
     host.disconnect();
 }
 
-TEST_CASE("Host rollback-recovery resync fallback waits through transient missing snapshots",
+TEST_CASE("Host rollback-recovery missing snapshots wait for CRC-confirmed recovery",
           "[netplay][runtime][rollback][host-resync]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -856,7 +875,7 @@ TEST_CASE("Host rollback-recovery resync fallback waits through transient missin
     ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
     ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
 
-    for(uint32_t attempt = 0; attempt < 8u; ++attempt) {
+    for(uint32_t attempt = 0; attempt < 9u; ++attempt) {
         const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
             host,
             inputDriver,
@@ -870,8 +889,7 @@ TEST_CASE("Host rollback-recovery resync fallback waits through transient missin
         REQUIRE(result.consumed);
         REQUIRE_FALSE(result.startedAuthoritativeResync);
     }
-
-    const auto finalResult = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+    const auto drainedResult = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
         host,
         inputDriver,
         console,
@@ -880,12 +898,9 @@ TEST_CASE("Host rollback-recovery resync fallback waits through transient missin
         rollbackState,
         rollbackSettings
     );
-
-    REQUIRE(finalResult.consumed);
-    REQUIRE(finalResult.startedAuthoritativeResync);
-    REQUIRE(emu.loadStateOnCleanBootCallCount == 1u);
-    REQUIRE(runtimeHost.lastFrameReadyFrameValue == 100u);
-    REQUIRE(runtimeHost.lastFrameReadyNetplayCrc32Value == 0x2468ACE0u);
+    REQUIRE_FALSE(drainedResult.consumed);
+    REQUIRE(emu.loadStateOnCleanBootCallCount == 0u);
+    REQUIRE(runtimeHost.lastFrameReadyFrameValue == 0u);
 
     host.disconnect();
 }
@@ -942,6 +957,65 @@ TEST_CASE("Host rollback-recovery resync fallback is suppressed during stabiliza
     REQUIRE(emu.loadStateOnCleanBootCallCount == 0u);
 
     host.disconnect();
+}
+
+TEST_CASE("Runtime resync transitions flush audio without restarting the backend",
+          "[netplay][runtime][audio][resync]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Resyncing;
+    room.resyncTargetFrame = 42u;
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    ConsoleNetplay::RuntimeSessionTransitionState sessionState;
+    sessionState.lastSessionState = ConsoleNetplay::SessionState::Running;
+    ConsoleNetplay::RuntimePeriodicCrcState periodicCrcState;
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeSharedClockCatchupState sharedClockState;
+    ConsoleNetplay::FrameNumber lastLoadedAuthoritativeFrame = 0u;
+    FakeRuntimeSessionControls controls;
+    controls.frameValue = 50u;
+
+    auto result = ConsoleNetplay::runtimeHandleSessionStateTransitions(
+        coordinator,
+        inputDriver,
+        controls,
+        sessionState,
+        periodicCrcState,
+        rollbackState,
+        sharedClockState,
+        lastLoadedAuthoritativeFrame
+    );
+
+    REQUIRE(result.resetWorkerTick);
+    REQUIRE(controls.restartAudioCallCount == 0u);
+    REQUIRE(controls.discardQueuedAudioCallCount == 1u);
+    REQUIRE(controls.lastDiscardedInputsAfterFrame == 42u);
+
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.lastConfirmedFrame = 42u;
+    lastLoadedAuthoritativeFrame = 42u;
+
+    result = ConsoleNetplay::runtimeHandleSessionStateTransitions(
+        coordinator,
+        inputDriver,
+        controls,
+        sessionState,
+        periodicCrcState,
+        rollbackState,
+        sharedClockState,
+        lastLoadedAuthoritativeFrame
+    );
+
+    REQUIRE_FALSE(result.resetWorkerTick);
+    REQUIRE(controls.restartAudioCallCount == 0u);
+    REQUIRE(controls.discardQueuedAudioCallCount == 2u);
+
+    coordinator.disconnect();
 }
 
 TEST_CASE("Queued topology mutations stay deferred while assignment recovery is blocked",

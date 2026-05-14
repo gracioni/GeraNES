@@ -6294,6 +6294,20 @@ std::optional<FrameNumber> NetplayCoordinator::consumePendingRollbackFrame()
     return result;
 }
 
+bool NetplayCoordinator::discardPendingHostResyncFrame(ResyncReason reason)
+{
+    if(!m_pendingHostResyncFrame.has_value()) {
+        return false;
+    }
+    if(reason != ResyncReason::Unspecified &&
+       m_pendingHostResyncFrame->reason != reason) {
+        return false;
+    }
+
+    m_pendingHostResyncFrame.reset();
+    return true;
+}
+
 std::optional<NetplayCoordinator::PendingHostResyncRequest> NetplayCoordinator::consumePendingHostResyncFrame()
 {
     std::optional<PendingHostResyncRequest> result = m_pendingHostResyncFrame;

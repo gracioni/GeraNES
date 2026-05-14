@@ -441,6 +441,7 @@ public:
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();
     void discardTimelineAfter(FrameNumber frame, bool preserveLocalInputs = false);
+    bool discardPendingHostResyncFrame(ResyncReason reason);
     std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
