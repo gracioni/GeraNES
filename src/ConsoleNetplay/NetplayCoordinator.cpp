@@ -2865,6 +2865,20 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
 
     const FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
     const FrameNumber currentFrame = m_localSimulationFrame;
+    const RecoveryInputMode recoveryMode = m_session.roomState().recoveryInputMode;
+
+    if(recoveryMode != RecoveryInputMode::Normal) {
+        recordParticipantDecision("Recovery prediction ignored");
+        if(!predictionMatched && m_debugMode) {
+            pushLog(
+                predictionMessage() +
+                " ignored while recovery mode " +
+                recoveryInputModeLabel(recoveryMode) +
+                " is active"
+            );
+        }
+        return;
+    }
 
     if(inputFrame <= confirmedFrame) {
         m_predictionStats.recordConfirmedFrameConflict(inputFrame, slot);

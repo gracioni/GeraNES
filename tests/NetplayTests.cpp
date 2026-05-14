@@ -827,7 +827,7 @@ TEST_CASE("Periodic netplay CRC submits the latest frame-ready checkpoint within
     host.disconnect();
 }
 
-TEST_CASE("Host rollback-recovery resync fallback reloads authoritative state locally",
+TEST_CASE("Host rollback-recovery resync fallback waits through transient missing snapshots",
           "[netplay][runtime][rollback][host-resync]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -856,7 +856,22 @@ TEST_CASE("Host rollback-recovery resync fallback reloads authoritative state lo
     ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
     ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
 
-    const auto firstResult = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+    for(uint32_t attempt = 0; attempt < 8u; ++attempt) {
+        const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+            host,
+            inputDriver,
+            console,
+            emu,
+            runtimeHost,
+            rollbackState,
+            rollbackSettings
+        );
+
+        REQUIRE(result.consumed);
+        REQUIRE_FALSE(result.startedAuthoritativeResync);
+    }
+
+    const auto finalResult = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
         host,
         inputDriver,
         console,
@@ -866,24 +881,65 @@ TEST_CASE("Host rollback-recovery resync fallback reloads authoritative state lo
         rollbackSettings
     );
 
-    REQUIRE(firstResult.consumed);
-    REQUIRE_FALSE(firstResult.startedAuthoritativeResync);
-
-    const auto secondResult = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
-        host,
-        inputDriver,
-        console,
-        emu,
-        runtimeHost,
-        rollbackState,
-        rollbackSettings
-    );
-
-    REQUIRE(secondResult.consumed);
-    REQUIRE(secondResult.startedAuthoritativeResync);
+    REQUIRE(finalResult.consumed);
+    REQUIRE(finalResult.startedAuthoritativeResync);
     REQUIRE(emu.loadStateOnCleanBootCallCount == 1u);
     REQUIRE(runtimeHost.lastFrameReadyFrameValue == 100u);
     REQUIRE(runtimeHost.lastFrameReadyNetplayCrc32Value == 0x2468ACE0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Host rollback-recovery resync fallback is suppressed during stabilization",
+          "[netplay][runtime][rollback][host-resync][stabilization]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 96u;
+    host.setLocalSimulationFrame(100u);
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryModeEnteredAtFrame = 90u;
+    room.stabilizationFramesRemaining = 8u;
+    host.rescheduleRollbackFrame(95u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.reanchor(96u);
+
+    FakeNetplayConsole console;
+    console.frameValue = 100u;
+
+    FakeNetplayStateBridge emu;
+    emu.frameValue = 100u;
+    emu.canonicalCrc32Value = 0x2468ACE0u;
+    emu.savedStateData = {0x10u, 0x20u, 0x30u, 0x40u};
+
+    FakeNetplayStateHostBridge runtimeHost;
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
+
+    REQUIRE(host.session().roomState().recoveryInputMode ==
+            ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing);
+
+    for(uint32_t attempt = 0; attempt < 12u; ++attempt) {
+        const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+            host,
+            inputDriver,
+            console,
+            emu,
+            runtimeHost,
+            rollbackState,
+            rollbackSettings
+        );
+
+        REQUIRE(result.consumed);
+        REQUIRE_FALSE(result.startedAuthoritativeResync);
+    }
+    REQUIRE(emu.loadStateOnCleanBootCallCount == 0u);
 
     host.disconnect();
 }

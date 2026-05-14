@@ -11,6 +11,8 @@ namespace ConsoleNetplay {
 
 namespace {
 
+constexpr uint32_t kHostMissingRollbackSnapshotDeferralsBeforeResync = 8;
+
 std::string runtimeContentHashKey(const RomValidationData& validation)
 {
     std::ostringstream oss;
@@ -1218,14 +1220,40 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
 
         if(coordinator.isHosting()) {
-            if(state.consecutiveMissingRollbackSnapshotDeferrals < 1u) {
-                ++state.consecutiveMissingRollbackSnapshotDeferrals;
-                coordinator.rescheduleRollbackFrame(*rollbackFrame);
-                if(shouldLog) {
+            const RoomState& room = coordinator.session().roomState();
+            if(room.recoveryInputMode != RecoveryInputMode::Normal ||
+               room.activeResyncId != 0u ||
+               room.pendingResyncAckCount != 0u) {
+                state.consecutiveMissingRollbackSnapshotDeferrals = 0;
+                if(*rollbackFrame > room.recoveryModeEnteredAtFrame) {
+                    coordinator.rescheduleRollbackFrame(*rollbackFrame);
+                }
+                if(settings.showDebugLog && shouldLog) {
                     coordinator.appendNetplayLog(
                         "Netplay rollback snapshot unavailable at frame " +
                         std::to_string(*rollbackFrame) +
-                        "; retrying rollback on next host tick before forcing authoritative resync"
+                        "; deferred while recovery mode " +
+                        std::to_string(static_cast<unsigned>(room.recoveryInputMode)) +
+                        " is active"
+                    );
+                }
+                return result;
+            }
+
+            if(state.consecutiveMissingRollbackSnapshotDeferrals <
+               kHostMissingRollbackSnapshotDeferralsBeforeResync) {
+                ++state.consecutiveMissingRollbackSnapshotDeferrals;
+                coordinator.rescheduleRollbackFrame(*rollbackFrame);
+                if(shouldLog && (state.consecutiveMissingRollbackSnapshotDeferrals == 1u ||
+                                 settings.showDebugLog)) {
+                    coordinator.appendNetplayLog(
+                        "Netplay rollback snapshot unavailable at frame " +
+                        std::to_string(*rollbackFrame) +
+                        "; retrying rollback before forcing authoritative resync"
+                        " deferral " +
+                        std::to_string(state.consecutiveMissingRollbackSnapshotDeferrals) +
+                        "/" +
+                        std::to_string(kHostMissingRollbackSnapshotDeferralsBeforeResync)
                     );
                 }
                 return result;
