@@ -1486,7 +1486,13 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
             state.lagOverBudgetSinceFrame = localFrame;
         }
 
-        if(confirmedLagFrames <= maxFrames) {
+        const FrameNumber confirmedLagWaitToleranceFrames =
+            std::max<FrameNumber>(
+                static_cast<FrameNumber>(maxFrames) * 4u,
+                static_cast<FrameNumber>(maxFrames) + 300u
+            );
+        if(confirmedLagFrames <= maxFrames &&
+           estimatedLagFrames <= confirmedLagWaitToleranceFrames) {
             state.lagOverBudgetSince = {};
             state.lagOverBudgetSinceFrame = 0;
             if(localFrame >= state.lastConfirmedLagWaitLogFrame + 300u) {
@@ -1808,18 +1814,21 @@ void runtimeProduceLocalBufferedInputs(NetplayCoordinator& coordinator,
         const uint64_t frameDtMicros =
             std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, console.regionFps()));
         if(nowSharedClockMicros > room.lastAuthoritativeClockMicros) {
-            constexpr FrameNumber kMaxSharedClockInputCatchupBurstFrames = 300u;
+            const FrameNumber responsiveLeadFrames =
+                std::max<FrameNumber>(
+                    12u,
+                    static_cast<FrameNumber>(room.inputDelayFrames) +
+                    static_cast<FrameNumber>(room.predictFrames) +
+                    static_cast<FrameNumber>(inputDriver.prebufferFrames())
+                );
             const FrameNumber estimatedHostFrame =
                 room.lastAuthoritativeClockFrame +
                 static_cast<FrameNumber>((nowSharedClockMicros - room.lastAuthoritativeClockMicros) / frameDtMicros);
-            const FrameNumber productionBaseFrame =
-                std::max(console.frameCount(), inputDriver.producedThroughFrame());
-            const FrameNumber cappedProductionFrame =
-                productionBaseFrame + kMaxSharedClockInputCatchupBurstFrames;
-            productionFrame = std::max(
-                productionFrame,
-                std::min(estimatedHostFrame, cappedProductionFrame)
-            );
+            const FrameNumber maxResponsiveProductionFrame =
+                console.frameCount() + responsiveLeadFrames;
+            if(estimatedHostFrame <= maxResponsiveProductionFrame) {
+                productionFrame = std::max(productionFrame, estimatedHostFrame);
+            }
         }
     }
 
