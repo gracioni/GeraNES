@@ -25,10 +25,13 @@ constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
 constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
-constexpr auto kIncomingResyncTimeout = std::chrono::milliseconds(750);
+constexpr auto kIncomingResyncTimeoutFloor = std::chrono::seconds(3);
+constexpr auto kIncomingResyncTimeoutCeiling = std::chrono::seconds(30);
 constexpr auto kResyncAckTimeout = std::chrono::seconds(5);
 constexpr auto kClientResyncRequestCooldown = std::chrono::milliseconds(1500);
 constexpr auto kKickDisconnectGrace = std::chrono::milliseconds(250);
+constexpr size_t kMaxDelayedGameplayPackets = 512;
+constexpr size_t kMaxDelayedGameplayBytes = 4u * 1024u * 1024u;
 constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
@@ -422,6 +425,7 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
         case MessageType::InputFrame: return "InputFrame";
         case MessageType::ConfirmedInputFrames: return "ConfirmedInputFrames";
         case MessageType::InputAck: return "InputAck";
+        case MessageType::InputResendRequest: return "InputResendRequest";
         case MessageType::FrameStatus: return "FrameStatus";
         case MessageType::PeerHealth: return "PeerHealth";
         case MessageType::CrcReport: return "CrcReport";
@@ -515,6 +519,10 @@ void NetplayCoordinator::resetSessionState()
     m_awaitingReconnectInitialSync = false;
     m_suppressReconnectPresenceToasts = false;
     m_delayedPacketEvents.clear();
+    m_delayedPacketBytes = 0;
+    m_delayedPacketBytesByPeer.clear();
+    m_lastDelayedPacketDropLogAt = {};
+    m_peerParticipantOverridesForTests.clear();
     m_pendingKickDisconnects.clear();
     m_activeResyncAckDeadline = {};
     m_lastClockSyncRequestAt = {};
@@ -639,6 +647,10 @@ ParticipantInfo* NetplayCoordinator::findParticipantByReconnectToken(uint64_t re
 
 ParticipantId NetplayCoordinator::participantIdFromPeer(NetTransport::PeerHandle peer) const
 {
+    if(const auto overrideIt = m_peerParticipantOverridesForTests.find(peer);
+       overrideIt != m_peerParticipantOverridesForTests.end()) {
+        return overrideIt->second;
+    }
     const uintptr_t stored = m_transport.peerTag(peer);
     if(stored == 0) return kInvalidParticipantId;
     return static_cast<ParticipantId>(stored - 1u);
@@ -694,6 +706,130 @@ void NetplayCoordinator::removeParticipant(ParticipantId participantId)
 bool NetplayCoordinator::activeResyncIsTargeted() const
 {
     return m_activeTargetedResyncId != 0 && m_activeResyncTargetParticipantId != kInvalidParticipantId;
+}
+
+bool NetplayCoordinator::validateParticipantAuthoredPacket(NetTransport::PeerHandle peer,
+                                                           ParticipantId participantId,
+                                                           const char* packetLabel)
+{
+    if(peer == NetTransport::kInvalidPeerHandle) {
+        return true;
+    }
+    if(participantId == kInvalidParticipantId) {
+        pushLog(std::string("Ignored ") + packetLabel + " with invalid participant id");
+        return false;
+    }
+
+    const ParticipantId peerParticipantId = participantIdFromPeer(peer);
+    if(peerParticipantId == participantId) {
+        return true;
+    }
+
+    std::ostringstream oss;
+    oss << "Ignored spoofed " << packetLabel
+        << " participant " << static_cast<int>(participantId)
+        << " peerParticipant " << static_cast<int>(peerParticipantId);
+    pushLog(oss.str());
+    return false;
+}
+
+bool NetplayCoordinator::clientAllowsPacketFromPeer(NetTransport::PeerHandle peer, MessageType type) const
+{
+    if(m_hosting || peer == NetTransport::kInvalidPeerHandle) {
+        return true;
+    }
+    if(m_serverPeer == NetTransport::kInvalidPeerHandle || peer == m_serverPeer) {
+        return true;
+    }
+
+    switch(type) {
+        case MessageType::JoinRejected:
+        case MessageType::ParticipantJoined:
+        case MessageType::ParticipantLeft:
+        case MessageType::AssignController:
+        case MessageType::SelectRom:
+        case MessageType::RomValidationResult:
+        case MessageType::StartSession:
+        case MessageType::PauseSession:
+        case MessageType::ResumeSession:
+        case MessageType::EndSession:
+        case MessageType::InputFrame:
+        case MessageType::ConfirmedInputFrames:
+        case MessageType::InputAck:
+        case MessageType::InputResendRequest:
+        case MessageType::FrameStatus:
+        case MessageType::CrcReport:
+        case MessageType::ClockSyncResponse:
+        case MessageType::ResyncBegin:
+        case MessageType::ResyncChunk:
+        case MessageType::ResyncComplete:
+        case MessageType::ResyncAbort:
+            return false;
+        default:
+            return true;
+    }
+}
+
+bool NetplayCoordinator::acceptPacketSessionHeader(NetTransport::PeerHandle peer, const PacketHeader& header)
+{
+    if(m_hosting) {
+        if(header.sessionId != 0 && header.sessionId != m_session.roomState().sessionId) {
+            ++m_session.roomState().foreignSessionPacketCount;
+            pushLog("Ignored packet for unknown session");
+            return false;
+        }
+        return true;
+    }
+
+    if(header.sessionId == 0) {
+        return true;
+    }
+
+    const bool canAdoptSessionId =
+        m_session.roomState().sessionId == 0 &&
+        (peer == NetTransport::kInvalidPeerHandle ||
+         m_serverPeer == NetTransport::kInvalidPeerHandle ||
+         peer == m_serverPeer) &&
+        !m_connected;
+    if(canAdoptSessionId) {
+        m_session.roomState().sessionId = header.sessionId;
+        return true;
+    }
+
+    if(header.sessionId != m_session.roomState().sessionId) {
+        ++m_session.roomState().foreignSessionPacketCount;
+        pushLog("Ignored packet for foreign session");
+        return false;
+    }
+    return true;
+}
+
+std::chrono::milliseconds NetplayCoordinator::incomingResyncTimeout() const
+{
+    uint32_t maxPingMs = 0;
+    uint32_t maxJitterMs = 0;
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == m_localParticipantId) continue;
+        maxPingMs = std::max<uint32_t>(maxPingMs, participant.pingMs);
+        maxJitterMs = std::max<uint32_t>(maxJitterMs, participant.jitterMs);
+    }
+
+    uint64_t sizeBudgetMs = 0;
+    if(m_incomingResync.has_value()) {
+        sizeBudgetMs = static_cast<uint64_t>(m_incomingResync->payload.size() / (256u * 1024u)) * 250u;
+    }
+
+    const uint64_t networkBudgetMs =
+        static_cast<uint64_t>(maxPingMs) * 4u +
+        static_cast<uint64_t>(maxJitterMs) * 8u +
+        sizeBudgetMs;
+    const auto candidate = std::chrono::duration_cast<std::chrono::milliseconds>(
+        kIncomingResyncTimeoutFloor + std::chrono::milliseconds(networkBudgetMs)
+    );
+    return std::min(
+        std::chrono::duration_cast<std::chrono::milliseconds>(kIncomingResyncTimeoutCeiling),
+        candidate
+    );
 }
 
 bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle peer)
@@ -1436,6 +1572,19 @@ static std::vector<uint8_t> buildInputAckPacket(const InputAckData& ack)
     return writer.data();
 }
 
+static std::vector<uint8_t> buildInputResendRequestPacket(const InputResendRequestData& request, uint32_t sessionId)
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::InputResendRequest;
+    header.sessionId = sessionId;
+    header.serialize(writer);
+    request.serialize(writer);
+
+    return writer.data();
+}
+
 static std::vector<uint8_t> buildFrameStatusPacket(const FrameStatusData& status, uint32_t sessionId)
 {
     PacketWriter writer;
@@ -1514,6 +1663,9 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
 {
     InputFrameData input;
     if(!InputFrameData::deserialize(reader, input)) return false;
+    if(m_hosting && !validateParticipantAuthoredPacket(peer, input.participantId, "InputFrame")) {
+        return true;
+    }
     std::vector<uint8_t> payload;
     if(!reader.readBytes(payload, input.payloadSize)) return false;
     NetplayInputFrame netplayFrame;
@@ -1963,6 +2115,28 @@ bool NetplayCoordinator::handleInputAck(PacketReader& reader)
     return true;
 }
 
+bool NetplayCoordinator::handleInputResendRequest(NetTransport::PeerHandle peer, PacketReader& reader)
+{
+    InputResendRequestData request;
+    if(!InputResendRequestData::deserialize(reader, request)) return false;
+    ++m_session.roomState().inputResendRequestReceivedCount;
+    m_session.roomState().lastInputResendRequestStartFrame = request.startFrame;
+    m_session.roomState().lastInputResendRequestFrameCount = request.frameCount;
+    if(request.timelineEpoch != m_session.roomState().timelineEpoch) {
+        return request.timelineEpoch < m_session.roomState().timelineEpoch;
+    }
+    if(request.participantId != m_localParticipantId) {
+        return true;
+    }
+    if(request.playerSlot == kObserverPlayerSlot || request.frameCount == 0u) {
+        return true;
+    }
+    if(!isPlayableSlot(m_session.roomState(), request.playerSlot)) {
+        return true;
+    }
+    return resendLocalInputRange(peer, request);
+}
+
 void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot)
 {
     ++participant.missingInputGapCount;
@@ -1977,6 +2151,88 @@ void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, Fra
         << " after receiving frame " << receivedFrame
         << " slot " << static_cast<unsigned>(slot) + 1u;
     pushLog(oss.str());
+    requestMissingInputResend(participant, missingFrame, receivedFrame, slot);
+}
+
+void NetplayCoordinator::requestMissingInputResend(const ParticipantInfo& participant,
+                                                   FrameNumber missingFrame,
+                                                   FrameNumber receivedFrame,
+                                                   PlayerSlot slot)
+{
+    if(participant.id == m_localParticipantId || participant.id == kInvalidParticipantId) {
+        return;
+    }
+    InputResendRequestData request;
+    request.timelineEpoch = m_session.roomState().timelineEpoch;
+    request.participantId = participant.id;
+    request.playerSlot = slot;
+    request.startFrame = missingFrame;
+    const FrameNumber gapEnd = receivedFrame > missingFrame ? receivedFrame - 1u : missingFrame;
+    request.frameCount = static_cast<uint16_t>(
+        std::min<FrameNumber>(gapEnd - missingFrame + 1u, 64u)
+    );
+
+    const std::vector<uint8_t> packet =
+        buildInputResendRequestPacket(request, m_session.roomState().sessionId);
+    ++m_session.roomState().inputResendRequestSentCount;
+    m_session.roomState().lastInputResendRequestStartFrame = request.startFrame;
+    m_session.roomState().lastInputResendRequestFrameCount = request.frameCount;
+    bool sent = false;
+    if(m_hosting) {
+        sent = m_transport.sendReliable(peerFromParticipantId(participant.id), Channel::Gameplay, packet);
+    } else if(m_serverPeer != NetTransport::kInvalidPeerHandle) {
+        sent = m_transport.sendReliable(m_serverPeer, Channel::Gameplay, packet);
+    }
+    if(sent) {
+        std::ostringstream oss;
+        oss << "Requested input resend from " << participantLabel(participant)
+            << " slot " << static_cast<unsigned>(slot) + 1u
+            << " frames " << request.startFrame
+            << "-" << (request.startFrame + request.frameCount - 1u);
+        pushLog(oss.str());
+    }
+}
+
+bool NetplayCoordinator::resendLocalInputRange(NetTransport::PeerHandle peer, const InputResendRequestData& request)
+{
+    if(peer == NetTransport::kInvalidPeerHandle) {
+        return true;
+    }
+    const FrameNumber endFrame = request.startFrame + static_cast<FrameNumber>(request.frameCount - 1u);
+    uint16_t resentCount = 0;
+    for(FrameNumber frame = request.startFrame; frame <= endFrame; ++frame) {
+        const TimelineInputEntry* entry =
+            m_localInputs.find(frame, m_localParticipantId, request.playerSlot);
+        if(entry == nullptr) {
+            continue;
+        }
+
+        InputFrameData packetData;
+        packetData.timelineEpoch = m_session.roomState().timelineEpoch;
+        packetData.frame = frame;
+        packetData.authoritativeFrameStartClockMicros = authoritativeFrameStartClockMicros(frame);
+        packetData.participantId = m_localParticipantId;
+        packetData.playerSlot = request.playerSlot;
+        packetData.buttonMaskLo = entry->buttonMaskLo;
+        packetData.buttonMaskHi = entry->buttonMaskHi;
+        packetData.sequence = entry->sequence;
+        const std::vector<uint8_t> payloadFrame = serializeNetplayInputFrame(entry->netplayFrame);
+        packetData.payloadSize = static_cast<uint16_t>(payloadFrame.size());
+        m_transport.sendReliable(
+            peer,
+            Channel::Gameplay,
+            buildInputFramePacket(packetData, std::span<const uint8_t>(payloadFrame.data(), payloadFrame.size()))
+        );
+        ++resentCount;
+    }
+    if(resentCount > 0) {
+        std::ostringstream oss;
+        oss << "Resent " << resentCount
+            << " local input frame(s) for slot " << static_cast<unsigned>(request.playerSlot) + 1u
+            << " starting at " << request.startFrame;
+        pushLog(oss.str());
+    }
+    return true;
 }
 
 void NetplayCoordinator::advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot)
@@ -2357,6 +2613,9 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
             }
 
             FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
+            bool synthesizedAny = false;
+            FrameNumber synthesizedStart = 0;
+            FrameNumber synthesizedEnd = 0;
             while(nextFrame <= targetFrame) {
                 const TimelineInputEntry* existing =
                     m_remoteInputs.find(nextFrame, participant.id, slot);
@@ -2383,8 +2642,25 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
                     synthetic.sequence = existing->sequence;
                 }
                 m_remoteInputs.push(synthetic);
+                ++m_session.roomState().syntheticFallbackInputFrameCount;
+                m_session.roomState().lastSyntheticFallbackInputFrame = nextFrame;
+                if(!synthesizedAny) {
+                    synthesizedStart = nextFrame;
+                }
+                synthesizedEnd = nextFrame;
+                synthesizedAny = true;
                 latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
                 ++nextFrame;
+            }
+            if(synthesizedAny) {
+                std::ostringstream oss;
+                oss << "Synthetic fallback input committed"
+                    << " participant " << participantDebugLabel(participant)
+                    << " slot " << static_cast<unsigned>(slot) + 1u
+                    << " frames " << synthesizedStart << "-" << synthesizedEnd
+                    << " reason "
+                    << (participatesViaReservation ? "disconnect_reservation" : "explicit_suspension");
+                pushLog(oss.str());
             }
         }
 
@@ -2404,6 +2680,13 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
        participantIsObserver(participant) ||
        !isPlayableSlot(m_session.roomState(), slot) ||
        !participantHasAssignment(participant, slot)) {
+        return false;
+    }
+
+    if(!participant.inputSuspended &&
+       !participant.inputResumeAwaitingResync &&
+       !remoteInputIdleExceededSuspendTimeout(participant.id)) {
+        requestMissingInputResend(participant, targetFrame, targetFrame, slot);
         return false;
     }
 
@@ -2474,6 +2757,8 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     }
 
     bool synthesizedAny = false;
+    FrameNumber synthesizedStart = 0;
+    FrameNumber synthesizedEnd = 0;
     while(nextFrame <= targetFrame) {
         const TimelineInputEntry* existing = m_remoteInputs.find(nextFrame, participant.id, slot);
         if(existing != nullptr && existing->confirmed) {
@@ -2515,9 +2800,25 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         }
 
         m_remoteInputs.push(synthetic);
+        ++m_session.roomState().syntheticFallbackInputFrameCount;
+        m_session.roomState().lastSyntheticFallbackInputFrame = nextFrame;
+        if(!synthesizedAny) {
+            synthesizedStart = nextFrame;
+        }
+        synthesizedEnd = nextFrame;
         latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
         synthesizedAny = true;
         ++nextFrame;
+    }
+
+    if(synthesizedAny) {
+        std::ostringstream oss;
+        oss << "Synthetic fallback input committed"
+            << " participant " << participantDebugLabel(participant)
+            << " slot " << static_cast<unsigned>(slot) + 1u
+            << " frames " << synthesizedStart << "-" << synthesizedEnd
+            << " reason prediction_limit_timeout";
+        pushLog(oss.str());
     }
 
     for(PlayerSlot assignedSlot : participantAssignments(participant)) {
@@ -2525,6 +2826,15 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
     }
     clearImplicitRemoteInputStall(participant.id, participant.lastContiguousInputFrame);
     return synthesizedAny || m_remoteInputs.find(targetFrame, participant.id, slot) != nullptr;
+}
+
+bool NetplayCoordinator::remoteInputIdleExceededSuspendTimeout(ParticipantId participantId) const
+{
+    const auto it = m_lastRemoteInputAt.find(participantId);
+    if(it == m_lastRemoteInputAt.end()) {
+        return true;
+    }
+    return std::chrono::steady_clock::now() - it->second >= m_remoteInputSuspendTimeout;
 }
 
 void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
@@ -3577,10 +3887,13 @@ bool NetplayCoordinator::handleResyncComplete(PacketReader& reader)
     return true;
 }
 
-bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
+bool NetplayCoordinator::handleResyncAck(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     ResyncAckData data;
     if(!ResyncAckData::deserialize(reader, data)) return false;
+    if(m_hosting && !validateParticipantAuthoredPacket(peer, data.participantId, "ResyncAck")) {
+        return true;
+    }
     const bool targetedResync = activeResyncIsTargeted();
     const uint32_t activeResyncId =
         targetedResync ? m_activeTargetedResyncId : m_session.roomState().activeResyncId;
@@ -3716,10 +4029,13 @@ bool NetplayCoordinator::handleResyncAck(PacketReader& reader)
     return true;
 }
 
-bool NetplayCoordinator::handleResyncAbort(PacketReader& reader)
+bool NetplayCoordinator::handleResyncAbort(NetTransport::PeerHandle peer, PacketReader& reader)
 {
     ResyncAbortData data;
     if(!ResyncAbortData::deserialize(reader, data)) return false;
+    if(m_hosting && !validateParticipantAuthoredPacket(peer, data.participantId, "ResyncAbort")) {
+        return true;
+    }
     if(activeResyncIsTargeted()) {
         if(!m_hosting || data.resyncId != m_activeTargetedResyncId) return true;
         cancelTargetedResync(
@@ -3895,6 +4211,9 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
 {
     PeerHealthData data;
     if(!PeerHealthData::deserialize(reader, data)) return false;
+    if(m_hosting && !validateParticipantAuthoredPacket(peer, data.participantId, "PeerHealth")) {
+        return true;
+    }
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         m_lastPeerHealthAt[participant->id] = std::chrono::steady_clock::now();
@@ -4794,13 +5113,17 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
         return false;
     }
 
-    if(m_hosting && header.sessionId != 0 && header.sessionId != m_session.roomState().sessionId) {
-        pushLog("Ignored control packet for unknown session");
-        return false;
+    if(!acceptPacketSessionHeader(peer, header)) {
+        return true;
     }
 
-    if(!m_hosting && header.sessionId != 0) {
-        m_session.roomState().sessionId = header.sessionId;
+    if(!clientAllowsPacketFromPeer(peer, header.type)) {
+        ++m_session.roomState().nonHostAuthoritativePacketCount;
+        std::ostringstream oss;
+        oss << "Ignored authoritative " << messageTypeLabel(header.type)
+            << " packet from non-host peer";
+        pushLog(oss.str());
+        return true;
     }
 
     switch(header.type) {
@@ -4829,10 +5152,10 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
             return handleResyncComplete(reader);
 
         case MessageType::ResyncAck:
-            return handleResyncAck(reader);
+            return handleResyncAck(peer, reader);
 
         case MessageType::ResyncAbort:
-            return handleResyncAbort(reader);
+            return handleResyncAbort(peer, reader);
 
         case MessageType::ResyncRequest:
             return handleResyncRequest(peer, reader);
@@ -4860,6 +5183,9 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
 
         case MessageType::InputAck:
             return handleInputAck(reader);
+
+        case MessageType::InputResendRequest:
+            return handleInputResendRequest(peer, reader);
 
         case MessageType::FrameStatus:
             return handleFrameStatus(reader);
@@ -5272,9 +5598,52 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
             event.type == NetTransport::Event::Type::PacketReceived &&
             event.channel == Channel::Gameplay;
         if(shouldDelayGameplay) {
+            const size_t payloadBytes = event.payload.size();
+            size_t droppedPackets = 0;
+            size_t droppedBytes = 0;
+            const auto nowForDropLog = std::chrono::steady_clock::now();
+            while(!m_delayedPacketEvents.empty() &&
+                  (m_delayedPacketEvents.size() >= kMaxDelayedGameplayPackets ||
+                   m_delayedPacketBytes + payloadBytes > kMaxDelayedGameplayBytes)) {
+                const NetTransport::Event& dropped = m_delayedPacketEvents.front().event;
+                const size_t droppedPayloadBytes = dropped.payload.size();
+                droppedBytes += droppedPayloadBytes;
+                m_delayedPacketBytes -= std::min(m_delayedPacketBytes, droppedPayloadBytes);
+                if(auto peerBytes = m_delayedPacketBytesByPeer.find(dropped.peer);
+                   peerBytes != m_delayedPacketBytesByPeer.end()) {
+                    peerBytes->second -= std::min(peerBytes->second, droppedPayloadBytes);
+                    if(peerBytes->second == 0) {
+                        m_delayedPacketBytesByPeer.erase(peerBytes);
+                    }
+                }
+                m_delayedPacketEvents.pop_front();
+                ++droppedPackets;
+            }
+            if(droppedPackets > 0) {
+                m_session.roomState().delayedGameplayBackpressureDropCount +=
+                    static_cast<uint32_t>(std::min<size_t>(droppedPackets, std::numeric_limits<uint32_t>::max()));
+                if(m_lastDelayedPacketDropLogAt == std::chrono::steady_clock::time_point{} ||
+                   nowForDropLog - m_lastDelayedPacketDropLogAt >= std::chrono::seconds(1)) {
+                    m_lastDelayedPacketDropLogAt = nowForDropLog;
+                    std::ostringstream oss;
+                    oss << "Dropped delayed gameplay packet(s) due to backpressure"
+                        << " packets " << droppedPackets
+                        << " bytes " << droppedBytes
+                        << " queuedPackets " << m_delayedPacketEvents.size()
+                        << " queuedBytes " << m_delayedPacketBytes;
+                    pushLog(oss.str());
+                }
+            }
+            if(payloadBytes > kMaxDelayedGameplayBytes) {
+                ++m_session.roomState().delayedGameplayBackpressureDropCount;
+                pushLog("Dropped oversized delayed gameplay packet");
+                return;
+            }
             DelayedPacketEvent delayed;
             delayed.releaseAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_gameplayReceiveDelayMs);
             delayed.event = std::move(event);
+            m_delayedPacketBytes += payloadBytes;
+            m_delayedPacketBytesByPeer[delayed.event.peer] += payloadBytes;
             m_delayedPacketEvents.push_back(std::move(delayed));
             return;
         }
@@ -5299,7 +5668,45 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
     const auto now = std::chrono::steady_clock::now();
     while(!m_delayedPacketEvents.empty() && m_delayedPacketEvents.front().releaseAt <= now) {
         DelayedPacketEvent delayed = std::move(m_delayedPacketEvents.front());
+        m_delayedPacketBytes -= std::min(m_delayedPacketBytes, delayed.event.payload.size());
+        if(auto peerBytes = m_delayedPacketBytesByPeer.find(delayed.event.peer);
+           peerBytes != m_delayedPacketBytesByPeer.end()) {
+            peerBytes->second -= std::min(peerBytes->second, delayed.event.payload.size());
+            if(peerBytes->second == 0) {
+                m_delayedPacketBytesByPeer.erase(peerBytes);
+            }
+        }
         m_delayedPacketEvents.pop_front();
+        if(delayed.event.payload.size() >= PacketHeader::serializedSize()) {
+            PacketHeader delayedHeader{};
+            PacketReader delayedReader(delayed.event.payload.data(), delayed.event.payload.size());
+            if(PacketHeader::deserialize(delayedReader, delayedHeader)) {
+                if(delayedHeader.sessionId != 0 &&
+                   m_session.roomState().sessionId != 0 &&
+                   delayedHeader.sessionId != m_session.roomState().sessionId) {
+                    pushLog("Dropped stale delayed gameplay packet for foreign session");
+                    ++m_session.roomState().delayedGameplayStaleDropCount;
+                    continue;
+                }
+                if(delayedHeader.type == MessageType::InputFrame) {
+                    InputFrameData input{};
+                    if(InputFrameData::deserialize(delayedReader, input) &&
+                       input.timelineEpoch < m_session.roomState().timelineEpoch) {
+                        pushLog("Dropped stale delayed input packet from previous timeline epoch");
+                        ++m_session.roomState().delayedGameplayStaleDropCount;
+                        continue;
+                    }
+                } else if(delayedHeader.type == MessageType::ConfirmedInputFrames) {
+                    ConfirmedInputFramesData confirmed{};
+                    if(ConfirmedInputFramesData::deserialize(delayedReader, confirmed) &&
+                       confirmed.timelineEpoch < m_session.roomState().timelineEpoch) {
+                        pushLog("Dropped stale delayed confirmed-input packet from previous timeline epoch");
+                        ++m_session.roomState().delayedGameplayStaleDropCount;
+                        continue;
+                    }
+                }
+            }
+        }
         handleEvent(delayed.event);
     }
 
@@ -5329,8 +5736,16 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
        m_incomingResync.has_value() &&
        m_serverPeer != NetTransport::kInvalidPeerHandle &&
        m_incomingResync->lastActivityAt != std::chrono::steady_clock::time_point{} &&
-       now - m_incomingResync->lastActivityAt >= kIncomingResyncTimeout) {
-        pushLog("Incoming resync timed out; requesting retry");
+       now - m_incomingResync->lastActivityAt >= incomingResyncTimeout()) {
+        const size_t receivedBytes = static_cast<size_t>(
+            std::count(m_incomingResync->receivedMask.begin(), m_incomingResync->receivedMask.end(), uint8_t{1})
+        );
+        std::ostringstream timeoutLog;
+        timeoutLog << "Incoming resync timed out; requesting retry"
+                   << " receivedBytes " << receivedBytes
+                   << "/" << m_incomingResync->payload.size()
+                   << " timeoutMs " << incomingResyncTimeout().count();
+        pushLog(timeoutLog.str());
         ResyncAbortData abort;
         abort.resyncId = m_incomingResync->resyncId;
         abort.participantId = m_localParticipantId;
@@ -5670,7 +6085,7 @@ bool NetplayCoordinator::injectResyncAckForTests(const ResyncAckData& ack)
     PacketWriter writer;
     ack.serialize(writer);
     PacketReader reader(writer.data().data(), writer.data().size());
-    return handleResyncAck(reader);
+    return handleResyncAck(NetTransport::kInvalidPeerHandle, reader);
 }
 
 bool NetplayCoordinator::injectResyncBeginForTests(const ResyncBeginData& begin)
@@ -5691,6 +6106,66 @@ bool NetplayCoordinator::injectResyncChunkForTests(const ResyncChunkData& chunk,
     writer.writeBytes(payload);
     PacketReader reader(writer.data().data(), writer.data().size());
     return handleResyncChunk(reader);
+}
+
+void NetplayCoordinator::setPeerParticipantForTests(NetTransport::PeerHandle peer, ParticipantId participantId)
+{
+    if(peer == NetTransport::kInvalidPeerHandle) {
+        return;
+    }
+    m_peerParticipantOverridesForTests[peer] = participantId;
+}
+
+void NetplayCoordinator::setServerPeerForTests(NetTransport::PeerHandle peer)
+{
+    m_serverPeer = peer;
+}
+
+NetTransport::PeerHandle NetplayCoordinator::serverPeerForTests() const
+{
+    return m_serverPeer;
+}
+
+bool NetplayCoordinator::injectRawPacketFromPeerForTests(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload)
+{
+    return handleControlPacket(peer, payload);
+}
+
+void NetplayCoordinator::queueDelayedGameplayPacketForTests(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload)
+{
+    const size_t payloadBytes = payload.size();
+    while(!m_delayedPacketEvents.empty() &&
+          (m_delayedPacketEvents.size() >= kMaxDelayedGameplayPackets ||
+           m_delayedPacketBytes + payloadBytes > kMaxDelayedGameplayBytes)) {
+        const NetTransport::Event& dropped = m_delayedPacketEvents.front().event;
+        const size_t droppedPayloadBytes = dropped.payload.size();
+        m_delayedPacketBytes -= std::min(m_delayedPacketBytes, droppedPayloadBytes);
+        if(auto peerBytes = m_delayedPacketBytesByPeer.find(dropped.peer);
+           peerBytes != m_delayedPacketBytesByPeer.end()) {
+            peerBytes->second -= std::min(peerBytes->second, droppedPayloadBytes);
+            if(peerBytes->second == 0) {
+                m_delayedPacketBytesByPeer.erase(peerBytes);
+            }
+        }
+        m_delayedPacketEvents.pop_front();
+        ++m_session.roomState().delayedGameplayBackpressureDropCount;
+    }
+    if(payloadBytes > kMaxDelayedGameplayBytes) {
+        ++m_session.roomState().delayedGameplayBackpressureDropCount;
+        return;
+    }
+
+    NetTransport::Event event;
+    event.type = NetTransport::Event::Type::PacketReceived;
+    event.peer = peer;
+    event.channel = Channel::Gameplay;
+    event.payload = payload;
+    DelayedPacketEvent delayed;
+    delayed.releaseAt = std::chrono::steady_clock::now();
+    delayed.event = std::move(event);
+    m_delayedPacketBytes += payloadBytes;
+    m_delayedPacketBytesByPeer[peer] += payloadBytes;
+    m_delayedPacketEvents.push_back(std::move(delayed));
 }
 
 ParticipantId NetplayCoordinator::localParticipantId() const

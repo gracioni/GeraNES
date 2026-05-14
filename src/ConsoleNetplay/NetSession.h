@@ -99,6 +99,14 @@ struct RoomState
     uint32_t staleInputPacketCount = 0;
     uint32_t staleFrameStatusPacketCount = 0;
     uint32_t staleCrcPacketCount = 0;
+    uint32_t foreignSessionPacketCount = 0;
+    uint32_t nonHostAuthoritativePacketCount = 0;
+    uint32_t delayedGameplayBackpressureDropCount = 0;
+    uint32_t delayedGameplayStaleDropCount = 0;
+    uint32_t inputResendRequestSentCount = 0;
+    uint32_t inputResendRequestReceivedCount = 0;
+    FrameNumber lastInputResendRequestStartFrame = 0;
+    uint16_t lastInputResendRequestFrameCount = 0;
     FrameNumber lastAuthoritativeClockFrame = 0;
     uint64_t lastAuthoritativeClockMicros = 0;
     uint64_t sharedClockMicros = 0;
@@ -109,6 +117,8 @@ struct RoomState
     RecoveryInputMode recoveryInputMode = RecoveryInputMode::Normal;
     uint32_t recoveryModeTransitionCount = 0;
     uint32_t inputsDroppedDuringRecovery = 0;
+    uint32_t syntheticFallbackInputFrameCount = 0;
+    FrameNumber lastSyntheticFallbackInputFrame = 0;
     FrameNumber recoveryModeEnteredAtFrame = 0;
     uint32_t stabilizationFramesRemaining = 0;
     uint32_t stabilizationCrcPassCount = 0;

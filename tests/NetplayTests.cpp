@@ -23,6 +23,7 @@
 #include "ConsoleNetplay/RemoteInputStallMonitor.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayConfig.h"
+#include "ConsoleNetplay/NetplayCrc32.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/NetplayInputFrameSerialization.h"
 #include "ConsoleNetplay/NetplayAppRuntime.h"
@@ -418,6 +419,77 @@ bool anyJsonLogLineContains(const nlohmann::json& lines, const std::string& need
         }
     }
     return false;
+}
+
+template<typename WritePayload>
+std::vector<uint8_t> buildRawNetplayPacketForTest(ConsoleNetplay::MessageType type,
+                                                  uint32_t sessionId,
+                                                  WritePayload writePayload)
+{
+    ConsoleNetplay::PacketWriter writer;
+    ConsoleNetplay::PacketHeader header;
+    header.type = type;
+    header.sessionId = sessionId;
+    header.serialize(writer);
+    writePayload(writer);
+    return writer.data();
+}
+
+std::vector<uint8_t> buildInputFramePacketForTest(const ConsoleNetplay::InputFrameData& input,
+                                                  const ConsoleNetplay::NetplayInputFrame& frame,
+                                                  uint32_t sessionId)
+{
+    const std::vector<uint8_t> payload = ConsoleNetplay::serializeNetplayInputFrame(frame);
+    ConsoleNetplay::InputFrameData withPayload = input;
+    withPayload.payloadSize = static_cast<uint16_t>(payload.size());
+    return buildRawNetplayPacketForTest(
+        ConsoleNetplay::MessageType::InputFrame,
+        sessionId,
+        [&](ConsoleNetplay::PacketWriter& writer) {
+            withPayload.serialize(writer);
+            writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
+        }
+    );
+}
+
+std::vector<uint8_t> buildFrameStatusPacketForTest(const ConsoleNetplay::FrameStatusData& status,
+                                                   uint32_t sessionId)
+{
+    return buildRawNetplayPacketForTest(
+        ConsoleNetplay::MessageType::FrameStatus,
+        sessionId,
+        [&](ConsoleNetplay::PacketWriter& writer) { status.serialize(writer); }
+    );
+}
+
+std::vector<uint8_t> buildConfirmedInputFramesPacketForTest(const ConsoleNetplay::ConfirmedInputFramesData& data,
+                                                            uint32_t sessionId)
+{
+    return buildRawNetplayPacketForTest(
+        ConsoleNetplay::MessageType::ConfirmedInputFrames,
+        sessionId,
+        [&](ConsoleNetplay::PacketWriter& writer) { data.serialize(writer); }
+    );
+}
+
+std::vector<uint8_t> buildResyncBeginPacketForTest(const ConsoleNetplay::ResyncBeginData& data,
+                                                   uint32_t sessionId)
+{
+    return buildRawNetplayPacketForTest(
+        ConsoleNetplay::MessageType::ResyncBegin,
+        sessionId,
+        [&](ConsoleNetplay::PacketWriter& writer) { data.serialize(writer); }
+    );
+}
+
+std::vector<uint8_t> buildResyncRequestPacketForTest(const ConsoleNetplay::ResyncRequestData& data,
+                                                     uint32_t sessionId)
+{
+    return buildRawNetplayPacketForTest(
+        ConsoleNetplay::MessageType::ResyncRequest,
+        sessionId,
+        [&](ConsoleNetplay::PacketWriter& writer) { data.serialize(writer); }
+    );
 }
 
 class UserLogCapture : public SigSlot::SigSlotBase
@@ -951,6 +1023,30 @@ TEST_CASE("Netplay frame status protocol roundtrip preserves dynamic topology",
     }
 }
 
+TEST_CASE("Netplay input resend request protocol roundtrip preserves sparse slot range",
+          "[netplay][protocol][resend]")
+{
+    ConsoleNetplay::InputResendRequestData request;
+    request.timelineEpoch = 23u;
+    request.participantId = 9u;
+    request.playerSlot = 42u;
+    request.startFrame = 1200u;
+    request.frameCount = 17u;
+
+    ConsoleNetplay::PacketWriter writer;
+    request.serialize(writer);
+
+    ConsoleNetplay::InputResendRequestData decoded;
+    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
+    REQUIRE(ConsoleNetplay::InputResendRequestData::deserialize(reader, decoded));
+    REQUIRE(reader.remaining() == 0u);
+    REQUIRE(decoded.timelineEpoch == request.timelineEpoch);
+    REQUIRE(decoded.participantId == request.participantId);
+    REQUIRE(decoded.playerSlot == request.playerSlot);
+    REQUIRE(decoded.startFrame == request.startFrame);
+    REQUIRE(decoded.frameCount == request.frameCount);
+}
+
 TEST_CASE("Netplay protocol deserializers reject truncated payloads", "[netplay][protocol][malformed]")
 {
     const auto requireTruncationRejected =
@@ -1001,6 +1097,17 @@ TEST_CASE("Netplay protocol deserializers reject truncated payloads", "[netplay]
         ConsoleNetplay::ResyncBeginData decoded;
         return ConsoleNetplay::ResyncBeginData::deserialize(reader, decoded);
     });
+
+    ConsoleNetplay::InputResendRequestData resendRequest;
+    resendRequest.timelineEpoch = 11u;
+    resendRequest.participantId = 3u;
+    resendRequest.playerSlot = 42u;
+    resendRequest.startFrame = 200u;
+    resendRequest.frameCount = 4u;
+    requireTruncationRejected(resendRequest, [](ConsoleNetplay::PacketReader& reader) {
+        ConsoleNetplay::InputResendRequestData decoded;
+        return ConsoleNetplay::InputResendRequestData::deserialize(reader, decoded);
+    });
 }
 
 TEST_CASE("Netplay coordinator rejects invalid resync payload bounds without completing recovery",
@@ -1043,6 +1150,86 @@ TEST_CASE("Netplay coordinator rejects invalid resync payload bounds without com
     REQUIRE_FALSE(coordinator.injectResyncChunkForTests(outOfRangeChunk, payload));
     REQUIRE(room.activeResyncId == 11u);
     REQUIRE_FALSE(coordinator.consumePendingResyncApply().has_value());
+}
+
+TEST_CASE("Netplay incoming resync timeout allows slow progress and aborts stalled transfers",
+          "[netplay][resync][timeout][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected = host.isConnected() && client.isConnected() &&
+                    client.serverPeerForTests() != ConsoleNetplay::NetTransport::kInvalidPeerHandle;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.sessionId = host.session().roomState().sessionId;
+
+    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
+    ConsoleNetplay::ResyncBeginData begin{};
+    begin.resyncId = 77u;
+    begin.timelineEpoch = room.timelineEpoch + 1u;
+    begin.targetFrame = 12u;
+    begin.payloadSize = static_cast<uint32_t>(payload.size());
+    begin.payloadCrc32 = ConsoleNetplay::crc32(payload.data(), payload.size());
+    REQUIRE(client.injectRawPacketFromPeerForTests(
+        client.serverPeerForTests(),
+        buildResyncBeginPacketForTest(begin, room.sessionId)
+    ));
+
+    ConsoleNetplay::ResyncChunkData tail{};
+    tail.resyncId = begin.resyncId;
+    tail.offset = 2u;
+    tail.size = 2u;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
+    REQUIRE(client.injectResyncChunkForTests(tail, std::span<const uint8_t>(payload.data() + 2, 2)));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
+    client.update(0);
+    REQUIRE(room.activeResyncId == begin.resyncId);
+
+    ConsoleNetplay::ResyncChunkData head{};
+    head.resyncId = begin.resyncId;
+    head.offset = 0u;
+    head.size = 2u;
+    REQUIRE(client.injectResyncChunkForTests(head, std::span<const uint8_t>(payload.data(), 2)));
+    ConsoleNetplay::ResyncCompleteData complete{};
+    complete.resyncId = begin.resyncId;
+    REQUIRE(client.injectRawPacketFromPeerForTests(
+        client.serverPeerForTests(),
+        buildRawNetplayPacketForTest(
+            ConsoleNetplay::MessageType::ResyncComplete,
+            room.sessionId,
+            [&](ConsoleNetplay::PacketWriter& writer) { complete.serialize(writer); }
+        )
+    ));
+    REQUIRE(client.consumePendingResyncApply().has_value());
+
+    begin.resyncId = 78u;
+    begin.timelineEpoch = room.timelineEpoch + 1u;
+    REQUIRE(client.injectRawPacketFromPeerForTests(
+        client.serverPeerForTests(),
+        buildResyncBeginPacketForTest(begin, room.sessionId)
+    ));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3100));
+    client.update(0);
+    REQUIRE_FALSE(client.consumePendingResyncApply().has_value());
+    REQUIRE(anyLogLineContains(client.eventLog(), "Incoming resync timed out"));
+
+    host.disconnect();
+    client.disconnect();
 }
 
 TEST_CASE("Netplay coordinator ignores invalid input identifiers without accepting input",
@@ -1782,7 +1969,28 @@ TEST_CASE("Netplay input gap tracking honors sparse slot ids",
     REQUIRE(afterGap != nullptr);
     REQUIRE(afterGap->pendingMissingInputFrom == 11u);
     REQUIRE(afterGap->lastContiguousInputFrame == 10u);
+    REQUIRE(room.inputResendRequestSentCount == 1u);
+    REQUIRE(room.lastInputResendRequestStartFrame == 11u);
+    REQUIRE(room.lastInputResendRequestFrameCount == 1u);
     REQUIRE(anyLogLineContains(host.eventLog(), "slot 43"));
+
+    ConsoleNetplay::InputFrameData resentInput{};
+    resentInput.timelineEpoch = room.timelineEpoch;
+    resentInput.frame = 11u;
+    resentInput.participantId = remote.id;
+    resentInput.playerSlot = 42u;
+    resentInput.sequence = 1u;
+    resentInput.buttonMaskLo = 0x55u;
+    ConsoleNetplay::NetplayInputFrame resentFrame;
+    resentFrame.timelineEpoch = room.timelineEpoch;
+    resentFrame.frame = 11u;
+    resentFrame.buttonMaskLo[42u] = 0x55u;
+    REQUIRE(host.injectInputFrameForTests(resentInput, resentFrame));
+    afterGap = host.session().findParticipant(remote.id);
+    REQUIRE(afterGap != nullptr);
+    REQUIRE_FALSE(afterGap->pendingMissingInputFrom.has_value());
+    REQUIRE(afterGap->lastContiguousInputFrame == 11u);
+    REQUIRE(room.syntheticFallbackInputFrameCount == 0u);
 
     host.disconnect();
 }
@@ -5702,6 +5910,201 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     coordinator.disconnect();
 }
 
+TEST_CASE("Netplay host rejects participant-authored packets from mismatched peers",
+          "[netplay][identity][spoof][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.host(reserveLoopbackPort(), 2, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 77u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 5u;
+    room.participants.clear();
+
+    ConsoleNetplay::ParticipantInfo local;
+    local.id = host.localParticipantId();
+    local.displayName = "Host";
+    local.connected = true;
+    local.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    local.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    local.normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remoteA;
+    remoteA.id = 2u;
+    remoteA.displayName = "RemoteA";
+    remoteA.connected = true;
+    remoteA.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remoteA.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remoteA.normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remoteB = remoteA;
+    remoteB.id = 3u;
+    remoteB.displayName = "RemoteB";
+
+    room.participants = {local, remoteA, remoteB};
+    const auto peerA = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(1001u);
+    host.setPeerParticipantForTests(peerA, remoteA.id);
+
+    ConsoleNetplay::InputFrameData spoofedInput{};
+    spoofedInput.timelineEpoch = room.timelineEpoch;
+    spoofedInput.frame = 1u;
+    spoofedInput.participantId = remoteB.id;
+    spoofedInput.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    spoofedInput.buttonMaskLo = 1u;
+    spoofedInput.sequence = 1u;
+    ConsoleNetplay::NetplayInputFrame inputFrame;
+    inputFrame.timelineEpoch = room.timelineEpoch;
+    inputFrame.frame = spoofedInput.frame;
+    inputFrame.buttonMaskLo[GeraNESNetplay::kPort2PlayerSlot] = 1u;
+    REQUIRE(host.injectRawPacketFromPeerForTests(
+        peerA,
+        buildInputFramePacketForTest(spoofedInput, inputFrame, room.sessionId)
+    ));
+    REQUIRE(host.remoteInputs().find(1u, remoteB.id, GeraNESNetplay::kPort2PlayerSlot) == nullptr);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored spoofed InputFrame"));
+
+    ConsoleNetplay::PeerHealthData spoofedHealth{};
+    spoofedHealth.participantId = remoteB.id;
+    spoofedHealth.currentFrame = 100u;
+    spoofedHealth.pingMs = 123u;
+    REQUIRE(host.injectRawPacketFromPeerForTests(
+        peerA,
+        buildRawNetplayPacketForTest(
+            ConsoleNetplay::MessageType::PeerHealth,
+            room.sessionId,
+            [&](ConsoleNetplay::PacketWriter& writer) { spoofedHealth.serialize(writer); }
+        )
+    ));
+    REQUIRE(host.session().findParticipant(remoteB.id)->pingMs == 0u);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored spoofed PeerHealth"));
+
+    REQUIRE(host.beginResync(0u, std::vector<uint8_t>{1u, 2u}, 0u, 0u, ConsoleNetplay::ResyncReason::ManualForce));
+    const uint32_t pendingBeforeAck = room.pendingResyncAckCount;
+    ConsoleNetplay::ResyncAckData spoofedAck{};
+    spoofedAck.resyncId = room.activeResyncId;
+    spoofedAck.participantId = remoteB.id;
+    spoofedAck.loadedFrame = 0u;
+    spoofedAck.success = 1u;
+    REQUIRE(host.injectRawPacketFromPeerForTests(
+        peerA,
+        buildRawNetplayPacketForTest(
+            ConsoleNetplay::MessageType::ResyncAck,
+            room.sessionId,
+            [&](ConsoleNetplay::PacketWriter& writer) { spoofedAck.serialize(writer); }
+        )
+    ));
+    REQUIRE(room.pendingResyncAckCount == pendingBeforeAck);
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored spoofed ResyncAck"));
+
+    ConsoleNetplay::ResyncRequestData spoofedRequest{};
+    spoofedRequest.participantId = remoteB.id;
+    spoofedRequest.reason = ConsoleNetplay::ResyncReason::ClientStallRecovery;
+    REQUIRE(host.injectRawPacketFromPeerForTests(
+        peerA,
+        buildResyncRequestPacketForTest(spoofedRequest, room.sessionId)
+    ));
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE((anyLogLineContains(host.eventLog(), "Ignored resync request from unknown participant") ||
+             anyLogLineContains(host.eventLog(), "Ignored spoofed")));
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay client rejects authoritative packets from non-host peers and foreign sessions",
+          "[netplay][authority][session][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator client;
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    room.sessionId = 50u;
+    room.timelineEpoch = 4u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 10u;
+    room.lastConfirmedFrame = 8u;
+
+    const auto hostPeer = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(2001u);
+    const auto otherPeer = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(2002u);
+    client.setServerPeerForTests(hostPeer);
+
+    ConsoleNetplay::FrameStatusData status{};
+    status.timelineEpoch = room.timelineEpoch;
+    status.currentFrame = 99u;
+    status.lastConfirmedFrame = 99u;
+    status.inputDelayFrames = 8u;
+    status.predictFrames = 8u;
+    REQUIRE(client.injectRawPacketFromPeerForTests(otherPeer, buildFrameStatusPacketForTest(status, room.sessionId)));
+    REQUIRE(room.currentFrame == 10u);
+    REQUIRE(room.nonHostAuthoritativePacketCount == 1u);
+
+    ConsoleNetplay::ConfirmedInputFramesData confirmed{};
+    confirmed.timelineEpoch = room.timelineEpoch;
+    confirmed.startFrame = 20u;
+    confirmed.frameCount = 0u;
+    REQUIRE(client.injectRawPacketFromPeerForTests(otherPeer, buildConfirmedInputFramesPacketForTest(confirmed, room.sessionId)));
+    REQUIRE(room.lastConfirmedFrame == 8u);
+    REQUIRE(room.nonHostAuthoritativePacketCount == 2u);
+
+    ConsoleNetplay::ResyncBeginData begin{};
+    begin.resyncId = 9u;
+    begin.timelineEpoch = room.timelineEpoch + 1u;
+    begin.targetFrame = 8u;
+    begin.payloadSize = 0u;
+    REQUIRE(client.injectRawPacketFromPeerForTests(otherPeer, buildResyncBeginPacketForTest(begin, room.sessionId)));
+    REQUIRE(room.activeResyncId == 0u);
+    REQUIRE(room.nonHostAuthoritativePacketCount == 3u);
+
+    REQUIRE(client.injectRawPacketFromPeerForTests(hostPeer, buildFrameStatusPacketForTest(status, room.sessionId + 1u)));
+    REQUIRE(room.foreignSessionPacketCount == 1u);
+    REQUIRE(room.currentFrame == 10u);
+}
+
+TEST_CASE("Netplay delayed gameplay queue applies backpressure and drops stale delayed packets",
+          "[netplay][queue][backpressure][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.host(reserveLoopbackPort(), 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 88u;
+    room.timelineEpoch = 5u;
+    room.state = ConsoleNetplay::SessionState::Running;
+
+    ConsoleNetplay::InputFrameData input{};
+    input.timelineEpoch = room.timelineEpoch;
+    input.frame = 1u;
+    input.participantId = 2u;
+    input.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    input.sequence = 1u;
+    ConsoleNetplay::NetplayInputFrame frame;
+    frame.timelineEpoch = room.timelineEpoch;
+    frame.frame = input.frame;
+    frame.buttonMaskLo[GeraNESNetplay::kPort2PlayerSlot] = 1u;
+    const std::vector<uint8_t> packet = buildInputFramePacketForTest(input, frame, room.sessionId);
+
+    const auto peer = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(3001u);
+    host.setPeerParticipantForTests(peer, input.participantId);
+    for(size_t i = 0; i < 520u; ++i) {
+        host.queueDelayedGameplayPacketForTests(peer, packet);
+    }
+    REQUIRE(room.delayedGameplayBackpressureDropCount > 0u);
+
+    ConsoleNetplay::InputFrameData staleInput = input;
+    staleInput.timelineEpoch = room.timelineEpoch - 1u;
+    staleInput.frame = 2u;
+    ConsoleNetplay::NetplayInputFrame staleFrame = frame;
+    staleFrame.timelineEpoch = staleInput.timelineEpoch;
+    staleFrame.frame = staleInput.frame;
+    host.queueDelayedGameplayPacketForTests(
+        peer,
+        buildInputFramePacketForTest(staleInput, staleFrame, room.sessionId)
+    );
+    host.update(0);
+    REQUIRE(room.delayedGameplayStaleDropCount > 0u);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay playback stop diagnostics include input delay before prediction limit",
           "[netplay][playback-stop][unit]")
 {
@@ -5966,6 +6369,8 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
 
     host.setLocalSimulationFrame(180);
     client.setLocalSimulationFrame(180);
+    host.setRemoteInputSuspendTimeoutForTests(1u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
     host.recordLocalInputFrame(181, GeraNESNetplay::kPort1PlayerSlot, 0);
 
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
@@ -6624,6 +7029,12 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0);
     }
     host.setLocalSimulationFrame(190);
+    host.setRemoteInputSuspendTimeoutForTests(1u);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs beforeTimeoutPlayback{};
+    REQUIRE_FALSE(host.tryBuildPlaybackFrame(182u, false, beforeTimeoutPlayback));
+    REQUIRE(host.session().roomState().syntheticFallbackInputFrameCount == 0u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
     // The client stopped after frame 101. Once playback moves beyond the
     // available/predictable remote window, the host must eventually synthesize
