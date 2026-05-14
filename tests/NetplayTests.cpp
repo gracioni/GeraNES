@@ -10437,6 +10437,85 @@ TEST_CASE("Runtime assignment sync keeps first local input after remote assignme
     coordinator.disconnect();
 }
 
+TEST_CASE("Runtime client input production follows shared clock when simulation lags",
+          "[netplay][runtime][input][clock][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 4838u;
+    room.lastConfirmedFrame = 3658u;
+    room.inputDelayFrames = 1u;
+    room.predictFrames = 8u;
+
+    ConsoleNetplay::ParticipantInfo* local =
+        const_cast<ConsoleNetplay::ParticipantInfo*>(client.session().findParticipant(client.localParticipantId()));
+    REQUIRE(local != nullptr);
+    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    local->controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    local->normalizeControllerAssignments(&room.inputTopology);
+
+    client.setSharedClockSynchronizedForTests(true);
+    const uint64_t nowMicros = client.sharedClockNowMicros();
+    REQUIRE(nowMicros != 0u);
+    room.sharedClockSynchronized = true;
+    room.lastAuthoritativeClockFrame = 4838u;
+    room.lastAuthoritativeClockMicros = nowMicros;
+
+    FakeNetplayConsole console;
+    console.frameValue = 3658u;
+    console.regionFpsValue = 60u;
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.setPrebufferFrames(1u);
+    inputDriver.reanchor(console.frameCount());
+
+    for(int step = 0; step < 4; ++step) {
+        ConsoleNetplay::runtimeProduceLocalBufferedInputs(
+            client,
+            inputDriver,
+            console,
+            std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
+            0u
+        );
+    }
+
+    REQUIRE(inputDriver.producedThroughFrame() >= 4838u);
+    REQUIRE(client.localInputs().find(4838u, client.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE(client.localInputs().find(4839u, client.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+
+    client.disconnect();
+    host.disconnect();
+}
+
 TEST_CASE("GeraNES topology remaps equivalent assignments back and forth across Four Score changes",
           "[netplay][assignment][topology][unit]")
 {

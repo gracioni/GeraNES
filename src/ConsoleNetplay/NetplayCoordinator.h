@@ -400,6 +400,7 @@ public:
     void setReconnectReservationDurationForTests(uint32_t seconds);
     void setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs);
     void setLocalEmulatorVersionForTests(const std::string& version);
+    void setSharedClockSynchronizedForTests(bool synchronized, int64_t offsetMicros = 0);
     void simulateTransportFailureForTests();
     bool injectInputFrameForTests(const InputFrameData& input, const NetplayInputFrame& contribution);
     bool injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data);

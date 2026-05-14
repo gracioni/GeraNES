@@ -2235,6 +2235,13 @@ bool NetplayCoordinator::resendLocalInputRange(NetTransport::PeerHandle peer, co
             << " local input frame(s) for slot " << static_cast<unsigned>(request.playerSlot) + 1u
             << " starting at " << request.startFrame;
         pushLog(oss.str());
+    } else {
+        std::ostringstream oss;
+        oss << "Unable to resend local input frame(s) for slot "
+            << static_cast<unsigned>(request.playerSlot) + 1u
+            << " frames " << request.startFrame << "-" << endFrame
+            << " reason local_history_missing";
+        pushLog(oss.str());
     }
     return true;
 }
@@ -6047,6 +6054,15 @@ void NetplayCoordinator::setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs
 void NetplayCoordinator::setLocalEmulatorVersionForTests(const std::string& version)
 {
     m_localEmulatorVersion = version.empty() ? std::string(kDefaultNetplayRuntimeVersion) : version;
+}
+
+void NetplayCoordinator::setSharedClockSynchronizedForTests(bool synchronized, int64_t offsetMicros)
+{
+    m_sharedClockSynchronized = synchronized;
+    m_sharedClockOffsetMicros = synchronized ? offsetMicros : 0;
+    m_session.roomState().sharedClockSynchronized = synchronized || m_hosting;
+    m_session.roomState().sharedClockOffsetMicros = m_hosting ? 0 : m_sharedClockOffsetMicros;
+    m_session.roomState().sharedClockMicros = sharedClockNowMicros();
 }
 
 void NetplayCoordinator::simulateTransportFailureForTests()

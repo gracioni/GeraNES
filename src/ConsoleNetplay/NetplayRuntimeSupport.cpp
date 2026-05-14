@@ -1797,6 +1797,32 @@ void runtimeProduceLocalBufferedInputs(NetplayCoordinator& coordinator,
                                        const std::vector<PlayerSlot>& localSlots,
                                        uint32_t workerDtMs)
 {
+    FrameNumber productionFrame = console.frameCount();
+    const RoomState& room = coordinator.session().roomState();
+    if(!coordinator.isHosting() &&
+       !localSlots.empty() &&
+       room.sharedClockSynchronized &&
+       room.lastAuthoritativeClockFrame != 0u &&
+       room.lastAuthoritativeClockMicros != 0u) {
+        const uint64_t nowSharedClockMicros = coordinator.sharedClockNowMicros();
+        const uint64_t frameDtMicros =
+            std::max<uint64_t>(1u, 1000000ull / std::max<uint64_t>(1u, console.regionFps()));
+        if(nowSharedClockMicros > room.lastAuthoritativeClockMicros) {
+            constexpr FrameNumber kMaxSharedClockInputCatchupBurstFrames = 300u;
+            const FrameNumber estimatedHostFrame =
+                room.lastAuthoritativeClockFrame +
+                static_cast<FrameNumber>((nowSharedClockMicros - room.lastAuthoritativeClockMicros) / frameDtMicros);
+            const FrameNumber productionBaseFrame =
+                std::max(console.frameCount(), inputDriver.producedThroughFrame());
+            const FrameNumber cappedProductionFrame =
+                productionBaseFrame + kMaxSharedClockInputCatchupBurstFrames;
+            productionFrame = std::max(
+                productionFrame,
+                std::min(estimatedHostFrame, cappedProductionFrame)
+            );
+        }
+    }
+
     runtimeProduceLocalBufferedInputs(
         coordinator,
         inputDriver,
@@ -1806,7 +1832,7 @@ void runtimeProduceLocalBufferedInputs(NetplayCoordinator& coordinator,
             return console.buildLocalInputContribution(slot, frame, room);
         },
         console.regionFps(),
-        console.frameCount()
+        productionFrame
     );
 }
 
