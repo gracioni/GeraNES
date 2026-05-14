@@ -2023,6 +2023,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
             frame.buttonMaskHi[slotMask.slot] = slotMask.buttonMaskHi;
         }
         if(!deserializeNetplayInputFrame(payload.data(), payload.size(), frame.netplayFrame)) return false;
+        reconcilePredictedInputsWithConfirmedFrame(frame);
         storeConfirmedFrame(frame);
         if(frame.authoritativeFrameStartClockMicros != 0u) {
             m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
@@ -6545,6 +6546,56 @@ void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 
     m_confirmedFrames.push_back(stored);
     m_confirmedFrameIndex[frame.frame] = std::prev(m_confirmedFrames.end());
+}
+
+void NetplayCoordinator::reconcilePredictedInputsWithConfirmedFrame(const ConfirmedFrameInputs& frame)
+{
+    if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) {
+        return;
+    }
+
+    for(const ParticipantInfo& participant : m_session.roomState().participants) {
+        if(participant.id == kInvalidParticipantId) {
+            continue;
+        }
+        for(PlayerSlot slot : participantAssignments(participant)) {
+            if(!isPlayableSlot(m_session.roomState(), slot)) {
+                continue;
+            }
+
+            InputTimeline& timeline =
+                participant.id == m_localParticipantId ? m_localInputs : m_remoteInputs;
+            TimelineInputEntry* existing =
+                timeline.findMutable(frame.frame, participant.id, slot);
+            if(existing == nullptr || !existing->predicted || existing->confirmed) {
+                continue;
+            }
+
+            const bool predictionMatched =
+                existing->buttonMaskLo == frame.buttonMaskLo[slot] &&
+                existing->buttonMaskHi == frame.buttonMaskHi[slot] &&
+                existing->netplayFrame.slotPayloads[slot] == frame.netplayFrame.slotPayloads[slot];
+            existing->confirmed = true;
+            existing->predicted = false;
+            existing->buttonMaskLo = frame.buttonMaskLo[slot];
+            existing->buttonMaskHi = frame.buttonMaskHi[slot];
+            existing->netplayFrame = frame.netplayFrame;
+            existing->netplayFrame.frame = frame.frame;
+            existing->netplayFrame.timelineEpoch = m_session.roomState().timelineEpoch;
+
+            if(!predictionMatched && frame.frame <= m_localSimulationFrame) {
+                handleResolvedPredictedInput(participant.id, frame.frame, slot, false);
+                if(m_debugMode) {
+                    std::ostringstream oss;
+                    oss << "Confirmed input corrected consumed prediction"
+                        << " frame " << frame.frame
+                        << " slot " << static_cast<unsigned>(slot) + 1u
+                        << " classification=confirmed_frame_prediction_mismatch";
+                    pushLog(oss.str());
+                }
+            }
+        }
+    }
 }
 
 bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const

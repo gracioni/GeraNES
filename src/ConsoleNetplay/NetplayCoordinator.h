@@ -311,6 +311,7 @@ private:
     bool resendLocalInputRange(NetTransport::PeerHandle peer, const InputResendRequestData& request);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);
+    void reconcilePredictedInputsWithConfirmedFrame(const ConfirmedFrameInputs& frame);
     bool tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const;
     void publishConfirmedFramesIfReady();
     void handleResolvedPredictedInput(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot, bool predictionMatched);
