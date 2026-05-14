@@ -10332,6 +10332,111 @@ TEST_CASE("Runtime assignment sync reanchors host to authoritative baseline when
     coordinator.disconnect();
 }
 
+TEST_CASE("Runtime assignment sync keeps first local input after remote assignment change",
+          "[netplay][assignment][runtime][input][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::FAMICOM_CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 2046u;
+    room.lastConfirmedFrame = 2045u;
+
+    ConsoleNetplay::ParticipantInfo* local =
+        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
+    REQUIRE(local != nullptr);
+    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    local->controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    local->normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Remote";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    coordinator.setLocalSimulationFrame(2046u);
+    coordinator.recordLocalInputFrame(2045u, GeraNESNetplay::kPort1PlayerSlot, 0u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.setPrebufferFrames(1u);
+    inputDriver.reanchor(2045u);
+
+    std::string lastAssignmentLayoutKey;
+    std::vector<ConsoleNetplay::PlayerSlot> lastLocalAssignedSlots{GeraNESNetplay::kPort1PlayerSlot};
+    const auto initialLayout = ConsoleNetplay::runtimeSyncAssignmentLayout(
+        coordinator,
+        inputDriver,
+        lastAssignmentLayoutKey,
+        lastLocalAssignedSlots,
+        2046u,
+        true
+    );
+    REQUIRE_FALSE(initialLayout.layoutChanged);
+    REQUIRE(inputDriver.producedThroughFrame() == 2045u);
+
+    room.participants.back().controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    room.participants.back().controllerAssignment = GeraNESNetplay::kPort2PlayerSlot;
+    room.participants.back().normalizeControllerAssignments(&room.inputTopology);
+
+    const auto changedLayout = ConsoleNetplay::runtimeSyncAssignmentLayout(
+        coordinator,
+        inputDriver,
+        lastAssignmentLayoutKey,
+        lastLocalAssignedSlots,
+        2046u,
+        true
+    );
+    REQUIRE(changedLayout.layoutChanged);
+    REQUIRE(changedLayout.reanchorInputDriver);
+    REQUIRE(inputDriver.producedThroughFrame() == room.lastConfirmedFrame);
+
+    inputDriver.produceLocalBufferedInputs(
+        coordinator,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
+        0u,
+        room,
+        [](ConsoleNetplay::PlayerSlot slot, ConsoleNetplay::FrameNumber frame, const ConsoleNetplay::RoomState& roomState) {
+            return GeraNESNetplay::toNetplayInputFrame(
+                GeraNESNetplay::buildAssignedContribution(
+                    slot,
+                    GeraNESNetplay::GeraNESInputState{},
+                    GeraNESNetplay::makeRoomTopologyBaseFrame(frame, roomState)
+                )
+            );
+        },
+        60u,
+        2046u,
+        inputDriver.confirmedThroughFrame(coordinator)
+    );
+
+    REQUIRE(coordinator.localInputs().find(2046u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE(coordinator.localInputs().find(2047u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE_FALSE(anyLogLineContains(coordinator.eventLog(), "Rejected non-sequential local input frame 2047"));
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("GeraNES topology remaps equivalent assignments back and forth across Four Score changes",
           "[netplay][assignment][topology][unit]")
 {

@@ -1724,11 +1724,6 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
     RuntimeAssignmentLayoutResult result;
     result.localSlots = runtimeLocalAssignedSlots(coordinator);
     result.layoutKey = runtimeAssignmentLayoutKey(coordinator);
-    const FrameNumber assignmentAnchorFrame =
-        std::max({localFrame,
-                  coordinator.localSimulationFrame(),
-                  coordinator.session().roomState().currentFrame,
-                  coordinator.session().roomState().lastConfirmedFrame});
     const bool gainedNewLocalSlot = std::any_of(
         result.localSlots.begin(),
         result.localSlots.end(),
@@ -1740,7 +1735,7 @@ RuntimeAssignmentLayoutResult runtimeSyncAssignmentLayout(NetplayCoordinator& co
     if(!lastAssignmentLayoutKey.empty() && result.layoutKey != lastAssignmentLayoutKey) {
         result.layoutChanged = true;
         if(running) {
-            inputDriver.reanchor(assignmentAnchorFrame);
+            inputDriver.reanchor(coordinator.session().roomState().lastConfirmedFrame);
             result.reanchorInputDriver = true;
         } else {
             inputDriver.reset();
