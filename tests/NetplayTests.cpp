@@ -6,10 +6,12 @@
 #include <cmath>
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <random>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #ifdef ERROR
@@ -543,6 +545,7 @@ class FakeNetplayStateHostBridge final : public ConsoleNetplay::INetplayStateHos
 public:
     ConsoleNetplay::FrameNumber lastFrameReadyFrameValue = 0;
     uint32_t lastFrameReadyNetplayCrc32Value = 0;
+    std::unordered_map<ConsoleNetplay::FrameNumber, std::shared_ptr<const std::vector<uint8_t>>> snapshotDataByFrame;
     std::unordered_map<ConsoleNetplay::FrameNumber, uint32_t> snapshotCrc32ByFrame;
     ConsoleNetplay::FrameNumber lastDiscardedNetplayInputsAfterFrame = 0;
 
@@ -550,11 +553,28 @@ public:
     void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber frame) override
     {
         lastDiscardedNetplayInputsAfterFrame = frame;
+        for(auto it = snapshotDataByFrame.begin(); it != snapshotDataByFrame.end();) {
+            if(it->first > frame) {
+                it = snapshotDataByFrame.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for(auto it = snapshotCrc32ByFrame.begin(); it != snapshotCrc32ByFrame.end();) {
+            if(it->first > frame) {
+                it = snapshotCrc32ByFrame.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
     ConsoleNetplay::FrameNumber lastFrameReadyFrame() const override { return lastFrameReadyFrameValue; }
     uint32_t lastFrameReadyNetplayCrc32() const override { return lastFrameReadyNetplayCrc32Value; }
-    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber) const override
+    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber frame) const override
     {
+        if(const auto it = snapshotDataByFrame.find(frame); it != snapshotDataByFrame.end()) {
+            return it->second;
+        }
         return std::nullopt;
     }
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber frame) const override
@@ -564,7 +584,11 @@ public:
         }
         return std::nullopt;
     }
-    bool updateNetplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber, uint32_t) override { return true; }
+    bool updateNetplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber frame, uint32_t canonicalCrc32) override
+    {
+        snapshotCrc32ByFrame[frame] = canonicalCrc32;
+        return true;
+    }
     void seedNetplaySnapshot(ConsoleNetplay::FrameNumber,
                              const std::vector<uint8_t>&,
                              std::optional<uint32_t>) override {}
@@ -584,6 +608,9 @@ public:
     uint32_t canonicalCrc32Value = 0;
     std::optional<ConsoleNetplay::NetplayRomSelection> currentRomValue =
         ConsoleNetplay::NetplayRomSelection{true, "Test ROM", {}};
+    std::optional<ConsoleNetplay::FrameNumber> rollbackLoadFrame;
+    std::function<void(ConsoleNetplay::FrameNumber)> onFrameAdvanced;
+    std::vector<ConsoleNetplay::FrameNumber> queuedPlaybackFrames;
     uint32_t applyRemoteInputTopologyCallCount = 0;
     uint32_t publishCurrentInputTopologyCallCount = 0;
     ConsoleNetplay::FrameNumber lastDiscardedQueuedInputAfterFrame = 0;
@@ -596,8 +623,21 @@ public:
     {
         return currentRomValue;
     }
-    bool loadRollbackState(const std::vector<uint8_t>&) override { return true; }
-    bool updateUntilFrame(uint32_t, bool) override { return true; }
+    bool loadRollbackState(const std::vector<uint8_t>&) override
+    {
+        if(rollbackLoadFrame.has_value()) {
+            frameValue = *rollbackLoadFrame;
+        }
+        return true;
+    }
+    bool updateUntilFrame(uint32_t, bool) override
+    {
+        ++frameValue;
+        if(onFrameAdvanced) {
+            onFrameAdvanced(frameValue);
+        }
+        return true;
+    }
     void applyRemoteInputTopology(const ConsoleNetplay::RoomState&) override
     {
         ++applyRemoteInputTopologyCallCount;
@@ -614,8 +654,9 @@ public:
     }
     bool hasStableQueuedInputFrame(ConsoleNetplay::FrameNumber) const override { return false; }
     void queueStandaloneBootstrapInputFrame() override {}
-    bool queuePlaybackInputFrame(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs&) override
+    bool queuePlaybackInputFrame(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed) override
     {
+        queuedPlaybackFrames.push_back(confirmed.netplayFrame.frame);
         return true;
     }
     void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber frame) override
@@ -955,6 +996,79 @@ TEST_CASE("Host rollback-recovery resync fallback is suppressed during stabiliza
         REQUIRE_FALSE(result.startedAuthoritativeResync);
     }
     REQUIRE(emu.loadStateOnCleanBootCallCount == 0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Rollback replay keeps regenerated snapshots available",
+          "[netplay][runtime][rollback][snapshots][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(host.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 96u;
+    host.setLocalSimulationFrame(100u);
+    host.rescheduleRollbackFrame(95u);
+
+    std::vector<ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
+    for(ConsoleNetplay::FrameNumber frame = 96u; frame <= 100u; ++frame) {
+        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
+        confirmed.frame = frame;
+        confirmed.netplayFrame =
+            GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room));
+        confirmedFrames.push_back(confirmed);
+    }
+    ConsoleNetplay::ConfirmedInputFramesData confirmedData{};
+    confirmedData.timelineEpoch = room.timelineEpoch;
+    confirmedData.startFrame = 96u;
+    confirmedData.frameCount = static_cast<uint16_t>(confirmedFrames.size());
+    REQUIRE(host.injectConfirmedPlaybackFramesForTests(confirmedData, confirmedFrames));
+    room.lastConfirmedFrame = 96u;
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.reanchor(96u);
+
+    FakeNetplayConsole console;
+    console.frameValue = 100u;
+    console.rollbackLoadFrame = 95u;
+
+    FakeNetplayStateBridge emu;
+    emu.frameValue = 100u;
+    emu.canonicalCrc32Value = 0x2468ACE0u;
+
+    FakeNetplayStateHostBridge runtimeHost;
+    runtimeHost.snapshotDataByFrame[95u] =
+        std::make_shared<const std::vector<uint8_t>>(std::vector<uint8_t>{0x95u});
+    console.onFrameAdvanced = [&runtimeHost](ConsoleNetplay::FrameNumber frame) {
+        runtimeHost.snapshotDataByFrame[frame] =
+            std::make_shared<const std::vector<uint8_t>>(std::vector<uint8_t>{static_cast<uint8_t>(frame)});
+        runtimeHost.snapshotCrc32ByFrame[frame] = 0x1000u + frame;
+    };
+
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
+
+    const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+        host,
+        inputDriver,
+        console,
+        emu,
+        runtimeHost,
+        rollbackState,
+        rollbackSettings
+    );
+
+    REQUIRE(result.consumed);
+    REQUIRE(result.applied);
+    REQUIRE(console.frameValue == 100u);
+    REQUIRE(runtimeHost.lastDiscardedNetplayInputsAfterFrame == 95u);
+    REQUIRE(runtimeHost.snapshotDataByFrame.find(96u) != runtimeHost.snapshotDataByFrame.end());
+    REQUIRE(runtimeHost.snapshotDataByFrame.find(100u) != runtimeHost.snapshotDataByFrame.end());
+    REQUIRE(console.queuedPlaybackFrames == std::vector<ConsoleNetplay::FrameNumber>{96u, 97u, 98u, 99u, 100u});
 
     host.disconnect();
 }

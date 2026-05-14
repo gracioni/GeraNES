@@ -1303,6 +1303,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
 
     const uint32_t rollbackCanonicalCrc32 = console.canonicalNetplayStateCrc32();
     (void)runtimeHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
+    runtimeHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
     coordinator.setLocalSimulationFrame(*rollbackFrame);
     coordinator.discardTimelineAfter(*rollbackFrame, true);
     coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
@@ -1371,7 +1372,6 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         }
     }
     coordinator.setLocalSimulationFrame(console.frameCount());
-    runtimeHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
 
     const FrameNumber recoveredConfirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
     if(settings.showDebugLog && recoveredConfirmedFrame != 0u && recoveredConfirmedFrame <= console.frameCount()) {
