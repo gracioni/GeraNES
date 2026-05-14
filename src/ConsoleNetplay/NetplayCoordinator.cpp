@@ -36,8 +36,9 @@ constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
-constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
-constexpr uint8_t kConfirmedDesyncRecentMismatchThreshold = 3;
+constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 1;
+constexpr uint8_t kConfirmedDesyncRecentMismatchThreshold = 1;
+constexpr uint32_t kRemoteCrcPublicationLagResyncFrames = ConsoleNetplay::kDesyncCrcIntervalFrames * 4u;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
@@ -4275,6 +4276,37 @@ bool NetplayCoordinator::handlePeerHealth(NetTransport::PeerHandle peer, PacketR
             // fresh activity so input-timeout suspension does not false-trigger
             // during temporary packet ordering/duplication anomalies.
             m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
+        }
+        if(m_hosting &&
+           participant->connected &&
+           !participantIsObserver(*participant) &&
+           data.localAssignmentCount > 0u &&
+           m_session.roomState().state == SessionState::Running &&
+           m_session.roomState().recoveryInputMode == RecoveryInputMode::Normal &&
+           m_session.roomState().activeResyncId == 0u &&
+           m_session.roomState().pendingResyncAckCount == 0u) {
+            const FrameNumber remoteCrcFrame = m_session.roomState().lastRemoteCrcFrame;
+            const FrameNumber confirmedFrame = std::max(data.lastConfirmedFrame, m_session.roomState().lastConfirmedFrame);
+            const bool remoteCrcLagged =
+                confirmedFrame > remoteCrcFrame &&
+                confirmedFrame - remoteCrcFrame >= kRemoteCrcPublicationLagResyncFrames &&
+                data.currentFrame >= confirmedFrame;
+            if(remoteCrcLagged) {
+                const FrameNumber resyncFrame =
+                    confirmedFrame > 0u
+                        ? std::min(m_localSimulationFrame, confirmedFrame)
+                        : m_localSimulationFrame;
+                queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+
+                std::ostringstream oss;
+                oss << "Peer CRC publication lag detected for " << participantDebugLabel(*participant)
+                    << " currentFrame " << data.currentFrame
+                    << " confirmedFrame " << confirmedFrame
+                    << " lastRemoteCrcFrame " << remoteCrcFrame
+                    << " threshold " << kRemoteCrcPublicationLagResyncFrames
+                    << " classification=crc_publication_lag_recovery";
+                pushLog(oss.str());
+            }
         }
         tryScheduleImplicitRecoveryResync(*participant);
     }

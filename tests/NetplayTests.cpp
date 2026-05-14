@@ -301,6 +301,31 @@ void queueFrameAndAdvanceFreeRunning(GeraNESEmu& emu, uint32_t frame, bool specu
     REQUIRE(emu.frameCount() == targetFrameCount);
 }
 
+InputBuffer::EnqueueResult queueDeterministicTwoPortInput(GeraNESEmu& emu, uint32_t frame)
+{
+    InputFrame input = emu.createInputFrame(frame);
+    input.timelineEpoch = emu.inputTimelineEpoch();
+    input.p1A = (frame % 17u) < 4u;
+    input.p1B = (frame % 29u) == 3u;
+    input.p1Left = (frame / 37u) % 4u == 1u;
+    input.p1Right = (frame / 37u) % 4u == 3u;
+    input.p1Up = (frame / 53u) % 5u == 2u;
+    input.p1Down = (frame / 47u) % 5u == 4u;
+    input.p2A = (frame % 19u) < 5u;
+    input.p2B = (frame % 31u) == 7u;
+    input.p2Left = (frame / 41u) % 4u == 0u;
+    input.p2Right = (frame / 41u) % 4u == 2u;
+    input.p2Up = (frame / 59u) % 5u == 1u;
+    input.p2Down = (frame / 61u) % 5u == 3u;
+    return emu.queueInputFrame(input);
+}
+
+bool inputEnqueueAccepted(InputBuffer::EnqueueResult result)
+{
+    return result == InputBuffer::EnqueueResult::Inserted ||
+           result == InputBuffer::EnqueueResult::UpdatedPending;
+}
+
 uint64_t framebufferChecksum(const uint32_t* framebuffer)
 {
     if(framebuffer == nullptr) return 0u;
@@ -1337,6 +1362,97 @@ TEST_CASE("Netplay input resend request protocol roundtrip preserves sparse slot
     REQUIRE(decoded.frameCount == request.frameCount);
 }
 
+TEST_CASE("GeraNES topology contribution preserves epoch and device payload",
+          "[netplay][topology][geranes][input][regression]")
+{
+    ConsoleNetplay::RoomState room;
+    room.timelineEpoch = 42u;
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+
+    const InputFrame baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(1234u, room);
+    REQUIRE(baseFrame.timelineEpoch == room.timelineEpoch);
+    REQUIRE(baseFrame.port1Device == Settings::Device::CONTROLLER);
+    REQUIRE(baseFrame.port2Device == Settings::Device::CONTROLLER);
+
+    GeraNESNetplay::GeraNESInputState state{};
+    state.p2A = true;
+    state.p2Right = true;
+
+    const InputFrame contribution =
+        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, state, baseFrame);
+    REQUIRE(contribution.frame == baseFrame.frame);
+    REQUIRE(contribution.timelineEpoch == baseFrame.timelineEpoch);
+    REQUIRE(contribution.port1Device == baseFrame.port1Device);
+    REQUIRE(contribution.port2Device == baseFrame.port2Device);
+    REQUIRE(contribution.p1A == false);
+    REQUIRE(contribution.p2A == true);
+    REQUIRE(contribution.p2Right == true);
+
+    const ConsoleNetplay::NetplayInputFrame netplayContribution =
+        GeraNESNetplay::toNetplayInputFrame(contribution);
+    REQUIRE(netplayContribution.frame == baseFrame.frame);
+    REQUIRE(netplayContribution.timelineEpoch == baseFrame.timelineEpoch);
+
+    const InputFrame roundTrip = GeraNESNetplay::toGeraNESInputFrame(netplayContribution);
+    REQUIRE(roundTrip.timelineEpoch == baseFrame.timelineEpoch);
+    REQUIRE(roundTrip.port1Device == Settings::Device::CONTROLLER);
+    REQUIRE(roundTrip.port2Device == Settings::Device::CONTROLLER);
+    REQUIRE(roundTrip.p1A == false);
+    REQUIRE(roundTrip.p2A == true);
+    REQUIRE(roundTrip.p2Right == true);
+}
+
+TEST_CASE("GeraNES topology contributions isolate assigned slots across controller ports",
+          "[netplay][topology][geranes][input][assignment]")
+{
+    ConsoleNetplay::RoomState room;
+    room.timelineEpoch = 7u;
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+
+    const InputFrame baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(88u, room);
+
+    GeraNESNetplay::GeraNESInputState allButtons{};
+    allButtons.p1A = true;
+    allButtons.p1Left = true;
+    allButtons.p2B = true;
+    allButtons.p2Right = true;
+
+    InputFrame combined = baseFrame;
+    const InputFrame p1Contribution =
+        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort1PlayerSlot, allButtons, baseFrame);
+    const InputFrame p2Contribution =
+        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, allButtons, baseFrame);
+
+    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kPort1PlayerSlot, p1Contribution);
+    REQUIRE(combined.p1A == true);
+    REQUIRE(combined.p1Left == true);
+    REQUIRE(combined.p2B == false);
+    REQUIRE(combined.p2Right == false);
+
+    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kPort2PlayerSlot, p2Contribution);
+    REQUIRE(combined.timelineEpoch == baseFrame.timelineEpoch);
+    REQUIRE(combined.port1Device == Settings::Device::CONTROLLER);
+    REQUIRE(combined.port2Device == Settings::Device::CONTROLLER);
+    REQUIRE(combined.p1A == true);
+    REQUIRE(combined.p1Left == true);
+    REQUIRE(combined.p2B == true);
+    REQUIRE(combined.p2Right == true);
+}
+
 TEST_CASE("Netplay protocol deserializers reject truncated payloads", "[netplay][protocol][malformed]")
 {
     const auto requireTruncationRejected =
@@ -1710,6 +1826,56 @@ TEST_CASE("Netplay coordinator schedules peer-health stall recovery in normal mo
     REQUIRE(pending->frame == 2082u);
     REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay coordinator schedules recovery when assigned peer stops publishing CRC",
+          "[netplay][crc][peer-health][recovery]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 11u;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 4u;
+    room.currentFrame = 600u;
+    room.lastConfirmedFrame = 180u;
+    room.lastRemoteCrcFrame = 30u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 99u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(180u);
+
+    ConsoleNetplay::PeerHealthData health{};
+    health.participantId = 99u;
+    health.currentFrame = 181u;
+    health.lastConfirmedFrame = 180u;
+    health.lastProducedLocalInputFrame = 181u;
+    health.localAssignmentCount = 1u;
+    REQUIRE(host.injectPeerHealthForTests(health));
+
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->frame == 180u);
+    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=crc_publication_lag_recovery"));
 
     host.disconnect();
 }
@@ -3789,6 +3955,110 @@ TEST_CASE("Netplay web host does not stall when observer host becomes port 2 aft
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
+}
+
+TEST_CASE("Netplay web host port 2 assignment stays CRC-stable over long asymmetric play",
+          "[netplay][runtime][web][assignment][host-observer][crc][soak][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.assignmentSwapAfterFrames = 720;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-host-port2-crc-soak",
+        ""
+    };
+    options.frames = 2160;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.frameStepLimit = 80000;
+    options.wallClockTimeoutSeconds = 160;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_host_port2_crc_soak.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("assignmentSwapTriggered") == true);
+    REQUIRE(report.at("assignmentSwapVerified") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=confirmed_crc_mismatch"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Beginning authoritative resync reason ConfirmedDesync"));
+}
+
+TEST_CASE("Netplay confirmed-desync resync remains stable after host becomes port 2",
+          "[netplay][runtime][web][assignment][host-observer][desync][crc][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.assignmentSwapAfterFrames = 720;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-host-port2-post-desync",
+        ""
+    };
+    options.frames = 2400;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.gameplayReceiveDelayMs = 45;
+    options.networkPumpStride = 5;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 50;
+    options.hostStepStride = 1;
+    options.clientStepStride = 3;
+    options.forceDesyncFrame = 1200;
+    options.desyncAddress = 0x0000u;
+    options.desyncValueXor = 0x5Au;
+    options.frameStepLimit = 90000;
+    options.wallClockTimeoutSeconds = 180;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_host_port2_post_desync_crc.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("assignmentSwapTriggered") == true);
+    REQUIRE(report.at("assignmentSwapVerified") == true);
+    REQUIRE(report.at("desyncInjected") == true);
+    REQUIRE(report.at("hardResyncObserved") == true);
+    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
+    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 3u);
 }
 
 TEST_CASE("Late-joining Four Score client assignment does not trigger resync storm",
@@ -8253,7 +8523,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before host resync scheduling", "[netplay][crc][classification][unit]")
+TEST_CASE("Netplay coordinator schedules host resync on first confirmed CRC mismatch", "[netplay][crc][classification][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
     REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
@@ -8279,27 +8549,10 @@ TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before 
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
-    REQUIRE(anyLogLineContains(coordinator.eventLog(), "CRC mismatch below hard-resync threshold"));
     std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         coordinator.consumePendingHostResyncFrame();
-    REQUIRE_FALSE(pendingResync.has_value());
-
-    coordinator.submitLocalCrc(230u, 0x33333333u);
-    report.frame = 230u;
-    report.crc32 = 0x44444444u;
-    REQUIRE(coordinator.injectCrcReportForTests(report));
-
-    pendingResync = coordinator.consumePendingHostResyncFrame();
-    REQUIRE_FALSE(pendingResync.has_value());
-
-    coordinator.submitLocalCrc(260u, 0x55555555u);
-    report.frame = 260u;
-    report.crc32 = 0x66666666u;
-    REQUIRE(coordinator.injectCrcReportForTests(report));
-
-    pendingResync = coordinator.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 260u);
+    REQUIRE(pendingResync->frame == 200u);
 
     coordinator.disconnect();
 }
@@ -8329,7 +8582,10 @@ TEST_CASE("Netplay coordinator escalates sparse repeated CRC mismatches",
     report.frame = 120u;
     report.crc32 = 0x22222222u;
     REQUIRE(coordinator.injectCrcReportForTests(report));
-    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+    std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
+        coordinator.consumePendingHostResyncFrame();
+    REQUIRE(pendingResync.has_value());
+    REQUIRE(pendingResync->frame == 120u);
 
     coordinator.submitLocalCrc(150u, 0x33333333u);
     report.frame = 150u;
@@ -8341,18 +8597,10 @@ TEST_CASE("Netplay coordinator escalates sparse repeated CRC mismatches",
     report.frame = 240u;
     report.crc32 = 0x55555555u;
     REQUIRE(coordinator.injectCrcReportForTests(report));
-    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
-
-    coordinator.submitLocalCrc(360u, 0x66666666u);
-    report.frame = 360u;
-    report.crc32 = 0x77777777u;
-    REQUIRE(coordinator.injectCrcReportForTests(report));
-
-    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
-        coordinator.consumePendingHostResyncFrame();
+    pendingResync = coordinator.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 360u);
-    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch_recent_window"));
+    REQUIRE(pendingResync->frame == 240u);
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
 
     coordinator.disconnect();
 }
@@ -11543,6 +11791,53 @@ TEST_CASE("Netplay canonical CRC ignores queued future input at frame-ready chec
     REQUIRE(futureInputQueued.queueInputFrame(futureFrame) == InputBuffer::EnqueueResult::Inserted);
 
     REQUIRE(noFutureInput.canonicalNetplayStateCrc32() == futureInputQueued.canonicalNetplayStateCrc32());
+}
+
+TEST_CASE("Netplay save-state replay stays canonical-CRC stable over long gameplay",
+          "[netplay][crc][canonical][save-state][soak][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu source(DummyAudioOutput::instance());
+    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.valid());
+
+    const uint32_t frameDt =
+        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
+    constexpr uint32_t snapshotFrame = 4103u;
+    constexpr uint32_t targetFrame = 7650u;
+
+    for(uint32_t frame = 0u; frame < snapshotFrame; ++frame) {
+        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(source, frame)));
+        REQUIRE(source.updateUntilFrame(frameDt));
+    }
+    REQUIRE(source.frameCount() == snapshotFrame);
+
+    const std::vector<uint8_t> snapshot = source.saveStateToMemory();
+    REQUIRE_FALSE(snapshot.empty());
+
+    GeraNESEmu clone(DummyAudioOutput::instance());
+    REQUIRE(clone.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(clone.loadStateFromMemoryOnCleanBoot(snapshot));
+    REQUIRE(clone.valid());
+    REQUIRE(clone.frameCount() == snapshotFrame);
+    REQUIRE(clone.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
+
+    for(uint32_t frame = snapshotFrame; frame < targetFrame; ++frame) {
+        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(source, frame)));
+        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(clone, frame)));
+        REQUIRE(source.updateUntilFrame(frameDt));
+        REQUIRE(clone.updateUntilFrame(frameDt));
+
+        if((frame % 30u) == 0u) {
+            INFO("frame=" << frame);
+            REQUIRE(clone.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
+        }
+    }
+
+    REQUIRE(source.frameCount() == targetFrame);
+    REQUIRE(clone.frameCount() == targetFrame);
+    REQUIRE(clone.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
 }
 
 TEST_CASE("Netplay runtime confirmed divergence requires hard resync", "[netplay][runtime][desync][hard-resync]")

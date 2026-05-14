@@ -832,6 +832,8 @@ InputFrame makeContributionBase(const InputFrame& baseFrame)
 {
     InputFrame contribution{};
     contribution.frame = baseFrame.frame;
+    contribution.timelineEpoch = baseFrame.timelineEpoch;
+    contribution.speculative = baseFrame.speculative;
     contribution.port1Device = baseFrame.port1Device;
     contribution.port2Device = baseFrame.port2Device;
     contribution.expansionDevice = baseFrame.expansionDevice;
