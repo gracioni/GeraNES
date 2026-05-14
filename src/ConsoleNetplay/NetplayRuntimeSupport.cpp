@@ -12,6 +12,7 @@ namespace ConsoleNetplay {
 namespace {
 
 constexpr uint32_t kHostMissingRollbackSnapshotDeferralsBeforeResync = 8;
+constexpr uint32_t kRuntimePostResyncStabilizationFrames = 8;
 
 std::string runtimeContentHashKey(const RomValidationData& validation)
 {
@@ -1138,7 +1139,10 @@ RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
         }
         inputDriver.reanchor(anchorFrame);
         rollbackState.lastRecoveryReanchorFrame = anchorFrame;
-        periodicCrcState.postRecoveryRapidCrcThroughFrame = anchorFrame + 3u;
+        periodicCrcState.postRecoveryRapidCrcThroughFrame =
+            anchorFrame + std::max<uint32_t>(kRuntimePostResyncStabilizationFrames + kDesyncCrcIntervalFrames,
+                                             kDesyncCrcIntervalFrames * 2u);
+        periodicCrcState.forceNextConfirmedCrcSubmission = true;
         if(sessionState.observerVisibilityResyncPending) {
             sessionState.observerVisibilityResyncPending = false;
             controls.setSimulationSuspended(false);

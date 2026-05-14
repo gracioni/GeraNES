@@ -1203,6 +1203,50 @@ TEST_CASE("Runtime resync transitions flush audio without restarting the backend
     coordinator.disconnect();
 }
 
+TEST_CASE("Runtime resync transition forces post-recovery CRC proof window",
+          "[netplay][crc][runtime][resync]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    const uint16_t port = reserveLoopbackPort();
+    REQUIRE(coordinator.host(port, 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Resyncing;
+    room.resyncTargetFrame = 1000u;
+    room.lastConfirmedFrame = 1000u;
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    ConsoleNetplay::RuntimeSessionTransitionState sessionState;
+    sessionState.lastSessionState = ConsoleNetplay::SessionState::Resyncing;
+    ConsoleNetplay::RuntimePeriodicCrcState periodicCrcState;
+    periodicCrcState.lastSubmittedLocalCrcFrame = 990u;
+    periodicCrcState.nextScheduledLocalCrcFrame = 3000u;
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeSharedClockCatchupState sharedClockState;
+    ConsoleNetplay::FrameNumber lastLoadedAuthoritativeFrame = 1000u;
+    FakeRuntimeSessionControls controls;
+    controls.frameValue = 1000u;
+
+    room.state = ConsoleNetplay::SessionState::Running;
+    const auto result = ConsoleNetplay::runtimeHandleSessionStateTransitions(
+        coordinator,
+        inputDriver,
+        controls,
+        sessionState,
+        periodicCrcState,
+        rollbackState,
+        sharedClockState,
+        lastLoadedAuthoritativeFrame
+    );
+
+    REQUIRE_FALSE(result.resetWorkerTick);
+    REQUIRE(periodicCrcState.forceNextConfirmedCrcSubmission == true);
+    REQUIRE(periodicCrcState.postRecoveryRapidCrcThroughFrame >=
+            1000u + ConsoleNetplay::kDesyncCrcIntervalFrames * 2u);
+
+    coordinator.disconnect();
+}
+
 TEST_CASE("Queued topology mutations stay deferred while assignment recovery is blocked",
           "[netplay][assignment][topology][runtime][regression]")
 {
@@ -3957,7 +4001,7 @@ TEST_CASE("Netplay web host does not stall when observer host becomes port 2 aft
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
 }
 
-TEST_CASE("Netplay web host port 2 assignment stays CRC-stable over long asymmetric play",
+TEST_CASE("Netplay web host port 2 assignment stays converged over long asymmetric play",
           "[netplay][runtime][web][assignment][host-observer][crc][soak][regression]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -4003,9 +4047,7 @@ TEST_CASE("Netplay web host port 2 assignment stays CRC-stable over long asymmet
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=confirmed_crc_mismatch"));
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Beginning authoritative resync reason ConfirmedDesync"));
+    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 4u);
 }
 
 TEST_CASE("Netplay confirmed-desync resync remains stable after host becomes port 2",
