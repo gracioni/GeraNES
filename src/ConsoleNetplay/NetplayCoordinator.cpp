@@ -2652,7 +2652,7 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
                 latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
                 ++nextFrame;
             }
-            if(synthesizedAny) {
+            if(synthesizedAny && m_debugMode) {
                 std::ostringstream oss;
                 oss << "Synthetic fallback input committed"
                     << " participant " << participantDebugLabel(participant)
@@ -2811,7 +2811,7 @@ bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targ
         ++nextFrame;
     }
 
-    if(synthesizedAny) {
+    if(synthesizedAny && m_debugMode) {
         std::ostringstream oss;
         oss << "Synthetic fallback input committed"
             << " participant " << participantDebugLabel(participant)
