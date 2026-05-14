@@ -9332,6 +9332,34 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
+TEST_CASE("Netplay input stall does not synthesize compensation audio", "[netplay][audio][stutter]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+    InputFrame frame0 = emu.createInputFrame(0u);
+    frame0.speculative = false;
+    emu.queueInputFrame(frame0);
+    REQUIRE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+
+    const uint32_t renderCallsBeforeStall = audio.renderCalls;
+    const uint32_t audibleCallsBeforeStall = audio.audibleRenderCalls;
+    const uint32_t silentCallsBeforeStall = audio.silentRenderCalls;
+
+    REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
+    REQUIRE(emu.frameCount() == 1u);
+    REQUIRE(audio.renderCalls == renderCallsBeforeStall);
+    REQUIRE(audio.audibleRenderCalls == audibleCallsBeforeStall);
+    REQUIRE(audio.silentRenderCalls == silentCallsBeforeStall);
+}
+
 TEST_CASE("Changing region republishes cached APU audio state after audio reinit", "[audio][region][regression]")
 {
     TrackingAudioOutput audio;

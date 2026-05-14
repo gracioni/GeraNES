@@ -1952,7 +1952,7 @@ public:
 
         if(!m_speedBoost) {
             const bool ret = _update<true>(dt, renderAudio);
-            if(renderAudio) {
+            if(renderAudio && ret) {
                 compensateVsyncAudioDrift(dt);
             }
             return ret;
