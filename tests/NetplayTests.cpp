@@ -8028,6 +8028,55 @@ TEST_CASE("Netplay host stops at prediction limit without synthetic continuation
     REQUIRE(host.session().roomState().syntheticFallbackInputFrameCount == 0u);
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
+    hostPlaybackDriver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
+        0,
+        uint64_t{0},
+        60,
+        198,
+        hostPlaybackDriver.confirmedThroughFrame(host)
+    );
+    hostPlaybackDriver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        190
+    );
+    REQUIRE(hostPlaybackDriver.pendingFrameCount() == 0u);
+    REQUIRE(host.session().roomState().syntheticFallbackInputFrameCount == 0u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver clientPlaybackDriver;
+    clientPlaybackDriver.setPrebufferFrames(1);
+    clientPlaybackDriver.setPredictFrames(8);
+    clientPlaybackDriver.reanchor(180);
+    clientPlaybackDriver.produceLocalBufferedInputs(
+        client,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort2PlayerSlot},
+        0,
+        uint64_t{0},
+        60,
+        198,
+        clientPlaybackDriver.confirmedThroughFrame(client)
+    );
+    client.setLocalSimulationFrame(190);
+    clientPlaybackDriver.preparePlaybackFramesForEmulationThread(
+        client,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        190
+    );
+    REQUIRE(clientPlaybackDriver.pendingFrameCount() == 0u);
+    REQUIRE(client.session().roomState().syntheticFallbackInputFrameCount == 0u);
+
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
     REQUIRE_FALSE(ConsoleNetplay::runtimeTryBuildPlaybackConfirmedFrame(
         host,
