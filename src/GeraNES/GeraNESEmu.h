@@ -140,6 +140,7 @@ public:
         uint32_t chrGeneration = 0;
         uint32_t nametableGeneration = 0;
         uint32_t paletteGeneration = 0;
+        uint32_t mapperWriteGeneration = 0;
         std::array<uint8_t, 0x2000> chrData = {};
         std::array<uint8_t, 0x1000> nametableData = {};
         std::array<uint8_t, 0x20> paletteData = {};
@@ -207,6 +208,7 @@ private:
 
     //do not serialize bellow atributtes
     bool m_ppuViewerScanlineTraceEnabled = false;
+    uint32_t m_ppuViewerMapperWriteGeneration = 0;
     std::vector<PpuViewerScanlineState> m_ppuViewerScanlineStates;
     std::vector<PpuViewerScanlineSnapshot> m_ppuViewerScanlineSnapshots;
     bool m_saveStateFlag;
@@ -835,6 +837,7 @@ private:
                     else {
                         m_cartridge.writeMapperRegister(addr&0x1FFF, data);
                     }
+                    ++m_ppuViewerMapperWriteGeneration;
                 }
                 else {
                     if(m_cartridge.isNsf()) {
@@ -864,6 +867,7 @@ private:
                 else {
                     m_cartridge.writePrg(addr&0x7FFF, data);
                 }
+                ++m_ppuViewerMapperWriteGeneration;
             }
             else {
                 m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
@@ -954,6 +958,7 @@ private:
                 const uint32_t chrGeneration = m_ppu.debugChrGeneration();
                 const uint32_t nametableGeneration = m_ppu.debugNametableGeneration();
                 const uint32_t paletteGeneration = m_ppu.debugPaletteGeneration();
+                const uint32_t mapperWriteGeneration = m_ppuViewerMapperWriteGeneration;
                 lineState.rawScrollX = static_cast<uint16_t>(rawScrollX);
                 lineState.rawScrollY = static_cast<uint16_t>(rawScrollY);
                 lineState.virtualScrollX = static_cast<uint16_t>(virtualScrollX);
@@ -962,7 +967,6 @@ private:
                     static_cast<uint16_t>(m_ppu.debugBackgroundPatternTableAddress());
                 lineState.snapshotIndex = 0xFFFF;
 
-                bool reusePreviousSnapshot = false;
                 if(scanline > 0) {
                     const auto& prevLineState =
                         m_ppuViewerScanlineStates[static_cast<size_t>(scanline - 1)];
@@ -976,21 +980,34 @@ private:
                        prevLineState.snapshotIndex < m_ppuViewerScanlineSnapshots.size()) {
                         const auto& prevSnapshot =
                             m_ppuViewerScanlineSnapshots[prevLineState.snapshotIndex];
-                        reusePreviousSnapshot =
-                            prevSnapshot.chrGeneration == chrGeneration &&
-                            prevSnapshot.nametableGeneration == nametableGeneration &&
-                            prevSnapshot.paletteGeneration == paletteGeneration;
-                        if(reusePreviousSnapshot) {
+                        if(prevSnapshot.chrGeneration == chrGeneration &&
+                           prevSnapshot.nametableGeneration == nametableGeneration &&
+                           prevSnapshot.paletteGeneration == paletteGeneration &&
+                           prevSnapshot.mapperWriteGeneration == mapperWriteGeneration) {
                             lineState.snapshotIndex = prevLineState.snapshotIndex;
                         }
                     }
                 }
 
-                if(!reusePreviousSnapshot) {
+                if(lineState.snapshotIndex == 0xFFFF) {
+                    for(size_t snapshotIndex = 0; snapshotIndex < m_ppuViewerScanlineSnapshots.size(); ++snapshotIndex) {
+                        const auto& existingSnapshot = m_ppuViewerScanlineSnapshots[snapshotIndex];
+                        if(existingSnapshot.chrGeneration == chrGeneration &&
+                           existingSnapshot.nametableGeneration == nametableGeneration &&
+                           existingSnapshot.paletteGeneration == paletteGeneration &&
+                           existingSnapshot.mapperWriteGeneration == mapperWriteGeneration) {
+                            lineState.snapshotIndex = static_cast<uint16_t>(snapshotIndex);
+                            break;
+                        }
+                    }
+                }
+
+                if(lineState.snapshotIndex == 0xFFFF) {
                     PpuViewerScanlineSnapshot snapshot;
                     snapshot.chrGeneration = chrGeneration;
                     snapshot.nametableGeneration = nametableGeneration;
                     snapshot.paletteGeneration = paletteGeneration;
+                    snapshot.mapperWriteGeneration = mapperWriteGeneration;
                     for(uint16_t addr = 0; addr < 0x2000; ++addr) {
                         snapshot.chrData[addr] = m_ppu.debugPeekPpuMemory(addr);
                     }
@@ -1075,6 +1092,12 @@ private:
         m_currentPlaybackFrameRenderedAudibly = false;
         m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
+        ++m_ppuViewerMapperWriteGeneration;
+        m_ppuViewerScanlineSnapshots.clear();
+        for(auto& lineState : m_ppuViewerScanlineStates) {
+            lineState.valid = false;
+            lineState.snapshotIndex = 0xFFFF;
+        }
     }
 
     void processDeferredNetplaySnapshot()
@@ -1815,6 +1838,7 @@ public:
 
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_cartridge.reset();
+            ++m_ppuViewerMapperWriteGeneration;
             preloadNsfMemory();
             m_ppu.init();
             m_cpu.init();
@@ -2839,6 +2863,7 @@ public:
         if(!m_cartridge.isValid()) return;
 
         m_cartridge.reset();
+        ++m_ppuViewerMapperWriteGeneration;
         preloadNsfMemory();
         m_apu.reset();
         m_ppu.init();
