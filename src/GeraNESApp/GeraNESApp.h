@@ -320,6 +320,15 @@ private:
         float max = 1.0f;
     };
 
+    struct AudioChannelControlCache {
+        std::vector<AudioChannelControl> nesChannels;
+        std::vector<AudioChannelControl> mapperChannels;
+        double lastRefreshTime = -1.0;
+        bool valid = false;
+        bool emuValid = false;
+        GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
+    };
+
     struct ShaderItem {
         std::string label;
         std::string path;
@@ -337,6 +346,7 @@ private:
     int m_selectedShaderStackIndex = -1;
     std::string m_selectedShaderPresetName = "";
     std::string m_shaderPresetNameInput = "";
+    AudioChannelControlCache m_audioChannelControlCache;
     std::vector<PaletteItem> m_paletteList;
     std::array<uint32_t, 64> m_editPalette = {};
     std::string m_selectedPaletteName = "";

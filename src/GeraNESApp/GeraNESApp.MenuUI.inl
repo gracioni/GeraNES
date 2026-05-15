@@ -999,14 +999,43 @@ inline void GeraNESApp::applyAudioChannelVolume(const AudioChannelControl& c, fl
 
 inline void GeraNESApp::drawAudioChannelDebugControls()
 {
-    std::vector<AudioChannelControl> nesChannels;
-    std::vector<AudioChannelControl> mapperChannels;
-    collectAudioChannelsFromJson(m_emu.getAudioChannelsJson(), "nes", nesChannels);
-    m_emu.withExclusiveAccess([&](auto& emu) {
-        collectAudioChannelsFromJson(emu.getConsole().cartridge().getMapperAudioChannelsJson(), "mapper", mapperChannels);
-    });
+    constexpr double kAudioChannelRefreshIntervalSeconds = 0.5;
+    const double now = ImGui::GetTime();
+    const bool emuValid = m_emu.valid();
+    const GameDatabase::System cartridgeSystem = m_emu.currentCartridgeSystem();
+    const bool shouldRefresh =
+        !m_audioChannelControlCache.valid ||
+        m_audioChannelControlCache.emuValid != emuValid ||
+        m_audioChannelControlCache.cartridgeSystem != cartridgeSystem ||
+        (now - m_audioChannelControlCache.lastRefreshTime) >= kAudioChannelRefreshIntervalSeconds;
 
-    if(nesChannels.empty() && mapperChannels.empty()) {
+    if(shouldRefresh) {
+        m_audioChannelControlCache.nesChannels.clear();
+        m_audioChannelControlCache.mapperChannels.clear();
+
+        collectAudioChannelsFromJson(
+            m_emu.getAudioChannelsJson(),
+            "nes",
+            m_audioChannelControlCache.nesChannels
+        );
+
+        if(emuValid) {
+            m_emu.withExclusiveAccess([&](auto& emu) {
+                collectAudioChannelsFromJson(
+                    emu.getConsole().cartridge().getMapperAudioChannelsJson(),
+                    "mapper",
+                    m_audioChannelControlCache.mapperChannels
+                );
+            });
+        }
+
+        m_audioChannelControlCache.lastRefreshTime = now;
+        m_audioChannelControlCache.valid = true;
+        m_audioChannelControlCache.emuValid = emuValid;
+        m_audioChannelControlCache.cartridgeSystem = cartridgeSystem;
+    }
+
+    if(m_audioChannelControlCache.nesChannels.empty() && m_audioChannelControlCache.mapperChannels.empty()) {
         ImGui::TextDisabled("No channel controls available.");
         return;
     }
@@ -1018,18 +1047,19 @@ inline void GeraNESApp::drawAudioChannelDebugControls()
             float maxPercent = c.max * 100.0f;
             std::string label = c.label + "##" + c.source + "." + c.id;
             if(ImGui::SliderFloat(label.c_str(), &valuePercent, minPercent, maxPercent, "%.0f%%")) {
-                applyAudioChannelVolume(c, valuePercent / 100.0f);
+                c.volume = valuePercent / 100.0f;
+                applyAudioChannelVolume(c, c.volume);
             }
         }
     };
 
-    drawChannelSliders(nesChannels);
+    drawChannelSliders(m_audioChannelControlCache.nesChannels);
 
-    if(!nesChannels.empty() && !mapperChannels.empty()) {
+    if(!m_audioChannelControlCache.nesChannels.empty() && !m_audioChannelControlCache.mapperChannels.empty()) {
         ImGui::Separator();
     }
 
-    drawChannelSliders(mapperChannels);
+    drawChannelSliders(m_audioChannelControlCache.mapperChannels);
 }
 
 inline void GeraNESApp::drawPaletteWindow()
