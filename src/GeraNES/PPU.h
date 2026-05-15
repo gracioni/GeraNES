@@ -248,6 +248,7 @@ private:
 
 
     //Do not serialize variables below
+    bool m_cpuDmaReadInProgress;
     uint32_t* m_pFrameBuffer;
 
     void initOpenBus()
@@ -418,6 +419,51 @@ private:
     {
         m_deferredPpuIo.deferredDataLatchArmPending = true;
         m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+    }
+
+    GERANES_INLINE bool hasPendingPpuDataReadUpdate() const
+    {
+        return m_needIncVideoRam ||
+               m_deferredPpuIo.pendingDataLatchUpdate ||
+               m_deferredPpuIo.deferredDataLatchArmPending ||
+               m_deferredPpuIo.deferredDataLatchStart ||
+               m_deferredPpuIo.deferredDataLatchStartDelay > 0 ||
+               m_deferredPpuIo.deferredVideoRamIncrementArmPending ||
+               m_deferredPpuIo.deferredVideoRamIncrementDelay > 0;
+    }
+
+    GERANES_INLINE void schedulePpuDataReadUpdate(uint16_t addr)
+    {
+        constexpr uint8_t PPU_DATA_READ_UPDATE_DELAY = 6;
+        m_deferredPpuIo.pendingDataLatchUpdate = true;
+        m_deferredPpuIo.pendingDataLatchDelay = PPU_DATA_READ_UPDATE_DELAY;
+        m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+        m_deferredPpuIo.deferredVideoRamIncrementDelay = PPU_DATA_READ_UPDATE_DELAY;
+        m_needUpdateState = true;
+    }
+
+    GERANES_INLINE void completePendingPpuDataReadUpdate()
+    {
+        if(!hasPendingPpuDataReadUpdate()) {
+            return;
+        }
+
+        if(m_deferredPpuIo.pendingDataLatchUpdate) {
+            m_dataLatch = fakeReadPpuMemory(m_deferredPpuIo.pendingDataLatchAddr & 0x3FFF);
+            m_deferredPpuIo.pendingDataLatchUpdate = false;
+        }
+
+        if(m_needIncVideoRam || m_deferredPpuIo.deferredVideoRamIncrementDelay > 0) {
+            m_needIncVideoRam = false;
+            m_deferredPpuIo.deferredVideoRamIncrementDelay = 0;
+            incVideoRamAddr();
+        }
+
+        m_deferredPpuIo.deferredDataLatchArmPending = false;
+        m_deferredPpuIo.deferredDataLatchStart = false;
+        m_deferredPpuIo.deferredDataLatchStartDelay = 0;
+        m_deferredPpuIo.deferredVideoRamIncrementArmPending = false;
+        m_needUpdateState = true;
     }
 
     GERANES_INLINE void syncRenderingEnabledFlag()
@@ -663,6 +709,7 @@ public:
         m_sprite0Added = false;
         m_dataLatch = 0;
         m_deferredPpuIo = {};
+        m_cpuDmaReadInProgress = false;
 
         m_currentPixelColorIndex = 0;
         m_bgPatternLowShift = 0;
@@ -2030,6 +2077,11 @@ yyy NN YYYYY XXXXX
         return m_cycle;
     }
 
+    GERANES_INLINE void setCpuDmaReadInProgress(bool state)
+    {
+        m_cpuDmaReadInProgress = state;
+    }
+
     GERANES_INLINE bool sprite0Hit() const {
         return m_sprite0Hit;
     }
@@ -2120,6 +2172,7 @@ yyy NNYY YYYX XXXX
     {
         uint8_t ret;
         const bool activelyRendering = isActivelyRendering();
+        const bool followingDataRead = !activelyRendering && !m_cpuDmaReadInProgress && hasPendingPpuDataReadUpdate();
         
         if(isOnPaletteAddr()) {
             ret = fakeReadPpuMemory(m_reg_v&0x3FFF); //palette
@@ -2127,8 +2180,12 @@ yyy NNYY YYYX XXXX
                 armDeferredDataLatch(static_cast<uint16_t>(m_reg_v & 0x2FFF));
                 armDeferredVideoRamIncrement();
             }
-            else {
+            else if(m_cpuDmaReadInProgress) {
                 m_dataLatch = readPpuMemory(m_reg_v&0x2FFF);
+                m_needIncVideoRam = true;
+            }
+            else if(!followingDataRead) {
+                schedulePpuDataReadUpdate(static_cast<uint16_t>(m_reg_v & 0x2FFF));
             }
         }     
         else {
@@ -2137,16 +2194,16 @@ yyy NNYY YYYX XXXX
                 armDeferredDataLatch(static_cast<uint16_t>(m_reg_v & 0x3FFF));
                 armDeferredVideoRamIncrement();
             }
-            else {
+            else if(m_cpuDmaReadInProgress) {
                 m_dataLatch = readPpuMemory(m_reg_v&0x3FFF);
+                m_needIncVideoRam = true;
+            }
+            else if(!followingDataRead) {
+                schedulePpuDataReadUpdate(static_cast<uint16_t>(m_reg_v & 0x3FFF));
             }
         }     
 
         m_needUpdateState = true;
-        if(!activelyRendering) {
-            m_needIncVideoRam = true;
-        }
-
         return ret;
     }
 
@@ -2205,6 +2262,10 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE void writePPUDATA(uint8_t data)
     {
+        if(!isActivelyRendering() && hasPendingPpuDataReadUpdate()) {
+            completePendingPpuDataReadUpdate();
+        }
+
         if(isOnPaletteAddr()) {
             fakeWritePpuMemory(m_reg_v, data); //palette
         }

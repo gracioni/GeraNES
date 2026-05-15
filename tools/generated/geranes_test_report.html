@@ -25,7 +25,7 @@ pre{margin:8px 0 0 0;padding:10px;border:1px solid #e5e7eb;border-radius:6px;bac
 <body>
 <h1>GeraNES Test Report</h1>
 <h2>Passed (319/319)</h2>
-<p class="meta">Emulator version: <strong>1.7.2</strong><br>Generated at (UTC): <strong>2026-03-20T04:18:08.666168+00:00</strong></p>
+<p class="meta">Emulator version: <strong>1.9</strong><br>Generated at (UTC): <strong>2026-05-15T17:31:22.181933+00:00</strong></p>
 <form class="filters">
 <label><input type="radio" name="status-filter" value="all" checked> all</label>
 <label><input type="radio" name="status-filter" value="passed"> passed</label>
@@ -1133,49 +1133,77 @@ Passed</pre>
 <p class="head"><span class="name">blargg_nes_cpu_test5/cpu.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>Running tests...
+-----------------------------
+01-implied
+02-immediate
+03-zero_page
+04-zp_xy
+05-absolute
+06-abs_xy
+07-ind_x
+08-ind_y
+09-branches
+10-stack
+11-special
+-----------------------------
+All tests complete</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">blargg_nes_cpu_test5/official.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>Running tests...
+-----------------------------
+01-implied
+02-immediate
+03-zero_page
+04-zp_xy
+05-absolute
+06-abs_xy
+07-ind_x
+08-ind_y
+09-branches
+10-stack
+11-special
+-----------------------------
+All tests complete</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">blargg_ppu_tests_2005.09.15b/palette_ram.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>$01</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">blargg_ppu_tests_2005.09.15b/power_up_palette.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>$01</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">blargg_ppu_tests_2005.09.15b/sprite_ram.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>$01</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>$01</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">blargg_ppu_tests_2005.09.15b/vram_access.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>$01</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
@@ -1553,7 +1581,12 @@ PASSED</pre>
 <p class="head"><span class="name">dmc_dma_during_read4/dma_2007_read.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>11 22
+11 22
+44 55
+11 22
+11 22
+5E3DF9C4</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
@@ -1583,7 +1616,9 @@ Passed</pre>
 <p class="head"><span class="name">dmc_dma_during_read4/double_2007_read.nes</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>22 33 44 55 66
+22 33 44 55 66
+F018C287</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
@@ -1629,14 +1664,60 @@ Passed</pre>
 <p class="head"><span class="name">fdsirqtests/fdsirqtests.fds</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>! O    No Irq At Start
+&quot; O  ! Trigger 1 IRQ
+# O  ! IRQ when rvalue = 0
+$ O  &quot; Reload val not reset
+% O    Disable DiskReg Test
+&amp; O    No Disk Reg = No IRQ
+&#x27; O &quot;  Can&#x27;t Ack w/ $4020
+( O &quot;  Can&#x27;t Ack w/ $4021
+) O  ! Can Ack w/ W:$4022:0
+* O &quot;  Cant w/ W:$4022:2
++ O  ! Can Ack w/ W:$4023:0
+, O &quot;  Cant w/ W:$4023:1
+- O  ! 2x W:4022 Delays IRQ
+. O    Enbl DiskR after 4022
+/ O  ! Set RelVal DskRg Off
+!  O    4022:0 stops irq ctr
+!! O  ! 4022:0 not reset rval
+!&quot; O  $ RVal=0 4x W:$4022:2
+!# O  $ Irq w/ Repeat test
+!$ O  $ Irq repeat stop test
+!% O $  RVal=0 w/ Repeat
+
+
+V7 2017-09-22</pre>
 </details>
 </section>
 <section class="test" data-status="passed">
 <p class="head"><span class="name">fdsirqtests/fdsirqtestsV7_patched.fds</span>: <span class="status passed">passed</span></p>
 <details>
 <summary>show output</summary>
-<pre></pre>
+<pre>! O    No Irq At Start
+&quot; O  ! Trigger 1 IRQ
+# O  ! IRQ when rvalue = 0
+$ O  &quot; Reload val not reset
+% O    Disable DiskReg Test
+&amp; O    No Disk Reg = No IRQ
+&#x27; O &quot;  Can&#x27;t Ack w/ $4020
+( O &quot;  Can&#x27;t Ack w/ $4021
+) O  ! Can Ack w/ W:$4022:0
+* O &quot;  Cant w/ W:$4022:2
++ O  ! Can Ack w/ W:$4023:0
+, O &quot;  Cant w/ W:$4023:1
+- O  ! 2x W:4022 Delays IRQ
+. O    Enbl DiskR after 4022
+/ O  ! Set RelVal DskRg Off
+!  O    4022:0 stops irq ctr
+!! O  ! 4022:0 not reset rval
+!&quot; O  $ RVal=0 4x W:$4022:2
+!# O  $ Irq w/ Repeat test
+!$ O  $ Irq repeat stop test
+!% O $  RVal=0 w/ Repeat
+
+
+V7 2017-09-22</pre>
 </details>
 </section>
 <section class="test" data-status="passed">

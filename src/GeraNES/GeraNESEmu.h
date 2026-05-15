@@ -683,7 +683,9 @@ private:
         case 3:
             if constexpr(accessType == AccessType::Read) {
                 m_cartridge.onCpuRead(static_cast<uint16_t>(addr));
+                m_ppu.setCpuDmaReadInProgress(m_cpu.isDmaReadInProgress());
                 data = m_ppu.readWrite<false>(addr, data);
+                m_ppu.setCpuDmaReadInProgress(false);
             }
             else {
                 m_ppu.readWrite<true>(addr, data);
