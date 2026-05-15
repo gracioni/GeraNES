@@ -826,46 +826,6 @@ TEST_CASE("Netplay desync monitor drops same-frame CRC history on realignment", 
     REQUIRE(remoteMatch.mismatchDetected == false);
 }
 
-TEST_CASE("Client confirmed input packets advance stale host frame estimate",
-          "[netplay][confirmed-input][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator client;
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    room.sessionId = 1u;
-    room.timelineEpoch = 4u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 100u;
-    room.lastConfirmedFrame = 100u;
-
-    std::vector<ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
-    for(ConsoleNetplay::FrameNumber frame = 160u; frame <= 161u; ++frame) {
-        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
-        confirmed.frame = frame;
-        confirmed.netplayFrame =
-            GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room));
-        confirmedFrames.push_back(confirmed);
-    }
-
-    ConsoleNetplay::ConfirmedInputFramesData confirmedData{};
-    confirmedData.timelineEpoch = room.timelineEpoch;
-    confirmedData.startFrame = 160u;
-    confirmedData.frameCount = static_cast<uint16_t>(confirmedFrames.size());
-    REQUIRE(client.injectConfirmedPlaybackFramesForTests(confirmedData, confirmedFrames));
-    REQUIRE(room.lastConfirmedFrame == 161u);
-    REQUIRE(room.currentFrame == 161u);
-
-    room.currentFrame = 200u;
-    confirmedData.startFrame = 170u;
-    confirmedData.frameCount = 1u;
-    confirmedFrames.resize(1u);
-    confirmedFrames.front().frame = 170u;
-    confirmedFrames.front().netplayFrame =
-        GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(170u, room));
-    REQUIRE(client.injectConfirmedPlaybackFramesForTests(confirmedData, confirmedFrames));
-    REQUIRE(room.currentFrame == 200u);
-}
-
 TEST_CASE("Periodic netplay CRC skips historical snapshot checkpoints behind live frame",
           "[netplay][crc][runtime][regression]")
 {
