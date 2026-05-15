@@ -1266,6 +1266,84 @@ TEST_CASE("Netplay remote prediction honors sparse slot ids",
     host.disconnect();
 }
 
+TEST_CASE("Netplay ignores resolved prediction rollback pressure during post-resync stabilization",
+          "[netplay][prediction][stabilization][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 12u;
+    room.lastConfirmedFrame = 9u;
+    host.setLocalSimulationFrame(12u);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Android Web";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 8u;
+    remote.lastContiguousInputFrame = 8u;
+    remote.lastReceivedInputSequence = 0u;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    InputFrame baselineContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(9u, room);
+    ConsoleNetplay::InputFrameData baselineInput{};
+    baselineInput.timelineEpoch = room.timelineEpoch;
+    baselineInput.frame = 9u;
+    baselineInput.participantId = remote.id;
+    baselineInput.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    baselineInput.sequence = 1u;
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, baselineInput, baselineContribution));
+
+    host.predictRemoteInputsForFrame(10u);
+    const ConsoleNetplay::TimelineInputEntry* predicted =
+        host.remoteInputs().find(10u, remote.id, GeraNESNetplay::kPort2PlayerSlot);
+    REQUIRE(predicted != nullptr);
+    REQUIRE(predicted->predicted);
+
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    room.recoveryModeEnteredAtFrame = 9u;
+    room.stabilizationFramesRemaining = 8u;
+    room.stabilizationAnchorFrame = 9u;
+
+    InputFrame correctedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(10u, room);
+    correctedContribution.p2A = true;
+    ConsoleNetplay::InputFrameData correctedInput{};
+    correctedInput.timelineEpoch = room.timelineEpoch;
+    correctedInput.frame = 10u;
+    correctedInput.participantId = remote.id;
+    correctedInput.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    correctedInput.sequence = 2u;
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, correctedInput, correctedContribution));
+
+    REQUIRE_FALSE(host.consumePendingRollbackFrame().has_value());
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->rollbackScheduledCount == 0u);
+    REQUIRE(updated->lastDecision == "Prediction mismatch ignored during recovery");
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay input ack tracking honors sparse slot ids",
           "[netplay][ack][sparse][unit]")
 {

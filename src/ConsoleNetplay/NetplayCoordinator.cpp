@@ -2119,10 +2119,13 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
     room.recoveryModeEnteredAtFrame = frameContext;
     ++room.recoveryModeTransitionCount;
     if(mode == RecoveryInputMode::PostResyncStabilizing) {
+        m_pendingRollbackFrame.reset();
         room.stabilizationFramesRemaining = stabilizationFrames;
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
         room.stabilizationRetryIssued = false;
+    } else if(mode == RecoveryInputMode::ResyncLocked) {
+        m_pendingRollbackFrame.reset();
     } else if(mode == RecoveryInputMode::Normal) {
         room.stabilizationFramesRemaining = 0;
         room.stabilizationAnchorFrame = frameContext;
@@ -2521,6 +2524,21 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
         participant->lastDecisionFrame = inputFrame;
         participant->lastDecisionSlot = slot;
     };
+
+    const RoomState& room = m_session.roomState();
+    if(room.recoveryInputMode != RecoveryInputMode::Normal ||
+       room.activeResyncId != 0u ||
+       room.pendingResyncAckCount != 0u) {
+        recordParticipantDecision(
+            predictionMatched
+                ? "Prediction resolved during recovery"
+                : "Prediction mismatch ignored during recovery"
+        );
+        if(!predictionMatched && m_debugMode) {
+            pushLog(predictionMessage() + " during recovery; rollback deferred until stabilization completes");
+        }
+        return;
+    }
 
     const FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
     const FrameNumber currentFrame = m_localSimulationFrame;
