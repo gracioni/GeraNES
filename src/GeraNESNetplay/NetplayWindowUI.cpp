@@ -861,9 +861,6 @@ void drawNetplayWindow(bool& showWindow,
             default: break;
         }
         ImGui::Text("Recovery Input Mode: %s", recoveryModeLabel);
-        if(!snapshot.recoveryStatusText.empty()) {
-            ImGui::TextWrapped("%s", snapshot.recoveryStatusText.c_str());
-        }
         ImGui::Text("Dropped Inputs In Recovery: %u", room.inputsDroppedDuringRecovery);
         ImGui::Text("Stabilization Frames Remaining: %u", room.stabilizationFramesRemaining);
         ImGui::Text("Stabilization CRC Passes: %u", room.stabilizationCrcPassCount);
