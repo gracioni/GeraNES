@@ -341,19 +341,12 @@ void SingleThreadEmulationHost::shutdown()
 
 void SingleThreadEmulationHost::setPendingInput(const InputState& input)
 {
-    if(m_frameInputResolver) {
-        m_pendingInput = {};
-        return;
-    }
     m_pendingInput = input;
 }
 
 void SingleThreadEmulationHost::setFrameInputResolver(FrameInputResolver resolver)
 {
     m_frameInputResolver = std::move(resolver);
-    if(m_frameInputResolver) {
-        m_pendingInput = {};
-    }
 }
 
 void SingleThreadEmulationHost::queueInputForFrame(uint32_t frameNumber, const InputState& input)
@@ -636,8 +629,6 @@ bool SingleThreadEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector
     m_holdPresentedFramebufferUntilFrameReady = true;
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
-        const uint32_t loadedFrame = m_emu.frameCount();
-        m_emu.discardQueuedInputFramesAfter(loadedFrame > 0u ? (loadedFrame - 1u) : 0u);
         resetFreeRunningPacing();
         m_hasCachedNetplayCrc = false;
         refreshPresentedFramebuffer();
@@ -651,8 +642,6 @@ bool SingleThreadEmulationHost::loadStateFromMemoryAsManualStateChange(const std
     m_holdPresentedFramebufferUntilFrameReady = true;
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
-        const uint32_t loadedFrame = m_emu.frameCount();
-        m_emu.discardQueuedInputFramesAfter(loadedFrame > 0u ? (loadedFrame - 1u) : 0u);
         resetFreeRunningPacing();
         m_hasCachedNetplayCrc = false;
         onLoadExecutedLocked(m_emu.frameCount());

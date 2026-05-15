@@ -490,8 +490,6 @@ private:
         std::vector<std::unique_ptr<IWebRtcPeerConnection>> peerConnections;
         std::unique_ptr<IWebRtcSignalingClient> signalingClient;
         std::unique_ptr<IWebRtcSignalingServer> signalingServer;
-        std::string localPeerId;
-        std::optional<WebRtcSignalingConfig> activeSignalingConfig;
     };
 
     NetTransportOptions m_options;
@@ -735,8 +733,6 @@ private:
             }
             resources.signalingClient = std::move(signalingClient);
             resources.signalingServer = std::move(signalingServer);
-            resources.localPeerId = std::move(localPeerId);
-            resources.activeSignalingConfig = std::move(activeSignalingConfig);
             return resources;
         }
 
@@ -1875,14 +1871,6 @@ public:
             DetachedRuntimeResources resources = detachRuntimeResources();
             clearRuntimeState();
             if(resources.signalingClient) {
-                if(resources.activeSignalingConfig.has_value() &&
-                   !resources.localPeerId.empty()) {
-                    WebRtcSignalingMessage leaveMessage;
-                    leaveMessage.type = WebRtcSignalType::LeaveRoom;
-                    leaveMessage.roomId = resources.activeSignalingConfig->roomId;
-                    leaveMessage.peerId = resources.localPeerId;
-                    (void)resources.signalingClient->send(leaveMessage);
-                }
                 logTrace("disconnecting signaling client");
                 resources.signalingClient->disconnect();
             }

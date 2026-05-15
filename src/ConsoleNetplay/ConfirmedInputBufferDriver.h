@@ -40,6 +40,7 @@ public:
     };
 
 private:
+    double m_inputProductionAccumulatorMs = 0.0;
     uint32_t m_producedThroughFrame = 0;
     uint32_t m_queuedThroughFrame = 0;
     uint32_t m_prebufferFrames = 10;
@@ -81,8 +82,6 @@ public:
                                     bool awaitingSync,
                                     SessionState state,
                                     std::optional<PlayerSlot> localSlot,
-                                    // Reserved for callers that still sample input on a wall-clock cadence.
-                                    // Current production is frame-target based, so these are compatibility inputs.
                                     uint32_t dtMs,
                                     const RoomState& room,
                                     const LocalInputBuilder& buildLocalInput,
@@ -95,8 +94,6 @@ public:
                                     bool awaitingSync,
                                     SessionState state,
                                     const std::vector<PlayerSlot>& localSlots,
-                                    // Reserved for callers that still sample input on a wall-clock cadence.
-                                    // Current production is frame-target based, so these are compatibility inputs.
                                     uint32_t dtMs,
                                     const RoomState& room,
                                     const LocalInputBuilder& buildLocalInput,

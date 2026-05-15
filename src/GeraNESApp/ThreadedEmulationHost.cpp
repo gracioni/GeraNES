@@ -554,14 +554,9 @@ void ThreadedEmulationHost::shutdown()
 
 void ThreadedEmulationHost::setPendingInput(const InputState& input)
 {
-    bool playbackResolverActive = false;
-    {
-        std::scoped_lock resolverLock(m_frameInputResolverMutex);
-        playbackResolverActive = static_cast<bool>(m_frameInputResolver);
-    }
     {
         std::scoped_lock pendingInputLock(m_pendingInputMutex);
-        m_pendingInput = playbackResolverActive ? InputState{} : input;
+        m_pendingInput = input;
     }
     m_workerWakeRequested.store(true, std::memory_order_release);
     m_presenterCv.notify_one();
@@ -569,17 +564,9 @@ void ThreadedEmulationHost::setPendingInput(const InputState& input)
 
 void ThreadedEmulationHost::setFrameInputResolver(FrameInputResolver resolver)
 {
-    bool playbackResolverActive = false;
     {
         std::scoped_lock resolverLock(m_frameInputResolverMutex);
         m_frameInputResolver = std::move(resolver);
-        playbackResolverActive = static_cast<bool>(m_frameInputResolver);
-    }
-    {
-        std::scoped_lock pendingInputLock(m_pendingInputMutex);
-        if(playbackResolverActive) {
-            m_pendingInput = {};
-        }
     }
     m_workerWakeRequested.store(true, std::memory_order_release);
     m_presenterCv.notify_one();
@@ -862,8 +849,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uin
         if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
             return false;
         }
-        const uint32_t loadedFrame = m_emu.frameCount();
-        m_emu.discardQueuedInputFramesAfter(loadedFrame > 0u ? (loadedFrame - 1u) : 0u);
         m_hasCachedNetplayCrc = false;
         refreshSnapshotLocked();
         return true;
@@ -874,8 +859,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uin
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
-    const uint32_t loadedFrame = m_emu.frameCount();
-    m_emu.discardQueuedInputFramesAfter(loadedFrame > 0u ? (loadedFrame - 1u) : 0u);
     m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     return true;
@@ -889,8 +872,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryAsManualStateChange(const std::ve
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
-    const uint32_t loadedFrame = m_emu.frameCount();
-    m_emu.discardQueuedInputFramesAfter(loadedFrame > 0u ? (loadedFrame - 1u) : 0u);
     m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     onLoadExecutedLocked(m_emu.frameCount());

@@ -8,7 +8,6 @@ void DesyncMonitor::reset()
 {
     m_localHistory.clear();
     m_remoteHistory.clear();
-    m_recentMismatchFrames.clear();
     m_lastMismatchFrame = 0;
     m_consecutiveMismatchCount = 0;
 }
@@ -42,9 +41,6 @@ void DesyncMonitor::invalidateHistoryAfter(FrameNumber frame)
         m_lastMismatchFrame = 0;
         m_consecutiveMismatchCount = 0;
     }
-    while(!m_recentMismatchFrames.empty() && m_recentMismatchFrames.back() >= frame) {
-        m_recentMismatchFrames.pop_back();
-    }
 }
 
 void DesyncMonitor::storeHistoryEntry(std::deque<HistoryEntry>& history, const HistoryEntry& entry)
@@ -73,19 +69,10 @@ std::optional<DesyncMonitor::HistoryEntry> DesyncMonitor::findHistoryEntry(const
     return std::nullopt;
 }
 
-void DesyncMonitor::pruneRecentMismatchFrames(FrameNumber frame)
-{
-    while(!m_recentMismatchFrames.empty() &&
-          m_recentMismatchFrames.front() + kRecentMismatchWindowFrames < frame) {
-        m_recentMismatchFrames.pop_front();
-    }
-}
-
 DesyncMonitor::Update DesyncMonitor::evaluateFrame(FrameNumber frame)
 {
     Update update;
     update.frame = frame;
-    pruneRecentMismatchFrames(frame);
 
     const std::optional<HistoryEntry> localEntry = findHistoryEntry(m_localHistory, frame);
     const std::optional<HistoryEntry> remoteEntry = findHistoryEntry(m_remoteHistory, frame);
@@ -111,12 +98,7 @@ DesyncMonitor::Update DesyncMonitor::evaluateFrame(FrameNumber frame)
             m_consecutiveMismatchCount = 1;
         }
         m_lastMismatchFrame = frame;
-        m_recentMismatchFrames.push_back(frame);
-        pruneRecentMismatchFrames(frame);
         update.consecutiveMismatchCount = m_consecutiveMismatchCount;
-        update.recentMismatchCount = static_cast<uint8_t>(
-            std::min<size_t>(255u, m_recentMismatchFrames.size())
-        );
         return update;
     }
 

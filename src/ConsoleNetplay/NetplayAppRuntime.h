@@ -80,7 +80,6 @@ public:
         FrameNumber latestPredictedRemoteFrame = 0;
         NetplayRuntimeDiagnostics runtimeDiagnostics;
         std::string sessionBlockedReason;
-        std::string recoveryStatusText;
         std::vector<std::string> eventLog;
     };
 
@@ -101,7 +100,6 @@ public:
     {
         bool running = false;
         bool paused = false;
-        bool simulationSuspended = false;
     };
 
     struct UpdateContext

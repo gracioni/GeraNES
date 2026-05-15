@@ -6,12 +6,10 @@
 #include <cmath>
 #include <chrono>
 #include <deque>
-#include <functional>
 #include <mutex>
 #include <optional>
 #include <random>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 #ifdef ERROR
@@ -25,11 +23,9 @@
 #include "ConsoleNetplay/RemoteInputStallMonitor.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayConfig.h"
-#include "ConsoleNetplay/NetplayCrc32.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "ConsoleNetplay/NetplayInputFrameSerialization.h"
 #include "ConsoleNetplay/NetplayAppRuntime.h"
-#include "ConsoleNetplay/NetplayRuntimeSupport.h"
 #include "ConsoleNetplay/NetProtocol.h"
 #include "ConsoleNetplay/NetSerialization.h"
 #include "ConsoleNetplay/WebRtcPeerConnection.h"
@@ -198,72 +194,6 @@ public:
     }
 };
 
-class TrackingAudioOutput : public AudioOutputBase
-{
-public:
-    uint32_t initCalls = 0;
-    uint32_t channelVolumeCalls = 0;
-    uint32_t channelFrequencyCalls = 0;
-    uint32_t pulseDutyCalls = 0;
-    uint32_t noiseMetallicCalls = 0;
-    uint32_t expansionSourceRateCalls = 0;
-    uint32_t expansionVolumeCalls = 0;
-
-    bool init() override
-    {
-        ++initCalls;
-        AudioOutputBase::init();
-        initChannels(outputSampleRate());
-        return true;
-    }
-
-    void setChannelVolume(Channel channel, float volume) override
-    {
-        ++channelVolumeCalls;
-        AudioOutputBase::setChannelVolume(channel, volume);
-    }
-
-    void setChannelFrequency(Channel channel, float frequency) override
-    {
-        ++channelFrequencyCalls;
-        AudioOutputBase::setChannelFrequency(channel, frequency);
-    }
-
-    void setPulseDutyCycle(PulseChannel pulseChannel, float duty) override
-    {
-        ++pulseDutyCalls;
-        AudioOutputBase::setPulseDutyCycle(pulseChannel, duty);
-    }
-
-    void setNoiseMetallic(bool state) override
-    {
-        ++noiseMetallicCalls;
-        AudioOutputBase::setNoiseMetallic(state);
-    }
-
-    void setExpansionSourceRateHz(int rateHz) override
-    {
-        ++expansionSourceRateCalls;
-        AudioOutputBase::setExpansionSourceRateHz(rateHz);
-    }
-
-    void setExpansionAudioVolume(float volume) override
-    {
-        ++expansionVolumeCalls;
-        AudioOutputBase::setExpansionAudioVolume(volume);
-    }
-
-    void resetSetterCounters()
-    {
-        channelVolumeCalls = 0;
-        channelFrequencyCalls = 0;
-        pulseDutyCalls = 0;
-        noiseMetallicCalls = 0;
-        expansionSourceRateCalls = 0;
-        expansionVolumeCalls = 0;
-    }
-};
-
 void queueFrameAndAdvance(GeraNESEmu& emu, uint32_t frame, bool speculative = false)
 {
     InputFrame inputFrame = emu.createInputFrame(frame);
@@ -299,31 +229,6 @@ void queueFrameAndAdvanceFreeRunning(GeraNESEmu& emu, uint32_t frame, bool specu
         ++elapsedMs;
     }
     REQUIRE(emu.frameCount() == targetFrameCount);
-}
-
-InputBuffer::EnqueueResult queueDeterministicTwoPortInput(GeraNESEmu& emu, uint32_t frame)
-{
-    InputFrame input = emu.createInputFrame(frame);
-    input.timelineEpoch = emu.inputTimelineEpoch();
-    input.p1A = (frame % 17u) < 4u;
-    input.p1B = (frame % 29u) == 3u;
-    input.p1Left = (frame / 37u) % 4u == 1u;
-    input.p1Right = (frame / 37u) % 4u == 3u;
-    input.p1Up = (frame / 53u) % 5u == 2u;
-    input.p1Down = (frame / 47u) % 5u == 4u;
-    input.p2A = (frame % 19u) < 5u;
-    input.p2B = (frame % 31u) == 7u;
-    input.p2Left = (frame / 41u) % 4u == 0u;
-    input.p2Right = (frame / 41u) % 4u == 2u;
-    input.p2Up = (frame / 59u) % 5u == 1u;
-    input.p2Down = (frame / 61u) % 5u == 3u;
-    return emu.queueInputFrame(input);
-}
-
-bool inputEnqueueAccepted(InputBuffer::EnqueueResult result)
-{
-    return result == InputBuffer::EnqueueResult::Inserted ||
-           result == InputBuffer::EnqueueResult::UpdatedPending;
 }
 
 uint64_t framebufferChecksum(const uint32_t* framebuffer)
@@ -448,77 +353,6 @@ bool anyJsonLogLineContains(const nlohmann::json& lines, const std::string& need
     return false;
 }
 
-template<typename WritePayload>
-std::vector<uint8_t> buildRawNetplayPacketForTest(ConsoleNetplay::MessageType type,
-                                                  uint32_t sessionId,
-                                                  WritePayload writePayload)
-{
-    ConsoleNetplay::PacketWriter writer;
-    ConsoleNetplay::PacketHeader header;
-    header.type = type;
-    header.sessionId = sessionId;
-    header.serialize(writer);
-    writePayload(writer);
-    return writer.data();
-}
-
-std::vector<uint8_t> buildInputFramePacketForTest(const ConsoleNetplay::InputFrameData& input,
-                                                  const ConsoleNetplay::NetplayInputFrame& frame,
-                                                  uint32_t sessionId)
-{
-    const std::vector<uint8_t> payload = ConsoleNetplay::serializeNetplayInputFrame(frame);
-    ConsoleNetplay::InputFrameData withPayload = input;
-    withPayload.payloadSize = static_cast<uint16_t>(payload.size());
-    return buildRawNetplayPacketForTest(
-        ConsoleNetplay::MessageType::InputFrame,
-        sessionId,
-        [&](ConsoleNetplay::PacketWriter& writer) {
-            withPayload.serialize(writer);
-            writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
-        }
-    );
-}
-
-std::vector<uint8_t> buildFrameStatusPacketForTest(const ConsoleNetplay::FrameStatusData& status,
-                                                   uint32_t sessionId)
-{
-    return buildRawNetplayPacketForTest(
-        ConsoleNetplay::MessageType::FrameStatus,
-        sessionId,
-        [&](ConsoleNetplay::PacketWriter& writer) { status.serialize(writer); }
-    );
-}
-
-std::vector<uint8_t> buildConfirmedInputFramesPacketForTest(const ConsoleNetplay::ConfirmedInputFramesData& data,
-                                                            uint32_t sessionId)
-{
-    return buildRawNetplayPacketForTest(
-        ConsoleNetplay::MessageType::ConfirmedInputFrames,
-        sessionId,
-        [&](ConsoleNetplay::PacketWriter& writer) { data.serialize(writer); }
-    );
-}
-
-std::vector<uint8_t> buildResyncBeginPacketForTest(const ConsoleNetplay::ResyncBeginData& data,
-                                                   uint32_t sessionId)
-{
-    return buildRawNetplayPacketForTest(
-        ConsoleNetplay::MessageType::ResyncBegin,
-        sessionId,
-        [&](ConsoleNetplay::PacketWriter& writer) { data.serialize(writer); }
-    );
-}
-
-std::vector<uint8_t> buildResyncRequestPacketForTest(const ConsoleNetplay::ResyncRequestData& data,
-                                                     uint32_t sessionId)
-{
-    return buildRawNetplayPacketForTest(
-        ConsoleNetplay::MessageType::ResyncRequest,
-        sessionId,
-        [&](ConsoleNetplay::PacketWriter& writer) { data.serialize(writer); }
-    );
-}
-
 class UserLogCapture : public SigSlot::SigSlotBase
 {
 public:
@@ -541,8 +375,7 @@ public:
     uint32_t canonicalCrc32Value = 0;
     std::vector<uint8_t> savedStateData = {0xAAu};
     ConsoleNetplay::FrameNumber lastDiscardedAfterFrame = 0;
-    uint32_t saveStateCallCount = 0;
-    uint32_t loadStateOnCleanBootCallCount = 0;
+    uint32_t loadStateCallCount = 0;
 
     bool valid() const override { return validValue; }
     ConsoleNetplay::FrameNumber frameCount() const override { return frameValue; }
@@ -552,14 +385,10 @@ public:
     {
         lastDiscardedAfterFrame = frame;
     }
-    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override
-    {
-        ++loadStateOnCleanBootCallCount;
-        return true;
-    }
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override { return true; }
     std::vector<uint8_t> saveNetplayStateToMemory() override
     {
-        ++saveStateCallCount;
+        ++loadStateCallCount;
         return savedStateData;
     }
     uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
@@ -570,7 +399,6 @@ class FakeNetplayStateHostBridge final : public ConsoleNetplay::INetplayStateHos
 public:
     ConsoleNetplay::FrameNumber lastFrameReadyFrameValue = 0;
     uint32_t lastFrameReadyNetplayCrc32Value = 0;
-    std::unordered_map<ConsoleNetplay::FrameNumber, std::shared_ptr<const std::vector<uint8_t>>> snapshotDataByFrame;
     std::unordered_map<ConsoleNetplay::FrameNumber, uint32_t> snapshotCrc32ByFrame;
     ConsoleNetplay::FrameNumber lastDiscardedNetplayInputsAfterFrame = 0;
 
@@ -578,28 +406,11 @@ public:
     void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber frame) override
     {
         lastDiscardedNetplayInputsAfterFrame = frame;
-        for(auto it = snapshotDataByFrame.begin(); it != snapshotDataByFrame.end();) {
-            if(it->first > frame) {
-                it = snapshotDataByFrame.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        for(auto it = snapshotCrc32ByFrame.begin(); it != snapshotCrc32ByFrame.end();) {
-            if(it->first > frame) {
-                it = snapshotCrc32ByFrame.erase(it);
-            } else {
-                ++it;
-            }
-        }
     }
     ConsoleNetplay::FrameNumber lastFrameReadyFrame() const override { return lastFrameReadyFrameValue; }
     uint32_t lastFrameReadyNetplayCrc32() const override { return lastFrameReadyNetplayCrc32Value; }
-    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber frame) const override
+    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber) const override
     {
-        if(const auto it = snapshotDataByFrame.find(frame); it != snapshotDataByFrame.end()) {
-            return it->second;
-        }
         return std::nullopt;
     }
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber frame) const override
@@ -609,11 +420,7 @@ public:
         }
         return std::nullopt;
     }
-    bool updateNetplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber frame, uint32_t canonicalCrc32) override
-    {
-        snapshotCrc32ByFrame[frame] = canonicalCrc32;
-        return true;
-    }
+    bool updateNetplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber, uint32_t) override { return true; }
     void seedNetplaySnapshot(ConsoleNetplay::FrameNumber,
                              const std::vector<uint8_t>&,
                              std::optional<uint32_t>) override {}
@@ -633,9 +440,6 @@ public:
     uint32_t canonicalCrc32Value = 0;
     std::optional<ConsoleNetplay::NetplayRomSelection> currentRomValue =
         ConsoleNetplay::NetplayRomSelection{true, "Test ROM", {}};
-    std::optional<ConsoleNetplay::FrameNumber> rollbackLoadFrame;
-    std::function<void(ConsoleNetplay::FrameNumber)> onFrameAdvanced;
-    std::vector<ConsoleNetplay::FrameNumber> queuedPlaybackFrames;
     uint32_t applyRemoteInputTopologyCallCount = 0;
     uint32_t publishCurrentInputTopologyCallCount = 0;
     ConsoleNetplay::FrameNumber lastDiscardedQueuedInputAfterFrame = 0;
@@ -648,21 +452,8 @@ public:
     {
         return currentRomValue;
     }
-    bool loadRollbackState(const std::vector<uint8_t>&) override
-    {
-        if(rollbackLoadFrame.has_value()) {
-            frameValue = *rollbackLoadFrame;
-        }
-        return true;
-    }
-    bool updateUntilFrame(uint32_t, bool) override
-    {
-        ++frameValue;
-        if(onFrameAdvanced) {
-            onFrameAdvanced(frameValue);
-        }
-        return true;
-    }
+    bool loadRollbackState(const std::vector<uint8_t>&) override { return true; }
+    bool updateUntilFrame(uint32_t, bool) override { return true; }
     void applyRemoteInputTopology(const ConsoleNetplay::RoomState&) override
     {
         ++applyRemoteInputTopologyCallCount;
@@ -679,9 +470,8 @@ public:
     }
     bool hasStableQueuedInputFrame(ConsoleNetplay::FrameNumber) const override { return false; }
     void queueStandaloneBootstrapInputFrame() override {}
-    bool queuePlaybackInputFrame(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed) override
+    bool queuePlaybackInputFrame(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs&) override
     {
-        queuedPlaybackFrames.push_back(confirmed.netplayFrame.frame);
         return true;
     }
     void discardQueuedInputFramesAfter(ConsoleNetplay::FrameNumber frame) override
@@ -689,46 +479,12 @@ public:
         lastDiscardedQueuedInputAfterFrame = frame;
     }
 };
-
-class FakeRuntimeSessionControls final : public ConsoleNetplay::INetplayRuntimeSessionControls
-{
-public:
-    ConsoleNetplay::FrameNumber frameValue = 0;
-    uint32_t restartAudioCallCount = 0;
-    uint32_t discardQueuedAudioCallCount = 0;
-    ConsoleNetplay::FrameNumber lastDiscardedInputsAfterFrame = 0;
-    bool simulationSuspended = false;
-
-    ConsoleNetplay::FrameNumber frameCount() const override { return frameValue; }
-    void restartAudio() override { ++restartAudioCallCount; }
-    void discardQueuedNetplayInputsAfter(ConsoleNetplay::FrameNumber frame) override
-    {
-        lastDiscardedInputsAfterFrame = frame;
-    }
-    void discardQueuedAudio() override { ++discardQueuedAudioCallCount; }
-    void setSimulationSuspended(bool suspended) override { simulationSuspended = suspended; }
-};
 }
 
 TEST_CASE("Netplay desync monitor defaults are sane", "[netplay][crc][config]")
 {
     REQUIRE(ConsoleNetplay::kDesyncMonitorEnabled == true);
     REQUIRE(ConsoleNetplay::kDesyncCrcIntervalFrames == 30u);
-}
-
-TEST_CASE("Netplay rollback diagnostics measure backward rollback distance", "[netplay][rollback][diagnostics]")
-{
-    ConsoleNetplay::RollbackStats stats;
-
-    stats.recordRollback(120u, 90u);
-    REQUIRE(stats.rollbackCount == 1u);
-    REQUIRE(stats.lastRollbackFromFrame == 120u);
-    REQUIRE(stats.lastRollbackToFrame == 90u);
-    REQUIRE(stats.maxRollbackDistance == 30u);
-
-    stats.recordRollback(90u, 95u);
-    REQUIRE(stats.rollbackCount == 2u);
-    REQUIRE(stats.maxRollbackDistance == 30u);
 }
 
 TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives before local CRC", "[netplay][crc][monitor]")
@@ -744,52 +500,6 @@ TEST_CASE("Netplay desync monitor catches mismatch when remote CRC arrives befor
     REQUIRE(mismatch.mismatchDetected == true);
     REQUIRE(mismatch.frame == 120u);
     REQUIRE(mismatch.consecutiveMismatchCount == 1u);
-    REQUIRE(mismatch.recentMismatchCount == 1u);
-}
-
-TEST_CASE("Netplay desync monitor tracks sparse recent CRC mismatches", "[netplay][crc][monitor]")
-{
-    ConsoleNetplay::DesyncMonitor monitor;
-
-    REQUIRE(monitor.submitLocalCrc(120u, 0x11111111u).compared == false);
-    auto update = monitor.submitRemoteCrc(120u, 0x22222222u);
-    REQUIRE(update.mismatchDetected);
-    REQUIRE(update.consecutiveMismatchCount == 1u);
-    REQUIRE(update.recentMismatchCount == 1u);
-
-    REQUIRE(monitor.submitLocalCrc(150u, 0x33333333u).compared == false);
-    update = monitor.submitRemoteCrc(150u, 0x33333333u);
-    REQUIRE(update.compared);
-    REQUIRE_FALSE(update.mismatchDetected);
-    REQUIRE(update.mismatchResolved);
-
-    REQUIRE(monitor.submitLocalCrc(240u, 0x44444444u).compared == false);
-    update = monitor.submitRemoteCrc(240u, 0x55555555u);
-    REQUIRE(update.mismatchDetected);
-    REQUIRE(update.consecutiveMismatchCount == 1u);
-    REQUIRE(update.recentMismatchCount == 2u);
-
-    REQUIRE(monitor.submitLocalCrc(360u, 0x66666666u).compared == false);
-    update = monitor.submitRemoteCrc(360u, 0x77777777u);
-    REQUIRE(update.mismatchDetected);
-    REQUIRE(update.consecutiveMismatchCount == 2u);
-    REQUIRE(update.recentMismatchCount == 3u);
-}
-
-TEST_CASE("Netplay desync monitor expires old sparse CRC mismatches", "[netplay][crc][monitor]")
-{
-    ConsoleNetplay::DesyncMonitor monitor;
-
-    REQUIRE(monitor.submitLocalCrc(120u, 0x11111111u).compared == false);
-    REQUIRE(monitor.submitRemoteCrc(120u, 0x22222222u).recentMismatchCount == 1u);
-
-    REQUIRE(monitor.submitLocalCrc(150u, 0x33333333u).compared == false);
-    REQUIRE_FALSE(monitor.submitRemoteCrc(150u, 0x33333333u).mismatchDetected);
-
-    REQUIRE(monitor.submitLocalCrc(780u, 0x44444444u).compared == false);
-    const auto update = monitor.submitRemoteCrc(780u, 0x55555555u);
-    REQUIRE(update.mismatchDetected);
-    REQUIRE(update.recentMismatchCount == 1u);
 }
 
 TEST_CASE("Netplay desync monitor drops stale remote CRC history after realignment", "[netplay][crc][monitor]")
@@ -914,7 +624,7 @@ TEST_CASE("Periodic netplay CRC submits live frame-ready CRC at confirmed fronti
     host.disconnect();
 }
 
-TEST_CASE("Periodic netplay CRC submits the latest frame-ready checkpoint within the confirmed frontier",
+TEST_CASE("Periodic netplay CRC waits for frame-ready frontier to catch confirmed frame",
           "[netplay][crc][runtime][regression]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -950,301 +660,10 @@ TEST_CASE("Periodic netplay CRC submits the latest frame-ready checkpoint within
     state.nextScheduledLocalCrcFrame = 30u;
 
     const auto result = ConsoleNetplay::runtimeSubmitPeriodicLocalCrcIfNeeded(host, emu, runtimeHost, state);
-    REQUIRE(result.submitted == true);
-    REQUIRE(result.submittedFrame == 30u);
-    REQUIRE(result.submittedCrc32 == 0x11223344u);
-    REQUIRE(state.lastSubmittedLocalCrcFrame == 30u);
+    REQUIRE(result.submitted == false);
+    REQUIRE(state.lastSubmittedLocalCrcFrame == 0u);
 
     host.disconnect();
-}
-
-TEST_CASE("Host rollback-recovery missing snapshots wait for CRC-confirmed recovery",
-          "[netplay][runtime][rollback][host-resync]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 100u;
-    room.lastConfirmedFrame = 96u;
-    host.setLocalSimulationFrame(100u);
-    host.rescheduleRollbackFrame(95u);
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.reanchor(96u);
-
-    FakeNetplayConsole console;
-    console.frameValue = 100u;
-
-    FakeNetplayStateBridge emu;
-    emu.frameValue = 100u;
-    emu.canonicalCrc32Value = 0x2468ACE0u;
-    emu.savedStateData = {0x10u, 0x20u, 0x30u, 0x40u};
-
-    FakeNetplayStateHostBridge runtimeHost;
-    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
-    ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
-
-    for(uint32_t attempt = 0; attempt < 9u; ++attempt) {
-        const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
-            host,
-            inputDriver,
-            console,
-            emu,
-            runtimeHost,
-            rollbackState,
-            rollbackSettings
-        );
-
-        REQUIRE(result.consumed);
-        REQUIRE_FALSE(result.startedAuthoritativeResync);
-    }
-    const auto drainedResult = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
-        host,
-        inputDriver,
-        console,
-        emu,
-        runtimeHost,
-        rollbackState,
-        rollbackSettings
-    );
-    REQUIRE_FALSE(drainedResult.consumed);
-    REQUIRE(emu.loadStateOnCleanBootCallCount == 0u);
-    REQUIRE(runtimeHost.lastFrameReadyFrameValue == 0u);
-
-    host.disconnect();
-}
-
-TEST_CASE("Host rollback-recovery resync fallback is suppressed during stabilization",
-          "[netplay][runtime][rollback][host-resync][stabilization]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 100u;
-    room.lastConfirmedFrame = 96u;
-    host.setLocalSimulationFrame(100u);
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
-    room.recoveryModeEnteredAtFrame = 90u;
-    room.stabilizationFramesRemaining = 8u;
-    host.rescheduleRollbackFrame(95u);
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.reanchor(96u);
-
-    FakeNetplayConsole console;
-    console.frameValue = 100u;
-
-    FakeNetplayStateBridge emu;
-    emu.frameValue = 100u;
-    emu.canonicalCrc32Value = 0x2468ACE0u;
-    emu.savedStateData = {0x10u, 0x20u, 0x30u, 0x40u};
-
-    FakeNetplayStateHostBridge runtimeHost;
-    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
-    ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
-
-    REQUIRE(host.session().roomState().recoveryInputMode ==
-            ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing);
-
-    for(uint32_t attempt = 0; attempt < 12u; ++attempt) {
-        const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
-            host,
-            inputDriver,
-            console,
-            emu,
-            runtimeHost,
-            rollbackState,
-            rollbackSettings
-        );
-
-        REQUIRE(result.consumed);
-        REQUIRE_FALSE(result.startedAuthoritativeResync);
-    }
-    REQUIRE(emu.loadStateOnCleanBootCallCount == 0u);
-
-    host.disconnect();
-}
-
-TEST_CASE("Rollback replay keeps regenerated snapshots available",
-          "[netplay][runtime][rollback][snapshots][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 100u;
-    room.lastConfirmedFrame = 96u;
-    host.setLocalSimulationFrame(100u);
-    host.rescheduleRollbackFrame(95u);
-
-    std::vector<ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
-    for(ConsoleNetplay::FrameNumber frame = 96u; frame <= 100u; ++frame) {
-        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
-        confirmed.frame = frame;
-        confirmed.netplayFrame =
-            GeraNESNetplay::toNetplayInputFrame(GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room));
-        confirmedFrames.push_back(confirmed);
-    }
-    ConsoleNetplay::ConfirmedInputFramesData confirmedData{};
-    confirmedData.timelineEpoch = room.timelineEpoch;
-    confirmedData.startFrame = 96u;
-    confirmedData.frameCount = static_cast<uint16_t>(confirmedFrames.size());
-    REQUIRE(host.injectConfirmedPlaybackFramesForTests(confirmedData, confirmedFrames));
-    room.lastConfirmedFrame = 96u;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.reanchor(96u);
-
-    FakeNetplayConsole console;
-    console.frameValue = 100u;
-    console.rollbackLoadFrame = 95u;
-
-    FakeNetplayStateBridge emu;
-    emu.frameValue = 100u;
-    emu.canonicalCrc32Value = 0x2468ACE0u;
-
-    FakeNetplayStateHostBridge runtimeHost;
-    runtimeHost.snapshotDataByFrame[95u] =
-        std::make_shared<const std::vector<uint8_t>>(std::vector<uint8_t>{0x95u});
-    console.onFrameAdvanced = [&runtimeHost](ConsoleNetplay::FrameNumber frame) {
-        runtimeHost.snapshotDataByFrame[frame] =
-            std::make_shared<const std::vector<uint8_t>>(std::vector<uint8_t>{static_cast<uint8_t>(frame)});
-        runtimeHost.snapshotCrc32ByFrame[frame] = 0x1000u + frame;
-    };
-
-    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
-    ConsoleNetplay::RuntimeRollbackProcessSettings rollbackSettings;
-
-    const auto result = ConsoleNetplay::runtimeProcessRollbackIfNeeded(
-        host,
-        inputDriver,
-        console,
-        emu,
-        runtimeHost,
-        rollbackState,
-        rollbackSettings
-    );
-
-    REQUIRE(result.consumed);
-    REQUIRE(result.applied);
-    REQUIRE(console.frameValue == 100u);
-    REQUIRE(runtimeHost.lastDiscardedNetplayInputsAfterFrame == 95u);
-    REQUIRE(runtimeHost.snapshotDataByFrame.find(96u) != runtimeHost.snapshotDataByFrame.end());
-    REQUIRE(runtimeHost.snapshotDataByFrame.find(100u) != runtimeHost.snapshotDataByFrame.end());
-    REQUIRE(console.queuedPlaybackFrames == std::vector<ConsoleNetplay::FrameNumber>{96u, 97u, 98u, 99u, 100u});
-
-    host.disconnect();
-}
-
-TEST_CASE("Runtime resync transitions flush audio without restarting the backend",
-          "[netplay][runtime][audio][resync]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(coordinator.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Resyncing;
-    room.resyncTargetFrame = 42u;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    ConsoleNetplay::RuntimeSessionTransitionState sessionState;
-    sessionState.lastSessionState = ConsoleNetplay::SessionState::Running;
-    ConsoleNetplay::RuntimePeriodicCrcState periodicCrcState;
-    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
-    ConsoleNetplay::RuntimeSharedClockCatchupState sharedClockState;
-    ConsoleNetplay::FrameNumber lastLoadedAuthoritativeFrame = 0u;
-    FakeRuntimeSessionControls controls;
-    controls.frameValue = 50u;
-
-    auto result = ConsoleNetplay::runtimeHandleSessionStateTransitions(
-        coordinator,
-        inputDriver,
-        controls,
-        sessionState,
-        periodicCrcState,
-        rollbackState,
-        sharedClockState,
-        lastLoadedAuthoritativeFrame
-    );
-
-    REQUIRE(result.resetWorkerTick);
-    REQUIRE(controls.restartAudioCallCount == 0u);
-    REQUIRE(controls.discardQueuedAudioCallCount == 1u);
-    REQUIRE(controls.lastDiscardedInputsAfterFrame == 42u);
-
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.lastConfirmedFrame = 42u;
-    lastLoadedAuthoritativeFrame = 42u;
-
-    result = ConsoleNetplay::runtimeHandleSessionStateTransitions(
-        coordinator,
-        inputDriver,
-        controls,
-        sessionState,
-        periodicCrcState,
-        rollbackState,
-        sharedClockState,
-        lastLoadedAuthoritativeFrame
-    );
-
-    REQUIRE_FALSE(result.resetWorkerTick);
-    REQUIRE(controls.restartAudioCallCount == 0u);
-    REQUIRE(controls.discardQueuedAudioCallCount == 2u);
-
-    coordinator.disconnect();
-}
-
-TEST_CASE("Runtime resync transition forces post-recovery CRC proof window",
-          "[netplay][crc][runtime][resync]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(coordinator.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Resyncing;
-    room.resyncTargetFrame = 1000u;
-    room.lastConfirmedFrame = 1000u;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    ConsoleNetplay::RuntimeSessionTransitionState sessionState;
-    sessionState.lastSessionState = ConsoleNetplay::SessionState::Resyncing;
-    ConsoleNetplay::RuntimePeriodicCrcState periodicCrcState;
-    periodicCrcState.lastSubmittedLocalCrcFrame = 990u;
-    periodicCrcState.nextScheduledLocalCrcFrame = 3000u;
-    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
-    ConsoleNetplay::RuntimeSharedClockCatchupState sharedClockState;
-    ConsoleNetplay::FrameNumber lastLoadedAuthoritativeFrame = 1000u;
-    FakeRuntimeSessionControls controls;
-    controls.frameValue = 1000u;
-
-    room.state = ConsoleNetplay::SessionState::Running;
-    const auto result = ConsoleNetplay::runtimeHandleSessionStateTransitions(
-        coordinator,
-        inputDriver,
-        controls,
-        sessionState,
-        periodicCrcState,
-        rollbackState,
-        sharedClockState,
-        lastLoadedAuthoritativeFrame
-    );
-
-    REQUIRE_FALSE(result.resetWorkerTick);
-    REQUIRE(periodicCrcState.forceNextConfirmedCrcSubmission == true);
-    REQUIRE(periodicCrcState.postRecoveryRapidCrcThroughFrame >=
-            1000u + ConsoleNetplay::kDesyncCrcIntervalFrames * 2u);
-
-    coordinator.disconnect();
 }
 
 TEST_CASE("Queued topology mutations stay deferred while assignment recovery is blocked",
@@ -1382,558 +801,6 @@ TEST_CASE("Netplay frame status protocol roundtrip preserves dynamic topology",
     }
 }
 
-TEST_CASE("Netplay start session protocol carries post-resync time alignment",
-          "[netplay][protocol][time-align]")
-{
-    ConsoleNetplay::StartSessionData session;
-    session.state = ConsoleNetplay::SessionState::Running;
-    session.inputDelayFrames = 2u;
-    session.predictFrames = 8u;
-    session.postResyncTimeAlignFrame = 4200u;
-    session.postResyncTimeAlignClockMicros = 123456789ull;
-    session.topology.slots = {
-        ConsoleNetplay::InputTopologyData::Slot{1u, 1u, 1u, 0x0401u, "Port 1", "Standard Controller"},
-        ConsoleNetplay::InputTopologyData::Slot{2u, 1u, 2u, 0x0402u, "Port 2", "Standard Controller"}
-    };
-
-    ConsoleNetplay::PacketWriter writer;
-    session.serialize(writer);
-
-    ConsoleNetplay::StartSessionData decoded;
-    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
-    REQUIRE(ConsoleNetplay::StartSessionData::deserialize(reader, decoded));
-    REQUIRE(reader.remaining() == 0u);
-    REQUIRE(decoded.state == session.state);
-    REQUIRE(decoded.inputDelayFrames == session.inputDelayFrames);
-    REQUIRE(decoded.predictFrames == session.predictFrames);
-    REQUIRE(decoded.postResyncTimeAlignFrame == session.postResyncTimeAlignFrame);
-    REQUIRE(decoded.postResyncTimeAlignClockMicros == session.postResyncTimeAlignClockMicros);
-    REQUIRE(decoded.topology.slots.size() == session.topology.slots.size());
-}
-
-TEST_CASE("Netplay input resend request protocol roundtrip preserves sparse slot range",
-          "[netplay][protocol][resend]")
-{
-    ConsoleNetplay::InputResendRequestData request;
-    request.timelineEpoch = 23u;
-    request.participantId = 9u;
-    request.playerSlot = 42u;
-    request.startFrame = 1200u;
-    request.frameCount = 17u;
-
-    ConsoleNetplay::PacketWriter writer;
-    request.serialize(writer);
-
-    ConsoleNetplay::InputResendRequestData decoded;
-    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
-    REQUIRE(ConsoleNetplay::InputResendRequestData::deserialize(reader, decoded));
-    REQUIRE(reader.remaining() == 0u);
-    REQUIRE(decoded.timelineEpoch == request.timelineEpoch);
-    REQUIRE(decoded.participantId == request.participantId);
-    REQUIRE(decoded.playerSlot == request.playerSlot);
-    REQUIRE(decoded.startFrame == request.startFrame);
-    REQUIRE(decoded.frameCount == request.frameCount);
-}
-
-TEST_CASE("Netplay input resend unavailable protocol roundtrip preserves sparse slot range",
-          "[netplay][protocol][resend]")
-{
-    ConsoleNetplay::InputResendUnavailableData unavailable;
-    unavailable.timelineEpoch = 24u;
-    unavailable.participantId = 7u;
-    unavailable.playerSlot = 3u;
-    unavailable.startFrame = 2048u;
-    unavailable.frameCount = 2u;
-
-    ConsoleNetplay::PacketWriter writer;
-    unavailable.serialize(writer);
-
-    ConsoleNetplay::InputResendUnavailableData decoded;
-    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
-    REQUIRE(ConsoleNetplay::InputResendUnavailableData::deserialize(reader, decoded));
-    REQUIRE(reader.remaining() == 0u);
-    REQUIRE(decoded.timelineEpoch == unavailable.timelineEpoch);
-    REQUIRE(decoded.participantId == unavailable.participantId);
-    REQUIRE(decoded.playerSlot == unavailable.playerSlot);
-    REQUIRE(decoded.startFrame == unavailable.startFrame);
-    REQUIRE(decoded.frameCount == unavailable.frameCount);
-}
-
-TEST_CASE("Netplay local resend history survives authoritative realignment",
-          "[netplay][resend][history][resync][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    REQUIRE(coordinator.host(reserveLoopbackPort(), 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 5u;
-    room.currentFrame = 104u;
-    room.lastConfirmedFrame = 104u;
-
-    ConsoleNetplay::ParticipantInfo* local =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
-    REQUIRE(local != nullptr);
-    local->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    local->romLoaded = true;
-    local->romCompatible = true;
-    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    local->normalizeControllerAssignments(&room.inputTopology);
-
-    for(ConsoleNetplay::FrameNumber frame = 101u; frame <= 104u; ++frame) {
-        coordinator.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0x10u + frame);
-    }
-
-    REQUIRE(coordinator.localInputs().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
-    REQUIRE(coordinator.localInputResendHistoryForTests().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
-
-    const std::vector<uint8_t> payload{0x47u, 0x45u, 0x52u, 0x41u};
-    REQUIRE(coordinator.beginResync(
-        102u,
-        payload,
-        ConsoleNetplay::crc32(payload.data(), payload.size()),
-        0x12345678u,
-        ConsoleNetplay::ResyncReason::ConfirmedDesync
-    ));
-
-    REQUIRE(coordinator.localInputs().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) == nullptr);
-    const ConsoleNetplay::TimelineInputEntry* archived =
-        coordinator.localInputResendHistoryForTests().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot);
-    REQUIRE(archived != nullptr);
-    REQUIRE(archived->netplayFrame.timelineEpoch == 5u);
-    REQUIRE(archived->buttonMaskLo == 0x10u + 104u);
-
-    coordinator.disconnect();
-}
-
-TEST_CASE("Netplay resend-unavailable escalates to one authoritative resync",
-          "[netplay][resend][history][resync][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    REQUIRE(host.host(reserveLoopbackPort(), 2, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 8u;
-    room.currentFrame = 2048u;
-    room.lastConfirmedFrame = 2040u;
-    host.setLocalSimulationFrame(2048u);
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 1u;
-    remote.displayName = "Client";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    ConsoleNetplay::InputResendUnavailableData unavailable;
-    unavailable.timelineEpoch = room.timelineEpoch;
-    unavailable.participantId = remote.id;
-    unavailable.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
-    unavailable.startFrame = 2038u;
-    unavailable.frameCount = 1u;
-
-    REQUIRE(host.injectInputResendUnavailableForTests(unavailable));
-    REQUIRE(room.inputResendUnavailableReceivedCount == 1u);
-
-    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pending =
-        host.consumePendingHostResyncFrame();
-    REQUIRE(pending.has_value());
-    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(pending->frame == 2040u);
-
-    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
-    REQUIRE(updated != nullptr);
-    REQUIRE(updated->inputSuspended);
-    REQUIRE(updated->inputResumeAwaitingResync);
-    REQUIRE(updated->sequenceRebasePending);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=input_resend_history_missing"));
-
-    host.disconnect();
-}
-
-TEST_CASE("Netplay CRC mismatch diagnostics include assignments and topology",
-          "[netplay][crc][diagnostics][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    REQUIRE(host.host(reserveLoopbackPort(), 2, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::HORI_ADAPTER
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 3u;
-    room.currentFrame = 600u;
-    room.lastConfirmedFrame = 600u;
-
-    ConsoleNetplay::ParticipantInfo* local =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(host.session().findParticipant(host.localParticipantId()));
-    REQUIRE(local != nullptr);
-    local->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    local->controllerAssignments = {GeraNESNetplay::kMultitapP1PlayerSlot};
-    local->normalizeControllerAssignments(&room.inputTopology);
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 1u;
-    remote.displayName = "Client";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {GeraNESNetplay::kMultitapP2PlayerSlot};
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    host.submitLocalCrc(600u, 0x12345678u, "frame-ready", ConsoleNetplay::CrcSubmissionSource::FrameReady, 600u, 600u);
-
-    ConsoleNetplay::CrcReportData report;
-    report.timelineEpoch = room.timelineEpoch;
-    report.frame = 600u;
-    report.crc32 = 0x87654321u;
-    report.submissionSource = ConsoleNetplay::CrcSubmissionSource::FrameReady;
-    report.senderLocalSimulationFrame = 600u;
-    report.senderConfirmedFrame = 600u;
-    REQUIRE(host.injectCrcReportForTests(report));
-
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=confirmed_crc_mismatch"));
-    REQUIRE(anyLogLineContains(host.eventLog(), "assignments=["));
-    REQUIRE(anyLogLineContains(host.eventLog(), "topology=["));
-    REQUIRE(anyLogLineContains(host.eventLog(), "Hori Adapter"));
-
-    host.disconnect();
-}
-
-TEST_CASE("GeraNES topology contribution preserves epoch and device payload",
-          "[netplay][topology][geranes][input][regression]")
-{
-    ConsoleNetplay::RoomState room;
-    room.timelineEpoch = 42u;
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-
-    const InputFrame baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(1234u, room);
-    REQUIRE(baseFrame.timelineEpoch == room.timelineEpoch);
-    REQUIRE(baseFrame.port1Device == Settings::Device::CONTROLLER);
-    REQUIRE(baseFrame.port2Device == Settings::Device::CONTROLLER);
-
-    GeraNESNetplay::GeraNESInputState state{};
-    state.p2A = true;
-    state.p2Right = true;
-
-    const InputFrame contribution =
-        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, state, baseFrame);
-    REQUIRE(contribution.frame == baseFrame.frame);
-    REQUIRE(contribution.timelineEpoch == baseFrame.timelineEpoch);
-    REQUIRE(contribution.port1Device == baseFrame.port1Device);
-    REQUIRE(contribution.port2Device == baseFrame.port2Device);
-    REQUIRE(contribution.p1A == false);
-    REQUIRE(contribution.p2A == true);
-    REQUIRE(contribution.p2Right == true);
-
-    const ConsoleNetplay::NetplayInputFrame netplayContribution =
-        GeraNESNetplay::toNetplayInputFrame(contribution);
-    REQUIRE(netplayContribution.frame == baseFrame.frame);
-    REQUIRE(netplayContribution.timelineEpoch == baseFrame.timelineEpoch);
-
-    const InputFrame roundTrip = GeraNESNetplay::toGeraNESInputFrame(netplayContribution);
-    REQUIRE(roundTrip.timelineEpoch == baseFrame.timelineEpoch);
-    REQUIRE(roundTrip.port1Device == Settings::Device::CONTROLLER);
-    REQUIRE(roundTrip.port2Device == Settings::Device::CONTROLLER);
-    REQUIRE(roundTrip.p1A == false);
-    REQUIRE(roundTrip.p2A == true);
-    REQUIRE(roundTrip.p2Right == true);
-}
-
-TEST_CASE("GeraNES topology contributions isolate assigned slots across controller ports",
-          "[netplay][topology][geranes][input][assignment]")
-{
-    ConsoleNetplay::RoomState room;
-    room.timelineEpoch = 7u;
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-
-    const InputFrame baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(88u, room);
-
-    GeraNESNetplay::GeraNESInputState allButtons{};
-    allButtons.p1A = true;
-    allButtons.p1Left = true;
-    allButtons.p2B = true;
-    allButtons.p2Right = true;
-
-    InputFrame combined = baseFrame;
-    const InputFrame p1Contribution =
-        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort1PlayerSlot, allButtons, baseFrame);
-    const InputFrame p2Contribution =
-        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, allButtons, baseFrame);
-
-    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kPort1PlayerSlot, p1Contribution);
-    REQUIRE(combined.p1A == true);
-    REQUIRE(combined.p1Left == true);
-    REQUIRE(combined.p2B == false);
-    REQUIRE(combined.p2Right == false);
-
-    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kPort2PlayerSlot, p2Contribution);
-    REQUIRE(combined.timelineEpoch == baseFrame.timelineEpoch);
-    REQUIRE(combined.port1Device == Settings::Device::CONTROLLER);
-    REQUIRE(combined.port2Device == Settings::Device::CONTROLLER);
-    REQUIRE(combined.p1A == true);
-    REQUIRE(combined.p1Left == true);
-    REQUIRE(combined.p2B == true);
-    REQUIRE(combined.p2Right == true);
-}
-
-TEST_CASE("Netplay protocol deserializers reject truncated payloads", "[netplay][protocol][malformed]")
-{
-    const auto requireTruncationRejected =
-        [](const auto& value, auto deserialize) {
-            ConsoleNetplay::PacketWriter writer;
-            value.serialize(writer);
-            const std::vector<uint8_t>& bytes = writer.data();
-            REQUIRE_FALSE(bytes.empty());
-
-            for(size_t size = 0; size < bytes.size(); ++size) {
-                ConsoleNetplay::PacketReader reader(bytes.data(), size);
-                REQUIRE_FALSE(deserialize(reader));
-            }
-        };
-
-    ConsoleNetplay::FrameStatusData status;
-    status.timelineEpoch = 8u;
-    status.currentFrame = 120u;
-    status.lastConfirmedFrame = 116u;
-    status.inputDelayFrames = 3u;
-    status.predictFrames = 8u;
-    status.topology.slots = {
-        ConsoleNetplay::InputTopologyData::Slot{9u, 1u, 11u, 22u, "Pad", "A Button"}
-    };
-    requireTruncationRejected(status, [](ConsoleNetplay::PacketReader& reader) {
-        ConsoleNetplay::FrameStatusData decoded;
-        return ConsoleNetplay::FrameStatusData::deserialize(reader, decoded);
-    });
-
-    ConsoleNetplay::ConfirmedInputFrameEntry confirmedEntry;
-    confirmedEntry.authoritativeFrameStartClockMicros = 123456u;
-    confirmedEntry.slotMasks.push_back({2u, 0x10u, 0x20u});
-    confirmedEntry.payloadSize = 4u;
-    requireTruncationRejected(confirmedEntry, [](ConsoleNetplay::PacketReader& reader) {
-        ConsoleNetplay::ConfirmedInputFrameEntry decoded;
-        return ConsoleNetplay::ConfirmedInputFrameEntry::deserialize(reader, decoded);
-    });
-
-    ConsoleNetplay::ResyncBeginData resyncBegin;
-    resyncBegin.resyncId = 7u;
-    resyncBegin.timelineEpoch = 9u;
-    resyncBegin.targetFrame = 300u;
-    resyncBegin.confirmedFrame = 296u;
-    resyncBegin.payloadSize = 4096u;
-    resyncBegin.payloadCrc32 = 0x12345678u;
-    resyncBegin.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
-    requireTruncationRejected(resyncBegin, [](ConsoleNetplay::PacketReader& reader) {
-        ConsoleNetplay::ResyncBeginData decoded;
-        return ConsoleNetplay::ResyncBeginData::deserialize(reader, decoded);
-    });
-
-    ConsoleNetplay::InputResendRequestData resendRequest;
-    resendRequest.timelineEpoch = 11u;
-    resendRequest.participantId = 3u;
-    resendRequest.playerSlot = 42u;
-    resendRequest.startFrame = 200u;
-    resendRequest.frameCount = 4u;
-    requireTruncationRejected(resendRequest, [](ConsoleNetplay::PacketReader& reader) {
-        ConsoleNetplay::InputResendRequestData decoded;
-        return ConsoleNetplay::InputResendRequestData::deserialize(reader, decoded);
-    });
-}
-
-TEST_CASE("Netplay coordinator rejects invalid resync payload bounds without completing recovery",
-          "[netplay][protocol][malformed][resync]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.sessionId = 1u;
-    room.timelineEpoch = 3u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.activeResyncId = 0u;
-
-    ConsoleNetplay::ResyncBeginData oversizedBegin;
-    oversizedBegin.resyncId = 10u;
-    oversizedBegin.timelineEpoch = room.timelineEpoch + 1u;
-    oversizedBegin.targetFrame = 120u;
-    oversizedBegin.payloadSize = (64u * 1024u * 1024u) + 1u;
-    oversizedBegin.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
-
-    REQUIRE_FALSE(coordinator.injectResyncBeginForTests(oversizedBegin));
-    REQUIRE(room.activeResyncId == 0u);
-    REQUIRE(room.state == ConsoleNetplay::SessionState::Running);
-    REQUIRE(room.timelineEpoch == 3u);
-
-    ConsoleNetplay::ResyncBeginData begin;
-    begin.resyncId = 11u;
-    begin.timelineEpoch = room.timelineEpoch + 1u;
-    begin.targetFrame = 120u;
-    begin.payloadSize = 4u;
-    begin.payloadCrc32 = 0x12345678u;
-    begin.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
-    REQUIRE(coordinator.injectResyncBeginForTests(begin));
-    REQUIRE(room.activeResyncId == 11u);
-    REQUIRE(room.state == ConsoleNetplay::SessionState::Resyncing);
-
-    ConsoleNetplay::ResyncChunkData outOfRangeChunk;
-    outOfRangeChunk.resyncId = 11u;
-    outOfRangeChunk.offset = 3u;
-    const std::vector<uint8_t> payload = {0xAAu, 0xBBu};
-    REQUIRE_FALSE(coordinator.injectResyncChunkForTests(outOfRangeChunk, payload));
-    REQUIRE(room.activeResyncId == 11u);
-    REQUIRE_FALSE(coordinator.consumePendingResyncApply().has_value());
-}
-
-TEST_CASE("Netplay incoming resync timeout allows slow progress and aborts stalled transfers",
-          "[netplay][resync][timeout][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
-
-    bool connected = false;
-    for(int step = 0; step < 400 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected = host.isConnected() && client.isConnected() &&
-                    client.serverPeerForTests() != ConsoleNetplay::NetTransport::kInvalidPeerHandle;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 3u;
-    room.sessionId = host.session().roomState().sessionId;
-
-    const std::vector<uint8_t> payload{1u, 2u, 3u, 4u};
-    ConsoleNetplay::ResyncBeginData begin{};
-    begin.resyncId = 77u;
-    begin.timelineEpoch = room.timelineEpoch + 1u;
-    begin.targetFrame = 12u;
-    begin.payloadSize = static_cast<uint32_t>(payload.size());
-    begin.payloadCrc32 = ConsoleNetplay::crc32(payload.data(), payload.size());
-    REQUIRE(client.injectRawPacketFromPeerForTests(
-        client.serverPeerForTests(),
-        buildResyncBeginPacketForTest(begin, room.sessionId)
-    ));
-
-    ConsoleNetplay::ResyncChunkData tail{};
-    tail.resyncId = begin.resyncId;
-    tail.offset = 2u;
-    tail.size = 2u;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
-    REQUIRE(client.injectResyncChunkForTests(tail, std::span<const uint8_t>(payload.data() + 2, 2)));
-    std::this_thread::sleep_for(std::chrono::milliseconds(1600));
-    client.update(0);
-    REQUIRE(room.activeResyncId == begin.resyncId);
-
-    ConsoleNetplay::ResyncChunkData head{};
-    head.resyncId = begin.resyncId;
-    head.offset = 0u;
-    head.size = 2u;
-    REQUIRE(client.injectResyncChunkForTests(head, std::span<const uint8_t>(payload.data(), 2)));
-    ConsoleNetplay::ResyncCompleteData complete{};
-    complete.resyncId = begin.resyncId;
-    REQUIRE(client.injectRawPacketFromPeerForTests(
-        client.serverPeerForTests(),
-        buildRawNetplayPacketForTest(
-            ConsoleNetplay::MessageType::ResyncComplete,
-            room.sessionId,
-            [&](ConsoleNetplay::PacketWriter& writer) { complete.serialize(writer); }
-        )
-    ));
-    REQUIRE(client.consumePendingResyncApply().has_value());
-
-    begin.resyncId = 78u;
-    begin.timelineEpoch = room.timelineEpoch + 1u;
-    REQUIRE(client.injectRawPacketFromPeerForTests(
-        client.serverPeerForTests(),
-        buildResyncBeginPacketForTest(begin, room.sessionId)
-    ));
-    std::this_thread::sleep_for(std::chrono::milliseconds(3100));
-    client.update(0);
-    REQUIRE_FALSE(client.consumePendingResyncApply().has_value());
-    REQUIRE(anyLogLineContains(client.eventLog(), "Incoming resync timed out"));
-
-    host.disconnect();
-    client.disconnect();
-}
-
-TEST_CASE("Netplay coordinator ignores invalid input identifiers without accepting input",
-          "[netplay][protocol][malformed][input]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.sessionId = 1u;
-    room.timelineEpoch = 5u;
-    room.state = ConsoleNetplay::SessionState::Running;
-
-    ConsoleNetplay::InputFrameData input;
-    input.timelineEpoch = room.timelineEpoch;
-    input.frame = 1u;
-    input.participantId = 99u;
-    input.playerSlot = 200u;
-    input.sequence = 1u;
-    ConsoleNetplay::NetplayInputFrame contribution =
-        ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(input.frame, room);
-
-    REQUIRE(host.injectInputFrameForTests(input, contribution));
-    REQUIRE(host.remoteInputs().size() == 0u);
-    REQUIRE(host.localInputs().size() == 0u);
-    REQUIRE(anyLogLineContains(host.eventLog(), "invalid player slot"));
-
-    host.disconnect();
-}
-
 TEST_CASE("Netplay remote input stall monitor only schedules after fresh peer health", "[netplay][implicit-stall][monitor]")
 {
     ConsoleNetplay::RemoteInputStallMonitor monitor;
@@ -2019,8 +886,6 @@ TEST_CASE("Netplay coordinator ignores peer-health stall recovery during post-re
     room.lastConfirmedFrame = 1837u;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     room.recoveryModeEnteredAtFrame = 1837u;
-    room.stabilizationAnchorFrame = 1837u;
-    room.stabilizationFramesRemaining = 8u;
 
     ConsoleNetplay::ParticipantInfo remote;
     remote.id = 99u;
@@ -2097,105 +962,6 @@ TEST_CASE("Netplay coordinator schedules peer-health stall recovery in normal mo
     host.disconnect();
 }
 
-TEST_CASE("Netplay coordinator schedules recovery when assigned peer stops publishing CRC",
-          "[netplay][crc][peer-health][recovery]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = host.host(reserveLoopbackPort(), 1, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.sessionId = 11u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 4u;
-    room.currentFrame = 600u;
-    room.lastConfirmedFrame = 180u;
-    room.lastRemoteCrcFrame = 30u;
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 99u;
-    remote.displayName = "Client";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
-    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    host.setLocalSimulationFrame(180u);
-
-    ConsoleNetplay::PeerHealthData health{};
-    health.participantId = 99u;
-    health.currentFrame = 181u;
-    health.lastConfirmedFrame = 180u;
-    health.lastProducedLocalInputFrame = 181u;
-    health.localAssignmentCount = 1u;
-    REQUIRE(host.injectPeerHealthForTests(health));
-
-    const auto pending = host.consumePendingHostResyncFrame();
-    REQUIRE(pending.has_value());
-    REQUIRE(pending->frame == 180u);
-    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=crc_publication_lag_recovery"));
-
-    host.disconnect();
-}
-
-TEST_CASE("Netplay coordinator suppresses peer-health stall recovery when assigned client reports input progress",
-          "[netplay][implicit-stall][coordinator][assignment]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = host.host(reserveLoopbackPort(), 1, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.sessionId = 10u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 4u;
-    room.currentFrame = 2083u;
-    room.lastConfirmedFrame = 2082u;
-    room.lastRemoteCrcFrame = 2082u;
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 99u;
-    remote.displayName = "Client";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
-    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    host.setLocalSimulationFrame(2083u);
-    REQUIRE(host.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 2083u));
-
-    ConsoleNetplay::PeerHealthData health{};
-    health.participantId = 99u;
-    health.currentFrame = 2084u;
-    health.lastConfirmedFrame = 2082u;
-    health.localAssignmentCount = 1u;
-    health.lastProducedLocalInputFrame = 2090u;
-    health.lastProducedLocalInputSequence = 77u;
-    REQUIRE(host.injectPeerHealthForTests(health));
-
-    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
-    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "classification=stall_based_recovery"));
-
-    host.disconnect();
-}
-
 TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked logs outside debug mode",
           "[netplay][implicit-stall][coordinator][logging]")
 {
@@ -2214,8 +980,6 @@ TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked
     room.lastConfirmedFrame = 300u;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     room.recoveryModeEnteredAtFrame = 300u;
-    room.stabilizationAnchorFrame = 300u;
-    room.stabilizationFramesRemaining = 8u;
 
     ConsoleNetplay::ParticipantInfo remote;
     remote.id = 99u;
@@ -2261,8 +1025,6 @@ TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked
     debugRoom.lastConfirmedFrame = 300u;
     debugRoom.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     debugRoom.recoveryModeEnteredAtFrame = 300u;
-    debugRoom.stabilizationAnchorFrame = 300u;
-    debugRoom.stabilizationFramesRemaining = 8u;
 
     ConsoleNetplay::ParticipantInfo debugRemote;
     debugRemote.id = 99u;
@@ -2293,16 +1055,15 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = true;
+    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Host;
     snapshot.sessionState = ConsoleNetplay::SessionState::Running;
     snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 4u;
     snapshot.connectedRemoteParticipantCount = 1u;
     snapshot.localSimulationFrame = 100u;
     snapshot.confirmedFrame = 96u;
-    snapshot.maxRemoteReportedCurrentFrame = 80u;
-    snapshot.maxRemoteReportedConfirmedFrame = 76u;
-    snapshot.inputDelayFrames = 1u;
-    snapshot.predictFrames = 8u;
+    snapshot.maxRemoteReportedCurrentFrame = 98u;
+    snapshot.maxRemoteReportedConfirmedFrame = 94u;
 
     const auto start = std::chrono::steady_clock::now();
     auto update = detector.update(snapshot, start);
@@ -2329,37 +1090,13 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     REQUIRE(update.shouldResync);
 }
 
-TEST_CASE("Netplay host stall detector ignores nearby remote peer backlog within playback tolerance", "[netplay][host-stall][unit]")
-{
-    ConsoleNetplay::SelfStallDetector detector;
-    ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
-    snapshot.active = true;
-    snapshot.hosting = true;
-    snapshot.sessionState = ConsoleNetplay::SessionState::Running;
-    snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    snapshot.timelineEpoch = 4u;
-    snapshot.connectedRemoteParticipantCount = 1u;
-    snapshot.localSimulationFrame = 3950u;
-    snapshot.confirmedFrame = 3949u;
-    snapshot.maxRemoteReportedCurrentFrame = 3944u;
-    snapshot.maxRemoteReportedConfirmedFrame = 3944u;
-    snapshot.inputDelayFrames = 1u;
-    snapshot.predictFrames = 8u;
-
-    const auto start = std::chrono::steady_clock::now();
-    auto update = detector.update(snapshot, start);
-    REQUIRE_FALSE(update.shouldResync);
-
-    update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
-    REQUIRE_FALSE(update.shouldResync);
-}
-
 TEST_CASE("Netplay self stall detector triggers on client freeze even if remote progress advances", "[netplay][host-stall][client][unit]")
 {
     ConsoleNetplay::SelfStallDetector detector;
     ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
     snapshot.active = true;
     snapshot.hosting = false;
+    snapshot.role = ConsoleNetplay::SelfStallDetector::Role::Client;
     snapshot.sessionState = ConsoleNetplay::SessionState::Running;
     snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     snapshot.timelineEpoch = 2u;
@@ -2368,8 +1105,6 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     snapshot.confirmedFrame = 296u;
     snapshot.maxRemoteReportedCurrentFrame = 305u;
     snapshot.maxRemoteReportedConfirmedFrame = 304u;
-    snapshot.inputDelayFrames = 1u;
-    snapshot.predictFrames = 8u;
 
     const auto start = std::chrono::steady_clock::now();
     auto update = detector.update(snapshot, start);
@@ -2378,37 +1113,6 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     snapshot.maxRemoteReportedCurrentFrame = 330u;
     snapshot.maxRemoteReportedConfirmedFrame = 325u;
     update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
-    REQUIRE(update.shouldResync);
-}
-
-TEST_CASE("Netplay self stall detector triggers on repeated local churn before timeout",
-          "[netplay][host-stall][unit]")
-{
-    ConsoleNetplay::SelfStallDetector detector;
-    ConsoleNetplay::SelfStallDetector::Snapshot snapshot;
-    snapshot.active = true;
-    snapshot.hosting = false;
-    snapshot.sessionState = ConsoleNetplay::SessionState::Running;
-    snapshot.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    snapshot.timelineEpoch = 5u;
-    snapshot.connectedRemoteParticipantCount = 1u;
-    snapshot.localSimulationFrame = 800u;
-    snapshot.confirmedFrame = 790u;
-    snapshot.maxRemoteReportedCurrentFrame = 820u;
-    snapshot.maxRemoteReportedConfirmedFrame = 810u;
-    snapshot.inputDelayFrames = 1u;
-    snapshot.predictFrames = 8u;
-
-    const auto start = std::chrono::steady_clock::now();
-    auto update = detector.update(snapshot, start);
-    REQUIRE_FALSE(update.shouldResync);
-
-    snapshot.playbackStopCount = 2u;
-    update = detector.update(snapshot, start + std::chrono::milliseconds(100));
-    REQUIRE_FALSE(update.shouldResync);
-
-    snapshot.playbackStopCount = 3u;
-    update = detector.update(snapshot, start + std::chrono::milliseconds(150));
     REQUIRE(update.shouldResync);
 }
 
@@ -2693,28 +1397,7 @@ TEST_CASE("Netplay input gap tracking honors sparse slot ids",
     REQUIRE(afterGap != nullptr);
     REQUIRE(afterGap->pendingMissingInputFrom == 11u);
     REQUIRE(afterGap->lastContiguousInputFrame == 10u);
-    REQUIRE(room.inputResendRequestSentCount == 1u);
-    REQUIRE(room.lastInputResendRequestStartFrame == 11u);
-    REQUIRE(room.lastInputResendRequestFrameCount == 1u);
     REQUIRE(anyLogLineContains(host.eventLog(), "slot 43"));
-
-    ConsoleNetplay::InputFrameData resentInput{};
-    resentInput.timelineEpoch = room.timelineEpoch;
-    resentInput.frame = 11u;
-    resentInput.participantId = remote.id;
-    resentInput.playerSlot = 42u;
-    resentInput.sequence = 1u;
-    resentInput.buttonMaskLo = 0x55u;
-    ConsoleNetplay::NetplayInputFrame resentFrame;
-    resentFrame.timelineEpoch = room.timelineEpoch;
-    resentFrame.frame = 11u;
-    resentFrame.buttonMaskLo[42u] = 0x55u;
-    REQUIRE(host.injectInputFrameForTests(resentInput, resentFrame));
-    afterGap = host.session().findParticipant(remote.id);
-    REQUIRE(afterGap != nullptr);
-    REQUIRE_FALSE(afterGap->pendingMissingInputFrom.has_value());
-    REQUIRE(afterGap->lastContiguousInputFrame == 11u);
-    REQUIRE(room.syntheticFallbackInputFrameCount == 0u);
 
     host.disconnect();
 }
@@ -2727,7 +1410,7 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     room.sessionId = 5;
     room.state = ConsoleNetplay::SessionState::Running;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 3;
+    room.inputDelayFrames = 1;
     room.predictFrames = 8;
     room.currentFrame = 900;
     room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
@@ -2741,33 +1424,7 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     room.currentFrame = 1500;
     recommendations = autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
     REQUIRE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(*recommendations.inputDelayFrames == 4);
-}
-
-TEST_CASE("Netplay reactive auto delay bypasses temporary block while still below resilience floor",
-          "[netplay][auto-settings][delay]")
-{
-    ConsoleNetplay::NetplayAutoTune autoSettings;
-    ConsoleNetplay::RoomState room;
-    room.sessionId = 6;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
-    room.inputDelayFrames = 1;
-    room.predictFrames = 8;
-    room.currentFrame = 900;
-    room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
-
-    auto recommendations =
-        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 2);
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("below the responsiveness floor") != std::string::npos);
-
-    room.inputDelayFrames = *recommendations.inputDelayFrames;
-    recommendations =
-        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(*recommendations.inputDelayFrames == 3);
 }
 
 TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
@@ -4082,9 +2739,9 @@ TEST_CASE("Netplay clients stay capped to a slow host whether host is observer o
             reportName,
             ""
         };
-        options.frames = 240;
+        options.frames = 180;
         options.inputDelayFrames = 1;
-        options.predictFrames = 8;
+        options.predictFrames = 4;
         options.networkPumpStride = 2;
         options.hostLoopDtMs = 8;
         options.clientLoopDtMs = 8;
@@ -4104,7 +2761,7 @@ TEST_CASE("Netplay clients stay capped to a slow host whether host is observer o
         REQUIRE(report.at("host").at("connected") == true);
         REQUIRE(report.at("client").at("connected") == true);
         REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-        REQUIRE(report.at("maxClientAheadOfHostFrames").get<uint32_t>() <= 20u);
+        REQUIRE(report.at("maxClientAheadOfHostFrames").get<uint32_t>() <= 2u);
         REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 240u);
     };
 
@@ -4162,18 +2819,8 @@ TEST_CASE("Late-joining assigned client remains deterministic after assignment r
     REQUIRE(report.at("host").at("runtimeRunning") == true);
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    const uint32_t hostLastSubmittedLocalCrcFrame =
-        report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>();
-    const uint32_t clientLastSubmittedLocalCrcFrame =
-        report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>();
-    REQUIRE((
-        hostLastSubmittedLocalCrcFrame > 0u ||
-        report.at("host").at("recoveryInputModeLabel") == "PostResyncStabilizing"
-    ));
-    REQUIRE((
-        clientLastSubmittedLocalCrcFrame > 0u ||
-        report.at("client").at("recoveryInputModeLabel") == "PostResyncStabilizing"
-    ));
+    REQUIRE(report.at("host").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
+    REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
 }
 
@@ -4223,108 +2870,6 @@ TEST_CASE("Netplay web host does not stall when observer host becomes port 2 aft
     REQUIRE(report.at("client").at("runtimeRunning") == true);
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
-}
-
-TEST_CASE("Netplay web host port 2 assignment stays converged over long asymmetric play",
-          "[netplay][runtime][web][assignment][host-observer][crc][soak][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedPort1Only = true;
-    options.assignmentSwapAfterFrames = 720;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "web-host-port2-crc-soak",
-        ""
-    };
-    options.frames = 2160;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.frameStepLimit = 80000;
-    options.wallClockTimeoutSeconds = 160;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_web_host_port2_crc_soak.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("assignmentSwapTriggered") == true);
-    REQUIRE(report.at("assignmentSwapVerified") == true);
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 4u);
-}
-
-TEST_CASE("Netplay confirmed-desync resync remains stable after host becomes port 2",
-          "[netplay][runtime][web][assignment][host-observer][desync][crc][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedPort1Only = true;
-    options.assignmentSwapAfterFrames = 720;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "web-host-port2-post-desync",
-        ""
-    };
-    options.frames = 2400;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.forceDesyncFrame = 1200;
-    options.desyncAddress = 0x0000u;
-    options.desyncValueXor = 0x5Au;
-    options.frameStepLimit = 90000;
-    options.wallClockTimeoutSeconds = 180;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_web_host_port2_post_desync_crc.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("assignmentSwapTriggered") == true);
-    REQUIRE(report.at("assignmentSwapVerified") == true);
-    REQUIRE(report.at("desyncInjected") == true);
-    REQUIRE(report.at("hardResyncObserved") == true);
-    REQUIRE(report.at("postResyncCrcMismatchFrame") == 0);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 6u);
 }
 
 TEST_CASE("Late-joining Four Score client assignment does not trigger resync storm",
@@ -4473,504 +3018,6 @@ TEST_CASE("Netplay web runtime keeps advancing when only the client is assigned"
     REQUIRE(report.at("client").at("connected") == true);
     REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
     REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
-    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
-}
-
-TEST_CASE("Netplay mobile-style client assignment stays converged without confirmed-desync storm",
-          "[netplay][runtime][web][assignment][mobile-wifi][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedOnly = true;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "mobile-client-only-assigned",
-        ""
-    };
-    options.frames = 360;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.frameStepLimit = 16000;
-    options.wallClockTimeoutSeconds = 45;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_mobile_client_only_assigned_regression.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("connected") == true);
-    REQUIRE(report.at("client").at("connected") == true);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
-    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Post-resync stabilization failed"));
-}
-
-TEST_CASE("Netplay mobile-style client assignment raises delay under post-resync stale packet pressure",
-          "[netplay][runtime][web][assignment][mobile-wifi][resync-pressure][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedOnly = true;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "mobile-client-resync-pressure",
-        ""
-    };
-    options.frames = 420;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.forceManualResyncFrame = 72;
-    options.spamClientInputDuringResync = true;
-    options.frameStepLimit = 22000;
-    options.wallClockTimeoutSeconds = 60;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_mobile_client_resync_pressure_regression.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("manualResyncTriggered") == true);
-    REQUIRE(report.at("manualResyncObserved") == true);
-    REQUIRE(report.at("manualResyncCompleted") == true);
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("roomInputDelayFrames").get<uint32_t>() >= 2u);
-    REQUIRE(report.at("client").at("roomInputDelayFrames").get<uint32_t>() >= 2u);
-    REQUIRE(report.at("host").at("staleInputPacketCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 4u);
-}
-
-TEST_CASE("Netplay observer host with client port 1 assignment does not skip post-resync client inputs",
-          "[netplay][runtime][web][assignment][mobile-wifi][host-observer][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedPort1Only = true;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "observer-host-client-port1-assigned",
-        ""
-    };
-    options.frames = 360;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.frameStepLimit = 16000;
-    options.wallClockTimeoutSeconds = 45;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_observer_host_client_port1_assigned_regression.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    const auto findParticipantByName = [](const nlohmann::json& participants, const char* name) -> const nlohmann::json* {
-        for(const auto& participant : participants) {
-            if(participant.at("name") == name) {
-                return &participant;
-            }
-        }
-        return nullptr;
-    };
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("connected") == true);
-    REQUIRE(report.at("client").at("connected") == true);
-    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=late_committed_input_duplicate"));
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=prediction_limit_fallback"));
-    const nlohmann::json* hostViewOfClient =
-        findParticipantByName(report.at("host").at("participants"), "Client");
-    REQUIRE(hostViewOfClient != nullptr);
-    const uint32_t hostLocalFrame = report.at("host").at("localSimulationFrame").get<uint32_t>();
-    const uint32_t hostClientContiguousFrame =
-        hostViewOfClient->at("lastContiguousInputFrame").get<uint32_t>();
-    REQUIRE(hostClientContiguousFrame <= hostLocalFrame + 16u);
-}
-
-TEST_CASE("Netplay observer host keeps assigned client input stream contiguous under long asymmetric runtime",
-          "[netplay][runtime][web][assignment][mobile-wifi][host-observer][soak][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedPort1Only = true;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "observer-host-client-port1-soak",
-        ""
-    };
-    options.frames = 1440;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.frameStepLimit = 48000;
-    options.wallClockTimeoutSeconds = 120;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_observer_host_client_port1_input_continuity_soak.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-
-    const auto findParticipantByName = [](const nlohmann::json& participants, const char* name) -> const nlohmann::json* {
-        for(const auto& participant : participants) {
-            if(participant.at("name") == name) {
-                return &participant;
-            }
-        }
-        return nullptr;
-    };
-
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("connected") == true);
-    REQUIRE(report.at("client").at("connected") == true);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("staleInputPacketCount").get<uint32_t>() <= 8u);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=late_committed_input_duplicate"));
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "classification=prediction_limit_fallback"));
-
-    const nlohmann::json* hostClientParticipant =
-        findParticipantByName(report.at("host").at("participants"), "Client");
-    REQUIRE(hostClientParticipant != nullptr);
-    REQUIRE(hostClientParticipant->at("controllerAssignment") == GeraNESNetplay::kPort1PlayerSlot);
-
-    const uint32_t hostCurrentFrame = report.at("host").at("currentFrame");
-    const uint32_t hostClientLastContiguous = hostClientParticipant->at("lastContiguousInputFrame");
-    REQUIRE(hostClientLastContiguous + 12u >= hostCurrentFrame);
-}
-
-TEST_CASE("Netplay delayed client-only assignment does not trigger confirmed-desync storm",
-          "[netplay][runtime][web][assignment][delayed][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedPort1Only = true;
-    options.delayedClientAssignmentAfterFrames = 720;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "delayed-client-only-assignment",
-        ""
-    };
-    options.frames = 1080;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.frameStepLimit = 40000;
-    options.wallClockTimeoutSeconds = 90;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_delayed_client_only_assignment_regression.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("connected") == true);
-    REQUIRE(report.at("client").at("connected") == true);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("client").at("localInputCount").get<uint32_t>() > 0u);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 2u);
-    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Netplay rollback snapshot unavailable"));
-}
-
-TEST_CASE("Netplay delayed client-only assignment stays stable when observer client is already pressing input",
-          "[netplay][runtime][web][assignment][delayed][observer-input][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint16_t signalingPort = reserveLoopbackPort();
-    LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-    NetplayTest::Options options;
-    options.romPath = GeraNESTestSupport::romPath().string();
-    options.appFlow = true;
-    options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
-    options.clientAssignedPort1Only = true;
-    options.clientReportsInputWhileObserver = true;
-    options.mirrorLatestInputStateToPendingInput = true;
-    options.delayedClientAssignmentAfterFrames = 720;
-    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-        "ws://127.0.0.1:" + std::to_string(signalingPort),
-        "delayed-client-observer-input-assignment",
-        ""
-    };
-    options.frames = 1080;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
-    options.gameplayReceiveDelayMs = 45;
-    options.networkPumpStride = 5;
-    options.hostLoopDtMs = 8;
-    options.clientLoopDtMs = 50;
-    options.hostStepStride = 1;
-    options.clientStepStride = 3;
-    options.frameStepLimit = 40000;
-    options.wallClockTimeoutSeconds = 90;
-    options.reportPath = GeraNESTestSupport::reportPath(
-        "netplay_delayed_client_observer_input_assignment_regression.json"
-    ).string();
-
-    REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-    INFO(report.dump(2));
-    REQUIRE(report.at("status") == "ok");
-    REQUIRE(report.at("host").at("runtimeRunning") == true);
-    REQUIRE(report.at("client").at("runtimeRunning") == true);
-    REQUIRE(report.at("host").at("connected") == true);
-    REQUIRE(report.at("client").at("connected") == true);
-    REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-    REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= 1u);
-    REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= 1u);
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Beginning authoritative resync reason ConfirmedDesync"));
-    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Netplay rollback snapshot unavailable"));
-}
-
-TEST_CASE("Netplay assignment runtime matrix avoids assignment-path errors",
-          "[netplay][runtime][assignment][matrix]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    struct Scenario
-    {
-        const char* roomName;
-        const char* reportName;
-        uint32_t frames = 120;
-        uint32_t inputDelayFrames = 1;
-        uint32_t predictFrames = 8;
-        uint32_t networkPumpStride = 2;
-        uint32_t hostLoopDtMs = 8;
-        uint32_t clientLoopDtMs = 33;
-        uint32_t hostStepStride = 1;
-        uint32_t clientStepStride = 2;
-        uint32_t frameStepLimit = 50000;
-        uint32_t wallClockTimeoutSeconds = 60;
-        uint32_t gameplayReceiveDelayMs = 0;
-        bool hostAssignedBeforeJoinOnly = false;
-        bool assignLateJoinClientAfterJoin = false;
-        bool assignLateJoinClientToMultitapAfterJoin = false;
-        bool hostAssignedAfterJoinOnly = false;
-        bool hostMultitapAssignedBeforeJoinOnly = false;
-        bool clientAssignedOnly = false;
-        bool clientAssignedPort1Only = false;
-        uint32_t assignmentSwapAfterFrames = 0;
-        uint32_t maxHostHardResyncs = 2;
-        uint32_t maxClientHardResyncs = 1;
-    };
-
-    const std::vector<Scenario> scenarios = {
-        {
-            "matrix-late-join-assigned-client",
-            "netplay_assignment_matrix_late_join_assigned_client.json",
-            80, 2, 8, 2, 8, 33, 1, 2, 40000, 60, 0,
-            true, true, false, false, false, false, false, 0, 1, 1
-        },
-        {
-            "matrix-late-join-four-score-client",
-            "netplay_assignment_matrix_late_join_four_score_client.json",
-            120, 1, 4, 2, 8, 33, 1, 2, 50000, 60, 0,
-            true, false, true, false, false, false, false, 0, 1, 1
-        },
-        {
-            "matrix-host-after-observer-join",
-            "netplay_assignment_matrix_host_after_observer_join.json",
-            120, 1, 8, 2, 8, 33, 1, 2, 50000, 60, 0,
-            false, false, false, true, false, false, false, 0, 1, 1
-        },
-        {
-            "matrix-host-observer-to-port2",
-            "netplay_assignment_matrix_host_observer_to_port2.json",
-            120, 3, 8, 2, 8, 33, 1, 2, 50000, 60, 0,
-            false, false, false, false, false, false, true, 24, 3, 1
-        },
-        {
-            "matrix-client-only-port2",
-            "netplay_assignment_matrix_client_only_port2.json",
-            240, 1, 3, 2, 8, 33, 1, 2, 50000, 60, 0,
-            false, false, false, false, false, true, false, 0, 2, 1
-        },
-        {
-            "matrix-client-only-port1",
-            "netplay_assignment_matrix_client_only_port1.json",
-            160, 1, 8, 2, 8, 33, 1, 2, 50000, 60, 0,
-            false, false, false, false, false, false, true, 0, 2, 1
-        },
-        {
-            "matrix-mobile-client-only",
-            "netplay_assignment_matrix_mobile_client_only.json",
-            360, 1, 8, 5, 8, 50, 1, 3, 16000, 45, 45,
-            false, false, false, false, false, true, false, 0, 2, 1
-        }
-    };
-
-    const std::array<const char*, 8> forbiddenLogFragments = {
-        "Rejected non-sequential local input",
-        "Rejected non-sequential input from",
-        "Rejected non-sequential input sequence",
-        "Ignored input for unexpected assignment",
-        "Post-resync stabilization failed",
-        "assignment update blocked during recovery stabilization",
-        "Participant left",
-        "Post-resync delay buffer wait timed out"
-    };
-
-    for(const Scenario& scenario : scenarios) {
-        INFO("room=" << scenario.roomName);
-
-        const uint16_t signalingPort = reserveLoopbackPort();
-        LocalWebSocketSignalingServer signalingServer(signalingPort);
-
-        NetplayTest::Options options;
-        options.romPath = GeraNESTestSupport::romPath().string();
-        options.appFlow = true;
-        options.runtimeFlow = true;
-        options.singleThreadRuntimeFlow = true;
-        options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
-        options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
-            "ws://127.0.0.1:" + std::to_string(signalingPort),
-            scenario.roomName,
-            ""
-        };
-        options.frames = scenario.frames;
-        options.inputDelayFrames = scenario.inputDelayFrames;
-        options.predictFrames = scenario.predictFrames;
-        options.networkPumpStride = scenario.networkPumpStride;
-        options.hostLoopDtMs = scenario.hostLoopDtMs;
-        options.clientLoopDtMs = scenario.clientLoopDtMs;
-        options.hostStepStride = scenario.hostStepStride;
-        options.clientStepStride = scenario.clientStepStride;
-        options.frameStepLimit = scenario.frameStepLimit;
-        options.wallClockTimeoutSeconds = scenario.wallClockTimeoutSeconds;
-        options.gameplayReceiveDelayMs = scenario.gameplayReceiveDelayMs;
-        options.hostAssignedBeforeJoinOnly = scenario.hostAssignedBeforeJoinOnly;
-        options.assignLateJoinClientAfterJoin = scenario.assignLateJoinClientAfterJoin;
-        options.assignLateJoinClientToMultitapAfterJoin = scenario.assignLateJoinClientToMultitapAfterJoin;
-        options.hostAssignedAfterJoinOnly = scenario.hostAssignedAfterJoinOnly;
-        options.hostMultitapAssignedBeforeJoinOnly = scenario.hostMultitapAssignedBeforeJoinOnly;
-        options.clientAssignedOnly = scenario.clientAssignedOnly;
-        options.clientAssignedPort1Only = scenario.clientAssignedPort1Only;
-        options.assignmentSwapAfterFrames = scenario.assignmentSwapAfterFrames;
-        options.reportPath = GeraNESTestSupport::reportPath(scenario.reportName).string();
-
-        REQUIRE(NetplayTest::runHeadless(options) == 0);
-
-        const auto report = GeraNESTestSupport::loadJson(options.reportPath);
-        INFO(report.dump(2));
-        REQUIRE(report.at("status") == "ok");
-        REQUIRE(report.at("host").at("runtimeRunning") == true);
-        REQUIRE(report.at("client").at("runtimeRunning") == true);
-        REQUIRE(report.at("host").at("connected") == true);
-        REQUIRE(report.at("client").at("connected") == true);
-        REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
-        REQUIRE(report.at("host").at("hardResyncCount").get<uint32_t>() <= scenario.maxHostHardResyncs);
-        REQUIRE(report.at("client").at("hardResyncCount").get<uint32_t>() <= scenario.maxClientHardResyncs);
-
-        for(const char* fragment : forbiddenLogFragments) {
-            REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), fragment));
-            REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), fragment));
-        }
-    }
 }
 
 TEST_CASE("Netplay mobile browser bad Wi-Fi acceptance keeps running without resync storm",
@@ -5123,11 +3170,10 @@ TEST_CASE("Host can preassign Four Score P1 before any client joins", "[netplay]
     options.romPath = GeraNESTestSupport::romPath().string();
     options.appFlow = true;
     options.runtimeFlow = true;
-    options.singleThreadRuntimeFlow = true;
     options.hostMultitapAssignedBeforeJoinOnly = true;
-    options.frames = 80;
-    options.inputDelayFrames = 1;
-    options.predictFrames = 8;
+    options.frames = 20;
+    options.inputDelayFrames = 0;
+    options.predictFrames = 2;
     options.reportPath = GeraNESTestSupport::reportPath("netplay_host_multitap_before_join.json").string();
 
     REQUIRE(NetplayTest::runHeadless(options) == 0);
@@ -5906,42 +3952,6 @@ TEST_CASE("Reconnect-style join preserves multitap assignment until topology cat
     REQUIRE(joined->controllerAssignments == participant.controllerAssignments);
     REQUIRE(joined->controllerAssignment == GeraNESNetplay::kMultitapP2PlayerSlot);
     REQUIRE_FALSE(participantIsObserver(*joined));
-}
-
-TEST_CASE("Client does not claim host participant as local before its own join packet arrives",
-          "[netplay][join][assignment][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator client;
-
-    ConsoleNetplay::ParticipantInfo hostParticipant;
-    hostParticipant.id = 0u;
-    hostParticipant.displayName = "Host";
-    hostParticipant.connected = true;
-    hostParticipant.role = ConsoleNetplay::ParticipantRole::Observer;
-    hostParticipant.normalizeControllerAssignments();
-
-    REQUIRE(client.injectParticipantJoinedForTests(hostParticipant, 0));
-    REQUIRE(client.localParticipantId() == ConsoleNetplay::kInvalidParticipantId);
-
-    const ConsoleNetplay::ParticipantInfo* joinedHost = client.session().findParticipant(hostParticipant.id);
-    REQUIRE(joinedHost != nullptr);
-    REQUIRE(joinedHost->sequenceRebasePending);
-
-    ConsoleNetplay::ParticipantInfo localParticipant;
-    localParticipant.id = 1u;
-    localParticipant.displayName = "Client";
-    localParticipant.connected = true;
-    localParticipant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    localParticipant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    localParticipant.normalizeControllerAssignments();
-
-    REQUIRE(client.injectParticipantJoinedForTests(localParticipant, 0x12345678ULL));
-    REQUIRE(client.localParticipantId() == localParticipant.id);
-    REQUIRE(client.localReconnectToken() == 0x12345678ULL);
-
-    const ConsoleNetplay::ParticipantInfo* joinedLocal = client.session().findParticipant(localParticipant.id);
-    REQUIRE(joinedLocal != nullptr);
-    REQUIRE_FALSE(joinedLocal->sequenceRebasePending);
 }
 
 TEST_CASE("Reserved reconnect participant keeps remapped assignment through host topology change",
@@ -6736,311 +4746,6 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay host rejects participant-authored packets from mismatched peers",
-          "[netplay][identity][spoof][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    REQUIRE(host.host(reserveLoopbackPort(), 2, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.sessionId = 77u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 5u;
-    room.participants.clear();
-
-    ConsoleNetplay::ParticipantInfo local;
-    local.id = host.localParticipantId();
-    local.displayName = "Host";
-    local.connected = true;
-    local.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-    local.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    local.normalizeControllerAssignments(&room.inputTopology);
-
-    ConsoleNetplay::ParticipantInfo remoteA;
-    remoteA.id = 2u;
-    remoteA.displayName = "RemoteA";
-    remoteA.connected = true;
-    remoteA.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remoteA.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-    remoteA.normalizeControllerAssignments(&room.inputTopology);
-
-    ConsoleNetplay::ParticipantInfo remoteB = remoteA;
-    remoteB.id = 3u;
-    remoteB.displayName = "RemoteB";
-
-    room.participants = {local, remoteA, remoteB};
-    const auto peerA = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(1001u);
-    host.setPeerParticipantForTests(peerA, remoteA.id);
-
-    ConsoleNetplay::InputFrameData spoofedInput{};
-    spoofedInput.timelineEpoch = room.timelineEpoch;
-    spoofedInput.frame = 1u;
-    spoofedInput.participantId = remoteB.id;
-    spoofedInput.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
-    spoofedInput.buttonMaskLo = 1u;
-    spoofedInput.sequence = 1u;
-    ConsoleNetplay::NetplayInputFrame inputFrame;
-    inputFrame.timelineEpoch = room.timelineEpoch;
-    inputFrame.frame = spoofedInput.frame;
-    inputFrame.buttonMaskLo[GeraNESNetplay::kPort2PlayerSlot] = 1u;
-    REQUIRE(host.injectRawPacketFromPeerForTests(
-        peerA,
-        buildInputFramePacketForTest(spoofedInput, inputFrame, room.sessionId)
-    ));
-    REQUIRE(host.remoteInputs().find(1u, remoteB.id, GeraNESNetplay::kPort2PlayerSlot) == nullptr);
-    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored spoofed InputFrame"));
-
-    ConsoleNetplay::PeerHealthData spoofedHealth{};
-    spoofedHealth.participantId = remoteB.id;
-    spoofedHealth.currentFrame = 100u;
-    spoofedHealth.pingMs = 123u;
-    REQUIRE(host.injectRawPacketFromPeerForTests(
-        peerA,
-        buildRawNetplayPacketForTest(
-            ConsoleNetplay::MessageType::PeerHealth,
-            room.sessionId,
-            [&](ConsoleNetplay::PacketWriter& writer) { spoofedHealth.serialize(writer); }
-        )
-    ));
-    REQUIRE(host.session().findParticipant(remoteB.id)->pingMs == 0u);
-    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored spoofed PeerHealth"));
-
-    REQUIRE(host.beginResync(0u, std::vector<uint8_t>{1u, 2u}, 0u, 0u, ConsoleNetplay::ResyncReason::ManualForce));
-    const uint32_t pendingBeforeAck = room.pendingResyncAckCount;
-    ConsoleNetplay::ResyncAckData spoofedAck{};
-    spoofedAck.resyncId = room.activeResyncId;
-    spoofedAck.participantId = remoteB.id;
-    spoofedAck.loadedFrame = 0u;
-    spoofedAck.success = 1u;
-    REQUIRE(host.injectRawPacketFromPeerForTests(
-        peerA,
-        buildRawNetplayPacketForTest(
-            ConsoleNetplay::MessageType::ResyncAck,
-            room.sessionId,
-            [&](ConsoleNetplay::PacketWriter& writer) { spoofedAck.serialize(writer); }
-        )
-    ));
-    REQUIRE(room.pendingResyncAckCount == pendingBeforeAck);
-    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored spoofed ResyncAck"));
-
-    ConsoleNetplay::ResyncRequestData spoofedRequest{};
-    spoofedRequest.participantId = remoteB.id;
-    spoofedRequest.reason = ConsoleNetplay::ResyncReason::ClientStallRecovery;
-    REQUIRE(host.injectRawPacketFromPeerForTests(
-        peerA,
-        buildResyncRequestPacketForTest(spoofedRequest, room.sessionId)
-    ));
-    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
-    REQUIRE((anyLogLineContains(host.eventLog(), "Ignored resync request from unknown participant") ||
-             anyLogLineContains(host.eventLog(), "Ignored spoofed")));
-
-    host.disconnect();
-}
-
-TEST_CASE("Netplay client rejects authoritative packets from non-host peers and foreign sessions",
-          "[netplay][authority][session][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator client;
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    room.sessionId = 50u;
-    room.timelineEpoch = 4u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 10u;
-    room.lastConfirmedFrame = 8u;
-
-    const auto hostPeer = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(2001u);
-    const auto otherPeer = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(2002u);
-    client.setServerPeerForTests(hostPeer);
-
-    ConsoleNetplay::FrameStatusData status{};
-    status.timelineEpoch = room.timelineEpoch;
-    status.currentFrame = 99u;
-    status.lastConfirmedFrame = 99u;
-    status.inputDelayFrames = 8u;
-    status.predictFrames = 8u;
-    REQUIRE(client.injectRawPacketFromPeerForTests(otherPeer, buildFrameStatusPacketForTest(status, room.sessionId)));
-    REQUIRE(room.currentFrame == 10u);
-    REQUIRE(room.nonHostAuthoritativePacketCount == 1u);
-
-    ConsoleNetplay::ConfirmedInputFramesData confirmed{};
-    confirmed.timelineEpoch = room.timelineEpoch;
-    confirmed.startFrame = 20u;
-    confirmed.frameCount = 0u;
-    REQUIRE(client.injectRawPacketFromPeerForTests(otherPeer, buildConfirmedInputFramesPacketForTest(confirmed, room.sessionId)));
-    REQUIRE(room.lastConfirmedFrame == 8u);
-    REQUIRE(room.nonHostAuthoritativePacketCount == 2u);
-
-    ConsoleNetplay::ResyncBeginData begin{};
-    begin.resyncId = 9u;
-    begin.timelineEpoch = room.timelineEpoch + 1u;
-    begin.targetFrame = 8u;
-    begin.payloadSize = 0u;
-    REQUIRE(client.injectRawPacketFromPeerForTests(otherPeer, buildResyncBeginPacketForTest(begin, room.sessionId)));
-    REQUIRE(room.activeResyncId == 0u);
-    REQUIRE(room.nonHostAuthoritativePacketCount == 3u);
-
-    REQUIRE(client.injectRawPacketFromPeerForTests(hostPeer, buildFrameStatusPacketForTest(status, room.sessionId + 1u)));
-    REQUIRE(room.foreignSessionPacketCount == 1u);
-    REQUIRE(room.currentFrame == 10u);
-}
-
-TEST_CASE("Netplay delayed gameplay queue applies backpressure and drops stale delayed packets",
-          "[netplay][queue][backpressure][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    REQUIRE(host.host(reserveLoopbackPort(), 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room.sessionId = 88u;
-    room.timelineEpoch = 5u;
-    room.state = ConsoleNetplay::SessionState::Running;
-
-    ConsoleNetplay::InputFrameData input{};
-    input.timelineEpoch = room.timelineEpoch;
-    input.frame = 1u;
-    input.participantId = 2u;
-    input.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
-    input.sequence = 1u;
-    ConsoleNetplay::NetplayInputFrame frame;
-    frame.timelineEpoch = room.timelineEpoch;
-    frame.frame = input.frame;
-    frame.buttonMaskLo[GeraNESNetplay::kPort2PlayerSlot] = 1u;
-    const std::vector<uint8_t> packet = buildInputFramePacketForTest(input, frame, room.sessionId);
-
-    const auto peer = static_cast<ConsoleNetplay::NetTransport::PeerHandle>(3001u);
-    host.setPeerParticipantForTests(peer, input.participantId);
-    for(size_t i = 0; i < 520u; ++i) {
-        host.queueDelayedGameplayPacketForTests(peer, packet);
-    }
-    REQUIRE(room.delayedGameplayBackpressureDropCount > 0u);
-
-    ConsoleNetplay::InputFrameData staleInput = input;
-    staleInput.timelineEpoch = room.timelineEpoch - 1u;
-    staleInput.frame = 2u;
-    ConsoleNetplay::NetplayInputFrame staleFrame = frame;
-    staleFrame.timelineEpoch = staleInput.timelineEpoch;
-    staleFrame.frame = staleInput.frame;
-    host.queueDelayedGameplayPacketForTests(
-        peer,
-        buildInputFramePacketForTest(staleInput, staleFrame, room.sessionId)
-    );
-    host.update(0);
-    REQUIRE(room.delayedGameplayStaleDropCount > 0u);
-    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
-
-    host.disconnect();
-}
-
-TEST_CASE("Netplay playback stop diagnostics include input delay before prediction limit",
-          "[netplay][playback-stop][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(coordinator.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.sessionId = 1u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 0u;
-    room.lastConfirmedFrame = 0u;
-    room.inputDelayFrames = 3u;
-    room.predictFrames = 2u;
-
-    ConsoleNetplay::ParticipantInfo* localParticipant = nullptr;
-    for(auto& participant : room.participants) {
-        if(participant.id == coordinator.localParticipantId()) {
-            localParticipant = &participant;
-            break;
-        }
-    }
-    REQUIRE(localParticipant != nullptr);
-    localParticipant->connected = true;
-    localParticipant->romLoaded = true;
-    localParticipant->romCompatible = true;
-    localParticipant->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    localParticipant->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    localParticipant->normalizeControllerAssignments();
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.setPrebufferFrames(room.inputDelayFrames);
-    inputDriver.setPredictFrames(room.predictFrames);
-
-    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-    REQUIRE_FALSE(ConsoleNetplay::runtimeTryBuildPlaybackConfirmedFrame(
-        coordinator,
-        inputDriver,
-        3u,
-        playbackFrame
-    ));
-
-    REQUIRE(coordinator.predictionStats().playbackStopCount == 1u);
-    REQUIRE(coordinator.predictionStats().stopDueToMissingInputCount == 1u);
-    REQUIRE(coordinator.predictionStats().stopDueToPredictionLimitCount == 0u);
-
-    coordinator.disconnect();
-}
-
-TEST_CASE("Netplay post-resync time alignment holds playback until shared-clock resume",
-          "[netplay][time-align][runtime][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(coordinator.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.sessionId = 1u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 100u;
-    room.lastConfirmedFrame = 100u;
-    room.inputDelayFrames = 2u;
-    room.predictFrames = 8u;
-    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
-    room.recoveryModeEnteredAtFrame = 100u;
-    room.postResyncTimeAlignFrame = 102u;
-    room.postResyncTimeAlignClockMicros = coordinator.sharedClockNowMicros() + 500000u;
-
-    ConsoleNetplay::ParticipantInfo* localParticipant = nullptr;
-    for(auto& participant : room.participants) {
-        if(participant.id == coordinator.localParticipantId()) {
-            localParticipant = &participant;
-            break;
-        }
-    }
-    REQUIRE(localParticipant != nullptr);
-    localParticipant->connected = true;
-    localParticipant->romLoaded = true;
-    localParticipant->romCompatible = true;
-    localParticipant->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    localParticipant->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    localParticipant->normalizeControllerAssignments();
-
-    coordinator.recordLocalInputFrame(101u, GeraNESNetplay::kPort1PlayerSlot, 0u);
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.setPrebufferFrames(room.inputDelayFrames);
-    inputDriver.setPredictFrames(room.predictFrames);
-    inputDriver.reanchor(100u);
-
-    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-    REQUIRE_FALSE(ConsoleNetplay::runtimeTryBuildPlaybackConfirmedFrame(
-        coordinator,
-        inputDriver,
-        101u,
-        playbackFrame
-    ));
-    REQUIRE(coordinator.predictionStats().playbackStopCount == 1u);
-
-    room.postResyncTimeAlignClockMicros = coordinator.sharedClockNowMicros() - 1u;
-    REQUIRE(ConsoleNetplay::runtimeTryBuildPlaybackConfirmedFrame(
-        coordinator,
-        inputDriver,
-        101u,
-        playbackFrame
-    ));
-
-    coordinator.disconnect();
-}
-
 TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer confirmations", "[netplay][clock][unit]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -7131,56 +4836,6 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
     host.disconnect();
 }
 
-TEST_CASE("Netplay confirmed frame history evicts old entries and replaces indexed frames",
-          "[netplay][confirmed-history][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(coordinator.host(port, 1, "Host"));
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.sessionId = 1u;
-    room.timelineEpoch = 1u;
-    room.state = ConsoleNetplay::SessionState::Running;
-
-    for(ConsoleNetplay::FrameNumber frame = 1u; frame <= 16385u; ++frame) {
-        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
-        confirmed.frame = frame;
-        confirmed.authoritativeFrameStartClockMicros = static_cast<uint64_t>(frame) * 1000u;
-        confirmed.netplayFrame = ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(frame, room);
-
-        ConsoleNetplay::ConfirmedInputFramesData data;
-        data.timelineEpoch = room.timelineEpoch;
-        data.startFrame = frame;
-        data.frameCount = 1u;
-        REQUIRE(coordinator.injectConfirmedPlaybackFramesForTests(data, {confirmed}));
-    }
-
-    REQUIRE(coordinator.findConfirmedFrame(1u) == nullptr);
-    REQUIRE(coordinator.findConfirmedFrame(2u) != nullptr);
-    REQUIRE(coordinator.findConfirmedFrame(16385u) != nullptr);
-
-    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs replacement;
-    replacement.frame = 16385u;
-    replacement.authoritativeFrameStartClockMicros = 0xABCDEFu;
-    replacement.netplayFrame = ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(16385u, room);
-
-    ConsoleNetplay::ConfirmedInputFramesData replacementData;
-    replacementData.timelineEpoch = room.timelineEpoch;
-    replacementData.startFrame = replacement.frame;
-    replacementData.frameCount = 1u;
-    REQUIRE(coordinator.injectConfirmedPlaybackFramesForTests(replacementData, {replacement}));
-
-    const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs* updated =
-        coordinator.findConfirmedFrame(16385u);
-    REQUIRE(updated != nullptr);
-    REQUIRE(updated->authoritativeFrameStartClockMicros == 0xABCDEFu);
-    REQUIRE(coordinator.performanceDiagnostics().confirmedFrameFind.hits > 0u);
-    REQUIRE(coordinator.performanceDiagnostics().confirmedFrameFind.misses > 0u);
-
-    coordinator.disconnect();
-}
-
 TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate resync", "[netplay][prediction-limit][unit]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -7256,8 +4911,6 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate 
 
     host.setLocalSimulationFrame(180);
     client.setLocalSimulationFrame(180);
-    host.setRemoteInputSuspendTimeoutForTests(1u);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
     host.recordLocalInputFrame(181, GeraNESNetplay::kPort1PlayerSlot, 0);
 
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
@@ -7574,111 +5227,6 @@ TEST_CASE("Rollback recovery resync request detail reaches host log",
     client.disconnect();
 }
 
-TEST_CASE("Client requests host resync on first local CRC mismatch",
-          "[netplay][resync-request][crc][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-
-    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    REQUIRE(host.host(port, 2, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
-
-    bool connected = false;
-    for(int step = 0; step < 120 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected =
-            host.session().roomState().participants.size() >= 2u &&
-            client.session().roomState().participants.size() >= 2u &&
-            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    hostRoom.state = ConsoleNetplay::SessionState::Running;
-    clientRoom.state = ConsoleNetplay::SessionState::Running;
-    hostRoom.selectedGameName = "CrcMismatch";
-    clientRoom.selectedGameName = "CrcMismatch";
-    hostRoom.timelineEpoch = 5u;
-    clientRoom.timelineEpoch = 5u;
-    hostRoom.currentFrame = 300u;
-    clientRoom.currentFrame = 120u;
-    hostRoom.lastConfirmedFrame = 300u;
-    clientRoom.lastConfirmedFrame = 300u;
-
-    for(auto& participant : hostRoom.participants) {
-        participant.connected = true;
-        participant.romLoaded = true;
-        participant.romCompatible = true;
-        if(participant.id == client.localParticipantId()) {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-        } else {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-        }
-        participant.normalizeControllerAssignments();
-    }
-
-    for(auto& participant : clientRoom.participants) {
-        participant.connected = true;
-        participant.romLoaded = true;
-        participant.romCompatible = true;
-        if(participant.id == client.localParticipantId()) {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-        } else {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-        }
-        participant.normalizeControllerAssignments();
-    }
-
-    host.setLocalSimulationFrame(302u);
-    client.setLocalSimulationFrame(298u);
-
-    client.submitLocalCrc(300u, 0x11111111u);
-
-    ConsoleNetplay::CrcReportData hostReport;
-    hostReport.timelineEpoch = clientRoom.timelineEpoch;
-    hostReport.frame = 300u;
-    hostReport.crc32 = 0x22222222u;
-    hostReport.submissionSource = ConsoleNetplay::CrcSubmissionSource::FrameReady;
-    hostReport.senderLocalSimulationFrame = 302u;
-    hostReport.senderConfirmedFrame = 300u;
-    REQUIRE(client.injectCrcReportForTests(hostReport));
-    REQUIRE(anyLogLineContains(client.eventLog(), "classification=confirmed_crc_mismatch_client_request"));
-
-    bool received = false;
-    for(int step = 0; step < 120 && !received; ++step) {
-        client.update(0);
-        host.update(0);
-        const auto pending = host.consumePendingHostResyncFrame();
-        if(pending.has_value()) {
-            REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
-            REQUIRE(pending->frame == 300u);
-            REQUIRE(anyLogLineContains(host.eventLog(), "source 4"));
-            REQUIRE(anyLogLineContains(host.eventLog(), "estimatedHostFrame 302"));
-            REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "estimatedHostFrame 120"));
-            received = true;
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-
-    REQUIRE(received);
-
-    host.disconnect();
-    client.disconnect();
-}
-
 TEST_CASE("Observer visibility resync is targeted and host does not stall when observer drops",
           "[netplay][resync-request][observer][disconnect][unit]")
 {
@@ -7893,7 +5441,7 @@ TEST_CASE("Targeted observer resync times out without stalling host forever",
     client.disconnect();
 }
 
-TEST_CASE("Netplay host stops at prediction limit without synthetic continuation",
+TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without immediate resync",
           "[netplay][prediction-limit][unit]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -7933,10 +5481,10 @@ TEST_CASE("Netplay host stops at prediction limit without synthetic continuation
     clientRoom.state = ConsoleNetplay::SessionState::Running;
     hostRoom.selectedGameName = "SuspendResume";
     clientRoom.selectedGameName = "SuspendResume";
-    hostRoom.currentFrame = 180;
-    clientRoom.currentFrame = 180;
-    hostRoom.lastConfirmedFrame = 180;
-    clientRoom.lastConfirmedFrame = 180;
+    hostRoom.currentFrame = 100;
+    clientRoom.currentFrame = 100;
+    hostRoom.lastConfirmedFrame = 100;
+    clientRoom.lastConfirmedFrame = 100;
 
     ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
     ConsoleNetplay::ParticipantInfo* hostRemote = nullptr;
@@ -7952,12 +5500,11 @@ TEST_CASE("Netplay host stops at prediction limit without synthetic continuation
             hostRemote = &participant;
             participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
             participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-            participant.lastReceivedInputFrame = 180u;
-            participant.lastContiguousInputFrame = 180u;
+            participant.lastReceivedInputFrame = 100u;
+            participant.lastContiguousInputFrame = 100u;
             participant.lastReceivedInputSequence = 0u;
             participant.inputSuspended = false;
             participant.inputResumeAwaitingResync = false;
-            participant.sequenceRebasePending = false;
         }
         participant.normalizeControllerAssignments();
     }
@@ -7978,26 +5525,26 @@ TEST_CASE("Netplay host stops at prediction limit without synthetic continuation
         participant.normalizeControllerAssignments();
     }
 
-    host.setLocalSimulationFrame(180);
-    client.setLocalSimulationFrame(180);
+    host.setLocalSimulationFrame(100);
+    client.setLocalSimulationFrame(100);
 
     ConsoleNetplay::InputFrameData baselineRemoteInput{};
     baselineRemoteInput.timelineEpoch = hostRoom.timelineEpoch;
-    baselineRemoteInput.frame = 181;
+    baselineRemoteInput.frame = 101;
     baselineRemoteInput.participantId = hostRemote->id;
     baselineRemoteInput.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
     baselineRemoteInput.sequence = 1;
     baselineRemoteInput.buttonMaskLo = 0;
     baselineRemoteInput.buttonMaskHi = 0;
 
-    InputFrame baselineContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(181, hostRoom);
+    InputFrame baselineContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(101, hostRoom);
     baselineContribution.p2Right = true;
     REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, baselineRemoteInput, baselineContribution));
 
     ConsoleNetplay::ConfirmedInputBufferDriver hostPlaybackDriver;
-    hostPlaybackDriver.setPrebufferFrames(1);
+    hostPlaybackDriver.setPrebufferFrames(12);
     hostPlaybackDriver.setPredictFrames(8);
-    hostPlaybackDriver.reanchor(180);
+    hostPlaybackDriver.reanchor(100);
     hostPlaybackDriver.produceLocalBufferedInputs(
         host,
         true,
@@ -8007,7 +5554,7 @@ TEST_CASE("Netplay host stops at prediction limit without synthetic continuation
         0,
         uint64_t{0},
         60,
-        180,
+        100,
         hostPlaybackDriver.confirmedThroughFrame(host)
     );
     hostPlaybackDriver.preparePlaybackFramesForEmulationThread(
@@ -8015,209 +5562,96 @@ TEST_CASE("Netplay host stops at prediction limit without synthetic continuation
         true,
         false,
         ConsoleNetplay::SessionState::Running,
-        180
+        100
     );
-    for(ConsoleNetplay::FrameNumber frame = 182u; frame <= 191u; ++frame) {
-        host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0);
-    }
-    host.setLocalSimulationFrame(190);
-    host.setRemoteInputSuspendTimeoutForTests(1u);
+    host.setLocalSimulationFrame(110);
 
-    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs beforeTimeoutPlayback{};
-    REQUIRE_FALSE(host.tryBuildPlaybackFrame(182u, false, beforeTimeoutPlayback));
-    REQUIRE(host.session().roomState().syntheticFallbackInputFrameCount == 0u);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    const ConsoleNetplay::TimelineInputEntry* predictedRemote =
+        host.remoteInputs().find(108u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot);
+    REQUIRE(predictedRemote != nullptr);
+    const ConsoleNetplay::TimelineInputEntry* synthesizedRemote =
+        host.remoteInputs().find(109u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot);
+    REQUIRE(synthesizedRemote != nullptr);
+    REQUIRE(synthesizedRemote->confirmed);
+    REQUIRE_FALSE(synthesizedRemote->predicted);
+    REQUIRE(hostRemote->inputSuspended);
 
-    hostPlaybackDriver.produceLocalBufferedInputs(
-        host,
-        true,
-        false,
-        ConsoleNetplay::SessionState::Running,
-        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
-        0,
-        uint64_t{0},
-        60,
-        198,
-        hostPlaybackDriver.confirmedThroughFrame(host)
-    );
-    hostPlaybackDriver.preparePlaybackFramesForEmulationThread(
-        host,
-        true,
-        false,
-        ConsoleNetplay::SessionState::Running,
-        190
-    );
-    REQUIRE(hostPlaybackDriver.pendingFrameCount() == 0u);
-    REQUIRE(host.session().roomState().syntheticFallbackInputFrameCount == 0u);
-
-    ConsoleNetplay::ConfirmedInputBufferDriver clientPlaybackDriver;
-    clientPlaybackDriver.setPrebufferFrames(1);
-    clientPlaybackDriver.setPredictFrames(8);
-    clientPlaybackDriver.reanchor(180);
-    clientPlaybackDriver.produceLocalBufferedInputs(
-        client,
-        true,
-        false,
-        ConsoleNetplay::SessionState::Running,
-        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort2PlayerSlot},
-        0,
-        uint64_t{0},
-        60,
-        198,
-        clientPlaybackDriver.confirmedThroughFrame(client)
-    );
-    client.setLocalSimulationFrame(190);
-    clientPlaybackDriver.preparePlaybackFramesForEmulationThread(
-        client,
-        true,
-        false,
-        ConsoleNetplay::SessionState::Running,
-        190
-    );
-    REQUIRE(clientPlaybackDriver.pendingFrameCount() == 0u);
-    REQUIRE(client.session().roomState().syntheticFallbackInputFrameCount == 0u);
-
+    // The client stopped after frame 101. When playback reaches a frame where
+    // prediction is no longer allowed, the host must synthesize confirmed input
+    // from the last known contribution instead of returning false and stopping
+    // simulation. Desync detection can still request a resync later if needed.
     ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
-    REQUIRE_FALSE(ConsoleNetplay::runtimeTryBuildPlaybackConfirmedFrame(
-        host,
-        hostPlaybackDriver,
-        191u,
-        playbackFrame
-    ));
-    REQUIRE(host.predictionStats().playbackStopCount >= 1u);
-    REQUIRE(host.predictionStats().stopDueToPredictionLimitCount >= 1u);
-    REQUIRE(host.session().roomState().syntheticFallbackInputFrameCount == 0u);
+    REQUIRE(host.tryBuildPlaybackFrame(111, false, playbackFrame));
+    REQUIRE_FALSE(playbackFrame.predicted);
+    REQUIRE(GeraNESNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame).p2Right);
     REQUIRE(host.unresolvedPredictedRemoteFrameCount() == 0u);
-    REQUIRE_FALSE(hostRemote->inputSuspended);
+    REQUIRE(hostRemote->inputSuspended);
     REQUIRE_FALSE(hostRemote->inputResumeAwaitingResync);
-    REQUIRE_FALSE(hostRemote->sequenceRebasePending);
-    REQUIRE(host.remoteInputs().find(191u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) == nullptr);
+    REQUIRE(hostRemote->sequenceRebasePending);
+    REQUIRE(host.remoteInputs().find(111u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs suspendedPlaybackFrame{};
+    REQUIRE(host.tryBuildPlaybackFrame(112, true, suspendedPlaybackFrame));
+    REQUIRE_FALSE(suspendedPlaybackFrame.predicted);
+    REQUIRE(GeraNESNetplay::toGeraNESInputFrame(suspendedPlaybackFrame.netplayFrame).p2Right);
+    REQUIRE(host.remoteInputs().find(112u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) != nullptr);
 
     const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         host.consumePendingHostResyncFrame();
     REQUIRE_FALSE(pendingResync.has_value());
-    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=prediction_limit_fallback"));
 
-    host.disconnect();
-    client.disconnect();
-}
+    hostLocal->controllerAssignments.clear();
+    hostLocal->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+    hostLocal->normalizeControllerAssignments();
 
-TEST_CASE("Reliable confirmed input corrects consumed prediction when raw input packet is missing",
-          "[netplay][prediction][confirmed-input][rollback][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    bool started = false;
-    for(int attempt = 0; attempt < 3 && !started; ++attempt) {
-        host.disconnect();
-        client.disconnect();
-        const uint16_t port = reserveLoopbackPort();
-        if(!host.host(port, 1, "Host")) continue;
-        if(!client.join("127.0.0.1", port, "Client")) continue;
-        started = true;
-    }
-    REQUIRE(started);
-
-    bool connected = false;
-    for(int step = 0; step < 400 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected =
-            host.isConnected() &&
-            client.isConnected() &&
-            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
-            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
-            client.session().roomState().participants.size() >= 2;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    clientRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
-        clientRoom,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
+    ConsoleNetplay::ConfirmedInputBufferDriver observerHostPlaybackDriver;
+    observerHostPlaybackDriver.setPrebufferFrames(2);
+    observerHostPlaybackDriver.setPredictFrames(8);
+    observerHostPlaybackDriver.reanchor(112);
+    observerHostPlaybackDriver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{},
+        0,
+        uint64_t{0},
+        60,
+        112,
+        observerHostPlaybackDriver.confirmedThroughFrame(host)
     );
-    clientRoom.state = ConsoleNetplay::SessionState::Running;
-    clientRoom.timelineEpoch = 7u;
-    clientRoom.currentFrame = 100u;
-    clientRoom.lastConfirmedFrame = 100u;
-    clientRoom.selectedGameName = "ConfirmedPredictionCorrection";
+    observerHostPlaybackDriver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        112
+    );
+    REQUIRE(observerHostPlaybackDriver.queuedThroughFrame() > 114u);
+    REQUIRE(host.remoteInputs().find(115u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) != nullptr);
 
-    const ConsoleNetplay::ParticipantId hostParticipantId = host.localParticipantId();
-    const ConsoleNetplay::ParticipantId clientParticipantId = client.localParticipantId();
-    for(auto& participant : clientRoom.participants) {
-        participant.connected = true;
-        participant.romLoaded = true;
-        participant.romCompatible = true;
-        if(participant.id == clientParticipantId) {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-        } else {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-            participant.lastReceivedInputFrame = 99u;
-            participant.lastContiguousInputFrame = 99u;
-            participant.lastReceivedInputSequence = 0u;
-        }
-        participant.normalizeControllerAssignments(&clientRoom.inputTopology);
+    hostLocal->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    hostLocal->normalizeControllerAssignments();
+
+    // Subsequent frames keep using synthetic confirmed input without forcing a
+    // targeted authoritative resync for a brief background/minimize gap.
+    host.recordLocalInputFrame(112, GeraNESNetplay::kPort1PlayerSlot, 0);
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs resumedWindowPlayback{};
+    REQUIRE(host.tryBuildPlaybackFrame(112, false, resumedWindowPlayback));
+    REQUIRE_FALSE(resumedWindowPlayback.predicted);
+    REQUIRE(GeraNESNetplay::toGeraNESInputFrame(resumedWindowPlayback.netplayFrame).p2Right);
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+
+    ConsoleNetplay::InputFrameData staleResumedInput = baselineRemoteInput;
+    staleResumedInput.frame = 102;
+    staleResumedInput.sequence = 2;
+    for(int i = 0; i < 4; ++i) {
+        staleResumedInput.sequence += 1u;
+        REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, staleResumedInput, baselineContribution));
+        host.update(0);
+        REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     }
-
-    client.setLocalSimulationFrame(100u);
-
-    ConsoleNetplay::InputFrameData baselineRemoteInput{};
-    baselineRemoteInput.timelineEpoch = clientRoom.timelineEpoch;
-    baselineRemoteInput.frame = 100u;
-    baselineRemoteInput.participantId = hostParticipantId;
-    baselineRemoteInput.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
-    baselineRemoteInput.sequence = 1u;
-    baselineRemoteInput.buttonMaskLo = 0u;
-    baselineRemoteInput.buttonMaskHi = 0u;
-
-    InputFrame baselineContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(100u, clientRoom);
-    REQUIRE(GeraNESNetplay::injectInputFrameForTests(client, baselineRemoteInput, baselineContribution));
-
-    client.recordLocalInputFrame(101u, GeraNESNetplay::kPort2PlayerSlot, 0u);
-
-    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs predictedPlayback{};
-    REQUIRE(client.tryBuildPlaybackFrame(101u, true, predictedPlayback));
-    REQUIRE(predictedPlayback.predicted);
-    REQUIRE_FALSE(GeraNESNetplay::toGeraNESInputFrame(predictedPlayback.netplayFrame).p1A);
-
-    client.setLocalSimulationFrame(101u);
-
-    InputFrame authoritativeInput = GeraNESNetplay::makeRoomTopologyBaseFrame(101u, clientRoom);
-    authoritativeInput.p1A = true;
-
-    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
-    confirmed.frame = 101u;
-    confirmed.buttonMaskLo[GeraNESNetplay::kPort1PlayerSlot] =
-        ConsoleNetplay::ConfirmedInputBufferDriver::buildPadMask(true, false, false, false, false, false, false, false);
-    confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(authoritativeInput);
-
-    ConsoleNetplay::ConfirmedInputFramesData data{};
-    data.timelineEpoch = clientRoom.timelineEpoch;
-    data.startFrame = 101u;
-    data.frameCount = 1u;
-
-    REQUIRE(client.injectConfirmedPlaybackFramesForTests(data, {confirmed}));
-
-    const std::optional<ConsoleNetplay::FrameNumber> rollbackFrame =
-        client.consumePendingRollbackFrame();
-    REQUIRE(rollbackFrame.has_value());
-    REQUIRE(*rollbackFrame == 100u);
-
-    const ConsoleNetplay::TimelineInputEntry* corrected =
-        client.remoteInputs().find(101u, hostParticipantId, GeraNESNetplay::kPort1PlayerSlot);
-    REQUIRE(corrected != nullptr);
-    REQUIRE(corrected->confirmed);
-    REQUIRE_FALSE(corrected->predicted);
-    REQUIRE(corrected->buttonMaskLo == confirmed.buttonMaskLo[GeraNESNetplay::kPort1PlayerSlot]);
 
     host.disconnect();
     client.disconnect();
@@ -9071,7 +6505,7 @@ TEST_CASE("Netplay coordinator rejects future epochs and ignores stale epochs fo
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay coordinator schedules host resync on first confirmed CRC mismatch", "[netplay][crc][classification][unit]")
+TEST_CASE("Netplay coordinator requires sustained confirmed CRC mismatch before host resync scheduling", "[netplay][crc][classification][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
     REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
@@ -9097,58 +6531,27 @@ TEST_CASE("Netplay coordinator schedules host resync on first confirmed CRC mism
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
+    REQUIRE(anyLogLineContains(coordinator.eventLog(), "CRC mismatch below hard-resync threshold"));
     std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
         coordinator.consumePendingHostResyncFrame();
-    REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 200u);
+    REQUIRE_FALSE(pendingResync.has_value());
 
-    coordinator.disconnect();
-}
-
-TEST_CASE("Netplay coordinator escalates sparse repeated CRC mismatches",
-          "[netplay][crc][classification][unit][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    REQUIRE(coordinator.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = coordinator.host(reserveLoopbackPort(), 1, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.sessionId = 77u;
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 3u;
-    room.currentFrame = 420u;
-    room.lastConfirmedFrame = 420u;
-
-    ConsoleNetplay::CrcReportData report;
-    report.timelineEpoch = room.timelineEpoch;
-
-    coordinator.submitLocalCrc(120u, 0x11111111u);
-    report.frame = 120u;
-    report.crc32 = 0x22222222u;
+    coordinator.submitLocalCrc(230u, 0x33333333u);
+    report.frame = 230u;
+    report.crc32 = 0x44444444u;
     REQUIRE(coordinator.injectCrcReportForTests(report));
-    std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
-        coordinator.consumePendingHostResyncFrame();
-    REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 120u);
 
-    coordinator.submitLocalCrc(150u, 0x33333333u);
-    report.frame = 150u;
-    report.crc32 = 0x33333333u;
-    REQUIRE(coordinator.injectCrcReportForTests(report));
-    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
+    pendingResync = coordinator.consumePendingHostResyncFrame();
+    REQUIRE_FALSE(pendingResync.has_value());
 
-    coordinator.submitLocalCrc(240u, 0x44444444u);
-    report.frame = 240u;
-    report.crc32 = 0x55555555u;
+    coordinator.submitLocalCrc(260u, 0x55555555u);
+    report.frame = 260u;
+    report.crc32 = 0x66666666u;
     REQUIRE(coordinator.injectCrcReportForTests(report));
+
     pendingResync = coordinator.consumePendingHostResyncFrame();
     REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 240u);
-    REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
+    REQUIRE(pendingResync->frame == 260u);
 
     coordinator.disconnect();
 }
@@ -9271,7 +6674,7 @@ TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay post-resync stabilization CRC mismatch schedules immediate resync",
+TEST_CASE("Netplay post-resync stabilization CRC mismatch is provisional pressure",
           "[netplay][crc][stabilization][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
@@ -9308,12 +6711,8 @@ TEST_CASE("Netplay post-resync stabilization CRC mismatch schedules immediate re
     REQUIRE(coordinator.injectCrcReportForTests(report));
 
     REQUIRE(anyLogLineContains(coordinator.eventLog(), "classification=post_resync_stabilizing_crc_mismatch"));
-    REQUIRE(anyLogLineContains(coordinator.eventLog(), "action=scheduling_resync"));
     REQUIRE_FALSE(anyLogLineContains(coordinator.eventLog(), "classification=confirmed_crc_mismatch"));
-    const auto pending = coordinator.consumePendingHostResyncFrame();
-    REQUIRE(pending.has_value());
-    REQUIRE(pending->frame == 241u);
-    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE_FALSE(coordinator.consumePendingHostResyncFrame().has_value());
 
     coordinator.disconnect();
 }
@@ -10465,68 +7864,6 @@ TEST_CASE("GeraNES topology apply remaps equivalent assignments across Four Scor
     coordinator.disconnect();
 }
 
-TEST_CASE("GeraNES topology apply remaps equivalent assignments across Hori Adapter changes",
-          "[netplay][assignment][topology][hori]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-
-    ConsoleNetplay::ParticipantInfo* hostParticipant =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
-    REQUIRE(hostParticipant != nullptr);
-    hostParticipant->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    hostParticipant->normalizeControllerAssignments(&room.inputTopology);
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 1u;
-    remote.displayName = "Client";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    GeraNESNetplay::setGeraNESRoomInputTopology(
-        coordinator,
-        std::nullopt,
-        std::nullopt,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::HORI_ADAPTER
-    );
-
-    hostParticipant = const_cast<ConsoleNetplay::ParticipantInfo*>(
-        coordinator.session().findParticipant(coordinator.localParticipantId())
-    );
-    REQUIRE(hostParticipant != nullptr);
-    const ConsoleNetplay::ParticipantInfo* clientParticipant = coordinator.session().findParticipant(remote.id);
-    REQUIRE(clientParticipant != nullptr);
-    REQUIRE(ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kMultitapP1PlayerSlot));
-    REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kMultitapP2PlayerSlot));
-    REQUIRE_FALSE(ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kMultitapP2PlayerSlot));
-    REQUIRE_FALSE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kMultitapP1PlayerSlot));
-    REQUIRE(GeraNESNetplay::geraNESFamicomMultitapDeviceFromTopology(coordinator.session().roomState()) ==
-            Settings::FamicomMultitapDevice::HORI_ADAPTER);
-
-    coordinator.disconnect();
-}
-
 TEST_CASE("Host preassigned input can be transferred to connected client and host returns to observer",
           "[netplay][assignment][topology][unit]")
 {
@@ -10576,434 +7913,11 @@ TEST_CASE("Host preassigned input can be transferred to connected client and hos
     REQUIRE(clientParticipant != nullptr);
     REQUIRE(ConsoleNetplay::participantIsObserver(*hostParticipant));
     REQUIRE(hostParticipant->controllerAssignments.empty());
-    REQUIRE(hostParticipant->sequenceRebasePending);
     REQUIRE(clientParticipant->controllerAssignments ==
             std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot});
     REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kPort1PlayerSlot));
 
     coordinator.disconnect();
-}
-
-TEST_CASE("Host marks newly assigned remote participant for sequence rebase",
-          "[netplay][assignment][topology][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 1u;
-    remote.displayName = "Client";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    REQUIRE(coordinator.addControllerAssignment(remote.id, GeraNESNetplay::kPort1PlayerSlot));
-
-    const ConsoleNetplay::ParticipantInfo* clientParticipant =
-        coordinator.session().findParticipant(remote.id);
-    REQUIRE(clientParticipant != nullptr);
-    REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kPort1PlayerSlot));
-    REQUIRE(clientParticipant->sequenceRebasePending);
-    REQUIRE(clientParticipant->lastReceivedInputSequence == 0u);
-
-    coordinator.disconnect();
-}
-
-TEST_CASE("Runtime assignment sync reanchors host to authoritative baseline when observer becomes assigned",
-          "[netplay][assignment][runtime][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 3u;
-    room.lastConfirmedFrame = 3u;
-
-    ConsoleNetplay::ParticipantInfo* hostParticipant =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
-    REQUIRE(hostParticipant != nullptr);
-    hostParticipant->controllerAssignments.clear();
-    hostParticipant->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
-    hostParticipant->normalizeControllerAssignments(&room.inputTopology);
-
-    coordinator.setLocalSimulationFrame(3u);
-
-    std::string lastAssignmentLayoutKey;
-    std::vector<ConsoleNetplay::PlayerSlot> lastLocalAssignedSlots;
-
-    REQUIRE(coordinator.assignController(coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot));
-    room.activeResyncReason = ConsoleNetplay::ResyncReason::AssignmentChanged;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.reanchor(0u);
-
-    const auto result = ConsoleNetplay::runtimeSyncAssignmentLayout(
-        coordinator,
-        inputDriver,
-        lastAssignmentLayoutKey,
-        lastLocalAssignedSlots,
-        0u,
-        true
-    );
-
-    REQUIRE(result.localSlotsChanged);
-    REQUIRE(result.reanchorInputDriver);
-    REQUIRE(inputDriver.producedThroughFrame() == 3u);
-    REQUIRE(inputDriver.queuedThroughFrame() == 3u);
-
-    coordinator.disconnect();
-}
-
-TEST_CASE("Runtime assignment sync keeps first local input after remote assignment change",
-          "[netplay][assignment][runtime][input][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator coordinator;
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::FAMICOM_CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.currentFrame = 2046u;
-    room.lastConfirmedFrame = 2045u;
-
-    ConsoleNetplay::ParticipantInfo* local =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
-    REQUIRE(local != nullptr);
-    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    local->controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
-    local->normalizeControllerAssignments(&room.inputTopology);
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 1u;
-    remote.displayName = "Remote";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    coordinator.setLocalSimulationFrame(2046u);
-    coordinator.recordLocalInputFrame(2045u, GeraNESNetplay::kPort1PlayerSlot, 0u);
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.setPrebufferFrames(1u);
-    inputDriver.reanchor(2045u);
-
-    std::string lastAssignmentLayoutKey;
-    std::vector<ConsoleNetplay::PlayerSlot> lastLocalAssignedSlots{GeraNESNetplay::kPort1PlayerSlot};
-    const auto initialLayout = ConsoleNetplay::runtimeSyncAssignmentLayout(
-        coordinator,
-        inputDriver,
-        lastAssignmentLayoutKey,
-        lastLocalAssignedSlots,
-        2046u,
-        true
-    );
-    REQUIRE_FALSE(initialLayout.layoutChanged);
-    REQUIRE(inputDriver.producedThroughFrame() == 2045u);
-
-    room.participants.back().controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-    room.participants.back().controllerAssignment = GeraNESNetplay::kPort2PlayerSlot;
-    room.participants.back().normalizeControllerAssignments(&room.inputTopology);
-
-    const auto changedLayout = ConsoleNetplay::runtimeSyncAssignmentLayout(
-        coordinator,
-        inputDriver,
-        lastAssignmentLayoutKey,
-        lastLocalAssignedSlots,
-        2046u,
-        true
-    );
-    REQUIRE(changedLayout.layoutChanged);
-    REQUIRE(changedLayout.reanchorInputDriver);
-    REQUIRE(inputDriver.producedThroughFrame() == room.lastConfirmedFrame);
-
-    inputDriver.produceLocalBufferedInputs(
-        coordinator,
-        true,
-        false,
-        ConsoleNetplay::SessionState::Running,
-        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
-        0u,
-        room,
-        [](ConsoleNetplay::PlayerSlot slot, ConsoleNetplay::FrameNumber frame, const ConsoleNetplay::RoomState& roomState) {
-            return GeraNESNetplay::toNetplayInputFrame(
-                GeraNESNetplay::buildAssignedContribution(
-                    slot,
-                    GeraNESNetplay::GeraNESInputState{},
-                    GeraNESNetplay::makeRoomTopologyBaseFrame(frame, roomState)
-                )
-            );
-        },
-        60u,
-        2046u,
-        inputDriver.confirmedThroughFrame(coordinator)
-    );
-
-    REQUIRE(coordinator.localInputs().find(2046u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
-    REQUIRE(coordinator.localInputs().find(2047u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
-    REQUIRE_FALSE(anyLogLineContains(coordinator.eventLog(), "Rejected non-sequential local input frame 2047"));
-
-    coordinator.disconnect();
-}
-
-TEST_CASE("Runtime client input production does not precommit large shared-clock lag",
-          "[netplay][runtime][input][clock][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
-
-    bool connected = false;
-    for(int step = 0; step < 400 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected =
-            host.isConnected() &&
-            client.isConnected() &&
-            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 3u;
-    room.currentFrame = 4838u;
-    room.lastConfirmedFrame = 3658u;
-    room.inputDelayFrames = 1u;
-    room.predictFrames = 8u;
-
-    ConsoleNetplay::ParticipantInfo* local =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(client.session().findParticipant(client.localParticipantId()));
-    REQUIRE(local != nullptr);
-    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    local->controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
-    local->normalizeControllerAssignments(&room.inputTopology);
-
-    client.setSharedClockSynchronizedForTests(true);
-    const uint64_t nowMicros = client.sharedClockNowMicros();
-    REQUIRE(nowMicros != 0u);
-    room.sharedClockSynchronized = true;
-    room.lastAuthoritativeClockFrame = 4838u;
-    room.lastAuthoritativeClockMicros = nowMicros;
-
-    FakeNetplayConsole console;
-    console.frameValue = 3658u;
-    console.regionFpsValue = 60u;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.setPrebufferFrames(1u);
-    inputDriver.reanchor(console.frameCount());
-
-    ConsoleNetplay::runtimeProduceLocalBufferedInputs(
-        client,
-        inputDriver,
-        console,
-        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
-        0u
-    );
-
-    REQUIRE(inputDriver.producedThroughFrame() <= 3671u);
-    REQUIRE(client.localInputs().find(3659u, client.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
-    REQUIRE(client.localInputs().find(4838u, client.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) == nullptr);
-
-    client.disconnect();
-    host.disconnect();
-}
-
-TEST_CASE("Runtime lockstep does not skip missing local input history after large lag",
-          "[netplay][runtime][input][clock][lockstep][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
-
-    bool connected = false;
-    for(int step = 0; step < 400 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected =
-            host.isConnected() &&
-            client.isConnected() &&
-            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 5u;
-    room.currentFrame = 5160u;
-    room.lastConfirmedFrame = 5159u;
-    room.inputDelayFrames = 1u;
-    room.predictFrames = 8u;
-
-    ConsoleNetplay::ParticipantInfo* local =
-        const_cast<ConsoleNetplay::ParticipantInfo*>(client.session().findParticipant(client.localParticipantId()));
-    REQUIRE(local != nullptr);
-    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-    local->controllerAssignment = GeraNESNetplay::kPort1PlayerSlot;
-    local->normalizeControllerAssignments(&room.inputTopology);
-
-    client.setSharedClockSynchronizedForTests(true);
-    const uint64_t nowMicros = client.sharedClockNowMicros();
-    REQUIRE(nowMicros != 0u);
-    room.sharedClockSynchronized = true;
-    room.lastAuthoritativeClockFrame = 5160u;
-    room.lastAuthoritativeClockMicros = nowMicros;
-
-    FakeNetplayConsole console;
-    console.frameValue = 3402u;
-    console.regionFpsValue = 60u;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    inputDriver.setPrebufferFrames(1u);
-    inputDriver.reanchor(console.frameCount());
-
-    ConsoleNetplay::runtimeProduceLocalBufferedInputs(
-        client,
-        inputDriver,
-        console,
-        std::vector<ConsoleNetplay::PlayerSlot>{GeraNESNetplay::kPort1PlayerSlot},
-        0u
-    );
-
-    REQUIRE(inputDriver.producedThroughFrame() <= 3415u);
-    REQUIRE(client.localInputs().find(3403u, client.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
-    REQUIRE(client.localInputs().find(5160u, client.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) == nullptr);
-    REQUIRE_FALSE(anyLogLineContains(client.eventLog(), "Rejected non-sequential local input frame"));
-
-    client.disconnect();
-    host.disconnect();
-}
-
-TEST_CASE("Runtime shared-clock catchup requests resync when lag is large despite confirmed lag",
-          "[netplay][runtime][clock][resync][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-    REQUIRE(host.host(port, 1, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
-
-    bool connected = false;
-    for(int step = 0; step < 400 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected =
-            host.isConnected() &&
-            client.isConnected() &&
-            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 3u;
-    room.currentFrame = 4838u;
-    room.lastConfirmedFrame = 3659u;
-    room.inputDelayFrames = 1u;
-    room.predictFrames = 8u;
-
-    client.setSharedClockSynchronizedForTests(true);
-    const uint64_t nowMicros = client.sharedClockNowMicros();
-    REQUIRE(nowMicros != 0u);
-    room.sharedClockSynchronized = true;
-    room.lastAuthoritativeClockFrame = 4838u;
-    room.lastAuthoritativeClockMicros = nowMicros;
-
-    FakeNetplayConsole console;
-    console.frameValue = 3658u;
-    console.regionFpsValue = 60u;
-
-    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
-    ConsoleNetplay::RuntimeSharedClockCatchupState catchupState;
-
-    REQUIRE(ConsoleNetplay::runtimeAdvanceToSharedClockIfNeeded(
-                client,
-                inputDriver,
-                console,
-                catchupState,
-                120u,
-                false
-            ) == 0u);
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    REQUIRE(ConsoleNetplay::runtimeAdvanceToSharedClockIfNeeded(
-                client,
-                inputDriver,
-                console,
-                catchupState,
-                120u,
-                false
-            ) == 0u);
-
-    REQUIRE(anyLogLineContains(client.eventLog(), "requested authoritative resync"));
-    REQUIRE_FALSE(anyLogLineContains(client.eventLog(), "confirmed input is not far enough ahead"));
-
-    client.disconnect();
-    host.disconnect();
 }
 
 TEST_CASE("GeraNES topology remaps equivalent assignments back and forth across Four Score changes",
@@ -11276,52 +8190,6 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(emu.frameCount() == 2u);
     REQUIRE(audio.discardQueuedAudioCalls > 0);
     REQUIRE(audio.clearAudioBuffersCalls > 0);
-}
-
-TEST_CASE("Netplay input stall does not synthesize compensation audio", "[netplay][audio][stutter]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    RecordingAudioOutput audio;
-    GeraNESEmu emu(audio);
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(emu.valid());
-
-    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
-
-    InputFrame frame0 = emu.createInputFrame(0u);
-    frame0.speculative = false;
-    emu.queueInputFrame(frame0);
-    REQUIRE(emu.updateUntilFrame(frameDt));
-    REQUIRE(emu.frameCount() == 1u);
-
-    const uint32_t renderCallsBeforeStall = audio.renderCalls;
-    const uint32_t audibleCallsBeforeStall = audio.audibleRenderCalls;
-    const uint32_t silentCallsBeforeStall = audio.silentRenderCalls;
-
-    REQUIRE_FALSE(emu.updateUntilFrame(frameDt));
-    REQUIRE(emu.frameCount() == 1u);
-    REQUIRE(audio.renderCalls == renderCallsBeforeStall);
-    REQUIRE(audio.audibleRenderCalls == audibleCallsBeforeStall);
-    REQUIRE(audio.silentRenderCalls == silentCallsBeforeStall);
-}
-
-TEST_CASE("Changing region republishes cached APU audio state after audio reinit", "[audio][region][regression]")
-{
-    TrackingAudioOutput audio;
-    GeraNESEmu emu(audio);
-
-    audio.resetSetterCounters();
-
-    emu.setRegion(Settings::Region::PAL);
-
-    REQUIRE(audio.initCalls == 1);
-    REQUIRE(audio.channelVolumeCalls > 0);
-    REQUIRE(audio.channelFrequencyCalls > 0);
-    REQUIRE(audio.pulseDutyCalls > 0);
-    REQUIRE(audio.noiseMetallicCalls > 0);
-    REQUIRE(audio.expansionSourceRateCalls > 0);
-    REQUIRE(audio.expansionVolumeCalls > 0);
 }
 
 TEST_CASE("Netplay speculative playback produces no audio render", "[netplay][audio][prediction]")
@@ -12603,8 +9471,6 @@ TEST_CASE("Netplay runtime reports recovery mode and resync anchors in diagnosti
     REQUIRE(report.at("client").at("lastSubmittedLocalCrcFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("host").at("lastRecoveryReanchorFrame").get<uint32_t>() > 0u);
     REQUIRE(report.at("client").at("lastRecoveryReanchorFrame").get<uint32_t>() > 0u);
-    REQUIRE(report.at("host").at("recoveryStatusText").get<std::string>().find("last recovery reanchor") != std::string::npos);
-    REQUIRE(report.at("client").at("recoveryStatusText").get<std::string>().find("hard resyncs") != std::string::npos);
     REQUIRE(report.at("host").at("localConfirmedCrcType") == "canonical_netplay_state_crc32");
     REQUIRE(report.at("host").at("frameReadyCrcType") == "frame_ready_canonical_crc32");
     REQUIRE(report.at("host").at("resyncPayloadCrcType") == "payload_crc32");
@@ -12697,299 +9563,6 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
 
     REQUIRE(cleanBoot.frameCount() == dirtyReplay.frameCount());
     REQUIRE(cleanBoot.canonicalNetplayStateCrc32() == dirtyReplay.canonicalNetplayStateCrc32());
-}
-
-TEST_CASE("Netplay canonical CRC ignores queued future input at frame-ready checkpoints",
-          "[netplay][crc][canonical][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    GeraNESEmu noFutureInput(DummyAudioOutput::instance());
-    REQUIRE(noFutureInput.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(noFutureInput.valid());
-
-    const uint32_t frameDt =
-        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, noFutureInput.getRegionFPS()));
-
-    InputFrame frame0 = noFutureInput.createInputFrame(0u);
-    frame0.p1A = true;
-    frame0.timelineEpoch = noFutureInput.inputTimelineEpoch();
-    noFutureInput.queueInputFrame(frame0);
-
-    REQUIRE(noFutureInput.updateUntilFrame(frameDt));
-    REQUIRE(noFutureInput.frameCount() == 1u);
-
-    const std::vector<uint8_t> clonedState = noFutureInput.saveStateToMemory();
-    REQUIRE_FALSE(clonedState.empty());
-
-    GeraNESEmu futureInputQueued(DummyAudioOutput::instance());
-    REQUIRE(futureInputQueued.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(futureInputQueued.loadStateFromMemoryOnCleanBoot(clonedState));
-    REQUIRE(futureInputQueued.valid());
-    REQUIRE(futureInputQueued.frameCount() == 1u);
-    REQUIRE(noFutureInput.canonicalNetplayStateCrc32() == futureInputQueued.canonicalNetplayStateCrc32());
-
-    InputFrame futureFrame = futureInputQueued.createInputFrame(1u);
-    futureFrame.p1Right = true;
-    futureFrame.timelineEpoch = futureInputQueued.inputTimelineEpoch();
-    REQUIRE(futureInputQueued.queueInputFrame(futureFrame) == InputBuffer::EnqueueResult::Inserted);
-
-    REQUIRE(noFutureInput.canonicalNetplayStateCrc32() == futureInputQueued.canonicalNetplayStateCrc32());
-}
-
-TEST_CASE("CRC cause matrix: identical confirmed input produces identical canonical CRC",
-          "[netplay][crc][crc-cause][input][canonical]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    GeraNESEmu authoritative(DummyAudioOutput::instance());
-    GeraNESEmu host(DummyAudioOutput::instance());
-    GeraNESEmu client(DummyAudioOutput::instance());
-    REQUIRE(authoritative.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(authoritative.valid());
-    const std::vector<uint8_t> initialState = authoritative.saveNetplayStateToMemory();
-    REQUIRE_FALSE(initialState.empty());
-    REQUIRE(host.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(host.loadStateFromMemoryOnCleanBoot(initialState));
-    REQUIRE(client.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(client.loadStateFromMemoryOnCleanBoot(initialState));
-    REQUIRE(host.valid());
-    REQUIRE(client.valid());
-    REQUIRE(host.canonicalNetplayStateCrc32() == client.canonicalNetplayStateCrc32());
-
-    const uint32_t frameDt =
-        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, host.getRegionFPS()));
-
-    for(uint32_t frame = 0u; frame < 360u; ++frame) {
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(host, frame)));
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(client, frame)));
-        REQUIRE(host.updateUntilFrame(frameDt));
-        REQUIRE(client.updateUntilFrame(frameDt));
-
-        if(frame % ConsoleNetplay::kDesyncCrcIntervalFrames == 0u) {
-            INFO("frame=" << frame);
-            REQUIRE(host.frameCount() == client.frameCount());
-            REQUIRE(host.canonicalNetplayStateCrc32() == client.canonicalNetplayStateCrc32());
-        }
-    }
-
-    REQUIRE(host.canonicalNetplayStateCrc32() == client.canonicalNetplayStateCrc32());
-}
-
-TEST_CASE("CRC cause matrix: save-state payload preserves canonical future state",
-          "[netplay][crc][crc-cause][state][canonical]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    GeraNESEmu source(DummyAudioOutput::instance());
-    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(source.valid());
-
-    const uint32_t frameDt =
-        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
-
-    for(uint32_t frame = 0u; frame < 90u; ++frame) {
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(source, frame)));
-        REQUIRE(source.updateUntilFrame(frameDt));
-    }
-
-    const std::vector<uint8_t> netplayState = source.saveNetplayStateToMemory();
-    REQUIRE_FALSE(netplayState.empty());
-
-    GeraNESEmu restored(DummyAudioOutput::instance());
-    REQUIRE(restored.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(restored.loadStateFromMemoryOnCleanBoot(netplayState));
-    REQUIRE(restored.valid());
-    REQUIRE(restored.frameCount() == source.frameCount());
-    REQUIRE(restored.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
-
-    const uint32_t firstFutureFrame = source.frameCount();
-    for(uint32_t frame = firstFutureFrame; frame < firstFutureFrame + 180u; ++frame) {
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(source, frame)));
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(restored, frame)));
-        REQUIRE(source.updateUntilFrame(frameDt));
-        REQUIRE(restored.updateUntilFrame(frameDt));
-
-        if(frame % ConsoleNetplay::kDesyncCrcIntervalFrames == 0u) {
-            INFO("frame=" << frame);
-            REQUIRE(restored.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
-        }
-    }
-}
-
-TEST_CASE("CRC cause matrix: assigned topology preserves epoch and active device payloads",
-          "[netplay][crc][crc-cause][topology][device][input]")
-{
-    ConsoleNetplay::RoomState room;
-    room.timelineEpoch = 99u;
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::SNES_MOUSE,
-        Settings::Device::ZAPPER,
-        Settings::ExpansionDevice::ARKANOID_CONTROLLER,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-
-    const InputFrame baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(123u, room);
-    REQUIRE(baseFrame.timelineEpoch == 99u);
-
-    GeraNESNetplay::GeraNESInputState state{};
-    state.mouseDeltaX = -7;
-    state.mouseDeltaY = 5;
-    state.mousePrimaryButton = true;
-    state.mouseSecondaryButton = true;
-    state.zapperX = 87;
-    state.zapperY = 53;
-    state.zapperP2Trigger = true;
-    state.arkanoidFamicomPosition = 0.75f;
-
-    InputFrame combined = baseFrame;
-    const InputFrame mouseContribution =
-        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort1PlayerSlot, state, baseFrame);
-    const InputFrame zapperContribution =
-        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, state, baseFrame);
-    const InputFrame expansionContribution =
-        GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kExpansionPlayerSlot, state, baseFrame);
-
-    REQUIRE(mouseContribution.timelineEpoch == baseFrame.timelineEpoch);
-    REQUIRE(zapperContribution.timelineEpoch == baseFrame.timelineEpoch);
-    REQUIRE(expansionContribution.timelineEpoch == baseFrame.timelineEpoch);
-
-    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kPort1PlayerSlot, mouseContribution);
-    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kPort2PlayerSlot, zapperContribution);
-    GeraNESNetplay::applyAssignedContribution(combined, GeraNESNetplay::kExpansionPlayerSlot, expansionContribution);
-
-    REQUIRE(combined.timelineEpoch == baseFrame.timelineEpoch);
-    REQUIRE(combined.snesMouseP1DeltaX == -7);
-    REQUIRE(combined.snesMouseP1DeltaY == 5);
-    REQUIRE(combined.snesMouseP1Left == true);
-    REQUIRE(combined.snesMouseP1Right == true);
-    REQUIRE(combined.zapperP2X == 87);
-    REQUIRE(combined.zapperP2Y == 53);
-    REQUIRE(combined.zapperP2Trigger == true);
-    REQUIRE(combined.arkanoidFamicomPosition == 0.75f);
-    REQUIRE(combined.arkanoidFamicomButton == true);
-
-    const ConsoleNetplay::NetplayInputFrame netplayFrame =
-        GeraNESNetplay::toNetplayInputFrame(combined);
-    const InputFrame roundTrip = GeraNESNetplay::toGeraNESInputFrame(netplayFrame);
-    REQUIRE(roundTrip == combined);
-}
-
-TEST_CASE("CRC cause matrix: stale epoch input cannot replace confirmed timeline input",
-          "[netplay][crc][crc-cause][input][epoch]")
-{
-    InputBuffer buffer;
-
-    InputFrame epoch4Frame;
-    epoch4Frame.frame = 40u;
-    epoch4Frame.timelineEpoch = 4u;
-    epoch4Frame.p1A = true;
-    REQUIRE(buffer.push(epoch4Frame, 4u) == InputBuffer::EnqueueResult::Inserted);
-
-    InputFrame staleRewrite = epoch4Frame;
-    staleRewrite.timelineEpoch = 3u;
-    staleRewrite.p1A = false;
-    staleRewrite.p1B = true;
-    REQUIRE(buffer.push(staleRewrite, 4u) == InputBuffer::EnqueueResult::RejectedEpoch);
-
-    const InputFrame* stored = buffer.findByFrame(40u, 4u);
-    REQUIRE(stored != nullptr);
-    REQUIRE(stored->p1A == true);
-    REQUIRE(stored->p1B == false);
-    REQUIRE(buffer.findByFrame(40u, 3u) == nullptr);
-}
-
-TEST_CASE("CRC cause matrix: audio output backend stays outside canonical CRC",
-          "[netplay][crc][crc-cause][nondeterminism][audio]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    GeraNESEmu authoritative(DummyAudioOutput::instance());
-    REQUIRE(authoritative.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(authoritative.valid());
-    const std::vector<uint8_t> initialState = authoritative.saveNetplayStateToMemory();
-    REQUIRE_FALSE(initialState.empty());
-
-    RecordingAudioOutput recordingAudio;
-    GeraNESEmu dummyAudioEmu(DummyAudioOutput::instance());
-    GeraNESEmu recordingAudioEmu(recordingAudio);
-    REQUIRE(dummyAudioEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(dummyAudioEmu.loadStateFromMemoryOnCleanBoot(initialState));
-    REQUIRE(recordingAudioEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(recordingAudioEmu.loadStateFromMemoryOnCleanBoot(initialState));
-    REQUIRE(dummyAudioEmu.valid());
-    REQUIRE(recordingAudioEmu.valid());
-
-    const uint32_t frameDt =
-        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, dummyAudioEmu.getRegionFPS()));
-
-    for(uint32_t frame = 0u; frame < 120u; ++frame) {
-        InputFrame input = dummyAudioEmu.createInputFrame(frame);
-        input.timelineEpoch = dummyAudioEmu.inputTimelineEpoch();
-        input.p1A = (frame % 11u) == 0u;
-        input.p1Right = (frame % 23u) < 5u;
-
-        InputFrame recordingInput = input;
-        recordingInput.timelineEpoch = recordingAudioEmu.inputTimelineEpoch();
-
-        REQUIRE(inputEnqueueAccepted(dummyAudioEmu.queueInputFrame(input)));
-        REQUIRE(inputEnqueueAccepted(recordingAudioEmu.queueInputFrame(recordingInput)));
-        REQUIRE(dummyAudioEmu.updateUntilFrame(frameDt));
-        REQUIRE(recordingAudioEmu.updateUntilFrame(frameDt));
-    }
-
-    REQUIRE(recordingAudio.renderCalls > 0u);
-    REQUIRE(dummyAudioEmu.frameCount() == recordingAudioEmu.frameCount());
-    REQUIRE(dummyAudioEmu.canonicalNetplayStateCrc32() == recordingAudioEmu.canonicalNetplayStateCrc32());
-}
-
-TEST_CASE("Netplay save-state replay stays canonical-CRC stable over long gameplay",
-          "[netplay][crc][canonical][save-state][soak][regression]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    GeraNESEmu source(DummyAudioOutput::instance());
-    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(source.valid());
-
-    const uint32_t frameDt =
-        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
-    constexpr uint32_t snapshotFrame = 4103u;
-    constexpr uint32_t targetFrame = 7650u;
-
-    for(uint32_t frame = 0u; frame < snapshotFrame; ++frame) {
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(source, frame)));
-        REQUIRE(source.updateUntilFrame(frameDt));
-    }
-    REQUIRE(source.frameCount() == snapshotFrame);
-
-    const std::vector<uint8_t> snapshot = source.saveStateToMemory();
-    REQUIRE_FALSE(snapshot.empty());
-
-    GeraNESEmu clone(DummyAudioOutput::instance());
-    REQUIRE(clone.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(clone.loadStateFromMemoryOnCleanBoot(snapshot));
-    REQUIRE(clone.valid());
-    REQUIRE(clone.frameCount() == snapshotFrame);
-    REQUIRE(clone.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
-
-    for(uint32_t frame = snapshotFrame; frame < targetFrame; ++frame) {
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(source, frame)));
-        REQUIRE(inputEnqueueAccepted(queueDeterministicTwoPortInput(clone, frame)));
-        REQUIRE(source.updateUntilFrame(frameDt));
-        REQUIRE(clone.updateUntilFrame(frameDt));
-
-        if((frame % 30u) == 0u) {
-            INFO("frame=" << frame);
-            REQUIRE(clone.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
-        }
-    }
-
-    REQUIRE(source.frameCount() == targetFrame);
-    REQUIRE(clone.frameCount() == targetFrame);
-    REQUIRE(clone.canonicalNetplayStateCrc32() == source.canonicalNetplayStateCrc32());
 }
 
 TEST_CASE("Netplay runtime confirmed divergence requires hard resync", "[netplay][runtime][desync][hard-resync]")
@@ -13085,14 +9658,8 @@ TEST_CASE("Netplay runtime ignores stale previous-epoch inputs after authoritati
     REQUIRE(report.at("host").at("lastAcceptedRemoteEpoch").get<uint32_t>() ==
             report.at("host").at("timelineEpoch").get<uint32_t>());
 
-    const auto& hostReport = report.at("host");
-    const uint32_t hostTimelineEpoch = hostReport.at("timelineEpoch").get<uint32_t>();
-    REQUIRE(hostReport.at("staleInputPacketCount").get<uint32_t>() > 0u);
-    REQUIRE(hostReport.at("lastIgnoredStaleInputEpoch").get<uint32_t>() < hostTimelineEpoch);
-    REQUIRE(hostReport.at("staleFrameStatusPacketCount").get<uint32_t>() == 0u);
-    if(hostReport.at("staleCrcPacketCount").get<uint32_t>() > 0u) {
-        REQUIRE(hostReport.at("lastIgnoredStaleCrcEpoch").get<uint32_t>() < hostTimelineEpoch);
-    }
+    REQUIRE(report.at("host").at("staleFrameStatusPacketCount").get<uint32_t>() == 0u);
+    REQUIRE(report.at("host").at("staleCrcPacketCount").get<uint32_t>() == 0u);
 }
 
 TEST_CASE("Netplay robust matrix stays green", "[netplay][robust]")

@@ -2004,8 +2004,7 @@ void GeraNESApp::pollAndPrepareInput()
             std::scoped_lock stateLock(m_netplayInputStateMutex);
             m_netplayLatestInputState = inputState;
         }
-        const bool netplayActive = m_netplayRuntime.uiSnapshot().active;
-        m_emu.setPendingInput(netplayActive ? IEmulationHost::InputState{} : inputState);
+        m_emu.setPendingInput(inputState);
     } else {
         m_emu.setPendingInput({});
     }

@@ -12,10 +12,17 @@ namespace ConsoleNetplay {
 class SelfStallDetector
 {
 public:
+    enum class Role : uint8_t
+    {
+        Host,
+        Client
+    };
+
     struct Snapshot
     {
         bool active = false;
         bool hosting = false;
+        Role role = Role::Host;
         SessionState sessionState = SessionState::Lobby;
         RecoveryInputMode recoveryInputMode = RecoveryInputMode::Normal;
         uint32_t timelineEpoch = 0;
@@ -26,8 +33,6 @@ public:
         FrameNumber confirmedFrame = 0;
         FrameNumber maxRemoteReportedCurrentFrame = 0;
         FrameNumber maxRemoteReportedConfirmedFrame = 0;
-        uint32_t inputDelayFrames = 0;
-        uint32_t predictFrames = 0;
         uint32_t playbackStopCount = 0;
         uint32_t rollbackScheduledCount = 0;
     };
@@ -49,8 +54,6 @@ private:
         FrameNumber confirmedFrame = 0;
         FrameNumber maxRemoteReportedCurrentFrame = 0;
         FrameNumber maxRemoteReportedConfirmedFrame = 0;
-        uint32_t inputDelayFrames = 0;
-        uint32_t predictFrames = 0;
         uint32_t playbackStopCount = 0;
         uint32_t rollbackScheduledCount = 0;
     };
@@ -67,7 +70,6 @@ private:
     static ProgressSample makeSample(const Snapshot& snapshot);
     static bool hasForwardProgress(const ProgressSample& baseline, const ProgressSample& current);
     static uint32_t churnSince(const ProgressSample& baseline, const ProgressSample& current);
-    static bool hostIsWaitingWithinRemoteTolerance(const Snapshot& snapshot, const ProgressSample& current);
 };
 
 } // namespace ConsoleNetplay

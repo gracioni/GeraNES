@@ -3,53 +3,8 @@
 #include <algorithm>
 #include <utility>
 
-#include "ConsoleNetplay/NetplayInputAssignment.h"
-
 namespace ConsoleNetplay
 {
-
-namespace {
-
-bool hostWaitingOnRemotePlayableInput(const NetplayCoordinator& coordinator, bool hasLocalSlots)
-{
-    if(!coordinator.isHosting() || hasLocalSlots) {
-        return false;
-    }
-
-    const ParticipantId localParticipantId = coordinator.localParticipantId();
-    const RoomState& room = coordinator.session().roomState();
-    return std::any_of(
-        room.participants.begin(),
-        room.participants.end(),
-        [localParticipantId](const ParticipantInfo& participant) {
-            return participant.id != localParticipantId &&
-                   participant.connected &&
-                   !participantIsObserver(participant);
-        }
-    );
-}
-
-bool hostHasConnectedRemotePlayableInput(const NetplayCoordinator& coordinator)
-{
-    if(!coordinator.isHosting()) {
-        return false;
-    }
-
-    const ParticipantId localParticipantId = coordinator.localParticipantId();
-    const RoomState& room = coordinator.session().roomState();
-    return std::any_of(
-        room.participants.begin(),
-        room.participants.end(),
-        [localParticipantId](const ParticipantInfo& participant) {
-            return participant.id != localParticipantId &&
-                   participant.connected &&
-                   !participant.reconnectReserved &&
-                   !participantIsObserver(participant);
-        }
-    );
-}
-
-} // namespace
 
 void ConfirmedInputBufferDriver::seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
                                                               const std::vector<PlayerSlot>& localSlots,
@@ -111,6 +66,7 @@ ConfirmedInputBufferDriver::PlaybackQueueStats ConfirmedInputBufferDriver::playb
 
 void ConfirmedInputBufferDriver::reset()
 {
+    m_inputProductionAccumulatorMs = 0.0;
     m_producedThroughFrame = 0;
     m_queuedThroughFrame = 0;
     m_lastProduceHadLocalSlots = false;
@@ -120,6 +76,7 @@ void ConfirmedInputBufferDriver::reset()
 
 void ConfirmedInputBufferDriver::reanchor(uint32_t frame)
 {
+    m_inputProductionAccumulatorMs = 0.0;
     m_producedThroughFrame = frame;
     m_queuedThroughFrame = frame;
     m_lastProduceHadLocalSlots = false;
@@ -212,40 +169,38 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
         return;
     }
     if(awaitingSync) {
+        m_inputProductionAccumulatorMs = 0.0;
         m_lastProduceHadLocalSlots = false;
         std::scoped_lock pendingLock(m_pendingFramesMutex);
         m_pendingFrames.clear();
         return;
     }
     if(state != SessionState::Running) {
+        m_inputProductionAccumulatorMs = 0.0;
         return;
     }
 
     m_lastProduceHadLocalSlots = !localSlots.empty();
 
     if(localSlots.empty()) {
-        const bool waitForRemotePlayableInput =
-            hostWaitingOnRemotePlayableInput(coordinator, false);
-        const uint32_t targetBufferedThroughFrame =
-            waitForRemotePlayableInput
-                ? confirmedThroughFrame
-                : exactFrame + m_prebufferFrames;
+        const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
         if(m_producedThroughFrame < targetBufferedThroughFrame) {
             m_producedThroughFrame = targetBufferedThroughFrame;
         }
         if(m_queuedThroughFrame > m_producedThroughFrame) {
             m_queuedThroughFrame = m_producedThroughFrame;
         }
+        m_inputProductionAccumulatorMs = 0.0;
         return;
     }
 
     (void)dtMs;
     (void)regionFps;
 
-    if(coordinator.isHosting() && m_producedThroughFrame < confirmedThroughFrame) {
+    if(m_producedThroughFrame < confirmedThroughFrame) {
         m_producedThroughFrame = confirmedThroughFrame;
     }
-    if(coordinator.isHosting() && m_queuedThroughFrame < confirmedThroughFrame) {
+    if(m_queuedThroughFrame < confirmedThroughFrame) {
         m_queuedThroughFrame = confirmedThroughFrame;
     }
 
@@ -263,6 +218,7 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
             );
         }
     }
+    m_inputProductionAccumulatorMs = 0.0;
 }
 
 void ConfirmedInputBufferDriver::produceLocalBufferedInputMasks(NetplayCoordinator& coordinator,
@@ -420,19 +376,12 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     const uint32_t delaySlackFrame = confirmedFrame + m_prebufferFrames;
     const uint32_t predictedThroughFrame = delaySlackFrame + m_predictFrames;
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
-    const bool waitForRemotePlayableInput =
-        hostWaitingOnRemotePlayableInput(coordinator, m_lastProduceHadLocalSlots);
-    const bool connectedRemotePlayableInputPresent =
-        hostHasConnectedRemotePlayableInput(coordinator);
     const uint32_t hostFallbackThroughFrame =
-        coordinator.isHosting() &&
-                !connectedRemotePlayableInputPresent &&
-                !m_lastProduceHadLocalSlots &&
-                !waitForRemotePlayableInput
+        coordinator.isHosting() && !m_lastProduceHadLocalSlots
             ? queueHorizonFrame
             : m_producedThroughFrame;
     const uint32_t playableThroughFrame =
-        coordinator.isHosting() && !connectedRemotePlayableInputPresent
+        coordinator.isHosting()
             ? hostFallbackThroughFrame
             : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t firstFrame = emulationFrame + 1u;
@@ -440,16 +389,11 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     if(maxPlaybackFrame.has_value()) {
         targetThroughFrame = std::min<uint32_t>(targetThroughFrame, *maxPlaybackFrame);
     }
-    const auto allowPredictionForFrame = [delaySlackFrame, predictedThroughFrame, waitForRemotePlayableInput](uint32_t frame) {
-        return !waitForRemotePlayableInput &&
-               frame > delaySlackFrame &&
-               frame <= predictedThroughFrame;
+    const auto allowPredictionForFrame = [delaySlackFrame, predictedThroughFrame](uint32_t frame) {
+        return frame > delaySlackFrame && frame <= predictedThroughFrame;
     };
-    const auto allowHostFallbackForFrame =
-        [predictedThroughFrame, waitForRemotePlayableInput, connectedRemotePlayableInputPresent](uint32_t frame) {
-        return !connectedRemotePlayableInputPresent &&
-               !waitForRemotePlayableInput &&
-               frame > predictedThroughFrame;
+    const auto allowHostFallbackForFrame = [predictedThroughFrame](uint32_t frame) {
+        return frame > predictedThroughFrame;
     };
 
     std::scoped_lock pendingLock(m_pendingFramesMutex);

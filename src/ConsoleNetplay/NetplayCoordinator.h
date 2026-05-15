@@ -130,7 +130,6 @@ private:
     NetTransport m_transport;
     NetSession m_session;
     InputTimeline m_localInputs;
-    InputTimeline m_localInputResendHistory;
     InputTimeline m_remoteInputs;
     std::list<ConfirmedFrameInputs> m_confirmedFrames;
     std::unordered_map<FrameNumber, std::list<ConfirmedFrameInputs>::iterator> m_confirmedFrameIndex;
@@ -191,10 +190,6 @@ private:
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastGameplayInputAt;
     std::unordered_map<ParticipantId, std::chrono::steady_clock::time_point> m_lastPeerHealthAt;
     std::deque<DelayedPacketEvent> m_delayedPacketEvents;
-    size_t m_delayedPacketBytes = 0;
-    std::unordered_map<NetTransport::PeerHandle, size_t> m_delayedPacketBytesByPeer;
-    std::chrono::steady_clock::time_point m_lastDelayedPacketDropLogAt = {};
-    std::unordered_map<NetTransport::PeerHandle, ParticipantId> m_peerParticipantOverridesForTests;
     std::vector<PendingKickDisconnect> m_pendingKickDisconnects;
     std::chrono::steady_clock::time_point m_activeResyncAckDeadline = {};
     std::unordered_map<uint16_t, uint32_t> m_dropIncomingMessageCounts;
@@ -232,12 +227,6 @@ private:
     ParticipantInfo* findParticipantByReconnectToken(uint64_t reconnectToken);
     void removeParticipant(ParticipantId participantId);
     bool activeResyncIsTargeted() const;
-    bool validateParticipantAuthoredPacket(NetTransport::PeerHandle peer,
-                                           ParticipantId participantId,
-                                           const char* packetLabel);
-    bool clientAllowsPacketFromPeer(NetTransport::PeerHandle peer, MessageType type) const;
-    bool acceptPacketSessionHeader(NetTransport::PeerHandle peer, const PacketHeader& header);
-    std::chrono::milliseconds incomingResyncTimeout() const;
     bool sendCurrentSessionStateToPeer(NetTransport::PeerHandle peer);
     bool sendConfirmedFramesToPeer(NetTransport::PeerHandle peer, FrameNumber startFrame);
     void clearActiveResyncTracking(SessionState resumeState);
@@ -283,8 +272,8 @@ private:
     bool handleResyncBegin(PacketReader& reader);
     bool handleResyncChunk(PacketReader& reader);
     bool handleResyncComplete(PacketReader& reader);
-    bool handleResyncAck(NetTransport::PeerHandle peer, PacketReader& reader);
-    bool handleResyncAbort(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleResyncAck(PacketReader& reader);
+    bool handleResyncAbort(PacketReader& reader);
     bool handleResyncRequest(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleClockSyncRequest(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleClockSyncResponse(NetTransport::PeerHandle peer, PacketReader& reader);
@@ -292,8 +281,6 @@ private:
     bool handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleConfirmedInputFrames(PacketReader& reader);
     bool handleInputAck(PacketReader& reader);
-    bool handleInputResendRequest(NetTransport::PeerHandle peer, PacketReader& reader);
-    bool handleInputResendUnavailable(PacketReader& reader);
     bool handleFrameStatus(PacketReader& reader);
     bool handleCrcReport(PacketReader& reader);
     void applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source);
@@ -306,15 +293,8 @@ private:
                                    ResyncReason reason = ResyncReason::Unspecified);
     static bool preserveConfirmedInputsAcrossRealignment(ResyncReason reason);
     void recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot);
-    void requestMissingInputResend(const ParticipantInfo& participant,
-                                   FrameNumber missingFrame,
-                                   FrameNumber receivedFrame,
-                                   PlayerSlot slot);
-    bool resendLocalInputRange(NetTransport::PeerHandle peer, const InputResendRequestData& request);
-    void sendInputResendUnavailable(NetTransport::PeerHandle peer, const InputResendRequestData& request);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);
-    void reconcilePredictedInputsWithConfirmedFrame(const ConfirmedFrameInputs& frame);
     bool tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const;
     void publishConfirmedFramesIfReady();
     void handleResolvedPredictedInput(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot, bool predictionMatched);
@@ -324,7 +304,6 @@ private:
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
     void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
     bool synthesizePredictionLimitFallbackInput(FrameNumber targetFrame, ParticipantInfo& participant, PlayerSlot slot);
-    bool remoteInputIdleExceededSuspendTimeout(ParticipantId participantId) const;
     bool tryBuildPlaybackFrameInternal(FrameNumber frame,
                                        bool allowPrediction,
                                        bool allowHostFallback,
@@ -403,14 +382,12 @@ public:
     void setReconnectReservationDurationForTests(uint32_t seconds);
     void setRemoteInputSuspendTimeoutForTests(uint32_t timeoutMs);
     void setLocalEmulatorVersionForTests(const std::string& version);
-    void setSharedClockSynchronizedForTests(bool synchronized, int64_t offsetMicros = 0);
     void simulateTransportFailureForTests();
     bool injectInputFrameForTests(const InputFrameData& input, const NetplayInputFrame& contribution);
     bool injectConfirmedInputFramesForTests(const ConfirmedInputFramesData& data);
     bool injectConfirmedPlaybackFramesForTests(const ConfirmedInputFramesData& data,
                                                const std::vector<ConfirmedFrameInputs>& frames);
     bool injectInputAckForTests(const InputAckData& ack);
-    bool injectInputResendUnavailableForTests(const InputResendUnavailableData& unavailable);
     bool markMissingInputGapForTests(ParticipantId participantId,
                                      FrameNumber missingFrame,
                                      FrameNumber receivedFrame,
@@ -423,13 +400,6 @@ public:
     bool injectPeerHealthForTests(const PeerHealthData& health);
     bool injectCrcReportForTests(const CrcReportData& report);
     bool injectResyncAckForTests(const ResyncAckData& ack);
-    bool injectResyncBeginForTests(const ResyncBeginData& begin);
-    bool injectResyncChunkForTests(const ResyncChunkData& chunk, std::span<const uint8_t> payload);
-    void setPeerParticipantForTests(NetTransport::PeerHandle peer, ParticipantId participantId);
-    void setServerPeerForTests(NetTransport::PeerHandle peer);
-    NetTransport::PeerHandle serverPeerForTests() const;
-    bool injectRawPacketFromPeerForTests(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload);
-    void queueDelayedGameplayPacketForTests(NetTransport::PeerHandle peer, const std::vector<uint8_t>& payload);
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;
@@ -447,11 +417,9 @@ public:
     void rescheduleRollbackFrame(FrameNumber frame);
     std::optional<FrameNumber> consumePendingRollbackFrame();
     void discardTimelineAfter(FrameNumber frame, bool preserveLocalInputs = false);
-    bool discardPendingHostResyncFrame(ResyncReason reason);
     std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
-    const InputTimeline& localInputResendHistoryForTests() const;
     const InputTimeline& remoteInputs() const;
     FrameNumber localSimulationFrame() const;
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;

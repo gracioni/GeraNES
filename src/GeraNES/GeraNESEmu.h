@@ -2289,10 +2289,9 @@ public:
         const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
         const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
         InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
-        if(m_currentFrameInputLocked &&
-           m_lockedPlaybackInputFrame.frame == m_frameCounter &&
-           m_lockedPlaybackInputFrame.timelineEpoch == m_inputTimelineEpoch) {
-            serializedPlaybackInput = m_lockedPlaybackInputFrame;
+        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
+           currentPlaybackInput != nullptr) {
+            serializedPlaybackInput = *currentPlaybackInput;
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }

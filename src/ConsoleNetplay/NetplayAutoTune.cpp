@@ -5,11 +5,60 @@
 
 namespace ConsoleNetplay {
 
-namespace {
+#ifdef __EMSCRIPTEN__
 
-constexpr uint8_t kMinimumPressureResponsiveDelayFrames = 3;
-
+void NetplayAutoTune::setEnabled(bool enabled)
+{
+    m_enabled = enabled;
+    if(!m_enabled) {
+        m_snapshot.lastDecisionReason = "Automatic gameplay tuning unavailable on Emscripten";
+    }
 }
+
+bool NetplayAutoTune::enabled() const
+{
+    return m_enabled;
+}
+
+NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
+                                                         const RollbackStats&,
+                                                         uint32_t,
+                                                         uint32_t)
+{
+    constexpr uint8_t kFixedDelayFrames = 3;
+    constexpr uint8_t kFixedPredictFrames = 8;
+
+    Recommendations recommendations;
+    m_snapshot.enabled = m_enabled;
+    m_snapshot.currentRecommendedDelay = kFixedDelayFrames;
+    m_snapshot.currentFixedPredict = kFixedPredictFrames;
+    if(!m_enabled) {
+        m_snapshot.lastDecisionReason = "Automatic gameplay tuning unavailable on Emscripten";
+        return recommendations;
+    }
+
+    if(room.inputDelayFrames != kFixedDelayFrames) {
+        recommendations.inputDelayFrames = kFixedDelayFrames;
+    }
+    if(room.predictFrames != kFixedPredictFrames) {
+        recommendations.predictFrames = kFixedPredictFrames;
+    }
+
+    m_snapshot.lastDecisionReason = "Fixed tuning active: input delay 3, predict 8";
+    return recommendations;
+}
+
+NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(const RoomState&, ResyncReason)
+{
+    return {};
+}
+
+NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
+{
+    return m_snapshot;
+}
+
+#else
 
 uint8_t NetplayAutoTune::clampDelay(uint32_t frames)
 {
@@ -150,16 +199,14 @@ NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(co
         return recommendations;
     }
 
-    const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
-    const bool belowResponsiveDelayFloor = currentDelay < kMinimumPressureResponsiveDelayFrames;
-    if(room.currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame &&
-       !belowResponsiveDelayFloor) {
+    if(room.currentFrame < room.autoTuneDelayIncreaseBlockedUntilFrame) {
         m_lastDecisionReason =
             "Reactive delay increase blocked until frame " +
             std::to_string(room.autoTuneDelayIncreaseBlockedUntilFrame);
         return recommendations;
     }
 
+    const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
     const uint8_t targetDelay = clampDelay(static_cast<uint32_t>(currentDelay) + 1u);
     m_stableFrameCount = 0;
     m_lastStableEvaluationFrame = room.currentFrame;
@@ -168,11 +215,9 @@ NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(co
         recommendations.inputDelayFrames = targetDelay;
         m_currentRecommendedDelay = targetDelay;
         m_lastAdjustmentFrame = room.currentFrame;
-        m_lastDecisionReason = belowResponsiveDelayFloor
-            ? "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
-                  " before reactive resync despite temporary block because current delay was below the responsiveness floor"
-            : "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
-                  " before reactive resync";
+        m_lastDecisionReason =
+            "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
+            " before reactive resync";
     } else {
         m_currentRecommendedDelay = currentDelay;
         m_lastDecisionReason =
@@ -194,5 +239,7 @@ NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
     snapshot.lastDecisionReason = m_lastDecisionReason;
     return snapshot;
 }
+
+#endif
 
 } // namespace ConsoleNetplay

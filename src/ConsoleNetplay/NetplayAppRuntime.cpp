@@ -615,7 +615,7 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
 
     result.running = frameResult.running;
     result.paused = frameResult.paused;
-    result.simulationSuspended = frameResult.paused || frameResult.simulationSuspended;
+    result.simulationSuspended = frameResult.paused;
     return result;
 }
 
@@ -1104,12 +1104,7 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         (void)advanceToSharedClockIfNeededOnWorker(console, kMaxContinuousClockCatchupFrames);
 
         runtimePreparePlaybackFrames(m_coordinator, m_inputDriver, console);
-        if(tryQueuePlaybackFrameToConsole(console, console.frameCount())) {
-            result.simulationSuspended = false;
-        } else {
-            result.simulationSuspended = true;
-            sessionControls.setSimulationSuspended(true);
-        }
+        (void)tryQueuePlaybackFrameToConsole(console, console.frameCount());
     }
 
     processPeriodicLocalCrcIfNeeded(stateBridge, hostBridge);
@@ -1222,12 +1217,6 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     snapshot.latestPredictedRemoteFrame = coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = runtimeDiagnostics;
     snapshot.sessionBlockedReason = sessionBlockedReason;
-    snapshot.recoveryStatusText =
-        "Recovery mode " +
-        std::to_string(static_cast<unsigned>(snapshot.room.recoveryInputMode)) +
-        ", last rollback target " + std::to_string(lastRollbackTargetFrame) +
-        ", last recovery reanchor " + std::to_string(lastRecoveryReanchorFrame) +
-        ", hard resyncs " + std::to_string(snapshot.predictionStats.hardResyncCount);
     snapshot.eventLog = coordinator.eventLog();
     return snapshot;
 }

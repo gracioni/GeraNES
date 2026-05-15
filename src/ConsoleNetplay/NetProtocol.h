@@ -14,7 +14,7 @@ namespace ConsoleNetplay {
 class PacketWriter;
 class PacketReader;
 
-constexpr uint8_t kProtocolVersion = 18;
+constexpr uint8_t kProtocolVersion = 16;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -46,8 +46,6 @@ enum class MessageType : uint16_t
     InputFrame = 100,
     ConfirmedInputFrames,
     InputAck,
-    InputResendRequest,
-    InputResendUnavailable,
     FrameStatus,
     PeerHealth,
     CrcReport,
@@ -231,30 +229,6 @@ struct InputAckData
     static bool deserialize(PacketReader& reader, InputAckData& data);
 };
 
-struct InputResendRequestData
-{
-    uint32_t timelineEpoch = 0;
-    ParticipantId participantId = kInvalidParticipantId;
-    PlayerSlot playerSlot = kObserverPlayerSlot;
-    FrameNumber startFrame = 0;
-    uint16_t frameCount = 0;
-
-    void serialize(PacketWriter& writer) const;
-    static bool deserialize(PacketReader& reader, InputResendRequestData& data);
-};
-
-struct InputResendUnavailableData
-{
-    uint32_t timelineEpoch = 0;
-    ParticipantId participantId = kInvalidParticipantId;
-    PlayerSlot playerSlot = kObserverPlayerSlot;
-    FrameNumber startFrame = 0;
-    uint16_t frameCount = 0;
-
-    void serialize(PacketWriter& writer) const;
-    static bool deserialize(PacketReader& reader, InputResendUnavailableData& data);
-};
-
 struct FrameStatusData
 {
     uint32_t timelineEpoch = 0;
@@ -301,8 +275,6 @@ struct StartSessionData
     SessionState state = SessionState::Lobby;
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
-    FrameNumber postResyncTimeAlignFrame = 0;
-    uint64_t postResyncTimeAlignClockMicros = 0;
     InputTopologyData topology = {};
 
     void serialize(PacketWriter& writer) const;
