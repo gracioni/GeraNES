@@ -66,7 +66,9 @@ void NsfVisualizerUI::draw(const std::vector<float>& samples, int sampleRate, in
                            int currentSong, int totalSongs, bool isPlaying, bool isPaused, bool hasEnded,
                            uint32_t dtMs, ImFont* titleFont, ImFont* subtitleFont)
 {
-    const ImVec2 canvasPos(0.0f, static_cast<float>(topMargin));
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 viewportPos = viewport != nullptr ? viewport->Pos : ImVec2(0.0f, 0.0f);
+    const ImVec2 canvasPos(viewportPos.x, viewportPos.y + static_cast<float>(topMargin));
     const ImVec2 canvasSize(static_cast<float>(viewportWidth), static_cast<float>(std::max(0, viewportHeight - topMargin)));
     if(canvasSize.x <= 0.0f || canvasSize.y <= 0.0f) return;
 

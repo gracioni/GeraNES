@@ -818,10 +818,11 @@ inline void GeraNESApp::showGui()
 #ifdef ENABLE_NSF_PLAYER
 inline void GeraNESApp::drawNsfPlayerVisualizer()
 {
+    const SDL_Rect clientArea = emulatorClientArea();
     m_nsfVisualizer.draw(
         m_audioOutput.getRecentMixedSamples(),
         m_audioOutput.outputSampleRate(),
-        m_menuBarHeight,
+        clientArea.y,
         width(),
         height(),
         m_emu.nsfCurrentSong(),
