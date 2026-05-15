@@ -279,6 +279,24 @@ bool InputResendRequestData::deserialize(PacketReader& reader, InputResendReques
            reader.readPod(data.frameCount);
 }
 
+void InputResendUnavailableData::serialize(PacketWriter& writer) const
+{
+    writer.writePod(timelineEpoch);
+    writer.writePod(participantId);
+    writer.writePod(playerSlot);
+    writer.writePod(startFrame);
+    writer.writePod(frameCount);
+}
+
+bool InputResendUnavailableData::deserialize(PacketReader& reader, InputResendUnavailableData& data)
+{
+    return reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.participantId) &&
+           reader.readPod(data.playerSlot) &&
+           reader.readPod(data.startFrame) &&
+           reader.readPod(data.frameCount);
+}
+
 void FrameStatusData::serialize(PacketWriter& writer) const
 {
     writer.writePod(timelineEpoch);

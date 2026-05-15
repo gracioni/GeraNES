@@ -54,6 +54,11 @@ struct ParticipantInfo
     bool sequenceRebasePending = false;
     std::optional<FrameNumber> pendingMissingInputFrom;
     uint32_t missingInputGapCount = 0;
+    uint32_t lastInputResendRequestEpoch = 0;
+    PlayerSlot lastInputResendRequestSlot = kObserverPlayerSlot;
+    FrameNumber lastInputResendRequestFrame = 0;
+    FrameNumber lastInputResendRequestSentAtLocalFrame = 0;
+    uint32_t repeatedInputResendRequestCount = 0;
     uint32_t rollbackScheduledCount = 0;
     uint32_t futureFrameMismatchCount = 0;
     uint32_t confirmedFrameConflictCount = 0;
@@ -105,6 +110,9 @@ struct RoomState
     uint32_t delayedGameplayStaleDropCount = 0;
     uint32_t inputResendRequestSentCount = 0;
     uint32_t inputResendRequestReceivedCount = 0;
+    uint32_t inputResendRequestSuppressedCount = 0;
+    uint32_t inputResendUnavailableSentCount = 0;
+    uint32_t inputResendUnavailableReceivedCount = 0;
     FrameNumber lastInputResendRequestStartFrame = 0;
     uint16_t lastInputResendRequestFrameCount = 0;
     FrameNumber lastAuthoritativeClockFrame = 0;

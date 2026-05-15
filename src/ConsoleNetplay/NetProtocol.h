@@ -14,7 +14,7 @@ namespace ConsoleNetplay {
 class PacketWriter;
 class PacketReader;
 
-constexpr uint8_t kProtocolVersion = 17;
+constexpr uint8_t kProtocolVersion = 18;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -47,6 +47,7 @@ enum class MessageType : uint16_t
     ConfirmedInputFrames,
     InputAck,
     InputResendRequest,
+    InputResendUnavailable,
     FrameStatus,
     PeerHealth,
     CrcReport,
@@ -240,6 +241,18 @@ struct InputResendRequestData
 
     void serialize(PacketWriter& writer) const;
     static bool deserialize(PacketReader& reader, InputResendRequestData& data);
+};
+
+struct InputResendUnavailableData
+{
+    uint32_t timelineEpoch = 0;
+    ParticipantId participantId = kInvalidParticipantId;
+    PlayerSlot playerSlot = kObserverPlayerSlot;
+    FrameNumber startFrame = 0;
+    uint16_t frameCount = 0;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, InputResendUnavailableData& data);
 };
 
 struct FrameStatusData

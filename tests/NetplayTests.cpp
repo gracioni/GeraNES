@@ -1435,6 +1435,30 @@ TEST_CASE("Netplay input resend request protocol roundtrip preserves sparse slot
     REQUIRE(decoded.frameCount == request.frameCount);
 }
 
+TEST_CASE("Netplay input resend unavailable protocol roundtrip preserves sparse slot range",
+          "[netplay][protocol][resend]")
+{
+    ConsoleNetplay::InputResendUnavailableData unavailable;
+    unavailable.timelineEpoch = 24u;
+    unavailable.participantId = 7u;
+    unavailable.playerSlot = 3u;
+    unavailable.startFrame = 2048u;
+    unavailable.frameCount = 2u;
+
+    ConsoleNetplay::PacketWriter writer;
+    unavailable.serialize(writer);
+
+    ConsoleNetplay::InputResendUnavailableData decoded;
+    ConsoleNetplay::PacketReader reader(writer.data().data(), writer.data().size());
+    REQUIRE(ConsoleNetplay::InputResendUnavailableData::deserialize(reader, decoded));
+    REQUIRE(reader.remaining() == 0u);
+    REQUIRE(decoded.timelineEpoch == unavailable.timelineEpoch);
+    REQUIRE(decoded.participantId == unavailable.participantId);
+    REQUIRE(decoded.playerSlot == unavailable.playerSlot);
+    REQUIRE(decoded.startFrame == unavailable.startFrame);
+    REQUIRE(decoded.frameCount == unavailable.frameCount);
+}
+
 TEST_CASE("GeraNES topology contribution preserves epoch and device payload",
           "[netplay][topology][geranes][input][regression]")
 {

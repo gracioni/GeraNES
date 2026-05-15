@@ -130,6 +130,7 @@ private:
     NetTransport m_transport;
     NetSession m_session;
     InputTimeline m_localInputs;
+    InputTimeline m_localInputResendHistory;
     InputTimeline m_remoteInputs;
     std::list<ConfirmedFrameInputs> m_confirmedFrames;
     std::unordered_map<FrameNumber, std::list<ConfirmedFrameInputs>::iterator> m_confirmedFrameIndex;
@@ -292,6 +293,7 @@ private:
     bool handleConfirmedInputFrames(PacketReader& reader);
     bool handleInputAck(PacketReader& reader);
     bool handleInputResendRequest(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleInputResendUnavailable(PacketReader& reader);
     bool handleFrameStatus(PacketReader& reader);
     bool handleCrcReport(PacketReader& reader);
     void applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source);
@@ -309,6 +311,7 @@ private:
                                    FrameNumber receivedFrame,
                                    PlayerSlot slot);
     bool resendLocalInputRange(NetTransport::PeerHandle peer, const InputResendRequestData& request);
+    void sendInputResendUnavailable(NetTransport::PeerHandle peer, const InputResendRequestData& request);
     void advanceParticipantContiguousInputFrame(ParticipantInfo& participant, PlayerSlot slot);
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);
     void reconcilePredictedInputsWithConfirmedFrame(const ConfirmedFrameInputs& frame);

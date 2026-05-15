@@ -22,6 +22,7 @@ namespace {
 constexpr size_t kResyncChunkPayloadBytes = 1024;
 constexpr size_t kMaxIncomingResyncPayloadBytes = 64u * 1024u * 1024u;
 constexpr size_t kConfirmedFrameHistoryCapacity = 16384;
+constexpr size_t kLocalInputResendHistoryCapacity = 16384;
 constexpr uint16_t kMaxConfirmedFramesPerPacket = 64;
 constexpr auto kReconnectRetryDelay = std::chrono::milliseconds(750);
 constexpr auto kGracefulDisconnectTimeout = std::chrono::milliseconds(750);
@@ -41,6 +42,7 @@ constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 1;
 constexpr uint8_t kConfirmedDesyncRecentMismatchThreshold = 1;
 constexpr uint32_t kRemoteCrcPublicationLagResyncFrames = ConsoleNetplay::kDesyncCrcIntervalFrames * 4u;
 constexpr uint16_t kResyncRequestSourceCrcMismatch = 4u;
+constexpr uint32_t kDuplicateInputResendRequestCooldownFrames = 30u;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
@@ -369,6 +371,7 @@ NetplayCoordinator::NetplayCoordinator()
     , m_localEmulatorVersion(kDefaultNetplayRuntimeVersion)
 {
     m_localInputs.configure(2400);
+    m_localInputResendHistory.configure(kLocalInputResendHistoryCapacity);
     m_remoteInputs.configure(2400);
 }
 
@@ -446,6 +449,7 @@ std::string NetplayCoordinator::messageTypeLabel(MessageType type)
         case MessageType::ConfirmedInputFrames: return "ConfirmedInputFrames";
         case MessageType::InputAck: return "InputAck";
         case MessageType::InputResendRequest: return "InputResendRequest";
+        case MessageType::InputResendUnavailable: return "InputResendUnavailable";
         case MessageType::FrameStatus: return "FrameStatus";
         case MessageType::PeerHealth: return "PeerHealth";
         case MessageType::CrcReport: return "CrcReport";
@@ -502,6 +506,7 @@ void NetplayCoordinator::resetSessionState()
     m_gracefulDisconnectDeadline = {};
     m_session.reset();
     m_localInputs.clear();
+    m_localInputResendHistory.clear();
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
     m_confirmedFrameIndex.clear();
@@ -1614,6 +1619,18 @@ static std::vector<uint8_t> buildInputResendRequestPacket(const InputResendReque
     return writer.data();
 }
 
+static std::vector<uint8_t> buildInputResendUnavailablePacket(const InputResendUnavailableData& unavailable,
+                                                              uint32_t sessionId)
+{
+    PacketHeader header;
+    header.type = MessageType::InputResendUnavailable;
+    header.sessionId = sessionId;
+    PacketWriter writer;
+    header.serialize(writer);
+    unavailable.serialize(writer);
+    return writer.data();
+}
+
 static std::vector<uint8_t> buildFrameStatusPacket(const FrameStatusData& status, uint32_t sessionId)
 {
     PacketWriter writer;
@@ -2083,10 +2100,12 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
                         reconstructedEntry.confirmed = true;
                         reconstructedEntry.predicted = false;
                         m_localInputs.push(reconstructedEntry);
+                        m_localInputResendHistory.push(reconstructedEntry);
                         localEntry = m_localInputs.findMutable(frame, m_localParticipantId, slot);
                     }
                     if(localEntry != nullptr) {
                         localEntry->confirmed = true;
+                        m_localInputResendHistory.push(*localEntry);
                     }
                 }
             }
@@ -2167,6 +2186,51 @@ bool NetplayCoordinator::handleInputResendRequest(NetTransport::PeerHandle peer,
     return resendLocalInputRange(peer, request);
 }
 
+bool NetplayCoordinator::handleInputResendUnavailable(PacketReader& reader)
+{
+    InputResendUnavailableData unavailable;
+    if(!InputResendUnavailableData::deserialize(reader, unavailable)) return false;
+    ++m_session.roomState().inputResendUnavailableReceivedCount;
+    if(unavailable.timelineEpoch != m_session.roomState().timelineEpoch) {
+        return unavailable.timelineEpoch < m_session.roomState().timelineEpoch;
+    }
+    if(!m_hosting || unavailable.participantId == m_localParticipantId) {
+        return true;
+    }
+
+    ParticipantInfo* participant = m_session.findParticipant(unavailable.participantId);
+    if(participant == nullptr ||
+       participant->reconnectReserved ||
+       participantIsObserver(*participant) ||
+       !participantHasAssignment(*participant, unavailable.playerSlot)) {
+        return true;
+    }
+
+    participant->lastDecision = "Peer cannot resend missing local input";
+    participant->lastDecisionFrame = unavailable.startFrame;
+    participant->lastDecisionSlot = unavailable.playerSlot;
+    participant->inputSuspended = true;
+    participant->inputResumeAwaitingResync = true;
+    participant->sequenceRebasePending = true;
+
+    const FrameNumber resyncFrame =
+        m_session.roomState().lastConfirmedFrame > 0
+            ? std::min(m_localSimulationFrame, m_session.roomState().lastConfirmedFrame)
+            : m_localSimulationFrame;
+    queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+
+    std::ostringstream oss;
+    oss << "Participant cannot resend requested input history: "
+        << participantDebugLabel(*participant)
+        << " slot " << static_cast<unsigned>(unavailable.playerSlot) + 1u
+        << " frames " << unavailable.startFrame
+        << "-" << (unavailable.startFrame + unavailable.frameCount - 1u)
+        << "; scheduling authoritative resync from frame " << resyncFrame
+        << " classification=input_resend_history_missing";
+    pushLog(oss.str());
+    return true;
+}
+
 void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, FrameNumber missingFrame, FrameNumber receivedFrame, PlayerSlot slot)
 {
     ++participant.missingInputGapCount;
@@ -2192,6 +2256,19 @@ void NetplayCoordinator::requestMissingInputResend(const ParticipantInfo& partic
     if(participant.id == m_localParticipantId || participant.id == kInvalidParticipantId) {
         return;
     }
+    ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
+    if(mutableParticipant != nullptr &&
+       mutableParticipant->lastInputResendRequestEpoch == m_session.roomState().timelineEpoch &&
+       mutableParticipant->lastInputResendRequestSlot == slot &&
+       mutableParticipant->lastInputResendRequestFrame == missingFrame &&
+       m_localSimulationFrame <
+           mutableParticipant->lastInputResendRequestSentAtLocalFrame +
+               kDuplicateInputResendRequestCooldownFrames) {
+        ++mutableParticipant->repeatedInputResendRequestCount;
+        ++m_session.roomState().inputResendRequestSuppressedCount;
+        return;
+    }
+
     InputResendRequestData request;
     request.timelineEpoch = m_session.roomState().timelineEpoch;
     request.participantId = participant.id;
@@ -2214,12 +2291,39 @@ void NetplayCoordinator::requestMissingInputResend(const ParticipantInfo& partic
         sent = m_transport.sendReliable(m_serverPeer, Channel::Gameplay, packet);
     }
     if(sent) {
+        if(mutableParticipant != nullptr) {
+            mutableParticipant->lastInputResendRequestEpoch = request.timelineEpoch;
+            mutableParticipant->lastInputResendRequestSlot = slot;
+            mutableParticipant->lastInputResendRequestFrame = missingFrame;
+            mutableParticipant->lastInputResendRequestSentAtLocalFrame = m_localSimulationFrame;
+            mutableParticipant->repeatedInputResendRequestCount = 0;
+        }
         std::ostringstream oss;
         oss << "Requested input resend from " << participantLabel(participant)
             << " slot " << static_cast<unsigned>(slot) + 1u
             << " frames " << request.startFrame
             << "-" << (request.startFrame + request.frameCount - 1u);
         pushLog(oss.str());
+    }
+}
+
+void NetplayCoordinator::sendInputResendUnavailable(NetTransport::PeerHandle peer, const InputResendRequestData& request)
+{
+    if(peer == NetTransport::kInvalidPeerHandle) {
+        return;
+    }
+
+    InputResendUnavailableData unavailable;
+    unavailable.timelineEpoch = m_session.roomState().timelineEpoch;
+    unavailable.participantId = m_localParticipantId;
+    unavailable.playerSlot = request.playerSlot;
+    unavailable.startFrame = request.startFrame;
+    unavailable.frameCount = request.frameCount;
+
+    const std::vector<uint8_t> packet =
+        buildInputResendUnavailablePacket(unavailable, m_session.roomState().sessionId);
+    if(m_transport.sendReliable(peer, Channel::Gameplay, packet)) {
+        ++m_session.roomState().inputResendUnavailableSentCount;
     }
 }
 
@@ -2233,7 +2337,19 @@ bool NetplayCoordinator::resendLocalInputRange(NetTransport::PeerHandle peer, co
     for(FrameNumber frame = request.startFrame; frame <= endFrame; ++frame) {
         const TimelineInputEntry* entry =
             m_localInputs.find(frame, m_localParticipantId, request.playerSlot);
+        if(entry == nullptr ||
+           entry->netplayFrame.timelineEpoch != request.timelineEpoch) {
+            const TimelineInputEntry* archivedEntry =
+                m_localInputResendHistory.find(frame, m_localParticipantId, request.playerSlot);
+            if(archivedEntry != nullptr &&
+               archivedEntry->netplayFrame.timelineEpoch == request.timelineEpoch) {
+                entry = archivedEntry;
+            }
+        }
         if(entry == nullptr) {
+            continue;
+        }
+        if(entry->netplayFrame.timelineEpoch != request.timelineEpoch) {
             continue;
         }
 
@@ -2262,6 +2378,7 @@ bool NetplayCoordinator::resendLocalInputRange(NetTransport::PeerHandle peer, co
             << " starting at " << request.startFrame;
         pushLog(oss.str());
     } else {
+        sendInputResendUnavailable(peer, request);
         std::ostringstream oss;
         oss << "Unable to resend local input frame(s) for slot "
             << static_cast<unsigned>(request.playerSlot) + 1u
@@ -3466,6 +3583,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
 void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
 {
     m_localInputs.clear();
+    m_localInputResendHistory.clear();
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
     m_confirmedFrameIndex.clear();
@@ -5324,6 +5442,9 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
         case MessageType::InputResendRequest:
             return handleInputResendRequest(peer, reader);
 
+        case MessageType::InputResendUnavailable:
+            return handleInputResendUnavailable(reader);
+
         case MessageType::FrameStatus:
             return handleFrameStatus(reader);
 
@@ -6983,6 +7104,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     entry.sequence = ++m_localInputSequence;
     entry.confirmed = m_hosting;
     m_localInputs.push(entry);
+    m_localInputResendHistory.push(entry);
     updateLocalRejectState(kLocalInputRejectNone, 0u, 0u);
 
     InputFrameData packetData;
