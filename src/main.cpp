@@ -5,6 +5,7 @@
 #include <string>
 
 #include "GeraNES/defines.h"
+#include "CrashHandler.h"
 #include "GeraNESApp/GeraNESApp.h"
 #include "HealthCheck.h"
 #include "Test.h"
@@ -113,6 +114,7 @@ int main(int argc, char* argv[])
     }
 
     AppSettings::setStorageDirectory(std::filesystem::current_path());
+    CrashHandler::install();
 
     if(argc >= 2 && std::string(argv[1]) == "--help") {
         printHelp();
