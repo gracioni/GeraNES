@@ -18,6 +18,9 @@
         under the GPL."
     )
 	This shader variant is pre-configured with screen curvature
+
+	Modifications:
+    Copyright (C) 2026 Geraldo Racioni Neto
 */
 
 #pragma parameter CRTgamma "CRTGeom Target Gamma" 2.4 0.1 5.0 0.1
@@ -25,7 +28,7 @@
 #pragma parameter monitorgamma "CRTGeom Monitor Gamma" 2.2 0.1 5.0 0.1
 #pragma parameter d "CRTGeom Distance" 1.6 0.1 3.0 0.1
 #pragma parameter CURVATURE "CRTGeom Curvature Toggle" 1.0 0.0 1.0 1.0
-#pragma parameter R "CRTGeom Curvature Radius" 2.0 0.1 10.0 0.1
+#pragma parameter R "CRTGeom Curvature Radius" 2.8 0.1 10.0 0.1
 #pragma parameter cornersize "CRTGeom Corner Size" 0.03 0.001 1.0 0.005
 #pragma parameter cornersmooth "CRTGeom Corner Smoothness" 1000.0 80.0 2000.0 100.0
 #pragma parameter x_tilt "CRTGeom Horizontal Tilt" 0.0 -0.5 0.5 0.05
