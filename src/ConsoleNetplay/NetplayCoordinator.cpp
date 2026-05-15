@@ -2077,6 +2077,9 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
     if(data.frameCount > 0) {
         const FrameNumber lastFrame = data.startFrame + static_cast<FrameNumber>(data.frameCount - 1u);
         m_session.roomState().lastConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, lastFrame);
+        if(!m_hosting) {
+            m_session.roomState().currentFrame = std::max(m_session.roomState().currentFrame, lastFrame);
+        }
 
         ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId);
         if(localParticipant != nullptr && !participantIsObserver(*localParticipant)) {
