@@ -101,6 +101,7 @@ public:
     {
         bool running = false;
         bool paused = false;
+        bool simulationSuspended = false;
     };
 
     struct UpdateContext

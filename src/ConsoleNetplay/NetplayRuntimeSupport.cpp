@@ -1926,21 +1926,23 @@ bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;
     }
+    const RoomState& room = coordinator.session().roomState();
+    if(room.recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
+       room.postResyncTimeAlignClockMicros != 0u &&
+       frame > room.recoveryModeEnteredAtFrame) {
+        const uint64_t nowMicros = coordinator.sharedClockNowMicros();
+        if(nowMicros != 0u && nowMicros < room.postResyncTimeAlignClockMicros) {
+            runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
+            return false;
+        }
+    }
     const bool observerHostWithoutLocalSlots =
         coordinator.isHosting() &&
         runtimeLocalAssignedSlots(coordinator).empty();
     const bool allowPrediction =
         !observerHostWithoutLocalSlots &&
         runtimeShouldAllowPredictionForFrame(coordinator, inputDriver, frame);
-    const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-    const FrameNumber predictionCapFrame =
-        confirmedThroughFrame +
-        static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
-        static_cast<FrameNumber>(inputDriver.predictFrames());
-    const bool allowHostFallback =
-        !observerHostWithoutLocalSlots &&
-        frame > predictionCapFrame;
-    if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame, allowHostFallback)) {
+    if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame, false)) {
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;
     }

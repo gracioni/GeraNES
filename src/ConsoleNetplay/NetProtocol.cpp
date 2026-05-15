@@ -366,6 +366,8 @@ void StartSessionData::serialize(PacketWriter& writer) const
     writer.writePod(state);
     writer.writePod(inputDelayFrames);
     writer.writePod(predictFrames);
+    writer.writePod(postResyncTimeAlignFrame);
+    writer.writePod(postResyncTimeAlignClockMicros);
     topology.serialize(writer);
 }
 
@@ -374,12 +376,19 @@ bool StartSessionData::deserialize(PacketReader& reader, StartSessionData& data)
     return reader.readPod(data.state) &&
            reader.readPod(data.inputDelayFrames) &&
            reader.readPod(data.predictFrames) &&
+           reader.readPod(data.postResyncTimeAlignFrame) &&
+           reader.readPod(data.postResyncTimeAlignClockMicros) &&
            InputTopologyData::deserialize(reader, data.topology);
 }
 
 size_t StartSessionData::serializedSize() const
 {
-    return sizeof(state) + sizeof(inputDelayFrames) + sizeof(predictFrames) + topology.serializedSize();
+    return sizeof(state) +
+           sizeof(inputDelayFrames) +
+           sizeof(predictFrames) +
+           sizeof(postResyncTimeAlignFrame) +
+           sizeof(postResyncTimeAlignClockMicros) +
+           topology.serializedSize();
 }
 
 void PeerHealthData::serialize(PacketWriter& writer) const

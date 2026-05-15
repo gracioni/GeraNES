@@ -35,6 +35,11 @@ void NetplayAppRuntime::applyUpdateResultToHost(RuntimeHost& host, const UpdateR
     if(result.snapshotCapacity.has_value()) {
         host.configureNetplaySnapshots(*result.snapshotCapacity);
     }
+    if(result.netplayOwnsEmulationInput) {
+        if constexpr(requires { typename RuntimeHost::InputState; host.setPendingInput(typename RuntimeHost::InputState{}); }) {
+            host.setPendingInput(typename RuntimeHost::InputState{});
+        }
+    }
     host.setAutoQueuePendingInputOnFrameStart(result.autoQueuePendingInputOnFrameStart);
     host.setAllowPresenterTimeoutAdvance(result.allowPresenterTimeoutAdvance);
     if(result.discardQueuedAudio) {

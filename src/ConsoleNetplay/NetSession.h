@@ -125,6 +125,8 @@ struct RoomState
     FrameNumber stabilizationAnchorFrame = 0;
     bool stabilizationRetryIssued = false;
     uint32_t stabilizationRetryCount = 0;
+    FrameNumber postResyncTimeAlignFrame = 0;
+    uint64_t postResyncTimeAlignClockMicros = 0;
     uint32_t activeResyncId = 0;
     FrameNumber resyncTargetFrame = 0;
     FrameNumber resyncConfirmedFrame = 0;

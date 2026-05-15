@@ -288,6 +288,8 @@ struct StartSessionData
     SessionState state = SessionState::Lobby;
     uint8_t inputDelayFrames = 0;
     uint8_t predictFrames = 0;
+    FrameNumber postResyncTimeAlignFrame = 0;
+    uint64_t postResyncTimeAlignClockMicros = 0;
     InputTopologyData topology = {};
 
     void serialize(PacketWriter& writer) const;

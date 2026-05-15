@@ -36,6 +36,7 @@ constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
+constexpr uint64_t kDefaultNetplayFrameMicros = 1000000ull / 60ull;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 1;
 constexpr uint8_t kConfirmedDesyncRecentMismatchThreshold = 1;
 constexpr uint32_t kRemoteCrcPublicationLagResyncFrames = ConsoleNetplay::kDesyncCrcIntervalFrames * 4u;
@@ -152,6 +153,22 @@ ConsoleNetplay::InputTopologyData makeTopologyData(const ConsoleNetplay::RoomSta
             inputSlot.inputLabel
         });
     }
+    return data;
+}
+
+ConsoleNetplay::StartSessionData makeStartSessionData(const ConsoleNetplay::RoomState& room,
+                                                       ConsoleNetplay::SessionState state)
+{
+    ConsoleNetplay::StartSessionData data;
+    data.state = state;
+    data.inputDelayFrames = room.inputDelayFrames;
+    data.predictFrames = room.predictFrames;
+    if(state == ConsoleNetplay::SessionState::Running &&
+       room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing) {
+        data.postResyncTimeAlignFrame = room.postResyncTimeAlignFrame;
+        data.postResyncTimeAlignClockMicros = room.postResyncTimeAlignClockMicros;
+    }
+    data.topology = makeTopologyData(room);
     return data;
 }
 
@@ -846,11 +863,7 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         header.type = MessageType::PauseSession;
         header.sessionId = m_session.roomState().sessionId;
         header.serialize(writer);
-        StartSessionData startData;
-        startData.state = SessionState::Paused;
-        startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-        startData.predictFrames = m_session.roomState().predictFrames;
-        startData.topology = makeTopologyData(m_session.roomState());
+        StartSessionData startData = makeStartSessionData(m_session.roomState(), SessionState::Paused);
         startData.serialize(writer);
         return m_transport.sendReliable(peer, Channel::Control, writer.data());
     }
@@ -861,11 +874,7 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         header.type = MessageType::ResumeSession;
         header.sessionId = m_session.roomState().sessionId;
         header.serialize(writer);
-        StartSessionData startData;
-        startData.state = SessionState::Running;
-        startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-        startData.predictFrames = m_session.roomState().predictFrames;
-        startData.topology = makeTopologyData(m_session.roomState());
+        StartSessionData startData = makeStartSessionData(m_session.roomState(), SessionState::Running);
         startData.serialize(writer);
         return m_transport.sendReliable(peer, Channel::Control, writer.data());
     }
@@ -959,6 +968,8 @@ void NetplayCoordinator::clearActiveResyncTracking(SessionState resumeState)
     m_session.roomState().resyncFrameReadyCrc32 = 0;
     m_session.roomState().resyncInputSequenceBase = 0;
     m_session.roomState().activeResyncReason = ResyncReason::Unspecified;
+    m_session.roomState().postResyncTimeAlignFrame = 0;
+    m_session.roomState().postResyncTimeAlignClockMicros = 0;
     m_activeResyncExpectedStateCrc32 = 0;
     m_pendingResyncAcks.clear();
     m_activeResyncTargetParticipantId = kInvalidParticipantId;
@@ -1002,6 +1013,25 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
         clearTargetedResyncTracking();
     } else {
         clearActiveResyncTracking(resumeState);
+        RoomState& room = m_session.roomState();
+        const FrameNumber alignDelayFrames =
+            static_cast<FrameNumber>(std::max<uint8_t>(1u, room.inputDelayFrames));
+        const uint64_t nowMicros = sharedClockNowMicros();
+        room.postResyncTimeAlignFrame = recoveryFrame + alignDelayFrames;
+        room.postResyncTimeAlignClockMicros =
+            nowMicros != 0u
+                ? nowMicros + static_cast<uint64_t>(alignDelayFrames) * kDefaultNetplayFrameMicros
+                : 0u;
+        if(room.postResyncTimeAlignClockMicros != 0u) {
+            std::ostringstream oss;
+            oss << "Post-resync time align scheduled frame "
+                << room.postResyncTimeAlignFrame
+                << " sharedClockMicros "
+                << room.postResyncTimeAlignClockMicros
+                << " inputDelayFrames "
+                << static_cast<unsigned>(room.inputDelayFrames);
+            pushLog(oss.str());
+        }
     }
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         if(participant.id == m_localParticipantId) continue;
@@ -1020,11 +1050,7 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     header.type = MessageType::ResumeSession;
     header.sessionId = m_session.roomState().sessionId;
     header.serialize(writer);
-    StartSessionData startData;
-    startData.state = SessionState::Running;
-    startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    startData.predictFrames = m_session.roomState().predictFrames;
-    startData.topology = makeTopologyData(m_session.roomState());
+    StartSessionData startData = makeStartSessionData(m_session.roomState(), SessionState::Running);
     startData.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
 }
@@ -2399,6 +2425,8 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
         room.stabilizationRetryIssued = false;
+        room.postResyncTimeAlignFrame = 0;
+        room.postResyncTimeAlignClockMicros = 0;
         if(previousMode == RecoveryInputMode::PostResyncStabilizing) {
             m_remoteInputStallMonitor.reset();
             m_desyncMonitor.reset();
@@ -3475,6 +3503,8 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_session.roomState().resyncFrameReadyCrc32 = 0;
     m_session.roomState().resyncInputSequenceBase = 0;
     m_session.roomState().pendingResyncAckCount = 0;
+    m_session.roomState().postResyncTimeAlignFrame = 0;
+    m_session.roomState().postResyncTimeAlignClockMicros = 0;
 
     for(ParticipantInfo& participant : m_session.roomState().participants) {
         participant.lastReceivedInputFrame = 0;
@@ -4377,6 +4407,8 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
     }
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
     m_session.roomState().predictFrames = data.predictFrames;
+    m_session.roomState().postResyncTimeAlignFrame = data.postResyncTimeAlignFrame;
+    m_session.roomState().postResyncTimeAlignClockMicros = data.postResyncTimeAlignClockMicros;
     applyTopologyData(m_session.roomState(), data.topology);
     renormalizeParticipantsForCurrentTopology(m_session.roomState());
     if(!m_hosting &&
@@ -5015,11 +5047,7 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     if(m_session.roomState().state != SessionState::Lobby &&
        m_session.roomState().state != SessionState::ValidatingRom &&
        m_session.roomState().state != SessionState::ReadyCheck) {
-        StartSessionData sessionData;
-        sessionData.state = m_session.roomState().state;
-        sessionData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-        sessionData.predictFrames = m_session.roomState().predictFrames;
-        sessionData.topology = makeTopologyData(m_session.roomState());
+        StartSessionData sessionData = makeStartSessionData(m_session.roomState(), m_session.roomState().state);
         m_transport.sendReliable(peer, Channel::Control, buildStartSessionPacket(sessionData, m_session.roomState().sessionId));
     }
 
@@ -7735,11 +7763,7 @@ bool NetplayCoordinator::startSession()
     const bool requiresInitialSync = m_localSimulationFrame > 0;
     resetRuntimeTimelineStateForSessionStart();
     m_session.roomState().state = requiresInitialSync ? SessionState::Starting : SessionState::Running;
-    StartSessionData data;
-    data.state = m_session.roomState().state;
-    data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
-    data.topology = makeTopologyData(m_session.roomState());
+    StartSessionData data = makeStartSessionData(m_session.roomState(), m_session.roomState().state);
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
     pushLog(requiresInitialSync
         ? ("Owner started session and is awaiting initial sync at frame " + std::to_string(m_localSimulationFrame))
@@ -7757,11 +7781,7 @@ bool NetplayCoordinator::pauseSession()
     header.type = MessageType::PauseSession;
     header.sessionId = m_session.roomState().sessionId;
     header.serialize(writer);
-    StartSessionData data;
-    data.state = SessionState::Paused;
-    data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
-    data.topology = makeTopologyData(m_session.roomState());
+    StartSessionData data = makeStartSessionData(m_session.roomState(), SessionState::Paused);
     data.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner paused session");
@@ -7783,11 +7803,7 @@ bool NetplayCoordinator::resumeSession()
     header.type = MessageType::ResumeSession;
     header.sessionId = m_session.roomState().sessionId;
     header.serialize(writer);
-    StartSessionData data;
-    data.state = SessionState::Running;
-    data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
-    data.topology = makeTopologyData(m_session.roomState());
+    StartSessionData data = makeStartSessionData(m_session.roomState(), SessionState::Running);
     data.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner resumed session");
@@ -7805,11 +7821,7 @@ bool NetplayCoordinator::endSession()
     header.type = MessageType::EndSession;
     header.sessionId = m_session.roomState().sessionId;
     header.serialize(writer);
-    StartSessionData data;
-    data.state = SessionState::Ended;
-    data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
-    data.topology = makeTopologyData(m_session.roomState());
+    StartSessionData data = makeStartSessionData(m_session.roomState(), SessionState::Ended);
     data.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
     pushLog("Owner ended session");

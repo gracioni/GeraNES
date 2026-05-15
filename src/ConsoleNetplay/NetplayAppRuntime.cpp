@@ -615,7 +615,7 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
 
     result.running = frameResult.running;
     result.paused = frameResult.paused;
-    result.simulationSuspended = frameResult.paused;
+    result.simulationSuspended = frameResult.paused || frameResult.simulationSuspended;
     return result;
 }
 
@@ -1104,7 +1104,12 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         (void)advanceToSharedClockIfNeededOnWorker(console, kMaxContinuousClockCatchupFrames);
 
         runtimePreparePlaybackFrames(m_coordinator, m_inputDriver, console);
-        (void)tryQueuePlaybackFrameToConsole(console, console.frameCount());
+        if(tryQueuePlaybackFrameToConsole(console, console.frameCount())) {
+            result.simulationSuspended = false;
+        } else {
+            result.simulationSuspended = true;
+            sessionControls.setSimulationSuspended(true);
+        }
     }
 
     processPeriodicLocalCrcIfNeeded(stateBridge, hostBridge);
