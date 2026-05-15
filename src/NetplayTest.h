@@ -1385,14 +1385,31 @@ private:
 
         nlohmann::json participants = nlohmann::json::array();
         for(const auto& participant : snapshot.room.participants) {
+            nlohmann::json controllerAssignments = nlohmann::json::array();
+            for(const auto slot : participant.controllerAssignments) {
+                controllerAssignments.push_back(slot);
+            }
             participants.push_back({
                 {"id", participant.id},
                 {"name", participant.displayName},
                 {"controllerAssignment", participant.controllerAssignment},
+                {"controllerAssignments", std::move(controllerAssignments)},
                 {"lastReceivedInputFrame", participant.lastReceivedInputFrame},
                 {"lastContiguousInputFrame", participant.lastContiguousInputFrame},
                 {"romLoaded", participant.romLoaded},
                 {"romCompatible", participant.romCompatible}
+            });
+        }
+
+        nlohmann::json inputTopology = nlohmann::json::array();
+        for(const auto& slot : snapshot.room.inputTopology) {
+            inputTopology.push_back({
+                {"slot", slot.slot},
+                {"groupId", slot.groupId},
+                {"deviceId", slot.deviceId},
+                {"assignable", slot.assignable},
+                {"groupLabel", slot.groupLabel},
+                {"inputLabel", slot.inputLabel}
             });
         }
 
@@ -1436,6 +1453,11 @@ private:
             {"staleInputPacketCount", snapshot.room.staleInputPacketCount},
             {"staleFrameStatusPacketCount", snapshot.room.staleFrameStatusPacketCount},
             {"staleCrcPacketCount", snapshot.room.staleCrcPacketCount},
+            {"inputResendRequestSentCount", snapshot.room.inputResendRequestSentCount},
+            {"inputResendRequestReceivedCount", snapshot.room.inputResendRequestReceivedCount},
+            {"inputResendRequestSuppressedCount", snapshot.room.inputResendRequestSuppressedCount},
+            {"inputResendUnavailableSentCount", snapshot.room.inputResendUnavailableSentCount},
+            {"inputResendUnavailableReceivedCount", snapshot.room.inputResendUnavailableReceivedCount},
             {"activeResyncId", snapshot.room.activeResyncId},
             {"activeResyncReason", static_cast<int>(snapshot.room.activeResyncReason)},
             {"activeResyncReasonLabel", activeResyncReasonLabel()},
@@ -1482,6 +1504,7 @@ private:
                 {"rejectedOutOfSequence", enqueueCounters.rejectedOutOfSequence}
             }},
             {"participants", participants},
+            {"inputTopology", std::move(inputTopology)},
             {"eventLogTail", snapshot.eventLog}
         };
     }

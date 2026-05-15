@@ -410,6 +410,7 @@ public:
     bool injectConfirmedPlaybackFramesForTests(const ConfirmedInputFramesData& data,
                                                const std::vector<ConfirmedFrameInputs>& frames);
     bool injectInputAckForTests(const InputAckData& ack);
+    bool injectInputResendUnavailableForTests(const InputResendUnavailableData& unavailable);
     bool markMissingInputGapForTests(ParticipantId participantId,
                                      FrameNumber missingFrame,
                                      FrameNumber receivedFrame,
@@ -450,6 +451,7 @@ public:
     std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
+    const InputTimeline& localInputResendHistoryForTests() const;
     const InputTimeline& remoteInputs() const;
     FrameNumber localSimulationFrame() const;
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;

@@ -1459,6 +1459,176 @@ TEST_CASE("Netplay input resend unavailable protocol roundtrip preserves sparse 
     REQUIRE(decoded.frameCount == unavailable.frameCount);
 }
 
+TEST_CASE("Netplay local resend history survives authoritative realignment",
+          "[netplay][resend][history][resync][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    REQUIRE(coordinator.host(reserveLoopbackPort(), 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 5u;
+    room.currentFrame = 104u;
+    room.lastConfirmedFrame = 104u;
+
+    ConsoleNetplay::ParticipantInfo* local =
+        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
+    REQUIRE(local != nullptr);
+    local->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    local->romLoaded = true;
+    local->romCompatible = true;
+    local->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    local->normalizeControllerAssignments(&room.inputTopology);
+
+    for(ConsoleNetplay::FrameNumber frame = 101u; frame <= 104u; ++frame) {
+        coordinator.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0x10u + frame);
+    }
+
+    REQUIRE(coordinator.localInputs().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+    REQUIRE(coordinator.localInputResendHistoryForTests().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) != nullptr);
+
+    const std::vector<uint8_t> payload{0x47u, 0x45u, 0x52u, 0x41u};
+    REQUIRE(coordinator.beginResync(
+        102u,
+        payload,
+        ConsoleNetplay::crc32(payload.data(), payload.size()),
+        0x12345678u,
+        ConsoleNetplay::ResyncReason::ConfirmedDesync
+    ));
+
+    REQUIRE(coordinator.localInputs().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot) == nullptr);
+    const ConsoleNetplay::TimelineInputEntry* archived =
+        coordinator.localInputResendHistoryForTests().find(104u, coordinator.localParticipantId(), GeraNESNetplay::kPort1PlayerSlot);
+    REQUIRE(archived != nullptr);
+    REQUIRE(archived->netplayFrame.timelineEpoch == 5u);
+    REQUIRE(archived->buttonMaskLo == 0x10u + 104u);
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("Netplay resend-unavailable escalates to one authoritative resync",
+          "[netplay][resend][history][resync][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.host(reserveLoopbackPort(), 2, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 8u;
+    room.currentFrame = 2048u;
+    room.lastConfirmedFrame = 2040u;
+    host.setLocalSimulationFrame(2048u);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    ConsoleNetplay::InputResendUnavailableData unavailable;
+    unavailable.timelineEpoch = room.timelineEpoch;
+    unavailable.participantId = remote.id;
+    unavailable.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+    unavailable.startFrame = 2038u;
+    unavailable.frameCount = 1u;
+
+    REQUIRE(host.injectInputResendUnavailableForTests(unavailable));
+    REQUIRE(room.inputResendUnavailableReceivedCount == 1u);
+
+    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pending =
+        host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->frame == 2040u);
+
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->inputSuspended);
+    REQUIRE(updated->inputResumeAwaitingResync);
+    REQUIRE(updated->sequenceRebasePending);
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=input_resend_history_missing"));
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay CRC mismatch diagnostics include assignments and topology",
+          "[netplay][crc][diagnostics][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.host(reserveLoopbackPort(), 2, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::HORI_ADAPTER
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 600u;
+    room.lastConfirmedFrame = 600u;
+
+    ConsoleNetplay::ParticipantInfo* local =
+        const_cast<ConsoleNetplay::ParticipantInfo*>(host.session().findParticipant(host.localParticipantId()));
+    REQUIRE(local != nullptr);
+    local->role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    local->controllerAssignments = {GeraNESNetplay::kMultitapP1PlayerSlot};
+    local->normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kMultitapP2PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.submitLocalCrc(600u, 0x12345678u, "frame-ready", ConsoleNetplay::CrcSubmissionSource::FrameReady, 600u, 600u);
+
+    ConsoleNetplay::CrcReportData report;
+    report.timelineEpoch = room.timelineEpoch;
+    report.frame = 600u;
+    report.crc32 = 0x87654321u;
+    report.submissionSource = ConsoleNetplay::CrcSubmissionSource::FrameReady;
+    report.senderLocalSimulationFrame = 600u;
+    report.senderConfirmedFrame = 600u;
+    REQUIRE(host.injectCrcReportForTests(report));
+
+    REQUIRE(anyLogLineContains(host.eventLog(), "classification=confirmed_crc_mismatch"));
+    REQUIRE(anyLogLineContains(host.eventLog(), "assignments=["));
+    REQUIRE(anyLogLineContains(host.eventLog(), "topology=["));
+    REQUIRE(anyLogLineContains(host.eventLog(), "Hori Adapter"));
+
+    host.disconnect();
+}
+
 TEST_CASE("GeraNES topology contribution preserves epoch and device payload",
           "[netplay][topology][geranes][input][regression]")
 {
@@ -10240,6 +10410,68 @@ TEST_CASE("GeraNES topology apply remaps equivalent assignments across Four Scor
     REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kMultitapP2PlayerSlot));
     REQUIRE(GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(coordinator.session().roomState()) ==
             Settings::NesMultitapDevice::FOUR_SCORE);
+
+    coordinator.disconnect();
+}
+
+TEST_CASE("GeraNES topology apply remaps equivalent assignments across Hori Adapter changes",
+          "[netplay][assignment][topology][hori]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = coordinator.host(reserveLoopbackPort(), 2, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(coordinator.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+
+    ConsoleNetplay::ParticipantInfo* hostParticipant =
+        const_cast<ConsoleNetplay::ParticipantInfo*>(coordinator.session().findParticipant(coordinator.localParticipantId()));
+    REQUIRE(hostParticipant != nullptr);
+    hostParticipant->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    hostParticipant->normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    GeraNESNetplay::setGeraNESRoomInputTopology(
+        coordinator,
+        std::nullopt,
+        std::nullopt,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::HORI_ADAPTER
+    );
+
+    hostParticipant = const_cast<ConsoleNetplay::ParticipantInfo*>(
+        coordinator.session().findParticipant(coordinator.localParticipantId())
+    );
+    REQUIRE(hostParticipant != nullptr);
+    const ConsoleNetplay::ParticipantInfo* clientParticipant = coordinator.session().findParticipant(remote.id);
+    REQUIRE(clientParticipant != nullptr);
+    REQUIRE(ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kMultitapP1PlayerSlot));
+    REQUIRE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kMultitapP2PlayerSlot));
+    REQUIRE_FALSE(ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kMultitapP2PlayerSlot));
+    REQUIRE_FALSE(ConsoleNetplay::participantHasAssignment(*clientParticipant, GeraNESNetplay::kMultitapP1PlayerSlot));
+    REQUIRE(GeraNESNetplay::geraNESFamicomMultitapDeviceFromTopology(coordinator.session().roomState()) ==
+            Settings::FamicomMultitapDevice::HORI_ADAPTER);
 
     coordinator.disconnect();
 }

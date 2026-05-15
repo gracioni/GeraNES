@@ -3161,7 +3161,45 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source)
 {
     const auto appendFirstMismatchDebugDetail = [&](std::ostringstream& oss) {
-        if(!m_debugMode || update.consecutiveMismatchCount != 1u) return;
+        if(update.consecutiveMismatchCount != 1u) return;
+
+        const auto appendAssignmentSummary = [&]() {
+            oss << " assignments=[";
+            bool firstParticipant = true;
+            for(const ParticipantInfo& participant : m_session.roomState().participants) {
+                if(!firstParticipant) {
+                    oss << ";";
+                }
+                firstParticipant = false;
+                oss << static_cast<unsigned>(participant.id) << ":";
+                if(participant.controllerAssignments.empty()) {
+                    oss << "observer";
+                } else {
+                    for(size_t i = 0; i < participant.controllerAssignments.size(); ++i) {
+                        if(i != 0) {
+                            oss << ",";
+                        }
+                        oss << static_cast<unsigned>(participant.controllerAssignments[i]) + 1u;
+                    }
+                }
+            }
+            oss << "]";
+        };
+
+        const auto appendTopologySummary = [&]() {
+            oss << " topology=[";
+            for(size_t i = 0; i < m_session.roomState().inputTopology.size(); ++i) {
+                const InputSlotDescriptor& slot = m_session.roomState().inputTopology[i];
+                if(i != 0) {
+                    oss << ";";
+                }
+                oss << static_cast<unsigned>(slot.slot) + 1u
+                    << ":" << slot.deviceId
+                    << ":" << slot.groupLabel
+                    << "/" << slot.inputLabel;
+            }
+            oss << "]";
+        };
 
         oss << " debug={";
         if(update.localEntry.has_value()) {
@@ -3198,8 +3236,10 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
             << " timelineEpoch=" << m_session.roomState().timelineEpoch
             << " recoveryMode=" << static_cast<uint32_t>(m_session.roomState().recoveryInputMode)
             << " activeResyncId=" << m_session.roomState().activeResyncId
-            << " pendingResyncAckCount=" << m_session.roomState().pendingResyncAckCount
-            << "}";
+            << " pendingResyncAckCount=" << m_session.roomState().pendingResyncAckCount;
+        appendAssignmentSummary();
+        appendTopologySummary();
+        oss << "}";
     };
 
     if(update.compared && !update.mismatchDetected &&
@@ -6310,6 +6350,14 @@ bool NetplayCoordinator::injectInputAckForTests(const InputAckData& ack)
     return handleInputAck(reader);
 }
 
+bool NetplayCoordinator::injectInputResendUnavailableForTests(const InputResendUnavailableData& unavailable)
+{
+    PacketWriter writer;
+    unavailable.serialize(writer);
+    PacketReader reader(writer.data().data(), writer.data().size());
+    return handleInputResendUnavailable(reader);
+}
+
 bool NetplayCoordinator::markMissingInputGapForTests(ParticipantId participantId,
                                                      FrameNumber missingFrame,
                                                      FrameNumber receivedFrame,
@@ -6578,6 +6626,11 @@ std::optional<ParticipantId> NetplayCoordinator::consumePendingHostLateJoinResyn
 const InputTimeline& NetplayCoordinator::localInputs() const
 {
     return m_localInputs;
+}
+
+const InputTimeline& NetplayCoordinator::localInputResendHistoryForTests() const
+{
+    return m_localInputResendHistory;
 }
 
 FrameNumber NetplayCoordinator::localSimulationFrame() const
