@@ -7609,7 +7609,7 @@ TEST_CASE("Client requests host resync on first local CRC mismatch",
     hostRoom.timelineEpoch = 5u;
     clientRoom.timelineEpoch = 5u;
     hostRoom.currentFrame = 300u;
-    clientRoom.currentFrame = 298u;
+    clientRoom.currentFrame = 120u;
     hostRoom.lastConfirmedFrame = 300u;
     clientRoom.lastConfirmedFrame = 300u;
 
@@ -7665,6 +7665,8 @@ TEST_CASE("Client requests host resync on first local CRC mismatch",
             REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
             REQUIRE(pending->frame == 300u);
             REQUIRE(anyLogLineContains(host.eventLog(), "source 4"));
+            REQUIRE(anyLogLineContains(host.eventLog(), "estimatedHostFrame 302"));
+            REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "estimatedHostFrame 120"));
             received = true;
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));

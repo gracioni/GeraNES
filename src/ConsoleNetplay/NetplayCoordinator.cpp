@@ -3285,6 +3285,14 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         request.reason = ResyncReason::ConfirmedDesync;
         request.localFrame = localSimulationFrame();
         request.estimatedHostFrame = m_session.roomState().currentFrame;
+        if(update.remoteEntry.has_value()) {
+            request.estimatedHostFrame = std::max({
+                request.estimatedHostFrame,
+                update.frame,
+                update.remoteEntry->localSimulationFrame,
+                update.remoteEntry->confirmedFrame
+            });
+        }
         request.confirmedThroughFrame = m_session.roomState().lastConfirmedFrame;
         request.source = kResyncRequestSourceCrcMismatch;
         if(request.localFrame > request.estimatedHostFrame) {
