@@ -74,7 +74,9 @@ inline void GeraNESApp::drawCustomWindowChrome()
             if(!enabled) {
                 ImGui::BeginDisabled();
             }
+            ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
             const bool pressed = ImGui::InvisibleButton(id, ImVec2(controlButtonWidth, controlButtonHeight));
+            ImGui::PopItemFlag();
             const bool hovered = ImGui::IsItemHovered();
             const bool active = ImGui::IsItemActive();
             if(!enabled) {
@@ -116,7 +118,9 @@ inline void GeraNESApp::drawCustomWindowChrome()
         drawList->AddText(ImVec2(titlePos.x, titlePos.y), titleColor, chromeTitle.c_str());
 
         ImGui::SetCursorScreenPos(ImVec2(winPos.x + controlsLeft + controlsWidth + 24.0f, winPos.y + 6.0f));
+        ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
         ImGui::InvisibleButton("##ChromeDragArea", ImVec2(std::max(0.0f, winSize.x - (controlsLeft + controlsWidth + 24.0f) - buttonRowWidth - rightInset - 10.0f), titleBarHeight - 12.0f));
+        ImGui::PopItemFlag();
         const bool dragAreaHovered = ImGui::IsItemHovered();
         const bool dragAreaActive = ImGui::IsItemActive();
         if(dragAreaHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -154,7 +158,9 @@ inline void GeraNESApp::drawCustomWindowChrome()
             ImGui::PushStyleColor(ImGuiCol_Button, color);
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x + 0.08f, color.y + 0.08f, color.z + 0.08f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(std::max(0.0f, color.x - 0.06f), std::max(0.0f, color.y - 0.06f), std::max(0.0f, color.z - 0.06f), 1.0f));
+            ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
             const bool pressed = ImGui::Button(id, ImVec2(buttonWidth, buttonHeight));
+            ImGui::PopItemFlag();
             const ImVec2 min = ImGui::GetItemRectMin();
             const ImVec2 max = ImGui::GetItemRectMax();
             const ImU32 iconColor = IM_COL32(248, 248, 248, 255);

@@ -426,6 +426,7 @@ private:
 
     void openFile(const char* path);
     void syncSettings();
+    void persistSettingsForShutdown();
     void createShortcuts();
     void updateCursor();
 
@@ -460,6 +461,7 @@ public:
     void updateBuffers();
 
     virtual bool onEvent(SDL_Event& event) override;
+    virtual void onQuitRequested() override;
 
     virtual void onWindowsTitleBarInteractionChanged(bool active) override;
     virtual void onWindowDisplayChanged(int displayIndex) override;

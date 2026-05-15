@@ -1502,21 +1502,34 @@ void GeraNESApp::onCaptureBegin()
 void GeraNESApp::onInputBindingCaptureEnd()
 {
     m_emuInputEnabled = true;
-    AppSettings::instance().data.input.setControllerInfo(0, m_controller1);
-    AppSettings::instance().data.input.setControllerInfo(1, m_controller2);
-    AppSettings::instance().data.input.setControllerInfo(2, m_controller3);
-    AppSettings::instance().data.input.setControllerInfo(3, m_controller4);
-    AppSettings::instance().data.input.powerPad = m_powerPadInfo;
-    AppSettings::instance().data.input.setSnesControllerInfo(0, m_snesController1);
-    AppSettings::instance().data.input.setSnesControllerInfo(1, m_snesController2);
-    AppSettings::instance().data.input.setVirtualBoyControllerInfo(0, m_virtualBoyController1);
-    AppSettings::instance().data.input.setVirtualBoyControllerInfo(1, m_virtualBoyController2);
-    AppSettings::instance().data.input.konamiHyperShot = m_konamiHyperShot;
-    AppSettings::instance().data.input.system = m_systemInput;
+    persistSettingsForShutdown();
+}
+
+void GeraNESApp::persistSettingsForShutdown()
+{
+    auto& settings = AppSettings::instance();
+    settings.data.input.setControllerInfo(0, m_controller1);
+    settings.data.input.setControllerInfo(1, m_controller2);
+    settings.data.input.setControllerInfo(2, m_controller3);
+    settings.data.input.setControllerInfo(3, m_controller4);
+    settings.data.input.powerPad = m_powerPadInfo;
+    settings.data.input.setSnesControllerInfo(0, m_snesController1);
+    settings.data.input.setSnesControllerInfo(1, m_snesController2);
+    settings.data.input.setVirtualBoyControllerInfo(0, m_virtualBoyController1);
+    settings.data.input.setVirtualBoyControllerInfo(1, m_virtualBoyController2);
+    settings.data.input.konamiHyperShot = m_konamiHyperShot;
+    settings.data.input.system = m_systemInput;
+    settings.save();
+}
+
+void GeraNESApp::onQuitRequested()
+{
+    persistSettingsForShutdown();
 }
 
 GeraNESApp::~GeraNESApp()
 {
+    persistSettingsForShutdown();
     m_emu.shutdown();
     m_netplayRuntime.shutdownForUnload();
     destroyPostProcessTargets();

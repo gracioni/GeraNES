@@ -385,6 +385,10 @@ void SDLOpenGLWindow::onWindowDisplayChanged(int displayIndex)
     (void)displayIndex;
 }
 
+void SDLOpenGLWindow::onQuitRequested()
+{
+}
+
 bool SDLOpenGLWindow::paintGL()
 {
     return true;
@@ -424,6 +428,9 @@ void SDLOpenGLWindow::quit()
 #ifdef _WIN32
     stopWindowsNativePump();
 #endif
+    if(!m_quit) {
+        onQuitRequested();
+    }
     m_quit = true;
 }
 
