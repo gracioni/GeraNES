@@ -41,7 +41,6 @@ inline void GeraNESApp::drawCustomWindowChrome()
         const ImVec2 winSize = ImGui::GetWindowSize();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         drawList->AddRectFilled(winPos, ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), IM_COL32(208, 208, 202, 255));
-        drawList->AddRectFilled(ImVec2(winPos.x, winPos.y + winSize.y - 6.0f), ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), IM_COL32(185, 42, 42, 255));
         const ImVec2 ledMin(winPos.x + controlsLeft, winPos.y + controlsTop + 7.0f);
         const ImVec2 ledMax(ledMin.x + ledSize, ledMin.y + ledSize);
         drawList->AddRectFilled(ledMin, ledMax, IM_COL32(78, 220, 255, 255), 2.0f);
