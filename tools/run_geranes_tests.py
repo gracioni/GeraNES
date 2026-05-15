@@ -6,10 +6,11 @@ import json
 import os
 import subprocess
 import sys
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 ROM_EXTENSIONS = {".nes", ".fds", ".unf", ".unif", ".nsf"}
+TEST_TIMEOUT_SECONDS = 360
 
 
 def resolve_binary(bin_folder: str) -> str:
@@ -25,13 +26,14 @@ def resolve_binary(bin_folder: str) -> str:
     )
 
 
-def run_command(args: List[str]) -> subprocess.CompletedProcess:
+def run_command(args: List[str], timeout: Optional[int] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=timeout,
     )
 
 
@@ -56,6 +58,14 @@ def combine_output(stdout: str, stderr: str) -> str:
         sep = "" if stdout.endswith("\n") else "\n"
         return f"{stdout}{sep}{stderr}"
     return stdout or stderr or ""
+
+
+def process_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def normalize_return_code(code: int) -> int:
@@ -113,17 +123,30 @@ def run_tests(binary: str, roms_folder: str, expect_map: Dict[str, List[str]]) -
         print(f"Custom pass-text entries: {len(expect_map)}", flush=True)
 
     for index, rom_path in enumerate(roms, start=1):
-        proc = run_command([binary, "--test", rom_path])
-        return_code = normalize_return_code(proc.returncode)
-        output = combine_output(proc.stdout, proc.stderr).strip()
+        timed_out = False
+        try:
+            proc = run_command([binary, "--test", rom_path], timeout=TEST_TIMEOUT_SECONDS)
+            return_code = normalize_return_code(proc.returncode)
+            output = combine_output(proc.stdout, proc.stderr).strip()
+        except subprocess.TimeoutExpired as e:
+            timed_out = True
+            return_code = None
+            output = combine_output(process_text(e.stdout), process_text(e.stderr)).strip()
         rom_name = os.path.basename(rom_path)
         report_path = to_report_path(rom_path, roms_folder)
-        if return_code == 0:
-            result = "passed"
-        elif return_code == -1:
+        expected_pass_texts = expect_map.get(rom_name.lower(), [])
+        if not expected_pass_texts:
+            expected_pass_texts = expect_map.get(report_path.lower(), [])
+        if timed_out:
             result = "timeout"
+            timeout_message = f"Timed out after {TEST_TIMEOUT_SECONDS} seconds."
+            output = f"{output}\n{timeout_message}".strip() if output else timeout_message
+        elif return_code == 0:
+            result = "passed"
+        elif any(text in output for text in expected_pass_texts):
+            result = "passed"
         else:
-            result = "failed" if return_code > 0 else "timeout"
+            result = "failed"
 
         print(f"[{index}/{total}] {report_path} -> {result}", flush=True)
 

@@ -298,32 +298,20 @@ private:
         int matchedRows = 0;
         int failedRows = 0;
 
-        auto isHexToken = [](const std::string& token, size_t expectedLen) -> bool {
-            if(token.size() != expectedLen) return false;
-            for(char c : token) {
-                const bool isDigit = (c >= '0' && c <= '9');
-                const bool isUpperHex = (c >= 'A' && c <= 'F');
-                const bool isLowerHex = (c >= 'a' && c <= 'f');
-                if(!(isDigit || isUpperHex || isLowerHex)) return false;
-            }
-            return true;
-        };
-
         while(std::getline(stream, line)) {
             std::istringstream lineStream(line);
             std::string indexToken;
             std::string resultToken;
-            std::string valueToken;
-            if(!(lineStream >> indexToken >> resultToken >> valueToken)) {
+            if(!(lineStream >> indexToken >> resultToken)) {
                 continue;
             }
 
-            if(!isHexToken(indexToken, 2) || !isHexToken(resultToken, 1) || !isHexToken(valueToken, 2)) {
+            if(resultToken != "O" && resultToken != "X") {
                 continue;
             }
 
             ++matchedRows;
-            if(resultToken != "0") {
+            if(resultToken == "X") {
                 ++failedRows;
             }
         }
@@ -333,6 +321,65 @@ private:
         }
 
         return failedRows == 0;
+    }
+
+    static std::optional<bool> parseNumericScreenResult(const std::string& text)
+    {
+        size_t i = text.find_first_not_of(" \t\r\n");
+        if(i == std::string::npos) return std::nullopt;
+
+        int base = 10;
+        if(text[i] == '$') {
+            base = 16;
+            ++i;
+        }
+
+        int value = 0;
+        int digits = 0;
+        for(; i < text.size(); ++i) {
+            const char c = text[i];
+            int digit = -1;
+            if(c >= '0' && c <= '9') digit = c - '0';
+            else if(base == 16 && c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+            else if(base == 16 && c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+            else break;
+            if(digit >= base) return std::nullopt;
+            value = (value * base) + digit;
+            ++digits;
+        }
+
+        if(digits <= 0) return std::nullopt;
+        if(text.find_first_not_of(" \t\r\n", i) != std::string::npos) return std::nullopt;
+
+        return value == 1;
+    }
+
+    static bool hasCaseInsensitiveSuffix(const std::string& text, const std::string& suffix)
+    {
+        if(text.size() < suffix.size()) return false;
+
+        const size_t offset = text.size() - suffix.size();
+        for(size_t i = 0; i < suffix.size(); ++i) {
+            char a = text[offset + i];
+            char b = suffix[i];
+            if(a >= 'A' && a <= 'Z') a = static_cast<char>(a - 'A' + 'a');
+            if(b >= 'A' && b <= 'Z') b = static_cast<char>(b - 'A' + 'a');
+            if(a != b) return false;
+        }
+
+        return true;
+    }
+
+    static bool containsPathComponent(const std::string& text, const std::string& component)
+    {
+        std::string normalized;
+        normalized.reserve(text.size());
+        for(char c : text) {
+            normalized.push_back(c == '\\' ? '/' : c);
+        }
+
+        return normalized.find("/" + component + "/") != std::string::npos ||
+               normalized.rfind(component + "/", 0) == 0;
     }
 
 public:
@@ -373,8 +420,12 @@ public:
         int failedScreenHits = 0;
         std::string lastScreenText;
         uint32_t stableScreenMs = 0;
+        const bool allowBeepOnlyResult =
+            hasCaseInsensitiveSuffix(romPath, ".nsf") ||
+            containsPathComponent(romPath, "dmc_tests");
 
         while(true) {
+            emu.queueInputFrame(emu.createInputFrame(emu.executionPoint().frame));
             emu.update(STEP_MS);
             const bool beepStepActive = beepAudio.onStep();
 
@@ -385,6 +436,15 @@ public:
             } else {
                 idle6000Ms += STEP_MS;
                 if(idle6000Ms >= INACTIVITY_TIMEOUT_MS) {
+                    const std::string screenText = readScreenText(emu);
+                    if(const std::optional<bool> numericResult = parseNumericScreenResult(screenText);
+                       numericResult.has_value()) {
+                        std::cout << screenText;
+                        return *numericResult ? RESULT_PASSED : RESULT_FAILED;
+                    }
+                    if(!screenText.empty()) {
+                        std::cout << screenText;
+                    }
                     return RESULT_FAILED;
                 }
             }
@@ -461,7 +521,7 @@ public:
                     }
                 }
 
-                if(!harnessDetected && beepAudio.seenActivity()) {
+                if(allowBeepOnlyResult && !harnessDetected && beepAudio.seenActivity()) {
                     const uint64_t stepsSinceLastBeep = beepAudio.stepsSinceLastBeep();
                     if(stepsSinceLastBeep != UINT64_MAX && stepsSinceLastBeep * STEP_MS >= BEEP_SETTLE_MS) {
                         const int code = beepAudio.beepCount();
