@@ -779,17 +779,50 @@ NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame)
 
 InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
 {
+    InputFrame fallbackTopologyFrame{};
+    fallbackTopologyFrame.frame = inputFrame.frame;
+    fallbackTopologyFrame.timelineEpoch = inputFrame.timelineEpoch;
+    return toGeraNESInputFrame(inputFrame, fallbackTopologyFrame);
+}
+
+InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame, const InputFrame& fallbackTopologyFrame)
+{
     InputFrame frame;
     frame.frame = inputFrame.frame;
     frame.timelineEpoch = inputFrame.timelineEpoch;
     frame.speculative = inputFrame.speculative;
     AdapterFramePayload adapterPayload;
-    if(readAdapterFramePayload(inputFrame, adapterPayload)) {
+    const bool hasAdapterPayload = readAdapterFramePayload(inputFrame, adapterPayload);
+    const bool payloadHasTopology =
+        adapterPayload.port1Device != Settings::Device::NONE ||
+        adapterPayload.port2Device != Settings::Device::NONE ||
+        adapterPayload.expansionDevice != Settings::ExpansionDevice::NONE ||
+        adapterPayload.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
+        adapterPayload.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
+    const bool fallbackHasTopology =
+        fallbackTopologyFrame.port1Device != Settings::Device::NONE ||
+        fallbackTopologyFrame.port2Device != Settings::Device::NONE ||
+        fallbackTopologyFrame.expansionDevice != Settings::ExpansionDevice::NONE ||
+        fallbackTopologyFrame.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
+        fallbackTopologyFrame.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
+
+    if(hasAdapterPayload && (payloadHasTopology || !fallbackHasTopology)) {
         frame.port1Device = adapterPayload.port1Device;
         frame.port2Device = adapterPayload.port2Device;
         frame.expansionDevice = adapterPayload.expansionDevice;
         frame.nesMultitapDevice = adapterPayload.nesMultitapDevice;
         frame.famicomMultitapDevice = adapterPayload.famicomMultitapDevice;
+    } else {
+        frame.port1Device = fallbackTopologyFrame.port1Device;
+        frame.port2Device = fallbackTopologyFrame.port2Device;
+        frame.expansionDevice = fallbackTopologyFrame.expansionDevice;
+        frame.nesMultitapDevice = fallbackTopologyFrame.nesMultitapDevice;
+        frame.famicomMultitapDevice = fallbackTopologyFrame.famicomMultitapDevice;
+        adapterPayload.port1Device = frame.port1Device;
+        adapterPayload.port2Device = frame.port2Device;
+        adapterPayload.expansionDevice = frame.expansionDevice;
+        adapterPayload.nesMultitapDevice = frame.nesMultitapDevice;
+        adapterPayload.famicomMultitapDevice = frame.famicomMultitapDevice;
     }
     const bool multitapActive =
         adapterPayload.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||

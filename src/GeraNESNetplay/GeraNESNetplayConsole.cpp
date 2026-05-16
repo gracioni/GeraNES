@@ -9,6 +9,25 @@ namespace GeraNESNetplay {
 
 using namespace ConsoleNetplay;
 
+namespace {
+
+InputFrame makeEmuTopologyFallbackFrame(const GeraNESEmu& emu,
+                                        FrameNumber frame,
+                                        uint32_t timelineEpoch)
+{
+    InputFrame fallback{};
+    fallback.frame = frame;
+    fallback.timelineEpoch = timelineEpoch;
+    fallback.port1Device = emu.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
+    fallback.port2Device = emu.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
+    fallback.expansionDevice = emu.getExpansionDevice();
+    fallback.nesMultitapDevice = emu.getNesMultitapDevice();
+    fallback.famicomMultitapDevice = emu.getFamicomMultitapDevice();
+    return fallback;
+}
+
+} // namespace
+
 GeraNESNetplayConsole::GeraNESNetplayConsole(IEmulationHost& host,
                                              GeraNESEmu& emu,
                                              const IEmulationHost::InputState& latestInputState)
@@ -177,7 +196,10 @@ bool GeraNESNetplayConsole::queuePlaybackInputFrame(const NetplayCoordinator::Co
         return true;
     }
 
-    InputFrame inputFrame = toGeraNESInputFrame(confirmed.netplayFrame);
+    InputFrame inputFrame = toGeraNESInputFrame(
+        confirmed.netplayFrame,
+        makeEmuTopologyFallbackFrame(m_emu, confirmed.netplayFrame.frame, confirmed.netplayFrame.timelineEpoch)
+    );
     inputFrame.speculative = confirmed.predicted;
     inputFrame.timelineEpoch = m_emu.inputTimelineEpoch();
     const InputBuffer::EnqueueResult enqueueResult = m_emu.queueInputFrame(inputFrame);
@@ -200,6 +222,23 @@ bool GeraNESNetplayConsole::buildReplayFrameInput(const NetplayCoordinator::Conf
     outFrame.speculative = confirmed.predicted;
     outFrame.hasFrameOverride = true;
     outFrame.frameOverride = toGeraNESInputFrame(confirmed.netplayFrame);
+    outFrame.frameOverride.frame = frame;
+    applyInputFrameToInputState(outFrame.state, outFrame.frameOverride);
+    return true;
+}
+
+bool GeraNESNetplayConsole::buildReplayFrameInput(const NetplayCoordinator::ConfirmedFrameInputs& confirmed,
+                                                  FrameNumber frame,
+                                                  GeraNESEmu& emu,
+                                                  IEmulationHost::ReplayFrameInput& outFrame)
+{
+    outFrame = {};
+    outFrame.speculative = confirmed.predicted;
+    outFrame.hasFrameOverride = true;
+    outFrame.frameOverride = toGeraNESInputFrame(
+        confirmed.netplayFrame,
+        makeEmuTopologyFallbackFrame(emu, confirmed.netplayFrame.frame, confirmed.netplayFrame.timelineEpoch)
+    );
     outFrame.frameOverride.frame = frame;
     applyInputFrameToInputState(outFrame.state, outFrame.frameOverride);
     return true;

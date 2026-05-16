@@ -41,6 +41,10 @@ public:
     static bool buildReplayFrameInput(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed,
                                       ConsoleNetplay::FrameNumber frame,
                                       IEmulationHost::ReplayFrameInput& outFrame);
+    static bool buildReplayFrameInput(const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed,
+                                      ConsoleNetplay::FrameNumber frame,
+                                      GeraNESEmu& emu,
+                                      IEmulationHost::ReplayFrameInput& outFrame);
 
 private:
     IEmulationHost& m_host;

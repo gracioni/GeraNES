@@ -77,7 +77,11 @@ NetplayAppRuntime::UpdateResult executeRuntimeFrame(NetplayAppRuntime& runtime,
         host.consumeManualStateChanges(),
         settings.inputDelaySettings,
         settings.frameSettings,
-        GeraNESNetplayConsole::buildReplayFrameInput
+        [&emu](const NetplayCoordinator::ConfirmedFrameInputs& confirmed,
+               FrameNumber frame,
+               IEmulationHost::ReplayFrameInput& outFrame) {
+            return GeraNESNetplayConsole::buildReplayFrameInput(confirmed, frame, emu, outFrame);
+        }
     );
 }
 

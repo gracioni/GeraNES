@@ -57,6 +57,7 @@ void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
 NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame);
 
 InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame);
+InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame, const InputFrame& fallbackTopologyFrame);
 
 bool injectInputFrameForTests(NetplayCoordinator& coordinator,
                               const InputFrameData& input,
