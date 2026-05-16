@@ -434,12 +434,6 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
     uint32_t maxFrames,
     bool requireLagTrigger);
 
-uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
-                                            ConfirmedInputBufferDriver& inputDriver,
-                                            INetplayConsole& console,
-                                            uint32_t maxFrames,
-                                            bool showDebugLog);
-
 bool runtimeProcessAutoResumeIfNeeded(NetplayCoordinator& coordinator,
                                       bool& webVisibilityManagedPause,
                                       bool webPageVisible,
