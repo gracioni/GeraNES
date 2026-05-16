@@ -1644,7 +1644,11 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                                                   : "late_committed_input_duplicate");
             participant->lastReceivedInputFrame = std::max(participant->lastReceivedInputFrame, input.frame);
             participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
+            participant->inputSuspended = false;
+            participant->inputResumeAwaitingResync = false;
             participant->sequenceRebasePending = false;
+            participant->pendingMissingInputFrom.reset();
+            m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
 
             if(committedMismatch ||
                m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
@@ -1720,7 +1724,9 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 ? input.sequence
                 : std::max(participant->lastReceivedInputSequence, input.sequence);
         participant->inputSuspended = false;
-        participant->sequenceRebasePending = false;
+        if(m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
+            participant->sequenceRebasePending = false;
+        }
         participant->lastRejectedInputReason.clear();
     }
 

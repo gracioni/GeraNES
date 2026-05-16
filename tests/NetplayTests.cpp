@@ -6757,6 +6757,8 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     remote.lastReceivedInputFrame = 1553u;
     remote.lastContiguousInputFrame = 1553u;
     remote.lastReceivedInputSequence = 0u;
+    remote.inputSuspended = true;
+    remote.sequenceRebasePending = true;
     remote.normalizeControllerAssignments();
     room.participants.push_back(remote);
 
@@ -6783,6 +6785,10 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     lateInput.buttonMaskHi = 0u;
     REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, lateInput, committedContribution));
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
+    const ConsoleNetplay::ParticipantInfo* resumedParticipant = host.session().findParticipant(remote.id);
+    REQUIRE(resumedParticipant != nullptr);
+    REQUIRE_FALSE(resumedParticipant->inputSuspended);
+    REQUIRE_FALSE(resumedParticipant->sequenceRebasePending);
 
     ConsoleNetplay::InputFrameData nextInput = lateInput;
     nextInput.frame = 1554u;
