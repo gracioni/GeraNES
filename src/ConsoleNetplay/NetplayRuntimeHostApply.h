@@ -23,20 +23,25 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(INetplayConsole& conso
         sessionControls,
         std::move(manualEvents),
         std::move(inputDelaySettings),
-        std::move(frameSettings)
+        std::move(frameSettings),
+        {}
     };
     return update(std::move(context));
 }
 
 template<typename RuntimeHost>
-void NetplayAppRuntime::applyUpdateResultToHost(RuntimeHost& host, const UpdateResult& result)
+void NetplayAppRuntime::applyUpdateResultToHost(RuntimeHost& host,
+                                                const UpdateResult& result,
+                                                bool applyInputOwnership)
 {
     host.configureInputBufferCapacity(result.inputBufferCapacity);
     if(result.snapshotCapacity.has_value()) {
         host.configureNetplaySnapshots(*result.snapshotCapacity);
     }
-    host.setAutoQueuePendingInputOnFrameStart(result.autoQueuePendingInputOnFrameStart);
-    host.setAllowPresenterTimeoutAdvance(result.allowPresenterTimeoutAdvance);
+    if(applyInputOwnership) {
+        host.setAutoQueuePendingInputOnFrameStart(result.autoQueuePendingInputOnFrameStart);
+        host.setAllowPresenterTimeoutAdvance(result.allowPresenterTimeoutAdvance);
+    }
     if(result.discardQueuedAudio) {
         host.discardQueuedAudio();
     }
@@ -72,15 +77,25 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::updateAndApply(
     RuntimeFrameSettings frameSettings,
     Converter playbackConverter)
 {
-    const UpdateResult result = update(
+    NetplayStateBridgeAdapter<RuntimeHost> stateBridge(host);
+    NetplayStateHostBridgeAdapter<RuntimeHost> hostBridge(host);
+    NetplayRuntimeSessionControlsAdapter<RuntimeHost> sessionControls(host);
+    UpdateContext context{
         console,
-        host,
+        stateBridge,
+        hostBridge,
+        sessionControls,
         std::move(manualEvents),
         std::move(inputDelaySettings),
-        std::move(frameSettings)
-    );
-    applyPlaybackResolverToHost(host, result.netplayOwnsEmulationInput, playbackConverter);
-    applyUpdateResultToHost(host, result);
+        std::move(frameSettings),
+        [this, &host, playbackConverter](bool netplayOwnsEmulationInput, bool allowPresenterTimeoutAdvance) {
+            host.setAutoQueuePendingInputOnFrameStart(!netplayOwnsEmulationInput);
+            applyPlaybackResolverToHost(host, netplayOwnsEmulationInput, playbackConverter);
+            host.setAllowPresenterTimeoutAdvance(allowPresenterTimeoutAdvance);
+        }
+    };
+    const UpdateResult result = update(std::move(context));
+    applyUpdateResultToHost(host, result, false);
     return result;
 }
 

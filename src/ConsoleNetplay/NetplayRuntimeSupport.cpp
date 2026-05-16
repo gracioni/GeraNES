@@ -1450,6 +1450,48 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
     return advancedFrames;
 }
 
+uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
+                                            ConfirmedInputBufferDriver& inputDriver,
+                                            INetplayConsole& console,
+                                            uint32_t maxFrames,
+                                            bool /*showDebugLog*/)
+{
+    if(maxFrames == 0u) return 0u;
+    if(coordinator.isHosting()) return 0u;
+    if(!coordinator.isActive()) return 0u;
+    if(coordinator.session().roomState().state != SessionState::Running) return 0u;
+    if(!console.valid()) return 0u;
+
+    const std::vector<PlayerSlot> localSlots = runtimeLocalAssignedSlots(coordinator);
+    if(!localSlots.empty()) return 0u;
+
+    const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
+    const FrameNumber localFrame = console.frameCount();
+    if(confirmedThroughFrame <= localFrame) return 0u;
+    const FrameNumber peerVisibleTargetFrame =
+        std::min(confirmedThroughFrame, coordinator.session().roomState().currentFrame);
+    if(peerVisibleTargetFrame <= localFrame) return 0u;
+
+    const uint32_t frameDt =
+        std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, console.regionFps()));
+    const FrameNumber targetFrame =
+        std::min<FrameNumber>(peerVisibleTargetFrame, localFrame + static_cast<FrameNumber>(maxFrames));
+
+    uint32_t advancedFrames = 0u;
+    while(console.frameCount() < targetFrame) {
+        const FrameNumber nextFrame = console.frameCount() + 1u;
+        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
+        if(!coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) break;
+        if(playbackFrame.predicted) break;
+        if(!console.queuePlaybackInputFrame(playbackFrame)) break;
+        if(!console.updateUntilFrame(frameDt, false)) break;
+        ++advancedFrames;
+        coordinator.setLocalSimulationFrame(console.frameCount());
+    }
+
+    return advancedFrames;
+}
+
 bool runtimeProcessAutoResumeIfNeeded(NetplayCoordinator& coordinator,
                                       bool& webVisibilityManagedPause,
                                       bool webPageVisible,

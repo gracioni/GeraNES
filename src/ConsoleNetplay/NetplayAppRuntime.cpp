@@ -427,6 +427,9 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
         result.autoQueuePendingInputOnFrameStart = true;
         result.allowPresenterTimeoutAdvance = true;
         result.simulationSuspended = false;
+        if(context.applyHostInputOwnership) {
+            context.applyHostInputOwnership(result.netplayOwnsEmulationInput, result.allowPresenterTimeoutAdvance);
+        }
         ensureStandaloneInputBootstrapFrame(context.console, context.stateBridge);
         resetInactiveRuntimeState();
         updateUiSnapshot(localRom, context.frameSettings.diagnostics);
@@ -435,12 +438,12 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
 
     result.active = true;
     m_runtimeActive.store(true, std::memory_order_release);
-    result.netplayOwnsEmulationInput = runtimeShouldNetplayOwnEmulationInput(m_coordinator);
-    result.autoQueuePendingInputOnFrameStart = !result.netplayOwnsEmulationInput;
     result.allowPresenterTimeoutAdvance = false;
-    if(!result.netplayOwnsEmulationInput) {
-        ensureStandaloneInputBootstrapFrame(context.console, context.stateBridge);
-    }
+    const auto applyHostInputOwnershipForCurrentState = [&]() {
+        result.netplayOwnsEmulationInput = runtimeShouldNetplayOwnEmulationInput(m_coordinator);
+        result.autoQueuePendingInputOnFrameStart = !result.netplayOwnsEmulationInput;
+        context.applyHostInputOwnership(result.netplayOwnsEmulationInput, result.allowPresenterTimeoutAdvance);
+    };
 
     if(m_pendingWebVisibilityChange.has_value()) {
         const bool visible = *m_pendingWebVisibilityChange;
@@ -487,6 +490,9 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
                     m_sessionTransitionState.observerVisibilityResyncPending = false;
                     result.simulationSuspended = false;
                 }
+                if(context.applyHostInputOwnership) {
+                    applyHostInputOwnershipForCurrentState();
+                }
                 return result;
             }
 
@@ -517,6 +523,9 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
             } else if(state == SessionState::Paused) {
                 if(!computeSessionBlockedReason(localRom).empty()) {
                     result.simulationSuspended = true;
+                    if(context.applyHostInputOwnership) {
+                        applyHostInputOwnershipForCurrentState();
+                    }
                     return result;
                 }
                 if(m_coordinator.resumeSession()) {
@@ -525,6 +534,9 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
                     m_coordinator.appendNetplayLog("Unpaused");
                 } else {
                     result.simulationSuspended = true;
+                    if(context.applyHostInputOwnership) {
+                        applyHostInputOwnershipForCurrentState();
+                    }
                     return result;
                 }
             }
@@ -547,8 +559,18 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
                 statePayload,
                 false,
                 ResyncReason::ManualForce
-            );
+           );
         }
+    }
+
+    if(context.applyHostInputOwnership) {
+        applyHostInputOwnershipForCurrentState();
+    } else {
+        result.netplayOwnsEmulationInput = runtimeShouldNetplayOwnEmulationInput(m_coordinator);
+        result.autoQueuePendingInputOnFrameStart = !result.netplayOwnsEmulationInput;
+    }
+    if(!result.netplayOwnsEmulationInput) {
+        ensureStandaloneInputBootstrapFrame(context.console, context.stateBridge);
     }
 
     const RuntimeFrameResult frameResult = runActiveConsoleFrame(
@@ -1038,6 +1060,15 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
     );
 
     if(result.running) {
+        constexpr uint32_t kMaxObserverPeerCatchupFrames = 120u;
+        (void)runtimeAdvanceObserverPeerIfNeeded(
+            m_coordinator,
+            m_inputDriver,
+            console,
+            kMaxObserverPeerCatchupFrames,
+            settings.showDebugLog
+        );
+
         constexpr uint32_t kMaxContinuousClockCatchupFrames = 120u;
         (void)advanceToSharedClockIfNeededOnWorker(console, kMaxContinuousClockCatchupFrames);
 

@@ -111,6 +111,7 @@ public:
         std::vector<NetplayManualStateChangeRecord> manualEvents;
         RuntimeInputDelaySettings inputDelaySettings;
         RuntimeFrameSettings frameSettings;
+        std::function<void(bool netplayOwnsEmulationInput, bool allowPresenterTimeoutAdvance)> applyHostInputOwnership;
     };
 
     struct UpdateResult
@@ -139,7 +140,9 @@ public:
                         RuntimeInputDelaySettings inputDelaySettings,
                         RuntimeFrameSettings frameSettings);
     template<typename RuntimeHost>
-    static void applyUpdateResultToHost(RuntimeHost& host, const UpdateResult& result);
+    static void applyUpdateResultToHost(RuntimeHost& host,
+                                        const UpdateResult& result,
+                                        bool applyInputOwnership = true);
     template<typename RuntimeHost, typename Converter>
     void applyPlaybackResolverToHost(RuntimeHost& host,
                                      bool enabled,
