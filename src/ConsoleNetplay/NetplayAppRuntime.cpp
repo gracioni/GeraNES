@@ -620,6 +620,16 @@ void NetplayAppRuntime::processPendingInputTopologyChanges(INetplayConsole& cons
             continue;
         }
 
+        const RoomState& room = m_coordinator.session().roomState();
+        if(room.state == SessionState::Resyncing ||
+           room.activeResyncId != 0 ||
+           room.pendingResyncAckCount != 0 ||
+           room.recoveryInputMode != RecoveryInputMode::Normal) {
+            std::scoped_lock stateLock(m_stateMutex);
+            m_pendingInputTopologyChanges.emplace_front(std::move(change));
+            return;
+        }
+
         const FrameNumber rebuildFromFrame = console.frameCount() > 0 ? (console.frameCount() - 1u) : 0u;
         const PlayerSlot preservedSlot = change.slots.empty() ? kObserverPlayerSlot : change.slots.front();
         m_coordinator.setLocalSimulationFrame(rebuildFromFrame);

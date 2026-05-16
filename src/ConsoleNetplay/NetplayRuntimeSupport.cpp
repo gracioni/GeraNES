@@ -27,6 +27,20 @@ std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordi
     return std::nullopt;
 }
 
+bool runtimeHostFallbackAllowed(const NetplayCoordinator& coordinator)
+{
+    if(!coordinator.isHosting()) return false;
+    const ParticipantId localParticipantId = coordinator.localParticipantId();
+    for(const ParticipantInfo& participant : coordinator.session().roomState().participants) {
+        if(participant.id == localParticipantId) continue;
+        if(!participant.connected || participantIsObserver(participant)) continue;
+        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinator& coordinator,
@@ -312,8 +326,22 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     if(statePayload.empty()) return result;
 
     const uint32_t payloadCrc32 = crc32(statePayload.data(), statePayload.size());
-    const uint32_t stateCrc32 =
+    uint32_t stateCrc32 =
         runtimeComputeAuthoritativeStateCrc32(emu, runtimeHost, authoritativeFrame, preferConfirmedSnapshot);
+    RuntimeAuthoritativeStateResult localStateResult;
+    if(targetParticipantId == kInvalidParticipantId) {
+        localStateResult = runtimeApplyAuthoritativeStateLocally(
+            coordinator,
+            inputDriver,
+            emu,
+            runtimeHost,
+            authoritativeFrame,
+            statePayload
+        );
+        if(localStateResult.localStateApplied) {
+            stateCrc32 = localStateResult.stateCrc32;
+        }
+    }
     if(!coordinator.beginResync(
            authoritativeFrame,
            statePayload,
@@ -328,16 +356,10 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     result.started = true;
     result.stateCrc32 = stateCrc32;
     if(targetParticipantId == kInvalidParticipantId) {
-        const RuntimeAuthoritativeStateResult localStateResult =
-            runtimeApplyAuthoritativeStateLocally(
-                coordinator,
-                inputDriver,
-                emu,
-                runtimeHost,
-                authoritativeFrame,
-                statePayload
-            );
         if(localStateResult.localStateApplied) {
+            runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
+            coordinator.setLocalSimulationFrame(authoritativeFrame);
+            inputDriver.reanchor(authoritativeFrame);
             result.localStateApplied = true;
             result.loadedAuthoritativeFrame = localStateResult.loadedAuthoritativeFrame;
             result.reanchorFrame = localStateResult.reanchorFrame;
@@ -400,14 +422,16 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
 
     const FrameNumber confirmedFrame = coordinator.latestConfirmedFrame();
     const FrameNumber lastFrameReadyFrame = runtimeHost.lastFrameReadyFrame();
-    const FrameNumber safeConfirmedFrame =
-        confirmedFrame == 0u ? 0u : std::min(confirmedFrame, lastFrameReadyFrame);
     const FrameNumber authoritativeCheckpointFrame =
         (state.lastLoadedAuthoritativeFrame != 0u &&
          lastFrameReadyFrame == state.lastLoadedAuthoritativeFrame)
             ? state.lastLoadedAuthoritativeFrame
             : 0u;
-    const FrameNumber crcCheckpointFrame = std::max(safeConfirmedFrame, authoritativeCheckpointFrame);
+    const FrameNumber confirmedCheckpointFrame =
+        (confirmedFrame != 0u && lastFrameReadyFrame == confirmedFrame)
+            ? confirmedFrame
+            : 0u;
+    const FrameNumber crcCheckpointFrame = std::max(confirmedCheckpointFrame, authoritativeCheckpointFrame);
     if(crcCheckpointFrame == 0) return result;
 
     const bool periodicDue = crcCheckpointFrame >= state.nextScheduledLocalCrcFrame;
@@ -422,7 +446,7 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
     std::optional<uint32_t> crc32;
     const char* submittedSource = nullptr;
     CrcSubmissionSource submittedSourceKind = CrcSubmissionSource::Unknown;
-    if(crcCheckpointFrame == authoritativeCheckpointFrame &&
+    if(crcCheckpointFrame == lastFrameReadyFrame &&
        runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
         crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
         submittedSource = "local CRC submission (frame-ready)";
@@ -1735,7 +1759,7 @@ bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
         confirmedThroughFrame +
         static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
         static_cast<FrameNumber>(inputDriver.predictFrames());
-    const bool allowHostFallback = frame > predictionCapFrame;
+    const bool allowHostFallback = frame > predictionCapFrame && runtimeHostFallbackAllowed(coordinator);
     if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame, allowHostFallback)) {
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;

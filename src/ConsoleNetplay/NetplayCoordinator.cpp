@@ -1597,6 +1597,13 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             !m_hosting &&
             allowSequenceBaselineReset &&
             input.sequence != expectedSequence;
+        const bool allowHostGapRebase =
+            m_hosting &&
+            participant->id != m_localParticipantId &&
+            participant->pendingMissingInputFrom.has_value() &&
+            *participant->pendingMissingInputFrom == expectedFrame &&
+            input.frame > expectedFrame &&
+            input.sequence > expectedSequence;
         if(input.sequence <= participant->lastReceivedInputSequence && !allowSequenceBaselineReset) {
             recordRejectedInput(participant, "stale_or_duplicate_sequence");
             std::ostringstream oss;
@@ -1608,8 +1615,9 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             return true;
         }
         if(input.sequence != expectedSequence &&
-           !allowSequenceRebase &&
-           !allowClientResyncRebase) {
+            !allowSequenceRebase &&
+           !allowClientResyncRebase &&
+           !allowHostGapRebase) {
             recordRejectedInput(participant, "non_sequential_sequence");
             std::ostringstream oss;
             oss << "Rejected non-sequential input sequence from " << participant->displayName
@@ -1652,8 +1660,16 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         }
 
         if(input.frame != expectedFrame &&
-           !allowSequenceRebase &&
-           !allowClientResyncRebase) {
+            !allowSequenceRebase &&
+           !allowClientResyncRebase &&
+           !allowHostGapRebase) {
+            if(m_hosting &&
+               participant->id != m_localParticipantId &&
+               input.frame > expectedFrame &&
+               !participant->pendingMissingInputFrom.has_value()) {
+                participant->pendingMissingInputFrom = expectedFrame;
+                recordMissingInputGap(*participant, expectedFrame, input.frame, input.playerSlot);
+            }
             recordRejectedInput(participant, "non_sequential_frame");
             std::ostringstream oss;
             oss << "Rejected non-sequential input from " << participant->displayName
@@ -1662,6 +1678,19 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " seq " << input.sequence;
             pushLog(oss.str());
             return true;
+        }
+        if(allowHostGapRebase) {
+            for(FrameNumber frame = expectedFrame; frame < input.frame; ++frame) {
+                seedNeutralInputBaseline(input.participantId, input.playerSlot, frame);
+            }
+            std::ostringstream oss;
+            oss << "Accepted input gap rebase from "
+                << participant->displayName
+                << " frame " << input.frame
+                << " expectedFrame " << expectedFrame
+                << " seq " << input.sequence
+                << " expectedSeq " << expectedSequence;
+            pushLog(oss.str());
         }
         if(allowSequenceRebase || allowClientResyncRebase) {
             // Re-anchor contiguous frame tracking when a participant resumes
@@ -2205,6 +2234,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
 {
     if(!m_hosting) return;
     if(m_session.roomState().state != SessionState::Running) return;
+    if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
     const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
@@ -2450,6 +2480,11 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
     const FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
     const FrameNumber currentFrame = m_localSimulationFrame;
 
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
+        recordParticipantDecision("Prediction mismatch ignored during recovery");
+        return;
+    }
+
     if(inputFrame <= confirmedFrame) {
         m_predictionStats.recordConfirmedFrameConflict(inputFrame, slot);
         if(participant != nullptr) {
@@ -2626,6 +2661,7 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
        update.frame >= m_session.roomState().recoveryModeEnteredAtFrame) {
+        ++m_session.roomState().stabilizationCrcMismatchCount;
         std::ostringstream oss;
         oss << "CRC mismatch observed during post-resync stabilization on frame " << update.frame;
         if(source != nullptr && *source != '\0') {
@@ -3598,12 +3634,24 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
         return true;
     }
 
+    if(data.timelineEpoch != 0 && data.timelineEpoch != m_session.roomState().timelineEpoch) {
+        if(data.timelineEpoch < m_session.roomState().timelineEpoch) {
+            pushLog("Ignored stale resync request from previous timeline epoch");
+        }
+        return true;
+    }
+
     const SessionState state = m_session.roomState().state;
     if(state != SessionState::Running && state != SessionState::Paused) {
         return true;
     }
 
     if(m_session.roomState().activeResyncId != 0 || m_activeTargetedResyncId != 0) {
+        return true;
+    }
+    if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal &&
+       data.reason == ResyncReason::ConfirmedDesync) {
+        pushLog("Ignored client confirmed-desync resync request during recovery stabilization");
         return true;
     }
 
@@ -4853,6 +4901,15 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
 {
     processPendingKickDisconnects();
     if(!m_transport.isActive()) {
+        const std::string transportError = m_transport.lastError();
+        if(!transportError.empty() && transportError != m_lastTransportError) {
+            m_lastTransportError = transportError;
+            if(m_reconnectPending || m_reconnectAttemptInFlight) {
+                notifyReconnectFailure(transportError);
+            } else {
+                m_lastError = transportError;
+            }
+        }
         processPendingReconnect();
         return;
     }
@@ -6482,7 +6539,9 @@ bool NetplayCoordinator::assignController(ParticipantId participantId, PlayerSlo
 {
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
 
@@ -6498,7 +6557,9 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     if(!m_hosting) return false;
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
     if(!isAssignmentAvailable(slot, m_session.roomState())) return false;
@@ -6520,6 +6581,9 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
                 std::remove(other.controllerAssignments.begin(), other.controllerAssignments.end(), slot),
                 other.controllerAssignments.end()
             );
+            if(other.controllerAssignments.empty()) {
+                other.controllerAssignment = kObserverPlayerSlot;
+            }
             syncParticipantRoleWithAssignments(other, other.id == m_localParticipantId);
             changedParticipants.push_back(other.id);
             assignmentToasts.emplace_back(participantIsObserver(other) ? kObserverPlayerSlot : other.controllerAssignment,
@@ -6534,9 +6598,11 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     participant->controllerAssignments.push_back(slot);
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
+    invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
     participant->lastReceivedInputFrame = assignmentBaselineFrame;
     participant->lastContiguousInputFrame = assignmentBaselineFrame;
     participant->lastReceivedInputSequence = 0;
+    participant->sequenceRebasePending = true;
     participant->pendingMissingInputFrom.reset();
     if(participantId == m_localParticipantId) {
         m_localInputSequence = 0;
@@ -6577,7 +6643,9 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
     if(!m_hosting) return false;
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
 
@@ -6598,11 +6666,16 @@ bool NetplayCoordinator::removeControllerAssignment(ParticipantId participantId,
         std::remove(participant->controllerAssignments.begin(), participant->controllerAssignments.end(), slot),
         participant->controllerAssignments.end()
     );
+    if(participant->controllerAssignments.empty()) {
+        participant->controllerAssignment = kObserverPlayerSlot;
+    }
     syncParticipantRoleWithAssignments(*participant, participantId == m_localParticipantId);
     discardTimelineStateAfter(assignmentBaselineFrame);
+    invalidateLocalCrcHistoryAfter(assignmentBaselineFrame);
     participant->lastReceivedInputFrame = assignmentBaselineFrame;
     participant->lastContiguousInputFrame = assignmentBaselineFrame;
     participant->lastReceivedInputSequence = 0;
+    participant->sequenceRebasePending = true;
     participant->pendingMissingInputFrom.reset();
     if(participantId == m_localParticipantId) {
         m_localInputSequence = 0;
@@ -6635,7 +6708,9 @@ bool NetplayCoordinator::clearControllerAssignments(ParticipantId participantId)
     if(!m_hosting) return false;
     std::string blockedReason;
     if(assignmentMutationBlocked(&blockedReason)) {
-        pushLog(blockedReason);
+        if(m_debugMode) {
+            pushLog(blockedReason);
+        }
         return false;
     }
 

@@ -8,6 +8,24 @@
 namespace ConsoleNetplay
 {
 
+namespace {
+
+bool hostFallbackAllowedForInputBuffer(const NetplayCoordinator& coordinator)
+{
+    if(!coordinator.isHosting()) return false;
+    const ParticipantId localParticipantId = coordinator.localParticipantId();
+    for(const ParticipantInfo& participant : coordinator.session().roomState().participants) {
+        if(participant.id == localParticipantId) continue;
+        if(!participant.connected || participantIsObserver(participant)) continue;
+        if(participant.inputSuspended || participant.inputResumeAwaitingResync) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 void ConfirmedInputBufferDriver::seedInitialPrebufferIfNeeded(NetplayCoordinator& coordinator,
                                                               const std::vector<PlayerSlot>& localSlots,
                                                               const RoomState& room,
@@ -185,6 +203,13 @@ void ConfirmedInputBufferDriver::produceLocalBufferedInputs(NetplayCoordinator& 
     m_lastProduceHadLocalSlots = !localSlots.empty();
 
     if(localSlots.empty()) {
+        if(coordinator.isHosting()) {
+            if(m_queuedThroughFrame > m_producedThroughFrame) {
+                m_queuedThroughFrame = m_producedThroughFrame;
+            }
+            m_inputProductionAccumulatorMs = 0.0;
+            return;
+        }
         const uint32_t targetBufferedThroughFrame = exactFrame + m_prebufferFrames;
         if(m_producedThroughFrame < targetBufferedThroughFrame) {
             m_producedThroughFrame = targetBufferedThroughFrame;
@@ -379,7 +404,7 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     const uint32_t predictedThroughFrame = delaySlackFrame + m_predictFrames;
     const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
     const uint32_t hostFallbackThroughFrame =
-        coordinator.isHosting() && !m_lastProduceHadLocalSlots
+        hostFallbackAllowedForInputBuffer(coordinator) && m_lastProduceHadLocalSlots
             ? queueHorizonFrame
             : m_producedThroughFrame;
     const uint32_t playableThroughFrame =
