@@ -1799,13 +1799,18 @@ bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;
     }
-    const bool allowPrediction = runtimeShouldAllowPredictionForFrame(coordinator, inputDriver, frame);
+    const bool observerHostWithoutLocalSlots =
+        coordinator.isHosting() &&
+        runtimeLocalAssignedSlots(coordinator).empty();
+    const bool allowPrediction =
+        !observerHostWithoutLocalSlots &&
+        runtimeShouldAllowPredictionForFrame(coordinator, inputDriver, frame);
     const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
     const FrameNumber predictionCapFrame =
         confirmedThroughFrame +
         static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
         static_cast<FrameNumber>(inputDriver.predictFrames());
-    const bool allowHostFallback = frame > predictionCapFrame;
+    const bool allowHostFallback = !observerHostWithoutLocalSlots && frame > predictionCapFrame;
     if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame, allowHostFallback)) {
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;

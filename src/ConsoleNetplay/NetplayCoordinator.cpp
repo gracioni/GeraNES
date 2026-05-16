@@ -2182,6 +2182,10 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
     if(room.state != SessionState::Running) return;
 
     const bool confirmedCheckpointReached = room.lastConfirmedFrame >= room.recoveryModeEnteredAtFrame;
+    bool localPeerHasPlayableAssignment = false;
+    if(const ParticipantInfo* localParticipant = m_session.findParticipant(m_localParticipantId)) {
+        localPeerHasPlayableAssignment = !participantIsObserver(*localParticipant);
+    }
     bool connectedNonObserverRemotePresent = false;
     for(const ParticipantInfo& participant : room.participants) {
         if(participant.id == m_localParticipantId) continue;
@@ -2190,15 +2194,18 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
         connectedNonObserverRemotePresent = true;
         break;
     }
-    const bool firstPostRecoveryCrcPassed =
-        room.stabilizationCrcPassCount > 0u || !connectedNonObserverRemotePresent;
-
+    const bool hadStabilizationWindow = room.stabilizationFramesRemaining > 0u;
     if(room.stabilizationFramesRemaining > 0u && observedFrame > room.stabilizationAnchorFrame) {
         const FrameNumber advancedFrames = observedFrame - room.stabilizationAnchorFrame;
         const uint32_t consume = std::min<uint32_t>(room.stabilizationFramesRemaining, advancedFrames);
         room.stabilizationFramesRemaining -= consume;
         room.stabilizationAnchorFrame = observedFrame;
     }
+
+    const bool firstPostRecoveryCrcPassed =
+        room.stabilizationCrcPassCount > 0u ||
+        !connectedNonObserverRemotePresent ||
+        (hadStabilizationWindow && !localPeerHasPlayableAssignment);
 
     if(room.stabilizationFramesRemaining == 0u &&
        confirmedCheckpointReached &&
@@ -5979,7 +5986,6 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
                m_hosting &&
                !isLocalParticipant &&
                (participant.inputSuspended || participant.inputResumeAwaitingResync) &&
-               !participant.sequenceRebasePending &&
                m_session.roomState().recoveryInputMode == RecoveryInputMode::Normal) {
                 ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
                 if(mutableParticipant != nullptr &&
