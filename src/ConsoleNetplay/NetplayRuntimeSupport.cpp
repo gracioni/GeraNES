@@ -328,6 +328,13 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     const uint32_t payloadCrc32 = crc32(statePayload.data(), statePayload.size());
     uint32_t stateCrc32 =
         runtimeComputeAuthoritativeStateCrc32(emu, runtimeHost, authoritativeFrame, preferConfirmedSnapshot);
+    if(targetParticipantId != kInvalidParticipantId && !preferConfirmedSnapshot) {
+        // Targeted reconnect/late-join resyncs do not reload the host locally.
+        // The peer validates after a clean payload load, so the host's live
+        // canonical CRC is not a reliable ACK expectation for current-frame
+        // targeted transfers.
+        stateCrc32 = 0;
+    }
     RuntimeAuthoritativeStateResult localStateResult;
     if(targetParticipantId == kInvalidParticipantId) {
         localStateResult = runtimeApplyAuthoritativeStateLocally(
@@ -1096,7 +1103,7 @@ RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
         *previousState == SessionState::Resyncing &&
         currentState != SessionState::Resyncing;
     if(enteringResync || leavingResync) {
-        controls.restartAudio();
+        controls.discardQueuedAudio();
     }
     if(enteringResync) {
         const FrameNumber discardAfterFrame =
@@ -1205,7 +1212,36 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshotData =
         runtimeHost.netplaySnapshotForFrame(*rollbackFrame);
     if(!snapshotData.has_value()) {
-        coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
+        state.lastMissingRollbackSnapshotFrame = *rollbackFrame;
+        state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
+        if(coordinator.isHosting() &&
+           coordinator.session().roomState().state == SessionState::Running &&
+           coordinator.session().roomState().recoveryInputMode == RecoveryInputMode::Normal) {
+            coordinator.appendNetplayLog(
+                "Netplay rollback snapshot unavailable; starting authoritative recovery resync"
+            );
+            const std::vector<uint8_t> statePayload =
+                runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, currentFrame, false);
+            const RuntimeAuthoritativeStateResult stateResult =
+                runtimeBeginAuthoritativeResync(
+                    coordinator,
+                    inputDriver,
+                    emu,
+                    runtimeHost,
+                    currentFrame,
+                    statePayload,
+                    false,
+                    ResyncReason::ConfirmedDesync
+                );
+            if(stateResult.started) {
+                result.startedAuthoritativeResync = true;
+                result.requestedResync = true;
+                result.reanchorFrame = stateResult.reanchorFrame;
+                state.lastRecoveryReanchorFrame = stateResult.reanchorFrame;
+            }
+        } else {
+            coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
+        }
         return result;
     }
 

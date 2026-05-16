@@ -1348,6 +1348,60 @@ TEST_CASE("Netplay ignores resolved prediction rollback pressure during post-res
     host.disconnect();
 }
 
+TEST_CASE("Netplay host missing rollback snapshot starts authoritative recovery resync",
+          "[netplay][rollback][resync][host][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 1, "Host"));
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 100u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    host.setLocalSimulationFrame(100u);
+    host.rescheduleRollbackFrame(99u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    FakeNetplayConsole console;
+    console.frameValue = 100u;
+    FakeNetplayStateBridge stateBridge;
+    stateBridge.frameValue = 100u;
+    stateBridge.canonicalCrc32Value = 0x11223344u;
+    stateBridge.savedStateData = {0x10u, 0x20u, 0x30u};
+    FakeNetplayStateHostBridge hostBridge;
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeRollbackProcessSettings settings;
+
+    const ConsoleNetplay::RuntimeRollbackProcessResult result =
+        ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+            host,
+            inputDriver,
+            console,
+            stateBridge,
+            hostBridge,
+            rollbackState,
+            settings
+        );
+
+    REQUIRE(result.consumed);
+    REQUIRE(result.startedAuthoritativeResync);
+    REQUIRE(result.requestedResync);
+    REQUIRE(result.reanchorFrame == 100u);
+    REQUIRE(rollbackState.lastMissingRollbackSnapshotFrame == 99u);
+    REQUIRE(rollbackState.lastMissingRollbackSnapshotLocalFrame == 100u);
+    REQUIRE(hostBridge.lastFrameReadyFrameValue == 100u);
+    REQUIRE(anyLogLineContains(
+        host.eventLog(),
+        "Netplay rollback snapshot unavailable; starting authoritative recovery resync"
+    ));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Netplay rollback failed: snapshot unavailable"));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay input ack tracking honors sparse slot ids",
           "[netplay][ack][sparse][unit]")
 {

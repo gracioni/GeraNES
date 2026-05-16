@@ -1645,17 +1645,20 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             participant->lastReceivedInputSequence = std::max(participant->lastReceivedInputSequence, input.sequence);
             participant->sequenceRebasePending = false;
 
-            std::ostringstream oss;
-            oss << "Ignored late input for already committed frame from " << participant->displayName
-                << " frame " << input.frame
-                << " expectedFrame " << expectedFrame
-                << " seq " << input.sequence;
-            if(committedMismatch) {
-                oss << " classification=late_committed_input_mismatch";
-            } else {
-                oss << " classification=late_committed_input_duplicate";
+            if(committedMismatch ||
+               m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
+                std::ostringstream oss;
+                oss << "Ignored late input for already committed frame from " << participant->displayName
+                    << " frame " << input.frame
+                    << " expectedFrame " << expectedFrame
+                    << " seq " << input.sequence;
+                if(committedMismatch) {
+                    oss << " classification=late_committed_input_mismatch";
+                } else {
+                    oss << " classification=late_committed_input_duplicate";
+                }
+                pushLog(oss.str());
             }
-            pushLog(oss.str());
             return true;
         }
 
@@ -3003,6 +3006,9 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
 {
     m_localInputs.eraseFramesAfter(frame);
     m_remoteInputs.eraseFramesAfter(frame);
+    if(m_pendingRollbackFrame.has_value() && *m_pendingRollbackFrame >= frame) {
+        m_pendingRollbackFrame.reset();
+    }
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
         m_confirmedFrameIndex.erase(m_confirmedFrames.back().frame);
@@ -5690,6 +5696,9 @@ void NetplayCoordinator::discardTimelineAfter(FrameNumber frame, bool preserveLo
 {
     if(!preserveLocalInputs) {
         m_localInputs.eraseFramesAfter(frame);
+    }
+    if(m_pendingRollbackFrame.has_value() && *m_pendingRollbackFrame >= frame) {
+        m_pendingRollbackFrame.reset();
     }
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
