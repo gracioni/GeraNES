@@ -5564,6 +5564,195 @@ TEST_CASE("Observer visibility resync is targeted and host does not stall when o
     host.disconnect();
 }
 
+TEST_CASE("Host ignores client confirmed-desync requests during post-resync stabilization",
+          "[netplay][resync-request][stabilization][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
+    hostRoom.timelineEpoch = 7u;
+    clientRoom.timelineEpoch = 7u;
+    hostRoom.currentFrame = 240u;
+    clientRoom.currentFrame = 238u;
+    hostRoom.lastConfirmedFrame = 240u;
+    clientRoom.lastConfirmedFrame = 240u;
+    hostRoom.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
+    hostRoom.recoveryModeEnteredAtFrame = 240u;
+    hostRoom.stabilizationAnchorFrame = 240u;
+    hostRoom.stabilizationFramesRemaining = 8u;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(240u);
+    client.setLocalSimulationFrame(238u);
+
+    ConsoleNetplay::ResyncRequestData request;
+    request.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
+    request.localFrame = 238u;
+    request.confirmedThroughFrame = 240u;
+    request.source = 2u;
+    request.flags = ConsoleNetplay::kResyncRequestFlagRollbackReplayBuildFailure;
+    REQUIRE(client.requestHostResync(request));
+
+    for(int step = 0; step < 120; ++step) {
+        client.update(0);
+        host.update(0);
+        REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+        if(anyLogLineContains(host.eventLog(), "during recovery")) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored client confirmed-desync resync request during recovery"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
+TEST_CASE("Host ignores stale-epoch client confirmed-desync requests after recovery",
+          "[netplay][resync-request][epoch][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    ConsoleNetplay::NetplayCoordinator client;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.host(port, 1, "Host"));
+    REQUIRE(client.join("127.0.0.1", port, "Client"));
+
+    bool connected = false;
+    for(int step = 0; step < 400 && !connected; ++step) {
+        host.update(0);
+        client.update(0);
+
+        connected =
+            host.isConnected() &&
+            client.isConnected() &&
+            host.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId &&
+            host.session().roomState().participants.size() >= 2;
+        if(!connected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    REQUIRE(connected);
+
+    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
+    hostRoom.state = ConsoleNetplay::SessionState::Running;
+    clientRoom.state = ConsoleNetplay::SessionState::Running;
+    hostRoom.timelineEpoch = 8u;
+    clientRoom.timelineEpoch = 7u;
+    hostRoom.currentFrame = 260u;
+    clientRoom.currentFrame = 250u;
+    hostRoom.lastConfirmedFrame = 260u;
+    clientRoom.lastConfirmedFrame = 250u;
+
+    for(auto& participant : hostRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == host.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    for(auto& participant : clientRoom.participants) {
+        participant.connected = true;
+        participant.romLoaded = true;
+        participant.romCompatible = true;
+        if(participant.id == client.localParticipantId()) {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+        } else {
+            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
+            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+        }
+        participant.normalizeControllerAssignments();
+    }
+
+    host.setLocalSimulationFrame(260u);
+    client.setLocalSimulationFrame(250u);
+
+    ConsoleNetplay::ResyncRequestData request;
+    request.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
+    request.localFrame = 250u;
+    request.confirmedThroughFrame = 250u;
+    request.source = 2u;
+    REQUIRE(client.requestHostResync(request));
+
+    for(int step = 0; step < 120; ++step) {
+        client.update(0);
+        host.update(0);
+        REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+        if(anyLogLineContains(host.eventLog(), "Ignored stale resync request")) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored stale resync request"));
+
+    host.disconnect();
+    client.disconnect();
+}
+
 TEST_CASE("Targeted observer resync times out without stalling host forever",
           "[netplay][resync-request][observer][timeout][unit]")
 {

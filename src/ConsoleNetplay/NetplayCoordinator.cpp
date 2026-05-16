@@ -33,6 +33,7 @@ constexpr uint32_t kDisconnectReasonKicked = 1u;
 constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
+constexpr uint32_t kPostRecoveryClientDesyncRequestGraceFrames = 60;
 constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
@@ -494,6 +495,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastBroadcastInputDelayFrames = 0;
     m_desyncMonitor.reset();
     m_localSimulationFrame = 0;
+    m_confirmedDesyncRequestSuppressedUntilFrame = 0;
     m_nextResyncId = 1;
     m_incomingResync.reset();
     m_pendingResyncApply.reset();
@@ -2136,6 +2138,11 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         if(previousMode == RecoveryInputMode::PostResyncStabilizing) {
             m_remoteInputStallMonitor.reset();
             m_desyncMonitor.reset();
+            m_confirmedDesyncRequestSuppressedUntilFrame =
+                std::max<FrameNumber>(
+                    m_confirmedDesyncRequestSuppressedUntilFrame,
+                    frameContext + kPostRecoveryClientDesyncRequestGraceFrames
+                );
         }
     }
 
@@ -2292,6 +2299,18 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
     if(m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) return;
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
     if(participant.inputSuspended || participant.inputResumeAwaitingResync) return;
+    if(m_confirmedDesyncRequestSuppressedUntilFrame != 0u &&
+       m_localSimulationFrame <= m_confirmedDesyncRequestSuppressedUntilFrame) {
+        if(m_debugMode) {
+            std::ostringstream oss;
+            oss << "Ignored peer-health stall recovery during post-recovery grace for "
+                << participantDebugLabel(participant)
+                << " frame " << m_localSimulationFrame
+                << " suppressUntil " << m_confirmedDesyncRequestSuppressedUntilFrame;
+            pushLog(oss.str());
+        }
+        return;
+    }
     const auto update = m_remoteInputStallMonitor.onPeerHealth(participant.id, participant.peerHealthSerial);
     if(!update.shouldScheduleResync) return;
 
@@ -3775,6 +3794,51 @@ bool NetplayCoordinator::handleResyncRequest(NetTransport::PeerHandle peer, Pack
     }
 
     if(m_session.roomState().activeResyncId != 0 || m_activeTargetedResyncId != 0) {
+        return true;
+    }
+
+    if(data.timelineEpoch != 0u && data.timelineEpoch != m_session.roomState().timelineEpoch) {
+        if(data.timelineEpoch < m_session.roomState().timelineEpoch) {
+            std::ostringstream oss;
+            oss << "Ignored stale resync request from " << participant->displayName
+                << " reason " << resyncReasonLabel(data.reason)
+                << " epoch " << data.timelineEpoch
+                << " currentEpoch " << m_session.roomState().timelineEpoch;
+            pushLog(oss.str());
+            return true;
+        }
+        std::ostringstream oss;
+        oss << "Ignored future-epoch resync request from " << participant->displayName
+            << " reason " << resyncReasonLabel(data.reason)
+            << " epoch " << data.timelineEpoch
+            << " currentEpoch " << m_session.roomState().timelineEpoch;
+        pushLog(oss.str());
+        return true;
+    }
+
+    if(data.reason == ResyncReason::ConfirmedDesync &&
+       m_session.roomState().recoveryInputMode != RecoveryInputMode::Normal) {
+        std::ostringstream oss;
+        oss << "Ignored client confirmed-desync resync request during recovery"
+            << " from " << participant->displayName
+            << " mode " << recoveryInputModeLabel(m_session.roomState().recoveryInputMode)
+            << " localFrame " << data.localFrame
+            << " confirmedThrough " << data.confirmedThroughFrame;
+        pushLog(oss.str());
+        return true;
+    }
+
+    if(data.reason == ResyncReason::ConfirmedDesync &&
+       m_confirmedDesyncRequestSuppressedUntilFrame != 0u &&
+       m_localSimulationFrame <= m_confirmedDesyncRequestSuppressedUntilFrame) {
+        std::ostringstream oss;
+        oss << "Ignored client confirmed-desync resync request during post-recovery grace"
+            << " from " << participant->displayName
+            << " frame " << m_localSimulationFrame
+            << " suppressUntil " << m_confirmedDesyncRequestSuppressedUntilFrame
+            << " localFrame " << data.localFrame
+            << " confirmedThrough " << data.confirmedThroughFrame;
+        pushLog(oss.str());
         return true;
     }
 
@@ -6616,6 +6680,7 @@ bool NetplayCoordinator::requestHostResync(const ResyncRequestData& requestData)
 
     ResyncRequestData request = requestData;
     request.participantId = m_localParticipantId;
+    request.timelineEpoch = m_session.roomState().timelineEpoch;
     const auto now = std::chrono::steady_clock::now();
     if(m_lastHostResyncRequestSentAt.time_since_epoch().count() != 0 &&
        now - m_lastHostResyncRequestSentAt < kClientResyncRequestCooldown &&

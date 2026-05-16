@@ -547,19 +547,27 @@ void ResyncRequestData::serialize(PacketWriter& writer) const
     writer.writePod(catchupBudgetFrames);
     writer.writePod(source);
     writer.writePod(flags);
+    writer.writePod(timelineEpoch);
 }
 
 bool ResyncRequestData::deserialize(PacketReader& reader, ResyncRequestData& data)
 {
-    return reader.readPod(data.participantId) &&
-           reader.readPod(data.reason) &&
-           reader.readPod(data.localFrame) &&
-           reader.readPod(data.estimatedHostFrame) &&
-           reader.readPod(data.confirmedThroughFrame) &&
-           reader.readPod(data.lagFrames) &&
-           reader.readPod(data.catchupBudgetFrames) &&
-           reader.readPod(data.source) &&
-           reader.readPod(data.flags);
+    if(!(reader.readPod(data.participantId) &&
+         reader.readPod(data.reason) &&
+         reader.readPod(data.localFrame) &&
+         reader.readPod(data.estimatedHostFrame) &&
+         reader.readPod(data.confirmedThroughFrame) &&
+         reader.readPod(data.lagFrames) &&
+         reader.readPod(data.catchupBudgetFrames) &&
+         reader.readPod(data.source) &&
+         reader.readPod(data.flags))) {
+        return false;
+    }
+    if(reader.remaining() >= sizeof(data.timelineEpoch)) {
+        return reader.readPod(data.timelineEpoch);
+    }
+    data.timelineEpoch = 0;
+    return true;
 }
 
 } // namespace ConsoleNetplay

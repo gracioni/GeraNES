@@ -163,6 +163,7 @@ private:
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     DesyncMonitor m_desyncMonitor;
     FrameNumber m_localSimulationFrame = 0;
+    FrameNumber m_confirmedDesyncRequestSuppressedUntilFrame = 0;
     uint32_t m_nextResyncId = 1;
     uint32_t m_activeResyncExpectedStateCrc32 = 0;
     std::optional<IncomingResyncTransfer> m_incomingResync;

@@ -397,6 +397,7 @@ struct ResyncAbortData
 
 struct ResyncRequestData
 {
+    uint32_t timelineEpoch = 0;
     ParticipantId participantId = kInvalidParticipantId;
     ResyncReason reason = ResyncReason::Unspecified;
     FrameNumber localFrame = 0;
