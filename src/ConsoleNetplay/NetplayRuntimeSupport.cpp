@@ -1216,9 +1216,6 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
         if(state.lastRecoveryReanchorFrame != 0u &&
            *rollbackFrame <= state.lastRecoveryReanchorFrame) {
-            coordinator.appendNetplayLog(
-                "Ignored stale rollback request before recovery reanchor frame"
-            );
             return result;
         }
         if(coordinator.isHosting() &&

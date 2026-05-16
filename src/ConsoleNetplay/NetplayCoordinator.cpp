@@ -453,6 +453,7 @@ void NetplayCoordinator::resetSessionState()
     m_lastBroadcastInputDelayFrames = 0;
     m_desyncMonitor.reset();
     m_localSimulationFrame = 0;
+    m_lastAuthoritativeRealignFrame = 0;
     m_nextResyncId = 1;
     m_incomingResync.reset();
     m_pendingResyncApply.reset();
@@ -2488,6 +2489,14 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
         return;
     }
 
+    if(m_lastAuthoritativeRealignFrame != 0u) {
+        const FrameNumber earliestRollbackFrame = inputFrame > 0 ? (inputFrame - 1u) : 0u;
+        if(earliestRollbackFrame <= m_lastAuthoritativeRealignFrame) {
+            recordParticipantDecision("Prediction resolution ignored before recovery reanchor");
+            return;
+        }
+    }
+
     if(inputFrame <= confirmedFrame) {
         m_predictionStats.recordConfirmedFrameConflict(inputFrame, slot);
         if(participant != nullptr) {
@@ -2869,6 +2878,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     m_predictionStats.lastDecisionFrame = loadedFrame;
     m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
     m_desyncMonitor.reset();
+    m_lastAuthoritativeRealignFrame = loadedFrame;
     m_session.roomState().currentFrame = loadedFrame;
     m_session.roomState().lastConfirmedFrame = loadedFrame;
     m_session.roomState().lastRemoteCrcFrame = 0;
@@ -2996,6 +3006,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_lastBroadcastConfirmedFrame = 0;
     m_localInputSequence = 0;
     m_localSimulationFrame = 0;
+    m_lastAuthoritativeRealignFrame = 0;
     m_authoritativeFrameStartClockMicros.clear();
     m_authoritativeFrameStartClockOrder.clear();
     m_predictionStats.lastDecision.clear();

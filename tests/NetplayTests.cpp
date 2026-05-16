@@ -1443,14 +1443,84 @@ TEST_CASE("Netplay stale rollback before recovery reanchor does not start resync
     REQUIRE_FALSE(result.startedAuthoritativeResync);
     REQUIRE_FALSE(result.requestedResync);
     REQUIRE(host.session().roomState().state == ConsoleNetplay::SessionState::Running);
-    REQUIRE(anyLogLineContains(
-        host.eventLog(),
-        "Ignored stale rollback request before recovery reanchor frame"
-    ));
     REQUIRE_FALSE(anyLogLineContains(
         host.eventLog(),
         "Netplay rollback snapshot unavailable; starting authoritative recovery resync"
     ));
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay ignores prediction correction that would roll back before recovery reanchor",
+          "[netplay][prediction][resync][host][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 1, "Host"));
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 100u;
+    host.setLocalSimulationFrame(100u);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 100u;
+    remote.lastContiguousInputFrame = 100u;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    const std::vector<uint8_t> payload = {0x01u, 0x02u, 0x03u};
+    REQUIRE(host.beginResync(100u, payload, 0x11111111u, 0x22222222u, ConsoleNetplay::ResyncReason::ConfirmedDesync));
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    room.currentFrame = 102u;
+    host.setLocalSimulationFrame(102u);
+
+    ConsoleNetplay::TimelineInputEntry predicted;
+    predicted.frame = 101u;
+    predicted.participantId = remote.id;
+    predicted.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
+    predicted.buttonMaskLo = 0u;
+    predicted.netplayFrame = GeraNESNetplay::toNetplayInputFrame(
+        GeraNESNetplay::makeRoomTopologyBaseFrame(101u, room)
+    );
+    predicted.sequence = 0u;
+    predicted.predicted = true;
+    predicted.confirmed = false;
+    const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(predicted);
+
+    InputFrame correctedContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(101u, room);
+    correctedContribution.p1A = true;
+    ConsoleNetplay::InputFrameData correctedInput{};
+    correctedInput.timelineEpoch = room.timelineEpoch;
+    correctedInput.frame = 101u;
+    correctedInput.participantId = remote.id;
+    correctedInput.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
+    correctedInput.sequence = 1u;
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, correctedInput, correctedContribution));
+
+    REQUIRE_FALSE(host.consumePendingRollbackFrame().has_value());
+    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->lastDecision == "Prediction resolution ignored before recovery reanchor");
 
     host.disconnect();
 }
@@ -3860,6 +3930,7 @@ TEST_CASE("WebRTC reconnect failure shows room missing toast", "[netplay][reconn
     client.setTransportOptions(options);
     client.setReconnectReservationDurationForTests(2);
 
+    GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
     UserLogCapture userLog;
     Logger::instance().signalLog.bind(&UserLogCapture::onLog, &userLog);
 
@@ -7635,6 +7706,21 @@ TEST_CASE("Netplay runtime host reset stays deterministic with asymmetric peer p
     const auto report = GeraNESTestSupport::loadJson(options.reportPath);
     REQUIRE(report.at("status") == "ok");
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    const uint32_t hostResetReanchorFrame =
+        report.at("host").at("lastRecoveryReanchorFrame").get<uint32_t>();
+    REQUIRE(hostResetReanchorFrame > 0u);
+    REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
+    bool clientInputAdvancedAfterReset = false;
+    for(const auto& participant : report.at("host").at("participants")) {
+        if(participant.at("name") == "Client") {
+            clientInputAdvancedAfterReset =
+                participant.at("lastContiguousInputFrame").get<uint32_t>() > hostResetReanchorFrame;
+            break;
+        }
+    }
+    REQUIRE(clientInputAdvancedAfterReset);
 }
 
 TEST_CASE("Netplay runtime stays deterministic under extreme jitter and asymmetric pacing", "[netplay][runtime][jitter][asymmetric-pacing]")
