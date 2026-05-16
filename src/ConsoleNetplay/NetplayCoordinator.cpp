@@ -2123,6 +2123,7 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         room.stabilizationFramesRemaining = stabilizationFrames;
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
+        room.stabilizationCrcMismatchCount = 0;
         room.stabilizationRetryIssued = false;
     } else if(mode == RecoveryInputMode::ResyncLocked) {
         m_pendingRollbackFrame.reset();
@@ -2130,6 +2131,7 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         room.stabilizationFramesRemaining = 0;
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
+        room.stabilizationCrcMismatchCount = 0;
         room.stabilizationRetryIssued = false;
         if(previousMode == RecoveryInputMode::PostResyncStabilizing) {
             m_remoteInputStallMonitor.reset();
@@ -2194,7 +2196,6 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
         connectedNonObserverRemotePresent = true;
         break;
     }
-    const bool hadStabilizationWindow = room.stabilizationFramesRemaining > 0u;
     if(room.stabilizationFramesRemaining > 0u && observedFrame > room.stabilizationAnchorFrame) {
         const FrameNumber advancedFrames = observedFrame - room.stabilizationAnchorFrame;
         const uint32_t consume = std::min<uint32_t>(room.stabilizationFramesRemaining, advancedFrames);
@@ -2205,7 +2206,7 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
     const bool firstPostRecoveryCrcPassed =
         room.stabilizationCrcPassCount > 0u ||
         !connectedNonObserverRemotePresent ||
-        (hadStabilizationWindow && !localPeerHasPlayableAssignment);
+        (!localPeerHasPlayableAssignment && room.stabilizationCrcMismatchCount == 0u);
 
     if(room.stabilizationFramesRemaining == 0u &&
        confirmedCheckpointReached &&
@@ -2726,6 +2727,7 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
     if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
        update.frame >= m_session.roomState().recoveryModeEnteredAtFrame) {
+        ++m_session.roomState().stabilizationCrcMismatchCount;
         std::ostringstream oss;
         oss << "CRC mismatch observed during post-resync stabilization on frame " << update.frame;
         if(source != nullptr && *source != '\0') {

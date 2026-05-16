@@ -112,6 +112,7 @@ struct RoomState
     FrameNumber recoveryModeEnteredAtFrame = 0;
     uint32_t stabilizationFramesRemaining = 0;
     uint32_t stabilizationCrcPassCount = 0;
+    uint32_t stabilizationCrcMismatchCount = 0;
     FrameNumber stabilizationAnchorFrame = 0;
     bool stabilizationRetryIssued = false;
     uint32_t stabilizationRetryCount = 0;

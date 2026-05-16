@@ -5083,6 +5083,77 @@ TEST_CASE("Netplay observer host does not synthesize assigned client input after
     host.disconnect();
 }
 
+TEST_CASE("Netplay observer host playback buffer waits for assigned client input",
+          "[netplay][prediction-limit][assignment][host-observer][buffer][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.host(reserveLoopbackPort(), 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 180u;
+    room.lastConfirmedFrame = 180u;
+
+    ConsoleNetplay::ParticipantInfo* local = const_cast<ConsoleNetplay::ParticipantInfo*>(
+        host.session().findParticipant(host.localParticipantId()));
+    REQUIRE(local != nullptr);
+    local->role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    local->controllerAssignments.clear();
+    local->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Web Client";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    remote.lastReceivedInputFrame = 180u;
+    remote.lastContiguousInputFrame = 180u;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(180u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    inputDriver.setPrebufferFrames(2u);
+    inputDriver.setPredictFrames(8u);
+    inputDriver.reanchor(180u);
+    inputDriver.produceLocalBufferedInputs(
+        host,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        std::vector<ConsoleNetplay::PlayerSlot>{},
+        0u,
+        uint64_t{0},
+        60u,
+        180u,
+        inputDriver.confirmedThroughFrame(host)
+    );
+    inputDriver.preparePlaybackFramesForEmulationThread(
+        host,
+        true,
+        false,
+        ConsoleNetplay::SessionState::Running,
+        180u
+    );
+
+    REQUIRE(inputDriver.pendingFrameCount() == 0u);
+    REQUIRE(host.remoteInputs().find(181u, remote.id, GeraNESNetplay::kPort1PlayerSlot) == nullptr);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host prediction-limit fallback synthesizes for reconnecting participant awaiting resync",
           "[netplay][reconnect][prediction-limit][unit]")
 {
@@ -5796,8 +5867,8 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
         ConsoleNetplay::SessionState::Running,
         112
     );
-    REQUIRE(observerHostPlaybackDriver.queuedThroughFrame() > 114u);
-    REQUIRE(host.remoteInputs().find(115u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+    REQUIRE(observerHostPlaybackDriver.queuedThroughFrame() == 112u);
+    REQUIRE(host.remoteInputs().find(115u, hostRemote->id, GeraNESNetplay::kPort2PlayerSlot) == nullptr);
 
     hostLocal->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
     hostLocal->normalizeControllerAssignments();
@@ -6842,7 +6913,7 @@ TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay observer host stabilization can complete without local playable CRC",
+TEST_CASE("Netplay observer host stabilization waits after mismatch until matching CRC",
           "[netplay][crc][stabilization][host-observer][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
@@ -6890,10 +6961,29 @@ TEST_CASE("Netplay observer host stabilization can complete without local playab
     remote.normalizeControllerAssignments(&room.inputTopology);
     room.participants.push_back(remote);
 
+    coordinator.submitLocalCrc(241u, 0x11111111u);
+    ConsoleNetplay::CrcReportData mismatchReport;
+    mismatchReport.timelineEpoch = room.timelineEpoch;
+    mismatchReport.frame = 241u;
+    mismatchReport.crc32 = 0x22222222u;
+    REQUIRE(coordinator.injectCrcReportForTests(mismatchReport));
+
     coordinator.setLocalSimulationFrame(241u);
 
-    REQUIRE(room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::Normal);
+    REQUIRE(room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing);
     REQUIRE(room.stabilizationCrcPassCount == 0u);
+    REQUIRE(room.stabilizationCrcMismatchCount == 1u);
+
+    coordinator.submitLocalCrc(242u, 0x33333333u);
+    ConsoleNetplay::CrcReportData matchingReport;
+    matchingReport.timelineEpoch = room.timelineEpoch;
+    matchingReport.frame = 242u;
+    matchingReport.crc32 = 0x33333333u;
+    REQUIRE(coordinator.injectCrcReportForTests(matchingReport));
+
+    coordinator.setLocalSimulationFrame(242u);
+
+    REQUIRE(room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::Normal);
 
     coordinator.disconnect();
 }
