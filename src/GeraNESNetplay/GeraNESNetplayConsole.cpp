@@ -192,6 +192,10 @@ bool GeraNESNetplayConsole::queuePlaybackInputFrame(const NetplayCoordinator::Co
 {
     const InputFrame* existingFrame =
         m_emu.inputBuffer().findByFrame(confirmed.netplayFrame.frame, m_emu.inputTimelineEpoch());
+    if(existingFrame != nullptr && !existingFrame->speculative) {
+        return true;
+    }
+
     if(existingFrame != nullptr && existingFrame->speculative && confirmed.predicted) {
         return true;
     }

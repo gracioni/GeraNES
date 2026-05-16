@@ -31,15 +31,8 @@ std::optional<DesyncMonitor::HistoryEntry> DesyncMonitor::findLocalHistoryEntry(
 
 void DesyncMonitor::invalidateHistoryAfter(FrameNumber frame)
 {
-    while(!m_localHistory.empty() && m_localHistory.back().frame >= frame) {
+    while(!m_localHistory.empty() && m_localHistory.back().frame > frame) {
         m_localHistory.pop_back();
-    }
-    while(!m_remoteHistory.empty() && m_remoteHistory.back().frame >= frame) {
-        m_remoteHistory.pop_back();
-    }
-    if(m_lastMismatchFrame >= frame) {
-        m_lastMismatchFrame = 0;
-        m_consecutiveMismatchCount = 0;
     }
 }
 

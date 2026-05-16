@@ -918,9 +918,9 @@ private:
                 switch(queuedChannel) {
                     case Channel::Control:
                         return 0;
-                    case Channel::Gameplay:
-                        return 1;
                     case Channel::Diagnostics:
+                        return 1;
+                    case Channel::Gameplay:
                     default:
                         return 2;
                 }
@@ -943,7 +943,7 @@ private:
                 hasQueuedHigherPriorityTraffic = true;
                 break;
             }
-            if(pending.channel == Channel::Gameplay && channel == Channel::Diagnostics) {
+            if(pending.channel == Channel::Diagnostics && channel == Channel::Gameplay) {
                 hasQueuedHigherPriorityTraffic = true;
                 break;
             }

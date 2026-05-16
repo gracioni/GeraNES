@@ -796,6 +796,13 @@ NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame)
     return frame;
 }
 
+NetplayInputFrame repeatedNetplayInputFrameFrom(const NetplayInputFrame& previous, FrameNumber targetFrame)
+{
+    InputFrame native = toGeraNESInputFrame(previous);
+    native = InputFrame::repeatedFrom(native, targetFrame);
+    return toNetplayInputFrame(native);
+}
+
 InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
 {
     InputFrame fallbackTopologyFrame{};

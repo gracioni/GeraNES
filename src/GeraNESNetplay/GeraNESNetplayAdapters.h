@@ -56,6 +56,8 @@ void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
                                  PlayerSlot preservedAssignment = kObserverPlayerSlot);
 
 NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame);
+NetplayInputFrame repeatedNetplayInputFrameFrom(const NetplayInputFrame& previous,
+                                                FrameNumber targetFrame);
 
 InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame);
 InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame, const InputFrame& fallbackTopologyFrame);

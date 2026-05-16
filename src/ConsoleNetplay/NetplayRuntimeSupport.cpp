@@ -23,12 +23,8 @@ std::string runtimeContentHashKey(const RomValidationData& validation)
 
 std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordinator& coordinator)
 {
-    if(!coordinator.isActive() || coordinator.isHosting()) {
-        return std::nullopt;
-    }
-
-    const RoomState& room = coordinator.session().roomState();
-    return std::max(room.currentFrame, room.lastConfirmedFrame);
+    (void)coordinator;
+    return std::nullopt;
 }
 
 } // namespace
@@ -316,25 +312,8 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     if(statePayload.empty()) return result;
 
     const uint32_t payloadCrc32 = crc32(statePayload.data(), statePayload.size());
-    uint32_t stateCrc32 =
+    const uint32_t stateCrc32 =
         runtimeComputeAuthoritativeStateCrc32(emu, runtimeHost, authoritativeFrame, preferConfirmedSnapshot);
-    RuntimeAuthoritativeStateResult localStateResult;
-    if(targetParticipantId == kInvalidParticipantId) {
-        localStateResult = runtimeApplyAuthoritativeStateLocally(
-            coordinator,
-            inputDriver,
-            emu,
-            runtimeHost,
-            authoritativeFrame,
-            statePayload
-        );
-        if(!localStateResult.localStateApplied) {
-            return result;
-        }
-        stateCrc32 = localStateResult.stateCrc32;
-    } else if(!preferConfirmedSnapshot) {
-        stateCrc32 = 0;
-    }
     if(!coordinator.beginResync(
            authoritativeFrame,
            statePayload,
@@ -349,12 +328,22 @@ RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     result.started = true;
     result.stateCrc32 = stateCrc32;
     if(targetParticipantId == kInvalidParticipantId) {
-        runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
-        coordinator.setLocalSimulationFrame(authoritativeFrame);
-        inputDriver.reanchor(authoritativeFrame);
-        result = localStateResult;
+        const RuntimeAuthoritativeStateResult localStateResult =
+            runtimeApplyAuthoritativeStateLocally(
+                coordinator,
+                inputDriver,
+                emu,
+                runtimeHost,
+                authoritativeFrame,
+                statePayload
+            );
+        if(localStateResult.localStateApplied) {
+            result.localStateApplied = true;
+            result.loadedAuthoritativeFrame = localStateResult.loadedAuthoritativeFrame;
+            result.reanchorFrame = localStateResult.reanchorFrame;
+            result.stateCrc32 = localStateResult.stateCrc32;
+        }
         result.started = true;
-        result.stateCrc32 = stateCrc32;
     }
     return result;
 }
@@ -411,42 +400,41 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
 
     const FrameNumber confirmedFrame = coordinator.latestConfirmedFrame();
     const FrameNumber lastFrameReadyFrame = runtimeHost.lastFrameReadyFrame();
-    // CRC comparison is only meaningful once the local emulator has fully
-    // caught up to the currently confirmed frontier. When one peer has already
-    // confirmed future inputs but is still frame-ready on an older frame, the
-    // cached "frame-ready" CRC for that older frame can diverge transiently
-    // from a peer that is only confirmed through the older frame. Wait until
-    // confirmed and frame-ready have converged before submitting periodic CRCs.
-    const FrameNumber crcCheckpointFrame =
-        confirmedFrame != 0u && confirmedFrame == lastFrameReadyFrame
-            ? confirmedFrame
+    const FrameNumber safeConfirmedFrame =
+        confirmedFrame == 0u ? 0u : std::min(confirmedFrame, lastFrameReadyFrame);
+    const FrameNumber authoritativeCheckpointFrame =
+        (state.lastLoadedAuthoritativeFrame != 0u &&
+         lastFrameReadyFrame == state.lastLoadedAuthoritativeFrame)
+            ? state.lastLoadedAuthoritativeFrame
             : 0u;
+    const FrameNumber crcCheckpointFrame = std::max(safeConfirmedFrame, authoritativeCheckpointFrame);
     if(crcCheckpointFrame == 0) return result;
 
     const bool periodicDue = crcCheckpointFrame >= state.nextScheduledLocalCrcFrame;
     const bool postRecoveryRapidDue =
         crcCheckpointFrame > state.lastSubmittedLocalCrcFrame &&
-        crcCheckpointFrame <= state.postRecoveryRapidCrcThroughFrame;
+        crcCheckpointFrame <= std::max(state.postRecoveryRapidCrcThroughFrame, authoritativeCheckpointFrame);
     const bool forcedDue =
         state.forceNextConfirmedCrcSubmission &&
         crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
     if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return result;
 
-    // Periodic desync checks should compare the peers' current confirmed state,
-    // not a historical snapshot captured earlier in the session. Historical
-    // per-frame snapshot CRCs can transiently differ even when the two peers'
-    // live canonical states reconverge, which produces isolated false-positive
-    // mismatch reports. Only submit when the confirmed checkpoint is also the
-    // currently loaded frame-ready/live emulator frame.
     std::optional<uint32_t> crc32;
     const char* submittedSource = nullptr;
     CrcSubmissionSource submittedSourceKind = CrcSubmissionSource::Unknown;
-    if(crcCheckpointFrame == lastFrameReadyFrame &&
+    if(crcCheckpointFrame == authoritativeCheckpointFrame &&
        runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
         crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
         submittedSource = "local CRC submission (frame-ready)";
         submittedSourceKind = CrcSubmissionSource::FrameReady;
-    } else if(emu.frameCount() == crcCheckpointFrame) {
+    }
+    if(!crc32.has_value()) {
+        crc32 = runtimeHost.netplaySnapshotCrc32ForFrame(crcCheckpointFrame);
+        if(crc32.has_value()) {
+            submittedSource = "local CRC submission (snapshot)";
+        }
+    }
+    if(!crc32.has_value() && emu.frameCount() == crcCheckpointFrame) {
         crc32 = emu.canonicalNetplayStateCrc32();
         submittedSource = "local CRC submission (live-canonical)";
         submittedSourceKind = CrcSubmissionSource::LiveCanonical;
@@ -1144,6 +1132,8 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     RuntimeRollbackProcessState& state,
     const RuntimeRollbackProcessSettings& settings)
 {
+    (void)emu;
+
     RuntimeRollbackProcessResult result;
     std::optional<FrameNumber> rollbackFrame = coordinator.consumePendingRollbackFrame();
     if(!rollbackFrame.has_value()) return result;
@@ -1191,67 +1181,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const std::optional<std::shared_ptr<const std::vector<uint8_t>>> snapshotData =
         runtimeHost.netplaySnapshotForFrame(*rollbackFrame);
     if(!snapshotData.has_value()) {
-        const bool shouldLog =
-            state.lastMissingRollbackSnapshotFrame != *rollbackFrame ||
-            state.lastMissingRollbackSnapshotLocalFrame != currentFrame;
-        state.lastMissingRollbackSnapshotFrame = *rollbackFrame;
-        state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
-
-        if(coordinator.isHosting()) {
-            const std::vector<uint8_t> statePayload =
-                runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, currentFrame, false);
-            const RuntimeAuthoritativeStateResult stateResult =
-                runtimeBeginAuthoritativeResyncWithoutLocalReload(
-                    coordinator,
-                    inputDriver,
-                    emu,
-                    runtimeHost,
-                    currentFrame,
-                    statePayload,
-                    false,
-                    ResyncReason::ConfirmedDesync
-                );
-            if(stateResult.started) {
-                result.startedAuthoritativeResync = true;
-                if(stateResult.reanchorFrame != 0) {
-                    state.lastRecoveryReanchorFrame = stateResult.reanchorFrame;
-                    result.reanchorFrame = stateResult.reanchorFrame;
-                }
-                if(shouldLog) {
-                    coordinator.appendNetplayLog(
-                        "Netplay rollback snapshot unavailable; started authoritative resync at frame " +
-                        std::to_string(currentFrame) +
-                        " instead of rollback to frame " +
-                        std::to_string(*rollbackFrame)
-                    );
-                }
-            } else if(shouldLog) {
-                coordinator.appendNetplayLog(
-                    "Netplay rollback failed: snapshot unavailable for frame " +
-                    std::to_string(*rollbackFrame)
-                );
-            }
-            return result;
-        }
-
-        if(shouldLog) {
-            requestRollbackRecoveryResync(
-                "Netplay rollback failed: snapshot unavailable for frame " +
-                std::to_string(*rollbackFrame),
-                kResyncRequestFlagRollbackReplayBuildFailure
-            );
-        } else {
-            ResyncRequestData request;
-            request.reason = ResyncReason::ConfirmedDesync;
-            request.localFrame = console.frameCount();
-            request.estimatedHostFrame = 0;
-            request.confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-            request.lagFrames = 0;
-            request.catchupBudgetFrames = 0;
-            request.source = 2u;
-            request.flags = kResyncRequestFlagRollbackReplayBuildFailure;
-            result.requestedResync = coordinator.requestHostResync(request) || result.requestedResync;
-        }
+        coordinator.appendNetplayLog("Netplay rollback failed: snapshot unavailable");
         return result;
     }
 

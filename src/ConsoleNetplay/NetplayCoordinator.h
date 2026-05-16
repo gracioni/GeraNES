@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <list>
 #include <optional>
 #include <span>
@@ -131,6 +132,7 @@ private:
     NetSession m_session;
     InputTimeline m_localInputs;
     InputTimeline m_remoteInputs;
+    std::function<NetplayInputFrame(const NetplayInputFrame&, FrameNumber)> m_repeatedInputFrameTransformer;
     std::list<ConfirmedFrameInputs> m_confirmedFrames;
     std::unordered_map<FrameNumber, std::list<ConfirmedFrameInputs>::iterator> m_confirmedFrameIndex;
     std::vector<std::string> m_eventLog;
@@ -163,7 +165,6 @@ private:
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     DesyncMonitor m_desyncMonitor;
     FrameNumber m_localSimulationFrame = 0;
-    FrameNumber m_confirmedDesyncRequestSuppressedUntilFrame = 0;
     uint32_t m_nextResyncId = 1;
     uint32_t m_activeResyncExpectedStateCrc32 = 0;
     std::optional<IncomingResyncTransfer> m_incomingResync;
@@ -340,6 +341,7 @@ private:
                               const char* reason,
                               FrameNumber frameContext,
                               uint32_t stabilizationFrames = 0);
+    NetplayInputFrame repeatedInputFrameFrom(const NetplayInputFrame& previous, FrameNumber targetFrame) const;
     void noteDroppedGameplayInputDuringRecovery(const char* source,
                                                 FrameNumber frame,
                                                 ParticipantId participantId,
@@ -352,6 +354,8 @@ public:
     static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
     FrameNumber latestPredictedRemoteFrame() const;
+    void setRepeatedInputFrameTransformer(
+        std::function<NetplayInputFrame(const NetplayInputFrame&, FrameNumber)> transformer);
     using AssignmentRemapper = std::function<std::optional<PlayerSlot>(PlayerSlot)>;
     void setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                               std::optional<ParticipantId> preservedParticipantId = std::nullopt,

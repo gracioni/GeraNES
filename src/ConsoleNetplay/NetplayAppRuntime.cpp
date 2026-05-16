@@ -22,15 +22,6 @@ void applyRuntimeRecoveryResult(const Result& result,
     }
 }
 
-bool assignmentMutationCurrentlyBlocked(const NetplayCoordinator& coordinator)
-{
-    const RoomState& room = coordinator.session().roomState();
-    return room.state == SessionState::Resyncing ||
-           room.activeResyncId != 0 ||
-           room.pendingResyncAckCount != 0 ||
-           room.recoveryInputMode != RecoveryInputMode::Normal;
-}
-
 } // namespace
 
 void NetplayAppRuntime::FramePacingDiagnostics::record(uint32_t dtMs,
@@ -70,31 +61,6 @@ void NetplayAppRuntime::drainRuntimeCommands()
 
     for(auto& command : commands) {
         command(*this);
-    }
-}
-
-void NetplayAppRuntime::enqueuePendingAssignmentMutation(RuntimeCommand command)
-{
-    std::scoped_lock stateLock(m_stateMutex);
-    m_pendingAssignmentMutationCommands.emplace_back(std::move(command));
-}
-
-void NetplayAppRuntime::processPendingAssignmentMutations()
-{
-    while(!assignmentMutationCurrentlyBlocked(m_coordinator)) {
-        RuntimeCommand command;
-        {
-            std::scoped_lock stateLock(m_stateMutex);
-            if(m_pendingAssignmentMutationCommands.empty()) {
-                return;
-            }
-            command = std::move(m_pendingAssignmentMutationCommands.front());
-            m_pendingAssignmentMutationCommands.pop_front();
-        }
-
-        if(command) {
-            command(*this);
-        }
     }
 }
 
@@ -139,6 +105,13 @@ void NetplayAppRuntime::setRuntimeHostWakeCallback(std::function<void()> callbac
 {
     std::scoped_lock stateLock(m_stateMutex);
     m_runtimeHostWakeCallback = std::move(callback);
+}
+
+void NetplayAppRuntime::setRepeatedInputFrameTransformer(
+    std::function<NetplayInputFrame(const NetplayInputFrame&, FrameNumber)> transformer)
+{
+    std::scoped_lock stateLock(m_stateMutex);
+    m_coordinator.setRepeatedInputFrameTransformer(std::move(transformer));
 }
 
 NetplayAppRuntime::UiSnapshot NetplayAppRuntime::uiSnapshot() const
@@ -297,12 +270,6 @@ void NetplayAppRuntime::assignController(ParticipantId participantId, PlayerSlot
 {
     wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
-        if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
-            self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
-                runtime.m_coordinator.assignController(participantId, slot);
-            });
-            return;
-        }
         self.m_coordinator.assignController(participantId, slot);
     });
 }
@@ -311,12 +278,6 @@ void NetplayAppRuntime::addControllerAssignment(ParticipantId participantId, Pla
 {
     wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
-        if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
-            self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
-                runtime.m_coordinator.addControllerAssignment(participantId, slot);
-            });
-            return;
-        }
         self.m_coordinator.addControllerAssignment(participantId, slot);
     });
 }
@@ -325,12 +286,6 @@ void NetplayAppRuntime::removeControllerAssignment(ParticipantId participantId, 
 {
     wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
-        if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
-            self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
-                runtime.m_coordinator.removeControllerAssignment(participantId, slot);
-            });
-            return;
-        }
         self.m_coordinator.removeControllerAssignment(participantId, slot);
     });
 }
@@ -339,12 +294,6 @@ void NetplayAppRuntime::clearControllerAssignments(ParticipantId participantId)
 {
     wakeRuntimeHost();
     enqueueRuntimeCommand([=](NetplayAppRuntime& self) {
-        if(assignmentMutationCurrentlyBlocked(self.m_coordinator)) {
-            self.enqueuePendingAssignmentMutation([=](NetplayAppRuntime& runtime) {
-                runtime.m_coordinator.clearControllerAssignments(participantId);
-            });
-            return;
-        }
         self.m_coordinator.clearControllerAssignments(participantId);
     });
 }
@@ -453,7 +402,6 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
     m_latestLocalRom = localRom;
     drainRuntimeCommands();
     processPendingInputTopologyChanges(context.console, context.stateBridge, context.hostBridge);
-    processPendingAssignmentMutations();
 
     if(m_hasCachedReconnectToken) {
         m_coordinator.setLocalReconnectToken(m_cachedReconnectToken);
@@ -635,7 +583,7 @@ void NetplayAppRuntime::processPendingInputTopologyChanges(INetplayConsole& cons
                                                            INetplayStateBridge& stateBridge,
                                                            INetplayStateHostBridge& hostBridge)
 {
-    while(!assignmentMutationCurrentlyBlocked(m_coordinator)) {
+    while(true) {
         PendingInputTopologyChange change;
         {
             std::scoped_lock stateLock(m_stateMutex);
@@ -702,7 +650,6 @@ void NetplayAppRuntime::resetInactiveRuntimeState()
     m_sessionTransitionState.lastSessionState.reset();
     m_lastLocalAssignedSlots.clear();
     m_lastAssignmentLayoutKey.clear();
-    m_pendingAssignmentMutationCommands.clear();
     m_pendingManualStateResyncs.clear();
     m_periodicCrcState = RuntimePeriodicCrcState{};
     m_rollbackProcessState = RuntimeRollbackProcessState{};

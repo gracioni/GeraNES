@@ -4,6 +4,7 @@
 
 #include "ConsoleNetplay/NetplayLog.h"
 #include "ConsoleNetplay/NetplayRuntimeHostApply.h"
+#include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/GeraNESNetplayConsole.h"
 #include "logger/logger.h"
 
@@ -19,6 +20,7 @@ std::once_flag g_netplayLogInstallOnce;
 
 void attachRuntimeWakeToHost(NetplayAppRuntime& runtime, IEmulationHost& host)
 {
+    runtime.setRepeatedInputFrameTransformer(repeatedNetplayInputFrameFrom);
     runtime.setRuntimeHostWakeCallback([&host]() {
         host.setSimulationSuspended(false);
     });
