@@ -39,6 +39,7 @@ bool canAssignGeraNESInputCandidate(const RoomState& room,
                                     Settings::FamicomMultitapDevice famicomMultitapDevice,
                                     PlayerSlot slot);
 Settings::Device geraNESPortDeviceFromTopology(const RoomState& room, PlayerSlot slot);
+Settings::Device geraNESEffectivePortDeviceFromTopology(const RoomState& room, PlayerSlot slot);
 Settings::ExpansionDevice geraNESExpansionDeviceFromTopology(const RoomState& room);
 Settings::NesMultitapDevice geraNESNesMultitapDeviceFromTopology(const RoomState& room);
 Settings::FamicomMultitapDevice geraNESFamicomMultitapDeviceFromTopology(const RoomState& room);

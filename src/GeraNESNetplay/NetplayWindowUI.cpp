@@ -945,8 +945,8 @@ void drawNetplayWindow(bool& showWindow,
 
     const auto drawAssignmentTree = [&](const ParticipantInfo& participant) {
         const ParticipantId participantId = participant.id;
-        const auto currentPort1 = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
-        const auto currentPort2 = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+        const auto currentPort1 = geraNESEffectivePortDeviceFromTopology(room, kPort1PlayerSlot);
+        const auto currentPort2 = geraNESEffectivePortDeviceFromTopology(room, kPort2PlayerSlot);
         const auto currentExpansionDevice = geraNESExpansionDeviceFromTopology(room);
         const auto currentNesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
         const auto currentFamicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);

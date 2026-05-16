@@ -164,6 +164,9 @@ RoomState roomWithGeraNESInputTopology(RoomState room,
                                        Settings::FamicomMultitapDevice famicomMultitapDevice)
 {
     room.inputTopology = makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice);
+    for(ParticipantInfo& participant : room.participants) {
+        participant.normalizeControllerAssignments(&room.inputTopology);
+    }
     return room;
 }
 
@@ -268,6 +271,22 @@ Settings::Device geraNESPortDeviceFromTopology(const RoomState& room, PlayerSlot
         return Settings::Device::NONE;
     }
     return static_cast<Settings::Device>(static_cast<uint8_t>(descriptor->deviceId & 0x00FFu));
+}
+
+Settings::Device geraNESEffectivePortDeviceFromTopology(const RoomState& room, PlayerSlot slot)
+{
+    const Settings::Device portDevice = geraNESPortDeviceFromTopology(room, slot);
+    if(portDevice != Settings::Device::NONE) {
+        return portDevice;
+    }
+
+    const bool multitapActive =
+        findInputSlot(room.inputTopology, kMultitapP1PlayerSlot) != nullptr;
+    if(multitapActive && (slot == kPort1PlayerSlot || slot == kPort2PlayerSlot)) {
+        return Settings::Device::CONTROLLER;
+    }
+
+    return Settings::Device::NONE;
 }
 
 Settings::ExpansionDevice geraNESExpansionDeviceFromTopology(const RoomState& room)
@@ -851,8 +870,8 @@ InputFrame makeRoomTopologyBaseFrame(FrameNumber frame, const RoomState& room)
     InputFrame inputFrame{};
     inputFrame.frame = frame;
     inputFrame.timelineEpoch = room.timelineEpoch;
-    inputFrame.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
-    inputFrame.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    inputFrame.port1Device = geraNESEffectivePortDeviceFromTopology(room, kPort1PlayerSlot);
+    inputFrame.port2Device = geraNESEffectivePortDeviceFromTopology(room, kPort2PlayerSlot);
     inputFrame.expansionDevice = geraNESExpansionDeviceFromTopology(room);
     inputFrame.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
     inputFrame.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);

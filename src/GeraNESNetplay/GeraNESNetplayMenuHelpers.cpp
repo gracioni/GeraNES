@@ -21,8 +21,8 @@ MenuSnapshot menuSnapshot(const NetplayAppRuntime& runtime)
             break;
         }
     }
-    snapshot.port1Device = geraNESPortDeviceFromTopology(ui.room, kPort1PlayerSlot);
-    snapshot.port2Device = geraNESPortDeviceFromTopology(ui.room, kPort2PlayerSlot);
+    snapshot.port1Device = geraNESEffectivePortDeviceFromTopology(ui.room, kPort1PlayerSlot);
+    snapshot.port2Device = geraNESEffectivePortDeviceFromTopology(ui.room, kPort2PlayerSlot);
     snapshot.expansionDevice = geraNESExpansionDeviceFromTopology(ui.room);
     snapshot.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(ui.room);
     snapshot.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(ui.room);

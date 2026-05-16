@@ -97,8 +97,8 @@ bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulati
 
 void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 {
-    m_emu.setPortDevice(Settings::Port::P_1, geraNESPortDeviceFromTopology(room, kPort1PlayerSlot));
-    m_emu.setPortDevice(Settings::Port::P_2, geraNESPortDeviceFromTopology(room, kPort2PlayerSlot));
+    m_emu.setPortDevice(Settings::Port::P_1, geraNESEffectivePortDeviceFromTopology(room, kPort1PlayerSlot));
+    m_emu.setPortDevice(Settings::Port::P_2, geraNESEffectivePortDeviceFromTopology(room, kPort2PlayerSlot));
     m_emu.setExpansionDevice(geraNESExpansionDeviceFromTopology(room));
     m_emu.setNesMultitapDevice(geraNESNesMultitapDeviceFromTopology(room));
     m_emu.setFamicomMultitapDevice(geraNESFamicomMultitapDeviceFromTopology(room));
@@ -107,8 +107,8 @@ void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 void GeraNESNetplayConsole::publishCurrentInputTopology(NetplayCoordinator& coordinator)
 {
     const RoomState room = coordinator.session().roomState();
-    const Settings::Device roomPort1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
-    const Settings::Device roomPort2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    const Settings::Device roomPort1Device = geraNESEffectivePortDeviceFromTopology(room, kPort1PlayerSlot);
+    const Settings::Device roomPort2Device = geraNESEffectivePortDeviceFromTopology(room, kPort2PlayerSlot);
     const Settings::ExpansionDevice roomExpansionDevice = geraNESExpansionDeviceFromTopology(room);
     const Settings::NesMultitapDevice roomNesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
     const Settings::FamicomMultitapDevice roomFamicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
