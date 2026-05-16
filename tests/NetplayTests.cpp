@@ -980,6 +980,8 @@ TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked
     room.lastConfirmedFrame = 300u;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     room.recoveryModeEnteredAtFrame = 300u;
+    room.stabilizationAnchorFrame = 300u;
+    room.stabilizationFramesRemaining = 8u;
 
     ConsoleNetplay::ParticipantInfo remote;
     remote.id = 99u;
@@ -1025,6 +1027,8 @@ TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked
     debugRoom.lastConfirmedFrame = 300u;
     debugRoom.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing;
     debugRoom.recoveryModeEnteredAtFrame = 300u;
+    debugRoom.stabilizationAnchorFrame = 300u;
+    debugRoom.stabilizationFramesRemaining = 8u;
 
     ConsoleNetplay::ParticipantInfo debugRemote;
     debugRemote.id = 99u;
@@ -3426,6 +3430,82 @@ TEST_CASE("Netplay host accepts confirmed-frontier local input rebase after assi
 
     REQUIRE(host.localInputs().find(1928u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
     REQUIRE(hostLocal->lastLocalInputRejectReason == 0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay host waits for first assigned remote input before prediction",
+          "[netplay][assignment][prediction][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.host(reserveLoopbackPort(), 1, "Host"));
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.sessionId = 1;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 3339u;
+    room.lastConfirmedFrame = 3339u;
+    room.selectedGameName = "AssignRemotePredictionGate";
+
+    ConsoleNetplay::ParticipantInfo* hostLocal = const_cast<ConsoleNetplay::ParticipantInfo*>(
+        host.session().findParticipant(host.localParticipantId()));
+    REQUIRE(hostLocal != nullptr);
+    hostLocal->connected = true;
+    hostLocal->romLoaded = true;
+    hostLocal->romCompatible = true;
+    hostLocal->role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    hostLocal->controllerAssignments.clear();
+    hostLocal->controllerAssignment = ConsoleNetplay::kObserverPlayerSlot;
+    hostLocal->normalizeControllerAssignments(&room.inputTopology);
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Android Web";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::Observer;
+    remote.controllerAssignments.clear();
+    room.participants.push_back(remote);
+
+    host.setLocalSimulationFrame(3339u);
+    REQUIRE(host.addControllerAssignment(1u, GeraNESNetplay::kPort1PlayerSlot));
+
+    ConsoleNetplay::ParticipantInfo* assignedRemote = const_cast<ConsoleNetplay::ParticipantInfo*>(
+        host.session().findParticipant(1u));
+    REQUIRE(assignedRemote != nullptr);
+    REQUIRE(assignedRemote->sequenceRebasePending);
+
+    ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame{};
+    REQUIRE_FALSE(host.tryBuildPlaybackFrame(3340u, true, playbackFrame));
+    REQUIRE(host.remoteInputs().find(3340u, 1u, GeraNESNetplay::kPort1PlayerSlot) == nullptr);
+
+    ConsoleNetplay::InputFrameData firstInput{};
+    firstInput.timelineEpoch = room.timelineEpoch;
+    firstInput.frame = 3340u;
+    firstInput.participantId = 1u;
+    firstInput.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
+    firstInput.sequence = 17u;
+    firstInput.buttonMaskLo = 0u;
+    firstInput.buttonMaskHi = 0u;
+    InputFrame firstContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(3340u, room);
+    REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, firstInput, firstContribution));
+    REQUIRE_FALSE(assignedRemote->sequenceRebasePending);
+
+    REQUIRE(host.tryBuildPlaybackFrame(3341u, true, playbackFrame));
+    const ConsoleNetplay::TimelineInputEntry* predicted =
+        host.remoteInputs().find(3341u, 1u, GeraNESNetplay::kPort1PlayerSlot);
+    REQUIRE(predicted != nullptr);
+    REQUIRE(predicted->predicted);
 
     host.disconnect();
 }

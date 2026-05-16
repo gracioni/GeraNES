@@ -1753,6 +1753,7 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     }
 
     const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
+    bool keepHostAuthoritativePrediction = false;
     if(existing != nullptr && existing->predicted) {
         // Validate prediction using only this assignment's contribution.
         // Full InputFrame equality can differ on unrelated metadata/fields and
@@ -1761,7 +1762,28 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             existing->buttonMaskLo == input.buttonMaskLo &&
             existing->buttonMaskHi == input.buttonMaskHi;
         const FrameNumber currentFrame = m_localSimulationFrame;
-        if(input.frame <= currentFrame) {
+        keepHostAuthoritativePrediction =
+            m_hosting &&
+            !predictionHit &&
+            m_confirmedDesyncRequestSuppressedUntilFrame != 0u &&
+            input.frame <= currentFrame &&
+            currentFrame <= m_confirmedDesyncRequestSuppressedUntilFrame;
+        if(keepHostAuthoritativePrediction) {
+            m_predictionStats.recordPrediction(false);
+            if(participant != nullptr) {
+                participant->lastDecision = "Prediction mismatch accepted as host-authoritative during recovery grace";
+                participant->lastDecisionFrame = input.frame;
+                participant->lastDecisionSlot = input.playerSlot;
+            }
+            std::ostringstream oss;
+            oss << "Accepted late mismatching input as host-authoritative prediction during post-recovery grace"
+                << " from " << (participant != nullptr ? participant->displayName : std::to_string(input.participantId))
+                << " frame " << input.frame
+                << " slot " << static_cast<unsigned>(input.playerSlot) + 1u
+                << " suppressUntil " << m_confirmedDesyncRequestSuppressedUntilFrame
+                << " action=drop_late_input_without_rollback";
+            pushLog(oss.str());
+        } else if(input.frame <= currentFrame) {
             m_predictionStats.recordPrediction(predictionHit);
             handleResolvedPredictedInput(input.participantId, input.frame, input.playerSlot, predictionHit);
         } else if(participant != nullptr) {
@@ -1773,13 +1795,18 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
     }
 
     TimelineInputEntry entry;
-    entry.frame = input.frame;
-    entry.participantId = input.participantId;
-    entry.playerSlot = input.playerSlot;
-    entry.buttonMaskLo = input.buttonMaskLo;
-    entry.buttonMaskHi = input.buttonMaskHi;
-    entry.netplayFrame = std::move(netplayFrame);
-    entry.sequence = input.sequence;
+    if(keepHostAuthoritativePrediction && existing != nullptr) {
+        entry = *existing;
+        entry.sequence = input.sequence;
+    } else {
+        entry.frame = input.frame;
+        entry.participantId = input.participantId;
+        entry.playerSlot = input.playerSlot;
+        entry.buttonMaskLo = input.buttonMaskLo;
+        entry.buttonMaskHi = input.buttonMaskHi;
+        entry.netplayFrame = std::move(netplayFrame);
+        entry.sequence = input.sequence;
+    }
     entry.confirmed = true;
     entry.predicted = false;
     destinationTimeline->push(entry);
@@ -4378,6 +4405,9 @@ bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantI
     if(participant != nullptr && (participant->inputSuspended || participant->inputResumeAwaitingResync)) {
         return false;
     }
+    if(participant != nullptr && participant->sequenceRebasePending) {
+        return false;
+    }
 
     const TimelineInputEntry* lastKnown = m_remoteInputs.latestConfirmedFor(participantId, slot);
     if(lastKnown == nullptr) return false;
@@ -6783,6 +6813,7 @@ bool NetplayCoordinator::addControllerAssignment(ParticipantId participantId, Pl
     participant->lastReceivedInputFrame = assignmentBaselineFrame;
     participant->lastContiguousInputFrame = assignmentBaselineFrame;
     participant->lastReceivedInputSequence = 0;
+    participant->sequenceRebasePending = participantId != m_localParticipantId;
     participant->pendingMissingInputFrom.reset();
     if(participantId == m_localParticipantId) {
         m_localInputSequence = 0;
