@@ -2749,6 +2749,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
 
             TimelineInputEntry entry = *it;
             entry.frame = loadedFrame;
+            entry.netplayFrame.frame = loadedFrame;
+            entry.netplayFrame.timelineEpoch = m_session.roomState().timelineEpoch;
+            entry.netplayFrame.speculative = false;
             entry.predicted = false;
             entry.confirmed = true;
             if(resetInputSequences) {
@@ -2758,6 +2761,24 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
             return true;
         }
         return false;
+    };
+
+    const auto makeNeutralBaselineFrame = [&](const InputTimeline& timeline,
+                                              ParticipantId participantId,
+                                              PlayerSlot slot) {
+        for(auto it = timeline.entries().rbegin(); it != timeline.entries().rend(); ++it) {
+            if(it->participantId != participantId || it->playerSlot != slot) continue;
+
+            NetplayInputFrame frame = it->netplayFrame;
+            frame.frame = loadedFrame;
+            frame.timelineEpoch = m_session.roomState().timelineEpoch;
+            frame.speculative = false;
+            frame.buttonMaskLo = {};
+            frame.buttonMaskHi = {};
+            frame.slotPayloads = {};
+            return frame;
+        }
+        return makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
     };
 
     if(preserveConfirmedInputs) {
@@ -2776,7 +2797,8 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                         entry.playerSlot = slot;
                         entry.buttonMaskLo = 0;
                         entry.buttonMaskHi = 0;
-                        entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
+                        entry.netplayFrame =
+                            makeNeutralBaselineFrame(m_localInputs, participant.id, slot);
                         entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
                         entry.predicted = false;
                         entry.confirmed = true;
@@ -2793,7 +2815,8 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                         entry.playerSlot = slot;
                         entry.buttonMaskLo = 0;
                         entry.buttonMaskHi = 0;
-                        entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
+                        entry.netplayFrame =
+                            makeNeutralBaselineFrame(m_remoteInputs, participant.id, slot);
                         entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
                         entry.predicted = false;
                         entry.confirmed = true;
@@ -2813,7 +2836,12 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                 entry.playerSlot = slot;
                 entry.buttonMaskLo = 0;
                 entry.buttonMaskHi = 0;
-                entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
+                entry.netplayFrame =
+                    makeNeutralBaselineFrame(
+                        participant.id == m_localParticipantId ? m_localInputs : m_remoteInputs,
+                        participant.id,
+                        slot
+                    );
                 entry.sequence = resetInputSequences ? inputSequenceBase : 0u;
                 entry.predicted = false;
                 entry.confirmed = true;

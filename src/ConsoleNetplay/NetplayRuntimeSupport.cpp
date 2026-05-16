@@ -1214,6 +1214,13 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     if(!snapshotData.has_value()) {
         state.lastMissingRollbackSnapshotFrame = *rollbackFrame;
         state.lastMissingRollbackSnapshotLocalFrame = currentFrame;
+        if(state.lastRecoveryReanchorFrame != 0u &&
+           *rollbackFrame <= state.lastRecoveryReanchorFrame) {
+            coordinator.appendNetplayLog(
+                "Ignored stale rollback request before recovery reanchor frame"
+            );
+            return result;
+        }
         if(coordinator.isHosting() &&
            coordinator.session().roomState().state == SessionState::Running &&
            coordinator.session().roomState().recoveryInputMode == RecoveryInputMode::Normal) {

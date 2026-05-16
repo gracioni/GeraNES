@@ -930,12 +930,19 @@ void drawNetplayWindow(bool& showWindow,
             runtime.requestForceResync();
         }
         ImGui::EndDisabled();
+        if(room.state == SessionState::Resyncing) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImGuiTheme::accentActive(),
+                               "Resyncing to frame %u. Waiting for %u ACK(s).",
+                               room.resyncTargetFrame,
+                               room.pendingResyncAckCount);
+        }
         if(!snapshot.sessionBlockedReason.empty()) {
             ImGui::TextColored(ImGuiTheme::accentActive(), "%s", snapshot.sessionBlockedReason.c_str());
         }
     }
 
-    if(room.state == SessionState::Resyncing) {
+    if(room.state == SessionState::Resyncing && !snapshot.hosting) {
         ImGui::Separator();
         ImGui::TextColored(ImGuiTheme::accentActive(),
                            "Resyncing to frame %u. Waiting for %u ACK(s).",

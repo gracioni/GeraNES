@@ -1402,6 +1402,59 @@ TEST_CASE("Netplay host missing rollback snapshot starts authoritative recovery 
     host.disconnect();
 }
 
+TEST_CASE("Netplay stale rollback before recovery reanchor does not start resync",
+          "[netplay][rollback][resync][host][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 1, "Host"));
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 100u;
+    room.lastConfirmedFrame = 100u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    host.setLocalSimulationFrame(100u);
+    host.rescheduleRollbackFrame(99u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    FakeNetplayConsole console;
+    console.frameValue = 100u;
+    FakeNetplayStateBridge stateBridge;
+    stateBridge.frameValue = 100u;
+    FakeNetplayStateHostBridge hostBridge;
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    rollbackState.lastRecoveryReanchorFrame = 100u;
+    ConsoleNetplay::RuntimeRollbackProcessSettings settings;
+
+    const ConsoleNetplay::RuntimeRollbackProcessResult result =
+        ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+            host,
+            inputDriver,
+            console,
+            stateBridge,
+            hostBridge,
+            rollbackState,
+            settings
+        );
+
+    REQUIRE(result.consumed);
+    REQUIRE_FALSE(result.startedAuthoritativeResync);
+    REQUIRE_FALSE(result.requestedResync);
+    REQUIRE(host.session().roomState().state == ConsoleNetplay::SessionState::Running);
+    REQUIRE(anyLogLineContains(
+        host.eventLog(),
+        "Ignored stale rollback request before recovery reanchor frame"
+    ));
+    REQUIRE_FALSE(anyLogLineContains(
+        host.eventLog(),
+        "Netplay rollback snapshot unavailable; starting authoritative recovery resync"
+    ));
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay input ack tracking honors sparse slot ids",
           "[netplay][ack][sparse][unit]")
 {
