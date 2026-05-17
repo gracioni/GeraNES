@@ -1271,18 +1271,23 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, console.regionFps()));
+    const std::vector<PlayerSlot> localSlots = runtimeLocalAssignedSlots(coordinator);
     while(console.frameCount() < currentFrame) {
         const FrameNumber nextFrame = console.frameCount() + 1u;
+        for(PlayerSlot localSlot : localSlots) {
+            coordinator.recordLocalInputFrame(
+                nextFrame,
+                localSlot,
+                console.buildLocalInputContribution(localSlot, nextFrame, coordinator.session().roomState())
+            );
+        }
+
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
         const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
         const bool allowPrediction =
             nextFrame > confirmedThroughFrame &&
             nextFrame <= currentFrame &&
-            runtimeShouldAllowPredictionForFrame(
-                coordinator,
-                inputDriver,
-                confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.prebufferFrames()) + 1u
-            );
+            runtimeShouldAllowPredictionForFrame(coordinator, inputDriver, nextFrame);
         const FrameNumber predictionCapFrame =
             confirmedThroughFrame +
             static_cast<FrameNumber>(inputDriver.prebufferFrames()) +

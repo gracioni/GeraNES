@@ -10,6 +10,7 @@
 #include <chrono>
 #include <deque>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <thread>
 
@@ -111,6 +112,31 @@ std::vector<std::string> sanitizeAdvertisedIceServers(const std::vector<std::str
 }
 
 #if !defined(__EMSCRIPTEN__)
+std::mutex g_enetLifecycleMutex;
+uint32_t g_enetLifecycleRefs = 0;
+
+bool acquireENetLifecycle()
+{
+    std::scoped_lock lock(g_enetLifecycleMutex);
+    if(g_enetLifecycleRefs == 0 && enet_initialize() != 0) {
+        return false;
+    }
+    ++g_enetLifecycleRefs;
+    return true;
+}
+
+void releaseENetLifecycle()
+{
+    std::scoped_lock lock(g_enetLifecycleMutex);
+    if(g_enetLifecycleRefs == 0) {
+        return;
+    }
+    --g_enetLifecycleRefs;
+    if(g_enetLifecycleRefs == 0) {
+        enet_deinitialize();
+    }
+}
+
 class ENetTransport final : public INetTransport
 {
 private:
@@ -138,7 +164,7 @@ public:
     bool initialize() override
     {
         if(m_initialized) return true;
-        if(enet_initialize() != 0) {
+        if(!acquireENetLifecycle()) {
             m_lastError = "ENet initialization failed";
             return false;
         }
@@ -155,7 +181,7 @@ public:
         }
 
         if(m_initialized) {
-            enet_deinitialize();
+            releaseENetLifecycle();
             m_initialized = false;
         }
     }
@@ -1879,6 +1905,7 @@ public:
                     connection->close();
                 }
             }
+            flushWebRtcPeerConnectionCleanup();
             if(resources.signalingServer) {
                 resources.signalingServer->stop();
             }

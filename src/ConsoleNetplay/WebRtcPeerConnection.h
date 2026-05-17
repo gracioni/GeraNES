@@ -69,5 +69,6 @@ public:
 };
 
 std::unique_ptr<IWebRtcPeerConnection> createWebRtcPeerConnection();
+void flushWebRtcPeerConnectionCleanup();
 
 } // namespace ConsoleNetplay

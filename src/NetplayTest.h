@@ -2469,6 +2469,17 @@ private:
                !assignmentSwapTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.assignmentSwapAfterFrames &&
                clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.assignmentSwapAfterFrames) {
+                const auto hostReadyForSwap = hostPeer.runtime.uiSnapshot();
+                const auto clientReadyForSwap = clientPeer.runtime.uiSnapshot();
+                if(hostReadyForSwap.room.state != ConsoleNetplay::SessionState::Running ||
+                   clientReadyForSwap.room.state != ConsoleNetplay::SessionState::Running ||
+                   hostReadyForSwap.room.activeResyncId != 0 ||
+                   clientReadyForSwap.room.activeResyncId != 0 ||
+                   hostReadyForSwap.room.recoveryInputMode != ConsoleNetplay::RecoveryInputMode::Normal ||
+                   clientReadyForSwap.room.recoveryInputMode != ConsoleNetplay::RecoveryInputMode::Normal) {
+                    continue;
+                }
+
                 hostPeer.runtime.assignController(*hostId, 1);
                 hostPeer.runtime.assignController(*clientId, 0);
                 assignmentSwapTriggered = true;

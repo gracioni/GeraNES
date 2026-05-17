@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -41,6 +42,16 @@ public:
             m_tasks.push_back(std::move(task));
         }
         m_condition.notify_one();
+    }
+
+    void flush()
+    {
+        auto marker = std::make_shared<std::promise<void>>();
+        auto done = marker->get_future();
+        enqueue([marker]() {
+            marker->set_value();
+        });
+        done.wait();
     }
 
 private:
@@ -1601,6 +1612,13 @@ std::unique_ptr<IWebRtcPeerConnection> createWebRtcPeerConnection()
     return std::make_unique<DesktopWebRtcPeerConnection>();
 #else
     return std::make_unique<WebEmscriptenWebRtcPeerConnection>();
+#endif
+}
+
+void flushWebRtcPeerConnectionCleanup()
+{
+#if !defined(__EMSCRIPTEN__)
+    RtcCleanupQueue::instance().flush();
 #endif
 }
 
