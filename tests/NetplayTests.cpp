@@ -1100,8 +1100,14 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     REQUIRE_FALSE(update.shouldResync);
 
     update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
+    REQUIRE_FALSE(update.shouldResync);
+
+    snapshot.playbackStopCount = 1u;
+    snapshot.predictionLimitStopCount = 1u;
+    update = detector.update(snapshot, start + std::chrono::milliseconds(2300));
     REQUIRE(update.shouldResync);
     REQUIRE(update.detail.find("self_progress_stall") != std::string::npos);
+    REQUIRE(update.detail.find("predictionLimitStopsDelta=1") != std::string::npos);
 
     update = detector.update(snapshot, start + std::chrono::milliseconds(3000));
     REQUIRE_FALSE(update.shouldResync);
@@ -1113,6 +1119,8 @@ TEST_CASE("Netplay host stall detector triggers once after stalled progress and 
     update = detector.update(snapshot, start + std::chrono::milliseconds(5600));
     REQUIRE_FALSE(update.shouldResync);
 
+    snapshot.playbackStopCount = 2u;
+    snapshot.predictionLimitStopCount = 2u;
     update = detector.update(snapshot, start + std::chrono::milliseconds(8201));
     REQUIRE(update.shouldResync);
 }
@@ -1140,6 +1148,11 @@ TEST_CASE("Netplay self stall detector triggers on client freeze even if remote 
     snapshot.maxRemoteReportedCurrentFrame = 330u;
     snapshot.maxRemoteReportedConfirmedFrame = 325u;
     update = detector.update(snapshot, start + std::chrono::milliseconds(2200));
+    REQUIRE_FALSE(update.shouldResync);
+
+    snapshot.playbackStopCount = 1u;
+    snapshot.predictionLimitStopCount = 1u;
+    update = detector.update(snapshot, start + std::chrono::milliseconds(2300));
     REQUIRE(update.shouldResync);
 }
 

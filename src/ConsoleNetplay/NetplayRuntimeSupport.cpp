@@ -1829,6 +1829,7 @@ SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinat
     snapshot.localSimulationFrame = localSimulationFrame;
     snapshot.confirmedFrame = room.lastConfirmedFrame;
     snapshot.playbackStopCount = coordinator.predictionStats().playbackStopCount;
+    snapshot.predictionLimitStopCount = coordinator.predictionStats().stopDueToPredictionLimitCount;
     snapshot.rollbackScheduledCount = coordinator.predictionStats().rollbackScheduledCount;
 
     for(const ParticipantInfo& participant : room.participants) {

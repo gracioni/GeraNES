@@ -42,7 +42,8 @@ SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapsh
     const auto stalledFor =
         std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastProgressAt);
     const uint32_t churn = churnSince(*m_progressBaseline, current);
-    if(stalledFor < kStallTimeout && churn < kChurnThreshold) {
+    if(!hasPredictionLimitPressure(*m_progressBaseline, current) ||
+       (stalledFor < kStallTimeout && churn < kChurnThreshold)) {
         return result;
     }
 
@@ -55,6 +56,8 @@ SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapsh
         << " remoteConfirmed=" << current.maxRemoteReportedConfirmedFrame
         << " playbackStopsDelta="
         << (current.playbackStopCount - m_progressBaseline->playbackStopCount)
+        << " predictionLimitStopsDelta="
+        << (current.predictionLimitStopCount - m_progressBaseline->predictionLimitStopCount)
         << " rollbackScheduledDelta="
         << (current.rollbackScheduledCount - m_progressBaseline->rollbackScheduledCount)
         << " connectedRemotes=" << snapshot.connectedRemoteParticipantCount;
@@ -86,6 +89,7 @@ SelfStallDetector::ProgressSample SelfStallDetector::makeSample(const Snapshot& 
         snapshot.maxRemoteReportedCurrentFrame,
         snapshot.maxRemoteReportedConfirmedFrame,
         snapshot.playbackStopCount,
+        snapshot.predictionLimitStopCount,
         snapshot.rollbackScheduledCount
     };
 }
@@ -94,6 +98,11 @@ bool SelfStallDetector::hasForwardProgress(const ProgressSample& baseline, const
 {
     return current.localSimulationFrame > baseline.localSimulationFrame ||
            current.confirmedFrame > baseline.confirmedFrame;
+}
+
+bool SelfStallDetector::hasPredictionLimitPressure(const ProgressSample& baseline, const ProgressSample& current)
+{
+    return current.predictionLimitStopCount > baseline.predictionLimitStopCount;
 }
 
 uint32_t SelfStallDetector::churnSince(const ProgressSample& baseline, const ProgressSample& current)

@@ -34,6 +34,7 @@ public:
         FrameNumber maxRemoteReportedCurrentFrame = 0;
         FrameNumber maxRemoteReportedConfirmedFrame = 0;
         uint32_t playbackStopCount = 0;
+        uint32_t predictionLimitStopCount = 0;
         uint32_t rollbackScheduledCount = 0;
     };
 
@@ -55,6 +56,7 @@ private:
         FrameNumber maxRemoteReportedCurrentFrame = 0;
         FrameNumber maxRemoteReportedConfirmedFrame = 0;
         uint32_t playbackStopCount = 0;
+        uint32_t predictionLimitStopCount = 0;
         uint32_t rollbackScheduledCount = 0;
     };
 
@@ -69,6 +71,7 @@ private:
     static bool isEligible(const Snapshot& snapshot);
     static ProgressSample makeSample(const Snapshot& snapshot);
     static bool hasForwardProgress(const ProgressSample& baseline, const ProgressSample& current);
+    static bool hasPredictionLimitPressure(const ProgressSample& baseline, const ProgressSample& current);
     static uint32_t churnSince(const ProgressSample& baseline, const ProgressSample& current);
 };
 
