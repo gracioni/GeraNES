@@ -93,6 +93,7 @@ public:
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
         bool hostAssignedBeforeJoinOnly = false;
+        bool hostAssignedPort2BeforeJoinOnly = false;
         bool hostAssignedAfterJoinOnly = false;
         bool assignLateJoinClientAfterJoin = false;
         bool assignLateJoinClientToMultitapAfterJoin = false;
@@ -835,6 +836,7 @@ private:
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
             {"reconnectReservationSecondsForTests", options.reconnectReservationSecondsForTests},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
+            {"hostAssignedPort2BeforeJoinOnly", options.hostAssignedPort2BeforeJoinOnly},
             {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
             {"assignLateJoinClientToMultitapAfterJoin", options.assignLateJoinClientToMultitapAfterJoin},
             {"lastCheckedFrame", lastCheckedFrame},
@@ -1543,6 +1545,7 @@ private:
             {"clientRuntimePauseDurationFrames", options.clientRuntimePauseDurationFrames},
             {"expectReconnectReservationExpiry", options.expectReconnectReservationExpiry},
             {"requireHostManualLoadDuringResync", options.requireHostManualLoadDuringResync},
+            {"hostAssignedPort2BeforeJoinOnly", options.hostAssignedPort2BeforeJoinOnly},
             {"assignLateJoinClientAfterJoin", options.assignLateJoinClientAfterJoin},
             {"assignLateJoinClientToMultitapAfterJoin", options.assignLateJoinClientToMultitapAfterJoin},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
@@ -1774,7 +1777,7 @@ private:
                 if(options.reconnectReservationSecondsForTests > 0u) {
                     hostPeer.runtime.setReconnectReservationTimeoutForTests(options.reconnectReservationSecondsForTests);
                 }
-                if(options.hostAssignedBeforeJoinOnly) {
+                if(options.hostAssignedBeforeJoinOnly || options.hostAssignedPort2BeforeJoinOnly) {
                     const auto hostRoomBeforeJoin = hostPeer.runtime.uiSnapshot().room;
                     const auto hostIdBeforeJoin = findParticipantIdByName(hostRoomBeforeJoin, hostPeer.name);
                     if(!hostIdBeforeJoin.has_value()) {
@@ -1784,7 +1787,11 @@ private:
                         cleanup();
                         return result;
                     }
-                    hostPeer.runtime.assignController(*hostIdBeforeJoin, 0);
+                    const ConsoleNetplay::PlayerSlot hostPreJoinSlot =
+                        options.hostAssignedPort2BeforeJoinOnly
+                            ? GeraNESNetplay::kPort2PlayerSlot
+                            : GeraNESNetplay::kPort1PlayerSlot;
+                    hostPeer.runtime.assignController(*hostIdBeforeJoin, hostPreJoinSlot);
                     if(!waitFor([&]() {
                             const auto hostSnap = hostPeer.runtime.uiSnapshot();
                             return hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
@@ -1809,7 +1816,7 @@ private:
                                 std::max<uint32_t>(1u, hostPeer.emu.getRegionFPS())
                             );
                             hostPeer.updateLatestInputState(
-                                buildRuntimeInputStateForSlot(GeraNESNetplay::kPort1PlayerSlot, hostButtons)
+                                buildRuntimeInputStateForSlot(hostPreJoinSlot, hostButtons)
                             );
                             hostPeer.emu.update(16u);
                             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
@@ -1819,7 +1826,7 @@ private:
                                        hostPeer.generator,
                                        newHostFrame + 1u,
                                        newHostFrame + 8u,
-                                       GeraNESNetplay::kPort1PlayerSlot,
+                                       hostPreJoinSlot,
                                        options
                                    );
                         }, options.startupTimeoutSteps, 1u)) {
@@ -1924,7 +1931,7 @@ private:
             return result;
         }
 
-        if(!options.hostAssignedBeforeJoinOnly) {
+        if(!options.hostAssignedBeforeJoinOnly && !options.hostAssignedPort2BeforeJoinOnly) {
             const uint32_t observerOnlyHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t observerOnlyClientFrame = clientPeer.emu.exactEmulationFrame();
             if(!waitFor([&]() {
@@ -1952,7 +1959,9 @@ private:
             return result;
         }
 
-        if(options.hostAssignedBeforeJoinOnly || options.hostMultitapAssignedBeforeJoinOnly) {
+        if(options.hostAssignedBeforeJoinOnly ||
+           options.hostAssignedPort2BeforeJoinOnly ||
+           options.hostMultitapAssignedBeforeJoinOnly) {
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
                     const auto clientSnap = clientPeer.runtime.uiSnapshot();
@@ -1964,7 +1973,9 @@ private:
                     const ConsoleNetplay::PlayerSlot expectedHostAssignment =
                         options.hostMultitapAssignedBeforeJoinOnly
                             ? GeraNESNetplay::kMultitapP1PlayerSlot
-                            : GeraNESNetplay::kPort1PlayerSlot;
+                            : (options.hostAssignedPort2BeforeJoinOnly
+                                   ? GeraNESNetplay::kPort2PlayerSlot
+                                   : GeraNESNetplay::kPort1PlayerSlot);
                     const Settings::NesMultitapDevice expectedNesMultitap =
                         options.hostMultitapAssignedBeforeJoinOnly
                             ? Settings::NesMultitapDevice::FOUR_SCORE
@@ -2000,7 +2011,12 @@ private:
                         {GeraNESNetplay::kMultitapP2PlayerSlot}
                     );
                 } else {
-                    hostPeer.runtime.assignController(*clientId, GeraNESNetplay::kPort2PlayerSlot);
+                    hostPeer.runtime.assignController(
+                        *clientId,
+                        options.hostAssignedPort2BeforeJoinOnly
+                            ? GeraNESNetplay::kPort1PlayerSlot
+                            : GeraNESNetplay::kPort2PlayerSlot
+                    );
                 }
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -2017,15 +2033,21 @@ private:
                                hostParticipant->controllerAssignment ==
                                    (options.assignLateJoinClientToMultitapAfterJoin
                                         ? GeraNESNetplay::kMultitapP1PlayerSlot
-                                        : GeraNESNetplay::kPort1PlayerSlot) &&
+                                        : (options.hostAssignedPort2BeforeJoinOnly
+                                               ? GeraNESNetplay::kPort2PlayerSlot
+                                               : GeraNESNetplay::kPort1PlayerSlot)) &&
                                clientParticipantHostView->controllerAssignment ==
                                    (options.assignLateJoinClientToMultitapAfterJoin
                                         ? GeraNESNetplay::kMultitapP2PlayerSlot
-                                        : GeraNESNetplay::kPort2PlayerSlot) &&
+                                        : (options.hostAssignedPort2BeforeJoinOnly
+                                               ? GeraNESNetplay::kPort1PlayerSlot
+                                               : GeraNESNetplay::kPort2PlayerSlot)) &&
                                clientLocalParticipant->controllerAssignment ==
                                    (options.assignLateJoinClientToMultitapAfterJoin
                                         ? GeraNESNetplay::kMultitapP2PlayerSlot
-                                        : GeraNESNetplay::kPort2PlayerSlot) &&
+                                        : (options.hostAssignedPort2BeforeJoinOnly
+                                               ? GeraNESNetplay::kPort1PlayerSlot
+                                               : GeraNESNetplay::kPort2PlayerSlot)) &&
                                hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                hostSnap.room.activeResyncId == 0 &&
@@ -2415,6 +2437,7 @@ private:
                 clientPeer.updateLatestInputState(
                     clientRuntimePaused ||
                             (options.hostAssignedBeforeJoinOnly &&
+                             !options.hostAssignedPort2BeforeJoinOnly &&
                              !options.assignLateJoinClientAfterJoin &&
                              !options.assignLateJoinClientToMultitapAfterJoin) ||
                             !clientLocalSlot.has_value()

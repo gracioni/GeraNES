@@ -1619,6 +1619,14 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             *participant->pendingMissingInputFrom == expectedFrame &&
             input.frame > expectedFrame &&
             input.sequence > expectedSequence;
+        const bool allowAuthoritativeHostGapRebase =
+            !m_hosting &&
+            participant->id != m_localParticipantId &&
+            participant->role == ParticipantRole::SessionOwner &&
+            input.frame >= expectedFrame &&
+            input.sequence > expectedSequence &&
+            (input.frame == expectedFrame ||
+             m_session.roomState().lastConfirmedFrame >= input.frame - 1u);
         if(input.sequence <= participant->lastReceivedInputSequence && !allowSequenceBaselineReset) {
             recordRejectedInput(participant, "stale_or_duplicate_sequence");
             std::ostringstream oss;
@@ -1632,7 +1640,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         if(input.sequence != expectedSequence &&
             !allowSequenceRebase &&
            !allowClientResyncRebase &&
-           !allowHostGapRebase) {
+           !allowHostGapRebase &&
+           !allowAuthoritativeHostGapRebase) {
             recordRejectedInput(participant, "non_sequential_sequence");
             std::ostringstream oss;
             oss << "Rejected non-sequential input sequence from " << participant->displayName
@@ -1684,7 +1693,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         if(input.frame != expectedFrame &&
             !allowSequenceRebase &&
            !allowClientResyncRebase &&
-           !allowHostGapRebase) {
+           !allowHostGapRebase &&
+           !allowAuthoritativeHostGapRebase) {
             if(m_hosting &&
                participant->id != m_localParticipantId &&
                input.frame > expectedFrame &&
@@ -1713,6 +1723,21 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " seq " << input.sequence
                 << " expectedSeq " << expectedSequence;
             pushLog(oss.str());
+        }
+        if(allowAuthoritativeHostGapRebase && input.frame > expectedFrame) {
+            participant->lastContiguousInputFrame = input.frame - 1u;
+            participant->pendingMissingInputFrom.reset();
+            if(m_debugMode) {
+                std::ostringstream oss;
+                oss << "Accepted authoritative host input gap rebase from "
+                    << participant->displayName
+                    << " frame " << input.frame
+                    << " expectedFrame " << expectedFrame
+                    << " seq " << input.sequence
+                    << " expectedSeq " << expectedSequence
+                    << " confirmedThrough " << m_session.roomState().lastConfirmedFrame;
+                pushLog(oss.str());
+            }
         }
         if(allowSequenceRebase || allowClientResyncRebase) {
             // Re-anchor contiguous frame tracking when a participant resumes

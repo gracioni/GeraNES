@@ -1262,21 +1262,12 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const uint32_t rollbackCanonicalCrc32 = console.canonicalNetplayStateCrc32();
     (void)runtimeHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
     coordinator.setLocalSimulationFrame(*rollbackFrame);
-    coordinator.discardTimelineAfter(*rollbackFrame, true);
+    coordinator.discardTimelineAfter(*rollbackFrame);
     coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
 
-    FrameNumber inputDriverAnchorFrame = *rollbackFrame;
-    const ParticipantId localParticipantId = coordinator.localParticipantId();
-    for(auto it = coordinator.localInputs().entries().rbegin();
-        it != coordinator.localInputs().entries().rend();
-        ++it) {
-        if(it->participantId != localParticipantId) continue;
-        inputDriverAnchorFrame = std::max(inputDriverAnchorFrame, it->frame);
-        break;
-    }
-    inputDriver.reanchor(inputDriverAnchorFrame);
-    state.lastRecoveryReanchorFrame = inputDriverAnchorFrame;
-    result.reanchorFrame = inputDriverAnchorFrame;
+    inputDriver.reanchor(*rollbackFrame);
+    state.lastRecoveryReanchorFrame = *rollbackFrame;
+    result.reanchorFrame = *rollbackFrame;
 
     const uint32_t frameDt =
         std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, console.regionFps()));
@@ -1764,14 +1755,14 @@ bool runtimeShouldAllowPredictionForFrame(const NetplayCoordinator& coordinator,
                                           FrameNumber frame)
 {
     const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-    const FrameNumber delaySlackFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.prebufferFrames());
-    if(frame <= delaySlackFrame) {
+    if(frame <= confirmedThroughFrame) {
         return false;
     }
 
     const FrameNumber predictionCapFrame =
-        delaySlackFrame + static_cast<FrameNumber>(inputDriver.predictFrames());
+        confirmedThroughFrame +
+        static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
+        static_cast<FrameNumber>(inputDriver.predictFrames());
     return frame <= predictionCapFrame;
 }
 

@@ -3303,6 +3303,63 @@ TEST_CASE("Netplay web host and client keep advancing through delay one rollback
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Runtime flow stalled"));
 }
 
+TEST_CASE("Netplay web host port2 then client port1 uses prediction instead of freezing at delay one",
+          "[netplay][runtime][web][assignment][host-port2][client-port1][delay1][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.hostAssignedPort2BeforeJoinOnly = true;
+    options.assignLateJoinClientAfterJoin = true;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-host-port2-client-port1-delay1",
+        ""
+    };
+    options.frames = 420;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.clientRuntimePauseAfterFrames = 100;
+    options.clientRuntimePauseDurationFrames = 32;
+    options.networkPumpStride = 3;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.frameStepLimit = 120000;
+    options.wallClockTimeoutSeconds = 90;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_host_port2_client_port1_delay1_rollback.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("hostAssignedPort2BeforeJoinOnly") == true);
+    REQUIRE(report.at("clientRuntimePauseTriggered") == true);
+    REQUIRE(report.at("clientRuntimePauseRestored") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("localSimulationFrame").get<uint32_t>() + 1u >=
+            report.at("targetHostFrame").get<uint32_t>());
+    REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >=
+            report.at("targetClientFrame").get<uint32_t>());
+    REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 360u);
+    REQUIRE(report.at("host").at("predictedFrameUseCount").get<uint32_t>() > 0u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Runtime flow stalled"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Runtime flow stalled"));
+}
+
 TEST_CASE("Late-joining Four Score client assignment does not trigger resync storm",
           "[netplay][runtime][late-join][multitap][assignment][regression]")
 {
