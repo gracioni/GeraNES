@@ -3183,6 +3183,68 @@ TEST_CASE("Netplay web host does not stall when observer host becomes port 2 aft
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Rejected non-sequential local input"));
 }
 
+TEST_CASE("Netplay web host and client keep advancing through delay one rollback with host on port 2",
+          "[netplay][runtime][web][assignment][host-port2][delay1][regression]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    const uint16_t signalingPort = reserveLoopbackPort();
+    LocalWebSocketSignalingServer signalingServer(signalingPort);
+
+    NetplayTest::Options options;
+    options.romPath = GeraNESTestSupport::romPath().string();
+    options.appFlow = true;
+    options.runtimeFlow = true;
+    options.singleThreadRuntimeFlow = true;
+    options.clientAssignedPort1Only = true;
+    options.assignmentSwapAfterFrames = 120;
+    options.transportBackend = ConsoleNetplay::NetTransportBackend::WebRTC;
+    options.transportOptions.webRtcSignaling = ConsoleNetplay::WebRtcSignalingConfig{
+        "ws://127.0.0.1:" + std::to_string(signalingPort),
+        "web-delay1-host-port2",
+        ""
+    };
+    options.frames = 360;
+    options.inputDelayFrames = 1;
+    options.predictFrames = 8;
+    options.predictionHoldStartFrame = 90;
+    options.predictionHoldFrameCount = 8;
+    options.predictionScriptStartFrame = 90;
+    options.predictionScriptFrameCount = 8;
+    options.predictionScriptMode = NetplayTest::PredictionScriptMode::MissAll;
+    options.networkPumpStride = 2;
+    options.hostLoopDtMs = 8;
+    options.clientLoopDtMs = 33;
+    options.hostStepStride = 1;
+    options.clientStepStride = 2;
+    options.frameStepLimit = 90000;
+    options.wallClockTimeoutSeconds = 90;
+    options.reportPath = GeraNESTestSupport::reportPath(
+        "netplay_web_delay1_host_port2_no_freeze.json"
+    ).string();
+
+    REQUIRE(NetplayTest::runHeadless(options) == 0);
+
+    const auto report = GeraNESTestSupport::loadJson(options.reportPath);
+    INFO(report.dump(2));
+    REQUIRE(report.at("status") == "ok");
+    REQUIRE(report.at("assignmentSwapTriggered") == true);
+    REQUIRE(report.at("assignmentSwapVerified") == true);
+    REQUIRE(report.at("host").at("runtimeRunning") == true);
+    REQUIRE(report.at("client").at("runtimeRunning") == true);
+    REQUIRE(report.at("host").at("localSimulationFrame").get<uint32_t>() + 1u >=
+            report.at("targetHostFrame").get<uint32_t>());
+    REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >=
+            report.at("targetClientFrame").get<uint32_t>());
+    REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 240u);
+    const uint32_t rollbackCount =
+        report.at("host").at("rollbackScheduledCount").get<uint32_t>() +
+        report.at("client").at("rollbackScheduledCount").get<uint32_t>();
+    REQUIRE(rollbackCount < 24u);
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Runtime flow stalled"));
+    REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Runtime flow stalled"));
+}
+
 TEST_CASE("Late-joining Four Score client assignment does not trigger resync storm",
           "[netplay][runtime][late-join][multitap][assignment][regression]")
 {

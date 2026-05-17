@@ -1780,7 +1780,9 @@ void runtimeRecordPlaybackStop(NetplayCoordinator& coordinator,
 {
     const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
     const FrameNumber predictedThroughFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.predictFrames());
+        confirmedThroughFrame +
+        static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
+        static_cast<FrameNumber>(inputDriver.predictFrames());
     const bool predictionLimitReached = frame > predictedThroughFrame;
     coordinator.recordPlaybackStop(frame, predictionLimitReached);
 }
