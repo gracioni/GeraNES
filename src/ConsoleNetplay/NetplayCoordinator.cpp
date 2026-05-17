@@ -523,7 +523,20 @@ void NetplayCoordinator::queuePendingHostResync(FrameNumber frame, ResyncReason 
 
 void NetplayCoordinator::pushLog(const std::string& message)
 {
+    if(message.empty()) {
+        return;
+    }
+
+    if(!m_eventLog.empty() && message == m_lastEventLogMessage) {
+        ++m_lastEventLogRepeatCount;
+        m_eventLog.back() =
+            message + " (x" + std::to_string(m_lastEventLogRepeatCount) + ")";
+        return;
+    }
+
     m_eventLog.push_back(message);
+    m_lastEventLogMessage = message;
+    m_lastEventLogRepeatCount = 1;
 
     constexpr size_t MAX_LOG_LINES = 256;
     if(m_eventLog.size() > MAX_LOG_LINES) {
@@ -2218,6 +2231,8 @@ void NetplayCoordinator::noteImplicitRemoteInputStall(ParticipantId participantI
     participant->lastDecisionSlot = slot;
     participant->lastDecision = "Implicit stall detected; waiting for peer health";
 
+    if(!m_debugMode) return;
+
     std::ostringstream oss;
     oss << "Implicit input stall detected for " << participantDebugLabel(*participant)
         << " at frame " << frame
@@ -2232,7 +2247,7 @@ void NetplayCoordinator::clearImplicitRemoteInputStall(ParticipantId participant
     if(!update.cleared) return;
 
     ParticipantInfo* participant = m_session.findParticipant(participantId);
-    if(participant != nullptr) {
+    if(participant != nullptr && m_debugMode) {
         std::ostringstream oss;
         oss << "Implicit input stall recovered for " << participantDebugLabel(*participant)
             << " by input frame " << recoveredThroughFrame;
@@ -5585,6 +5600,12 @@ bool NetplayCoordinator::noteImplicitRemoteInputStallForTests(ParticipantId part
     return true;
 }
 
+void NetplayCoordinator::clearImplicitRemoteInputStallForTests(ParticipantId participantId,
+                                                               FrameNumber recoveredThroughFrame)
+{
+    clearImplicitRemoteInputStall(participantId, recoveredThroughFrame);
+}
+
 bool NetplayCoordinator::injectCrcReportForTests(const CrcReportData& report)
 {
     PacketWriter writer;
@@ -5644,6 +5665,8 @@ NetplayCoordinator::PerformanceDiagnostics NetplayCoordinator::performanceDiagno
 void NetplayCoordinator::clearEventLog()
 {
     m_eventLog.clear();
+    m_lastEventLogMessage.clear();
+    m_lastEventLogRepeatCount = 0;
 }
 
 void NetplayCoordinator::appendNetplayLog(const std::string& message)

@@ -136,6 +136,8 @@ private:
     std::list<ConfirmedFrameInputs> m_confirmedFrames;
     std::unordered_map<FrameNumber, std::list<ConfirmedFrameInputs>::iterator> m_confirmedFrameIndex;
     std::vector<std::string> m_eventLog;
+    std::string m_lastEventLogMessage;
+    uint32_t m_lastEventLogRepeatCount = 0;
     std::vector<std::string> m_loggedAdvertisedIceServers;
     NetTransport::PeerHandle m_serverPeer = NetTransport::kInvalidPeerHandle;
     ParticipantId m_localParticipantId = kInvalidParticipantId;
@@ -401,6 +403,8 @@ public:
     bool noteImplicitRemoteInputStallForTests(ParticipantId participantId,
                                               PlayerSlot slot,
                                               FrameNumber frame);
+    void clearImplicitRemoteInputStallForTests(ParticipantId participantId,
+                                               FrameNumber recoveredThroughFrame);
     bool injectParticipantJoinedForTests(const ParticipantInfo& participant, uint64_t reconnectToken = 0);
     bool injectFrameStatusForTests(const FrameStatusData& status);
     bool injectPeerHealthForTests(const PeerHealthData& health);

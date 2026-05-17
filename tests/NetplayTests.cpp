@@ -997,6 +997,7 @@ TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked
 
     host.setLocalSimulationFrame(301u);
     REQUIRE(host.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 301u));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Implicit input stall"));
     host.clearEventLog();
     host.injectPeerHealthForTests(ConsoleNetplay::PeerHealthData{
         .participantId = 99u,
@@ -1045,12 +1046,34 @@ TEST_CASE("Netplay coordinator suppresses transient stall and assignment-blocked
     debugHost.setLocalSimulationFrame(301u);
     REQUIRE(debugHost.noteImplicitRemoteInputStallForTests(99u, GeraNESNetplay::kPort1PlayerSlot, 301u));
     REQUIRE(anyLogLineContains(debugHost.eventLog(), "Implicit input stall detected"));
+    debugHost.clearImplicitRemoteInputStallForTests(99u, 301u);
+    REQUIRE(anyLogLineContains(debugHost.eventLog(), "Implicit input stall recovered"));
 
     debugHost.clearEventLog();
     REQUIRE_FALSE(debugHost.assignController(99u, GeraNESNetplay::kPort2PlayerSlot));
     REQUIRE(anyLogLineContains(debugHost.eventLog(), "assignment update blocked during recovery stabilization"));
 
     debugHost.disconnect();
+}
+
+TEST_CASE("Netplay coordinator coalesces repeated consecutive log messages",
+          "[netplay][logging][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator coordinator;
+
+    coordinator.appendNetplayLog("Repeated diagnostic");
+    coordinator.appendNetplayLog("Repeated diagnostic");
+    coordinator.appendNetplayLog("Repeated diagnostic");
+    REQUIRE(coordinator.eventLog().size() == 1u);
+    REQUIRE(coordinator.eventLog().back() == "Repeated diagnostic (x3)");
+
+    coordinator.appendNetplayLog("Different diagnostic");
+    REQUIRE(coordinator.eventLog().size() == 2u);
+    REQUIRE(coordinator.eventLog().back() == "Different diagnostic");
+
+    coordinator.appendNetplayLog("Repeated diagnostic");
+    REQUIRE(coordinator.eventLog().size() == 3u);
+    REQUIRE(coordinator.eventLog().back() == "Repeated diagnostic");
 }
 
 TEST_CASE("Netplay host stall detector triggers once after stalled progress and cooldown", "[netplay][host-stall][unit]")
