@@ -399,6 +399,7 @@ class FakeNetplayStateHostBridge final : public ConsoleNetplay::INetplayStateHos
 public:
     ConsoleNetplay::FrameNumber lastFrameReadyFrameValue = 0;
     uint32_t lastFrameReadyNetplayCrc32Value = 0;
+    std::unordered_map<ConsoleNetplay::FrameNumber, std::shared_ptr<const std::vector<uint8_t>>> snapshotsByFrame;
     std::unordered_map<ConsoleNetplay::FrameNumber, uint32_t> snapshotCrc32ByFrame;
     ConsoleNetplay::FrameNumber lastDiscardedNetplayInputsAfterFrame = 0;
 
@@ -409,8 +410,11 @@ public:
     }
     ConsoleNetplay::FrameNumber lastFrameReadyFrame() const override { return lastFrameReadyFrameValue; }
     uint32_t lastFrameReadyNetplayCrc32() const override { return lastFrameReadyNetplayCrc32Value; }
-    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber) const override
+    std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(ConsoleNetplay::FrameNumber frame) const override
     {
+        if(const auto it = snapshotsByFrame.find(frame); it != snapshotsByFrame.end()) {
+            return it->second;
+        }
         return std::nullopt;
     }
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber frame) const override
@@ -453,7 +457,11 @@ public:
         return currentRomValue;
     }
     bool loadRollbackState(const std::vector<uint8_t>&) override { return true; }
-    bool updateUntilFrame(uint32_t, bool) override { return true; }
+    bool updateUntilFrame(uint32_t, bool) override
+    {
+        ++frameValue;
+        return true;
+    }
     void applyRemoteInputTopology(const ConsoleNetplay::RoomState&) override
     {
         ++applyRemoteInputTopologyCallCount;
@@ -1483,6 +1491,56 @@ TEST_CASE("Netplay stale rollback before recovery reanchor does not start resync
         host.eventLog(),
         "Netplay rollback snapshot unavailable; starting authoritative recovery resync"
     ));
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay rollback replay clears queued console inputs after target",
+          "[netplay][rollback][input][unit][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    const uint16_t port = reserveLoopbackPort();
+
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    REQUIRE(host.host(port, 1, "Host"));
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.currentFrame = 101u;
+    room.lastConfirmedFrame = 100u;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    host.setLocalSimulationFrame(101u);
+    host.rescheduleRollbackFrame(100u);
+
+    ConsoleNetplay::ConfirmedInputBufferDriver inputDriver;
+    FakeNetplayConsole console;
+    console.frameValue = 101u;
+    console.canonicalCrc32Value = 0x11223344u;
+    FakeNetplayStateBridge stateBridge;
+    stateBridge.frameValue = 101u;
+    FakeNetplayStateHostBridge hostBridge;
+    hostBridge.snapshotsByFrame.emplace(
+        100u,
+        std::make_shared<const std::vector<uint8_t>>(std::vector<uint8_t>{0x10u, 0x20u})
+    );
+    ConsoleNetplay::RuntimeRollbackProcessState rollbackState;
+    ConsoleNetplay::RuntimeRollbackProcessSettings settings;
+
+    const ConsoleNetplay::RuntimeRollbackProcessResult result =
+        ConsoleNetplay::runtimeProcessRollbackIfNeeded(
+            host,
+            inputDriver,
+            console,
+            stateBridge,
+            hostBridge,
+            rollbackState,
+            settings
+        );
+
+    REQUIRE(result.consumed);
+    REQUIRE(result.applied);
+    REQUIRE_FALSE(result.startedAuthoritativeResync);
+    REQUIRE(console.lastDiscardedQueuedInputAfterFrame == 100u);
+    REQUIRE(hostBridge.lastDiscardedNetplayInputsAfterFrame == 100u);
 
     host.disconnect();
 }

@@ -1257,6 +1257,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         coordinator.appendNetplayLog("Netplay rollback failed: snapshot load failed");
         return result;
     }
+    console.discardQueuedInputFramesAfter(*rollbackFrame);
 
     const uint32_t rollbackCanonicalCrc32 = console.canonicalNetplayStateCrc32();
     (void)runtimeHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
