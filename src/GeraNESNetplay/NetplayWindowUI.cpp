@@ -473,7 +473,7 @@ void drawNetplayWindow(bool& showWindow,
     cfg.autoGameplayTuning = true;
 #endif
     cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
-    cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
+    cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 16);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
     cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);

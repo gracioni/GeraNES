@@ -58,7 +58,7 @@ private:
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;
-    static constexpr uint8_t kMaxAutoPredictFrames = 8;
+    static constexpr uint8_t kMaxAutoPredictFrames = 16;
     static constexpr FrameNumber kDelayDecayStableFrames = 1200;
 
     static uint8_t clampDelay(uint32_t frames);

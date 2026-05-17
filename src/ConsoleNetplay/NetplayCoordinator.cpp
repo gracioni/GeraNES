@@ -6833,6 +6833,8 @@ bool NetplayCoordinator::setPredictFrames(uint8_t frames)
 {
     if(!m_hosting) return false;
 
+    frames = static_cast<uint8_t>(std::min<uint8_t>(frames, 16u));
+
     if(m_session.roomState().predictFrames == frames) return true;
 
     m_session.roomState().predictFrames = frames;

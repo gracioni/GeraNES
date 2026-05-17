@@ -61,17 +61,20 @@ RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordi
                                                       NetplayAutoTune& autoTune,
                                                       const RuntimeInputDelaySettings& settings)
 {
+    constexpr uint32_t kMaxManualPredictFrames = 16u;
+    const uint32_t manualPredictFrames = std::min(settings.manualPredictFrames, kMaxManualPredictFrames);
+
     coordinator.setDebugMode(settings.debugMode);
     coordinator.setGameplayReceiveDelayMs(settings.gameplayReceiveDelayMs);
     autoTune.setEnabled(settings.autoGameplayTuning);
 
     if(!coordinator.isActive()) {
         inputDriver.setPrebufferFrames(settings.manualInputDelayFrames);
-        inputDriver.setPredictFrames(settings.manualPredictFrames);
+        inputDriver.setPredictFrames(manualPredictFrames);
         return {
             settings.manualInputDelayFrames,
-            settings.manualPredictFrames,
-            runtimeInputBufferCapacity(settings.manualInputDelayFrames, settings.manualPredictFrames)
+            manualPredictFrames,
+            runtimeInputBufferCapacity(settings.manualInputDelayFrames, manualPredictFrames)
         };
     }
 
@@ -96,7 +99,7 @@ RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordi
             const uint8_t manualDelay =
                 static_cast<uint8_t>(std::min<uint32_t>(settings.manualInputDelayFrames, 0xffu));
             const uint8_t manualPredict =
-                static_cast<uint8_t>(std::min<uint32_t>(settings.manualPredictFrames, 0xffu));
+                static_cast<uint8_t>(manualPredictFrames);
             if(room.inputDelayFrames != manualDelay) {
                 coordinator.setInputDelayFrames(manualDelay);
             }

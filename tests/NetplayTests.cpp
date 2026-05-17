@@ -3239,7 +3239,7 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
         options.runtimeFlow = true;
         options.singleThreadRuntimeFlow = true;
         options.transportBackend = backend;
-        options.frames = 240;
+        options.frames = 270;
         options.inputDelayFrames = 1;
         options.predictFrames = 3;
         options.networkPumpStride = 2;
@@ -3571,6 +3571,14 @@ TEST_CASE("Netplay host accepts next local input after observer-to-port2 assignm
     host.recordLocalInputFrame(1928u, GeraNESNetplay::kPort2PlayerSlot, 0u);
 
     REQUIRE(host.localInputs().find(1928u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+    hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
     REQUIRE(hostLocal->lastLocalInputRejectReason == 0u);
 
     host.disconnect();
@@ -3629,6 +3637,14 @@ TEST_CASE("Netplay host accepts confirmed-frontier local input rebase after assi
     host.recordLocalInputFrame(1928u, GeraNESNetplay::kPort2PlayerSlot, 0u);
 
     REQUIRE(host.localInputs().find(1928u, host.localParticipantId(), GeraNESNetplay::kPort2PlayerSlot) != nullptr);
+    hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
     REQUIRE(hostLocal->lastLocalInputRejectReason == 0u);
 
     host.disconnect();
