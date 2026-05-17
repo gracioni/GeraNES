@@ -450,6 +450,7 @@ void NetplayCoordinator::resetSessionState()
     m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_lastBroadcastConfirmedFrame = 0;
+    m_lastBroadcastFrameStatusConfirmedFrame = 0;
     m_lastBroadcastInputDelayFrames = 0;
     m_desyncMonitor.reset();
     m_localSimulationFrame = 0;
@@ -2905,6 +2906,7 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     m_session.roomState().lastRemoteCrcFrame = 0;
     m_session.roomState().lastRemoteCrc32 = 0;
     m_lastBroadcastConfirmedFrame = loadedFrame;
+    m_lastBroadcastFrameStatusConfirmedFrame = loadedFrame;
 
     const auto hasPendingSequenceReset = [&](ParticipantId participantId) -> bool {
         return std::find(
@@ -3025,6 +3027,7 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_activeTargetedResyncExpectedStateCrc32 = 0;
     m_desyncMonitor.reset();
     m_lastBroadcastConfirmedFrame = 0;
+    m_lastBroadcastFrameStatusConfirmedFrame = 0;
     m_localInputSequence = 0;
     m_localSimulationFrame = 0;
     m_lastAuthoritativeRealignFrame = 0;
@@ -3076,6 +3079,7 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
     }
 
     m_lastBroadcastConfirmedFrame = std::min(m_lastBroadcastConfirmedFrame, frame);
+    m_lastBroadcastFrameStatusConfirmedFrame = std::min(m_lastBroadcastFrameStatusConfirmedFrame, frame);
     m_session.roomState().lastConfirmedFrame = std::min(m_session.roomState().lastConfirmedFrame, frame);
     for(auto it = m_authoritativeFrameStartClockMicros.begin();
         it != m_authoritativeFrameStartClockMicros.end();) {
@@ -3904,6 +3908,7 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
         m_confirmedFrames.clear();
         m_confirmedFrameIndex.clear();
         m_lastBroadcastConfirmedFrame = 0;
+        m_lastBroadcastFrameStatusConfirmedFrame = 0;
         m_session.roomState().lastConfirmedFrame = 0;
     }
     if(data.state == SessionState::Starting) {
@@ -4145,12 +4150,12 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     m_session.roomState().lastConfirmedFrame = status.lastConfirmedFrame;
 
     if(!changed &&
-       status.lastConfirmedFrame == m_lastBroadcastConfirmedFrame &&
+       status.lastConfirmedFrame == m_lastBroadcastFrameStatusConfirmedFrame &&
        status.inputDelayFrames == m_lastBroadcastInputDelayFrames) {
         return;
     }
 
-    m_lastBroadcastConfirmedFrame = status.lastConfirmedFrame;
+    m_lastBroadcastFrameStatusConfirmedFrame = status.lastConfirmedFrame;
     m_lastBroadcastInputDelayFrames = status.inputDelayFrames;
     m_transport.broadcastUnreliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
 }
@@ -5775,6 +5780,7 @@ void NetplayCoordinator::discardTimelineAfter(FrameNumber frame, bool preserveLo
     }
 
     m_lastBroadcastConfirmedFrame = std::min(m_lastBroadcastConfirmedFrame, frame);
+    m_lastBroadcastFrameStatusConfirmedFrame = std::min(m_lastBroadcastFrameStatusConfirmedFrame, frame);
     m_session.roomState().lastConfirmedFrame = std::min(m_session.roomState().lastConfirmedFrame, frame);
     for(auto it = m_authoritativeFrameStartClockMicros.begin();
         it != m_authoritativeFrameStartClockMicros.end();) {

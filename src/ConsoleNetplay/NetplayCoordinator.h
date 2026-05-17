@@ -164,6 +164,7 @@ private:
     ResyncReason m_lastHostResyncRequestSentReason = ResyncReason::Unspecified;
     uint16_t m_lastHostResyncRequestSentSource = 0;
     FrameNumber m_lastBroadcastConfirmedFrame = 0;
+    FrameNumber m_lastBroadcastFrameStatusConfirmedFrame = 0;
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     DesyncMonitor m_desyncMonitor;
     FrameNumber m_localSimulationFrame = 0;
@@ -410,6 +411,8 @@ public:
     bool injectPeerHealthForTests(const PeerHealthData& health);
     bool injectCrcReportForTests(const CrcReportData& report);
     bool injectResyncAckForTests(const ResyncAckData& ack);
+    void broadcastFrameStatusForTests() { broadcastFrameStatusIfNeeded(); }
+    void publishConfirmedFramesForTests() { publishConfirmedFramesIfReady(); }
     ParticipantId localParticipantId() const;
     const std::string& localDisplayName() const;
     uint64_t localReconnectToken() const;

@@ -5240,6 +5240,83 @@ TEST_CASE("Netplay host fills authoritative timestamps for batched prebuffer con
     host.disconnect();
 }
 
+TEST_CASE("Netplay host frame status does not consume confirmed input publishing cursor",
+          "[netplay][confirmed-input][frame-status][regression]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    INFO("Host lastError: " << host.lastError());
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room.sessionId = 1;
+    room.state = ConsoleNetplay::SessionState::Lobby;
+    room.currentFrame = 0;
+    room.lastConfirmedFrame = 0;
+    room.selectedGameName = "FrameStatusConfirmedCursor";
+
+    ConsoleNetplay::ParticipantInfo* hostLocal = nullptr;
+    for(auto& participant : room.participants) {
+        if(participant.id == host.localParticipantId()) {
+            hostLocal = &participant;
+            break;
+        }
+    }
+    REQUIRE(hostLocal != nullptr);
+    hostLocal->connected = true;
+    hostLocal->romLoaded = true;
+    hostLocal->romCompatible = true;
+    hostLocal->role = ConsoleNetplay::ParticipantRole::SessionOwner;
+    hostLocal->controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
+    hostLocal->normalizeControllerAssignments();
+
+    constexpr ConsoleNetplay::ParticipantId kRemoteParticipantId = 1u;
+    ConsoleNetplay::ParticipantInfo remoteParticipant;
+    remoteParticipant.id = kRemoteParticipantId;
+    remoteParticipant.displayName = "Client";
+    remoteParticipant.connected = true;
+    remoteParticipant.romLoaded = true;
+    remoteParticipant.romCompatible = true;
+    remoteParticipant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remoteParticipant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remoteParticipant.normalizeControllerAssignments();
+    room.participants.push_back(remoteParticipant);
+
+    constexpr ConsoleNetplay::FrameNumber kReadyFrame = 4u;
+    uint32_t sequence = 1u;
+    for(ConsoleNetplay::FrameNumber frame = 1u; frame <= kReadyFrame; ++frame) {
+        host.recordLocalInputFrame(frame, GeraNESNetplay::kPort1PlayerSlot, 0u);
+
+        ConsoleNetplay::InputFrameData remote{};
+        remote.timelineEpoch = room.timelineEpoch;
+        remote.frame = frame;
+        remote.participantId = kRemoteParticipantId;
+        remote.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+        remote.sequence = sequence++;
+        remote.buttonMaskLo = 0u;
+        remote.buttonMaskHi = 0u;
+
+        InputFrame contribution = GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room);
+        REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, remote, contribution));
+    }
+    REQUIRE(host.latestConfirmedFrame() == 0u);
+
+    room.state = ConsoleNetplay::SessionState::Running;
+    host.setLocalSimulationFrame(kReadyFrame);
+    host.broadcastFrameStatusForTests();
+    REQUIRE(room.lastConfirmedFrame == kReadyFrame);
+    REQUIRE(host.latestConfirmedFrame() == 0u);
+
+    host.publishConfirmedFramesForTests();
+    REQUIRE(host.latestConfirmedFrame() == kReadyFrame);
+    REQUIRE(host.findConfirmedFrame(kReadyFrame) != nullptr);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay host prediction-limit fallback synthesizes without immediate resync", "[netplay][prediction-limit][unit]")
 {
     ConsoleNetplay::NetplayCoordinator host;
