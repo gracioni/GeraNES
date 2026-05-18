@@ -1743,14 +1743,15 @@ private:
 
         auto pumpPeerRuntime = [](auto& peer) {
             peer.emu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
+                const auto& cfg = AppSettings::instance().data.netplay;
                 const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
                     GeraNESNetplay::buildGeraNESRuntimeExecutionSettings(
                         peer.emu,
-                        peer.autoGameplayTuning,
-                        peer.showNetplayDebugLog,
-                        peer.gameplayReceiveDelayMs,
-                        peer.inputDelayFrames,
-                        peer.predictFrames
+                        cfg.autoGameplayTuning,
+                        cfg.showNetplayDebugLog,
+                        cfg.gameplayReceiveDelayMs,
+                        cfg.inputDelayFrames,
+                        cfg.predictFrames
                     );
                 (void)GeraNESNetplay::executeRuntimeFrame(
                     peer.runtime,
@@ -1831,18 +1832,15 @@ private:
                             );
                             hostPeer.emu.update(16u);
                             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
-                            if(newHostFrame < hostOnlyStartFrame + 4u) {
-                                return false;
-                            }
-                            return peerHasBufferedLocalPattern(
+                            return newHostFrame >= hostOnlyStartFrame + 4u &&
+                                   peerHasBufferedLocalPattern(
                                        hostPeer,
                                        hostPeer.generator,
-                                       newHostFrame,
+                                       newHostFrame + 1u,
                                        newHostFrame + 8u,
                                        hostPreJoinSlot,
                                        options
-                                   ) ||
-                                   hostPeer.runtime.uiSnapshot().room.lastConfirmedFrame >= newHostFrame;
+                                   );
                         }, options.startupTimeoutSteps, 1u)) {
                         failureReason = "Host-only assignment did not produce immediate local input before client join.";
                         result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);

@@ -448,7 +448,6 @@ void NetplayCoordinator::resetSessionState()
     m_localInputSequence = 0;
     m_predictionStats = {};
     m_pendingRollbackFrame.reset();
-    m_pendingRollbackFrameExactReplay = false;
     m_pendingHostResyncFrame.reset();
     m_lastBroadcastConfirmedFrame = 0;
     m_lastBroadcastFrameStatusConfirmedFrame = 0;
@@ -1884,61 +1883,7 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
             frame.buttonMaskHi[slotMask.slot] = slotMask.buttonMaskHi;
         }
         if(!deserializeNetplayInputFrame(payload.data(), payload.size(), frame.netplayFrame)) return false;
-        const ConfirmedFrameInputs* existingConfirmed = findConfirmedFrame(frame.frame);
-        bool resolvesSpeculativePastFrame = false;
-        bool requiresExactConfirmedReplay = false;
-        if(existingConfirmed == nullptr && frame.frame <= m_localSimulationFrame) {
-            for(const auto& participant : m_session.roomState().participants) {
-                for(PlayerSlot slot : participantAssignments(participant)) {
-                    if(!isPlayableSlot(m_session.roomState(), slot)) {
-                        continue;
-                    }
-                    const bool isLocalParticipant = participant.id == m_localParticipantId;
-                    const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
-                    const TimelineInputEntry* entry = timeline.find(frame.frame, participant.id, slot);
-                    if(entry == nullptr) {
-                        continue;
-                    }
-                    const bool slotMismatch =
-                        entry->buttonMaskLo != frame.buttonMaskLo[slot] ||
-                        entry->buttonMaskHi != frame.buttonMaskHi[slot] ||
-                        entry->netplayFrame.slotPayloads[slot] != frame.netplayFrame.slotPayloads[slot];
-                    if(entry->predicted || !entry->confirmed || slotMismatch) {
-                        resolvesSpeculativePastFrame = true;
-                        requiresExactConfirmedReplay = requiresExactConfirmedReplay || slotMismatch || !entry->confirmed;
-                    }
-                }
-            }
-        }
-        const bool correctedConfirmedPastFrame =
-            existingConfirmed != nullptr &&
-            frame.frame <= m_localSimulationFrame &&
-            (existingConfirmed->buttonMaskLo != frame.buttonMaskLo ||
-             existingConfirmed->buttonMaskHi != frame.buttonMaskHi ||
-             existingConfirmed->netplayFrame != frame.netplayFrame);
         storeConfirmedFrame(frame);
-        if((resolvesSpeculativePastFrame || correctedConfirmedPastFrame) &&
-           m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
-            const FrameNumber rollbackFrame = frame.frame > 0u ? (frame.frame - 1u) : 0u;
-            if(!m_pendingRollbackFrame.has_value() || rollbackFrame < *m_pendingRollbackFrame) {
-                m_pendingRollbackFrame = rollbackFrame;
-                m_pendingRollbackFrameExactReplay = requiresExactConfirmedReplay || correctedConfirmedPastFrame;
-            } else if(rollbackFrame == *m_pendingRollbackFrame) {
-                m_pendingRollbackFrameExactReplay =
-                    m_pendingRollbackFrameExactReplay ||
-                    requiresExactConfirmedReplay ||
-                    correctedConfirmedPastFrame;
-            }
-            m_predictionStats.recordRollbackScheduled(frame.frame, kObserverPlayerSlot);
-            if(m_debugMode) {
-                std::ostringstream oss;
-                oss << "Confirmed input frame "
-                    << frame.frame
-                    << " arrived after local simulation; scheduling rollback"
-                    << " classification=confirmed_frame_corrects_speculation";
-                pushLog(oss.str());
-            }
-        }
         if(frame.authoritativeFrameStartClockMicros != 0u) {
             m_session.roomState().lastAuthoritativeClockFrame = frame.frame;
             m_session.roomState().lastAuthoritativeClockMicros = frame.authoritativeFrameStartClockMicros;
@@ -2194,13 +2139,11 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
         room.stabilizationFramesRemaining = stabilizationFrames;
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
-        room.stabilizationCrcMismatchCount = 0;
         room.stabilizationRetryIssued = false;
     } else if(mode == RecoveryInputMode::Normal) {
         room.stabilizationFramesRemaining = 0;
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
-        room.stabilizationCrcMismatchCount = 0;
         room.stabilizationRetryIssued = false;
         if(previousMode == RecoveryInputMode::PostResyncStabilizing) {
             m_remoteInputStallMonitor.reset();
@@ -2261,32 +2204,11 @@ void NetplayCoordinator::advanceRecoveryStabilization(FrameNumber observedFrame)
         room.stabilizationAnchorFrame = observedFrame;
     }
 
-    if(room.stabilizationFramesRemaining == 0u && confirmedCheckpointReached) {
-        if(room.stabilizationCrcMismatchCount > 0u) {
-            if(room.stabilizationRetryIssued) {
-                return;
-            }
-
-            room.stabilizationRetryIssued = true;
-            ++room.stabilizationRetryCount;
-            if(!m_hosting) {
-                pushLog("Post-resync CRC mismatch observed on client; waiting for authoritative recovery retry");
-                return;
-            }
-
-            const FrameNumber retryFrame =
-                std::min(m_localSimulationFrame, room.lastConfirmedFrame);
-            const std::string reason =
-                "Post-resync CRC mismatch persisted through stabilization; scheduling controlled retry";
-            scheduleResyncRetry(retryFrame, reason);
-            queuePendingHostResync(retryFrame, ResyncReason::ConfirmedDesync);
-            return;
-        }
-
-        if(firstPostRecoveryCrcPassed) {
-            setRecoveryInputMode(RecoveryInputMode::Normal, "stabilization-window-complete", observedFrame);
-            return;
-        }
+    if(room.stabilizationFramesRemaining == 0u &&
+       confirmedCheckpointReached &&
+       firstPostRecoveryCrcPassed) {
+        setRecoveryInputMode(RecoveryInputMode::Normal, "stabilization-window-complete", observedFrame);
+        return;
     }
 
     const FrameNumber stabilizationElapsedFrames =
@@ -2646,7 +2568,6 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
 
     if(!m_pendingRollbackFrame.has_value() || rollbackFrame < *m_pendingRollbackFrame) {
         m_pendingRollbackFrame = rollbackFrame;
-        m_pendingRollbackFrameExactReplay = false;
     }
 
     m_predictionStats.recordRollbackScheduled(inputFrame, slot);
@@ -3000,7 +2921,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         m_remoteInputs.push(entry);
     }
     m_pendingRollbackFrame.reset();
-    m_pendingRollbackFrameExactReplay = false;
     m_predictionStats.lastDecision.clear();
     m_predictionStats.lastDecisionFrame = loadedFrame;
     m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
@@ -3119,7 +3039,6 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_confirmedFrames.clear();
     m_confirmedFrameIndex.clear();
     m_pendingRollbackFrame.reset();
-    m_pendingRollbackFrameExactReplay = false;
     m_pendingHostResyncFrame.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
     m_remoteInputStallMonitor.reset();
@@ -3177,7 +3096,6 @@ void NetplayCoordinator::discardTimelineStateAfter(FrameNumber frame)
     m_remoteInputs.eraseFramesAfter(frame);
     if(m_pendingRollbackFrame.has_value() && *m_pendingRollbackFrame >= frame) {
         m_pendingRollbackFrame.reset();
-        m_pendingRollbackFrameExactReplay = false;
     }
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {
@@ -5838,18 +5756,13 @@ void NetplayCoordinator::rescheduleRollbackFrame(FrameNumber frame)
 {
     if(!m_pendingRollbackFrame.has_value() || frame < *m_pendingRollbackFrame) {
         m_pendingRollbackFrame = frame;
-        m_pendingRollbackFrameExactReplay = false;
     }
 }
 
-std::optional<FrameNumber> NetplayCoordinator::consumePendingRollbackFrame(bool* exactReplay)
+std::optional<FrameNumber> NetplayCoordinator::consumePendingRollbackFrame()
 {
     std::optional<FrameNumber> result = m_pendingRollbackFrame;
-    if(exactReplay != nullptr) {
-        *exactReplay = m_pendingRollbackFrameExactReplay;
-    }
     m_pendingRollbackFrame.reset();
-    m_pendingRollbackFrameExactReplay = false;
     return result;
 }
 
@@ -5884,7 +5797,6 @@ void NetplayCoordinator::discardTimelineAfter(FrameNumber frame, bool preserveLo
     }
     if(m_pendingRollbackFrame.has_value() && *m_pendingRollbackFrame >= frame) {
         m_pendingRollbackFrame.reset();
-        m_pendingRollbackFrameExactReplay = false;
     }
 
     while(!m_confirmedFrames.empty() && m_confirmedFrames.back().frame > frame) {

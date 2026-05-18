@@ -4829,107 +4829,6 @@ TEST_CASE("Host disconnect toast uses participant display name",
     host.disconnect();
 }
 
-TEST_CASE("Netplay confirmed frame arrival behind local simulation schedules rollback",
-          "[netplay][prediction][confirmed-input][rollback][regression]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-
-    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    REQUIRE(host.host(port, 2, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Participant"));
-
-    bool connected = false;
-    for(int step = 0; step < 400 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected = host.session().roomState().participants.size() >= 2 &&
-                    client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    clientRoom.state = ConsoleNetplay::SessionState::Running;
-    clientRoom.currentFrame = 105u;
-    clientRoom.lastConfirmedFrame = 100u;
-    client.setLocalSimulationFrame(105u);
-
-    for(auto& participant : clientRoom.participants) {
-        participant.connected = true;
-        participant.romLoaded = true;
-        participant.romCompatible = true;
-        if(participant.id == client.localParticipantId()) {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-        } else {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-            participant.lastReceivedInputFrame = 99u;
-            participant.lastContiguousInputFrame = 99u;
-            participant.lastReceivedInputSequence = 0u;
-        }
-        participant.normalizeControllerAssignments();
-    }
-
-    const auto remoteHost = std::find_if(
-        clientRoom.participants.begin(),
-        clientRoom.participants.end(),
-        [&](const ConsoleNetplay::ParticipantInfo& participant) {
-            return participant.id != client.localParticipantId();
-        }
-    );
-    REQUIRE(remoteHost != clientRoom.participants.end());
-
-    InputFrame baselineFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(100u, clientRoom);
-    baselineFrame.p1A = false;
-    ConsoleNetplay::InputFrameData baselineInput{};
-    baselineInput.timelineEpoch = clientRoom.timelineEpoch;
-    baselineInput.frame = 100u;
-    baselineInput.participantId = remoteHost->id;
-    baselineInput.playerSlot = GeraNESNetplay::kPort1PlayerSlot;
-    baselineInput.sequence = 1u;
-    REQUIRE(GeraNESNetplay::injectInputFrameForTests(client, baselineInput, baselineFrame));
-
-    for(ConsoleNetplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
-        client.predictRemoteInputsForFrame(frame);
-        const ConsoleNetplay::TimelineInputEntry* predicted =
-            client.remoteInputs().find(frame, remoteHost->id, GeraNESNetplay::kPort1PlayerSlot);
-        REQUIRE(predicted != nullptr);
-        REQUIRE(predicted->predicted);
-    }
-
-    std::vector<ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs> confirmedFrames;
-    for(ConsoleNetplay::FrameNumber frame = 101u; frame <= 105u; ++frame) {
-        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed{};
-        confirmed.frame = frame;
-        InputFrame inputFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(frame, clientRoom);
-        inputFrame.p1A = (frame % 2u) == 1u;
-        inputFrame.p2A = (frame % 2u) == 0u;
-        confirmed.buttonMaskLo[GeraNESNetplay::kPort1PlayerSlot] = inputFrame.p1A ? 1u : 0u;
-        confirmed.buttonMaskLo[GeraNESNetplay::kPort2PlayerSlot] = inputFrame.p2A ? 1u : 0u;
-        confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(inputFrame);
-        confirmedFrames.push_back(confirmed);
-    }
-
-    ConsoleNetplay::ConfirmedInputFramesData data{};
-    data.timelineEpoch = clientRoom.timelineEpoch;
-    data.startFrame = 101u;
-    data.frameCount = static_cast<uint16_t>(confirmedFrames.size());
-    REQUIRE(client.injectConfirmedPlaybackFramesForTests(data, confirmedFrames));
-
-    const auto rollbackFrame = client.consumePendingRollbackFrame();
-    REQUIRE(rollbackFrame.has_value());
-    REQUIRE(*rollbackFrame == 100u);
-
-    host.disconnect();
-    client.disconnect();
-}
-
 TEST_CASE("Reconnect token match replaces active peer instead of creating duplicate participant",
           "[netplay][reconnect][replace-peer][unit]")
 {
@@ -7874,7 +7773,7 @@ TEST_CASE("Netplay post-resync stabilization requires compared matching CRC", "[
     coordinator.disconnect();
 }
 
-TEST_CASE("Netplay observer host stabilization retries after post-resync CRC mismatch",
+TEST_CASE("Netplay observer host stabilization waits after mismatch until matching CRC",
           "[netplay][crc][stabilization][host-observer][unit]")
 {
     ConsoleNetplay::NetplayCoordinator coordinator;
@@ -7931,13 +7830,20 @@ TEST_CASE("Netplay observer host stabilization retries after post-resync CRC mis
 
     coordinator.setLocalSimulationFrame(241u);
 
+    REQUIRE(room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::PostResyncStabilizing);
     REQUIRE(room.stabilizationCrcPassCount == 0u);
-    REQUIRE(anyLogLineContains(coordinator.eventLog(), "Post-resync CRC mismatch persisted through stabilization"));
-    const std::optional<ConsoleNetplay::NetplayCoordinator::PendingHostResyncRequest> pendingResync =
-        coordinator.consumePendingHostResyncFrame();
-    REQUIRE(pendingResync.has_value());
-    REQUIRE(pendingResync->frame == 240u);
-    REQUIRE(pendingResync->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(room.stabilizationCrcMismatchCount == 1u);
+
+    coordinator.submitLocalCrc(242u, 0x33333333u);
+    ConsoleNetplay::CrcReportData matchingReport;
+    matchingReport.timelineEpoch = room.timelineEpoch;
+    matchingReport.frame = 242u;
+    matchingReport.crc32 = 0x33333333u;
+    REQUIRE(coordinator.injectCrcReportForTests(matchingReport));
+
+    coordinator.setLocalSimulationFrame(242u);
+
+    REQUIRE(room.recoveryInputMode == ConsoleNetplay::RecoveryInputMode::Normal);
 
     coordinator.disconnect();
 }
