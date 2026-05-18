@@ -2223,7 +2223,7 @@ private:
                     ? std::min<uint32_t>(options.startupTimeoutSteps, 8000u)
                     : options.startupTimeoutSteps;
 
-            clientPeer.runtime.disconnect();
+            clientPeer.runtime.simulateTransportFailureForTests();
 
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();

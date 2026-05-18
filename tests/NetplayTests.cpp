@@ -425,9 +425,13 @@ public:
         return std::nullopt;
     }
     bool updateNetplaySnapshotCrc32ForFrame(ConsoleNetplay::FrameNumber, uint32_t) override { return true; }
-    void seedNetplaySnapshot(ConsoleNetplay::FrameNumber,
-                             const std::vector<uint8_t>&,
-                             std::optional<uint32_t>) override {}
+    void seedNetplaySnapshot(ConsoleNetplay::FrameNumber frame,
+                             const std::vector<uint8_t>& data,
+                             std::optional<uint32_t> canonicalCrc32) override
+    {
+        snapshotsByFrame[frame] = std::make_shared<const std::vector<uint8_t>>(data);
+        snapshotCrc32ByFrame[frame] = canonicalCrc32.value_or(0u);
+    }
     void setAuthoritativeFrameReadyState(ConsoleNetplay::FrameNumber frame, uint32_t canonicalCrc32) override
     {
         lastFrameReadyFrameValue = frame;
@@ -1517,6 +1521,7 @@ TEST_CASE("Netplay rollback replay clears queued console inputs after target",
     console.canonicalCrc32Value = 0x11223344u;
     FakeNetplayStateBridge stateBridge;
     stateBridge.frameValue = 101u;
+    stateBridge.savedStateData = {0x99u, 0x88u, 0x77u};
     FakeNetplayStateHostBridge hostBridge;
     hostBridge.snapshotsByFrame.emplace(
         100u,
@@ -1541,6 +1546,9 @@ TEST_CASE("Netplay rollback replay clears queued console inputs after target",
     REQUIRE_FALSE(result.startedAuthoritativeResync);
     REQUIRE(console.lastDiscardedQueuedInputAfterFrame == 100u);
     REQUIRE(hostBridge.lastDiscardedNetplayInputsAfterFrame == 100u);
+    REQUIRE(hostBridge.netplaySnapshotForFrame(101u).has_value());
+    REQUIRE(**hostBridge.netplaySnapshotForFrame(101u) == stateBridge.savedStateData);
+    REQUIRE(hostBridge.netplaySnapshotCrc32ForFrame(101u) == console.canonicalCrc32Value);
 
     host.disconnect();
 }
@@ -9458,6 +9466,72 @@ TEST_CASE("Netplay rollback replays previously silent speculative frames audibly
     REQUIRE(emu.updateUntilFrame(frameDt));
     REQUIRE(emu.frameCount() == 3u);
     REQUIRE(audio.audibleRenderCalls > audibleAfterReplayFrame1);
+}
+
+TEST_CASE("Netplay prediction window remains silent until confirmed rollback replay",
+          "[netplay][audio][prediction][rollback][window]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    for(const uint32_t predictedFrames : {1u, 2u, 4u, 8u}) {
+        INFO("predictedFrames=" << predictedFrames);
+
+        RecordingAudioOutput audio;
+        GeraNESEmu emu(audio);
+        REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+        REQUIRE(emu.valid());
+
+        const uint32_t frameDt =
+            std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+
+        for(uint32_t frame = 0u; frame < 3u; ++frame) {
+            InputFrame confirmed = emu.createInputFrame(frame);
+            confirmed.speculative = false;
+            confirmed.p1A = (frame % 2u) == 0u;
+            confirmed.p1Right = frame >= 1u;
+            emu.queueInputFrame(confirmed);
+            REQUIRE(emu.updateUntilFrame(frameDt));
+        }
+        REQUIRE(emu.frameCount() == 3u);
+
+        const std::vector<uint8_t> rollbackState = emu.saveStateToMemory();
+        REQUIRE_FALSE(rollbackState.empty());
+        const uint32_t audibleBeforePrediction = audio.audibleRenderCalls;
+        const uint32_t renderBeforePrediction = audio.renderCalls;
+
+        for(uint32_t offset = 0u; offset < predictedFrames; ++offset) {
+            const uint32_t frame = 3u + offset;
+            InputFrame predicted = emu.createInputFrame(frame);
+            predicted.speculative = true;
+            predicted.p1B = (offset % 2u) == 0u;
+            predicted.p1Left = offset >= 2u;
+            emu.queueInputFrame(predicted);
+            REQUIRE(emu.updateUntilFrame(frameDt));
+        }
+        REQUIRE(emu.frameCount() == 3u + predictedFrames);
+        REQUIRE(audio.audibleRenderCalls == audibleBeforePrediction);
+        REQUIRE(audio.renderCalls == renderBeforePrediction);
+
+        emu.loadStateFromMemoryWithAudioPolicy(
+            rollbackState,
+            GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
+        REQUIRE(emu.valid());
+        REQUIRE(emu.frameCount() == 3u);
+
+        uint32_t previousAudible = audio.audibleRenderCalls;
+        for(uint32_t offset = 0u; offset < predictedFrames; ++offset) {
+            const uint32_t frame = 3u + offset;
+            InputFrame confirmed = emu.createInputFrame(frame);
+            confirmed.speculative = false;
+            confirmed.p1B = (offset % 2u) == 0u;
+            confirmed.p1Left = offset >= 2u;
+            emu.queueInputFrame(confirmed);
+            REQUIRE(emu.updateUntilFrame(frameDt));
+            REQUIRE(emu.frameCount() == frame + 1u);
+            REQUIRE(audio.audibleRenderCalls > previousAudible);
+            previousAudible = audio.audibleRenderCalls;
+        }
+    }
 }
 
 TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[netplay][audio][resync]")
