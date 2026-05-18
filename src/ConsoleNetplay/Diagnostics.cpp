@@ -73,6 +73,22 @@ void RollbackStats::recordRollbackScheduled(FrameNumber frame, PlayerSlot slot)
     lastDecision = "Rollback scheduled";
 }
 
+void RollbackStats::recordConfirmedReplayScheduled(FrameNumber frame, PlayerSlot slot)
+{
+    ++confirmedReplayScheduledCount;
+    lastDecisionFrame = frame;
+    lastDecisionSlot = slot;
+    lastDecision = "Confirmed replay scheduled";
+}
+
+void RollbackStats::recordPredictionMismatchRollbackScheduled(FrameNumber frame, PlayerSlot slot)
+{
+    ++predictionMismatchRollbackScheduledCount;
+    lastDecisionFrame = frame;
+    lastDecisionSlot = slot;
+    lastDecision = "Prediction mismatch rollback scheduled";
+}
+
 void RollbackStats::recordMissingInputGap(FrameNumber frame, PlayerSlot slot)
 {
     ++missingInputGapCount;

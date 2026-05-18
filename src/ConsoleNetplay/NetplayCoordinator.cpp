@@ -1645,7 +1645,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                     << participant->displayName
                     << " frame " << input.frame
                     << " seq " << input.sequence;
-                pushLog(oss.str());
+                pushCollapsedDebugLog(
+                    "awaiting_resync_input:" +
+                        std::to_string(static_cast<unsigned>(participant->id)) + ":" +
+                        std::to_string(static_cast<unsigned>(input.playerSlot)),
+                    oss.str()
+                );
                 return true;
             }
 
@@ -1731,12 +1736,23 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
 
             if(committedMismatch) {
+                if(m_hosting && participant->id != m_localParticipantId) {
+                    participant->inputSuspended = true;
+                    participant->inputResumeAwaitingResync = true;
+                    participant->sequenceRebasePending = true;
+                    queuePendingHostResync(input.frame, ResyncReason::ConfirmedDesync, participant->id);
+                }
                 std::ostringstream oss;
-                oss << "Ignored late input for already committed frame from " << participant->displayName
+                oss << "Late input mismatched already committed frame from " << participant->displayName
                     << " frame " << input.frame
                     << " expectedFrame " << expectedFrame
                     << " seq " << input.sequence
                     << " classification=late_committed_input_mismatch";
+                if(m_hosting && participant->id != m_localParticipantId) {
+                    oss << " action=queued_confirmed_desync_resync";
+                } else {
+                    oss << " action=ignored";
+                }
                 pushLog(oss.str());
             } else if(m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
                 std::ostringstream oss;
@@ -1996,6 +2012,10 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
                 if(m_lastAuthoritativeRealignFrame == 0u ||
                    rollbackFrame > m_lastAuthoritativeRealignFrame) {
                     rescheduleRollbackFrame(rollbackFrame);
+                    m_predictionStats.recordConfirmedReplayScheduled(
+                        *firstReplayFrame,
+                        kObserverPlayerSlot
+                    );
                     if(m_debugMode) {
                         std::ostringstream oss;
                         oss << "Confirmed input advanced over speculative frame; scheduling replay"
@@ -2692,6 +2712,11 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
     }
 
     m_predictionStats.recordRollbackScheduled(inputFrame, slot);
+    if(predictionMatched) {
+        m_predictionStats.recordConfirmedReplayScheduled(inputFrame, slot);
+    } else {
+        m_predictionStats.recordPredictionMismatchRollbackScheduled(inputFrame, slot);
+    }
     if(participant != nullptr) {
         ++participant->rollbackScheduledCount;
     }

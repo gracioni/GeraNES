@@ -4509,10 +4509,14 @@ TEST_CASE("Netplay web host and client keep advancing through delay one rollback
     REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >=
             report.at("targetClientFrame").get<uint32_t>());
     REQUIRE(report.at("maxStallSteps").get<uint32_t>() < 240u);
-    const uint32_t rollbackCount =
-        report.at("host").at("rollbackScheduledCount").get<uint32_t>() +
-        report.at("client").at("rollbackScheduledCount").get<uint32_t>();
-    REQUIRE(rollbackCount < 24u);
+    const uint32_t confirmedReplayCount =
+        report.at("host").at("confirmedReplayScheduledCount").get<uint32_t>() +
+        report.at("client").at("confirmedReplayScheduledCount").get<uint32_t>();
+    const uint32_t mismatchRollbackCount =
+        report.at("host").at("predictionMismatchRollbackScheduledCount").get<uint32_t>() +
+        report.at("client").at("predictionMismatchRollbackScheduledCount").get<uint32_t>();
+    REQUIRE(confirmedReplayCount > 0u);
+    REQUIRE(mismatchRollbackCount < 24u);
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("host").at("eventLogTail"), "Runtime flow stalled"));
     REQUIRE_FALSE(anyJsonLogLineContains(report.at("client").at("eventLogTail"), "Runtime flow stalled"));
 }
@@ -8018,7 +8022,7 @@ TEST_CASE("Netplay host synthesizes confirmed input at prediction limit without 
     client.disconnect();
 }
 
-TEST_CASE("Late mismatching input for committed fallback frame is classified without immediate host recovery resync",
+TEST_CASE("Late mismatching input for committed fallback frame schedules host recovery resync",
           "[netplay][prediction][fallback][late-mismatch]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -8091,7 +8095,17 @@ TEST_CASE("Late mismatching input for committed fallback frame is classified wit
 
     REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, lateInput, mismatchingContribution));
     REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_mismatch"));
-    REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
+    REQUIRE(anyLogLineContains(host.eventLog(), "action=queued_confirmed_desync_resync"));
+    const auto pending = host.consumePendingHostResyncFrame();
+    REQUIRE(pending.has_value());
+    REQUIRE(pending->frame == 111u);
+    REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    REQUIRE(pending->participantId == remote.id);
+    const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
+    REQUIRE(updated != nullptr);
+    REQUIRE(updated->inputSuspended);
+    REQUIRE(updated->inputResumeAwaitingResync);
+    REQUIRE(updated->sequenceRebasePending);
 
     host.disconnect();
 }
@@ -11768,6 +11782,10 @@ TEST_CASE("Netplay directed speculative mismatch rolls back and reconverges", "[
         report.at("host").at("rollbackScheduledCount").get<uint32_t>() +
         report.at("client").at("rollbackScheduledCount").get<uint32_t>();
     REQUIRE(totalRollbacks > 0u);
+    const uint32_t mismatchRollbacks =
+        report.at("host").at("predictionMismatchRollbackScheduledCount").get<uint32_t>() +
+        report.at("client").at("predictionMismatchRollbackScheduledCount").get<uint32_t>();
+    REQUIRE(mismatchRollbacks > 0u);
 }
 
 TEST_CASE("Netplay runtime reaches confirmed CRC agreement checkpoints under scripted input", "[netplay][runtime][prediction][crc]")

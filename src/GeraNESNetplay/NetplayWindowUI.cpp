@@ -844,6 +844,8 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Unresolved Predicted Frames: %u", snapshot.unresolvedPredictedRemoteFrameCount);
         ImGui::Text("Latest Predicted Frame: %u", snapshot.latestPredictedRemoteFrame);
         ImGui::Text("Scheduled Rollbacks: %u", snapshot.predictionStats.rollbackScheduledCount);
+        ImGui::Text("Confirmed Replays: %u", snapshot.predictionStats.confirmedReplayScheduledCount);
+        ImGui::Text("Prediction Mismatch Rollbacks: %u", snapshot.predictionStats.predictionMismatchRollbackScheduledCount);
         ImGui::Text("Missing Input Gaps: %u", snapshot.predictionStats.missingInputGapCount);
         ImGui::Text("Future Mismatches: %u", snapshot.predictionStats.futureFrameMismatchCount);
         ImGui::Text("Confirmed Conflicts: %u", snapshot.predictionStats.confirmedFrameConflictCount);
