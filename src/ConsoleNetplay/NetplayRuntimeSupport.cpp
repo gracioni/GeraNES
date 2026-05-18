@@ -1333,6 +1333,8 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
             );
             return result;
         }
+        // Confirmed rollback replay should produce the corrected audible frame.
+        // Prediction muting is driven by ConfirmedFrameInputs::predicted/speculative.
         if(!console.updateUntilFrame(frameDt, true)) {
             requestRollbackRecoveryResync(
                 "Netplay resimulation failed: emulator did not advance at frame " +
@@ -1529,6 +1531,8 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
         if(!coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) break;
         if(playbackFrame.predicted) break;
         if(!console.queuePlaybackInputFrame(playbackFrame)) break;
+        // Shared-clock catchup may advance several already-confirmed frames in
+        // one host tick. Keep it silent to avoid audio bursts while realigning.
         if(!console.updateUntilFrame(frameDt, false)) break;
 
         ++advancedFrames;
@@ -1591,6 +1595,8 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
         if(!coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) break;
         if(playbackFrame.predicted) break;
         if(!console.queuePlaybackInputFrame(playbackFrame)) break;
+        // Observer catchup is a confirmed-stream realignment path; keep it
+        // silent when it advances more than the presented frame cadence.
         if(!console.updateUntilFrame(frameDt, false)) break;
         ++advancedFrames;
         coordinator.setLocalSimulationFrame(console.frameCount());

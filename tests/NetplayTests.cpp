@@ -1427,7 +1427,7 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
     REQUIRE(*recommendations.inputDelayFrames == 3);
 }
 
-TEST_CASE("Netplay reactive auto delay does not raise before confirmed-desync resync",
+TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
           "[netplay][auto-settings][delay]")
 {
     ConsoleNetplay::NetplayAutoTune autoSettings;
@@ -1441,12 +1441,13 @@ TEST_CASE("Netplay reactive auto delay does not raise before confirmed-desync re
 
     auto recommendations =
         autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 2);
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("ignored non-pressure resync") != std::string::npos);
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("Raised delay") != std::string::npos);
 }
 
-TEST_CASE("Netplay reactive auto delay raises on sustained prediction mismatch rollback pressure",
+TEST_CASE("Netplay reactive auto delay holds on sustained prediction mismatch rollback pressure",
           "[netplay][auto-settings][delay][rollback]")
 {
     ConsoleNetplay::NetplayAutoTune autoSettings;
@@ -1471,9 +1472,8 @@ TEST_CASE("Netplay reactive auto delay raises on sustained prediction mismatch r
     room.currentFrame = 152;
     stats.predictionMismatchRollbackScheduledCount = 4;
     recommendations = autoSettings.update(room, stats, 0, 60);
-    REQUIRE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(*recommendations.inputDelayFrames == 2);
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("rollback pressure") != std::string::npos);
+    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("holding input delay") != std::string::npos);
 }
 
 TEST_CASE("Netplay input assignment normalization removes slots missing from sparse topology",

@@ -87,6 +87,7 @@ void NetplayAutoTune::resetForSession(uint32_t sessionId, SessionState state)
 bool NetplayAutoTune::shouldIncreaseDelayForResync(ResyncReason reason)
 {
     switch(reason) {
+        case ResyncReason::ConfirmedDesync:
         case ResyncReason::HostStallRecovery:
         case ResyncReason::ClientStallRecovery:
             return true;
@@ -184,27 +185,12 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
     const bool stopPressure = playbackStopDelta > 0u;
     const bool mismatchPressure = predictionMissDelta >= kPredictionMissPressureThreshold;
     (void)unresolvedPredictedRemoteFrameCount;
-    const bool increaseCooldownElapsed =
-        m_lastAdjustmentFrame == 0u ||
-        room.currentFrame >= m_lastAdjustmentFrame + kDelayIncreaseCooldownFrames;
-    if((rollbackPressure || stopPressure || mismatchPressure) &&
-       increaseCooldownElapsed) {
-        const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
-        const uint8_t targetDelay = clampDelay(static_cast<uint32_t>(currentDelay) + 1u);
+    if(rollbackPressure || stopPressure || mismatchPressure) {
         m_stableFrameCount = 0;
         m_lastStableEvaluationFrame = room.currentFrame;
-        if(targetDelay > currentDelay) {
-            recommendations.inputDelayFrames = targetDelay;
-            m_currentRecommendedDelay = targetDelay;
-            m_lastAdjustmentFrame = room.currentFrame;
-            m_lastDecisionReason =
-                "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
-                " after rollback pressure";
-            return recommendations;
-        }
         m_lastDecisionReason =
-            "Rollback pressure detected but delay already at cap " +
-            std::to_string(static_cast<unsigned>(currentDelay));
+            "Playback pressure observed; holding input delay " +
+            std::to_string(static_cast<unsigned>(room.inputDelayFrames));
         return recommendations;
     }
 

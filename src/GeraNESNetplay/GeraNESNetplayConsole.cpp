@@ -90,9 +90,9 @@ bool GeraNESNetplayConsole::loadRollbackState(const std::vector<uint8_t>& data)
     return m_emu.valid();
 }
 
-bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulating)
+bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool renderAudio)
 {
-    return m_emu.updateUntilFrame(frameDtMs, resimulating);
+    return m_emu.updateUntilFrame(frameDtMs, renderAudio);
 }
 
 void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
