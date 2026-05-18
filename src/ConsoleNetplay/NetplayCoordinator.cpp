@@ -1776,7 +1776,8 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         // produce false mismatches (especially visible on web/mobile clients).
         const bool predictionHit =
             existing->buttonMaskLo == input.buttonMaskLo &&
-            existing->buttonMaskHi == input.buttonMaskHi;
+            existing->buttonMaskHi == input.buttonMaskHi &&
+            existing->netplayFrame.slotPayloads[input.playerSlot] == netplayFrame.slotPayloads[input.playerSlot];
         const FrameNumber currentFrame = m_localSimulationFrame;
         if(input.frame <= currentFrame) {
             m_predictionStats.recordPrediction(predictionHit);

@@ -1352,6 +1352,74 @@ TEST_CASE("Netplay remote prediction honors sparse slot ids",
     host.disconnect();
 }
 
+TEST_CASE("Netplay resolved prediction treats slot payload changes as rollback misses",
+          "[netplay][prediction][payload][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = ConsoleNetplay::roomWithInputTopology(
+        room,
+        {
+            {42u, 1u, ConsoleNetplay::kGenericInputDevice, true, "Generic", "Payload"}
+        }
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 3u;
+    room.currentFrame = 2u;
+    room.lastConfirmedFrame = 1u;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 1u;
+    remote.displayName = "Remote";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {42u};
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    ConsoleNetplay::NetplayInputFrame confirmed =
+        ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(1u, room);
+    confirmed.buttonMaskLo[42u] = 0x1234u;
+    confirmed.slotPayloads[42u] = {0x10u, 0x20u};
+
+    ConsoleNetplay::InputFrameData input{};
+    input.timelineEpoch = room.timelineEpoch;
+    input.frame = 1u;
+    input.participantId = remote.id;
+    input.playerSlot = 42u;
+    input.buttonMaskLo = 0x1234u;
+    input.sequence = 1u;
+    REQUIRE(host.injectInputFrameForTests(input, confirmed));
+
+    host.predictRemoteInputsForFrame(2u);
+    host.setLocalSimulationFrame(3u);
+
+    ConsoleNetplay::NetplayInputFrame corrected =
+        ConsoleNetplay::makeRoomTopologyBaseNetplayFrame(2u, room);
+    corrected.buttonMaskLo[42u] = 0x1234u;
+    corrected.slotPayloads[42u] = {0x10u, 0x21u};
+
+    input.frame = 2u;
+    input.sequence = 2u;
+    REQUIRE(host.injectInputFrameForTests(input, corrected));
+
+    const std::optional<ConsoleNetplay::FrameNumber> rollbackFrame =
+        host.consumePendingRollbackFrame();
+    REQUIRE(rollbackFrame.has_value());
+    REQUIRE(*rollbackFrame == 1u);
+    REQUIRE(host.predictionStats().predictionMissCount == 1u);
+
+    host.disconnect();
+}
+
 TEST_CASE("Netplay ignores resolved prediction rollback pressure during post-resync stabilization",
           "[netplay][prediction][stabilization][regression]")
 {
