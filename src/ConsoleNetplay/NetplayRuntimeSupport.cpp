@@ -438,7 +438,7 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
             ? state.lastLoadedAuthoritativeFrame
             : 0u;
     const FrameNumber confirmedCheckpointFrame =
-        (confirmedFrame != 0u && lastFrameReadyFrame == confirmedFrame)
+        (confirmedFrame != 0u && lastFrameReadyFrame >= confirmedFrame)
             ? confirmedFrame
             : 0u;
     const FrameNumber crcCheckpointFrame = std::max(confirmedCheckpointFrame, authoritativeCheckpointFrame);

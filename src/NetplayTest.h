@@ -2779,7 +2779,10 @@ private:
                 const bool roomClosedObserved =
                     clientSnap.room.state == ConsoleNetplay::SessionState::Ended ||
                     clientSnap.room.participants.empty();
-                if(clientDisconnectedNoReconnect && roomClosedObserved) {
+                const bool ownerCloseObserved =
+                    clientSnap.lastError == "Owner closed the room" ||
+                    clientSnap.lastError == "Owner disconnected during session";
+                if(clientDisconnectedNoReconnect && (roomClosedObserved || ownerCloseObserved)) {
                     result.report = buildRuntimeReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame, maxStallSteps, maxClientAheadOfHostFrames, maxHostAheadOfClientFrames, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                     result.report["startHostFrame"] = startHostFrame;
                     result.report["startClientFrame"] = startClientFrame;
@@ -3052,7 +3055,9 @@ private:
                 if(options.hostDisconnectFrame > 0 &&
                    !((!clientSnap.connected && !clientSnap.reconnecting) &&
                      (clientSnap.room.state == ConsoleNetplay::SessionState::Ended ||
-                      clientSnap.room.participants.empty()))) {
+                      clientSnap.room.participants.empty() ||
+                      clientSnap.lastError == "Owner closed the room" ||
+                      clientSnap.lastError == "Owner disconnected during session"))) {
                     ++hostDisconnectCompletionWaitSteps;
                     if(hostDisconnectCompletionWaitSteps >= hostDisconnectCompletionWaitLimit) {
                         failureReason =

@@ -555,7 +555,7 @@ TEST_CASE("Netplay desync monitor drops same-frame CRC history on realignment", 
     REQUIRE(remoteMatch.mismatchDetected == false);
 }
 
-TEST_CASE("Periodic netplay CRC skips historical snapshot checkpoints behind live frame",
+TEST_CASE("Periodic netplay CRC submits confirmed snapshot checkpoints behind live frame",
           "[netplay][crc][runtime][regression]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -592,8 +592,11 @@ TEST_CASE("Periodic netplay CRC skips historical snapshot checkpoints behind liv
     state.nextScheduledLocalCrcFrame = 30u;
 
     const auto result = ConsoleNetplay::runtimeSubmitPeriodicLocalCrcIfNeeded(host, emu, runtimeHost, state);
-    REQUIRE(result.submitted == false);
-    REQUIRE(state.lastSubmittedLocalCrcFrame == 0u);
+    REQUIRE(result.submitted == true);
+    REQUIRE(result.submittedFrame == 30u);
+    REQUIRE(result.submittedCrc32 == 0x55667788u);
+    REQUIRE(std::string(result.submittedSource) == "local CRC submission (snapshot)");
+    REQUIRE(state.lastSubmittedLocalCrcFrame == 30u);
 
     host.disconnect();
 }
