@@ -1323,9 +1323,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
             );
             return result;
         }
-    }
-    coordinator.setLocalSimulationFrame(console.frameCount());
-    if(console.frameCount() == currentFrame) {
+
         const std::vector<uint8_t> replayedSnapshot = emu.saveNetplayStateToMemory();
         if(!replayedSnapshot.empty()) {
             runtimeHost.seedNetplaySnapshot(
@@ -1335,6 +1333,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
             );
         }
     }
+    coordinator.setLocalSimulationFrame(console.frameCount());
     runtimeHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
 
     const FrameNumber recoveredConfirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
