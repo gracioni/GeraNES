@@ -1427,7 +1427,7 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
     REQUIRE(*recommendations.inputDelayFrames == 3);
 }
 
-TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
+TEST_CASE("Netplay reactive auto delay does not raise before confirmed-desync resync",
           "[netplay][auto-settings][delay]")
 {
     ConsoleNetplay::NetplayAutoTune autoSettings;
@@ -1441,13 +1441,12 @@ TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
 
     auto recommendations =
         autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
-    REQUIRE(recommendations.inputDelayFrames.has_value());
-    REQUIRE(*recommendations.inputDelayFrames == 2);
+    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
-    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("Raised delay") != std::string::npos);
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("ignored non-pressure resync") != std::string::npos);
 }
 
-TEST_CASE("Netplay reactive auto delay raises on sustained rollback pressure",
+TEST_CASE("Netplay reactive auto delay raises on sustained prediction mismatch rollback pressure",
           "[netplay][auto-settings][delay][rollback]")
 {
     ConsoleNetplay::NetplayAutoTune autoSettings;
@@ -1465,7 +1464,13 @@ TEST_CASE("Netplay reactive auto delay raises on sustained rollback pressure",
 
     room.currentFrame = 136;
     stats.rollbackScheduledCount = 4;
+    stats.confirmedReplayScheduledCount = 4;
     auto recommendations = autoSettings.update(room, stats, 0, 60);
+    REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
+
+    room.currentFrame = 152;
+    stats.predictionMismatchRollbackScheduledCount = 4;
+    recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 2);
     REQUIRE(autoSettings.snapshot().lastDecisionReason.find("rollback pressure") != std::string::npos);
@@ -2981,13 +2986,13 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
 
     auto recommendations =
-        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
+        autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::HostStallRecovery);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
     REQUIRE(autoSettings.snapshot().lastDecisionReason.find("blocked until frame 1500") != std::string::npos);
 
     room.currentFrame = 1500;
-    recommendations = autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::ConfirmedDesync);
+    recommendations = autoSettings.recommendForImpendingResync(room, ConsoleNetplay::ResyncReason::HostStallRecovery);
     REQUIRE(recommendations.inputDelayFrames.has_value());
     REQUIRE(*recommendations.inputDelayFrames == 2);
 }

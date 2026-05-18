@@ -58,6 +58,7 @@ private:
     uint32_t m_lastObservedRollbackScheduledCount = 0;
     uint32_t m_lastObservedPlaybackStopCount = 0;
     uint32_t m_lastObservedPredictionMissCount = 0;
+    uint32_t m_lastObservedPredictionMismatchRollbackCount = 0;
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;

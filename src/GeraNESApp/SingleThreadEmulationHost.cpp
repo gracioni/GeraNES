@@ -237,6 +237,7 @@ void SingleThreadEmulationHost::onFrameReady()
 void SingleThreadEmulationHost::refreshPresentedFramebuffer()
 {
     if(m_holdPresentedFramebufferUntilFrameReady) return;
+    if(m_emu.lastFrameReadyWasSpeculative()) return;
     if(!m_emu.valid()) {
         std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
         return;
