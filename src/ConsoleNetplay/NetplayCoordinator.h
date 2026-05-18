@@ -159,6 +159,7 @@ private:
     uint32_t m_localInputSequence = 0;
     RollbackStats m_predictionStats;
     std::optional<FrameNumber> m_pendingRollbackFrame;
+    bool m_pendingRollbackFrameExactReplay = false;
     std::optional<PendingHostResyncRequest> m_pendingHostResyncFrame;
     std::chrono::steady_clock::time_point m_lastHostResyncRequestSentAt = {};
     ResyncReason m_lastHostResyncRequestSentReason = ResyncReason::Unspecified;
@@ -428,7 +429,7 @@ public:
     void recordLocalAuthoritativeFrameStart(FrameNumber frame);
     void setLocalSimulationFrame(FrameNumber frame);
     void rescheduleRollbackFrame(FrameNumber frame);
-    std::optional<FrameNumber> consumePendingRollbackFrame();
+    std::optional<FrameNumber> consumePendingRollbackFrame(bool* exactReplay = nullptr);
     void discardTimelineAfter(FrameNumber frame, bool preserveLocalInputs = false);
     std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();

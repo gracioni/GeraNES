@@ -1169,7 +1169,8 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     (void)emu;
 
     RuntimeRollbackProcessResult result;
-    std::optional<FrameNumber> rollbackFrame = coordinator.consumePendingRollbackFrame();
+    bool exactRollbackReplay = false;
+    std::optional<FrameNumber> rollbackFrame = coordinator.consumePendingRollbackFrame(&exactRollbackReplay);
     if(!rollbackFrame.has_value()) return result;
     result.consumed = true;
     state.lastRollbackTargetFrame = *rollbackFrame;
@@ -1178,13 +1179,19 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const FrameNumber currentFrame = console.frameCount();
     if(currentFrame == 0) return result;
 
-    const FrameNumber confirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
     const FrameNumber latestSafeRollbackFrame = currentFrame - 1u;
-    const FrameNumber earliestConfirmedReplayFrame =
-        confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
-    const FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
-    if(*rollbackFrame < rollbackFloor) {
-        rollbackFrame = rollbackFloor;
+    if(exactRollbackReplay) {
+        if(*rollbackFrame > latestSafeRollbackFrame) {
+            rollbackFrame = latestSafeRollbackFrame;
+        }
+    } else {
+        const FrameNumber confirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
+        const FrameNumber earliestConfirmedReplayFrame =
+            confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
+        const FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
+        if(*rollbackFrame < rollbackFloor) {
+            rollbackFrame = rollbackFloor;
+        }
     }
     result.rollbackTargetFrame = *rollbackFrame;
     state.lastRollbackTargetFrame = *rollbackFrame;
