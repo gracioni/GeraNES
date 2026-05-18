@@ -148,6 +148,7 @@ private:
     std::string m_lastEventLogMessage;
     uint32_t m_lastEventLogRepeatCount = 0;
     std::vector<std::string> m_loggedAdvertisedIceServers;
+    std::unordered_map<std::string, uint32_t> m_collapsedDebugLogCounts;
     NetTransport::PeerHandle m_serverPeer = NetTransport::kInvalidPeerHandle;
     ParticipantId m_localParticipantId = kInvalidParticipantId;
     std::string m_localDisplayName;
@@ -235,6 +236,7 @@ private:
     void resetSessionState();
     void queuePendingHostResync(FrameNumber frame, ResyncReason reason, ParticipantId participantId = kInvalidParticipantId);
     void pushLog(const std::string& message);
+    void pushCollapsedDebugLog(const std::string& key, const std::string& message);
     void pushToast(const std::string& message);
     ParticipantInfo& ensureParticipant(ParticipantId id, const std::string& displayName);
     void rememberParticipantDisplayName(const ParticipantInfo& participant);

@@ -2904,6 +2904,7 @@ TEST_CASE("Netplay repeated input history self-heals single-frame loss and dupli
     REQUIRE(recoveredFrame2 != nullptr);
     REQUIRE(recoveredFrame2->confirmed);
 
+    host.setDebugMode(true);
     REQUIRE(injectRemote(2u, 2u, false));
     REQUIRE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input"));
 
@@ -2913,6 +2914,75 @@ TEST_CASE("Netplay repeated input history self-heals single-frame loss and dupli
     REQUIRE(recoveredFrame3 != nullptr);
     REQUIRE(recoveredFrame3->confirmed);
     REQUIRE(recoveredFrame3->buttonMaskLo != 0u);
+
+    host.disconnect();
+}
+
+TEST_CASE("Netplay stale duplicate resend logs are collapsed behind debug mode",
+          "[netplay][input][log][debug][unit]")
+{
+    ConsoleNetplay::NetplayCoordinator host;
+    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
+    bool hosted = false;
+    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
+        hosted = host.host(reserveLoopbackPort(), 1, "Host");
+    }
+    REQUIRE(hosted);
+
+    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
+    room = GeraNESNetplay::roomWithGeraNESInputTopology(
+        room,
+        Settings::Device::CONTROLLER,
+        Settings::Device::CONTROLLER,
+        Settings::ExpansionDevice::NONE,
+        Settings::NesMultitapDevice::NONE,
+        Settings::FamicomMultitapDevice::NONE
+    );
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.timelineEpoch = 2u;
+
+    ConsoleNetplay::ParticipantInfo remote;
+    remote.id = 2u;
+    remote.displayName = "Remote";
+    remote.connected = true;
+    remote.romLoaded = true;
+    remote.romCompatible = true;
+    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
+    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
+    remote.lastReceivedInputFrame = 0u;
+    remote.lastContiguousInputFrame = 0u;
+    remote.lastReceivedInputSequence = 0u;
+    remote.normalizeControllerAssignments(&room.inputTopology);
+    room.participants.push_back(remote);
+
+    auto injectRemote = [&](ConsoleNetplay::FrameNumber frame, uint32_t sequence) {
+        InputFrame contribution = GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room);
+        ConsoleNetplay::InputFrameData input{};
+        input.timelineEpoch = room.timelineEpoch;
+        input.frame = frame;
+        input.participantId = remote.id;
+        input.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
+        input.sequence = sequence;
+        return GeraNESNetplay::injectInputFrameForTests(host, input, contribution);
+    };
+
+    REQUIRE(injectRemote(1u, 1u));
+    REQUIRE(injectRemote(1u, 1u));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input"));
+
+    host.setDebugMode(true);
+    REQUIRE(injectRemote(1u, 1u));
+    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input"));
+    REQUIRE(anyLogLineContains(host.eventLog(), "(x1)"));
+
+    REQUIRE(injectRemote(1u, 1u));
+    REQUIRE(anyLogLineContains(host.eventLog(), "(x2)"));
+
+    REQUIRE(injectRemote(1u, 1u));
+    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "(x3)"));
+
+    REQUIRE(injectRemote(1u, 1u));
+    REQUIRE(anyLogLineContains(host.eventLog(), "(x4)"));
 
     host.disconnect();
 }

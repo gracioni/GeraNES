@@ -451,6 +451,7 @@ void NetplayCoordinator::resetSessionState()
     m_confirmedFrames.clear();
     m_confirmedFrameIndex.clear();
     m_loggedAdvertisedIceServers.clear();
+    m_collapsedDebugLogCounts.clear();
     m_lastError.clear();
     m_hosting = false;
     m_connected = false;
@@ -555,6 +556,25 @@ void NetplayCoordinator::pushLog(const std::string& message)
     if(m_eventLog.size() > MAX_LOG_LINES) {
         m_eventLog.erase(m_eventLog.begin(), m_eventLog.begin() + (m_eventLog.size() - MAX_LOG_LINES));
     }
+}
+
+void NetplayCoordinator::pushCollapsedDebugLog(const std::string& key, const std::string& message)
+{
+    if(!m_debugMode || key.empty() || message.empty()) {
+        return;
+    }
+
+    uint32_t& count = m_collapsedDebugLogCounts[key];
+    ++count;
+    const bool shouldLog =
+        count == 1u ||
+        (count <= 1024u && (count & (count - 1u)) == 0u) ||
+        (count % 1024u) == 0u;
+    if(!shouldLog) {
+        return;
+    }
+
+    pushLog(message + " (x" + std::to_string(count) + ")");
 }
 
 void NetplayCoordinator::pushToast(const std::string& message)
@@ -1539,7 +1559,10 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " seq " << input.sequence
                 << " epoch " << input.timelineEpoch
                 << " (current " << m_session.roomState().timelineEpoch << ")";
-            pushLog(oss.str());
+            pushCollapsedDebugLog(
+                "stale_epoch_input:" + std::to_string(static_cast<unsigned>(input.participantId)),
+                oss.str()
+            );
             return true;
         }
         recordRejectedInput(participant, "future_epoch");
@@ -1663,7 +1686,12 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 << " frame " << input.frame
                 << " seq " << input.sequence
                 << " lastSeq " << participant->lastReceivedInputSequence;
-            pushLog(oss.str());
+            pushCollapsedDebugLog(
+                "stale_duplicate_input:" +
+                    std::to_string(static_cast<unsigned>(participant->id)) + ":" +
+                    std::to_string(static_cast<unsigned>(input.playerSlot)),
+                oss.str()
+            );
             return true;
         }
         if(input.sequence != expectedSequence &&
@@ -1702,19 +1730,27 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             participant->pendingMissingInputFrom.reset();
             m_lastRemoteInputAt[participant->id] = std::chrono::steady_clock::now();
 
-            if(committedMismatch ||
-               m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
+            if(committedMismatch) {
                 std::ostringstream oss;
                 oss << "Ignored late input for already committed frame from " << participant->displayName
                     << " frame " << input.frame
                     << " expectedFrame " << expectedFrame
-                    << " seq " << input.sequence;
-                if(committedMismatch) {
-                    oss << " classification=late_committed_input_mismatch";
-                } else {
-                    oss << " classification=late_committed_input_duplicate";
-                }
+                    << " seq " << input.sequence
+                    << " classification=late_committed_input_mismatch";
                 pushLog(oss.str());
+            } else if(m_session.roomState().recoveryInputMode != RecoveryInputMode::PostResyncStabilizing) {
+                std::ostringstream oss;
+                oss << "Ignored late input for already committed frame from " << participant->displayName
+                    << " frame " << input.frame
+                    << " expectedFrame " << expectedFrame
+                    << " seq " << input.sequence
+                    << " classification=late_committed_input_duplicate";
+                pushCollapsedDebugLog(
+                    "late_committed_input_duplicate:" +
+                        std::to_string(static_cast<unsigned>(participant->id)) + ":" +
+                        std::to_string(static_cast<unsigned>(input.playerSlot)),
+                    oss.str()
+                );
             }
             return true;
         }
@@ -6364,7 +6400,10 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
                 << " assignment " << inputAssignmentLabel(slot, m_session.roomState())
                 << " oldMaskLo " << existing->buttonMaskLo
                 << " newMaskLo " << buttonMaskLo;
-            pushLog(oss.str());
+            pushCollapsedDebugLog(
+                "local_input_overwrite:" + std::to_string(static_cast<unsigned>(slot)),
+                oss.str()
+            );
         }
         return;
     }
