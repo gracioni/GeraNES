@@ -158,6 +158,7 @@ size_t InputTopologyData::serializedSize() const
 void InputFrameData::serialize(PacketWriter& writer) const
 {
     writer.writePod(timelineEpoch);
+    writer.writePod(inputTopologyCrc32);
     writer.writePod(frame);
     writer.writePod(authoritativeFrameStartClockMicros);
     writer.writePod(participantId);
@@ -171,6 +172,7 @@ void InputFrameData::serialize(PacketWriter& writer) const
 bool InputFrameData::deserialize(PacketReader& reader, InputFrameData& data)
 {
     return reader.readPod(data.timelineEpoch) &&
+           reader.readPod(data.inputTopologyCrc32) &&
            reader.readPod(data.frame) &&
            reader.readPod(data.authoritativeFrameStartClockMicros) &&
            reader.readPod(data.participantId) &&
@@ -380,6 +382,11 @@ void PeerHealthData::serialize(PacketWriter& writer) const
     writer.writePod(sharedClockMicros);
     writer.writePod(clockSyncRttMicros);
     writer.writePod(sharedClockSynchronized);
+    writer.writePod(latestLocalCrcFrame);
+    writer.writePod(latestLocalCrc32);
+    writer.writePod(latestLocalCrcSource);
+    writer.writePod(latestLocalCrcSimulationFrame);
+    writer.writePod(latestLocalCrcConfirmedFrame);
 }
 
 bool PeerHealthData::deserialize(PacketReader& reader, PeerHealthData& data)
@@ -397,7 +404,12 @@ bool PeerHealthData::deserialize(PacketReader& reader, PeerHealthData& data)
            reader.readPod(data.jitterMs) &&
            reader.readPod(data.sharedClockMicros) &&
            reader.readPod(data.clockSyncRttMicros) &&
-           reader.readPod(data.sharedClockSynchronized);
+           reader.readPod(data.sharedClockSynchronized) &&
+           reader.readPod(data.latestLocalCrcFrame) &&
+           reader.readPod(data.latestLocalCrc32) &&
+           reader.readPod(data.latestLocalCrcSource) &&
+           reader.readPod(data.latestLocalCrcSimulationFrame) &&
+           reader.readPod(data.latestLocalCrcConfirmedFrame);
 }
 
 void ClockSyncRequestData::serialize(PacketWriter& writer) const

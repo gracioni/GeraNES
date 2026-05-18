@@ -74,6 +74,7 @@ private:
         uint32_t resyncId = 0;
         FrameNumber targetFrame = 0;
         uint32_t expectedPayloadCrc32 = 0;
+        uint32_t expectedStateCrc32 = 0;
         std::vector<uint8_t> payload;
         std::vector<uint8_t> receivedMask;
         std::chrono::steady_clock::time_point lastActivityAt = {};
@@ -87,6 +88,7 @@ public:
         FrameNumber confirmedFrame = 0;
         FrameNumber frameReadyFrame = 0;
         uint32_t expectedPayloadCrc32 = 0;
+        uint32_t expectedStateCrc32 = 0;
         uint32_t frameReadyCrc32 = 0;
         uint32_t inputSequenceBase = 0;
         ResyncReason reason = ResyncReason::Unspecified;
@@ -98,6 +100,13 @@ public:
         FrameNumber frame = 0;
         ResyncReason reason = ResyncReason::Unspecified;
         ParticipantId participantId = kInvalidParticipantId;
+    };
+
+    enum class InputHistoryState : uint8_t
+    {
+        Missing,
+        Predicted,
+        Confirmed
     };
 
 private:
@@ -159,6 +168,7 @@ private:
     uint32_t m_localInputSequence = 0;
     RollbackStats m_predictionStats;
     std::optional<FrameNumber> m_pendingRollbackFrame;
+    std::optional<FrameNumber> m_firstSpeculativeFrame;
     std::optional<PendingHostResyncRequest> m_pendingHostResyncFrame;
     std::chrono::steady_clock::time_point m_lastHostResyncRequestSentAt = {};
     ResyncReason m_lastHostResyncRequestSentReason = ResyncReason::Unspecified;
@@ -167,6 +177,7 @@ private:
     FrameNumber m_lastBroadcastFrameStatusConfirmedFrame = 0;
     uint8_t m_lastBroadcastInputDelayFrames = 0;
     DesyncMonitor m_desyncMonitor;
+    FrameNumber m_lastCrcMismatchRollbackAttemptFrame = 0;
     FrameNumber m_localSimulationFrame = 0;
     FrameNumber m_lastAuthoritativeRealignFrame = 0;
     uint32_t m_nextResyncId = 1;
@@ -357,6 +368,7 @@ public:
     static bool romValidationMatches(const RomValidationData& a, const RomValidationData& b);
     static std::string resyncReasonToast(ResyncReason reason);
     uint32_t unresolvedPredictedRemoteFrameCount() const;
+    std::vector<TimelineInputEntry> unresolvedPredictedRemoteInputs(size_t limit = 32) const;
     FrameNumber latestPredictedRemoteFrame() const;
     void setRepeatedInputFrameTransformer(
         std::function<NetplayInputFrame(const NetplayInputFrame&, FrameNumber)> transformer);
@@ -434,11 +446,13 @@ public:
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();
     const InputTimeline& localInputs() const;
     const InputTimeline& remoteInputs() const;
+    InputHistoryState inputHistoryState(FrameNumber frame, ParticipantId participantId, PlayerSlot slot) const;
     FrameNumber localSimulationFrame() const;
     const ConfirmedFrameInputs* findConfirmedFrame(FrameNumber frame) const;
     // Highest confirmed frame bundle already published/stored locally.
     FrameNumber latestPublishedConfirmedFrame() const;
     FrameNumber latestConfirmedFrame() const;
+    std::optional<FrameNumber> firstSpeculativeFrame() const;
     FrameNumber hostConfirmedFrame() const;
     uint64_t sharedClockNowMicros() const;
     uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;

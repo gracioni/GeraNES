@@ -451,7 +451,10 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
     const bool forcedDue =
         state.forceNextConfirmedCrcSubmission &&
         crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
-    if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return result;
+    const bool debugEveryFrameDue =
+        state.submitEveryConfirmedFrame &&
+        crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
+    if(!periodicDue && !forcedDue && !postRecoveryRapidDue && !debugEveryFrameDue) return result;
 
     std::optional<uint32_t> crc32;
     const char* submittedSource = nullptr;
@@ -585,7 +588,8 @@ RuntimeHostResyncProcessResult runtimeProcessHostResyncIfNeeded(
     NetplayAutoTune& autoTune,
     INetplayStateBridge& emu,
     INetplayStateHostBridge& runtimeHost,
-    bool autoGameplayTuning)
+    bool autoGameplayTuning,
+    INetplayRuntimeSessionControls* controls)
 {
     RuntimeHostResyncProcessResult processResult;
     if(!coordinator.isHosting()) return processResult;
@@ -603,6 +607,13 @@ RuntimeHostResyncProcessResult runtimeProcessHostResyncIfNeeded(
     FrameNumber authoritativeFrame =
         std::min<FrameNumber>(requestedFrame, emu.frameCount());
     bool preferConfirmedSnapshot = !initialSessionSync;
+    if(!initialSessionSync &&
+       pending->reason == ResyncReason::ConfirmedDesync &&
+       controls != nullptr) {
+        controls->setSimulationSuspended(true);
+        controls->discardQueuedAudio();
+        coordinator.appendNetplayLog("Netplay confirmed-desync resync paused simulation before state capture");
+    }
 
     std::vector<uint8_t> statePayload =
         runtimeBuildAuthoritativeStatePayload(emu, runtimeHost, authoritativeFrame, preferConfirmedSnapshot);
@@ -846,12 +857,15 @@ RuntimePendingResyncApplyResult runtimeProcessPendingResyncApplyIfNeeded(
         loaded &&
         (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
     const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0u;
+    const bool loadedExpectedState =
+        loadedExpectedFrame &&
+        (pending->expectedStateCrc32 == 0u || loadedCrc32 == pending->expectedStateCrc32);
 
-    result.loadedExpectedFrame = loadedExpectedFrame;
+    result.loadedExpectedFrame = loadedExpectedState;
     result.loadedFrame = loadedFrame;
     result.loadedCrc32 = loadedCrc32;
 
-    if(loadedExpectedFrame) {
+    if(loadedExpectedState) {
         emu.discardQueuedInputFramesAfter(pending->targetFrame);
         runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
         coordinator.setLocalSimulationFrame(pending->targetFrame);
@@ -868,21 +882,33 @@ RuntimePendingResyncApplyResult runtimeProcessPendingResyncApplyIfNeeded(
         std::ostringstream oss;
         oss << "Netplay resync post-load validation accepted"
             << " targetFrame " << pending->targetFrame
+            << " expectedStateCrc32 " << pending->expectedStateCrc32
             << " loadedCrc32 " << loadedCrc32
             << " frameReadyFrame "
             << (pending->frameReadyFrame != 0u ? pending->frameReadyFrame : pending->targetFrame);
         coordinator.appendNetplayLog(oss.str());
     }
 
-    coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedFrame);
+    coordinator.acknowledgeResync(pending->resyncId, pending->targetFrame, loadedCrc32, loadedExpectedState);
 
-    if(!loadedExpectedFrame) {
+    if(!loadedExpectedState) {
         if(loaded && loadedFrame != pending->targetFrame) {
             std::ostringstream oss;
             oss << "Netplay resync load frame mismatch: expected "
                 << pending->targetFrame
                 << ", got "
                 << loadedFrame
+                << " after clean-boot state load";
+            coordinator.appendNetplayLog(oss.str());
+        }
+        if(loadedExpectedFrame &&
+           pending->expectedStateCrc32 != 0u &&
+           loadedCrc32 != pending->expectedStateCrc32) {
+            std::ostringstream oss;
+            oss << "Netplay resync load CRC mismatch: expected "
+                << pending->expectedStateCrc32
+                << ", got "
+                << loadedCrc32
                 << " after clean-boot state load";
             coordinator.appendNetplayLog(oss.str());
         }
@@ -1178,14 +1204,6 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const FrameNumber currentFrame = console.frameCount();
     if(currentFrame == 0) return result;
 
-    const FrameNumber confirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
-    const FrameNumber latestSafeRollbackFrame = currentFrame - 1u;
-    const FrameNumber earliestConfirmedReplayFrame =
-        confirmedFrame > 0 ? (confirmedFrame - 1u) : 0u;
-    const FrameNumber rollbackFloor = std::min(earliestConfirmedReplayFrame, latestSafeRollbackFrame);
-    if(*rollbackFrame < rollbackFloor) {
-        rollbackFrame = rollbackFloor;
-    }
     result.rollbackTargetFrame = *rollbackFrame;
     state.lastRollbackTargetFrame = *rollbackFrame;
 
@@ -1193,7 +1211,6 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         coordinator.rescheduleRollbackFrame(*rollbackFrame);
         return result;
     }
-
     const auto requestRollbackRecoveryResync = [&](const std::string& message, uint16_t requestFlags = 0u) {
         coordinator.appendNetplayLog(message);
         if(coordinator.isHosting()) {
@@ -1263,7 +1280,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     const uint32_t rollbackCanonicalCrc32 = console.canonicalNetplayStateCrc32();
     (void)runtimeHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
     coordinator.setLocalSimulationFrame(*rollbackFrame);
-    coordinator.discardTimelineAfter(*rollbackFrame);
+    coordinator.discardTimelineAfter(*rollbackFrame, true);
     coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
 
     inputDriver.reanchor(*rollbackFrame);
@@ -1326,11 +1343,28 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         }
 
         const std::vector<uint8_t> replayedSnapshot = emu.saveNetplayStateToMemory();
+        const uint32_t replayedCrc32 = console.canonicalNetplayStateCrc32();
+        const FrameNumber replayedFrame = console.frameCount();
+        if(!playbackFrame.predicted) {
+            if(const std::optional<uint32_t> existingConfirmedCrc32 =
+                   runtimeHost.netplaySnapshotCrc32ForFrame(replayedFrame);
+               existingConfirmedCrc32.has_value() &&
+               *existingConfirmedCrc32 != replayedCrc32) {
+                requestRollbackRecoveryResync(
+                    "Netplay resimulation failed: replayed CRC mismatch at frame " +
+                    std::to_string(replayedFrame) +
+                    " expected " + std::to_string(*existingConfirmedCrc32) +
+                    " actual " + std::to_string(replayedCrc32),
+                    kResyncRequestFlagRollbackReplayCrcMismatch
+                );
+                return result;
+            }
+        }
         if(!replayedSnapshot.empty()) {
             runtimeHost.seedNetplaySnapshot(
-                console.frameCount(),
+                replayedFrame,
                 replayedSnapshot,
-                console.canonicalNetplayStateCrc32()
+                replayedCrc32
             );
         }
     }

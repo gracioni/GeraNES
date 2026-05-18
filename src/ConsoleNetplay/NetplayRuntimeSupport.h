@@ -38,7 +38,7 @@ struct RuntimeInputDelaySettings
     uint32_t gameplayReceiveDelayMs = 0;
     bool autoGameplayTuning = false;
     uint32_t manualInputDelayFrames = 0;
-    uint32_t manualPredictFrames = 0;
+    uint32_t manualPredictFrames = 8;
     uint32_t regionFps = 60;
 };
 
@@ -177,6 +177,7 @@ struct RuntimePeriodicCrcState
     FrameNumber lastLoadedAuthoritativeFrame = 0;
     FrameNumber postRecoveryRapidCrcThroughFrame = 0;
     bool forceNextConfirmedCrcSubmission = false;
+    bool submitEveryConfirmedFrame = false;
 };
 
 struct RuntimePeriodicCrcResult
@@ -337,6 +338,11 @@ std::vector<uint8_t> runtimeBuildAuthoritativeStatePayload(INetplayStateBridge& 
                                                            FrameNumber authoritativeFrame,
                                                            bool preferConfirmedSnapshot);
 
+uint32_t runtimeComputeAuthoritativeStateCrc32(INetplayStateBridge& emu,
+                                               const INetplayStateHostBridge& runtimeHost,
+                                               FrameNumber authoritativeFrame,
+                                               bool preferConfirmedSnapshot);
+
 RuntimeAuthoritativeStateResult runtimeBeginAuthoritativeResync(
     NetplayCoordinator& coordinator,
     ConfirmedInputBufferDriver& inputDriver,
@@ -370,7 +376,8 @@ RuntimeHostResyncProcessResult runtimeProcessHostResyncIfNeeded(
     NetplayAutoTune& autoTune,
     INetplayStateBridge& emu,
     INetplayStateHostBridge& runtimeHost,
-    bool autoGameplayTuning);
+    bool autoGameplayTuning,
+    INetplayRuntimeSessionControls* controls = nullptr);
 
 RuntimeHostResyncProcessResult runtimeProcessHostLateJoinResyncIfNeeded(
     NetplayCoordinator& coordinator,

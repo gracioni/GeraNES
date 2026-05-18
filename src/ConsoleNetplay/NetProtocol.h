@@ -173,6 +173,7 @@ struct InputTopologyData
 struct InputFrameData
 {
     uint32_t timelineEpoch = 0;
+    uint32_t inputTopologyCrc32 = 0;
     FrameNumber frame = 0;
     uint64_t authoritativeFrameStartClockMicros = 0;
     ParticipantId participantId = kInvalidParticipantId;
@@ -298,6 +299,11 @@ struct PeerHealthData
     uint64_t sharedClockMicros = 0;
     uint64_t clockSyncRttMicros = 0;
     uint8_t sharedClockSynchronized = 0;
+    FrameNumber latestLocalCrcFrame = 0;
+    uint32_t latestLocalCrc32 = 0;
+    CrcSubmissionSource latestLocalCrcSource = CrcSubmissionSource::Unknown;
+    FrameNumber latestLocalCrcSimulationFrame = 0;
+    FrameNumber latestLocalCrcConfirmedFrame = 0;
 
     void serialize(PacketWriter& writer) const;
     static bool deserialize(PacketReader& reader, PeerHealthData& data);
@@ -415,5 +421,6 @@ struct ResyncRequestData
 constexpr uint16_t kResyncRequestFlagRollbackReplayBuildFailure = 1u << 0;
 constexpr uint16_t kResyncRequestFlagRollbackReplayEnqueueFailure = 1u << 1;
 constexpr uint16_t kResyncRequestFlagRollbackReplayAdvanceFailure = 1u << 2;
+constexpr uint16_t kResyncRequestFlagRollbackReplayCrcMismatch = 1u << 3;
 
 } // namespace ConsoleNetplay

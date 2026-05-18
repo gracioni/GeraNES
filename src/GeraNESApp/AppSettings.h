@@ -308,7 +308,7 @@ public:
         std::string signalingPassword;
         bool autoGameplayTuning = true;
         int inputDelayFrames = 2;
-        int predictFrames = 0;
+        int predictFrames = 8;
         bool showNetplayDebugLog = false;
         int gameplayReceiveDelayMs = 0;
         std::string displayName = "Participant";

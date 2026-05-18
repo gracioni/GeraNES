@@ -47,17 +47,24 @@ public:
         return submitRemoteCrc(HistoryEntry{frame, crc32});
     }
     std::optional<HistoryEntry> findLocalHistoryEntry(FrameNumber frame) const;
+    std::optional<HistoryEntry> latestLocalHistoryEntry() const;
+    std::optional<HistoryEntry> latestMatchingHistoryEntryBefore(FrameNumber frame) const;
     void invalidateHistoryAfter(FrameNumber frame);
 
 private:
     static constexpr size_t kHistoryCapacity = 512;
+    static constexpr size_t kMatchingHistoryCapacity = 64;
 
     std::deque<HistoryEntry> m_localHistory;
     std::deque<HistoryEntry> m_remoteHistory;
+    std::deque<HistoryEntry> m_matchingHistory;
     FrameNumber m_lastMismatchFrame = 0;
     uint8_t m_consecutiveMismatchCount = 0;
 
     static void storeHistoryEntry(std::deque<HistoryEntry>& history, const HistoryEntry& entry);
+    static void storeHistoryEntry(std::deque<HistoryEntry>& history,
+                                  const HistoryEntry& entry,
+                                  size_t capacity);
     static std::optional<HistoryEntry> findHistoryEntry(const std::deque<HistoryEntry>& history, FrameNumber frame);
     Update evaluateFrame(FrameNumber frame);
 };

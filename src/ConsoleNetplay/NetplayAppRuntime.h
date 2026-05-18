@@ -77,6 +77,7 @@ public:
         NetplayAutoTune::Snapshot autoSettings;
         FramePacingDiagnostics framePacingDiagnostics;
         uint32_t unresolvedPredictedRemoteFrameCount = 0;
+        std::vector<TimelineInputEntry> unresolvedPredictedRemoteInputs;
         FrameNumber latestPredictedRemoteFrame = 0;
         NetplayRuntimeDiagnostics runtimeDiagnostics;
         std::string sessionBlockedReason;
@@ -237,14 +238,16 @@ private:
     void processPendingManualStateResyncIfNeeded(INetplayStateBridge& stateBridge,
                                                  INetplayStateHostBridge& hostBridge);
     void processPeriodicLocalCrcIfNeeded(INetplayStateBridge& stateBridge,
-                                         const INetplayStateHostBridge& hostBridge);
+                                         const INetplayStateHostBridge& hostBridge,
+                                         bool showDebugLog);
     uint32_t consumeWorkerDtMs();
     void handleSessionStateTransitionsOnWorker(INetplayRuntimeSessionControls& controls);
     bool beginInitialSessionSyncOnWorker(INetplayStateBridge& stateBridge,
                                          INetplayStateHostBridge& hostBridge);
     void processHostResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
                                            INetplayStateHostBridge& hostBridge,
-                                           bool autoGameplayTuning);
+                                           bool autoGameplayTuning,
+                                           INetplayRuntimeSessionControls* sessionControls = nullptr);
     void processHostLateJoinResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
                                                    INetplayStateHostBridge& hostBridge);
     void processHostStallIfNeededOnWorker(INetplayStateBridge& stateBridge,

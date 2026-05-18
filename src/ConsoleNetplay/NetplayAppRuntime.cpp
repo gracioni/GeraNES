@@ -813,9 +813,11 @@ void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(INetplayStateBri
 }
 
 void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(INetplayStateBridge& stateBridge,
-                                                        const INetplayStateHostBridge& hostBridge)
+                                                        const INetplayStateHostBridge& hostBridge,
+                                                        bool showDebugLog)
 {
     m_periodicCrcState.lastLoadedAuthoritativeFrame = m_lastLoadedAuthoritativeFrame;
+    m_periodicCrcState.submitEveryConfirmedFrame = showDebugLog;
     (void)runtimeSubmitPeriodicLocalCrcIfNeeded(
         m_coordinator,
         stateBridge,
@@ -871,7 +873,8 @@ bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(INetplayStateBridge& sta
 
 void NetplayAppRuntime::processHostResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
                                                           INetplayStateHostBridge& hostBridge,
-                                                          bool autoGameplayTuning)
+                                                          bool autoGameplayTuning,
+                                                          INetplayRuntimeSessionControls* sessionControls)
 {
     const RuntimeHostResyncProcessResult result =
         runtimeProcessHostResyncIfNeeded(
@@ -880,7 +883,8 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(INetplayStateBridge& s
             m_autoSettings,
             stateBridge,
             hostBridge,
-            autoGameplayTuning
+            autoGameplayTuning,
+            sessionControls
         );
     applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
 }
@@ -996,7 +1000,7 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         beginInitialSessionSyncOnWorker(stateBridge, hostBridge);
     }
 
-    processHostResyncIfNeededOnWorker(stateBridge, hostBridge, settings.autoGameplayTuning);
+    processHostResyncIfNeededOnWorker(stateBridge, hostBridge, settings.autoGameplayTuning, &sessionControls);
     processHostLateJoinResyncIfNeededOnWorker(stateBridge, hostBridge);
 
     const RuntimePendingResyncApplyResult resyncResult =
@@ -1086,7 +1090,7 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         (void)tryQueuePlaybackFrameToConsole(console, console.frameCount());
     }
 
-    processPeriodicLocalCrcIfNeeded(stateBridge, hostBridge);
+    processPeriodicLocalCrcIfNeeded(stateBridge, hostBridge, settings.showDebugLog);
     updateUiSnapshot(localRom, settings.diagnostics);
     return result;
 }
@@ -1193,6 +1197,7 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     snapshot.autoSettings = autoSettings;
     snapshot.framePacingDiagnostics = framePacingDiagnostics;
     snapshot.unresolvedPredictedRemoteFrameCount = coordinator.unresolvedPredictedRemoteFrameCount();
+    snapshot.unresolvedPredictedRemoteInputs = coordinator.unresolvedPredictedRemoteInputs();
     snapshot.latestPredictedRemoteFrame = coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = runtimeDiagnostics;
     snapshot.sessionBlockedReason = sessionBlockedReason;
