@@ -2645,8 +2645,15 @@ void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantI
     const FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
     const FrameNumber currentFrame = m_localSimulationFrame;
 
-    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing) {
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
+       inputFrame <= m_session.roomState().recoveryModeEnteredAtFrame) {
         recordParticipantDecision("Prediction mismatch ignored during recovery");
+        return;
+    }
+
+    if(m_session.roomState().recoveryInputMode == RecoveryInputMode::PostResyncStabilizing &&
+       predictionMatched) {
+        recordParticipantDecision("Prediction hit ignored during recovery");
         return;
     }
 

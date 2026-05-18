@@ -217,6 +217,9 @@ void SingleThreadEmulationHost::serviceBackgroundWork()
 void SingleThreadEmulationHost::onFrameReady()
 {
     recordFrameReadyNetplayState(m_emu);
+    if(m_emu.lastFrameReadyWasSpeculative()) {
+        return;
+    }
     m_holdPresentedFramebufferUntilFrameReady = false;
     refreshPpuViewerSnapshot();
     refreshPpuEventViewerSnapshot();

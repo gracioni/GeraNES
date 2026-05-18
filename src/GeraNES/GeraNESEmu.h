@@ -229,6 +229,7 @@ private:
     bool m_forceSilentAudio = false;
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
+    bool m_lastFrameReadySpeculative = false;
     InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
     bool m_currentFrameInputLocked = false;
@@ -1327,8 +1328,9 @@ private:
         const bool playbackFrameAlreadyRenderedAudibly =
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
+        const bool playbackFrameSpeculative = inputFrame->speculative;
         const bool tickSkipAudioRender =
-            silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
+            silentAudio || playbackFrameSpeculative || playbackFrameAlreadyRenderedAudibly;
         const bool nmiBefore = m_ppu.nmiLineActive();
         const bool irqBefore = m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag();
         const bool sprite0Before = m_ppu.sprite0Hit();
@@ -1353,8 +1355,11 @@ private:
                     m_lastAudiblyRenderedPlaybackFrame = playbackFrame;
                 }
                 m_currentPlaybackFrameRenderedAudibly = false;
-                m_rewind.newFrame();
                 frameReady = true;
+                if(!playbackFrameSpeculative) {
+                    m_rewind.newFrame();
+                }
+                m_lastFrameReadySpeculative = playbackFrameSpeculative;
                 signalFrameReady();
                 m_newFrame = false;
             }
@@ -1589,6 +1594,7 @@ public:
         m_frameStarted = false;
         m_lastAudiblyRenderedPlaybackFrame.reset();
         m_currentPlaybackFrameRenderedAudibly = false;
+        m_lastFrameReadySpeculative = false;
 
         m_frameCounter = 0;
         m_inputBuffer.clear();
@@ -2852,6 +2858,10 @@ public:
 
     uint32_t frameCount() const {
         return m_frameCounter;
+    }
+
+    bool lastFrameReadyWasSpeculative() const {
+        return m_lastFrameReadySpeculative;
     }
 
     void reset() {

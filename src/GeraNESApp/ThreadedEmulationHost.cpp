@@ -390,8 +390,10 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
 void ThreadedEmulationHost::onFrameReadyLocked()
 {
     recordFrameReadyNetplayState(m_emu);
-    m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
-    m_framebufferDirty = true;
+    if(!m_emu.lastFrameReadyWasSpeculative()) {
+        m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
+        m_framebufferDirty = true;
+    }
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;

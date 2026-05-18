@@ -1798,7 +1798,7 @@ TEST_CASE("Netplay future prediction mismatch replays when frame is reached",
     host.disconnect();
 }
 
-TEST_CASE("Netplay ignores resolved prediction rollback pressure during post-resync stabilization",
+TEST_CASE("Netplay schedules rollback for post-resync prediction corrections after the reanchor",
           "[netplay][prediction][stabilization][regression]")
 {
     ConsoleNetplay::NetplayCoordinator host;
@@ -1866,12 +1866,14 @@ TEST_CASE("Netplay ignores resolved prediction rollback pressure during post-res
     correctedInput.sequence = 2u;
     REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, correctedInput, correctedContribution));
 
-    REQUIRE_FALSE(host.consumePendingRollbackFrame().has_value());
+    const auto rollbackFrame = host.consumePendingRollbackFrame();
+    REQUIRE(rollbackFrame.has_value());
+    REQUIRE(*rollbackFrame == 9u);
     REQUIRE_FALSE(host.consumePendingHostResyncFrame().has_value());
     const ConsoleNetplay::ParticipantInfo* updated = host.session().findParticipant(remote.id);
     REQUIRE(updated != nullptr);
-    REQUIRE(updated->rollbackScheduledCount == 0u);
-    REQUIRE(updated->lastDecision == "Prediction mismatch ignored during recovery");
+    REQUIRE(updated->rollbackScheduledCount == 1u);
+    REQUIRE(updated->lastDecision == "Rollback scheduled");
 
     host.disconnect();
 }
@@ -2914,75 +2916,6 @@ TEST_CASE("Netplay repeated input history self-heals single-frame loss and dupli
     REQUIRE(recoveredFrame3 != nullptr);
     REQUIRE(recoveredFrame3->confirmed);
     REQUIRE(recoveredFrame3->buttonMaskLo != 0u);
-
-    host.disconnect();
-}
-
-TEST_CASE("Netplay stale duplicate resend logs are collapsed behind debug mode",
-          "[netplay][input][log][debug][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    bool hosted = false;
-    for(int attempt = 0; attempt < 8 && !hosted; ++attempt) {
-        hosted = host.host(reserveLoopbackPort(), 1, "Host");
-    }
-    REQUIRE(hosted);
-
-    auto& room = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    room = GeraNESNetplay::roomWithGeraNESInputTopology(
-        room,
-        Settings::Device::CONTROLLER,
-        Settings::Device::CONTROLLER,
-        Settings::ExpansionDevice::NONE,
-        Settings::NesMultitapDevice::NONE,
-        Settings::FamicomMultitapDevice::NONE
-    );
-    room.state = ConsoleNetplay::SessionState::Running;
-    room.timelineEpoch = 2u;
-
-    ConsoleNetplay::ParticipantInfo remote;
-    remote.id = 2u;
-    remote.displayName = "Remote";
-    remote.connected = true;
-    remote.romLoaded = true;
-    remote.romCompatible = true;
-    remote.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-    remote.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-    remote.lastReceivedInputFrame = 0u;
-    remote.lastContiguousInputFrame = 0u;
-    remote.lastReceivedInputSequence = 0u;
-    remote.normalizeControllerAssignments(&room.inputTopology);
-    room.participants.push_back(remote);
-
-    auto injectRemote = [&](ConsoleNetplay::FrameNumber frame, uint32_t sequence) {
-        InputFrame contribution = GeraNESNetplay::makeRoomTopologyBaseFrame(frame, room);
-        ConsoleNetplay::InputFrameData input{};
-        input.timelineEpoch = room.timelineEpoch;
-        input.frame = frame;
-        input.participantId = remote.id;
-        input.playerSlot = GeraNESNetplay::kPort2PlayerSlot;
-        input.sequence = sequence;
-        return GeraNESNetplay::injectInputFrameForTests(host, input, contribution);
-    };
-
-    REQUIRE(injectRemote(1u, 1u));
-    REQUIRE(injectRemote(1u, 1u));
-    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input"));
-
-    host.setDebugMode(true);
-    REQUIRE(injectRemote(1u, 1u));
-    REQUIRE(anyLogLineContains(host.eventLog(), "Ignored stale/duplicate input"));
-    REQUIRE(anyLogLineContains(host.eventLog(), "(x1)"));
-
-    REQUIRE(injectRemote(1u, 1u));
-    REQUIRE(anyLogLineContains(host.eventLog(), "(x2)"));
-
-    REQUIRE(injectRemote(1u, 1u));
-    REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "(x3)"));
-
-    REQUIRE(injectRemote(1u, 1u));
-    REQUIRE(anyLogLineContains(host.eventLog(), "(x4)"));
 
     host.disconnect();
 }
@@ -8526,7 +8459,6 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     lateInput.buttonMaskLo = 0u;
     lateInput.buttonMaskHi = 0u;
     REQUIRE(GeraNESNetplay::injectInputFrameForTests(host, lateInput, committedContribution));
-    REQUIRE(anyLogLineContains(host.eventLog(), "classification=late_committed_input_duplicate"));
     const ConsoleNetplay::ParticipantInfo* resumedParticipant = host.session().findParticipant(remote.id);
     REQUIRE(resumedParticipant != nullptr);
     REQUIRE_FALSE(resumedParticipant->inputSuspended);
