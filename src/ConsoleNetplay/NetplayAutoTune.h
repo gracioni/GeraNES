@@ -55,11 +55,17 @@ private:
     uint32_t m_stableFrameCount = 0;
     FrameNumber m_lastAdjustmentFrame = 0;
     FrameNumber m_lastStableEvaluationFrame = 0;
+    uint32_t m_lastObservedRollbackScheduledCount = 0;
+    uint32_t m_lastObservedPlaybackStopCount = 0;
+    uint32_t m_lastObservedPredictionMissCount = 0;
     std::string m_lastDecisionReason;
 
     static constexpr uint8_t kMaxAutoDelayFrames = 8;
     static constexpr uint8_t kMaxAutoPredictFrames = 16;
     static constexpr FrameNumber kDelayDecayStableFrames = 1200;
+    static constexpr FrameNumber kDelayIncreaseCooldownFrames = 15;
+    static constexpr uint32_t kRollbackPressureThreshold = 4;
+    static constexpr uint32_t kPredictionMissPressureThreshold = 2;
 
     static uint8_t clampDelay(uint32_t frames);
     static uint8_t clampPredict(uint32_t frames);

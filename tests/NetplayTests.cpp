@@ -1221,6 +1221,30 @@ TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
     REQUIRE(autoSettings.snapshot().lastDecisionReason.find("Raised delay") != std::string::npos);
 }
 
+TEST_CASE("Netplay reactive auto delay raises on sustained rollback pressure",
+          "[netplay][auto-settings][delay][rollback]")
+{
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
+    room.sessionId = 22;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    room.inputDelayFrames = 1;
+    room.predictFrames = 8;
+    room.currentFrame = 120;
+
+    ConsoleNetplay::RollbackStats stats;
+    auto warmup = autoSettings.update(room, stats, 0, 60);
+    REQUIRE_FALSE(warmup.inputDelayFrames.has_value());
+
+    room.currentFrame = 136;
+    stats.rollbackScheduledCount = 4;
+    auto recommendations = autoSettings.update(room, stats, 0, 60);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 2);
+    REQUIRE(autoSettings.snapshot().lastDecisionReason.find("rollback pressure") != std::string::npos);
+}
+
 TEST_CASE("Netplay input assignment normalization removes slots missing from sparse topology",
           "[netplay][assignment][topology][sparse]")
 {
@@ -3183,6 +3207,7 @@ TEST_CASE("Netplay clients stay capped to a slow host whether host is observer o
         options.frames = 180;
         options.inputDelayFrames = 1;
         options.predictFrames = 4;
+        options.autoGameplayTuning = true;
         options.networkPumpStride = 2;
         options.hostLoopDtMs = 8;
         options.clientLoopDtMs = 8;
@@ -3337,6 +3362,7 @@ TEST_CASE("Netplay web host and client keep advancing through delay one rollback
     options.frames = 360;
     options.inputDelayFrames = 1;
     options.predictFrames = 8;
+    options.autoGameplayTuning = true;
     options.predictionHoldStartFrame = 90;
     options.predictionHoldFrameCount = 8;
     options.predictionScriptStartFrame = 90;

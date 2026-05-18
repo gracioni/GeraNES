@@ -1258,6 +1258,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         return result;
     }
     console.discardQueuedInputFramesAfter(*rollbackFrame);
+    runtimeHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
 
     const uint32_t rollbackCanonicalCrc32 = console.canonicalNetplayStateCrc32();
     (void)runtimeHost.updateNetplaySnapshotCrc32ForFrame(*rollbackFrame, rollbackCanonicalCrc32);
@@ -1334,7 +1335,6 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
         }
     }
     coordinator.setLocalSimulationFrame(console.frameCount());
-    runtimeHost.discardQueuedNetplayInputsAfter(*rollbackFrame);
 
     const FrameNumber recoveredConfirmedFrame = coordinator.session().roomState().lastConfirmedFrame;
     if(settings.showDebugLog && recoveredConfirmedFrame != 0u && recoveredConfirmedFrame <= console.frameCount()) {

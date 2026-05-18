@@ -89,6 +89,7 @@ public:
         bool appFlow = false;
         bool runtimeFlow = false;
         bool singleThreadRuntimeFlow = false;
+        bool autoGameplayTuning = false;
         bool captureHostTrace = false;
         bool autoSettingsProbe = false;
         bool baselineLockstep = false;
@@ -247,6 +248,11 @@ private:
         DeterministicInputGenerator generator;
         uint32_t maxObservedInputBufferSize = 0;
         uint32_t maxObservedFutureBufferedFrames = 0;
+        bool autoGameplayTuning = false;
+        bool showNetplayDebugLog = false;
+        int gameplayReceiveDelayMs = 0;
+        int inputDelayFrames = 2;
+        int predictFrames = 0;
 
         explicit RuntimePeerStateT(const std::string& peerName, bool isHost, uint32_t seed)
             : name(peerName)
@@ -257,15 +263,14 @@ private:
             GeraNESNetplay::attachRuntimeWakeToHost(runtime, emu);
             GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
             emu.setPreAdvanceHook([this](GeraNESEmu& innerEmu) {
-                const auto& cfg = AppSettings::instance().data.netplay;
                 const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
                     GeraNESNetplay::buildGeraNESRuntimeExecutionSettings(
                         emu,
-                        cfg.autoGameplayTuning,
-                        cfg.showNetplayDebugLog,
-                        cfg.gameplayReceiveDelayMs,
-                        cfg.inputDelayFrames,
-                        cfg.predictFrames
+                        autoGameplayTuning,
+                        showNetplayDebugLog,
+                        gameplayReceiveDelayMs,
+                        inputDelayFrames,
+                        predictFrames
                     );
                 (void)GeraNESNetplay::executeRuntimeFrame(
                     runtime,
@@ -1629,6 +1634,13 @@ private:
         RunArtifacts result;
         PeerT hostPeer("Host", true, options.hostInputSeed);
         PeerT clientPeer("Client", false, options.clientInputSeed);
+        for(auto* peer : {&hostPeer, &clientPeer}) {
+            peer->autoGameplayTuning = options.autoGameplayTuning;
+            peer->showNetplayDebugLog = AppSettings::instance().data.netplay.showNetplayDebugLog;
+            peer->gameplayReceiveDelayMs = static_cast<int>(options.gameplayReceiveDelayMs);
+            peer->inputDelayFrames = static_cast<int>(options.inputDelayFrames);
+            peer->predictFrames = static_cast<int>(options.predictFrames);
+        }
         std::ofstream hostTraceFile;
         std::ofstream clientTraceFile;
         if(options.captureHostTrace) {

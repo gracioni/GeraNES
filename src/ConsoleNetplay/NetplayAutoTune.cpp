@@ -77,6 +77,9 @@ void NetplayAutoTune::resetForSession(uint32_t sessionId, SessionState state)
     m_stableFrameCount = 0;
     m_lastAdjustmentFrame = 0;
     m_lastStableEvaluationFrame = 0;
+    m_lastObservedRollbackScheduledCount = 0;
+    m_lastObservedPlaybackStopCount = 0;
+    m_lastObservedPredictionMissCount = 0;
     m_lastDecisionReason.clear();
 }
 
@@ -106,8 +109,8 @@ bool NetplayAutoTune::enabled() const
 }
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                         const RollbackStats&,
-                                                         uint32_t,
+                                                         const RollbackStats& stats,
+                                                         uint32_t unresolvedPredictedRemoteFrameCount,
                                                          uint32_t)
 {
     Recommendations recommendations;
@@ -158,6 +161,52 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
     else {
         m_stableFrameCount += room.currentFrame - m_lastStableEvaluationFrame;
         m_lastStableEvaluationFrame = room.currentFrame;
+    }
+
+    const uint32_t rollbackPressureDelta =
+        stats.rollbackScheduledCount >= m_lastObservedRollbackScheduledCount
+            ? stats.rollbackScheduledCount - m_lastObservedRollbackScheduledCount
+            : stats.rollbackScheduledCount;
+    const uint32_t playbackStopDelta =
+        stats.playbackStopCount >= m_lastObservedPlaybackStopCount
+            ? stats.playbackStopCount - m_lastObservedPlaybackStopCount
+            : stats.playbackStopCount;
+    const uint32_t predictionMissDelta =
+        stats.predictionMissCount >= m_lastObservedPredictionMissCount
+            ? stats.predictionMissCount - m_lastObservedPredictionMissCount
+            : stats.predictionMissCount;
+    m_lastObservedRollbackScheduledCount = stats.rollbackScheduledCount;
+    m_lastObservedPlaybackStopCount = stats.playbackStopCount;
+    m_lastObservedPredictionMissCount = stats.predictionMissCount;
+
+    const bool rollbackPressure = rollbackPressureDelta >= kRollbackPressureThreshold;
+    const bool stopPressure = playbackStopDelta > 0u;
+    const bool mismatchPressure = predictionMissDelta >= kPredictionMissPressureThreshold;
+    const bool unresolvedPressure =
+        unresolvedPredictedRemoteFrameCount >
+        (static_cast<uint32_t>(room.inputDelayFrames) + 1u);
+    const bool increaseCooldownElapsed =
+        m_lastAdjustmentFrame == 0u ||
+        room.currentFrame >= m_lastAdjustmentFrame + kDelayIncreaseCooldownFrames;
+    if((rollbackPressure || stopPressure || mismatchPressure || unresolvedPressure) &&
+       increaseCooldownElapsed) {
+        const uint8_t currentDelay = clampDelay(room.inputDelayFrames);
+        const uint8_t targetDelay = clampDelay(static_cast<uint32_t>(currentDelay) + 1u);
+        m_stableFrameCount = 0;
+        m_lastStableEvaluationFrame = room.currentFrame;
+        if(targetDelay > currentDelay) {
+            recommendations.inputDelayFrames = targetDelay;
+            m_currentRecommendedDelay = targetDelay;
+            m_lastAdjustmentFrame = room.currentFrame;
+            m_lastDecisionReason =
+                "Raised delay to " + std::to_string(static_cast<unsigned>(targetDelay)) +
+                " after rollback pressure";
+            return recommendations;
+        }
+        m_lastDecisionReason =
+            "Rollback pressure detected but delay already at cap " +
+            std::to_string(static_cast<unsigned>(currentDelay));
+        return recommendations;
     }
 
     if(room.inputDelayFrames > 1u &&
