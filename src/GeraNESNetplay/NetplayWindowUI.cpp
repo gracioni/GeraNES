@@ -463,13 +463,16 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::InputInt("Input Delay##NetplayInputDelay", &cfg.inputDelayFrames);
     } else {
         ImGui::Text("Auto Delay: %u frame(s)", static_cast<unsigned>(snapshot.autoSettings.currentRecommendedDelay));
+        ImGui::Text("Ping Floor: %u frame(s), hPing %.0fms",
+                    static_cast<unsigned>(snapshot.autoSettings.pingFloorDelay),
+                    snapshot.autoSettings.smoothedHighestPingMs);
     }
     ImGui::SetNextItemWidth(120.0f);
     ImGui::InputInt("Gameplay Lag ms##NetplayGameplayLag", &cfg.gameplayReceiveDelayMs);
 #else
     cfg.autoGameplayTuning = true;
 #endif
-    cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
+    cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 1, 16);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
     cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);

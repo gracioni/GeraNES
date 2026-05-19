@@ -1139,6 +1139,38 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
     REQUIRE(*recommendations.inputDelayFrames == 3);
 }
 
+TEST_CASE("Netplay auto delay uses smoothed highest peer ping as minimum",
+          "[netplay][auto-settings][delay]")
+{
+    ConsoleNetplay::NetplayAutoTune autoSettings;
+    ConsoleNetplay::RoomState room;
+    room.sessionId = 22;
+    room.state = ConsoleNetplay::SessionState::Running;
+    room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
+    room.inputDelayFrames = 1;
+
+    ConsoleNetplay::ParticipantInfo peer;
+    peer.id = 2;
+    peer.connected = true;
+    peer.pingMs = 100;
+    room.participants.push_back(peer);
+
+    ConsoleNetplay::NetplayRecoveryStats stats;
+    auto recommendations = autoSettings.update(room, stats, 60);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 6);
+    REQUIRE(autoSettings.snapshot().highestPingMs == 100u);
+    REQUIRE(autoSettings.snapshot().pingFloorDelay == 6u);
+
+    room.inputDelayFrames = 6;
+    room.currentFrame = 1200;
+    room.participants.front().pingMs = 1000;
+    recommendations = autoSettings.update(room, stats, 60);
+    REQUIRE(recommendations.inputDelayFrames.has_value());
+    REQUIRE(*recommendations.inputDelayFrames == 16);
+    REQUIRE(autoSettings.snapshot().pingFloorDelay == 16u);
+}
+
 TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
           "[netplay][auto-settings][delay]")
 {

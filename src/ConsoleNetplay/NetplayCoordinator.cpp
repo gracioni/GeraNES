@@ -6584,6 +6584,7 @@ bool NetplayCoordinator::setInputDelayFrames(uint8_t frames)
 {
     if(!m_hosting) return false;
 
+    frames = static_cast<uint8_t>(std::clamp<uint32_t>(frames, 1u, 16u));
     if(m_session.roomState().inputDelayFrames == frames) return true;
 
     m_session.roomState().inputDelayFrames = frames;
