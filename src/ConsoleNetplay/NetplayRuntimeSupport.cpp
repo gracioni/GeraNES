@@ -31,6 +31,22 @@ std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordi
     return std::max(room.currentFrame, room.lastConfirmedFrame);
 }
 
+const char* runtimeResyncReasonLabel(ResyncReason reason)
+{
+    switch(reason) {
+        case ResyncReason::InitialSessionSync: return "InitialSessionSync";
+        case ResyncReason::ConfirmedDesync: return "ConfirmedDesync";
+        case ResyncReason::HostStallRecovery: return "HostStallRecovery";
+        case ResyncReason::ClientStallRecovery: return "ClientStallRecovery";
+        case ResyncReason::AssignmentChanged: return "AssignmentChanged";
+        case ResyncReason::ManualForce: return "ManualForce";
+        case ResyncReason::HostReset: return "HostReset";
+        case ResyncReason::HostLoadedState: return "HostLoadedState";
+        case ResyncReason::ObserverVisibilityRestore: return "ObserverVisibilityRestore";
+        default: return "Unspecified";
+    }
+}
+
 } // namespace
 
 SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinator& coordinator,
@@ -602,7 +618,7 @@ RuntimeHostResyncProcessResult runtimeProcessHostResyncIfNeeded(
         coordinator.appendNetplayLog("Netplay initial session sync started");
     } else {
         coordinator.appendNetplayLog(
-            "Netplay hard resync started after reason " + std::to_string(static_cast<int>(reason)) +
+            "Netplay hard resync started after reason " + std::string(runtimeResyncReasonLabel(reason)) +
             " at frame " + std::to_string(pending->frame) +
             ", using authoritative frame " + std::to_string(authoritativeFrame)
         );

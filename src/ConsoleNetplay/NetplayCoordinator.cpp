@@ -2304,7 +2304,7 @@ void NetplayCoordinator::tryScheduleImplicitRecoveryResync(ParticipantInfo& part
             m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
             m_localSimulationFrame + 600u
         );
-    queuePendingHostResync(resyncFrame, ResyncReason::ConfirmedDesync);
+    queuePendingHostResync(resyncFrame, ResyncReason::ClientStallRecovery);
 
     std::ostringstream oss;
     oss << "Fresh peer health received from " << participantDebugLabel(participant)
