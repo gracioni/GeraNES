@@ -461,11 +461,8 @@ void drawNetplayWindow(bool& showWindow,
     if(!cfg.autoGameplayTuning) {
         ImGui::SetNextItemWidth(120.0f);
         ImGui::InputInt("Input Delay##NetplayInputDelay", &cfg.inputDelayFrames);
-        ImGui::SetNextItemWidth(120.0f);
-        ImGui::InputInt("Predict Frames##NetplayPredictFrames", &cfg.predictFrames);
     } else {
         ImGui::Text("Auto Delay: %u frame(s)", static_cast<unsigned>(snapshot.autoSettings.currentRecommendedDelay));
-        ImGui::Text("Auto Predict: %u frame(s)", static_cast<unsigned>(snapshot.autoSettings.currentFixedPredict));
     }
     ImGui::SetNextItemWidth(120.0f);
     ImGui::InputInt("Gameplay Lag ms##NetplayGameplayLag", &cfg.gameplayReceiveDelayMs);
@@ -473,7 +470,6 @@ void drawNetplayWindow(bool& showWindow,
     cfg.autoGameplayTuning = true;
 #endif
     cfg.inputDelayFrames = std::clamp(cfg.inputDelayFrames, 0, 8);
-    cfg.predictFrames = std::clamp(cfg.predictFrames, 0, 8);
     cfg.gameplayReceiveDelayMs = std::clamp(cfg.gameplayReceiveDelayMs, 0, 500);
 
     cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
@@ -709,9 +705,7 @@ void drawNetplayWindow(bool& showWindow,
         if(snapshot.localRomLoaded) {
             ImGui::Text("Local CRC32: %08X", snapshot.localRomCrc32);
         }
-        ImGui::Text("Delay/Predict: %u / %u",
-                    static_cast<unsigned>(room.inputDelayFrames),
-                    static_cast<unsigned>(room.predictFrames));
+        ImGui::Text("Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
     }
 
     if(!snapshot.lastError.empty()) {
@@ -726,7 +720,6 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::Text("ROM CRC32: %08X", room.romValidation.romCrc32);
         ImGui::Text("Mapper/Sub: %u / %u", room.romValidation.mapperId, room.romValidation.subMapperId);
         ImGui::Text("Input Delay: %u frame(s)", static_cast<unsigned>(room.inputDelayFrames));
-        ImGui::Text("Predict Frames: %u frame(s)", static_cast<unsigned>(room.predictFrames));
         ImGui::Text("Gameplay Lag: %d ms", cfg.gameplayReceiveDelayMs);
 #ifndef NDEBUG
         ImGui::Text("Gameplay Tuning: %s", snapshot.autoSettings.enabled ? "Auto" : "Manual");
@@ -831,18 +824,12 @@ void drawNetplayWindow(bool& showWindow,
                     static_cast<unsigned long long>(snapshot.playbackQueueStats.lastBuiltFrames),
                     static_cast<unsigned long long>(snapshot.playbackQueueStats.maxBuiltFrames),
                     snapshot.playbackQueueStats.lastPreparedThroughFrame);
-        ImGui::Text("Predicted Frames Used: %u", snapshot.predictionStats.predictedFrameUseCount);
-        ImGui::Text("Prediction Hits: %u", snapshot.predictionStats.predictionHitCount);
-        ImGui::Text("Prediction Misses: %u", snapshot.predictionStats.predictionMissCount);
         ImGui::Text("Playback Stops: %u", snapshot.predictionStats.playbackStopCount);
         ImGui::Text("Stops By Missing Input: %u", snapshot.predictionStats.stopDueToMissingInputCount);
-        ImGui::Text("Stops By Prediction Limit: %u", snapshot.predictionStats.stopDueToPredictionLimitCount);
         ImGui::Text("Last Stop: frame %u", snapshot.predictionStats.lastStopFrame);
         if(!snapshot.predictionStats.lastStopReason.empty()) {
             ImGui::Text("Last Stop Reason: %s", snapshot.predictionStats.lastStopReason.c_str());
         }
-        ImGui::Text("Unresolved Predicted Frames: %u", snapshot.unresolvedPredictedRemoteFrameCount);
-        ImGui::Text("Latest Predicted Frame: %u", snapshot.latestPredictedRemoteFrame);
         ImGui::Text("Scheduled Rollbacks: %u", snapshot.predictionStats.rollbackScheduledCount);
         ImGui::Text("Missing Input Gaps: %u", snapshot.predictionStats.missingInputGapCount);
         ImGui::Text("Future Mismatches: %u", snapshot.predictionStats.futureFrameMismatchCount);
