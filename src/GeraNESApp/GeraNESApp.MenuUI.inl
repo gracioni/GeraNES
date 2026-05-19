@@ -902,6 +902,9 @@ inline void GeraNESApp::menuBar() {
             const char* breakpointKey = (breakpointShortcut != nullptr) ? breakpointShortcut->shortcut.c_str() : nullptr;
             if(ImGui::MenuItem("CPU Breakpoints", breakpointKey, m_showCpuBreakpointsWindow, !netplayBlocksCpuDebug)) {
                 m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
+                if(m_showCpuBreakpointsWindow) {
+                    m_cpuBreakpointsRequestFocus = true;
+                }
                 AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
             }
 

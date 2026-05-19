@@ -28,6 +28,8 @@ namespace fs = std::filesystem;
 #include <array>
 #include <deque>
 #include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "util/SdlCursor.h"
 
@@ -83,6 +85,18 @@ CMRC_DECLARE(resources);
 #endif
 
 const std::string LOG_FILE = "log.txt";
+
+enum class CpuDebugSymbolKind {
+    Unknown,
+    Function,
+    Label,
+    Data
+};
+
+struct CpuDebugSymbol {
+    std::string name;
+    CpuDebugSymbolKind kind = CpuDebugSymbolKind::Unknown;
+};
 
 class GeraNESApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
@@ -219,6 +233,21 @@ private:
     uint64_t m_lastSeenCpuBreakpointSequence = 0;
     bool m_pendingEnableCpuDebuggerAfterNetplayDisconnect = false;
     bool m_cpuDebuggerAutoPaused = false;
+    std::unordered_map<uint16_t, CpuDebugSymbol> m_cpuDebugSymbols;
+    std::string m_cpuDebugSymbolsPath;
+    std::string m_cpuDebugSymbolsStatus;
+    uint16_t m_cpuDebuggerViewAddress = 0;
+    bool m_cpuDebuggerFollowPc = true;
+    bool m_cpuDebuggerScrollToViewAddress = true;
+    std::vector<uint16_t> m_cpuDebuggerHistory;
+    size_t m_cpuDebuggerHistoryIndex = 0;
+    std::array<char, 128> m_cpuDebuggerSymbolSearch = {};
+    bool m_cpuDebuggerFocused = false;
+    bool m_cpuBreakpointsFocused = false;
+    bool m_cpuBreakpointsRequestFocus = false;
+    uint16_t m_cpuDebuggerSelectedAddress = 0;
+    uint16_t m_cpuDebuggerSelectionAnchor = 0;
+    bool m_cpuDebuggerHasSelection = false;
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
 
@@ -401,6 +430,8 @@ private:
     void drawEventViewerWindow();
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
+    void loadCpuDebuggerSymbols();
+    bool loadCpuDebuggerSymbolsFromFile(const std::string& path);
     void syncCpuDebugRuntimeState();
     void disableCpuDebugging();
     void requestEnableCpuDebugger();

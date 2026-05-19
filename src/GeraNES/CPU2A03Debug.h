@@ -15,7 +15,10 @@ struct CPU2A03DebugLine
     uint16_t address = 0;
     uint8_t size = 1;
     std::string bytes;
+    std::string label;
     std::string mnemonic;
+    std::string operandSymbol;
+    uint16_t operandSymbolAddress = 0;
     bool isCurrent = false;
 };
 
@@ -23,6 +26,7 @@ class CPU2A03Debug
 {
 public:
     using ReadFn = std::function<uint8_t(uint16_t)>;
+    using SymbolFn = std::function<std::string(uint16_t)>;
 
     static std::string formatStatus(uint8_t status)
     {
@@ -43,7 +47,8 @@ public:
         uint16_t pc,
         int beforeCount,
         int afterCount,
-        const ReadFn& read)
+        const ReadFn& read,
+        const SymbolFn& symbol = {})
     {
         std::vector<CPU2A03DebugLine> lines;
         if(!read) return lines;
@@ -55,16 +60,26 @@ public:
         );
 
         for(uint16_t start : precedingStarts) {
-            lines.push_back(decodeLine(start, pc, read));
+            lines.push_back(decodeLine(start, pc, read, symbol));
         }
 
         uint16_t addr = pc;
         for(int i = 0; i <= std::max(afterCount, 0); ++i) {
-            lines.push_back(decodeLine(addr, pc, read));
+            lines.push_back(decodeLine(addr, pc, read, symbol));
             addr = static_cast<uint16_t>(addr + lines.back().size);
         }
 
         return lines;
+    }
+
+    static CPU2A03DebugLine disassembleAt(
+        uint16_t address,
+        uint16_t currentPc,
+        const ReadFn& read,
+        const SymbolFn& symbol = {})
+    {
+        if(!read) return {};
+        return decodeLine(address, currentPc, read, symbol);
     }
 
 private:
@@ -133,7 +148,55 @@ private:
         }
     }
 
-    static std::string formatOperand(uint16_t address, uint8_t opcode, const ReadFn& read)
+    static std::string formatAddress(
+        uint16_t address,
+        const SymbolFn& symbol,
+        std::string* resolvedSymbol = nullptr,
+        uint16_t* resolvedAddress = nullptr)
+    {
+        if(symbol) {
+            const std::string name = symbol(address);
+            if(!name.empty()) {
+                if(resolvedSymbol != nullptr) {
+                    *resolvedSymbol = name;
+                }
+                if(resolvedAddress != nullptr) {
+                    *resolvedAddress = address;
+                }
+                return name;
+            }
+        }
+        return hex16(address);
+    }
+
+    static std::string formatZeroPageAddress(
+        uint8_t address,
+        const SymbolFn& symbol,
+        std::string* resolvedSymbol = nullptr,
+        uint16_t* resolvedAddress = nullptr)
+    {
+        if(symbol) {
+            const std::string name = symbol(address);
+            if(!name.empty()) {
+                if(resolvedSymbol != nullptr) {
+                    *resolvedSymbol = name;
+                }
+                if(resolvedAddress != nullptr) {
+                    *resolvedAddress = address;
+                }
+                return name;
+            }
+        }
+        return hex8(address);
+    }
+
+    static std::string formatOperand(
+        uint16_t address,
+        uint8_t opcode,
+        const ReadFn& read,
+        const SymbolFn& symbol,
+        std::string* resolvedSymbol = nullptr,
+        uint16_t* resolvedAddress = nullptr)
     {
         const uint8_t lo = read(static_cast<uint16_t>(address + 1));
         const uint8_t hi = read(static_cast<uint16_t>(address + 2));
@@ -146,17 +209,17 @@ private:
             {
                 const int8_t offset = static_cast<int8_t>(lo);
                 const uint16_t target = static_cast<uint16_t>(address + 2 + offset);
-                return hex16(target);
+                return formatAddress(target, symbol, resolvedSymbol, resolvedAddress);
             }
-            case AddrMode::Zero: return hex8(lo);
-            case AddrMode::ZeroX: return hex8(lo) + ",X";
-            case AddrMode::ZeroY: return hex8(lo) + ",Y";
-            case AddrMode::Abs: return hex16(absAddr);
+            case AddrMode::Zero: return formatZeroPageAddress(lo, symbol, resolvedSymbol, resolvedAddress);
+            case AddrMode::ZeroX: return formatZeroPageAddress(lo, symbol, resolvedSymbol, resolvedAddress) + ",X";
+            case AddrMode::ZeroY: return formatZeroPageAddress(lo, symbol, resolvedSymbol, resolvedAddress) + ",Y";
+            case AddrMode::Abs: return formatAddress(absAddr, symbol, resolvedSymbol, resolvedAddress);
             case AddrMode::AbsX:
-            case AddrMode::AbsXW: return hex16(absAddr) + ",X";
+            case AddrMode::AbsXW: return formatAddress(absAddr, symbol, resolvedSymbol, resolvedAddress) + ",X";
             case AddrMode::AbsY:
-            case AddrMode::AbsYW: return hex16(absAddr) + ",Y";
-            case AddrMode::Ind: return "(" + hex16(absAddr) + ")";
+            case AddrMode::AbsYW: return formatAddress(absAddr, symbol, resolvedSymbol, resolvedAddress) + ",Y";
+            case AddrMode::Ind: return "(" + formatAddress(absAddr, symbol, resolvedSymbol, resolvedAddress) + ")";
             case AddrMode::IndX: return "(" + hex8(lo) + ",X)";
             case AddrMode::IndY:
             case AddrMode::IndYW: return "(" + hex8(lo) + "),Y";
@@ -164,11 +227,14 @@ private:
         }
     }
 
-    static CPU2A03DebugLine decodeLine(uint16_t address, uint16_t currentPc, const ReadFn& read)
+    static CPU2A03DebugLine decodeLine(uint16_t address, uint16_t currentPc, const ReadFn& read, const SymbolFn& symbol)
     {
         CPU2A03DebugLine line;
         line.address = address;
         line.isCurrent = address == currentPc;
+        if(symbol) {
+            line.label = symbol(address);
+        }
 
         const uint8_t opcode = read(address);
         line.size = instructionSize(opcode);
@@ -184,7 +250,14 @@ private:
         line.bytes = byteStream.str();
 
         line.mnemonic = MNEMONICS[opcode];
-        const std::string operand = formatOperand(address, opcode, read);
+        const std::string operand = formatOperand(
+            address,
+            opcode,
+            read,
+            symbol,
+            &line.operandSymbol,
+            &line.operandSymbolAddress
+        );
         if(!operand.empty()) {
             line.mnemonic += " " + operand;
         }

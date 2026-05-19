@@ -39,6 +39,542 @@ Uint64 currentMainLoopCounterFrequency()
     return SDL_GetPerformanceFrequency();
 }
 #endif
+
+std::string trimCopy(const std::string& value)
+{
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) { return std::isspace(ch) != 0; });
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) { return std::isspace(ch) != 0; }).base();
+    if(first >= last) return "";
+    return std::string(first, last);
+}
+
+std::string sanitizeCpuSymbolName(std::string name)
+{
+    name = trimCopy(name);
+    while(!name.empty() && (name.front() == '"' || name.front() == '\'')) {
+        name.erase(name.begin());
+    }
+    while(!name.empty() && (name.back() == '"' || name.back() == '\'' || name.back() == ',' || name.back() == ';')) {
+        name.pop_back();
+    }
+    return name;
+}
+
+bool parseCpuSymbolValue(const std::string& text, uint16_t& address, bool preferHexForBareAddress = false)
+{
+    std::string value = trimCopy(text);
+    if(value.empty()) return false;
+
+    int base = 10;
+    if(value.size() > 1 && value[0] == '$') {
+        base = 16;
+        value.erase(value.begin());
+    } else if(value.size() > 2 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
+        base = 16;
+        value = value.substr(2);
+    } else if(value.find_first_of("ABCDEFabcdef") != std::string::npos || preferHexForBareAddress) {
+        base = 16;
+    }
+
+    try {
+        const unsigned long parsed = std::stoul(value, nullptr, base);
+        if(parsed > 0xFFFFul) return false;
+        address = static_cast<uint16_t>(parsed);
+        return true;
+    } catch(...) {
+        return false;
+    }
+}
+
+CpuDebugSymbolKind mergeCpuSymbolKind(CpuDebugSymbolKind current, CpuDebugSymbolKind incoming)
+{
+    if(current == CpuDebugSymbolKind::Unknown) return incoming;
+    if(incoming == CpuDebugSymbolKind::Unknown) return current;
+    return current;
+}
+
+const char* lowerExtension(const std::string& path)
+{
+    static std::string extension;
+    extension = fs::path(path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return extension.c_str();
+}
+
+CpuDebugSymbolKind inferTextCpuSymbolKind(const std::string& line, CpuDebugSymbolKind fallback)
+{
+    std::string lower = line;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if(lower.find("type=obj") != std::string::npos ||
+       lower.find("type=object") != std::string::npos ||
+       lower.find("type=data") != std::string::npos ||
+       lower.find("type=var") != std::string::npos ||
+       lower.find("type=equ") != std::string::npos ||
+       lower.find("type=equate") != std::string::npos ||
+       lower.find(" kind=data") != std::string::npos ||
+       lower.find(" kind=var") != std::string::npos) {
+        return CpuDebugSymbolKind::Data;
+    }
+
+    if(lower.find("type=func") != std::string::npos ||
+       lower.find("type=function") != std::string::npos ||
+       lower.find("type=code") != std::string::npos ||
+       lower.find(" kind=func") != std::string::npos ||
+       lower.find(" kind=code") != std::string::npos) {
+        return CpuDebugSymbolKind::Function;
+    }
+    if(lower.find("type=lab") != std::string::npos ||
+       lower.find("type=label") != std::string::npos ||
+       lower.find(" kind=lab") != std::string::npos ||
+       lower.find(" kind=label") != std::string::npos) {
+        return CpuDebugSymbolKind::Label;
+    }
+
+    return fallback;
+}
+
+void addCpuSymbol(
+    std::unordered_map<uint16_t, CpuDebugSymbol>& symbols,
+    uint16_t address,
+    const std::string& rawName,
+    CpuDebugSymbolKind kind);
+
+std::unordered_map<std::string, std::string> parseCc65DbgAttributes(const std::string& fields)
+{
+    std::unordered_map<std::string, std::string> attrs;
+    size_t pos = 0;
+    while(pos < fields.size()) {
+        const size_t keyStart = pos;
+        while(pos < fields.size() && fields[pos] != '=' && fields[pos] != ',') {
+            ++pos;
+        }
+        if(pos >= fields.size() || fields[pos] != '=') {
+            break;
+        }
+
+        std::string key = trimCopy(fields.substr(keyStart, pos - keyStart));
+        ++pos;
+
+        std::string value;
+        if(pos < fields.size() && fields[pos] == '"') {
+            ++pos;
+            while(pos < fields.size()) {
+                const char ch = fields[pos++];
+                if(ch == '"') break;
+                value.push_back(ch);
+            }
+        } else {
+            const size_t valueStart = pos;
+            while(pos < fields.size() && fields[pos] != ',') {
+                ++pos;
+            }
+            value = trimCopy(fields.substr(valueStart, pos - valueStart));
+        }
+
+        if(!key.empty()) {
+            attrs.emplace(std::move(key), std::move(value));
+        }
+        if(pos < fields.size() && fields[pos] == ',') {
+            ++pos;
+        }
+    }
+    return attrs;
+}
+
+bool parseCc65DbgSymbolLine(
+    const std::string& line,
+    std::unordered_map<uint16_t, CpuDebugSymbol>& symbols)
+{
+    const std::string recordPrefix = "sym\t";
+    if(line.rfind(recordPrefix, 0) != 0) {
+        return false;
+    }
+
+    const auto attrs = parseCc65DbgAttributes(line.substr(recordPrefix.size()));
+    const auto nameIt = attrs.find("name");
+    const auto valueIt = attrs.find("val");
+    const auto typeIt = attrs.find("type");
+    if(nameIt == attrs.end() || valueIt == attrs.end() || typeIt == attrs.end()) {
+        return true;
+    }
+
+    uint16_t address = 0;
+    if(!parseCpuSymbolValue(valueIt->second, address)) {
+        return true;
+    }
+
+    CpuDebugSymbolKind kind = CpuDebugSymbolKind::Unknown;
+    if(typeIt->second == "equ") {
+        kind = CpuDebugSymbolKind::Data;
+    } else if(typeIt->second == "lab") {
+        kind = CpuDebugSymbolKind::Label;
+    }
+
+    addCpuSymbol(symbols, address, nameIt->second, kind);
+    return true;
+}
+
+struct Cc65DbgSegment {
+    std::string name;
+    std::string type;
+};
+
+bool parseCc65DbgSymbols(
+    const std::string& text,
+    std::unordered_map<uint16_t, CpuDebugSymbol>& symbols)
+{
+    std::unordered_map<int, Cc65DbgSegment> segments;
+    std::unordered_set<int> functionSymbolIds;
+
+    std::istringstream firstPass(text);
+    std::string line;
+    while(std::getline(firstPass, line)) {
+        if(line.rfind("seg\t", 0) == 0) {
+            const auto attrs = parseCc65DbgAttributes(line.substr(4));
+            const auto idIt = attrs.find("id");
+            if(idIt == attrs.end()) continue;
+            try {
+                const int id = std::stoi(idIt->second);
+                Cc65DbgSegment segment;
+                if(const auto nameIt = attrs.find("name"); nameIt != attrs.end()) {
+                    segment.name = nameIt->second;
+                }
+                if(const auto typeIt = attrs.find("type"); typeIt != attrs.end()) {
+                    segment.type = typeIt->second;
+                }
+                segments[id] = std::move(segment);
+            } catch(...) {
+            }
+        } else if(line.rfind("scope\t", 0) == 0) {
+            const auto attrs = parseCc65DbgAttributes(line.substr(6));
+            const auto symIt = attrs.find("sym");
+            const auto typeIt = attrs.find("type");
+            const auto nameIt = attrs.find("name");
+            if(symIt == attrs.end() || typeIt == attrs.end() || nameIt == attrs.end() || nameIt->second.empty()) {
+                continue;
+            }
+            if(typeIt->second == "scope") {
+                try {
+                    functionSymbolIds.insert(std::stoi(symIt->second));
+                } catch(...) {
+                }
+            }
+        }
+    }
+
+    bool found = false;
+    std::istringstream secondPass(text);
+    while(std::getline(secondPass, line)) {
+        if(line.rfind("sym\t", 0) != 0) {
+            continue;
+        }
+
+        const auto attrs = parseCc65DbgAttributes(line.substr(4));
+        const auto nameIt = attrs.find("name");
+        const auto valueIt = attrs.find("val");
+        const auto typeIt = attrs.find("type");
+        if(nameIt == attrs.end() || valueIt == attrs.end() || typeIt == attrs.end()) {
+            continue;
+        }
+
+        uint16_t address = 0;
+        if(!parseCpuSymbolValue(valueIt->second, address)) {
+            continue;
+        }
+
+        int symbolId = -1;
+        if(const auto idIt = attrs.find("id"); idIt != attrs.end()) {
+            try {
+                symbolId = std::stoi(idIt->second);
+            } catch(...) {
+            }
+        }
+
+        CpuDebugSymbolKind kind = CpuDebugSymbolKind::Unknown;
+        if(typeIt->second == "equ" || typeIt->second == "equate") {
+            kind = CpuDebugSymbolKind::Data;
+        } else if(functionSymbolIds.find(symbolId) != functionSymbolIds.end()) {
+            kind = CpuDebugSymbolKind::Function;
+        } else if(typeIt->second == "lab" || typeIt->second == "label") {
+            kind = CpuDebugSymbolKind::Label;
+            if(const auto segIt = attrs.find("seg"); segIt != attrs.end()) {
+                try {
+                    const int segId = std::stoi(segIt->second);
+                    const auto segmentIt = segments.find(segId);
+                    if(segmentIt != segments.end()) {
+                        std::string segmentName = segmentIt->second.name;
+                        std::transform(segmentName.begin(), segmentName.end(), segmentName.begin(), [](unsigned char ch) {
+                            return static_cast<char>(std::toupper(ch));
+                        });
+                        if(segmentIt->second.type == "rw" ||
+                           segmentName == "BSS" ||
+                           segmentName == "DATA" ||
+                           segmentName == "ZEROPAGE" ||
+                           segmentName == "RAM" ||
+                           segmentName == "XRAM") {
+                            kind = CpuDebugSymbolKind::Data;
+                        }
+                    }
+                } catch(...) {
+                }
+            }
+        }
+
+        addCpuSymbol(symbols, address, nameIt->second, kind);
+        found = true;
+    }
+
+    return found;
+}
+
+void addCpuSymbol(
+    std::unordered_map<uint16_t, CpuDebugSymbol>& symbols,
+    uint16_t address,
+    const std::string& rawName,
+    CpuDebugSymbolKind kind)
+{
+    std::string name = sanitizeCpuSymbolName(rawName);
+    if(name.empty()) return;
+    if(name == "-" || name == "?") return;
+    auto it = symbols.find(address);
+    if(it == symbols.end()) {
+        symbols.emplace(address, CpuDebugSymbol{name, kind});
+    } else {
+        it->second.kind = mergeCpuSymbolKind(it->second.kind, kind);
+    }
+}
+
+template<typename ReadValue>
+bool loadElfCpuSymbols(
+    const std::vector<uint8_t>& data,
+    std::unordered_map<uint16_t, CpuDebugSymbol>& symbols,
+    bool is64,
+    bool littleEndian,
+    ReadValue readValue)
+{
+    const auto read16 = [&](size_t offset) -> uint16_t {
+        return static_cast<uint16_t>(readValue(offset, 2, littleEndian));
+    };
+    const auto read32 = [&](size_t offset) -> uint32_t {
+        return static_cast<uint32_t>(readValue(offset, 4, littleEndian));
+    };
+    const auto read64 = [&](size_t offset) -> uint64_t {
+        return readValue(offset, 8, littleEndian);
+    };
+    const auto stringAt = [&](size_t offset) -> std::string {
+        if(offset >= data.size()) return "";
+        size_t end = offset;
+        while(end < data.size() && data[end] != 0) {
+            ++end;
+        }
+        return std::string(reinterpret_cast<const char*>(data.data() + offset), end - offset);
+    };
+
+    const uint64_t sectionHeaderOffset = is64 ? read64(0x28) : read32(0x20);
+    const uint16_t sectionHeaderSize = read16(is64 ? 0x3A : 0x2E);
+    const uint16_t sectionHeaderCount = read16(is64 ? 0x3C : 0x30);
+    if(sectionHeaderOffset == 0 || sectionHeaderSize == 0 || sectionHeaderCount == 0) return false;
+
+    struct ElfSection {
+        uint32_t type = 0;
+        uint64_t offset = 0;
+        uint64_t size = 0;
+        uint32_t link = 0;
+        uint64_t entrySize = 0;
+    };
+
+    std::vector<ElfSection> sections;
+    sections.reserve(sectionHeaderCount);
+    for(uint16_t i = 0; i < sectionHeaderCount; ++i) {
+        const uint64_t base = sectionHeaderOffset + static_cast<uint64_t>(i) * sectionHeaderSize;
+        if(base + sectionHeaderSize > data.size()) return false;
+
+        ElfSection section;
+        if(is64) {
+            section.type = read32(static_cast<size_t>(base + 4));
+            section.offset = read64(static_cast<size_t>(base + 24));
+            section.size = read64(static_cast<size_t>(base + 32));
+            section.link = read32(static_cast<size_t>(base + 40));
+            section.entrySize = read64(static_cast<size_t>(base + 56));
+        } else {
+            section.type = read32(static_cast<size_t>(base + 4));
+            section.offset = read32(static_cast<size_t>(base + 16));
+            section.size = read32(static_cast<size_t>(base + 20));
+            section.link = read32(static_cast<size_t>(base + 24));
+            section.entrySize = read32(static_cast<size_t>(base + 36));
+        }
+        sections.push_back(section);
+    }
+
+    constexpr uint32_t kSymtab = 2;
+    constexpr uint32_t kDynsym = 11;
+    bool found = false;
+    for(const ElfSection& section : sections) {
+        if(section.type != kSymtab && section.type != kDynsym) continue;
+        if(section.link >= sections.size()) continue;
+        const ElfSection& strings = sections[section.link];
+        const uint64_t entrySize = section.entrySize != 0 ? section.entrySize : (is64 ? 24 : 16);
+        if(entrySize == 0 || section.offset + section.size > data.size() || strings.offset + strings.size > data.size()) continue;
+
+        for(uint64_t offset = section.offset; offset + entrySize <= section.offset + section.size; offset += entrySize) {
+            const uint32_t nameOffset = read32(static_cast<size_t>(offset));
+            const uint8_t info = data[static_cast<size_t>(offset + (is64 ? 4 : 12))];
+            const uint16_t shndx = is64 ? read16(static_cast<size_t>(offset + 6)) : read16(static_cast<size_t>(offset + 14));
+            const uint64_t value = is64 ? read64(static_cast<size_t>(offset + 8)) : read32(static_cast<size_t>(offset + 4));
+            const uint8_t type = static_cast<uint8_t>(info & 0x0F);
+            if(nameOffset == 0 || shndx == 0 || value > 0xFFFF || (type != 0 && type != 1 && type != 2)) continue;
+            const CpuDebugSymbolKind kind =
+                type == 2 ? CpuDebugSymbolKind::Function :
+                type == 1 ? CpuDebugSymbolKind::Data :
+                CpuDebugSymbolKind::Unknown;
+            addCpuSymbol(symbols, static_cast<uint16_t>(value), stringAt(static_cast<size_t>(strings.offset + nameOffset)), kind);
+            found = true;
+        }
+    }
+
+    return found;
+}
+
+bool loadElfCpuSymbols(const std::vector<uint8_t>& data, std::unordered_map<uint16_t, CpuDebugSymbol>& symbols)
+{
+    if(data.size() < 0x40 || data[0] != 0x7F || data[1] != 'E' || data[2] != 'L' || data[3] != 'F') {
+        return false;
+    }
+    const bool is64 = data[4] == 2;
+    const bool is32 = data[4] == 1;
+    const bool littleEndian = data[5] == 1;
+    const bool bigEndian = data[5] == 2;
+    if((!is64 && !is32) || (!littleEndian && !bigEndian)) return false;
+
+    auto readValue = [&](size_t offset, size_t size, bool little) -> uint64_t {
+        if(offset + size > data.size()) return 0;
+        uint64_t value = 0;
+        for(size_t i = 0; i < size; ++i) {
+            const size_t index = little ? i : (size - 1 - i);
+            value |= static_cast<uint64_t>(data[offset + index]) << (i * 8);
+        }
+        return value;
+    };
+    return loadElfCpuSymbols(data, symbols, is64, littleEndian, readValue);
+}
+
+std::optional<std::string> parseSdccCdbSymbolKey(const std::string& line, CpuDebugSymbolKind& kind, std::string& name)
+{
+    if(line.size() < 4 || line[1] != ':') return std::nullopt;
+    if(line[0] == 'F') {
+        kind = CpuDebugSymbolKind::Function;
+    } else if(line[0] == 'S') {
+        kind = CpuDebugSymbolKind::Data;
+    } else {
+        return std::nullopt;
+    }
+
+    const size_t recordEnd = line.find('(');
+    if(recordEnd == std::string::npos || recordEnd <= 2) return std::nullopt;
+    const std::string key = line.substr(2, recordEnd - 2);
+    const size_t firstDollar = key.find('$');
+    const size_t secondDollar = firstDollar != std::string::npos ? key.find('$', firstDollar + 1) : std::string::npos;
+    if(firstDollar == std::string::npos || secondDollar == std::string::npos || secondDollar <= firstDollar + 1) {
+        return std::nullopt;
+    }
+    name = key.substr(firstDollar + 1, secondDollar - firstDollar - 1);
+    return key;
+}
+
+bool loadSdccCdbCpuSymbols(const std::string& text, std::unordered_map<uint16_t, CpuDebugSymbol>& symbols)
+{
+    struct CdbSymbol {
+        std::string name;
+        CpuDebugSymbolKind kind = CpuDebugSymbolKind::Unknown;
+    };
+
+    std::unordered_map<std::string, CdbSymbol> symbolRecords;
+    std::istringstream firstPass(text);
+    std::string line;
+    while(std::getline(firstPass, line)) {
+        CpuDebugSymbolKind kind = CpuDebugSymbolKind::Unknown;
+        std::string name;
+        if(const auto key = parseSdccCdbSymbolKey(line, kind, name); key.has_value()) {
+            symbolRecords[*key] = CdbSymbol{name, kind};
+        }
+    }
+
+    bool found = false;
+    std::istringstream secondPass(text);
+    while(std::getline(secondPass, line)) {
+        if(line.rfind("L:", 0) != 0 || line.rfind("L:X", 0) == 0 || line.rfind("L:A", 0) == 0 || line.rfind("L:C", 0) == 0) {
+            continue;
+        }
+        const size_t addressSep = line.rfind(':');
+        if(addressSep == std::string::npos || addressSep <= 2) continue;
+        const std::string key = line.substr(2, addressSep - 2);
+        const auto symbolIt = symbolRecords.find(key);
+        if(symbolIt == symbolRecords.end()) continue;
+
+        uint16_t address = 0;
+        if(!parseCpuSymbolValue(line.substr(addressSep + 1), address, true)) continue;
+        addCpuSymbol(symbols, address, symbolIt->second.name, symbolIt->second.kind);
+        found = true;
+    }
+    return found;
+}
+
+bool loadTextCpuSymbols(const std::string& text, std::unordered_map<uint16_t, CpuDebugSymbol>& symbols, const std::string& path)
+{
+    static const std::regex quotedNameValue(R"REGEX(name\s*=\s*"([^"]+)".*val\s*=\s*(\$[0-9A-Fa-f]+|0x[0-9A-Fa-f]+|[0-9]+))REGEX", std::regex::icase);
+    static const std::regex nameEquals(R"(^\s*([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s*[:=]\s*(\$[0-9A-Fa-f]+|0x[0-9A-Fa-f]+|[0-9A-Fa-f]{3,4})\b)");
+    static const std::regex addrName(R"(^\s*(?:\$|0x)?([0-9A-Fa-f]{3,4})\s+([A-Za-z_.$@][A-Za-z0-9_.$@]*)\b)");
+    static const std::regex bankAddrName(R"(^\s*(?:[A-Za-z]:)?[0-9A-Fa-f]{1,2}:([0-9A-Fa-f]{3,4})[:\s]+([A-Za-z_.$@][A-Za-z0-9_.$@]*)\b)");
+    static const std::regex mesenLabel(R"(^\s*(?:[A-Za-z]|[A-Za-z][A-Za-z0-9_]+):(?:[0-9A-Fa-f]{1,2}:)?([0-9A-Fa-f]{3,4}):([^#;\s]+))");
+
+    const std::string extension = lowerExtension(path);
+    if(extension == ".dbg") {
+        return parseCc65DbgSymbols(text, symbols);
+    }
+    if(extension == ".cdb") {
+        return loadSdccCdbCpuSymbols(text, symbols);
+    }
+
+    const CpuDebugSymbolKind fallbackKind =
+        extension == ".fns" ? CpuDebugSymbolKind::Function :
+        (extension == ".mlb" || extension == ".sym") ? CpuDebugSymbolKind::Label :
+        CpuDebugSymbolKind::Unknown;
+
+    bool found = false;
+    std::istringstream input(text);
+    std::string line;
+    while(std::getline(input, line)) {
+        const size_t comment = line.find_first_of(";#");
+        if(comment != std::string::npos) {
+            line = line.substr(0, comment);
+        }
+        std::smatch match;
+        uint16_t address = 0;
+        const CpuDebugSymbolKind kind = inferTextCpuSymbolKind(line, fallbackKind);
+        if(std::regex_search(line, match, quotedNameValue) && parseCpuSymbolValue(match[2].str(), address)) {
+            addCpuSymbol(symbols, address, match[1].str(), kind);
+            found = true;
+        } else if(std::regex_search(line, match, nameEquals) && parseCpuSymbolValue(match[2].str(), address, true)) {
+            addCpuSymbol(symbols, address, match[1].str(), kind);
+            found = true;
+        } else if(std::regex_search(line, match, mesenLabel) && parseCpuSymbolValue(match[1].str(), address, true)) {
+            addCpuSymbol(symbols, address, match[2].str(), kind);
+            found = true;
+        } else if(std::regex_search(line, match, bankAddrName) && parseCpuSymbolValue(match[1].str(), address, true)) {
+            addCpuSymbol(symbols, address, match[2].str(), kind);
+            found = true;
+        } else if(std::regex_search(line, match, addrName) && parseCpuSymbolValue(match[1].str(), address, true)) {
+            addCpuSymbol(symbols, address, match[2].str(), kind);
+            found = true;
+        }
+    }
+
+    return found;
+}
 }
 
 void GeraNESApp::updateMVP()
@@ -1076,6 +1612,9 @@ void GeraNESApp::createShortcuts()
 
     m_shortcuts.add(ShortcutManager::Data{"cpuBreakpoints", "CPU Breakpoints", "Alt+B", [this]() {
         m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
+        if(m_showCpuBreakpointsWindow) {
+            m_cpuBreakpointsRequestFocus = true;
+        }
         AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
     }});
 }
@@ -1630,6 +2169,107 @@ void GeraNESApp::openRom()
 #ifndef __EMSCRIPTEN__
     if(restoreAfterDialog) this->restoreWindow();
 #endif
+}
+
+void GeraNESApp::loadCpuDebuggerSymbols()
+{
+#ifdef __EMSCRIPTEN__
+    m_cpuDebugSymbolsStatus = "Symbol loading from disk is not available in the web build.";
+    Logger::instance().log(m_cpuDebugSymbolsStatus, Logger::Type::USER);
+#else
+    const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+        if(!emu.valid()) return false;
+
+        const bool shouldResume = !emu.paused();
+        if(shouldResume) {
+            emu.togglePaused();
+        }
+        return shouldResume;
+    });
+    setWindowsNativePumpEnabled(false);
+
+    const bool restoreAfterDialog = this->isFullScreen();
+#ifndef _WIN32
+    if(restoreAfterDialog) minimizeWindow();
+#endif
+
+    NFD_Init();
+
+    nfdu8char_t* outPath = nullptr;
+    nfdu8filteritem_t filterItem[] = {
+        { "All label files", "mlb,sym,dbg,fns,elf,cdb" },
+        { "All files", "*" }
+    };
+    nfdopendialogu8args_t args = {};
+    args.filterList = filterItem;
+    args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
+    args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+#ifdef _WIN32
+    args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+    args.parentWindow.handle = nativeWindowHandle();
+#endif
+
+    const nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+
+    if(result == NFD_OKAY) {
+        loadCpuDebuggerSymbolsFromFile(outPath);
+        NFD_FreePathU8(outPath);
+    } else if(result != NFD_CANCEL) {
+        Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
+    }
+
+    NFD_Quit();
+    setWindowsNativePumpEnabled(true);
+
+    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+        if(resumeAfterDialog && emu.paused()) {
+            emu.togglePaused();
+        }
+    });
+
+    if(restoreAfterDialog) this->restoreWindow();
+#endif
+}
+
+bool GeraNESApp::loadCpuDebuggerSymbolsFromFile(const std::string& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if(!file) {
+        m_cpuDebugSymbolsStatus = "Could not open symbol file.";
+        Logger::instance().log(m_cpuDebugSymbolsStatus + " " + path, Logger::Type::ERROR);
+        return false;
+    }
+
+    std::vector<uint8_t> bytes(
+        (std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>()
+    );
+    if(bytes.empty()) {
+        m_cpuDebugSymbolsStatus = "Symbol file is empty.";
+        Logger::instance().log(m_cpuDebugSymbolsStatus + " " + path, Logger::Type::ERROR);
+        return false;
+    }
+
+    std::unordered_map<uint16_t, CpuDebugSymbol> loadedSymbols;
+    bool loaded = loadElfCpuSymbols(bytes, loadedSymbols);
+    if(!loaded) {
+        const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        loaded = loadTextCpuSymbols(text, loadedSymbols, path);
+    }
+
+    if(!loaded || loadedSymbols.empty()) {
+        m_cpuDebugSymbolsStatus = "No CPU symbols were found in the selected file.";
+        Logger::instance().log(m_cpuDebugSymbolsStatus + " " + path, Logger::Type::ERROR);
+        return false;
+    }
+
+    m_cpuDebugSymbols = std::move(loadedSymbols);
+    m_cpuDebugSymbolsPath = path;
+    m_cpuDebugSymbolsStatus =
+        "Loaded " + std::to_string(m_cpuDebugSymbols.size()) + " CPU symbols from " + fs::path(path).filename().string();
+    Logger::instance().log(m_cpuDebugSymbolsStatus, Logger::Type::USER);
+    m_userToast.show(m_cpuDebugSymbolsStatus);
+    return true;
 }
 
 void GeraNESApp::updateVSyncConfig()
