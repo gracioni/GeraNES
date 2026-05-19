@@ -37,6 +37,7 @@ constexpr uint32_t kPostRecoveryClientDesyncRequestGraceFrames = 60;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
+constexpr uint8_t kInputFrameRedundancyCount = 8u;
 
 const char* localInputRejectReasonLabel(uint8_t reason)
 {
@@ -1371,20 +1372,40 @@ std::vector<uint8_t> NetplayCoordinator::buildPeerHealthPacket(const PeerHealthD
     return writer.data();
 }
 
-static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input,
-                                                  std::span<const uint8_t> serializedInputFrame)
+struct SerializedInputFrameEntry
+{
+    InputFrameData input;
+    std::span<const uint8_t> serializedInputFrame;
+};
+
+static std::vector<uint8_t> buildInputFramePacket(std::span<const SerializedInputFrameEntry> entries)
 {
     PacketWriter writer;
-    writer.reserve(sizeof(PacketHeader) + sizeof(InputFrameData) + serializedInputFrame.size());
+    size_t estimatedPayloadSize = sizeof(PacketHeader) + sizeof(uint8_t);
+    for(const SerializedInputFrameEntry& entry : entries) {
+        estimatedPayloadSize += sizeof(InputFrameData) + entry.serializedInputFrame.size();
+    }
+    writer.reserve(estimatedPayloadSize);
 
     PacketHeader header;
     header.type = MessageType::InputFrame;
     header.sessionId = 0;
     header.serialize(writer);
-    input.serialize(writer);
-    writer.writeBytes(serializedInputFrame);
+    const uint8_t entryCount = static_cast<uint8_t>(std::min<size_t>(entries.size(), std::numeric_limits<uint8_t>::max()));
+    writer.writePod(entryCount);
+    for(uint8_t index = 0; index < entryCount; ++index) {
+        entries[index].input.serialize(writer);
+        writer.writeBytes(entries[index].serializedInputFrame);
+    }
 
     return writer.data();
+}
+
+static std::vector<uint8_t> buildInputFramePacket(const InputFrameData& input,
+                                                  std::span<const uint8_t> serializedInputFrame)
+{
+    const SerializedInputFrameEntry entry{input, serializedInputFrame};
+    return buildInputFramePacket(std::span<const SerializedInputFrameEntry>(&entry, 1));
 }
 
 static std::vector<uint8_t> buildConfirmedInputFramesPacket(const ConfirmedInputFramesData& data,
@@ -1513,12 +1534,28 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
 
 bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader)
 {
-    InputFrameData input;
-    if(!InputFrameData::deserialize(reader, input)) return false;
-    std::vector<uint8_t> payload;
-    if(!reader.readBytes(payload, input.payloadSize)) return false;
-    NetplayInputFrame netplayFrame;
-    if(!deserializeNetplayInputFrame(payload.data(), payload.size(), netplayFrame)) return false;
+    uint8_t entryCount = 0;
+    if(!reader.readPod(entryCount)) return false;
+    if(entryCount == 0 || entryCount > kInputFrameRedundancyCount) return false;
+
+    bool accepted = true;
+    for(uint8_t index = 0; index < entryCount; ++index) {
+        InputFrameData input;
+        if(!InputFrameData::deserialize(reader, input)) return false;
+        std::vector<uint8_t> payload;
+        if(!reader.readBytes(payload, input.payloadSize)) return false;
+        NetplayInputFrame netplayFrame;
+        if(!deserializeNetplayInputFrame(payload.data(), payload.size(), netplayFrame)) return false;
+        accepted = handleInputFrameEntry(peer, input, payload, std::move(netplayFrame)) && accepted;
+    }
+    return accepted;
+}
+
+bool NetplayCoordinator::handleInputFrameEntry(NetTransport::PeerHandle peer,
+                                               const InputFrameData& input,
+                                               const std::vector<uint8_t>& payload,
+                                               NetplayInputFrame netplayFrame)
+{
     ParticipantInfo* participant = m_session.findParticipant(input.participantId);
     if(m_hosting && participant != nullptr && participant->id != m_localParticipantId) {
         // Count any incoming remote input packet as activity, including stale
@@ -1628,6 +1665,17 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
                 return true;
             }
 
+        }
+
+        if(input.sequence <= participant->lastReceivedInputSequence) {
+            const TimelineInputEntry* existingRedundant =
+                destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
+            if(existingRedundant != nullptr &&
+               existingRedundant->buttonMaskLo == input.buttonMaskLo &&
+               existingRedundant->buttonMaskHi == input.buttonMaskHi &&
+               existingRedundant->netplayFrame.slotPayloads[input.playerSlot] == netplayFrame.slotPayloads[input.playerSlot]) {
+                return true;
+            }
         }
 
         const uint32_t expectedSequence = participant->lastReceivedInputSequence + 1u;
@@ -4935,9 +4983,12 @@ void NetplayCoordinator::update(uint32_t timeoutMs)
                                 << " protocol " << static_cast<unsigned>(diagnosticHeader.protocolVersion)
                                 << "/" << static_cast<unsigned>(kProtocolVersion);
                             if(diagnosticHeader.type == MessageType::InputFrame) {
+                                uint8_t inputEntryCount = 0;
                                 InputFrameData input{};
-                                if(InputFrameData::deserialize(diagnosticReader, input)) {
-                                    oss << " epoch " << input.timelineEpoch
+                                if(diagnosticReader.readPod(inputEntryCount) &&
+                                   InputFrameData::deserialize(diagnosticReader, input)) {
+                                    oss << " entries " << static_cast<unsigned>(inputEntryCount)
+                                        << " epoch " << input.timelineEpoch
                                         << " currentEpoch " << m_session.roomState().timelineEpoch
                                         << " frame " << input.frame
                                         << " seq " << input.sequence
@@ -5330,6 +5381,7 @@ bool NetplayCoordinator::injectInputFrameForTests(const InputFrameData& input, c
     inputWithPayload.buttonMaskLo = assignedContributionPrimaryMask(input.playerSlot, netplayFrame);
     inputWithPayload.buttonMaskHi = netplayFrame.buttonMaskHi[input.playerSlot];
     inputWithPayload.payloadSize = static_cast<uint16_t>(payload.size());
+    writer.writePod(static_cast<uint8_t>(1u));
     inputWithPayload.serialize(writer);
     writer.writeBytes(std::span<const uint8_t>(payload.data(), payload.size()));
     PacketReader reader(writer.data().data(), writer.data().size());
@@ -5938,22 +5990,43 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     m_localInputs.push(entry);
     updateLocalRejectState(kLocalInputRejectNone, 0u, 0u);
 
-    InputFrameData packetData;
-    packetData.timelineEpoch = m_session.roomState().timelineEpoch;
-    packetData.frame = frame;
-    packetData.authoritativeFrameStartClockMicros =
-        authoritativeFrameStartClockMicros(frame);
-    packetData.participantId = m_localParticipantId;
-    packetData.playerSlot = slot;
-    packetData.buttonMaskLo = buttonMaskLo;
-    packetData.buttonMaskHi = buttonMaskHi;
-    packetData.sequence = entry.sequence;
-    const std::vector<uint8_t> payloadFrame = serializeNetplayInputFrame(entry.netplayFrame);
-    packetData.payloadSize = static_cast<uint16_t>(payloadFrame.size());
-    const std::vector<uint8_t> payload = buildInputFramePacket(
-        packetData,
-        std::span<const uint8_t>(payloadFrame.data(), payloadFrame.size())
-    );
+    std::vector<TimelineInputEntry> redundantInputs;
+    redundantInputs.reserve(kInputFrameRedundancyCount);
+    for(auto it = m_localInputs.entries().rbegin();
+        it != m_localInputs.entries().rend() && redundantInputs.size() < kInputFrameRedundancyCount;
+        ++it) {
+        if(it->participantId != m_localParticipantId || it->playerSlot != slot) continue;
+        if(it->netplayFrame.timelineEpoch != m_session.roomState().timelineEpoch) continue;
+        redundantInputs.push_back(*it);
+    }
+    std::reverse(redundantInputs.begin(), redundantInputs.end());
+
+    std::vector<std::vector<uint8_t>> payloadFrames;
+    std::vector<SerializedInputFrameEntry> packetEntries;
+    payloadFrames.reserve(redundantInputs.size());
+    packetEntries.reserve(redundantInputs.size());
+    for(const TimelineInputEntry& redundantInput : redundantInputs) {
+        payloadFrames.push_back(serializeNetplayInputFrame(redundantInput.netplayFrame));
+
+        InputFrameData packetData;
+        packetData.timelineEpoch = m_session.roomState().timelineEpoch;
+        packetData.frame = redundantInput.frame;
+        packetData.authoritativeFrameStartClockMicros =
+            authoritativeFrameStartClockMicros(redundantInput.frame);
+        packetData.participantId = m_localParticipantId;
+        packetData.playerSlot = slot;
+        packetData.buttonMaskLo = redundantInput.buttonMaskLo;
+        packetData.buttonMaskHi = redundantInput.buttonMaskHi;
+        packetData.sequence = redundantInput.sequence;
+        packetData.payloadSize = static_cast<uint16_t>(payloadFrames.back().size());
+        packetEntries.push_back(SerializedInputFrameEntry{
+            packetData,
+            std::span<const uint8_t>(payloadFrames.back().data(), payloadFrames.back().size())
+        });
+    }
+
+    const std::vector<uint8_t> payload =
+        buildInputFramePacket(std::span<const SerializedInputFrameEntry>(packetEntries.data(), packetEntries.size()));
 
     if(m_hosting) {
         synthesizeSuspendedRemoteInputsUpTo(frame);
@@ -5963,7 +6036,7 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame, PlayerSlot slo
     }
 
     if(!m_connected || m_serverPeer == NetTransport::kInvalidPeerHandle) return;
-    m_transport.sendReliable(m_serverPeer, Channel::Gameplay, payload);
+    m_transport.sendUnreliable(m_serverPeer, Channel::Gameplay, payload);
 }
 
 void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,

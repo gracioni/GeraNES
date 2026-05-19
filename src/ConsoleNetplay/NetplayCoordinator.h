@@ -279,6 +279,10 @@ private:
     bool handleClockSyncResponse(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handlePeerHealth(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleInputFrame(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleInputFrameEntry(NetTransport::PeerHandle peer,
+                               const InputFrameData& input,
+                               const std::vector<uint8_t>& payload,
+                               NetplayInputFrame netplayFrame);
     bool handleConfirmedInputFrames(PacketReader& reader);
     bool handleInputAck(PacketReader& reader);
     bool handleFrameStatus(PacketReader& reader);

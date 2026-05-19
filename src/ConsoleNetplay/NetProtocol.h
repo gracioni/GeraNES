@@ -14,7 +14,7 @@ namespace ConsoleNetplay {
 class PacketWriter;
 class PacketReader;
 
-constexpr uint8_t kProtocolVersion = 16;
+constexpr uint8_t kProtocolVersion = 17;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
