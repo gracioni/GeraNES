@@ -209,6 +209,7 @@ private:
     bool m_showShaderStackWindow = false;
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
+    bool m_showMemoryViewerWindow = false;
     bool m_showPpuViewerWindow = false;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
@@ -248,6 +249,16 @@ private:
     uint16_t m_cpuDebuggerSelectedAddress = 0;
     uint16_t m_cpuDebuggerSelectionAnchor = 0;
     bool m_cpuDebuggerHasSelection = false;
+    int m_memoryViewerType = 0;
+    uint16_t m_memoryViewerAddress = 0;
+    uint16_t m_memoryViewerGotoAddress = 0;
+    int m_memoryViewerColumns = 16;
+    bool m_memoryViewerShowAscii = true;
+    uint32_t m_memoryViewerScrollToAddress = UINT32_MAX;
+    int m_memoryViewerScrollPendingFrames = 0;
+    bool m_memoryViewerEditOpen = false;
+    uint32_t m_memoryViewerEditAddress = 0;
+    uint8_t m_memoryViewerEditValue = 0;
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
 
@@ -430,6 +441,7 @@ private:
     void drawEventViewerWindow();
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
+    void drawMemoryViewerWindow();
     void loadCpuDebuggerSymbols();
     bool loadCpuDebuggerSymbolsFromFile(const std::string& path);
     void syncCpuDebugRuntimeState();

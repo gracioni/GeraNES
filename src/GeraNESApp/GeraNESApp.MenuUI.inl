@@ -877,6 +877,10 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
+            if(ImGui::MenuItem("Memory Viewer", nullptr, m_showMemoryViewerWindow, m_emu.valid())) {
+                m_showMemoryViewerWindow = !m_showMemoryViewerWindow;
+            }
+
             if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow)) {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }

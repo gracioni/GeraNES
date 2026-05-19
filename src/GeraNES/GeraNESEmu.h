@@ -1891,6 +1891,34 @@ public:
         return m_openBus;
     }
 
+    void debugWriteCpuMemory(uint16_t addr, uint8_t data)
+    {
+        switch(addr >> 12) {
+            case 0:
+            case 1:
+                m_ram[addr & 0x7FF] = data;
+                return;
+
+            case 6:
+            case 7:
+                m_cartridge.writeSaveRam(addr & 0x1FFF, data);
+                return;
+
+            default:
+                break;
+        }
+
+        if(addr >= 0x8000) {
+            m_cartridge.writePrg(addr & 0x7FFF, data);
+        } else if(addr >= 0x4020) {
+            if(m_cartridge.isNsf()) {
+                m_cartridge.writeMapperRegisterAbsolute(addr, data);
+            } else {
+                m_cartridge.writeMapperRegister(addr & 0x1FFF, data);
+            }
+        }
+    }
+
     /**
      * Return true on new frame
      */

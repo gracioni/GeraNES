@@ -1139,6 +1139,31 @@ yyy NN YYYYY XXXXX
         return m_palette[normalizePaletteAddress(addr) - 0x3F00];
     }
 
+    void debugWritePpuMemory(uint16_t addr, uint8_t data)
+    {
+        fakeWritePpuMemory(addr, data);
+    }
+
+    uint8_t debugPeekPrimaryOam(uint8_t addr) const
+    {
+        return m_primaryOam[addr];
+    }
+
+    void debugWritePrimaryOam(uint8_t addr, uint8_t data)
+    {
+        m_primaryOam[addr] = data;
+    }
+
+    uint8_t debugPeekSecondaryOam(uint8_t addr) const
+    {
+        return m_secondaryOam[addr & 0x1F];
+    }
+
+    void debugWriteSecondaryOam(uint8_t addr, uint8_t data)
+    {
+        m_secondaryOam[addr & 0x1F] = data;
+    }
+
     int debugBackgroundPatternTableAddress() const
     {
         return m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
