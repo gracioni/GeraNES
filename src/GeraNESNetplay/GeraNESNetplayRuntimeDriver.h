@@ -13,8 +13,7 @@ ConsoleNetplay::RuntimeExecutionSettings buildGeraNESRuntimeExecutionSettings(IE
                                                                               bool autoGameplayTuning,
                                                                               bool showDebugLog,
                                                                               int gameplayReceiveDelayMs,
-                                                                              int inputDelayFrames,
-                                                                              int predictFrames);
+                                                                              int inputDelayFrames);
 ConsoleNetplay::NetplayAppRuntime::UpdateResult executeRuntimeFrame(
     ConsoleNetplay::NetplayAppRuntime& runtime,
     IEmulationHost& host,

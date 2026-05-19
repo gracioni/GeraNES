@@ -267,7 +267,6 @@ void FrameStatusData::serialize(PacketWriter& writer) const
     writer.writePod(currentFrame);
     writer.writePod(lastConfirmedFrame);
     writer.writePod(inputDelayFrames);
-    writer.writePod(predictFrames);
     topology.serialize(writer);
 }
 
@@ -277,7 +276,6 @@ bool FrameStatusData::deserialize(PacketReader& reader, FrameStatusData& data)
            reader.readPod(data.currentFrame) &&
            reader.readPod(data.lastConfirmedFrame) &&
            reader.readPod(data.inputDelayFrames) &&
-           reader.readPod(data.predictFrames) &&
            InputTopologyData::deserialize(reader, data.topology);
 }
 
@@ -287,7 +285,6 @@ size_t FrameStatusData::serializedSize() const
            sizeof(currentFrame) +
            sizeof(lastConfirmedFrame) +
            sizeof(inputDelayFrames) +
-           sizeof(predictFrames) +
            topology.serializedSize();
 }
 
@@ -347,7 +344,6 @@ void StartSessionData::serialize(PacketWriter& writer) const
 {
     writer.writePod(state);
     writer.writePod(inputDelayFrames);
-    writer.writePod(predictFrames);
     topology.serialize(writer);
 }
 
@@ -355,13 +351,12 @@ bool StartSessionData::deserialize(PacketReader& reader, StartSessionData& data)
 {
     return reader.readPod(data.state) &&
            reader.readPod(data.inputDelayFrames) &&
-           reader.readPod(data.predictFrames) &&
            InputTopologyData::deserialize(reader, data.topology);
 }
 
 size_t StartSessionData::serializedSize() const
 {
-    return sizeof(state) + sizeof(inputDelayFrames) + sizeof(predictFrames) + topology.serializedSize();
+    return sizeof(state) + sizeof(inputDelayFrames) + topology.serializedSize();
 }
 
 void PeerHealthData::serialize(PacketWriter& writer) const

@@ -19,7 +19,6 @@ struct TimelineInputEntry
     uint64_t buttonMaskHi = 0;
     NetplayInputFrame netplayFrame = {};
     uint32_t sequence = 0;
-    bool predicted = false;
     bool confirmed = false;
 };
 

@@ -76,8 +76,6 @@ public:
         FrameNumber lastRecoveryReanchorFrame = 0;
         NetplayAutoTune::Snapshot autoSettings;
         FramePacingDiagnostics framePacingDiagnostics;
-        uint32_t unresolvedPredictedRemoteFrameCount = 0;
-        FrameNumber latestPredictedRemoteFrame = 0;
         NetplayRuntimeDiagnostics runtimeDiagnostics;
         std::string sessionBlockedReason;
         std::vector<std::string> eventLog;
@@ -126,7 +124,6 @@ public:
         size_t inputBufferCapacity = 64;
         std::optional<size_t> snapshotCapacity;
         uint32_t inputDelayFrames = 0;
-        uint32_t predictFrames = 0;
     };
 
     virtual ~NetplayAppRuntime() = default;

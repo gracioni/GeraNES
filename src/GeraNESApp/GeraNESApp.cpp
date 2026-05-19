@@ -1155,8 +1155,7 @@ GeraNESApp::GeraNESApp()
                 cfg.autoGameplayTuning,
                 cfg.showNetplayDebugLog,
                 cfg.gameplayReceiveDelayMs,
-                cfg.inputDelayFrames,
-                cfg.predictFrames
+                cfg.inputDelayFrames
             );
         const ConsoleNetplay::NetplayAppRuntime::UpdateResult updateResult =
             GeraNESNetplay::executeRuntimeFrame(
@@ -1167,7 +1166,6 @@ GeraNESApp::GeraNESApp()
             runtimeSettings
         );
         cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
-        cfg.predictFrames = static_cast<int>(updateResult.predictFrames);
     });
 
     std::ofstream file(LOG_FILE);

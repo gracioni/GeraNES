@@ -46,8 +46,7 @@ RuntimeExecutionSettings buildGeraNESRuntimeExecutionSettings(IEmulationHost& ho
                                                               bool autoGameplayTuning,
                                                               bool showDebugLog,
                                                               int gameplayReceiveDelayMs,
-                                                              int inputDelayFrames,
-                                                              int predictFrames)
+                                                              int inputDelayFrames)
 {
     int policyGameplayReceiveDelayMs = std::max(0, gameplayReceiveDelayMs);
 #ifdef NDEBUG
@@ -58,8 +57,7 @@ RuntimeExecutionSettings buildGeraNESRuntimeExecutionSettings(IEmulationHost& ho
         autoGameplayTuning,
         showDebugLog,
         policyGameplayReceiveDelayMs,
-        inputDelayFrames,
-        predictFrames
+        inputDelayFrames
     );
 }
 

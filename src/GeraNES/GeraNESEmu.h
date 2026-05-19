@@ -1286,8 +1286,8 @@ private:
     {
         if(ms == 0) return false;
         if(skipRender) {
-            // Predicted replay must not render anything or touch the live
-            // output device. Drop only the transient generated sample buffers.
+            // Silent catch-up/resimulation must not touch the live output device.
+            // Drop only the transient generated sample buffers.
             m_audioOutput.clearAudioBuffers();
             return false;
         }
@@ -1323,12 +1323,11 @@ private:
             }
             m_currentFrameInputLocked = true;
         }
-        const InputFrame* inputFrame = &m_lockedPlaybackInputFrame;
         const bool playbackFrameAlreadyRenderedAudibly =
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
-            silentAudio || inputFrame->speculative || playbackFrameAlreadyRenderedAudibly;
+            silentAudio || playbackFrameAlreadyRenderedAudibly;
         const bool nmiBefore = m_ppu.nmiLineActive();
         const bool irqBefore = m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag();
         const bool sprite0Before = m_ppu.sprite0Hit();
@@ -2271,13 +2270,6 @@ public:
         return data;
     }
 
-    static void normalizeInputFrameForNetplaySnapshot(InputFrame& inputFrame)
-    {
-        // Speculative/predicted playback is a runtime recovery policy, not part
-        // of the canonical emulation state that rollback/resync/CRC compare.
-        inputFrame.speculative = false;
-    }
-
     std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
     {
         const size_t inputBufferCapacity = m_inputBuffer.capacity();
@@ -2295,7 +2287,6 @@ public:
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
-        normalizeInputFrameForNetplaySnapshot(serializedPlaybackInput);
         std::swap(m_inputBuffer, savedInputBuffer);
         m_inputBuffer.clear();
         m_inputBuffer.push(serializedPlaybackInput);

@@ -98,7 +98,6 @@ struct EmulationHostTypes
     struct ReplayFrameInput
     {
         InputState state{};
-        bool speculative = false;
         bool hasFrameOverride = false;
         InputFrame frameOverride{};
     };

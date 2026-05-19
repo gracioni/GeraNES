@@ -38,14 +38,12 @@ struct RuntimeInputDelaySettings
     uint32_t gameplayReceiveDelayMs = 0;
     bool autoGameplayTuning = false;
     uint32_t manualInputDelayFrames = 0;
-    uint32_t manualPredictFrames = 0;
     uint32_t regionFps = 60;
 };
 
 struct RuntimeInputDelayResult
 {
     uint32_t inputDelayFrames = 0;
-    uint32_t predictFrames = 0;
     size_t inputBufferCapacity = 64;
 };
 
@@ -312,7 +310,7 @@ private:
     RuntimeHost& m_host;
 };
 
-size_t runtimeInputBufferCapacity(uint32_t prebufferFrames, uint32_t predictFrames);
+size_t runtimeInputBufferCapacity(uint32_t prebufferFrames);
 
 RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordinator,
                                                       ConfirmedInputBufferDriver& inputDriver,

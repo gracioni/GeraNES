@@ -9,14 +9,13 @@ namespace ConsoleNetplay {
 
 namespace {
 
-constexpr uint8_t kNetplayInputFrameWireVersion = 3;
+constexpr uint8_t kNetplayInputFrameWireVersion = 4;
 
 struct NetplayInputFrameWireHeader
 {
     uint8_t version = kNetplayInputFrameWireVersion;
     FrameNumber frame = 0;
     uint32_t timelineEpoch = 0;
-    uint8_t speculative = 0;
     uint8_t slotCount = 0;
     uint16_t framePayloadSize = 0;
 };
@@ -46,7 +45,6 @@ void writeNetplayInputFrameWireHeader(PacketWriter& writer, const NetplayInputFr
     writer.writePod(header.version);
     writer.writePod(header.frame);
     writer.writePod(header.timelineEpoch);
-    writer.writePod(header.speculative);
     writer.writePod(header.slotCount);
     writer.writePod(header.framePayloadSize);
 }
@@ -56,7 +54,6 @@ bool readNetplayInputFrameWireHeader(PacketReader& reader, NetplayInputFrameWire
     return reader.readPod(header.version) &&
            reader.readPod(header.frame) &&
            reader.readPod(header.timelineEpoch) &&
-           reader.readPod(header.speculative) &&
            reader.readPod(header.slotCount) &&
            reader.readPod(header.framePayloadSize);
 }
@@ -87,7 +84,6 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
     NetplayInputFrameWireHeader header;
     header.frame = frame.frame;
     header.timelineEpoch = frame.timelineEpoch;
-    header.speculative = frame.speculative ? 1u : 0u;
     header.slotCount = activeSlotCount(frame);
     header.framePayloadSize = static_cast<uint16_t>(frame.framePayload.size());
 
@@ -111,7 +107,7 @@ std::vector<uint8_t> serializeNetplayInputFrame(const NetplayInputFrame& frame)
 size_t serializedNetplayInputFrameSize(const NetplayInputFrame& frame)
 {
     size_t size =
-        sizeof(uint8_t) + sizeof(FrameNumber) + sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) +
+        sizeof(uint8_t) + sizeof(FrameNumber) + sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint16_t) +
         frame.framePayload.size();
     for(PlayerSlot slot : frame.activeSlots()) {
         if(slotHasPayload(frame, slot)) {
@@ -131,7 +127,6 @@ bool deserializeNetplayInputFrame(const uint8_t* data, size_t size, NetplayInput
     NetplayInputFrame decoded;
     decoded.frame = header.frame;
     decoded.timelineEpoch = header.timelineEpoch;
-    decoded.speculative = header.speculative != 0u;
     if(!reader.readBytes(decoded.framePayload, header.framePayloadSize)) return false;
     for(uint8_t index = 0; index < header.slotCount; ++index) {
         NetplayInputSlotWireHeader slotHeader;

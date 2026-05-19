@@ -279,7 +279,6 @@ void backfillConfirmedRemoteInputGap(ConsoleNetplay::InputTimeline& timeline,
         synthetic.frame = frame;
         synthetic.participantId = participant.id;
         synthetic.playerSlot = slot;
-        synthetic.predicted = false;
         synthetic.confirmed = true;
         if(existing != nullptr) {
             synthetic.sequence = existing->sequence;
@@ -712,7 +711,6 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         StartSessionData startData;
         startData.state = SessionState::Paused;
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-        startData.predictFrames = m_session.roomState().predictFrames;
         startData.topology = makeTopologyData(m_session.roomState());
         startData.serialize(writer);
         return m_transport.sendReliable(peer, Channel::Control, writer.data());
@@ -727,7 +725,6 @@ bool NetplayCoordinator::sendCurrentSessionStateToPeer(NetTransport::PeerHandle 
         StartSessionData startData;
         startData.state = SessionState::Running;
         startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-        startData.predictFrames = m_session.roomState().predictFrames;
         startData.topology = makeTopologyData(m_session.roomState());
         startData.serialize(writer);
         return m_transport.sendReliable(peer, Channel::Control, writer.data());
@@ -882,7 +879,6 @@ void NetplayCoordinator::finalizeActiveResyncIfReady()
     StartSessionData startData;
     startData.state = SessionState::Running;
     startData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    startData.predictFrames = m_session.roomState().predictFrames;
     startData.topology = makeTopologyData(m_session.roomState());
     startData.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
@@ -1501,7 +1497,6 @@ static std::vector<uint8_t> buildSessionStatePacket(MessageType type, SessionSta
     StartSessionData data;
     data.state = state;
     data.inputDelayFrames = 0;
-    data.predictFrames = 0;
     data.topology = {};
     data.serialize(writer);
 
@@ -1671,7 +1666,6 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
             destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
         if(existingCommitted != nullptr &&
            existingCommitted->confirmed &&
-           !existingCommitted->predicted &&
            input.frame < expectedFrame) {
             const bool committedMismatch =
                 existingCommitted->buttonMaskLo != input.buttonMaskLo ||
@@ -1752,63 +1746,15 @@ bool NetplayCoordinator::handleInputFrame(NetTransport::PeerHandle peer, PacketR
         participant->lastRejectedInputReason.clear();
     }
 
-    const TimelineInputEntry* existing = destinationTimeline->find(input.frame, input.participantId, input.playerSlot);
-    bool keepHostAuthoritativePrediction = false;
-    if(existing != nullptr && existing->predicted) {
-        // Validate prediction using only this assignment's contribution.
-        // Full InputFrame equality can differ on unrelated metadata/fields and
-        // produce false mismatches (especially visible on web/mobile clients).
-        const bool predictionHit =
-            existing->buttonMaskLo == input.buttonMaskLo &&
-            existing->buttonMaskHi == input.buttonMaskHi;
-        const FrameNumber currentFrame = m_localSimulationFrame;
-        keepHostAuthoritativePrediction =
-            m_hosting &&
-            !predictionHit &&
-            m_confirmedDesyncRequestSuppressedUntilFrame != 0u &&
-            input.frame <= currentFrame &&
-            currentFrame <= m_confirmedDesyncRequestSuppressedUntilFrame;
-        if(keepHostAuthoritativePrediction) {
-            m_predictionStats.recordPrediction(false);
-            if(participant != nullptr) {
-                participant->lastDecision = "Prediction mismatch accepted as host-authoritative during recovery grace";
-                participant->lastDecisionFrame = input.frame;
-                participant->lastDecisionSlot = input.playerSlot;
-            }
-            std::ostringstream oss;
-            oss << "Accepted late mismatching input as host-authoritative prediction during post-recovery grace"
-                << " from " << (participant != nullptr ? participant->displayName : std::to_string(input.participantId))
-                << " frame " << input.frame
-                << " slot " << static_cast<unsigned>(input.playerSlot) + 1u
-                << " suppressUntil " << m_confirmedDesyncRequestSuppressedUntilFrame
-                << " action=drop_late_input_without_rollback";
-            pushLog(oss.str());
-        } else if(input.frame <= currentFrame) {
-            m_predictionStats.recordPrediction(predictionHit);
-            handleResolvedPredictedInput(input.participantId, input.frame, input.playerSlot, predictionHit);
-        } else if(participant != nullptr) {
-            m_predictionStats.recordPrediction(predictionHit);
-            participant->lastDecision = predictionHit ? "Future prediction validated" : "Future prediction corrected";
-            participant->lastDecisionFrame = input.frame;
-            participant->lastDecisionSlot = input.playerSlot;
-        }
-    }
-
     TimelineInputEntry entry;
-    if(keepHostAuthoritativePrediction && existing != nullptr) {
-        entry = *existing;
-        entry.sequence = input.sequence;
-    } else {
-        entry.frame = input.frame;
-        entry.participantId = input.participantId;
-        entry.playerSlot = input.playerSlot;
-        entry.buttonMaskLo = input.buttonMaskLo;
-        entry.buttonMaskHi = input.buttonMaskHi;
-        entry.netplayFrame = std::move(netplayFrame);
-        entry.sequence = input.sequence;
-    }
+    entry.frame = input.frame;
+    entry.participantId = input.participantId;
+    entry.playerSlot = input.playerSlot;
+    entry.buttonMaskLo = input.buttonMaskLo;
+    entry.buttonMaskHi = input.buttonMaskHi;
+    entry.netplayFrame = std::move(netplayFrame);
+    entry.sequence = input.sequence;
     entry.confirmed = true;
-    entry.predicted = false;
     destinationTimeline->push(entry);
 
     if(participant != nullptr) {
@@ -1924,7 +1870,6 @@ bool NetplayCoordinator::handleConfirmedInputFrames(PacketReader& reader)
                         reconstructedEntry.netplayFrame = confirmedFrame->netplayFrame;
                         reconstructedEntry.sequence = m_localInputSequence;
                         reconstructedEntry.confirmed = true;
-                        reconstructedEntry.predicted = false;
                         m_localInputs.push(reconstructedEntry);
                         localEntry = m_localInputs.findMutable(frame, m_localParticipantId, slot);
                     }
@@ -2403,7 +2348,6 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
                 }
                 synthetic.buttonMaskLo = synthetic.netplayFrame.buttonMaskLo[slot];
                 synthetic.buttonMaskHi = synthetic.netplayFrame.buttonMaskHi[slot];
-                synthetic.predicted = false;
                 synthetic.confirmed = true;
                 if(existing != nullptr) {
                     synthetic.sequence = existing->sequence;
@@ -2417,235 +2361,6 @@ void NetplayCoordinator::synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetF
         for(PlayerSlot slot : participantAssignments(participant)) {
             advanceParticipantContiguousInputFrame(participant, slot);
         }
-    }
-}
-
-bool NetplayCoordinator::synthesizePredictionLimitFallbackInput(FrameNumber targetFrame,
-                                                                ParticipantInfo& participant,
-                                                                PlayerSlot slot)
-{
-    if(!m_hosting || m_session.roomState().state != SessionState::Running) return false;
-    if(participant.id == m_localParticipantId ||
-       !participant.connected ||
-       participantIsObserver(participant) ||
-       !isPlayableSlot(m_session.roomState(), slot) ||
-       !participantHasAssignment(participant, slot)) {
-        return false;
-    }
-
-    if(!participant.sequenceRebasePending) {
-        participant.inputSuspended = true;
-        participant.sequenceRebasePending = true;
-        m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame =
-            std::max<FrameNumber>(
-                m_session.roomState().autoTuneDelayIncreaseBlockedUntilFrame,
-                m_localSimulationFrame + 600u
-            );
-
-        const auto now = std::chrono::steady_clock::now();
-        const auto remoteInputIt = m_lastRemoteInputAt.find(participant.id);
-        const auto gameplayInputIt = m_lastGameplayInputAt.find(participant.id);
-        const auto peerHealthIt = m_lastPeerHealthAt.find(participant.id);
-        const auto millisSince = [now](const std::chrono::steady_clock::time_point& at) -> uint64_t {
-            return static_cast<uint64_t>(
-                std::chrono::duration_cast<std::chrono::milliseconds>(now - at).count()
-            );
-        };
-
-        std::ostringstream oss;
-        oss << "Prediction limit fallback for " << participant.displayName
-            << " frame " << targetFrame
-            << " slot " << static_cast<unsigned>(slot) + 1u
-            << "; synthesized confirmed input without immediate resync"
-            << " classification=prediction_limit_fallback"
-            << " lastReceivedFrame " << participant.lastReceivedInputFrame
-            << " lastContiguousFrame " << participant.lastContiguousInputFrame
-            << " lastReceivedSeq " << participant.lastReceivedInputSequence
-            << " lastObservedInputFrame " << participant.lastObservedInputFrame
-            << " lastObservedInputSeq " << participant.lastObservedInputSequence
-            << " lastObservedInputEpoch " << participant.lastObservedInputEpoch
-            << " lastObservedInputSlot " << static_cast<unsigned>(participant.lastObservedInputSlot) + 1u
-            << " reportedLocalInputFrame " << participant.lastReportedProducedLocalInputFrame
-            << " reportedLocalInputSeq " << participant.lastReportedProducedLocalInputSequence
-            << " reportedLocalAssignments " << static_cast<unsigned>(participant.lastReportedLocalAssignmentCount)
-            << " reportedLocalInputRejectReason " << localInputRejectReasonLabel(participant.lastReportedLocalInputRejectReason)
-            << " reportedLocalInputRejectFrame " << participant.lastReportedLocalInputRejectFrame
-            << " reportedLocalInputRejectExpectedFrame " << participant.lastReportedLocalInputRejectExpectedFrame
-            << " peerHealthSerial " << participant.peerHealthSerial;
-        if(remoteInputIt != m_lastRemoteInputAt.end()) {
-            oss << " remoteInputIdleMs " << millisSince(remoteInputIt->second);
-        }
-        if(gameplayInputIt != m_lastGameplayInputAt.end()) {
-            oss << " gameplayInputIdleMs " << millisSince(gameplayInputIt->second);
-        }
-        if(peerHealthIt != m_lastPeerHealthAt.end()) {
-            oss << " peerHealthIdleMs " << millisSince(peerHealthIt->second);
-        }
-        if(!participant.lastRejectedInputReason.empty()) {
-            oss << " lastRejectedInputReason " << participant.lastRejectedInputReason
-                << " lastRejectedFrame " << participant.lastRejectedInputFrame
-                << " lastRejectedSeq " << participant.lastRejectedInputSequence
-                << " lastRejectedSlot " << static_cast<unsigned>(participant.lastRejectedInputSlot) + 1u
-                << " lastRejectedEpoch " << participant.lastRejectedInputEpoch;
-        }
-        pushLog(oss.str());
-    } else {
-        participant.inputSuspended = true;
-    }
-
-    const TimelineInputEntry* latestConfirmed = m_remoteInputs.latestConfirmedFor(participant.id, slot);
-    FrameNumber nextFrame = participant.lastContiguousInputFrame + 1u;
-    if(nextFrame > targetFrame) {
-        nextFrame = targetFrame;
-    }
-
-    bool synthesizedAny = false;
-    while(nextFrame <= targetFrame) {
-        const TimelineInputEntry* existing = m_remoteInputs.find(nextFrame, participant.id, slot);
-        if(existing != nullptr && existing->confirmed) {
-            latestConfirmed = existing;
-            ++nextFrame;
-            continue;
-        }
-
-        TimelineInputEntry synthetic{};
-        if(latestConfirmed != nullptr) {
-            synthetic = *latestConfirmed;
-            synthetic.netplayFrame = NetplayInputFrame::repeatedFrom(latestConfirmed->netplayFrame, nextFrame);
-            materializeNativeMaskFromPayload(synthetic.netplayFrame, slot);
-            if(synthetic.netplayFrame.buttonMaskLo[slot] == 0u && latestConfirmed->buttonMaskLo != 0u) {
-                synthetic.netplayFrame.buttonMaskLo[slot] = latestConfirmed->buttonMaskLo;
-            }
-            if(synthetic.netplayFrame.buttonMaskHi[slot] == 0u && latestConfirmed->buttonMaskHi != 0u) {
-                synthetic.netplayFrame.buttonMaskHi[slot] = latestConfirmed->buttonMaskHi;
-            }
-            synthetic.buttonMaskLo = synthetic.netplayFrame.buttonMaskLo[slot];
-            synthetic.buttonMaskHi = synthetic.netplayFrame.buttonMaskHi[slot];
-            synthetic.sequence = latestConfirmed->sequence;
-        } else {
-            synthetic.participantId = participant.id;
-            synthetic.playerSlot = slot;
-            synthetic.buttonMaskLo = 0;
-            synthetic.buttonMaskHi = 0;
-            synthetic.netplayFrame = makeRoomTopologyNetplayFrame(nextFrame, m_session.roomState());
-            synthetic.sequence = 0;
-        }
-
-        synthetic.frame = nextFrame;
-        synthetic.participantId = participant.id;
-        synthetic.playerSlot = slot;
-        synthetic.predicted = false;
-        synthetic.confirmed = true;
-        if(existing != nullptr) {
-            synthetic.sequence = existing->sequence;
-        }
-
-        m_remoteInputs.push(synthetic);
-        latestConfirmed = m_remoteInputs.find(nextFrame, participant.id, slot);
-        synthesizedAny = true;
-        ++nextFrame;
-    }
-
-    for(PlayerSlot assignedSlot : participantAssignments(participant)) {
-        advanceParticipantContiguousInputFrame(participant, assignedSlot);
-    }
-    clearImplicitRemoteInputStall(participant.id, participant.lastContiguousInputFrame);
-    return synthesizedAny || m_remoteInputs.find(targetFrame, participant.id, slot) != nullptr;
-}
-
-void NetplayCoordinator::handleResolvedPredictedInput(ParticipantId participantId,
-                                                      FrameNumber inputFrame,
-                                                      PlayerSlot slot,
-                                                      bool predictionMatched)
-{
-    ParticipantInfo* participant = m_session.findParticipant(participantId);
-    auto predictionMessage = [&]() {
-        std::ostringstream oss;
-        oss << "Prediction mismatch";
-        if(participant != nullptr && !participant->displayName.empty()) {
-            oss << " from " << participant->displayName;
-        } else {
-            oss << " from participant " << static_cast<unsigned>(participantId);
-        }
-        oss << " on frame " << inputFrame
-            << " slot " << static_cast<unsigned>(slot) + 1u;
-        return oss.str();
-    };
-
-    auto recordParticipantDecision = [&](const std::string& label) {
-        if(participant == nullptr) return;
-        participant->lastDecision = label;
-        participant->lastDecisionFrame = inputFrame;
-        participant->lastDecisionSlot = slot;
-    };
-
-    const RoomState& room = m_session.roomState();
-    if(room.recoveryInputMode != RecoveryInputMode::Normal ||
-       room.activeResyncId != 0u ||
-       room.pendingResyncAckCount != 0u) {
-        recordParticipantDecision(
-            predictionMatched
-                ? "Prediction resolved during recovery"
-                : "Prediction mismatch ignored during recovery"
-        );
-        if(!predictionMatched && m_debugMode) {
-            pushLog(predictionMessage() + " during recovery; rollback deferred until stabilization completes");
-        }
-        return;
-    }
-
-    const FrameNumber confirmedFrame = m_session.roomState().lastConfirmedFrame;
-    const FrameNumber currentFrame = m_localSimulationFrame;
-
-    if(inputFrame <= confirmedFrame) {
-        m_predictionStats.recordConfirmedFrameConflict(inputFrame, slot);
-        if(participant != nullptr) {
-            ++participant->confirmedFrameConflictCount;
-        }
-        recordParticipantDecision("Confirmed-frame conflict");
-        if(m_debugMode) {
-            pushLog(predictionMessage() + " after confirmed window");
-        }
-
-        if(m_hosting &&
-           m_session.roomState().state != SessionState::Resyncing) {
-            queuePendingHostResync(inputFrame, ResyncReason::ConfirmedDesync);
-        }
-        return;
-    }
-
-    FrameNumber rollbackFrame = inputFrame > 0 ? (inputFrame - 1) : 0;
-    if(rollbackFrame < confirmedFrame) {
-        rollbackFrame = confirmedFrame;
-    }
-
-    if(!m_pendingRollbackFrame.has_value() || rollbackFrame < *m_pendingRollbackFrame) {
-        m_pendingRollbackFrame = rollbackFrame;
-    }
-
-    m_predictionStats.recordRollbackScheduled(inputFrame, slot);
-    if(participant != nullptr) {
-        ++participant->rollbackScheduledCount;
-    }
-    if(inputFrame > currentFrame) {
-        if(!predictionMatched) {
-            m_predictionStats.recordFutureFrameMismatch(inputFrame, slot);
-            if(participant != nullptr) {
-                ++participant->futureFrameMismatchCount;
-            }
-            recordParticipantDecision("Future-frame mismatch");
-        } else {
-            recordParticipantDecision("Future prediction validated");
-        }
-        if(!predictionMatched && m_debugMode) {
-            pushLog(predictionMessage() + " before local simulation reached that frame");
-        }
-        return;
-    }
-
-    recordParticipantDecision("Rollback scheduled");
-    if(!predictionMatched && m_debugMode) {
-        pushLog(predictionMessage() + " classification=speculative_mismatch_corrected_by_rollback");
     }
 }
 
@@ -2673,7 +2388,6 @@ bool NetplayCoordinator::handleFrameStatus(PacketReader& reader)
     m_session.roomState().currentFrame = status.currentFrame;
     m_session.roomState().lastConfirmedFrame = status.lastConfirmedFrame;
     m_session.roomState().inputDelayFrames = status.inputDelayFrames;
-    m_session.roomState().predictFrames = status.predictFrames;
     applyTopologyData(m_session.roomState(), status.topology);
     renormalizeParticipantsForCurrentTopology(m_session.roomState());
     advanceRecoveryStabilization(status.currentFrame);
@@ -2855,7 +2569,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
             if(!it->confirmed || it->frame > loadedFrame) continue;
 
             TimelineInputEntry entry = *it;
-            entry.predicted = false;
             entry.confirmed = true;
             if(resetInputSequences) {
                 entry.sequence = inputSequenceBase;
@@ -2915,7 +2628,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                         entry.buttonMaskHi = 0;
                         entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
                         entry.sequence = resetInputSequences ? inputSequenceBase : preservedSequenceFor(participant.id);
-                        entry.predicted = false;
                         entry.confirmed = true;
                         preservedLocalInputs.push_back(std::move(entry));
                     }
@@ -2932,7 +2644,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                         entry.buttonMaskHi = 0;
                         entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
                         entry.sequence = resetInputSequences ? inputSequenceBase : preservedSequenceFor(participant.id);
-                        entry.predicted = false;
                         entry.confirmed = true;
                         preservedRemoteInputs.push_back(std::move(entry));
                     }
@@ -2952,7 +2663,6 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
                 entry.buttonMaskHi = 0;
                 entry.netplayFrame = makeRoomTopologyNetplayFrame(loadedFrame, m_session.roomState());
                 entry.sequence = resetInputSequences ? inputSequenceBase : preservedSequenceFor(participant.id);
-                entry.predicted = false;
                 entry.confirmed = true;
                 if(participant.id == m_localParticipantId) {
                     preservedLocalInputs.push_back(std::move(entry));
@@ -3224,7 +2934,6 @@ void NetplayCoordinator::seedNeutralInputBaseline(ParticipantId participantId, P
     entry.buttonMaskHi = 0;
     entry.netplayFrame = makeRoomTopologyNetplayFrame(frame, m_session.roomState());
     entry.sequence = 0;
-    entry.predicted = false;
     entry.confirmed = true;
     timeline->push(entry);
 }
@@ -3236,8 +2945,7 @@ bool NetplayCoordinator::handleAssignController(PacketReader& reader)
 
     if(ParticipantInfo* participant = m_session.findParticipant(data.participantId)) {
         // This packet is authoritative host state. Do not preserve local
-        // speculative progress beyond the room's published baseline when the
-        // assignment set changes.
+        // progress beyond the room's published baseline when assignments change.
         const FrameNumber assignmentBaselineFrame =
             std::max(m_session.roomState().currentFrame,
                      m_session.roomState().lastConfirmedFrame);
@@ -4033,7 +3741,6 @@ bool NetplayCoordinator::handleStartSession(PacketReader& reader)
         resetRuntimeTimelineStateForSessionStart();
     }
     m_session.roomState().inputDelayFrames = data.inputDelayFrames;
-    m_session.roomState().predictFrames = data.predictFrames;
     applyTopologyData(m_session.roomState(), data.topology);
     renormalizeParticipantsForCurrentTopology(m_session.roomState());
     if(!m_hosting &&
@@ -4276,18 +3983,15 @@ void NetplayCoordinator::broadcastFrameStatusIfNeeded()
     const FrameNumber inputConfirmedFrame = std::max(m_session.roomState().lastConfirmedFrame, computeHostInputConfirmedFrame());
     status.lastConfirmedFrame = inputConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    status.predictFrames = m_session.roomState().predictFrames;
     status.topology = makeTopologyData(m_session.roomState());
 
     const FrameNumber previousCurrentFrame = m_session.roomState().currentFrame;
     const FrameNumber previousConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     const uint8_t previousInputDelayFrames = m_session.roomState().inputDelayFrames;
-    const uint8_t previousPredictFrames = m_session.roomState().predictFrames;
     const bool changed =
         status.currentFrame != previousCurrentFrame ||
         status.lastConfirmedFrame != previousConfirmedFrame ||
-        status.inputDelayFrames != previousInputDelayFrames ||
-        status.predictFrames != previousPredictFrames;
+        status.inputDelayFrames != previousInputDelayFrames;
 
     m_session.roomState().currentFrame = status.currentFrame;
     m_session.roomState().lastConfirmedFrame = status.lastConfirmedFrame;
@@ -4396,65 +4100,6 @@ bool NetplayCoordinator::romValidationMatches(const RomValidationData& a, const 
            a.contentHash == b.contentHash;
 }
 
-bool NetplayCoordinator::predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot)
-{
-    if(participantId == kInvalidParticipantId || slot == kObserverPlayerSlot) return false;
-    if(m_remoteInputs.find(frame, participantId, slot) != nullptr) return false;
-
-    const ParticipantInfo* participant = m_session.findParticipant(participantId);
-    if(participant != nullptr && (participant->inputSuspended || participant->inputResumeAwaitingResync)) {
-        return false;
-    }
-    if(participant != nullptr && participant->sequenceRebasePending) {
-        return false;
-    }
-
-    const TimelineInputEntry* lastKnown = m_remoteInputs.latestConfirmedFor(participantId, slot);
-    if(lastKnown == nullptr) return false;
-
-    TimelineInputEntry predicted = *lastKnown;
-    predicted.frame = frame;
-    predicted.netplayFrame = NetplayInputFrame::repeatedFrom(lastKnown->netplayFrame, frame);
-    materializeNativeMaskFromPayload(predicted.netplayFrame, slot);
-    if(predicted.netplayFrame.buttonMaskLo[slot] == 0u && lastKnown->buttonMaskLo != 0u) {
-        predicted.netplayFrame.buttonMaskLo[slot] = lastKnown->buttonMaskLo;
-    }
-    if(predicted.netplayFrame.buttonMaskHi[slot] == 0u && lastKnown->buttonMaskHi != 0u) {
-        predicted.netplayFrame.buttonMaskHi[slot] = lastKnown->buttonMaskHi;
-    }
-    predicted.buttonMaskLo = predicted.netplayFrame.buttonMaskLo[slot];
-    predicted.buttonMaskHi = predicted.netplayFrame.buttonMaskHi[slot];
-    predicted.predicted = true;
-    predicted.confirmed = false;
-    m_remoteInputs.push(predicted);
-    return true;
-}
-
-uint32_t NetplayCoordinator::unresolvedPredictedRemoteFrameCount() const
-{
-    uint32_t count = 0;
-    for(const TimelineInputEntry& entry : m_remoteInputs.entries()) {
-        if(!entry.predicted || entry.confirmed) continue;
-        const ParticipantInfo* participant = m_session.findParticipant(entry.participantId);
-        if(participant == nullptr) continue;
-        if(!participant->connected || participantIsObserver(*participant)) continue;
-        if(participant->inputSuspended || participant->inputResumeAwaitingResync) continue;
-        ++count;
-    }
-    return count;
-}
-
-FrameNumber NetplayCoordinator::latestPredictedRemoteFrame() const
-{
-    FrameNumber latest = 0;
-    for(const TimelineInputEntry& entry : m_remoteInputs.entries()) {
-        if(entry.predicted && !entry.confirmed && entry.frame > latest) {
-            latest = entry.frame;
-        }
-    }
-    return latest;
-}
-
 void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                                               std::optional<ParticipantId> preservedParticipantId,
                                               PlayerSlot preservedAssignment,
@@ -4473,7 +4118,6 @@ void NetplayCoordinator::setRoomInputTopology(std::vector<InputSlotDescriptor> i
     topologyStatus.currentFrame = room.currentFrame;
     topologyStatus.lastConfirmedFrame = room.lastConfirmedFrame;
     topologyStatus.inputDelayFrames = room.inputDelayFrames;
-    topologyStatus.predictFrames = room.predictFrames;
     topologyStatus.topology = makeTopologyData(room);
     m_transport.broadcastReliable(Channel::Control, buildFrameStatusPacket(topologyStatus, room.sessionId));
 
@@ -4664,7 +4308,6 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
     status.currentFrame = m_session.roomState().currentFrame;
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    status.predictFrames = m_session.roomState().predictFrames;
     status.topology = makeTopologyData(m_session.roomState());
     if(!m_transport.sendReliable(peer, Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId))) {
         m_lastError = "Failed to sync frame status";
@@ -4678,7 +4321,6 @@ bool NetplayCoordinator::handleJoinRoom(NetTransport::PeerHandle peer, PacketRea
         StartSessionData sessionData;
         sessionData.state = m_session.roomState().state;
         sessionData.inputDelayFrames = m_session.roomState().inputDelayFrames;
-        sessionData.predictFrames = m_session.roomState().predictFrames;
         sessionData.topology = makeTopologyData(m_session.roomState());
         m_transport.sendReliable(peer, Channel::Control, buildStartSessionPacket(sessionData, m_session.roomState().sessionId));
     }
@@ -5810,9 +5452,9 @@ const RollbackStats& NetplayCoordinator::predictionStats() const
     return m_predictionStats;
 }
 
-void NetplayCoordinator::recordPlaybackStop(FrameNumber frame, bool predictionLimitReached)
+void NetplayCoordinator::recordPlaybackStop(FrameNumber frame)
 {
-    m_predictionStats.recordPlaybackStop(frame, predictionLimitReached);
+    m_predictionStats.recordPlaybackStop(frame);
 }
 
 void NetplayCoordinator::recordLocalAuthoritativeFrameStart(FrameNumber frame)
@@ -5978,11 +5620,6 @@ FrameNumber NetplayCoordinator::authoritativeResyncTargetFrame() const
     return m_session.roomState().resyncTargetFrame;
 }
 
-uint8_t NetplayCoordinator::predictFrames() const
-{
-    return m_session.roomState().predictFrames;
-}
-
 void NetplayCoordinator::storeConfirmedFrame(const ConfirmedFrameInputs& frame)
 {
     ConfirmedFrameInputs stored = frame;
@@ -6052,14 +5689,10 @@ bool NetplayCoordinator::tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedF
     );
 }
 
-bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
-                                                       bool allowPrediction,
-                                                       bool allowHostFallback,
-                                                       ConfirmedFrameInputs& outFrame)
+bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame, ConfirmedFrameInputs& outFrame)
 {
     if(const ConfirmedFrameInputs* confirmed = findConfirmedFrame(frame)) {
         outFrame = *confirmed;
-        outFrame.predicted = false;
         return true;
     }
 
@@ -6067,7 +5700,6 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
     outFrame.frame = frame;
     outFrame.authoritativeFrameStartClockMicros = authoritativeFrameStartClockMicros(frame);
     NetplayInputFrame assembledInputFrame = makeRoomTopologyNetplayFrame(frame, m_session.roomState());
-    outFrame.predicted = false;
     bool haveAssignedParticipant = false;
 
     for(const auto& participant : m_session.roomState().participants) {
@@ -6078,38 +5710,6 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
             const bool isLocalParticipant = participant.id == m_localParticipantId;
             const InputTimeline& timeline = isLocalParticipant ? m_localInputs : m_remoteInputs;
             const TimelineInputEntry* entry = timeline.find(frame, participant.id, slot);
-            if(entry == nullptr &&
-               m_hosting &&
-               !isLocalParticipant &&
-               (participant.inputSuspended || participant.inputResumeAwaitingResync) &&
-               m_session.roomState().recoveryInputMode == RecoveryInputMode::Normal) {
-                ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
-                if(mutableParticipant != nullptr &&
-                   synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
-                    entry = m_remoteInputs.find(frame, participant.id, slot);
-                }
-            }
-            if(entry == nullptr && allowPrediction && !isLocalParticipant) {
-                if(!predictRemoteInputFrame(frame, participant.id, slot)) {
-                    noteImplicitRemoteInputStall(participant.id, slot, frame);
-                    return false;
-                }
-                entry = m_remoteInputs.find(frame, participant.id, slot);
-            }
-            if(entry == nullptr &&
-               m_hosting &&
-               allowHostFallback &&
-               !allowPrediction &&
-               !isLocalParticipant &&
-               !participant.sequenceRebasePending &&
-               m_session.roomState().recoveryInputMode == RecoveryInputMode::Normal) {
-                ParticipantInfo* mutableParticipant = m_session.findParticipant(participant.id);
-                if(mutableParticipant != nullptr &&
-                   synthesizePredictionLimitFallbackInput(frame, *mutableParticipant, slot)) {
-                    entry = m_remoteInputs.find(frame, participant.id, slot);
-                }
-            }
-
             if(entry == nullptr) {
                 if(!isLocalParticipant) {
                     noteImplicitRemoteInputStall(participant.id, slot, frame);
@@ -6121,10 +5721,6 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
             outFrame.buttonMaskLo[slot] = entry->buttonMaskLo;
             outFrame.buttonMaskHi[slot] = entry->buttonMaskHi;
             applyAssignedContribution(assembledInputFrame, slot, timelineContributionForSlot(*entry));
-            if(entry->predicted) {
-                m_predictionStats.recordPredictedFrameUse(frame, slot);
-            }
-            outFrame.predicted = outFrame.predicted || entry->predicted;
         }
     }
 
@@ -6139,12 +5735,9 @@ bool NetplayCoordinator::tryBuildPlaybackFrameInternal(FrameNumber frame,
     );
 }
 
-bool NetplayCoordinator::tryBuildPlaybackFrame(FrameNumber frame,
-                                               bool allowPrediction,
-                                               ConfirmedFrameInputs& outFrame,
-                                               bool allowHostFallback)
+bool NetplayCoordinator::tryBuildPlaybackFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame)
 {
-    return tryBuildPlaybackFrameInternal(frame, allowPrediction, allowHostFallback, outFrame);
+    return tryBuildPlaybackFrameInternal(frame, outFrame);
 }
 
 void NetplayCoordinator::publishConfirmedFramesIfReady()
@@ -6370,17 +5963,6 @@ void NetplayCoordinator::recordLocalInputFrame(FrameNumber frame,
     NetplayInputFrame contribution = makeContributionBase(makeRoomTopologyNetplayFrame(frame, m_session.roomState()));
     contribution.buttonMaskLo[slot] = buttonMaskLo;
     recordLocalInputFrame(frame, slot, contribution);
-}
-
-void NetplayCoordinator::predictRemoteInputsForFrame(FrameNumber frame)
-{
-    for(const ParticipantInfo& participant : m_session.roomState().participants) {
-        if(participant.id == kInvalidParticipantId || participant.id == m_localParticipantId) continue;
-
-        for(PlayerSlot slot : participantAssignments(participant)) {
-            predictRemoteInputFrame(frame, participant.id, slot);
-        }
-    }
 }
 
 void NetplayCoordinator::submitLocalCrc(FrameNumber frame,
@@ -6955,29 +6537,8 @@ bool NetplayCoordinator::setInputDelayFrames(uint8_t frames)
     status.currentFrame = m_session.roomState().currentFrame;
     status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
     status.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    status.predictFrames = m_session.roomState().predictFrames;
     status.topology = makeTopologyData(m_session.roomState());
     m_lastBroadcastInputDelayFrames = status.inputDelayFrames;
-    m_transport.broadcastReliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
-    return true;
-}
-
-bool NetplayCoordinator::setPredictFrames(uint8_t frames)
-{
-    if(!m_hosting) return false;
-
-    if(m_session.roomState().predictFrames == frames) return true;
-
-    m_session.roomState().predictFrames = frames;
-    pushLog("Predict window set to " + std::to_string(static_cast<unsigned>(frames)) + " frame(s)");
-
-    FrameStatusData status;
-    status.timelineEpoch = m_session.roomState().timelineEpoch;
-    status.currentFrame = m_session.roomState().currentFrame;
-    status.lastConfirmedFrame = m_session.roomState().lastConfirmedFrame;
-    status.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    status.predictFrames = m_session.roomState().predictFrames;
-    status.topology = makeTopologyData(m_session.roomState());
     m_transport.broadcastReliable(Channel::Diagnostics, buildFrameStatusPacket(status, m_session.roomState().sessionId));
     return true;
 }
@@ -7105,7 +6666,6 @@ bool NetplayCoordinator::startSession()
     StartSessionData data;
     data.state = m_session.roomState().state;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
     m_transport.broadcastReliable(Channel::Control, buildStartSessionPacket(data, m_session.roomState().sessionId));
     pushLog(requiresInitialSync
@@ -7127,7 +6687,6 @@ bool NetplayCoordinator::pauseSession()
     StartSessionData data;
     data.state = SessionState::Paused;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
     data.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
@@ -7153,7 +6712,6 @@ bool NetplayCoordinator::resumeSession()
     StartSessionData data;
     data.state = SessionState::Running;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
     data.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
@@ -7175,7 +6733,6 @@ bool NetplayCoordinator::endSession()
     StartSessionData data;
     data.state = SessionState::Ended;
     data.inputDelayFrames = m_session.roomState().inputDelayFrames;
-    data.predictFrames = m_session.roomState().predictFrames;
     data.topology = makeTopologyData(m_session.roomState());
     data.serialize(writer);
     m_transport.broadcastReliable(Channel::Control, writer.data());
@@ -7184,4 +6741,6 @@ bool NetplayCoordinator::endSession()
 }
 
 } // namespace ConsoleNetplay
+
+
 

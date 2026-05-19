@@ -2,42 +2,15 @@
 
 namespace ConsoleNetplay {
 
-void RollbackStats::recordPrediction(bool hit)
+void RollbackStats::recordPlaybackStop(FrameNumber frame)
 {
-    if(hit) ++predictionHitCount;
-    else ++predictionMissCount;
-}
-
-void RollbackStats::recordPredictedFrameUse(FrameNumber frame, PlayerSlot slot)
-{
-    if(lastDecision == "Prediction used" &&
-       lastPredictedFrame == frame &&
-       lastDecisionSlot == slot) {
-        return;
-    }
-    ++predictedFrameUseCount;
-    lastPredictedFrame = frame;
-    lastDecisionFrame = frame;
-    lastDecisionSlot = slot;
-    lastDecision = "Prediction used";
-}
-
-void RollbackStats::recordPlaybackStop(FrameNumber frame, bool predictionLimitReached)
-{
-    const char* reason =
-        predictionLimitReached
-            ? "Playback stopped: prediction limit reached"
-            : "Playback stopped: missing input";
+    const char* reason = "Playback stopped: missing input";
     if(lastStopFrame == frame && lastStopReason == reason) {
         return;
     }
 
     ++playbackStopCount;
-    if(predictionLimitReached) {
-        ++stopDueToPredictionLimitCount;
-    } else {
-        ++stopDueToMissingInputCount;
-    }
+    ++stopDueToMissingInputCount;
 
     lastStopFrame = frame;
     lastStopReason = reason;

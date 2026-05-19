@@ -17,8 +17,7 @@ RuntimeExecutionSettings buildRuntimeExecutionSettings(RuntimeHost& host,
                                                        bool autoGameplayTuning,
                                                        bool showDebugLog,
                                                        int gameplayReceiveDelayMs,
-                                                       int inputDelayFrames,
-                                                       int predictFrames)
+                                                       int inputDelayFrames)
 {
     RuntimeExecutionSettings settings;
     settings.frameSettings.autoGameplayTuning = autoGameplayTuning;
@@ -34,8 +33,6 @@ RuntimeExecutionSettings buildRuntimeExecutionSettings(RuntimeHost& host,
         static_cast<uint32_t>(std::max(0, gameplayReceiveDelayMs));
     settings.inputDelaySettings.manualInputDelayFrames =
         static_cast<uint32_t>(std::max(0, inputDelayFrames));
-    settings.inputDelaySettings.manualPredictFrames =
-        static_cast<uint32_t>(std::max(0, predictFrames));
     settings.inputDelaySettings.regionFps = host.getRegionFPS();
     return settings;
 }

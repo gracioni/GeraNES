@@ -308,7 +308,6 @@ public:
         std::string signalingPassword;
         bool autoGameplayTuning = true;
         int inputDelayFrames = 2;
-        int predictFrames = 0;
         bool showNetplayDebugLog = false;
         int gameplayReceiveDelayMs = 0;
         std::string displayName = "Participant";
@@ -328,7 +327,6 @@ public:
                 {"signalingPassword", value.signalingPassword},
                 {"autoGameplayTuning", value.autoGameplayTuning},
                 {"inputDelayFrames", value.inputDelayFrames},
-                {"predictFrames", value.predictFrames},
                 {"showNetplayDebugLog", value.showNetplayDebugLog},
                 {"gameplayReceiveDelayMs", value.gameplayReceiveDelayMs},
                 {"displayName", value.displayName},
@@ -354,7 +352,6 @@ public:
             value.signalingPassword = j.value("signalingPassword", defaults.signalingPassword);
             value.autoGameplayTuning = j.value("autoGameplayTuning", defaults.autoGameplayTuning);
             value.inputDelayFrames = j.value("inputDelayFrames", defaults.inputDelayFrames);
-            value.predictFrames = j.value("predictFrames", defaults.predictFrames);
             value.showNetplayDebugLog =
                 j.value("showNetplayDebugLog",
                         j.value("debugMode", defaults.showNetplayDebugLog));

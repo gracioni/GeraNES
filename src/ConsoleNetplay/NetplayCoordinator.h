@@ -64,7 +64,6 @@ public:
         NetplayPerSlotValue<uint64_t> buttonMaskLo = {};
         NetplayPerSlotValue<uint64_t> buttonMaskHi = {};
         NetplayInputFrame netplayFrame = {};
-        bool predicted = false;
     };
 
 private:
@@ -298,17 +297,11 @@ private:
     void storeConfirmedFrame(const ConfirmedFrameInputs& frame);
     bool tryAssembleConfirmedFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame) const;
     void publishConfirmedFramesIfReady();
-    void handleResolvedPredictedInput(ParticipantId participantId, FrameNumber inputFrame, PlayerSlot slot, bool predictionMatched);
-    bool predictRemoteInputFrame(FrameNumber frame, ParticipantId participantId, PlayerSlot slot);
     void noteImplicitRemoteInputStall(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
     void clearImplicitRemoteInputStall(ParticipantId participantId, FrameNumber recoveredThroughFrame);
     void tryScheduleImplicitRecoveryResync(ParticipantInfo& participant);
     void synthesizeSuspendedRemoteInputsUpTo(FrameNumber targetFrame);
-    bool synthesizePredictionLimitFallbackInput(FrameNumber targetFrame, ParticipantInfo& participant, PlayerSlot slot);
-    bool tryBuildPlaybackFrameInternal(FrameNumber frame,
-                                       bool allowPrediction,
-                                       bool allowHostFallback,
-                                       ConfirmedFrameInputs& outFrame);
+    bool tryBuildPlaybackFrameInternal(FrameNumber frame, ConfirmedFrameInputs& outFrame);
     // Frame terminology used by the coordinator:
     // - local simulation frame: last frame this peer has actually simulated.
     // - host input-confirmed frame: highest frame for which the host has
@@ -350,8 +343,6 @@ public:
     NetplayCoordinator();
     static bool romValidationMatches(const RomValidationData& a, const RomValidationData& b);
     static std::string resyncReasonToast(ResyncReason reason);
-    uint32_t unresolvedPredictedRemoteFrameCount() const;
-    FrameNumber latestPredictedRemoteFrame() const;
     using AssignmentRemapper = std::function<std::optional<PlayerSlot>(PlayerSlot)>;
     void setRoomInputTopology(std::vector<InputSlotDescriptor> inputTopology,
                               std::optional<ParticipantId> preservedParticipantId = std::nullopt,
@@ -412,7 +403,7 @@ public:
     void clearEventLog();
     void appendNetplayLog(const std::string& message);
     const RollbackStats& predictionStats() const;
-    void recordPlaybackStop(FrameNumber frame, bool predictionLimitReached);
+    void recordPlaybackStop(FrameNumber frame);
     void recordLocalAuthoritativeFrameStart(FrameNumber frame);
     void setLocalSimulationFrame(FrameNumber frame);
     void rescheduleRollbackFrame(FrameNumber frame);
@@ -431,14 +422,9 @@ public:
     uint64_t sharedClockNowMicros() const;
     uint64_t authoritativeFrameStartClockMicros(FrameNumber frame) const;
     FrameNumber authoritativeResyncTargetFrame() const;
-    uint8_t predictFrames() const;
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, const NetplayInputFrame& contribution);
     void recordLocalInputFrame(FrameNumber frame, PlayerSlot slot, uint64_t buttonMaskLo, uint64_t buttonMaskHi = 0);
-    void predictRemoteInputsForFrame(FrameNumber frame);
-    bool tryBuildPlaybackFrame(FrameNumber frame,
-                               bool allowPrediction,
-                               ConfirmedFrameInputs& outFrame,
-                               bool allowHostFallback = true);
+    bool tryBuildPlaybackFrame(FrameNumber frame, ConfirmedFrameInputs& outFrame);
     void submitLocalCrc(FrameNumber frame,
                         uint32_t crc32,
                         const char* source = "local CRC submission",
@@ -466,7 +452,6 @@ public:
     bool kickParticipant(ParticipantId participantId);
     bool removeReconnectReservation(ParticipantId participantId);
     bool setInputDelayFrames(uint8_t frames);
-    bool setPredictFrames(uint8_t frames);
     bool startSession();
     bool pauseSession();
     bool resumeSession();

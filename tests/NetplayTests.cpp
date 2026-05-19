@@ -1129,7 +1129,7 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
     room.state = ConsoleNetplay::SessionState::Running;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 4;
-    room.predictFrames = 8;
+    room.predictFrames = 0;
 
     ConsoleNetplay::RollbackStats stats;
     auto recommendations = autoSettings.update(room, stats, 0, 60);
@@ -1155,7 +1155,7 @@ TEST_CASE("Netplay reactive auto delay raises before confirmed-desync resync",
     room.state = ConsoleNetplay::SessionState::Running;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
-    room.predictFrames = 8;
+    room.predictFrames = 0;
     room.currentFrame = 900;
 
     auto recommendations =
@@ -1493,7 +1493,7 @@ TEST_CASE("Netplay reactive auto delay respects temporary increase block",
     room.state = ConsoleNetplay::SessionState::Running;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
-    room.predictFrames = 8;
+    room.predictFrames = 0;
     room.currentFrame = 900;
     room.autoTuneDelayIncreaseBlockedUntilFrame = 1500;
 
@@ -1518,7 +1518,7 @@ TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
     room.state = ConsoleNetplay::SessionState::Running;
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 1;
-    room.predictFrames = 8;
+    room.predictFrames = 0;
     room.currentFrame = 1200;
 
     const auto recommendations =
@@ -1527,7 +1527,7 @@ TEST_CASE("Netplay reactive auto delay ignores non-pressure resync reasons",
     REQUIRE_FALSE(recommendations.predictFrames.has_value());
 }
 
-TEST_CASE("Netplay reactive auto tuning keeps predict fixed at eight",
+TEST_CASE("Netplay reactive auto tuning keeps prediction disabled",
           "[netplay][auto-settings][delay]")
 {
     ConsoleNetplay::NetplayAutoTune autoSettings;
@@ -1541,7 +1541,7 @@ TEST_CASE("Netplay reactive auto tuning keeps predict fixed at eight",
     ConsoleNetplay::RollbackStats stats;
     const auto recommendations = autoSettings.update(room, stats, 0, 60);
     REQUIRE(recommendations.predictFrames.has_value());
-    REQUIRE(*recommendations.predictFrames == 8);
+    REQUIRE(*recommendations.predictFrames == 0);
 }
 
 TEST_CASE("Netplay transport backend can be selected before session startup", "[netplay][transport]")
@@ -3828,7 +3828,6 @@ TEST_CASE("Reconnect session sync preserves remote input sequence baseline",
     confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedContribution);
     confirmed.sequence = 1003u;
     confirmed.confirmed = true;
-    confirmed.predicted = false;
     const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
 
     const std::vector<uint8_t> payload{1u, 2u, 3u};
@@ -4001,7 +4000,6 @@ TEST_CASE("Reconnect input gap rebase backfills skipped frames on host",
     confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedContribution);
     confirmed.sequence = 0u;
     confirmed.confirmed = true;
-    confirmed.predicted = false;
     const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
 
     ConsoleNetplay::InputFrameData firstRejected{};
@@ -5319,7 +5317,6 @@ TEST_CASE("Netplay host prediction-limit fallback synthesizes for reconnecting p
     confirmed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(confirmedContribution);
     confirmed.sequence = 77u;
     confirmed.confirmed = true;
-    confirmed.predicted = false;
     const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(confirmed);
 
     host.setLocalSimulationFrame(180);
@@ -6222,7 +6219,6 @@ TEST_CASE("Late mismatching input for committed fallback frame is classified wit
     committed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(committedContribution);
     committed.sequence = 11u;
     committed.confirmed = true;
-    committed.predicted = false;
     const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(committed);
 
     ConsoleNetplay::InputFrameData lateInput{};
@@ -6592,7 +6588,6 @@ TEST_CASE("Netplay host accepts late input for already committed post-resync fra
     committed.netplayFrame = GeraNESNetplay::toNetplayInputFrame(committedContribution);
     committed.sequence = 0u;
     committed.confirmed = true;
-    committed.predicted = false;
     const_cast<ConsoleNetplay::InputTimeline&>(host.remoteInputs()).push(committed);
 
     ConsoleNetplay::InputFrameData lateInput{};

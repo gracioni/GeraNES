@@ -72,8 +72,6 @@ struct NetplayRuntimeDiagnostics
     {
         uint32_t rollbackCount = 0;
         uint32_t maxRollbackDistance = 0;
-        uint32_t predictionHitCount = 0;
-        uint32_t predictionMissCount = 0;
         uint32_t hardResyncCount = 0;
         uint32_t lastRollbackFromFrame = 0;
         uint32_t lastRollbackToFrame = 0;

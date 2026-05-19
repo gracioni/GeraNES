@@ -19,7 +19,6 @@ struct InputFrame
 {
     uint32_t frame = 0;
     uint32_t timelineEpoch = 0;
-    bool speculative = false;
 
     Settings::Device port1Device = Settings::Device::NONE;
     Settings::Device port2Device = Settings::Device::NONE;
@@ -233,7 +232,6 @@ struct InputFrame
         return {
             {"frame", frame},
             {"timelineEpoch", timelineEpoch},
-            {"speculative", speculative},
             {"devices", {
                 {"port1", static_cast<int>(port1Device)},
                 {"port2", static_cast<int>(port2Device)},

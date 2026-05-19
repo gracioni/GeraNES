@@ -35,13 +35,9 @@ std::optional<FrameNumber> runtimeClientHostPlaybackCapFrame(const NetplayCoordi
 
 SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinator& coordinator,
                                                           FrameNumber localSimulationFrame);
-bool runtimeShouldAllowPredictionForFrame(const NetplayCoordinator& coordinator,
-                                          const ConfirmedInputBufferDriver& inputDriver,
-                                          FrameNumber frame);
-
-size_t runtimeInputBufferCapacity(uint32_t prebufferFrames, uint32_t predictFrames)
+size_t runtimeInputBufferCapacity(uint32_t prebufferFrames)
 {
-    const size_t horizon = static_cast<size_t>(prebufferFrames) + static_cast<size_t>(predictFrames);
+    const size_t horizon = static_cast<size_t>(prebufferFrames);
     const size_t capacity = (horizon * 4u) + 16u;
     return std::max<size_t>(64u, capacity);
 }
@@ -57,11 +53,9 @@ RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordi
 
     if(!coordinator.isActive()) {
         inputDriver.setPrebufferFrames(settings.manualInputDelayFrames);
-        inputDriver.setPredictFrames(settings.manualPredictFrames);
         return {
             settings.manualInputDelayFrames,
-            settings.manualPredictFrames,
-            runtimeInputBufferCapacity(settings.manualInputDelayFrames, settings.manualPredictFrames)
+            runtimeInputBufferCapacity(settings.manualInputDelayFrames)
         };
     }
 
@@ -71,39 +65,27 @@ RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordi
             const NetplayAutoTune::Recommendations recommendations = autoTune.update(
                 room,
                 coordinator.predictionStats(),
-                coordinator.unresolvedPredictedRemoteFrameCount(),
                 settings.regionFps
             );
             if(recommendations.inputDelayFrames.has_value() &&
                room.inputDelayFrames != *recommendations.inputDelayFrames) {
                 coordinator.setInputDelayFrames(*recommendations.inputDelayFrames);
             }
-            if(recommendations.predictFrames.has_value() &&
-               room.predictFrames != *recommendations.predictFrames) {
-                coordinator.setPredictFrames(*recommendations.predictFrames);
-            }
         } else {
             const uint8_t manualDelay =
                 static_cast<uint8_t>(std::min<uint32_t>(settings.manualInputDelayFrames, 0xffu));
-            const uint8_t manualPredict =
-                static_cast<uint8_t>(std::min<uint32_t>(settings.manualPredictFrames, 0xffu));
             if(room.inputDelayFrames != manualDelay) {
                 coordinator.setInputDelayFrames(manualDelay);
-            }
-            if(room.predictFrames != manualPredict) {
-                coordinator.setPredictFrames(manualPredict);
             }
         }
     }
 
     const RoomState& effectiveRoom = coordinator.session().roomState();
     inputDriver.setPrebufferFrames(static_cast<uint32_t>(effectiveRoom.inputDelayFrames));
-    inputDriver.setPredictFrames(static_cast<uint32_t>(effectiveRoom.predictFrames));
 
     return {
         static_cast<uint32_t>(effectiveRoom.inputDelayFrames),
-        static_cast<uint32_t>(effectiveRoom.predictFrames),
-        runtimeInputBufferCapacity(effectiveRoom.inputDelayFrames, effectiveRoom.predictFrames)
+        runtimeInputBufferCapacity(effectiveRoom.inputDelayFrames)
     };
 }
 
@@ -604,10 +586,6 @@ RuntimeHostResyncProcessResult runtimeProcessHostResyncIfNeeded(
     if(!initialSessionSync && autoGameplayTuning) {
         const NetplayAutoTune::Recommendations tuningRecommendations =
             autoTune.recommendForImpendingResync(coordinator.session().roomState(), reason);
-        if(tuningRecommendations.predictFrames.has_value() &&
-           coordinator.session().roomState().predictFrames != *tuningRecommendations.predictFrames) {
-            coordinator.setPredictFrames(*tuningRecommendations.predictFrames);
-        }
         if(tuningRecommendations.inputDelayFrames.has_value() &&
            coordinator.session().roomState().inputDelayFrames != *tuningRecommendations.inputDelayFrames) {
             coordinator.setInputDelayFrames(*tuningRecommendations.inputDelayFrames);
@@ -788,7 +766,7 @@ RuntimeHostResyncProcessResult runtimeProcessSelfStallRecoveryIfNeeded(
                 0xffffu
             )
         );
-    request.catchupBudgetFrames = room.predictFrames;
+    request.catchupBudgetFrames = room.inputDelayFrames;
     request.source = 3u; // self stall detector
 
     if(coordinator.requestHostResync(request)) {
@@ -1285,26 +1263,7 @@ RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
     while(console.frameCount() < currentFrame) {
         const FrameNumber nextFrame = console.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-        const bool allowPrediction =
-            nextFrame > confirmedThroughFrame &&
-            nextFrame <= currentFrame &&
-            runtimeShouldAllowPredictionForFrame(
-                coordinator,
-                inputDriver,
-                confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.prebufferFrames()) + 1u
-            );
-        const FrameNumber predictionCapFrame =
-            confirmedThroughFrame +
-            static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
-            static_cast<FrameNumber>(inputDriver.predictFrames());
-        const bool allowHostFallback = nextFrame > predictionCapFrame;
-        if(!coordinator.tryBuildPlaybackFrame(
-               nextFrame,
-               allowPrediction,
-               playbackFrame,
-               allowHostFallback
-           )) {
+        if(!coordinator.tryBuildPlaybackFrame(nextFrame, playbackFrame)) {
             requestRollbackRecoveryResync(
                 "Netplay resimulation failed: could not build playback frame " +
                 std::to_string(nextFrame),
@@ -1489,8 +1448,7 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
         if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) break;
 
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        if(!coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) break;
-        if(playbackFrame.predicted) break;
+        if(!coordinator.tryBuildPlaybackFrame(nextFrame, playbackFrame)) break;
         if(!console.queuePlaybackInputFrame(playbackFrame)) break;
         if(!console.updateUntilFrame(frameDt, false)) break;
 
@@ -1552,8 +1510,7 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
     while(console.frameCount() < targetFrame) {
         const FrameNumber nextFrame = console.frameCount() + 1u;
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        if(!coordinator.tryBuildPlaybackFrame(nextFrame, false, playbackFrame, false)) break;
-        if(playbackFrame.predicted) break;
+        if(!coordinator.tryBuildPlaybackFrame(nextFrame, playbackFrame)) break;
         if(!console.queuePlaybackInputFrame(playbackFrame)) break;
         if(!console.updateUntilFrame(frameDt, false)) break;
         ++advancedFrames;
@@ -1734,7 +1691,7 @@ void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
         localFrame,
         maxPlaybackFrame
     );
-    FrameNumber queueLimitFrame = localFrame + inputDriver.prebufferFrames() + inputDriver.predictFrames();
+    FrameNumber queueLimitFrame = localFrame + inputDriver.prebufferFrames();
     if(maxPlaybackFrame.has_value()) {
         queueLimitFrame = std::min(queueLimitFrame, *maxPlaybackFrame);
     }
@@ -1762,31 +1719,12 @@ void runtimePreparePlaybackFrames(NetplayCoordinator& coordinator,
     );
 }
 
-bool runtimeShouldAllowPredictionForFrame(const NetplayCoordinator& coordinator,
-                                          const ConfirmedInputBufferDriver& inputDriver,
-                                          FrameNumber frame)
-{
-    const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-    const FrameNumber delaySlackFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.prebufferFrames());
-    if(frame <= delaySlackFrame) {
-        return false;
-    }
-
-    const FrameNumber predictionCapFrame =
-        delaySlackFrame + static_cast<FrameNumber>(inputDriver.predictFrames());
-    return frame <= predictionCapFrame;
-}
-
 void runtimeRecordPlaybackStop(NetplayCoordinator& coordinator,
                                const ConfirmedInputBufferDriver& inputDriver,
                                FrameNumber frame)
 {
-    const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-    const FrameNumber predictedThroughFrame =
-        confirmedThroughFrame + static_cast<FrameNumber>(inputDriver.predictFrames());
-    const bool predictionLimitReached = frame > predictedThroughFrame;
-    coordinator.recordPlaybackStop(frame, predictionLimitReached);
+    (void)inputDriver;
+    coordinator.recordPlaybackStop(frame);
 }
 
 bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
@@ -1799,19 +1737,7 @@ bool runtimeTryBuildPlaybackConfirmedFrame(NetplayCoordinator& coordinator,
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;
     }
-    const bool observerHostWithoutLocalSlots =
-        coordinator.isHosting() &&
-        runtimeLocalAssignedSlots(coordinator).empty();
-    const bool allowPrediction =
-        !observerHostWithoutLocalSlots &&
-        runtimeShouldAllowPredictionForFrame(coordinator, inputDriver, frame);
-    const FrameNumber confirmedThroughFrame = inputDriver.confirmedThroughFrame(coordinator);
-    const FrameNumber predictionCapFrame =
-        confirmedThroughFrame +
-        static_cast<FrameNumber>(inputDriver.prebufferFrames()) +
-        static_cast<FrameNumber>(inputDriver.predictFrames());
-    const bool allowHostFallback = !observerHostWithoutLocalSlots && frame > predictionCapFrame;
-    if(!coordinator.tryBuildPlaybackFrame(frame, allowPrediction, outFrame, allowHostFallback)) {
+    if(!coordinator.tryBuildPlaybackFrame(frame, outFrame)) {
         runtimeRecordPlaybackStop(coordinator, inputDriver, frame);
         return false;
     }
@@ -1854,3 +1780,5 @@ SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinat
 }
 
 } // namespace ConsoleNetplay
+
+

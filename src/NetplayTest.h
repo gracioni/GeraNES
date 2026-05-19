@@ -263,8 +263,7 @@ private:
                         cfg.autoGameplayTuning,
                         cfg.showNetplayDebugLog,
                         cfg.gameplayReceiveDelayMs,
-                        cfg.inputDelayFrames,
-                        cfg.predictFrames
+                        cfg.inputDelayFrames
                     );
                 (void)GeraNESNetplay::executeRuntimeFrame(
                     runtime,
@@ -1735,8 +1734,7 @@ private:
                         cfg.autoGameplayTuning,
                         cfg.showNetplayDebugLog,
                         cfg.gameplayReceiveDelayMs,
-                        cfg.inputDelayFrames,
-                        cfg.predictFrames
+                        cfg.inputDelayFrames
                     );
                 (void)GeraNESNetplay::executeRuntimeFrame(
                     peer.runtime,

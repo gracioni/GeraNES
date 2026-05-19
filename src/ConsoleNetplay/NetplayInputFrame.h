@@ -101,7 +101,6 @@ struct NetplayInputFrame
 {
     FrameNumber frame = 0;
     uint32_t timelineEpoch = 0;
-    bool speculative = false;
 
     NetplayPerSlotValue<uint64_t> buttonMaskLo = {};
     NetplayPerSlotValue<uint64_t> buttonMaskHi = {};
@@ -145,7 +144,6 @@ struct NetplayInputFrame
     {
         NetplayInputFrame repeated = previous;
         repeated.frame = targetFrame;
-        repeated.speculative = false;
         return repeated;
     }
 };

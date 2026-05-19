@@ -463,7 +463,6 @@ NetplayAppRuntime::UpdateResult NetplayAppRuntime::update(UpdateContext context)
         syncInputDelayFromSettings(context.inputDelaySettings);
     result.inputBufferCapacity = inputDelay.inputBufferCapacity;
     result.inputDelayFrames = inputDelay.inputDelayFrames;
-    result.predictFrames = inputDelay.predictFrames;
     if(m_pendingSnapshotCapacity.has_value()) {
         result.snapshotCapacity = m_pendingSnapshotCapacity;
         m_pendingSnapshotCapacity.reset();
@@ -1213,8 +1212,6 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     snapshot.lastRecoveryReanchorFrame = lastRecoveryReanchorFrame;
     snapshot.autoSettings = autoSettings;
     snapshot.framePacingDiagnostics = framePacingDiagnostics;
-    snapshot.unresolvedPredictedRemoteFrameCount = coordinator.unresolvedPredictedRemoteFrameCount();
-    snapshot.latestPredictedRemoteFrame = coordinator.latestPredictedRemoteFrame();
     snapshot.runtimeDiagnostics = runtimeDiagnostics;
     snapshot.sessionBlockedReason = sessionBlockedReason;
     snapshot.eventLog = coordinator.eventLog();

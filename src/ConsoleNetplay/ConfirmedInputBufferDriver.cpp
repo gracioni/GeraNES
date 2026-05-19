@@ -75,16 +75,6 @@ void ConfirmedInputBufferDriver::setPrebufferFrames(uint32_t frames)
     m_prebufferFrames = frames;
 }
 
-uint32_t ConfirmedInputBufferDriver::predictFrames() const
-{
-    return m_predictFrames;
-}
-
-void ConfirmedInputBufferDriver::setPredictFrames(uint32_t frames)
-{
-    m_predictFrames = frames;
-}
-
 ConfirmedInputBufferDriver::PlaybackQueueStats ConfirmedInputBufferDriver::playbackQueueStats() const
 {
     return m_playbackQueueStats;
@@ -399,35 +389,20 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
     }
 
     const uint32_t confirmedFrame = confirmedThroughFrame(coordinator);
-    const uint32_t delaySlackFrame = confirmedFrame + m_prebufferFrames;
-    const uint32_t predictedThroughFrame = delaySlackFrame + m_predictFrames;
-    const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + m_predictFrames + 1u;
+    const uint32_t playableThroughFrame = confirmedFrame;
+    const uint32_t queueHorizonFrame = emulationFrame + (m_prebufferFrames * 2u) + 1u;
     const bool observerHostWaitingOnRemotePlayableInput =
         coordinator.isHosting() &&
         !m_lastProduceHadLocalSlots &&
         hostHasConnectedRemotePlayableInput(coordinator);
-    const uint32_t hostFallbackThroughFrame =
-        coordinator.isHosting() &&
-                !observerHostWaitingOnRemotePlayableInput &&
-                !m_lastProduceHadLocalSlots
-            ? queueHorizonFrame
-            : m_producedThroughFrame;
-    const uint32_t playableThroughFrame =
-        coordinator.isHosting() && !observerHostWaitingOnRemotePlayableInput
-            ? hostFallbackThroughFrame
-            : std::min(m_producedThroughFrame, predictedThroughFrame);
     const uint32_t firstFrame = emulationFrame + 1u;
-    uint32_t targetThroughFrame = std::min(playableThroughFrame, queueHorizonFrame);
+    uint32_t targetThroughFrame =
+        observerHostWaitingOnRemotePlayableInput
+            ? std::min(playableThroughFrame, queueHorizonFrame)
+            : std::min(std::min(m_producedThroughFrame, playableThroughFrame), queueHorizonFrame);
     if(maxPlaybackFrame.has_value()) {
         targetThroughFrame = std::min<uint32_t>(targetThroughFrame, *maxPlaybackFrame);
     }
-    const auto allowPredictionForFrame = [delaySlackFrame, predictedThroughFrame](uint32_t frame) {
-        return frame > delaySlackFrame && frame <= predictedThroughFrame;
-    };
-    const auto allowHostFallbackForFrame =
-        [predictedThroughFrame, observerHostWaitingOnRemotePlayableInput](uint32_t frame) {
-        return !observerHostWaitingOnRemotePlayableInput && frame > predictedThroughFrame;
-    };
 
     std::scoped_lock pendingLock(m_pendingFramesMutex);
     while(!m_pendingFrames.empty() && m_pendingFrames.front().frame < firstFrame) {
@@ -447,13 +422,7 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
 
     for(auto it = m_pendingFrames.begin(); it != m_pendingFrames.end();) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const bool allowPrediction = allowPredictionForFrame(it->frame);
-        if(!coordinator.tryBuildPlaybackFrame(
-               it->frame,
-               allowPrediction,
-               playbackFrame,
-               allowHostFallbackForFrame(it->frame)
-           )) {
+        if(!coordinator.tryBuildPlaybackFrame(it->frame, playbackFrame)) {
             m_pendingFrames.erase(it, m_pendingFrames.end());
             break;
         }
@@ -472,13 +441,7 @@ void ConfirmedInputBufferDriver::preparePlaybackFramesForEmulationThread(Netplay
 
     for(uint32_t frame = nextFrame; frame <= targetThroughFrame; ++frame) {
         NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        const bool allowPrediction = allowPredictionForFrame(frame);
-        if(!coordinator.tryBuildPlaybackFrame(
-               frame,
-               allowPrediction,
-               playbackFrame,
-               allowHostFallbackForFrame(frame)
-           )) {
+        if(!coordinator.tryBuildPlaybackFrame(frame, playbackFrame)) {
             break;
         }
         m_pendingFrames.push_back(std::move(playbackFrame));
@@ -515,3 +478,4 @@ void ConfirmedInputBufferDriver::consumePendingFrames(FrameNumber currentFrame,
 }
 
 } // namespace ConsoleNetplay
+

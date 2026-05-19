@@ -22,16 +22,13 @@ bool NetplayAutoTune::enabled() const
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
                                                          const RollbackStats&,
-                                                         uint32_t,
                                                          uint32_t)
 {
     constexpr uint8_t kFixedDelayFrames = 3;
-    constexpr uint8_t kFixedPredictFrames = 8;
 
     Recommendations recommendations;
     m_snapshot.enabled = m_enabled;
     m_snapshot.currentRecommendedDelay = kFixedDelayFrames;
-    m_snapshot.currentFixedPredict = kFixedPredictFrames;
     if(!m_enabled) {
         m_snapshot.lastDecisionReason = "Automatic gameplay tuning unavailable on Emscripten";
         return recommendations;
@@ -40,11 +37,8 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
     if(room.inputDelayFrames != kFixedDelayFrames) {
         recommendations.inputDelayFrames = kFixedDelayFrames;
     }
-    if(room.predictFrames != kFixedPredictFrames) {
-        recommendations.predictFrames = kFixedPredictFrames;
-    }
 
-    m_snapshot.lastDecisionReason = "Fixed tuning active: input delay 3, predict 8";
+    m_snapshot.lastDecisionReason = "Fixed tuning active: input delay 3";
     return recommendations;
 }
 
@@ -63,11 +57,6 @@ NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
 uint8_t NetplayAutoTune::clampDelay(uint32_t frames)
 {
     return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoDelayFrames, std::max<uint32_t>(1u, frames)));
-}
-
-uint8_t NetplayAutoTune::clampPredict(uint32_t frames)
-{
-    return static_cast<uint8_t>(std::min<uint32_t>(kMaxAutoPredictFrames, std::max<uint32_t>(1u, frames)));
 }
 
 void NetplayAutoTune::resetForSession(uint32_t sessionId, SessionState state)
@@ -107,14 +96,12 @@ bool NetplayAutoTune::enabled() const
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
                                                          const RollbackStats&,
-                                                         uint32_t,
                                                          uint32_t)
 {
     Recommendations recommendations;
 
     if(!m_enabled) {
         m_currentRecommendedDelay = static_cast<uint8_t>(room.inputDelayFrames);
-        m_currentFixedPredict = static_cast<uint8_t>(room.predictFrames);
         m_stableFrameCount = 0;
         m_lastStableEvaluationFrame = room.currentFrame;
         m_lastDecisionReason = "Automatic gameplay tuning disabled";
@@ -128,11 +115,6 @@ NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
     m_lastSessionId = room.sessionId;
     m_lastState = room.state;
     m_currentRecommendedDelay = clampDelay(room.inputDelayFrames);
-    m_currentFixedPredict = 8;
-
-    if(room.predictFrames != m_currentFixedPredict) {
-        recommendations.predictFrames = m_currentFixedPredict;
-    }
 
     if(room.state != SessionState::Running ||
        room.recoveryInputMode != RecoveryInputMode::Normal ||
@@ -188,11 +170,6 @@ NetplayAutoTune::Recommendations NetplayAutoTune::recommendForImpendingResync(co
         return recommendations;
     }
 
-    m_currentFixedPredict = 8;
-    if(room.predictFrames != m_currentFixedPredict) {
-        recommendations.predictFrames = m_currentFixedPredict;
-    }
-
     if(!shouldIncreaseDelayForResync(reason)) {
         m_lastDecisionReason =
             "Reactive tuning ignored non-pressure resync " + std::to_string(static_cast<unsigned>(reason));
@@ -233,7 +210,6 @@ NetplayAutoTune::Snapshot NetplayAutoTune::snapshot() const
     Snapshot snapshot;
     snapshot.enabled = m_enabled;
     snapshot.currentRecommendedDelay = m_currentRecommendedDelay;
-    snapshot.currentFixedPredict = m_currentFixedPredict;
     snapshot.stableFrameCount = m_stableFrameCount;
     snapshot.lastAdjustmentFrame = m_lastAdjustmentFrame;
     snapshot.lastDecisionReason = m_lastDecisionReason;

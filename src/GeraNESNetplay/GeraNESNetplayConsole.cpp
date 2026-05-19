@@ -155,7 +155,7 @@ NetplayInputFrame GeraNESNetplayConsole::buildLocalInputContribution(PlayerSlot 
 bool GeraNESNetplayConsole::hasStableQueuedInputFrame(FrameNumber frame) const
 {
     const InputFrame* existingFrame = m_emu.inputBuffer().findByFrame(frame, m_emu.inputTimelineEpoch());
-    return existingFrame != nullptr && !existingFrame->speculative;
+    return existingFrame != nullptr;
 }
 
 void GeraNESNetplayConsole::queueStandaloneBootstrapInputFrame()
@@ -173,12 +173,7 @@ bool GeraNESNetplayConsole::queuePlaybackInputFrame(const NetplayCoordinator::Co
 {
     const InputFrame* existingFrame =
         m_emu.inputBuffer().findByFrame(confirmed.netplayFrame.frame, m_emu.inputTimelineEpoch());
-    if(existingFrame != nullptr && existingFrame->speculative && confirmed.predicted) {
-        return true;
-    }
-
     InputFrame inputFrame = toGeraNESInputFrame(confirmed.netplayFrame);
-    inputFrame.speculative = confirmed.predicted;
     inputFrame.timelineEpoch = m_emu.inputTimelineEpoch();
     const InputBuffer::EnqueueResult enqueueResult = m_emu.queueInputFrame(inputFrame);
     return enqueueResult == InputBuffer::EnqueueResult::Inserted ||
@@ -197,7 +192,6 @@ bool GeraNESNetplayConsole::buildReplayFrameInput(const NetplayCoordinator::Conf
                                                   IEmulationHost::ReplayFrameInput& outFrame)
 {
     outFrame = {};
-    outFrame.speculative = confirmed.predicted;
     outFrame.hasFrameOverride = true;
     outFrame.frameOverride = toGeraNESInputFrame(confirmed.netplayFrame);
     outFrame.frameOverride.frame = frame;

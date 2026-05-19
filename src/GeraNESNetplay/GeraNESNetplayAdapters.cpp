@@ -740,7 +740,6 @@ NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame)
     NetplayInputFrame frame;
     frame.frame = inputFrame.frame;
     frame.timelineEpoch = inputFrame.timelineEpoch;
-    frame.speculative = inputFrame.speculative;
     frame.framePayload = makeAdapterFramePayload(inputFrame);
     frame.buttonMaskLo[kPort1PlayerSlot] =
         buildMask(inputFrame.p1A, inputFrame.p1B, inputFrame.p1Select, inputFrame.p1Start,
@@ -782,7 +781,6 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
     InputFrame frame;
     frame.frame = inputFrame.frame;
     frame.timelineEpoch = inputFrame.timelineEpoch;
-    frame.speculative = inputFrame.speculative;
     AdapterFramePayload adapterPayload;
     if(readAdapterFramePayload(inputFrame, adapterPayload)) {
         frame.port1Device = adapterPayload.port1Device;
@@ -833,7 +831,6 @@ InputFrame makeContributionBase(const InputFrame& baseFrame)
     InputFrame contribution{};
     contribution.frame = baseFrame.frame;
     contribution.timelineEpoch = baseFrame.timelineEpoch;
-    contribution.speculative = baseFrame.speculative;
     contribution.port1Device = baseFrame.port1Device;
     contribution.port2Device = baseFrame.port2Device;
     contribution.expansionDevice = baseFrame.expansionDevice;

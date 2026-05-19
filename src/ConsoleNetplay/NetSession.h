@@ -81,7 +81,6 @@ struct RoomState
     SessionState state = SessionState::Lobby;
     uint32_t timelineEpoch = 0;
     uint8_t inputDelayFrames = 2;
-    uint8_t predictFrames = 0;
     // `currentFrame`: latest frame the host has reported as locally simulated.
     FrameNumber currentFrame = 0;
     // `lastConfirmedFrame`: highest frame the authoritative input timeline has
