@@ -50,7 +50,7 @@ For the robust netplay matrix, prefer a ROM fixture with:
 
 - sustained player-driven gameplay
 - frequent input changes
-- meaningful remote input/rollback opportunities
+- meaningful remote input and recovery opportunities
 
 ## Why one netplay test is skipped by default
 
@@ -58,7 +58,7 @@ The Catch2 test:
 
 - `Netplay robust matrix stays green`
 
-is skipped when the selected ROM does not generate enough gameplay/rollback activity for that matrix. This is not tied to a specific title; it is about the characteristics of the fixture.
+is skipped when the selected ROM does not generate enough gameplay/recovery activity for that matrix. This is not tied to a specific title; it is about the characteristics of the fixture.
 
 ## VS Code usage
 
@@ -88,7 +88,6 @@ The simplest approach is to start VS Code from a shell that already has `GERANES
 Main files:
 
 - [`tests/StateReplayTests.cpp`](/c:/Users/geral/Desktop/pacman/GeraNES/tests/StateReplayTests.cpp)
-- [`tests/ResimulationTests.cpp`](/c:/Users/geral/Desktop/pacman/GeraNES/tests/ResimulationTests.cpp)
 - [`tests/NetplayTests.cpp`](/c:/Users/geral/Desktop/pacman/GeraNES/tests/NetplayTests.cpp)
 - [`tests/TestSupport.h`](/c:/Users/geral/Desktop/pacman/GeraNES/tests/TestSupport.h)
 - [`tests/TestConfig.h.in`](/c:/Users/geral/Desktop/pacman/GeraNES/tests/TestConfig.h.in)

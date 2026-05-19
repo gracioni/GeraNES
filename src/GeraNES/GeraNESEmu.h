@@ -1047,7 +1047,7 @@ private:
     void resyncAudioAfterStateLoad(StateLoadAudioPolicy audioPolicy = StateLoadAudioPolicy::ResetOutput)
     {
         // Audio output internals (wave generators/FIFOs) are not part of save states.
-        // Hard resync/manual load resets the live output, but ordinary rollback
+        // Hard resync/manual load resets the live output, but ordinary recovery
         // must preserve the active device/queue so transient jitter does not
         // create long audible dropouts.
         if(audioPolicy == StateLoadAudioPolicy::ResetOutput) {
@@ -2341,7 +2341,7 @@ public:
         return saveCanonicalNetplayStateToMemory();
     }
 
-    std::vector<uint8_t> saveNetplayRollbackStateToMemory()
+    std::vector<uint8_t> saveNetplaySnapshotStateToMemory()
     {
         return saveCanonicalNetplayStateToMemory();
     }

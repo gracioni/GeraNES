@@ -12,13 +12,13 @@ namespace {
 template<typename Result>
 void applyRuntimeRecoveryResult(const Result& result,
                                 FrameNumber& lastLoadedAuthoritativeFrame,
-                                RuntimeRollbackProcessState& rollbackProcessState)
+                                RuntimeRecoveryProcessState& recoveryProcessState)
 {
     if(result.loadedAuthoritativeFrame != 0) {
         lastLoadedAuthoritativeFrame = result.loadedAuthoritativeFrame;
     }
     if(result.reanchorFrame != 0) {
-        rollbackProcessState.lastRecoveryReanchorFrame = result.reanchorFrame;
+        recoveryProcessState.lastRecoveryReanchorFrame = result.reanchorFrame;
     }
 }
 
@@ -232,7 +232,7 @@ void NetplayAppRuntime::setTransportOptions(const NetTransportOptions& options)
     });
 }
 
-void NetplayAppRuntime::configureRollbackWindow(size_t snapshotCapacity)
+void NetplayAppRuntime::configureSnapshotWindow(size_t snapshotCapacity)
 {
     enqueueRuntimeCommand([snapshotCapacity](NetplayAppRuntime& self) {
         self.m_pendingSnapshotCapacity = snapshotCapacity;
@@ -704,7 +704,7 @@ void NetplayAppRuntime::resetInactiveRuntimeState()
     m_pendingAssignmentMutationCommands.clear();
     m_pendingManualStateResyncs.clear();
     m_periodicCrcState = RuntimePeriodicCrcState{};
-    m_rollbackProcessState = RuntimeRollbackProcessState{};
+    m_recoveryProcessState = RuntimeRecoveryProcessState{};
     m_lastLoadedAuthoritativeFrame = 0;
     m_sharedClockCatchupState = RuntimeSharedClockCatchupState{};
     m_sessionTransitionState.observerVisibilityResyncPending = false;
@@ -715,7 +715,7 @@ void NetplayAppRuntime::resetInactiveRuntimeState()
 void NetplayAppRuntime::reanchorInputDriver(FrameNumber anchorFrame)
 {
     m_inputDriver.reanchor(anchorFrame);
-    m_rollbackProcessState.lastRecoveryReanchorFrame = anchorFrame;
+    m_recoveryProcessState.lastRecoveryReanchorFrame = anchorFrame;
 }
 
 std::vector<uint8_t> NetplayAppRuntime::buildAuthoritativeStatePayload(
@@ -751,7 +751,7 @@ bool NetplayAppRuntime::beginAuthoritativeResync(INetplayStateBridge& stateBridg
         reason,
         targetParticipantId
     );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
     return result.started;
 }
 
@@ -815,7 +815,7 @@ void NetplayAppRuntime::processHostManualStateChangeResyncIfNeeded(
             m_pendingManualStateResyncs,
             events
         );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
 }
 
 void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(INetplayStateBridge& stateBridge,
@@ -829,7 +829,7 @@ void NetplayAppRuntime::processPendingManualStateResyncIfNeeded(INetplayStateBri
             hostBridge,
             m_pendingManualStateResyncs
         );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
 }
 
 void NetplayAppRuntime::processPeriodicLocalCrcIfNeeded(INetplayStateBridge& stateBridge,
@@ -866,7 +866,7 @@ void NetplayAppRuntime::handleSessionStateTransitionsOnWorker(INetplayRuntimeSes
             controls,
             m_sessionTransitionState,
             m_periodicCrcState,
-            m_rollbackProcessState,
+            m_recoveryProcessState,
             m_sharedClockCatchupState,
             m_lastLoadedAuthoritativeFrame
         );
@@ -885,7 +885,7 @@ bool NetplayAppRuntime::beginInitialSessionSyncOnWorker(INetplayStateBridge& sta
             stateBridge,
             hostBridge
         );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
     return result.started;
 }
 
@@ -902,7 +902,7 @@ void NetplayAppRuntime::processHostResyncIfNeededOnWorker(INetplayStateBridge& s
             hostBridge,
             autoGameplayTuning
         );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
 }
 
 void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(INetplayStateBridge& stateBridge,
@@ -915,7 +915,7 @@ void NetplayAppRuntime::processHostLateJoinResyncIfNeededOnWorker(INetplayStateB
             stateBridge,
             hostBridge
         );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
 }
 
 void NetplayAppRuntime::processHostStallIfNeededOnWorker(INetplayStateBridge& stateBridge,
@@ -931,7 +931,7 @@ void NetplayAppRuntime::processHostStallIfNeededOnWorker(INetplayStateBridge& st
             hostBridge,
             now
         );
-    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+    applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
 }
 
 RuntimePendingResyncApplyResult NetplayAppRuntime::processResyncIfNeededOnWorker(
@@ -946,7 +946,7 @@ RuntimePendingResyncApplyResult NetplayAppRuntime::processResyncIfNeededOnWorker
             hostBridge
         );
     if(result.consumed) {
-        applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_rollbackProcessState);
+        applyRuntimeRecoveryResult(result, m_lastLoadedAuthoritativeFrame, m_recoveryProcessState);
     }
     return result;
 }
@@ -963,27 +963,6 @@ uint32_t NetplayAppRuntime::advanceToSharedClockIfNeededOnWorker(INetplayConsole
         maxFrames,
         requireLagTrigger
     );
-}
-
-void NetplayAppRuntime::processRollbackIfNeededOnWorker(INetplayConsole& console,
-                                                        INetplayStateBridge& stateBridge,
-                                                        INetplayStateHostBridge& hostBridge,
-                                                        const RuntimeRollbackProcessSettings& settings)
-{
-    const RuntimeRollbackProcessResult result =
-        runtimeProcessRollbackIfNeeded(
-            m_coordinator,
-            m_inputDriver,
-            console,
-            stateBridge,
-            hostBridge,
-            m_rollbackProcessState,
-            settings
-        );
-
-    if(result.reanchorFrame != 0) {
-        m_rollbackProcessState.lastRecoveryReanchorFrame = result.reanchorFrame;
-    }
 }
 
 NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
@@ -1052,9 +1031,6 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         localRom
     );
 
-    RuntimeRollbackProcessSettings rollbackSettings;
-    rollbackSettings.showDebugLog = settings.showDebugLog;
-    processRollbackIfNeededOnWorker(console, stateBridge, hostBridge, rollbackSettings);
     processHostStallIfNeededOnWorker(stateBridge, hostBridge, std::chrono::steady_clock::now());
 
     RuntimeFrameResult result;
@@ -1077,7 +1053,7 @@ NetplayAppRuntime::RuntimeFrameResult NetplayAppRuntime::runActiveConsoleFrame(
         }
     }
     if(assignmentLayout.reanchorInputDriver) {
-        m_rollbackProcessState.lastRecoveryReanchorFrame = console.frameCount();
+        m_recoveryProcessState.lastRecoveryReanchorFrame = console.frameCount();
     }
 
     const uint32_t workerDtMs = consumeWorkerDtMs();
@@ -1120,9 +1096,8 @@ void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection>& loca
         localRom,
         m_stickyStatusMessage,
         m_periodicCrcState.lastSubmittedLocalCrcFrame,
-        m_rollbackProcessState.lastRollbackTargetFrame,
         m_lastLoadedAuthoritativeFrame,
-        m_rollbackProcessState.lastRecoveryReanchorFrame,
+        m_recoveryProcessState.lastRecoveryReanchorFrame,
         m_autoSettings.snapshot(),
         m_framePacingDiagnostics,
         runtimeDiagnostics,
@@ -1169,7 +1144,6 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     const std::optional<NetplayRomSelection>& localRom,
     const std::string& stickyStatusMessage,
     FrameNumber lastSubmittedLocalCrcFrame,
-    FrameNumber lastRollbackTargetFrame,
     FrameNumber lastLoadedAuthoritativeFrame,
     FrameNumber lastRecoveryReanchorFrame,
     const NetplayAutoTune::Snapshot& autoSettings,
@@ -1203,11 +1177,10 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     if(const TimelineInputEntry* latestRemote = coordinator.remoteInputs().latest()) {
         snapshot.latestRemoteInput = *latestRemote;
     }
-    snapshot.rollbackStats = coordinator.rollbackStats();
+    snapshot.recoveryStats = coordinator.recoveryStats();
     snapshot.localSimulationFrame = coordinator.localSimulationFrame();
     snapshot.publishedConfirmedFrame = coordinator.latestPublishedConfirmedFrame();
     snapshot.lastSubmittedLocalCrcFrame = lastSubmittedLocalCrcFrame;
-    snapshot.lastRollbackTargetFrame = lastRollbackTargetFrame;
     snapshot.lastLoadedAuthoritativeFrame = lastLoadedAuthoritativeFrame;
     snapshot.lastRecoveryReanchorFrame = lastRecoveryReanchorFrame;
     snapshot.autoSettings = autoSettings;

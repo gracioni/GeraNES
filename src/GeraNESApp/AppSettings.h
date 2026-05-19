@@ -295,7 +295,7 @@ public:
 
     struct Netplay {
 
-        int rollbackWindowFrames = 600;
+        int snapshotWindowFrames = 600;
         int transportBackend = 0;
 #ifdef __EMSCRIPTEN__
         bool useEmbeddedSignalingServer = false;
@@ -318,7 +318,7 @@ public:
         friend void to_json(nlohmann::json& j, const Netplay& value)
         {
             j = nlohmann::json{
-                {"rollbackWindowFrames", value.rollbackWindowFrames},
+                {"snapshotWindowFrames", value.snapshotWindowFrames},
                 {"transportBackend", value.transportBackend},
                 {"useEmbeddedSignalingServer", value.useEmbeddedSignalingServer},
                 {"signalingUrl", value.signalingUrl},
@@ -339,7 +339,7 @@ public:
         friend void from_json(const nlohmann::json& j, Netplay& value)
         {
             const Netplay defaults;
-            value.rollbackWindowFrames = j.value("rollbackWindowFrames", defaults.rollbackWindowFrames);
+            value.snapshotWindowFrames = j.value("snapshotWindowFrames", defaults.snapshotWindowFrames);
             value.transportBackend = j.value("transportBackend", defaults.transportBackend);
             value.useEmbeddedSignalingServer = j.value("useEmbeddedSignalingServer", defaults.useEmbeddedSignalingServer);
             value.signalingUrl = j.value("signalingUrl", defaults.signalingUrl);

@@ -450,7 +450,6 @@ public:
     {
         return currentRomValue;
     }
-    bool loadRollbackState(const std::vector<uint8_t>&) override { return true; }
     bool updateUntilFrame(uint32_t, bool) override { return true; }
     void applyRemoteInputTopology(const ConsoleNetplay::RoomState&) override
     {
@@ -1126,7 +1125,7 @@ TEST_CASE("Netplay reactive auto delay decays by one after sustained stability",
     room.recoveryInputMode = ConsoleNetplay::RecoveryInputMode::Normal;
     room.inputDelayFrames = 4;
 
-    ConsoleNetplay::RollbackStats stats;
+    ConsoleNetplay::NetplayRecoveryStats stats;
     auto recommendations = autoSettings.update(room, stats, 60);
     REQUIRE_FALSE(recommendations.inputDelayFrames.has_value());
 
@@ -4635,7 +4634,7 @@ TEST_CASE("Netplay coordinator records implicit playback stops without pausing t
 
     coordinator.recordPlaybackStop(181);
     REQUIRE(room.state == ConsoleNetplay::SessionState::Running);
-    REQUIRE(coordinator.rollbackStats().playbackStopCount >= 1);
+    REQUIRE(coordinator.recoveryStats().playbackStopCount >= 1);
 
     coordinator.disconnect();
 }
@@ -4814,105 +4813,6 @@ TEST_CASE("Netplay observer can request host resync without reconnect side effec
             REQUIRE(host.session().roomState().participants.size() == 2u);
             REQUIRE(anyLogLineContains(host.eventLog(), "Participant requested authoritative resync"));
             REQUIRE_FALSE(anyLogLineContains(host.eventLog(), "Participant left"));
-            received = true;
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-
-    REQUIRE(received);
-
-    host.disconnect();
-    client.disconnect();
-}
-
-TEST_CASE("Rollback recovery resync request detail reaches host log",
-          "[netplay][resync-request][rollback][detail][unit]")
-{
-    ConsoleNetplay::NetplayCoordinator host;
-    ConsoleNetplay::NetplayCoordinator client;
-    const uint16_t port = reserveLoopbackPort();
-
-    REQUIRE(host.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    REQUIRE(client.setTransportBackend(ConsoleNetplay::NetTransportBackend::ENet));
-    REQUIRE(host.host(port, 2, "Host"));
-    REQUIRE(client.join("127.0.0.1", port, "Client"));
-
-    bool connected = false;
-    for(int step = 0; step < 120 && !connected; ++step) {
-        host.update(0);
-        client.update(0);
-        connected =
-            host.session().roomState().participants.size() >= 2u &&
-            client.session().roomState().participants.size() >= 2u &&
-            client.localParticipantId() != ConsoleNetplay::kInvalidParticipantId;
-        if(!connected) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-    REQUIRE(connected);
-
-    auto& hostRoom = const_cast<ConsoleNetplay::RoomState&>(host.session().roomState());
-    auto& clientRoom = const_cast<ConsoleNetplay::RoomState&>(client.session().roomState());
-    hostRoom.state = ConsoleNetplay::SessionState::Running;
-    clientRoom.state = ConsoleNetplay::SessionState::Running;
-    hostRoom.selectedGameName = "RollbackFailure";
-    clientRoom.selectedGameName = "RollbackFailure";
-    hostRoom.timelineEpoch = 3u;
-    clientRoom.timelineEpoch = 3u;
-    hostRoom.currentFrame = 240u;
-    clientRoom.currentFrame = 238u;
-    hostRoom.lastConfirmedFrame = 240u;
-    clientRoom.lastConfirmedFrame = 240u;
-
-    for(auto& participant : hostRoom.participants) {
-        participant.connected = true;
-        participant.romLoaded = true;
-        participant.romCompatible = true;
-        if(participant.id == client.localParticipantId()) {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-        } else {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-        }
-        participant.normalizeControllerAssignments();
-    }
-
-    for(auto& participant : clientRoom.participants) {
-        participant.connected = true;
-        participant.romLoaded = true;
-        participant.romCompatible = true;
-        if(participant.id == client.localParticipantId()) {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionParticipant;
-            participant.controllerAssignments = {GeraNESNetplay::kPort2PlayerSlot};
-        } else {
-            participant.role = ConsoleNetplay::ParticipantRole::SessionOwner;
-            participant.controllerAssignments = {GeraNESNetplay::kPort1PlayerSlot};
-        }
-        participant.normalizeControllerAssignments();
-    }
-
-    host.setLocalSimulationFrame(242);
-    client.setLocalSimulationFrame(238);
-
-    ConsoleNetplay::ResyncRequestData request;
-    request.reason = ConsoleNetplay::ResyncReason::ConfirmedDesync;
-    request.localFrame = 238u;
-    request.confirmedThroughFrame = 240u;
-    request.source = 2u;
-    request.flags = ConsoleNetplay::kResyncRequestFlagRollbackReplayEnqueueFailure;
-    REQUIRE(client.requestHostResync(request));
-
-    bool received = false;
-    for(int step = 0; step < 120 && !received; ++step) {
-        client.update(0);
-        host.update(0);
-        const auto pending = host.consumePendingHostResyncFrame();
-        if(pending.has_value()) {
-            REQUIRE(pending->reason == ConsoleNetplay::ResyncReason::ConfirmedDesync);
-            REQUIRE(anyLogLineContains(host.eventLog(), "source 2"));
-            REQUIRE(anyLogLineContains(host.eventLog(), "detail rollback_replay_enqueue_failure"));
             received = true;
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -5116,7 +5016,6 @@ TEST_CASE("Host ignores client confirmed-desync requests during post-resync stab
     request.localFrame = 238u;
     request.confirmedThroughFrame = 240u;
     request.source = 2u;
-    request.flags = ConsoleNetplay::kResyncRequestFlagRollbackReplayBuildFailure;
     REQUIRE(client.requestHostResync(request));
 
     for(int step = 0; step < 120; ++step) {
@@ -7486,7 +7385,7 @@ TEST_CASE("Netplay state load flushes previously queued audio", "[netplay][audio
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
-TEST_CASE("Netplay rollback state restore preserves live audio output", "[netplay][audio][rollback]")
+TEST_CASE("Netplay state restore preserves live audio output", "[netplay][audio][state-restore]")
 {
     GeraNESTestSupport::requireRomFixture();
 
@@ -7583,7 +7482,7 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
-TEST_CASE("Netplay rollback does not replay audio for frames that were already emitted", "[netplay][audio][rollback][dedupe]")
+TEST_CASE("Netplay state restore does not replay audio for frames that were already emitted", "[netplay][audio][state-restore][dedupe]")
 {
     GeraNESTestSupport::requireRomFixture();
 
@@ -7599,8 +7498,8 @@ TEST_CASE("Netplay rollback does not replay audio for frames that were already e
     REQUIRE(emu.updateUntilFrame(frameDt));
     REQUIRE(emu.frameCount() == 1u);
 
-    const std::vector<uint8_t> rollbackState = emu.saveStateToMemory();
-    REQUIRE_FALSE(rollbackState.empty());
+    const std::vector<uint8_t> restoreState = emu.saveStateToMemory();
+    REQUIRE_FALSE(restoreState.empty());
 
     InputFrame frame1 = emu.createInputFrame(1u);
     emu.queueInputFrame(frame1);
@@ -7611,7 +7510,7 @@ TEST_CASE("Netplay rollback does not replay audio for frames that were already e
     REQUIRE(audibleAfterOriginalFrame1 > 0u);
 
     emu.loadStateFromMemoryWithAudioPolicy(
-        rollbackState,
+        restoreState,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     REQUIRE(emu.valid());
 
@@ -7661,7 +7560,7 @@ TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[ne
     REQUIRE(audio.audibleRenderCalls > audibleAfterResyncLoad);
 }
 
-TEST_CASE("Netplay rollback preserves the same final audio stream as offline playback", "[netplay][audio][continuity][rollback]")
+TEST_CASE("Netplay state restore preserves the same final audio stream as offline playback", "[netplay][audio][continuity][state-restore]")
 {
     GeraNESTestSupport::requireRomFixture();
 
@@ -7690,8 +7589,8 @@ TEST_CASE("Netplay rollback preserves the same final audio stream as offline pla
     REQUIRE(netplayEmu.updateUntilFrame(frameDt));
     REQUIRE(netplayEmu.frameCount() == 1u);
 
-    const std::vector<uint8_t> rollbackState = netplayEmu.saveStateToMemory();
-    REQUIRE_FALSE(rollbackState.empty());
+    const std::vector<uint8_t> restoreState = netplayEmu.saveStateToMemory();
+    REQUIRE_FALSE(restoreState.empty());
 
     for(uint32_t frame = 1u; frame <= 3u; ++frame) {
         InputFrame replayed = netplayEmu.createInputFrame(frame);
@@ -7701,7 +7600,7 @@ TEST_CASE("Netplay rollback preserves the same final audio stream as offline pla
     REQUIRE(netplayEmu.frameCount() == 4u);
 
     netplayEmu.loadStateFromMemoryWithAudioPolicy(
-        rollbackState,
+        restoreState,
         GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     REQUIRE(netplayEmu.valid());
 
@@ -7714,81 +7613,6 @@ TEST_CASE("Netplay rollback preserves the same final audio stream as offline pla
 
     requireSampleStreamsEqual(netplayAudio.committedSamples(), offlineAudio.committedSamples());
 }
-
-TEST_CASE("Netplay emulation host rollback preserves final audio stream continuity", "[netplay][audio][host][continuity]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    BufferedRecordingAudioOutput offlineAudio;
-    EmulationHost offlineEmu(offlineAudio);
-    offlineEmu.setSimulationSuspended(true);
-    offlineEmu.setAllowPresenterTimeoutAdvance(false);
-    REQUIRE(offlineEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(offlineEmu.valid());
-
-    offlineEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
-        for(uint32_t frame = 0u; frame <= 5u; ++frame) {
-            queueFrameAndAdvanceFreeRunning(innerEmu, frame);
-        }
-        REQUIRE(innerEmu.frameCount() == 6u);
-    });
-
-    BufferedRecordingAudioOutput hostAudio;
-    EmulationHost hostEmu(hostAudio);
-    hostEmu.setSimulationSuspended(true);
-    hostEmu.setAllowPresenterTimeoutAdvance(false);
-    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(hostEmu.valid());
-    hostEmu.configureNetplaySnapshots(16u);
-
-    std::vector<uint8_t> rollbackSnapshot;
-    uint32_t rollbackFrame = 0u;
-    hostEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
-        for(uint32_t frame = 0u; frame <= 1u; ++frame) {
-            queueFrameAndAdvanceFreeRunning(innerEmu, frame);
-        }
-        rollbackFrame = innerEmu.frameCount();
-        rollbackSnapshot = innerEmu.saveNetplayRollbackStateToMemory();
-    });
-    REQUIRE_FALSE(rollbackSnapshot.empty());
-    REQUIRE(rollbackFrame == 2u);
-    hostEmu.seedNetplaySnapshot(rollbackFrame, rollbackSnapshot);
-
-    const size_t committedSamplesBeforeSilentCatchup = hostAudio.committedSamples().size();
-
-    hostEmu.withExclusiveAccess([&](GeraNESEmu& innerEmu) {
-        for(uint32_t frame = 2u; frame <= 5u; ++frame) {
-            queueFrameAndAdvanceFreeRunning(innerEmu, frame);
-        }
-        REQUIRE(innerEmu.frameCount() == 6u);
-    });
-    const size_t committedSamplesAfterSilentCatchup = hostAudio.committedSamples().size();
-    REQUIRE(committedSamplesAfterSilentCatchup >= committedSamplesBeforeSilentCatchup);
-    requireSilentSampleRange(hostAudio.committedSamples(),
-                             committedSamplesBeforeSilentCatchup,
-                             committedSamplesAfterSilentCatchup);
-
-    REQUIRE(hostEmu.rollbackToFrame(rollbackFrame));
-    REQUIRE(hostEmu.resimulateToFrame(6u, [&](uint32_t frame) {
-        (void)frame;
-        EmulationHost::ReplayFrameInput replay{};
-        return replay;
-    }));
-    REQUIRE(hostEmu.exactEmulationFrame() == 6u);
-
-    const auto& hostSamples = hostAudio.committedSamples();
-    const auto& offlineSamples = offlineAudio.committedSamples();
-    const size_t sampleDelta =
-        hostSamples.size() > offlineSamples.size()
-            ? (hostSamples.size() - offlineSamples.size())
-            : (offlineSamples.size() - hostSamples.size());
-    REQUIRE(sampleDelta <= 64u);
-    const size_t comparable = std::min(hostSamples.size(), offlineSamples.size());
-    for(size_t i = 0; i < comparable; ++i) {
-        REQUIRE(std::fabs(hostSamples[i] - offlineSamples[i]) <= 1.0e-5f);
-    }
-}
-
 TEST_CASE("Netplay presentation hold keeps last frame visible across authoritative state load", "[netplay][presentation][resync]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -8146,12 +7970,12 @@ TEST_CASE("Netplay runtime post-load divergence triggers a later hard resync", "
     REQUIRE(report.at("finalFrameReadyCrcMatch") == true);
 }
 
-TEST_CASE("Netplay rollback branch converges to baseline canonical CRC at later checkpoint", "[netplay][rollback][crc][convergence]")
+TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at later checkpoint", "[netplay][state-restore][crc][convergence]")
 {
     GeraNESTestSupport::requireRomFixture();
 
     const uint32_t firstFrame = 0u;
-    const uint32_t rollbackFrame = 8u;
+    const uint32_t restoreFrame = 8u;
     const uint32_t divergenceProbeFrame = 12u;
     const uint32_t targetFrame = 24u;
 
@@ -8165,7 +7989,7 @@ TEST_CASE("Netplay rollback branch converges to baseline canonical CRC at later 
         emu.queueInputFrame(input);
     };
 
-    const auto applyWrongRollbackInput = [](GeraNESEmu& emu, uint32_t frame) {
+    const auto applyWrongRestoreInput = [](GeraNESEmu& emu, uint32_t frame) {
         InputFrame input = emu.createInputFrame(frame);
         input.p1A = (frame % 3u) != 0u;
         input.p1B = (frame % 5u) != 1u;
@@ -8180,55 +8004,55 @@ TEST_CASE("Netplay rollback branch converges to baseline canonical CRC at later 
     REQUIRE(baselineEmu.valid());
 
     std::vector<uint32_t> baselineFrameCrc(targetFrame + 1u, 0u);
-    std::vector<uint8_t> rollbackSnapshot;
+    std::vector<uint8_t> restoreSnapshot;
     for(uint32_t frame = firstFrame; frame <= targetFrame; ++frame) {
         applyActualInput(baselineEmu, frame);
         queueFrameAndAdvance(baselineEmu, frame);
         baselineFrameCrc[frame] = baselineEmu.canonicalNetplayStateCrc32();
-        if(frame == rollbackFrame) {
-            rollbackSnapshot = baselineEmu.saveNetplayRollbackStateToMemory();
+        if(frame == restoreFrame) {
+            restoreSnapshot = baselineEmu.saveNetplaySnapshotStateToMemory();
         }
     }
-    REQUIRE_FALSE(rollbackSnapshot.empty());
+    REQUIRE_FALSE(restoreSnapshot.empty());
     const uint32_t baselineTargetCrc = baselineFrameCrc[targetFrame];
 
-    GeraNESEmu rollbackEmu(DummyAudioOutput::instance());
-    REQUIRE(rollbackEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(rollbackEmu.valid());
+    GeraNESEmu restoreEmu(DummyAudioOutput::instance());
+    REQUIRE(restoreEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(restoreEmu.valid());
 
-    for(uint32_t frame = firstFrame; frame <= rollbackFrame; ++frame) {
-        applyActualInput(rollbackEmu, frame);
-        queueFrameAndAdvance(rollbackEmu, frame);
+    for(uint32_t frame = firstFrame; frame <= restoreFrame; ++frame) {
+        applyActualInput(restoreEmu, frame);
+        queueFrameAndAdvance(restoreEmu, frame);
     }
-    REQUIRE(rollbackEmu.frameCount() == rollbackFrame + 1u);
+    REQUIRE(restoreEmu.frameCount() == restoreFrame + 1u);
 
-    for(uint32_t frame = rollbackFrame + 1u; frame <= divergenceProbeFrame; ++frame) {
-        applyWrongRollbackInput(rollbackEmu, frame);
-        queueFrameAndAdvance(rollbackEmu, frame);
+    for(uint32_t frame = restoreFrame + 1u; frame <= divergenceProbeFrame; ++frame) {
+        applyWrongRestoreInput(restoreEmu, frame);
+        queueFrameAndAdvance(restoreEmu, frame);
     }
-    REQUIRE(rollbackEmu.frameCount() == divergenceProbeFrame + 1u);
-    REQUIRE(rollbackEmu.canonicalNetplayStateCrc32() != baselineFrameCrc[divergenceProbeFrame]);
+    REQUIRE(restoreEmu.frameCount() == divergenceProbeFrame + 1u);
+    REQUIRE(restoreEmu.canonicalNetplayStateCrc32() != baselineFrameCrc[divergenceProbeFrame]);
 
-    rollbackEmu.loadStateFromMemory(rollbackSnapshot);
-    REQUIRE(rollbackEmu.valid());
-    REQUIRE(rollbackEmu.frameCount() == rollbackFrame + 1u);
+    restoreEmu.loadStateFromMemory(restoreSnapshot);
+    REQUIRE(restoreEmu.valid());
+    REQUIRE(restoreEmu.frameCount() == restoreFrame + 1u);
     
-    INFO("Rollback restored to frame " << rollbackEmu.frameCount());
-    INFO("Restored CRC=" << rollbackEmu.canonicalNetplayStateCrc32());
-    INFO("Expected CRC=" << baselineFrameCrc[rollbackFrame]);
+    INFO("State restored to frame " << restoreEmu.frameCount());
+    INFO("Restored CRC=" << restoreEmu.canonicalNetplayStateCrc32());
+    INFO("Expected CRC=" << baselineFrameCrc[restoreFrame]);
 
-    for(uint32_t frame = rollbackFrame + 1u; frame <= targetFrame; ++frame) {
-        applyActualInput(rollbackEmu, frame);
-        queueFrameAndAdvance(rollbackEmu, frame);
+    for(uint32_t frame = restoreFrame + 1u; frame <= targetFrame; ++frame) {
+        applyActualInput(restoreEmu, frame);
+        queueFrameAndAdvance(restoreEmu, frame);
     }
 
-    REQUIRE(rollbackEmu.frameCount() == targetFrame + 1u);
+    REQUIRE(restoreEmu.frameCount() == targetFrame + 1u);
     
-    const uint32_t rollbackTargetCrc = rollbackEmu.canonicalNetplayStateCrc32();
+    const uint32_t restoreTargetCrc = restoreEmu.canonicalNetplayStateCrc32();
     INFO("Final baseline CRC=" << baselineTargetCrc);
-    INFO("Final rollback CRC=" << rollbackTargetCrc);
+    INFO("Final restore CRC=" << restoreTargetCrc);
     
-    REQUIRE(rollbackTargetCrc == baselineTargetCrc);
+    REQUIRE(restoreTargetCrc == baselineTargetCrc);
 }
 
 TEST_CASE("Netplay runtime manual resync performs immediate post-resync CRC verification", "[netplay][runtime][resync][crc]")

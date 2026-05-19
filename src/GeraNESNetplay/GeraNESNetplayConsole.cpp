@@ -62,15 +62,6 @@ std::optional<NetplayRomSelection> GeraNESNetplayConsole::currentRomSelection() 
     return captureRomSelection(m_emu);
 }
 
-bool GeraNESNetplayConsole::loadRollbackState(const std::vector<uint8_t>& data)
-{
-    m_emu.loadStateFromMemoryWithAudioPolicy(
-        data,
-        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput
-    );
-    return m_emu.valid();
-}
-
 bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulating)
 {
     return m_emu.updateUntilFrame(frameDtMs, resimulating);

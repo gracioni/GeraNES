@@ -54,9 +54,6 @@ struct ParticipantInfo
     bool sequenceRebasePending = false;
     std::optional<FrameNumber> pendingMissingInputFrom;
     uint32_t missingInputGapCount = 0;
-    uint32_t rollbackScheduledCount = 0;
-    uint32_t futureFrameMismatchCount = 0;
-    uint32_t confirmedFrameConflictCount = 0;
     FrameNumber lastDecisionFrame = 0;
     PlayerSlot lastDecisionSlot = kObserverPlayerSlot;
     std::string lastDecision;

@@ -734,12 +734,12 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::Text("Participants: %zu", room.participants.size());
     }
     if(ImGui::CollapsingHeader("Diagnostics##NetplayDiagnostics")) {
-        int rollbackWindowFrames = AppSettings::instance().data.netplay.rollbackWindowFrames;
+        int snapshotWindowFrames = AppSettings::instance().data.netplay.snapshotWindowFrames;
         ImGui::SetNextItemWidth(120.0f);
-        if(ImGui::InputInt("Rollback Window (frames)##NetplayRollbackWindow", &rollbackWindowFrames)) {
-            rollbackWindowFrames = std::max(0, rollbackWindowFrames);
-            AppSettings::instance().data.netplay.rollbackWindowFrames = rollbackWindowFrames;
-            runtime.configureRollbackWindow(static_cast<size_t>(rollbackWindowFrames));
+        if(ImGui::InputInt("Snapshot Window (frames)##NetplaySnapshotWindow", &snapshotWindowFrames)) {
+            snapshotWindowFrames = std::max(0, snapshotWindowFrames);
+            AppSettings::instance().data.netplay.snapshotWindowFrames = snapshotWindowFrames;
+            runtime.configureSnapshotWindow(static_cast<size_t>(snapshotWindowFrames));
         }
 
         ImGui::Separator();
@@ -768,13 +768,11 @@ void drawNetplayWindow(bool& showWindow,
                         static_cast<unsigned long long>(stats.maxBytes));
         };
         drawTimingStats("Netplay State Save", snapshot.runtimeDiagnostics.netplayStateSaveTiming);
-        drawTimingStats("Rollback Snapshot Save", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSaveTiming);
+        drawTimingStats("Netplay Snapshot Save", snapshot.runtimeDiagnostics.netplaySnapshotSaveTiming);
         drawTimingStats("Netplay CRC", snapshot.runtimeDiagnostics.netplayCrcTiming);
-        drawTimingStats("Rollback Load", snapshot.runtimeDiagnostics.rollbackLoadTiming);
         drawByteStats("Netplay State Serialized", snapshot.runtimeDiagnostics.netplayStateSerializedBytes);
-        drawByteStats("Rollback Snapshot Serialized", snapshot.runtimeDiagnostics.netplayRollbackSnapshotSerializedBytes);
+        drawByteStats("Netplay Snapshot Serialized", snapshot.runtimeDiagnostics.netplaySnapshotSerializedBytes);
         drawByteStats("Snapshot Lookup Copies", snapshot.runtimeDiagnostics.snapshotLookupCopyBytes);
-        drawByteStats("Rollback Snapshot Copies", snapshot.runtimeDiagnostics.rollbackSnapshotCopyBytes);
         drawByteStats("Seeded Snapshot Copies", snapshot.runtimeDiagnostics.seededSnapshotCopyBytes);
         ImGui::Text("Frame Pacing: samples %llu, dt last/max %u/%u ms, advanced last/max %u/%u, catchup last/max %u/%u",
                     static_cast<unsigned long long>(snapshot.framePacingDiagnostics.sampleCount),
@@ -824,22 +822,14 @@ void drawNetplayWindow(bool& showWindow,
                     static_cast<unsigned long long>(snapshot.playbackQueueStats.lastBuiltFrames),
                     static_cast<unsigned long long>(snapshot.playbackQueueStats.maxBuiltFrames),
                     snapshot.playbackQueueStats.lastPreparedThroughFrame);
-        ImGui::Text("Playback Stops: %u", snapshot.rollbackStats.playbackStopCount);
-        ImGui::Text("Stops By Missing Input: %u", snapshot.rollbackStats.stopDueToMissingInputCount);
-        ImGui::Text("Last Stop: frame %u", snapshot.rollbackStats.lastStopFrame);
-        if(!snapshot.rollbackStats.lastStopReason.empty()) {
-            ImGui::Text("Last Stop Reason: %s", snapshot.rollbackStats.lastStopReason.c_str());
+        ImGui::Text("Playback Stops: %u", snapshot.recoveryStats.playbackStopCount);
+        ImGui::Text("Stops By Missing Input: %u", snapshot.recoveryStats.stopDueToMissingInputCount);
+        ImGui::Text("Last Stop: frame %u", snapshot.recoveryStats.lastStopFrame);
+        if(!snapshot.recoveryStats.lastStopReason.empty()) {
+            ImGui::Text("Last Stop Reason: %s", snapshot.recoveryStats.lastStopReason.c_str());
         }
-        ImGui::Text("Scheduled Rollbacks: %u", snapshot.rollbackStats.rollbackScheduledCount);
-        ImGui::Text("Missing Input Gaps: %u", snapshot.rollbackStats.missingInputGapCount);
-        ImGui::Text("Future Mismatches: %u", snapshot.rollbackStats.futureFrameMismatchCount);
-        ImGui::Text("Confirmed Conflicts: %u", snapshot.rollbackStats.confirmedFrameConflictCount);
-        ImGui::Text("Hard Resyncs: %u", snapshot.rollbackStats.hardResyncCount);
-        ImGui::Text("Applied Rollbacks: %u", snapshot.runtimeDiagnostics.rollbackStats.rollbackCount);
-        ImGui::Text("Max Rollback Distance: %u", snapshot.runtimeDiagnostics.rollbackStats.maxRollbackDistance);
-        ImGui::Text("Last Applied Rollback: %u -> %u",
-                    snapshot.runtimeDiagnostics.rollbackStats.lastRollbackFromFrame,
-                    snapshot.runtimeDiagnostics.rollbackStats.lastRollbackToFrame);
+        ImGui::Text("Missing Input Gaps: %u", snapshot.recoveryStats.missingInputGapCount);
+        ImGui::Text("Hard Resyncs: %u", snapshot.recoveryStats.hardResyncCount);
         const char* recoveryModeLabel = "Unknown";
         switch(room.recoveryInputMode) {
             case RecoveryInputMode::Normal: recoveryModeLabel = "Normal"; break;

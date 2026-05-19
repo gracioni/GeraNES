@@ -35,7 +35,7 @@ public:
         std::string reportPath;
         uint32_t frames = 600;
         uint32_t inputDelayFrames = 10;
-        uint32_t rollbackWindowFrames = 600;
+        uint32_t snapshotWindowFrames = 600;
         uint32_t crcIntervalFrames = 10;
         uint32_t port = 27888;
         uint32_t startupTimeoutSteps = 10000;
@@ -695,7 +695,6 @@ private:
         const InputFrame* frame0 = peer.emu.inputBuffer().findByFrame(0, peer.emu.inputTimelineEpoch());
         const InputFrame* frame1 = peer.emu.inputBuffer().findByFrame(1, peer.emu.inputTimelineEpoch());
         const std::vector<uint8_t> state = peer.emu.saveStateToMemory();
-        const auto& rollbackStats = peer.coordinator.rollbackStats();
 
         return {
             {"name", peer.name},
@@ -711,10 +710,7 @@ private:
             {"inputFrame0", frame0 != nullptr ? frame0->toJson() : nlohmann::json()},
             {"inputFrame1", frame1 != nullptr ? frame1->toJson() : nlohmann::json()},
             {"localTimelineSize", peer.coordinator.localInputs().size()},
-            {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},
-            {"rollbackScheduledCount", rollbackStats.rollbackScheduledCount},
-            {"confirmedConflictCount", rollbackStats.confirmedFrameConflictCount},
-            {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
+            {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},            {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
                 {"frame", latestLocal->frame},
                 {"sequence", latestLocal->sequence},
                 {"confirmed", latestLocal->confirmed}
@@ -847,8 +843,6 @@ private:
                 });
             }
         }
-
-        const auto& rollbackStats = peer.coordinator.rollbackStats();
         return {
             {"name", peer.name},
             {"host", peer.host},
@@ -884,9 +878,7 @@ private:
             {"maxObservedPendingDriverFrames", peer.maxObservedPendingFrameCount},
             {"driverProducedThroughFrame", peer.driver.producedThroughFrame()},
             {"driverQueuedThroughFrame", peer.driver.queuedThroughFrame()},
-            {"rollbackScheduledCount", rollbackStats.rollbackScheduledCount},
-            {"confirmedConflictCount", rollbackStats.confirmedFrameConflictCount},
-            {"currentFrameInput", previousFrameJson},
+                                    {"currentFrameInput", previousFrameJson},
             {"nextFrame", nextFrameJson},
             {"nextNextFrame", currentFrameJson},
             {"inputWindow", inputWindow},
@@ -1333,8 +1325,7 @@ private:
             {"resyncPayloadCrcType", "payload_crc32"},
             {"resyncStateCrcType", "canonical_netplay_state_crc32"},
             {"lastSubmittedLocalCrcFrame", snapshot.lastSubmittedLocalCrcFrame},
-            {"lastRollbackTargetFrame", snapshot.lastRollbackTargetFrame},
-            {"lastLoadedAuthoritativeFrame", snapshot.lastLoadedAuthoritativeFrame},
+                        {"lastLoadedAuthoritativeFrame", snapshot.lastLoadedAuthoritativeFrame},
             {"lastRecoveryReanchorFrame", snapshot.lastRecoveryReanchorFrame},
             {"lastAcceptedRemoteEpoch", snapshot.room.lastAcceptedRemoteEpoch},
             {"lastIgnoredStaleInputEpoch", snapshot.room.lastIgnoredStaleInputEpoch},
@@ -1360,11 +1351,7 @@ private:
             {"resyncFrameReadyCrc32", snapshot.room.resyncFrameReadyCrc32},
             {"localInputCount", snapshot.localInputCount},
             {"remoteInputCount", snapshot.remoteInputCount},
-            {"hardResyncCount", snapshot.rollbackStats.hardResyncCount},
-            {"rollbackScheduledCount", snapshot.rollbackStats.rollbackScheduledCount},
-            {"playbackStopCount", snapshot.rollbackStats.playbackStopCount},
-            {"confirmedConflictCount", snapshot.rollbackStats.confirmedFrameConflictCount},
-            {"sessionBlockedReason", snapshot.sessionBlockedReason},
+            {"hardResyncCount", snapshot.recoveryStats.hardResyncCount},            {"playbackStopCount", snapshot.recoveryStats.playbackStopCount},            {"sessionBlockedReason", snapshot.sessionBlockedReason},
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
             {"inputBufferSize", inputBufferSize},
@@ -2501,8 +2488,8 @@ private:
                     );
                 }
                 manualResyncBaselineHardResyncCount =
-                    hostLoopSnapshot.rollbackStats.hardResyncCount +
-                    clientLoopSnapshot.rollbackStats.hardResyncCount;
+                    hostLoopSnapshot.recoveryStats.hardResyncCount +
+                    clientLoopSnapshot.recoveryStats.hardResyncCount;
                 manualResyncBaselineHostForceResyncEvents = static_cast<uint32_t>(
                     std::count(
                         hostLoopSnapshot.eventLog.begin(),
@@ -2633,8 +2620,8 @@ private:
             const auto hostSnap = hostPeer.runtime.uiSnapshot();
             const auto clientSnap = clientPeer.runtime.uiSnapshot();
             const uint32_t currentHardResyncCount =
-                hostSnap.rollbackStats.hardResyncCount +
-                clientSnap.rollbackStats.hardResyncCount;
+                hostSnap.recoveryStats.hardResyncCount +
+                clientSnap.recoveryStats.hardResyncCount;
 
             if(hostDisconnectTriggered) {
                 const bool clientDisconnectedNoReconnect =
@@ -2663,8 +2650,8 @@ private:
 
             hardResyncObserved =
                 hardResyncObserved ||
-                hostSnap.rollbackStats.hardResyncCount > 0u ||
-                clientSnap.rollbackStats.hardResyncCount > 0u ||
+                hostSnap.recoveryStats.hardResyncCount > 0u ||
+                clientSnap.recoveryStats.hardResyncCount > 0u ||
                 hostSnap.room.activeResyncId != 0u ||
                 clientSnap.room.activeResyncId != 0u;
             const uint32_t currentHostForceResyncEvents = static_cast<uint32_t>(
@@ -3223,47 +3210,6 @@ private:
         );
     }
 
-    static void processAppRollback(AppPeerState& peer)
-    {
-        std::optional<ConsoleNetplay::FrameNumber> rollbackFrame = peer.coordinator.consumePendingRollbackFrame();
-        if(!rollbackFrame.has_value()) {
-            return;
-        }
-
-        const uint32_t currentFrame = peer.emu.exactEmulationFrame();
-        if(currentFrame == 0 || *rollbackFrame >= currentFrame) {
-            if(rollbackFrame.has_value() && *rollbackFrame >= currentFrame) {
-                peer.coordinator.rescheduleRollbackFrame(*rollbackFrame);
-            }
-            return;
-        }
-
-        if(!peer.emu.rollbackToFrame(*rollbackFrame)) {
-            return;
-        }
-
-        peer.coordinator.setLocalSimulationFrame(*rollbackFrame);
-        peer.coordinator.discardTimelineAfter(*rollbackFrame);
-        peer.coordinator.invalidateLocalCrcHistoryAfter(*rollbackFrame);
-        if(!peer.emu.resimulateToFrame(currentFrame, [&](uint32_t frame) {
-            EmulationHost::ReplayFrameInput replayInput{};
-            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-            if(!peer.coordinator.tryBuildPlaybackFrame(frame, playbackFrame)) {
-                return replayInput;
-            }
-            replayInput.hasFrameOverride = true;
-            replayInput.frameOverride = GeraNESNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
-            replayInput.frameOverride.frame = frame;
-            GeraNESNetplay::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
-            return replayInput;
-        })) {
-            return;
-        }
-
-        peer.coordinator.setLocalSimulationFrame(peer.emu.exactEmulationFrame());
-        peer.driver.reanchor(peer.emu.exactEmulationFrame());
-    }
-
     static void processAppHostResync(AppPeerState& peer)
     {
         if(!peer.coordinator.isHosting()) return;
@@ -3289,16 +3235,6 @@ private:
                 : (confirmedSnapshot.has_value() ? **confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
         if(statePayload.empty()) return;
 
-        if(!initialSessionSync && confirmedSnapshot.has_value()) {
-            if(!peer.emu.rollbackToFrame(authoritativeFrame)) {
-                return;
-            }
-        } else if(!initialSessionSync && authoritativeFrame < emuFrame) {
-            if(!peer.emu.rollbackToFrame(authoritativeFrame)) {
-                return;
-            }
-        }
-
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
         const uint32_t stateCrc32 =
@@ -3322,7 +3258,6 @@ private:
     {
         processAppHostResync(peer);
         processAppPendingResync(peer);
-        processAppRollback(peer);
         peer.driver.preparePlaybackFramesForEmulationThread(
             peer.coordinator,
             peer.coordinator.isActive(),
@@ -3541,10 +3476,7 @@ private:
             processAppPendingResync(clientPeer);
             if(shouldPumpNetwork) {
                 pumpCoordinators(hostPeer, clientPeer, 0);
-            }
-            processAppRollback(hostPeer);
-            processAppRollback(clientPeer);
-            hostPeer.driver.preparePlaybackFramesForEmulationThread(
+            }            hostPeer.driver.preparePlaybackFramesForEmulationThread(
                 hostPeer.coordinator,
                 hostPeer.coordinator.isActive(),
                 false,
@@ -3570,9 +3502,6 @@ private:
                 processAppHostResync(clientPeer);
                 processAppPendingResync(hostPeer);
                 processAppPendingResync(clientPeer);
-                processAppRollback(hostPeer);
-                processAppRollback(clientPeer);
-
                 hostPeer.driver.preparePlaybackFramesForEmulationThread(
                     hostPeer.coordinator,
                     hostPeer.coordinator.isActive(),
@@ -3850,7 +3779,7 @@ private:
             makeParticipant(1, 1, 20)
         };
 
-        ConsoleNetplay::RollbackStats stats;
+        ConsoleNetplay::NetplayRecoveryStats stats;
         constexpr uint32_t fps = 60;
         nlohmann::json scenarios = nlohmann::json::array();
 

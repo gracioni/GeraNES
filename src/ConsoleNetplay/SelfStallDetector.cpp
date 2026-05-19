@@ -62,8 +62,6 @@ SelfStallDetector::UpdateResult SelfStallDetector::update(const Snapshot& snapsh
         << " remoteConfirmed=" << current.maxRemoteReportedConfirmedFrame
         << " playbackStopsDelta="
         << (current.playbackStopCount - m_progressBaseline->playbackStopCount)
-        << " rollbackScheduledDelta="
-        << (current.rollbackScheduledCount - m_progressBaseline->rollbackScheduledCount)
         << " connectedRemotes=" << snapshot.connectedRemoteParticipantCount;
     result.shouldResync = true;
     result.detail = oss.str();
@@ -92,8 +90,7 @@ SelfStallDetector::ProgressSample SelfStallDetector::makeSample(const Snapshot& 
         snapshot.confirmedFrame,
         snapshot.maxRemoteReportedCurrentFrame,
         snapshot.maxRemoteReportedConfirmedFrame,
-        snapshot.playbackStopCount,
-        snapshot.rollbackScheduledCount
+        snapshot.playbackStopCount
     };
 }
 
@@ -106,9 +103,7 @@ bool SelfStallDetector::hasForwardProgress(const ProgressSample& baseline, const
 uint32_t SelfStallDetector::churnSince(const ProgressSample& baseline, const ProgressSample& current)
 {
     const uint32_t playbackStopDelta = current.playbackStopCount - baseline.playbackStopCount;
-    const uint32_t rollbackScheduledDelta =
-        current.rollbackScheduledCount - baseline.rollbackScheduledCount;
-    return std::max(playbackStopDelta, rollbackScheduledDelta);
+    return playbackStopDelta;
 }
 
 } // namespace ConsoleNetplay

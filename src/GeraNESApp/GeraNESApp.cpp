@@ -872,7 +872,7 @@ void GeraNESApp::syncSettings()
     m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
     m_emu.disableSpriteLimit(cfg.improvements.disableSpritesLimit);
     m_emu.enableOverclock(cfg.improvements.overclock);
-    m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.rollbackWindowFrames));
+    m_emu.configureNetplaySnapshots(std::max(0, cfg.netplay.snapshotWindowFrames));
     m_netplayRuntime.setLocalReconnectToken(0);
     const auto availableBackends = ConsoleNetplay::availableNetTransportBackends();
     ConsoleNetplay::NetTransportBackend configuredBackend = static_cast<ConsoleNetplay::NetTransportBackend>(std::clamp(cfg.netplay.transportBackend, 0, 1));

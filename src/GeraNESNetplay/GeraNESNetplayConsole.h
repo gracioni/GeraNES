@@ -23,7 +23,6 @@ public:
     uint32_t regionFps() const override;
     uint32_t canonicalNetplayStateCrc32() override;
     std::optional<ConsoleNetplay::NetplayRomSelection> currentRomSelection() const override;
-    bool loadRollbackState(const std::vector<uint8_t>& data) override;
     bool updateUntilFrame(uint32_t frameDtMs, bool resimulating) override;
 
     void applyRemoteInputTopology(const ConsoleNetplay::RoomState& room) override;

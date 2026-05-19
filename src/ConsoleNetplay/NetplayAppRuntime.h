@@ -67,11 +67,10 @@ public:
         ConfirmedInputBufferDriver::PlaybackQueueStats playbackQueueStats;
         std::optional<TimelineInputEntry> latestLocalInput;
         std::optional<TimelineInputEntry> latestRemoteInput;
-        RollbackStats rollbackStats;
+        NetplayRecoveryStats recoveryStats;
         FrameNumber localSimulationFrame = 0;
         FrameNumber publishedConfirmedFrame = 0;
         FrameNumber lastSubmittedLocalCrcFrame = 0;
-        FrameNumber lastRollbackTargetFrame = 0;
         FrameNumber lastLoadedAuthoritativeFrame = 0;
         FrameNumber lastRecoveryReanchorFrame = 0;
         NetplayAutoTune::Snapshot autoSettings;
@@ -170,7 +169,7 @@ public:
                                                     INetplayStateHostBridge& hostBridge);
     void setTransportBackend(NetTransportBackend backend);
     void setTransportOptions(const NetTransportOptions& options);
-    void configureRollbackWindow(size_t snapshotCapacity);
+    void configureSnapshotWindow(size_t snapshotCapacity);
     void notifyWebVisibilityChanged(bool visible);
     NetTransportOptions transportOptions() const;
     void host(uint16_t port, size_t maxPeers, const std::string& displayName);
@@ -249,10 +248,6 @@ private:
     uint32_t advanceToSharedClockIfNeededOnWorker(INetplayConsole& console,
                                                   uint32_t maxFrames,
                                                   bool requireLagTrigger = true);
-    void processRollbackIfNeededOnWorker(INetplayConsole& console,
-                                         INetplayStateBridge& stateBridge,
-                                         INetplayStateHostBridge& hostBridge,
-                                         const RuntimeRollbackProcessSettings& settings);
     RuntimeFrameResult runActiveConsoleFrame(INetplayConsole& console,
                                              INetplayStateBridge& stateBridge,
                                              INetplayStateHostBridge& hostBridge,
@@ -296,7 +291,7 @@ private:
     std::string m_lastAssignmentLayoutKey;
     std::deque<RuntimePendingManualStateResync> m_pendingManualStateResyncs;
     RuntimePeriodicCrcState m_periodicCrcState;
-    RuntimeRollbackProcessState m_rollbackProcessState;
+    RuntimeRecoveryProcessState m_recoveryProcessState;
     FrameNumber m_lastLoadedAuthoritativeFrame = 0;
     RuntimeSharedClockCatchupState m_sharedClockCatchupState;
     bool m_webVisibilityManagedPause = false;
@@ -316,7 +311,6 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     const std::optional<NetplayRomSelection>& localRom,
     const std::string& stickyStatusMessage,
     FrameNumber lastSubmittedLocalCrcFrame,
-    FrameNumber lastRollbackTargetFrame,
     FrameNumber lastLoadedAuthoritativeFrame,
     FrameNumber lastRecoveryReanchorFrame,
     const NetplayAutoTune::Snapshot& autoSettings,

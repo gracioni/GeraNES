@@ -637,7 +637,6 @@ configure_file(
 
 add_executable(GeraNESTests
     tests/StateReplayTests.cpp
-    tests/ResimulationTests.cpp
     tests/NetplayTests.cpp
 )
 target_compile_features(GeraNESTests PUBLIC cxx_std_20)

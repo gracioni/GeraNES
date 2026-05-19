@@ -21,7 +21,7 @@ bool NetplayAutoTune::enabled() const
 }
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                         const RollbackStats&,
+                                                         const NetplayRecoveryStats&,
                                                          uint32_t)
 {
     constexpr uint8_t kFixedDelayFrames = 3;
@@ -95,7 +95,7 @@ bool NetplayAutoTune::enabled() const
 }
 
 NetplayAutoTune::Recommendations NetplayAutoTune::update(const RoomState& room,
-                                                         const RollbackStats&,
+                                                         const NetplayRecoveryStats&,
                                                          uint32_t)
 {
     Recommendations recommendations;

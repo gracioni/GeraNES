@@ -68,30 +68,18 @@ struct NetplayRuntimeDiagnostics
         }
     };
 
-    struct RollbackStats
-    {
-        uint32_t rollbackCount = 0;
-        uint32_t maxRollbackDistance = 0;
-        uint32_t hardResyncCount = 0;
-        uint32_t lastRollbackFromFrame = 0;
-        uint32_t lastRollbackToFrame = 0;
-    };
-
     bool enabled = false;
     FrameNumber currentFrame = 0;
     size_t snapshotCapacity = 0;
     size_t storedSnapshots = 0;
     uint32_t latestSnapshotCrc32 = 0;
     TimingStats netplayStateSaveTiming;
-    TimingStats netplayRollbackSnapshotSaveTiming;
+    TimingStats netplaySnapshotSaveTiming;
     TimingStats netplayCrcTiming;
-    TimingStats rollbackLoadTiming;
     ByteStats netplayStateSerializedBytes;
-    ByteStats netplayRollbackSnapshotSerializedBytes;
+    ByteStats netplaySnapshotSerializedBytes;
     ByteStats snapshotLookupCopyBytes;
-    ByteStats rollbackSnapshotCopyBytes;
     ByteStats seededSnapshotCopyBytes;
-    RollbackStats rollbackStats;
 };
 
 } // namespace ConsoleNetplay

@@ -496,8 +496,7 @@ void NetplayCoordinator::resetSessionState()
     m_connected = false;
     m_nextAssignedParticipantId = 1;
     m_localInputSequence = 0;
-    m_rollbackStats = {};
-    m_pendingRollbackFrame.reset();
+    m_recoveryStats = {};
     m_pendingHostResyncFrame.reset();
     m_lastBroadcastConfirmedFrame = 0;
     m_lastBroadcastInputDelayFrames = 0;
@@ -1308,28 +1307,7 @@ std::string resyncRequestFlagsLabel(uint16_t flags)
         return {};
     }
 
-    std::string label;
-    const auto append = [&](const char* value) {
-        if(!label.empty()) {
-            label += ",";
-        }
-        label += value;
-    };
-
-    if((flags & kResyncRequestFlagRollbackReplayBuildFailure) != 0u) {
-        append("rollback_replay_build_failure");
-    }
-    if((flags & kResyncRequestFlagRollbackReplayEnqueueFailure) != 0u) {
-        append("rollback_replay_enqueue_failure");
-    }
-    if((flags & kResyncRequestFlagRollbackReplayAdvanceFailure) != 0u) {
-        append("rollback_replay_advance_failure");
-    }
-
-    if(label.empty()) {
-        label = "unknown_flags_" + std::to_string(flags);
-    }
-    return label;
+    return "unknown_flags_" + std::to_string(flags);
 }
 }
 
@@ -1995,7 +1973,7 @@ void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, Fra
     participant.lastDecision = "Missing input gap";
     participant.lastDecisionFrame = missingFrame;
     participant.lastDecisionSlot = slot;
-    m_rollbackStats.recordMissingInputGap(missingFrame, slot);
+    m_recoveryStats.recordMissingInputGap(missingFrame, slot);
 
     std::ostringstream oss;
     oss << "Missing input gap from " << participant.displayName
@@ -2149,14 +2127,12 @@ void NetplayCoordinator::setRecoveryInputMode(RecoveryInputMode mode,
     room.recoveryModeEnteredAtFrame = frameContext;
     ++room.recoveryModeTransitionCount;
     if(mode == RecoveryInputMode::PostResyncStabilizing) {
-        m_pendingRollbackFrame.reset();
         room.stabilizationFramesRemaining = stabilizationFrames;
         room.stabilizationAnchorFrame = frameContext;
         room.stabilizationCrcPassCount = 0;
         room.stabilizationCrcMismatchCount = 0;
         room.stabilizationRetryIssued = false;
     } else if(mode == RecoveryInputMode::ResyncLocked) {
-        m_pendingRollbackFrame.reset();
     } else if(mode == RecoveryInputMode::Normal) {
         room.stabilizationFramesRemaining = 0;
         room.stabilizationAnchorFrame = frameContext;
@@ -2596,7 +2572,7 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
 
 bool NetplayCoordinator::preserveConfirmedInputsAcrossRealignment(ResyncReason reason)
 {
-    // Ordinary rollback/resync keeps the confirmed baseline anchored to the
+    // Ordinary recovery/resync keeps the confirmed baseline anchored to the
     // same causal timeline. Manual host load/reset replaces that timeline, so
     // old confirmed inputs must not be projected onto the loaded frame.
     switch(reason) {
@@ -2742,10 +2718,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
     for(const TimelineInputEntry& entry : preservedRemoteInputs) {
         m_remoteInputs.push(entry);
     }
-    m_pendingRollbackFrame.reset();
-    m_rollbackStats.lastDecision.clear();
-    m_rollbackStats.lastDecisionFrame = loadedFrame;
-    m_rollbackStats.lastDecisionSlot = kObserverPlayerSlot;
+    m_recoveryStats.lastDecision.clear();
+    m_recoveryStats.lastDecisionFrame = loadedFrame;
+    m_recoveryStats.lastDecisionSlot = kObserverPlayerSlot;
     m_desyncMonitor.reset();
     m_session.roomState().currentFrame = loadedFrame;
     m_session.roomState().lastConfirmedFrame = loadedFrame;
@@ -2863,7 +2838,6 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_remoteInputs.clear();
     m_confirmedFrames.clear();
     m_confirmedFrameIndex.clear();
-    m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_pendingHostLateJoinResyncParticipant.reset();
     m_remoteInputStallMonitor.reset();
@@ -2881,9 +2855,9 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_localSimulationFrame = 0;
     m_authoritativeFrameStartClockMicros.clear();
     m_authoritativeFrameStartClockOrder.clear();
-    m_rollbackStats.lastDecision.clear();
-    m_rollbackStats.lastDecisionFrame = 0;
-    m_rollbackStats.lastDecisionSlot = kObserverPlayerSlot;
+    m_recoveryStats.lastDecision.clear();
+    m_recoveryStats.lastDecisionFrame = 0;
+    m_recoveryStats.lastDecisionSlot = kObserverPlayerSlot;
     m_session.roomState().currentFrame = 0;
     m_session.roomState().lastConfirmedFrame = 0;
     m_session.roomState().lastAuthoritativeClockFrame = 0;
@@ -5510,14 +5484,14 @@ void NetplayCoordinator::appendNetplayLog(const std::string& message)
     pushLog(message);
 }
 
-const RollbackStats& NetplayCoordinator::rollbackStats() const
+const NetplayRecoveryStats& NetplayCoordinator::recoveryStats() const
 {
-    return m_rollbackStats;
+    return m_recoveryStats;
 }
 
 void NetplayCoordinator::recordPlaybackStop(FrameNumber frame)
 {
-    m_rollbackStats.recordPlaybackStop(frame);
+    m_recoveryStats.recordPlaybackStop(frame);
 }
 
 void NetplayCoordinator::recordLocalAuthoritativeFrameStart(FrameNumber frame)
@@ -5556,20 +5530,6 @@ void NetplayCoordinator::setLocalSimulationFrame(FrameNumber frame)
         m_session.roomState().currentFrame = frame;
     }
     advanceRecoveryStabilization(frame);
-}
-
-void NetplayCoordinator::rescheduleRollbackFrame(FrameNumber frame)
-{
-    if(!m_pendingRollbackFrame.has_value() || frame < *m_pendingRollbackFrame) {
-        m_pendingRollbackFrame = frame;
-    }
-}
-
-std::optional<FrameNumber> NetplayCoordinator::consumePendingRollbackFrame()
-{
-    std::optional<FrameNumber> result = m_pendingRollbackFrame;
-    m_pendingRollbackFrame.reset();
-    return result;
 }
 
 std::optional<NetplayCoordinator::PendingHostResyncRequest> NetplayCoordinator::consumePendingHostResyncFrame()
@@ -6221,7 +6181,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_session.roomState().pendingResyncAckCount =
         targetedResync ? 0u : static_cast<uint32_t>(m_pendingResyncAcks.size());
     if(!initialSessionSync && !targetedResync) {
-        m_rollbackStats.recordHardResync();
+        m_recoveryStats.recordHardResync();
     }
 
     if(m_pendingResyncAcks.empty()) {

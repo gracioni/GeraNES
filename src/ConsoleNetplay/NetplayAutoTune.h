@@ -32,7 +32,7 @@ public:
     bool enabled() const;
 
     Recommendations update(const RoomState& room,
-                           const RollbackStats& stats,
+                           const NetplayRecoveryStats& stats,
                            uint32_t fps);
     Recommendations recommendForImpendingResync(const RoomState& room, ResyncReason reason);
 
@@ -65,7 +65,7 @@ public:
     bool enabled() const;
 
     Recommendations update(const RoomState& room,
-                           const RollbackStats& stats,
+                           const NetplayRecoveryStats& stats,
                            uint32_t fps);
     Recommendations recommendForImpendingResync(const RoomState& room, ResyncReason reason);
 

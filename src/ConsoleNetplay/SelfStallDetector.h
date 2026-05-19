@@ -34,7 +34,6 @@ public:
         FrameNumber maxRemoteReportedCurrentFrame = 0;
         FrameNumber maxRemoteReportedConfirmedFrame = 0;
         uint32_t playbackStopCount = 0;
-        uint32_t rollbackScheduledCount = 0;
     };
 
     struct UpdateResult
@@ -55,7 +54,6 @@ private:
         FrameNumber maxRemoteReportedCurrentFrame = 0;
         FrameNumber maxRemoteReportedConfirmedFrame = 0;
         uint32_t playbackStopCount = 0;
-        uint32_t rollbackScheduledCount = 0;
     };
 
     static constexpr auto kStallTimeout = std::chrono::milliseconds(2000);

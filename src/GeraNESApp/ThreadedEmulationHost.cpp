@@ -96,8 +96,8 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 
     if(snapshot.data.empty()) {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
-        m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
-        m_netplayDiagnostics.netplayRollbackSnapshotSerializedBytes.record(0);
+        m_netplayDiagnostics.netplaySnapshotSaveTiming.record(snapshotSaveElapsedUs);
+        m_netplayDiagnostics.netplaySnapshotSerializedBytes.record(0);
         return;
     }
     const size_t snapshotDataSize = snapshot.data.size();
@@ -126,8 +126,8 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     m_netplayDiagnostics.latestSnapshotCrc32 = crc32;
-    m_netplayDiagnostics.netplayRollbackSnapshotSaveTiming.record(snapshotSaveElapsedUs);
-    m_netplayDiagnostics.netplayRollbackSnapshotSerializedBytes.record(snapshotDataSize);
+    m_netplayDiagnostics.netplaySnapshotSaveTiming.record(snapshotSaveElapsedUs);
+    m_netplayDiagnostics.netplaySnapshotSerializedBytes.record(snapshotDataSize);
 }
 
 void ThreadedEmulationHost::runPreAdvanceHookLocked()
@@ -752,52 +752,6 @@ void ThreadedEmulationHost::configureNetplaySnapshots(size_t snapshotCapacity)
     m_netplayDiagnostics.enabled = m_netplaySnapshotCapacity > 0;
     m_netplayDiagnostics.snapshotCapacity = m_netplaySnapshotCapacity;
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
-}
-
-bool ThreadedEmulationHost::rollbackToFrame(uint32_t frame)
-{
-    std::shared_ptr<const std::vector<uint8_t>> snapshotData;
-    {
-        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
-        const std::optional<size_t> index = snapshotIndexForFrameLocked(frame);
-        if(!index.has_value()) {
-            return false;
-        }
-        snapshotData = m_netplaySnapshots[*index].data;
-        m_netplayDiagnostics.rollbackSnapshotCopyBytes.record(0);
-    }
-
-    uint32_t rollbackFrom = 0;
-    uint64_t rollbackLoadElapsedUs = 0;
-    {
-        std::scoped_lock emuLock(m_emuMutex);
-        if(!snapshotData || snapshotData->empty()) return false;
-        m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
-        rollbackFrom = m_emu.frameCount();
-        const auto rollbackLoadStart = HostTimingClock::now();
-        m_emu.loadStateFromMemoryWithAudioPolicy(
-            *snapshotData,
-            GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
-        rollbackLoadElapsedUs = elapsedMicrosSince(rollbackLoadStart);
-        if(!m_emu.valid()) {
-            std::scoped_lock netplayLock(m_netplaySnapshotMutex);
-            m_netplayDiagnostics.rollbackLoadTiming.record(rollbackLoadElapsedUs);
-            return false;
-        }
-        m_hasCachedNetplayCrc = false;
-        refreshSnapshotLocked();
-    }
-
-    std::scoped_lock netplayLock(m_netplaySnapshotMutex);
-    m_netplayDiagnostics.rollbackLoadTiming.record(rollbackLoadElapsedUs);
-    ++m_netplayDiagnostics.rollbackStats.rollbackCount;
-    m_netplayDiagnostics.rollbackStats.lastRollbackFromFrame = rollbackFrom;
-    m_netplayDiagnostics.rollbackStats.lastRollbackToFrame = frame;
-    if(rollbackFrom > frame) {
-        m_netplayDiagnostics.rollbackStats.maxRollbackDistance =
-            std::max<uint32_t>(m_netplayDiagnostics.rollbackStats.maxRollbackDistance, rollbackFrom - frame);
-    }
-    return true;
 }
 
 std::vector<uint8_t> ThreadedEmulationHost::saveStateToMemory()

@@ -27,7 +27,6 @@ enum class DesyncSeverity : uint8_t
 {
     NoIssue,
     InputMismatchOnly,
-    RollbackCorrected,
     ConfirmedDesync,
     HardResyncRequired
 };

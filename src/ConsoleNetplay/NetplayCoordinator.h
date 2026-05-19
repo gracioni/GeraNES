@@ -152,8 +152,7 @@ private:
     bool m_connected = false;
     ParticipantId m_nextAssignedParticipantId = 1;
     uint32_t m_localInputSequence = 0;
-    RollbackStats m_rollbackStats;
-    std::optional<FrameNumber> m_pendingRollbackFrame;
+    NetplayRecoveryStats m_recoveryStats;
     std::optional<PendingHostResyncRequest> m_pendingHostResyncFrame;
     std::chrono::steady_clock::time_point m_lastHostResyncRequestSentAt = {};
     ResyncReason m_lastHostResyncRequestSentReason = ResyncReason::Unspecified;
@@ -406,12 +405,10 @@ public:
     PerformanceDiagnostics performanceDiagnostics() const;
     void clearEventLog();
     void appendNetplayLog(const std::string& message);
-    const RollbackStats& rollbackStats() const;
+    const NetplayRecoveryStats& recoveryStats() const;
     void recordPlaybackStop(FrameNumber frame);
     void recordLocalAuthoritativeFrameStart(FrameNumber frame);
     void setLocalSimulationFrame(FrameNumber frame);
-    void rescheduleRollbackFrame(FrameNumber frame);
-    std::optional<FrameNumber> consumePendingRollbackFrame();
     void discardTimelineAfter(FrameNumber frame, bool preserveLocalInputs = false);
     std::optional<PendingHostResyncRequest> consumePendingHostResyncFrame();
     std::optional<ParticipantId> consumePendingHostLateJoinResyncParticipant();

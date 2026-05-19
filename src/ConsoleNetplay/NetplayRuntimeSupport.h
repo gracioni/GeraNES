@@ -217,28 +217,9 @@ struct RuntimePendingResyncApplyResult
     uint32_t loadedCrc32 = 0;
 };
 
-struct RuntimeRollbackProcessState
+struct RuntimeRecoveryProcessState
 {
-    FrameNumber lastRollbackTargetFrame = 0;
-    FrameNumber lastMissingRollbackSnapshotFrame = 0;
-    FrameNumber lastMissingRollbackSnapshotLocalFrame = 0;
     FrameNumber lastRecoveryReanchorFrame = 0;
-};
-
-struct RuntimeRollbackProcessSettings
-{
-    bool showDebugLog = false;
-};
-
-struct RuntimeRollbackProcessResult
-{
-    bool consumed = false;
-    bool applied = false;
-    bool requestedResync = false;
-    bool startedAuthoritativeResync = false;
-    FrameNumber rollbackFromFrame = 0;
-    FrameNumber rollbackTargetFrame = 0;
-    FrameNumber reanchorFrame = 0;
 };
 
 struct RuntimePendingManualStateResync
@@ -411,18 +392,9 @@ RuntimeSessionTransitionResult runtimeHandleSessionStateTransitions(
     INetplayRuntimeSessionControls& controls,
     RuntimeSessionTransitionState& sessionState,
     RuntimePeriodicCrcState& periodicCrcState,
-    RuntimeRollbackProcessState& rollbackState,
+    RuntimeRecoveryProcessState& recoveryState,
     RuntimeSharedClockCatchupState& sharedClockState,
     FrameNumber& lastLoadedAuthoritativeFrame);
-
-RuntimeRollbackProcessResult runtimeProcessRollbackIfNeeded(
-    NetplayCoordinator& coordinator,
-    ConfirmedInputBufferDriver& inputDriver,
-    INetplayConsole& console,
-    INetplayStateBridge& emu,
-    INetplayStateHostBridge& runtimeHost,
-    RuntimeRollbackProcessState& state,
-    const RuntimeRollbackProcessSettings& settings);
 
 uint32_t runtimeAdvanceToSharedClockIfNeeded(
     NetplayCoordinator& coordinator,

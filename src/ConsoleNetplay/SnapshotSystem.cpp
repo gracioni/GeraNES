@@ -37,7 +37,7 @@ void SnapshotSystem::push(FrameNumber frame, std::vector<uint8_t> data)
 {
     if(m_capacity == 0) return;
 
-    // Rollback/resimulation can regenerate snapshots for an older frame.
+    // Recovery/resync can regenerate snapshots for an older frame.
     // Once that happens, every newer snapshot becomes stale and must be discarded.
     while(!m_records.empty() && m_records.back().frame >= frame) {
         m_records.pop_back();

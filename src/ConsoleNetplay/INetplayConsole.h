@@ -20,7 +20,6 @@ public:
     virtual uint32_t regionFps() const = 0;
     virtual uint32_t canonicalNetplayStateCrc32() = 0;
     virtual std::optional<NetplayRomSelection> currentRomSelection() const = 0;
-    virtual bool loadRollbackState(const std::vector<uint8_t>& data) = 0;
     virtual bool updateUntilFrame(uint32_t frameDtMs, bool resimulating) = 0;
 
     virtual void applyRemoteInputTopology(const RoomState& room) = 0;
