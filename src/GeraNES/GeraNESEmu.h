@@ -2272,8 +2272,20 @@ public:
 
     std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
     {
+        return saveCanonicalNetplayStateToMemory(true);
+    }
+
+    std::vector<uint8_t> saveCanonicalNetplayCrcStateToMemory()
+    {
+        return saveCanonicalNetplayStateToMemory(false);
+    }
+
+    std::vector<uint8_t> saveCanonicalNetplayStateToMemory(bool includePlaybackInput)
+    {
         const size_t inputBufferCapacity = m_inputBuffer.capacity();
         InputBuffer savedInputBuffer(inputBufferCapacity);
+        const InputFrame savedLastAppliedInputFrame = m_lastAppliedInputFrame;
+        const uint32_t savedInputTimelineEpoch = m_inputTimelineEpoch;
         const bool savedNewFrame = m_newFrame;
         const bool savedFrameStarted = m_frameStarted;
         const bool savedRunningLoop = m_runningLoop;
@@ -2287,9 +2299,15 @@ public:
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
+        if(!includePlaybackInput) {
+            serializedPlaybackInput = makeDefaultInputFrame(m_frameCounter);
+            serializedPlaybackInput.timelineEpoch = 0;
+        }
         std::swap(m_inputBuffer, savedInputBuffer);
         m_inputBuffer.clear();
         m_inputBuffer.push(serializedPlaybackInput);
+        m_lastAppliedInputFrame = serializedPlaybackInput;
+        m_inputTimelineEpoch = serializedPlaybackInput.timelineEpoch;
         m_newFrame = false;
         m_frameStarted = false;
         m_runningLoop = false;
@@ -2307,6 +2325,8 @@ public:
         reserveHint = data.size();
 
         std::swap(m_inputBuffer, savedInputBuffer);
+        m_lastAppliedInputFrame = savedLastAppliedInputFrame;
+        m_inputTimelineEpoch = savedInputTimelineEpoch;
         m_newFrame = savedNewFrame;
         m_frameStarted = savedFrameStarted;
         m_runningLoop = savedRunningLoop;
@@ -2330,12 +2350,7 @@ public:
     {
         NetplaySnapshotWithCrc32 snapshot;
         snapshot.data = saveCanonicalNetplayStateToMemory();
-        if(!snapshot.data.empty()) {
-            snapshot.crc32 = Crc32::calc(
-                reinterpret_cast<const char*>(snapshot.data.data()),
-                snapshot.data.size()
-            );
-        }
+        snapshot.crc32 = canonicalNetplayStateCrc32();
         return snapshot;
     }
 
@@ -2348,7 +2363,9 @@ public:
 
     uint32_t canonicalNetplayStateCrc32() const
     {
-        return const_cast<GeraNESEmu*>(this)->saveNetplaySnapshotWithCrc32().crc32;
+        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveCanonicalNetplayCrcStateToMemory();
+        if(data.empty()) return 0;
+        return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }
 
     /*

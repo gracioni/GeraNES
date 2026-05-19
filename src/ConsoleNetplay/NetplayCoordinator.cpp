@@ -2457,7 +2457,7 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
 void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& update, const char* source)
 {
     const auto appendFirstMismatchDebugDetail = [&](std::ostringstream& oss) {
-        if(!m_debugMode || update.consecutiveMismatchCount != 1u) return;
+        if(update.consecutiveMismatchCount != 1u) return;
 
         oss << " debug={";
         if(update.localEntry.has_value()) {
