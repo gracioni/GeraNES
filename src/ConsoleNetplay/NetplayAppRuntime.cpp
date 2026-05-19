@@ -1203,7 +1203,7 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     if(const TimelineInputEntry* latestRemote = coordinator.remoteInputs().latest()) {
         snapshot.latestRemoteInput = *latestRemote;
     }
-    snapshot.predictionStats = coordinator.predictionStats();
+    snapshot.rollbackStats = coordinator.rollbackStats();
     snapshot.localSimulationFrame = coordinator.localSimulationFrame();
     snapshot.publishedConfirmedFrame = coordinator.latestPublishedConfirmedFrame();
     snapshot.lastSubmittedLocalCrcFrame = lastSubmittedLocalCrcFrame;

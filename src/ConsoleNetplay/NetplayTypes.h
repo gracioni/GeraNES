@@ -26,7 +26,7 @@ enum class SessionState : uint8_t
 enum class DesyncSeverity : uint8_t
 {
     NoIssue,
-    PredictionMismatchOnly,
+    InputMismatchOnly,
     RollbackCorrected,
     ConfirmedDesync,
     HardResyncRequired

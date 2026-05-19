@@ -152,7 +152,7 @@ private:
     bool m_connected = false;
     ParticipantId m_nextAssignedParticipantId = 1;
     uint32_t m_localInputSequence = 0;
-    RollbackStats m_predictionStats;
+    RollbackStats m_rollbackStats;
     std::optional<FrameNumber> m_pendingRollbackFrame;
     std::optional<PendingHostResyncRequest> m_pendingHostResyncFrame;
     std::chrono::steady_clock::time_point m_lastHostResyncRequestSentAt = {};
@@ -402,7 +402,7 @@ public:
     PerformanceDiagnostics performanceDiagnostics() const;
     void clearEventLog();
     void appendNetplayLog(const std::string& message);
-    const RollbackStats& predictionStats() const;
+    const RollbackStats& rollbackStats() const;
     void recordPlaybackStop(FrameNumber frame);
     void recordLocalAuthoritativeFrameStart(FrameNumber frame);
     void setLocalSimulationFrame(FrameNumber frame);
@@ -459,3 +459,4 @@ public:
 };
 
 } // namespace ConsoleNetplay
+

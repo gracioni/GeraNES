@@ -64,7 +64,7 @@ RuntimeInputDelayResult runtimeSyncInputDelaySettings(NetplayCoordinator& coordi
         if(settings.autoGameplayTuning) {
             const NetplayAutoTune::Recommendations recommendations = autoTune.update(
                 room,
-                coordinator.predictionStats(),
+                coordinator.rollbackStats(),
                 settings.regionFps
             );
             if(recommendations.inputDelayFrames.has_value() &&
@@ -414,21 +414,13 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
         crcCheckpointFrame != state.lastSubmittedLocalCrcFrame;
     if(!periodicDue && !forcedDue && !postRecoveryRapidDue) return result;
 
-    // Periodic desync checks should compare the peers' current confirmed state,
-    // not a historical snapshot captured earlier in the session. Historical
-    // per-frame snapshot CRCs can transiently differ even when the two peers'
-    // live canonical states reconverge, which produces isolated false-positive
-    // mismatch reports. Only submit when the confirmed checkpoint is also the
-    // currently loaded frame-ready/live emulator frame.
+    // Periodic desync checks compare only the live canonical state at the
+    // confirmed checkpoint. Cached per-frame snapshots can be stale relative to
+    // the currently loaded simulation state and are not trusted for resync.
     std::optional<uint32_t> crc32;
     const char* submittedSource = nullptr;
     CrcSubmissionSource submittedSourceKind = CrcSubmissionSource::Unknown;
-    if(crcCheckpointFrame == lastFrameReadyFrame &&
-       runtimeHost.lastFrameReadyNetplayCrc32() != 0u) {
-        crc32 = runtimeHost.lastFrameReadyNetplayCrc32();
-        submittedSource = "local CRC submission (frame-ready)";
-        submittedSourceKind = CrcSubmissionSource::FrameReady;
-    } else if(emu.frameCount() == crcCheckpointFrame) {
+    if(emu.frameCount() == crcCheckpointFrame) {
         crc32 = emu.canonicalNetplayStateCrc32();
         submittedSource = "local CRC submission (live-canonical)";
         submittedSourceKind = CrcSubmissionSource::LiveCanonical;
@@ -1762,8 +1754,8 @@ SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinat
     snapshot.pendingResyncAckCount = room.pendingResyncAckCount;
     snapshot.localSimulationFrame = localSimulationFrame;
     snapshot.confirmedFrame = room.lastConfirmedFrame;
-    snapshot.playbackStopCount = coordinator.predictionStats().playbackStopCount;
-    snapshot.rollbackScheduledCount = coordinator.predictionStats().rollbackScheduledCount;
+    snapshot.playbackStopCount = coordinator.rollbackStats().playbackStopCount;
+    snapshot.rollbackScheduledCount = coordinator.rollbackStats().rollbackScheduledCount;
 
     for(const ParticipantInfo& participant : room.participants) {
         if(participant.id == coordinator.localParticipantId() || !participant.connected) {
@@ -1780,5 +1772,6 @@ SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinat
 }
 
 } // namespace ConsoleNetplay
+
 
 

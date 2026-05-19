@@ -34,7 +34,6 @@ constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint32_t kPostRecoveryClientDesyncRequestGraceFrames = 60;
-constexpr uint8_t kConfirmedDesyncResyncMismatchThreshold = 3;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
@@ -55,6 +54,15 @@ const char* crcSubmissionSourceLabel(ConsoleNetplay::CrcSubmissionSource source)
         case ConsoleNetplay::CrcSubmissionSource::LiveCanonical: return "live-canonical";
         default: return "unknown";
     }
+}
+
+bool isTrustedConfirmedCanonicalCrc(const ConsoleNetplay::DesyncMonitor::HistoryEntry& entry)
+{
+    return entry.frame != 0u &&
+           entry.crc32 != 0u &&
+           entry.submissionSource == ConsoleNetplay::CrcSubmissionSource::LiveCanonical &&
+           entry.confirmedFrame == entry.frame &&
+           entry.localSimulationFrame == entry.frame;
 }
 
 std::string participantLabel(const ConsoleNetplay::ParticipantInfo& participant)
@@ -487,7 +495,7 @@ void NetplayCoordinator::resetSessionState()
     m_connected = false;
     m_nextAssignedParticipantId = 1;
     m_localInputSequence = 0;
-    m_predictionStats = {};
+    m_rollbackStats = {};
     m_pendingRollbackFrame.reset();
     m_pendingHostResyncFrame.reset();
     m_lastBroadcastConfirmedFrame = 0;
@@ -1939,7 +1947,7 @@ void NetplayCoordinator::recordMissingInputGap(ParticipantInfo& participant, Fra
     participant.lastDecision = "Missing input gap";
     participant.lastDecisionFrame = missingFrame;
     participant.lastDecisionSlot = slot;
-    m_predictionStats.recordMissingInputGap(missingFrame, slot);
+    m_rollbackStats.recordMissingInputGap(missingFrame, slot);
 
     std::ostringstream oss;
     oss << "Missing input gap from " << participant.displayName
@@ -2419,14 +2427,27 @@ bool NetplayCoordinator::handleCrcReport(PacketReader& reader)
     m_session.roomState().lastRemoteCrcSubmissionSource = report.submissionSource;
     m_session.roomState().lastRemoteCrcSenderLocalSimulationFrame = report.senderLocalSimulationFrame;
     m_session.roomState().lastRemoteCrcSenderConfirmedFrame = report.senderConfirmedFrame;
+    const DesyncMonitor::HistoryEntry remoteEntry{
+        report.frame,
+        report.crc32,
+        report.submissionSource,
+        report.senderLocalSimulationFrame,
+        report.senderConfirmedFrame
+    };
+    if(!isTrustedConfirmedCanonicalCrc(remoteEntry)) {
+        if(m_debugMode) {
+            std::ostringstream oss;
+            oss << "Ignored untrusted CRC report frame " << report.frame
+                << " source=" << crcSubmissionSourceLabel(report.submissionSource)
+                << " senderLocalSimulationFrame=" << report.senderLocalSimulationFrame
+                << " senderConfirmedFrame=" << report.senderConfirmedFrame
+                << " timelineEpoch=" << report.timelineEpoch;
+            pushLog(oss.str());
+        }
+        return true;
+    }
     applyDesyncMonitorUpdate(
-        m_desyncMonitor.submitRemoteCrc({
-            report.frame,
-            report.crc32,
-            report.submissionSource,
-            report.senderLocalSimulationFrame,
-            report.senderConfirmedFrame
-        }),
+        m_desyncMonitor.submitRemoteCrc(remoteEntry),
         "remote CRC report"
     );
 
@@ -2522,16 +2543,6 @@ void NetplayCoordinator::applyDesyncMonitorUpdate(const DesyncMonitor::Update& u
         }
     }
     if(m_session.roomState().activeResyncId != 0 || m_session.roomState().pendingResyncAckCount != 0) return;
-    if(update.consecutiveMismatchCount < kConfirmedDesyncResyncMismatchThreshold) {
-        std::ostringstream wait;
-        wait << "CRC mismatch below hard-resync threshold consecutive="
-             << static_cast<uint32_t>(update.consecutiveMismatchCount)
-             << " required="
-             << static_cast<uint32_t>(kConfirmedDesyncResyncMismatchThreshold)
-             << "; waiting for next confirmed CRC checkpoint";
-        pushLog(wait.str());
-        return;
-    }
     queuePendingHostResync(update.frame, ResyncReason::ConfirmedDesync);
 }
 
@@ -2684,9 +2695,9 @@ void NetplayCoordinator::realignAuthoritativeState(FrameNumber loadedFrame,
         m_remoteInputs.push(entry);
     }
     m_pendingRollbackFrame.reset();
-    m_predictionStats.lastDecision.clear();
-    m_predictionStats.lastDecisionFrame = loadedFrame;
-    m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
+    m_rollbackStats.lastDecision.clear();
+    m_rollbackStats.lastDecisionFrame = loadedFrame;
+    m_rollbackStats.lastDecisionSlot = kObserverPlayerSlot;
     m_desyncMonitor.reset();
     m_session.roomState().currentFrame = loadedFrame;
     m_session.roomState().lastConfirmedFrame = loadedFrame;
@@ -2822,9 +2833,9 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_localSimulationFrame = 0;
     m_authoritativeFrameStartClockMicros.clear();
     m_authoritativeFrameStartClockOrder.clear();
-    m_predictionStats.lastDecision.clear();
-    m_predictionStats.lastDecisionFrame = 0;
-    m_predictionStats.lastDecisionSlot = kObserverPlayerSlot;
+    m_rollbackStats.lastDecision.clear();
+    m_rollbackStats.lastDecisionFrame = 0;
+    m_rollbackStats.lastDecisionSlot = kObserverPlayerSlot;
     m_session.roomState().currentFrame = 0;
     m_session.roomState().lastConfirmedFrame = 0;
     m_session.roomState().lastAuthoritativeClockFrame = 0;
@@ -5447,14 +5458,14 @@ void NetplayCoordinator::appendNetplayLog(const std::string& message)
     pushLog(message);
 }
 
-const RollbackStats& NetplayCoordinator::predictionStats() const
+const RollbackStats& NetplayCoordinator::rollbackStats() const
 {
-    return m_predictionStats;
+    return m_rollbackStats;
 }
 
 void NetplayCoordinator::recordPlaybackStop(FrameNumber frame)
 {
-    m_predictionStats.recordPlaybackStop(frame);
+    m_rollbackStats.recordPlaybackStop(frame);
 }
 
 void NetplayCoordinator::recordLocalAuthoritativeFrameStart(FrameNumber frame)
@@ -5979,15 +5990,28 @@ void NetplayCoordinator::submitLocalCrc(FrameNumber frame,
         senderLocalSimulationFrame != 0 ? senderLocalSimulationFrame : localSimulationFrame();
     const FrameNumber submitConfirmedFrame =
         senderConfirmedFrame != 0 ? senderConfirmedFrame : m_session.roomState().lastConfirmedFrame;
+    const DesyncMonitor::HistoryEntry localEntry{
+        frame,
+        crc32,
+        submissionSource,
+        submitLocalSimulationFrame,
+        submitConfirmedFrame
+    };
+    if(!isTrustedConfirmedCanonicalCrc(localEntry)) {
+        if(m_debugMode) {
+            std::ostringstream oss;
+            oss << "Ignored untrusted local CRC frame " << frame
+                << " source=" << crcSubmissionSourceLabel(submissionSource)
+                << " localSimulationFrame=" << submitLocalSimulationFrame
+                << " confirmedFrame=" << submitConfirmedFrame
+                << " timelineEpoch=" << m_session.roomState().timelineEpoch;
+            pushLog(oss.str());
+        }
+        return;
+    }
 
     applyDesyncMonitorUpdate(
-        m_desyncMonitor.submitLocalCrc({
-            frame,
-            crc32,
-            submissionSource,
-            submitLocalSimulationFrame,
-            submitConfirmedFrame
-        }),
+        m_desyncMonitor.submitLocalCrc(localEntry),
         source
     );
 
@@ -6124,7 +6148,7 @@ bool NetplayCoordinator::beginResync(FrameNumber targetFrame,
     m_session.roomState().pendingResyncAckCount =
         targetedResync ? 0u : static_cast<uint32_t>(m_pendingResyncAcks.size());
     if(!initialSessionSync && !targetedResync) {
-        m_predictionStats.recordHardResync();
+        m_rollbackStats.recordHardResync();
     }
 
     if(m_pendingResyncAcks.empty()) {
@@ -6741,6 +6765,7 @@ bool NetplayCoordinator::endSession()
 }
 
 } // namespace ConsoleNetplay
+
 
 
 

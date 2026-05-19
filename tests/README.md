@@ -50,7 +50,7 @@ For the robust netplay matrix, prefer a ROM fixture with:
 
 - sustained player-driven gameplay
 - frequent input changes
-- meaningful remote prediction/rollback opportunities
+- meaningful remote input/rollback opportunities
 
 ## Why one netplay test is skipped by default
 
@@ -58,7 +58,7 @@ The Catch2 test:
 
 - `Netplay robust matrix stays green`
 
-is skipped when the selected ROM does not generate enough gameplay/prediction activity for that matrix. This is not tied to a specific title; it is about the characteristics of the fixture.
+is skipped when the selected ROM does not generate enough gameplay/rollback activity for that matrix. This is not tied to a specific title; it is about the characteristics of the fixture.
 
 ## VS Code usage
 

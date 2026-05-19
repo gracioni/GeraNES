@@ -824,17 +824,17 @@ void drawNetplayWindow(bool& showWindow,
                     static_cast<unsigned long long>(snapshot.playbackQueueStats.lastBuiltFrames),
                     static_cast<unsigned long long>(snapshot.playbackQueueStats.maxBuiltFrames),
                     snapshot.playbackQueueStats.lastPreparedThroughFrame);
-        ImGui::Text("Playback Stops: %u", snapshot.predictionStats.playbackStopCount);
-        ImGui::Text("Stops By Missing Input: %u", snapshot.predictionStats.stopDueToMissingInputCount);
-        ImGui::Text("Last Stop: frame %u", snapshot.predictionStats.lastStopFrame);
-        if(!snapshot.predictionStats.lastStopReason.empty()) {
-            ImGui::Text("Last Stop Reason: %s", snapshot.predictionStats.lastStopReason.c_str());
+        ImGui::Text("Playback Stops: %u", snapshot.rollbackStats.playbackStopCount);
+        ImGui::Text("Stops By Missing Input: %u", snapshot.rollbackStats.stopDueToMissingInputCount);
+        ImGui::Text("Last Stop: frame %u", snapshot.rollbackStats.lastStopFrame);
+        if(!snapshot.rollbackStats.lastStopReason.empty()) {
+            ImGui::Text("Last Stop Reason: %s", snapshot.rollbackStats.lastStopReason.c_str());
         }
-        ImGui::Text("Scheduled Rollbacks: %u", snapshot.predictionStats.rollbackScheduledCount);
-        ImGui::Text("Missing Input Gaps: %u", snapshot.predictionStats.missingInputGapCount);
-        ImGui::Text("Future Mismatches: %u", snapshot.predictionStats.futureFrameMismatchCount);
-        ImGui::Text("Confirmed Conflicts: %u", snapshot.predictionStats.confirmedFrameConflictCount);
-        ImGui::Text("Hard Resyncs: %u", snapshot.predictionStats.hardResyncCount);
+        ImGui::Text("Scheduled Rollbacks: %u", snapshot.rollbackStats.rollbackScheduledCount);
+        ImGui::Text("Missing Input Gaps: %u", snapshot.rollbackStats.missingInputGapCount);
+        ImGui::Text("Future Mismatches: %u", snapshot.rollbackStats.futureFrameMismatchCount);
+        ImGui::Text("Confirmed Conflicts: %u", snapshot.rollbackStats.confirmedFrameConflictCount);
+        ImGui::Text("Hard Resyncs: %u", snapshot.rollbackStats.hardResyncCount);
         ImGui::Text("Applied Rollbacks: %u", snapshot.runtimeDiagnostics.rollbackStats.rollbackCount);
         ImGui::Text("Max Rollback Distance: %u", snapshot.runtimeDiagnostics.rollbackStats.maxRollbackDistance);
         ImGui::Text("Last Applied Rollback: %u -> %u",
@@ -1411,3 +1411,4 @@ void drawNetplayWindow(bool& showWindow,
 }
 
 } // namespace GeraNESNetplay
+

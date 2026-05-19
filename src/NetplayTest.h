@@ -29,21 +29,12 @@
 class NetplayTest
 {
 public:
-    enum class PredictionScriptMode
-    {
-        None,
-        HitAll,
-        MissAll,
-        Partial
-    };
-
     struct Options
     {
         std::string romPath;
         std::string reportPath;
         uint32_t frames = 600;
         uint32_t inputDelayFrames = 10;
-        uint32_t predictFrames = 0;
         uint32_t rollbackWindowFrames = 600;
         uint32_t crcIntervalFrames = 10;
         uint32_t port = 27888;
@@ -63,11 +54,6 @@ public:
         uint32_t hostInputSeed = 0x13572468u;
         uint32_t clientInputSeed = 0x24681357u;
         uint32_t networkPumpStride = 1;
-        PredictionScriptMode predictionScriptMode = PredictionScriptMode::None;
-        uint32_t predictionHoldStartFrame = 0;
-        uint32_t predictionHoldFrameCount = 0;
-        uint32_t predictionScriptStartFrame = 0;
-        uint32_t predictionScriptFrameCount = 0;
         uint32_t reconnectAfterFrames = 0;
         uint32_t assignmentSwapAfterFrames = 0;
         uint32_t forceManualResyncFrame = 0;
@@ -223,10 +209,9 @@ private:
                 emuRef.setInputTimelineEpoch(coordinator.session().roomState().timelineEpoch);
                 driver.consumePendingFrames(
                     emuRef.frameCount(),
-                    emuRef.frameCount() + driver.prebufferFrames() + driver.predictFrames(),
+                    emuRef.frameCount() + driver.prebufferFrames(),
                     [&emuRef](const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed) {
                         InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
-                        inputFrame.speculative = confirmed.predicted;
                         inputFrame.timelineEpoch = emuRef.inputTimelineEpoch();
                         (void)emuRef.queueInputFrame(inputFrame);
                     }
@@ -318,46 +303,9 @@ private:
                                            uint32_t frameIndex,
                                            uint32_t fps)
     {
-        if(options.predictionScriptMode == PredictionScriptMode::None) {
-            return generator.buttonsForFrame(frameIndex, fps);
-        }
-
-        (void)generator;
+        (void)options;
         (void)hostSide;
-        (void)fps;
-        Buttons buttons{};
-        const uint32_t scriptStartFrame =
-            options.predictionScriptStartFrame == 0u
-                ? options.predictionHoldStartFrame
-                : options.predictionScriptStartFrame;
-        if(scriptStartFrame == 0u || options.predictionScriptFrameCount == 0u) {
-            return buttons;
-        }
-        if(frameIndex < scriptStartFrame ||
-           frameIndex >= scriptStartFrame + options.predictionScriptFrameCount) {
-            return buttons;
-        }
-
-        const uint32_t offset = frameIndex - scriptStartFrame;
-        switch(options.predictionScriptMode) {
-            case PredictionScriptMode::None:
-            case PredictionScriptMode::HitAll:
-                break;
-            case PredictionScriptMode::MissAll:
-                buttons.right = true;
-                buttons.a = (offset % 2u) == 0u;
-                buttons.b = (offset % 2u) != 0u;
-                break;
-            case PredictionScriptMode::Partial:
-                if(offset == 2u) {
-                    buttons.right = true;
-                } else if(offset == 3u) {
-                    buttons.left = true;
-                    buttons.b = true;
-                }
-                break;
-        }
-        return buttons;
+        return generator.buttonsForFrame(frameIndex, fps);
     }
 
     static Buttons assignmentPatternButtons(bool hostSide, bool swapped, uint32_t frameIndex)
@@ -633,7 +581,6 @@ private:
             return false;
         }
         hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(options.inputDelayFrames));
-        hostPeer.coordinator.setPredictFrames(static_cast<uint8_t>(options.predictFrames));
 
         for(uint32_t i = 0; i < options.startupTimeoutSteps; ++i) {
             pumpNetwork(hostPeer, clientPeer, 1);
@@ -692,19 +639,6 @@ private:
         }
     }
 
-    static Buttons scriptedPredictionButtons(const Options& options, bool hostSide, uint32_t frame)
-    {
-        return playbackButtonsForFrame(
-            options,
-            hostSide
-                ? DeterministicInputGenerator(options.hostInputSeed)
-                : DeterministicInputGenerator(options.clientInputSeed),
-            hostSide,
-            frame,
-            60u
-        );
-    }
-
     static void queueConfirmedFrames(PeerState& peer)
     {
         const uint32_t throughFrame = confirmedThroughFrame(peer);
@@ -761,7 +695,7 @@ private:
         const InputFrame* frame0 = peer.emu.inputBuffer().findByFrame(0, peer.emu.inputTimelineEpoch());
         const InputFrame* frame1 = peer.emu.inputBuffer().findByFrame(1, peer.emu.inputTimelineEpoch());
         const std::vector<uint8_t> state = peer.emu.saveStateToMemory();
-        const auto& predictionStats = peer.coordinator.predictionStats();
+        const auto& rollbackStats = peer.coordinator.rollbackStats();
 
         return {
             {"name", peer.name},
@@ -778,10 +712,8 @@ private:
             {"inputFrame1", frame1 != nullptr ? frame1->toJson() : nlohmann::json()},
             {"localTimelineSize", peer.coordinator.localInputs().size()},
             {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},
-            {"predictionHitCount", predictionStats.predictionHitCount},
-            {"predictionMissCount", predictionStats.predictionMissCount},
-            {"rollbackScheduledCount", predictionStats.rollbackScheduledCount},
-            {"confirmedConflictCount", predictionStats.confirmedFrameConflictCount},
+            {"rollbackScheduledCount", rollbackStats.rollbackScheduledCount},
+            {"confirmedConflictCount", rollbackStats.confirmedFrameConflictCount},
             {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
                 {"frame", latestLocal->frame},
                 {"sequence", latestLocal->sequence},
@@ -818,17 +750,11 @@ private:
             {"frames", options.frames},
             {"wallClockTimeoutSeconds", options.wallClockTimeoutSeconds},
             {"inputDelayFrames", options.inputDelayFrames},
-            {"predictFrames", options.predictFrames},
             {"networkPumpStride", options.networkPumpStride},
             {"hostLoopDtMs", options.hostLoopDtMs},
             {"clientLoopDtMs", options.clientLoopDtMs},
             {"hostStepStride", options.hostStepStride},
             {"clientStepStride", options.clientStepStride},
-            {"predictionHoldStartFrame", options.predictionHoldStartFrame},
-            {"predictionHoldFrameCount", options.predictionHoldFrameCount},
-            {"predictionScriptStartFrame", options.predictionScriptStartFrame},
-            {"predictionScriptFrameCount", options.predictionScriptFrameCount},
-            {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
             {"reconnectDuringResync", options.reconnectDuringResync},
             {"dropClientIncomingResyncChunkMessages", options.dropClientIncomingResyncChunkMessages},
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
@@ -922,7 +848,7 @@ private:
             }
         }
 
-        const auto& predictionStats = peer.coordinator.predictionStats();
+        const auto& rollbackStats = peer.coordinator.rollbackStats();
         return {
             {"name", peer.name},
             {"host", peer.host},
@@ -958,10 +884,8 @@ private:
             {"maxObservedPendingDriverFrames", peer.maxObservedPendingFrameCount},
             {"driverProducedThroughFrame", peer.driver.producedThroughFrame()},
             {"driverQueuedThroughFrame", peer.driver.queuedThroughFrame()},
-            {"predictionHitCount", predictionStats.predictionHitCount},
-            {"predictionMissCount", predictionStats.predictionMissCount},
-            {"rollbackScheduledCount", predictionStats.rollbackScheduledCount},
-            {"confirmedConflictCount", predictionStats.confirmedFrameConflictCount},
+            {"rollbackScheduledCount", rollbackStats.rollbackScheduledCount},
+            {"confirmedConflictCount", rollbackStats.confirmedFrameConflictCount},
             {"currentFrameInput", previousFrameJson},
             {"nextFrame", nextFrameJson},
             {"nextNextFrame", currentFrameJson},
@@ -1023,7 +947,6 @@ private:
             {"romPath", options.romPath},
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
-            {"predictFrames", options.predictFrames},
             {"assignmentSwapAfterFrames", options.assignmentSwapAfterFrames},
             {"assignmentSwapTriggered", assignmentSwapTriggered},
             {"assignmentSwapVerified", assignmentSwapVerified},
@@ -1033,11 +956,6 @@ private:
             {"clientLoopDtMs", options.clientLoopDtMs},
             {"hostStepStride", options.hostStepStride},
             {"clientStepStride", options.clientStepStride},
-            {"predictionHoldStartFrame", options.predictionHoldStartFrame},
-            {"predictionHoldFrameCount", options.predictionHoldFrameCount},
-            {"predictionScriptStartFrame", options.predictionScriptStartFrame},
-            {"predictionScriptFrameCount", options.predictionScriptFrameCount},
-            {"predictionScriptMode", static_cast<int>(options.predictionScriptMode)},
             {"reconnectDuringResync", options.reconnectDuringResync},
             {"dropClientIncomingResyncChunkMessages", options.dropClientIncomingResyncChunkMessages},
             {"dropClientIncomingResyncCompleteMessages", options.dropClientIncomingResyncCompleteMessages},
@@ -1442,13 +1360,10 @@ private:
             {"resyncFrameReadyCrc32", snapshot.room.resyncFrameReadyCrc32},
             {"localInputCount", snapshot.localInputCount},
             {"remoteInputCount", snapshot.remoteInputCount},
-            {"predictionHitCount", snapshot.predictionStats.predictionHitCount},
-            {"predictionMissCount", snapshot.predictionStats.predictionMissCount},
-            {"predictedFrameUseCount", snapshot.predictionStats.predictedFrameUseCount},
-            {"hardResyncCount", snapshot.predictionStats.hardResyncCount},
-            {"rollbackScheduledCount", snapshot.predictionStats.rollbackScheduledCount},
-            {"playbackStopCount", snapshot.predictionStats.playbackStopCount},
-            {"confirmedConflictCount", snapshot.predictionStats.confirmedFrameConflictCount},
+            {"hardResyncCount", snapshot.rollbackStats.hardResyncCount},
+            {"rollbackScheduledCount", snapshot.rollbackStats.rollbackScheduledCount},
+            {"playbackStopCount", snapshot.rollbackStats.playbackStopCount},
+            {"confirmedConflictCount", snapshot.rollbackStats.confirmedFrameConflictCount},
             {"sessionBlockedReason", snapshot.sessionBlockedReason},
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
@@ -1528,7 +1443,6 @@ private:
             {"romPath", options.romPath},
             {"frames", options.frames},
             {"inputDelayFrames", options.inputDelayFrames},
-            {"predictFrames", options.predictFrames},
             {"singleThreadRuntimeFlow", options.singleThreadRuntimeFlow},
             {"gameplayReceiveDelayMs", options.gameplayReceiveDelayMs},
             {"preSessionWarmupFrames", options.preSessionWarmupFrames},
@@ -1695,8 +1609,6 @@ private:
             return result;
         }
 
-        hostPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
-        clientPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
         hostPeer.runtime.setTransportBackend(options.transportBackend);
         clientPeer.runtime.setTransportBackend(options.transportBackend);
         hostPeer.runtime.setTransportOptions(options.transportOptions);
@@ -2589,8 +2501,8 @@ private:
                     );
                 }
                 manualResyncBaselineHardResyncCount =
-                    hostLoopSnapshot.predictionStats.hardResyncCount +
-                    clientLoopSnapshot.predictionStats.hardResyncCount;
+                    hostLoopSnapshot.rollbackStats.hardResyncCount +
+                    clientLoopSnapshot.rollbackStats.hardResyncCount;
                 manualResyncBaselineHostForceResyncEvents = static_cast<uint32_t>(
                     std::count(
                         hostLoopSnapshot.eventLog.begin(),
@@ -2721,8 +2633,8 @@ private:
             const auto hostSnap = hostPeer.runtime.uiSnapshot();
             const auto clientSnap = clientPeer.runtime.uiSnapshot();
             const uint32_t currentHardResyncCount =
-                hostSnap.predictionStats.hardResyncCount +
-                clientSnap.predictionStats.hardResyncCount;
+                hostSnap.rollbackStats.hardResyncCount +
+                clientSnap.rollbackStats.hardResyncCount;
 
             if(hostDisconnectTriggered) {
                 const bool clientDisconnectedNoReconnect =
@@ -2751,8 +2663,8 @@ private:
 
             hardResyncObserved =
                 hardResyncObserved ||
-                hostSnap.predictionStats.hardResyncCount > 0u ||
-                clientSnap.predictionStats.hardResyncCount > 0u ||
+                hostSnap.rollbackStats.hardResyncCount > 0u ||
+                clientSnap.rollbackStats.hardResyncCount > 0u ||
                 hostSnap.room.activeResyncId != 0u ||
                 clientSnap.room.activeResyncId != 0u;
             const uint32_t currentHostForceResyncEvents = static_cast<uint32_t>(
@@ -3107,8 +3019,6 @@ private:
             return false;
         }
 
-        hostPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
-        clientPeer.emu.configureNetplaySnapshots(static_cast<size_t>(options.rollbackWindowFrames + options.predictFrames + 32u));
         hostPeer.emu.setSimulationSuspended(true);
         clientPeer.emu.setSimulationSuspended(true);
         hostPeer.coordinator.setGameplayReceiveDelayMs(options.gameplayReceiveDelayMs);
@@ -3207,11 +3117,8 @@ private:
         const ConsoleNetplay::ParticipantId hostId = hostPeer.coordinator.localParticipantId();
         const ConsoleNetplay::ParticipantId clientId = clientPeer.coordinator.localParticipantId();
         hostPeer.coordinator.setInputDelayFrames(static_cast<uint8_t>(options.inputDelayFrames));
-        hostPeer.coordinator.setPredictFrames(static_cast<uint8_t>(options.predictFrames));
         hostPeer.driver.setPrebufferFrames(options.inputDelayFrames);
         clientPeer.driver.setPrebufferFrames(options.inputDelayFrames);
-        hostPeer.driver.setPredictFrames(options.predictFrames);
-        clientPeer.driver.setPredictFrames(options.predictFrames);
 
         for(uint32_t i = 0; i < options.startupTimeoutSteps; ++i) {
             const bool hostAssigned = hostPeer.coordinator.assignController(hostId, 0);
@@ -3341,14 +3248,13 @@ private:
         if(!peer.emu.resimulateToFrame(currentFrame, [&](uint32_t frame) {
             EmulationHost::ReplayFrameInput replayInput{};
             ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-            if(!peer.coordinator.tryBuildPlaybackFrame(frame, frame > peer.coordinator.latestConfirmedFrame(), playbackFrame)) {
+            if(!peer.coordinator.tryBuildPlaybackFrame(frame, playbackFrame)) {
                 return replayInput;
             }
             replayInput.hasFrameOverride = true;
             replayInput.frameOverride = GeraNESNetplay::toGeraNESInputFrame(playbackFrame.netplayFrame);
             replayInput.frameOverride.frame = frame;
             GeraNESNetplay::applyInputFrameToInputState(replayInput.state, replayInput.frameOverride);
-            replayInput.speculative = playbackFrame.predicted;
             return replayInput;
         })) {
             return;
@@ -3553,7 +3459,6 @@ private:
         uint32_t stallSteps = 0;
         uint32_t maxStallSteps = 0;
         uint32_t maxSimulationFrameSeen = 0;
-        bool predictionHoldReleased = false;
         bool assignmentSwapTriggered = false;
         bool assignmentSwapVerified = false;
         bool assignmentPatternVerified = !options.assignmentPatternCheck;
@@ -3583,8 +3488,7 @@ private:
         const uint32_t hostStepStride = std::max<uint32_t>(1u, options.hostStepStride);
         const uint32_t clientStepStride = std::max<uint32_t>(1u, options.clientStepStride);
         auto lastLoopTime = std::chrono::steady_clock::now();
-        const bool useSyntheticLoopDt =
-            options.predictionScriptMode != PredictionScriptMode::None;
+        const bool useSyntheticLoopDt = true;
         const auto freezePeersForInspection = [&]() {
             hostPeer.emu.setSimulationSuspended(true);
             clientPeer.emu.setSimulationSuspended(true);
@@ -3623,15 +3527,11 @@ private:
             produceAppLocalInputs(clientPeer, options, clientStepDtMs, assignmentSwapVerified);
             const uint32_t simulationFrame = std::min(hostPeer.emu.exactEmulationFrame(), clientPeer.emu.exactEmulationFrame());
             maxSimulationFrameSeen = std::max(maxSimulationFrameSeen, simulationFrame);
-            const bool withinPredictionHoldWindow =
-                !predictionHoldReleased &&
-                options.predictionHoldFrameCount > 0u &&
-                maxSimulationFrameSeen >= options.predictionHoldStartFrame &&
-                maxSimulationFrameSeen < options.predictionHoldStartFrame + options.predictionHoldFrameCount;
+            const bool withinNetworkHoldWindow = false;
             const bool scheduledPumpNetwork =
                 options.networkPumpStride <= 1u ||
                 (step % options.networkPumpStride) == 0u;
-            const bool shouldPumpNetwork = !withinPredictionHoldWindow && scheduledPumpNetwork;
+            const bool shouldPumpNetwork = !withinNetworkHoldWindow && scheduledPumpNetwork;
             if(shouldPumpNetwork) {
                 pumpCoordinators(hostPeer, clientPeer, 0);
             }
@@ -3644,19 +3544,6 @@ private:
             }
             processAppRollback(hostPeer);
             processAppRollback(clientPeer);
-            if(!predictionHoldReleased) {
-                const auto& hostPredictionStats = hostPeer.coordinator.predictionStats();
-                const auto& clientPredictionStats = clientPeer.coordinator.predictionStats();
-                if(hostPredictionStats.predictionHitCount > 0u ||
-                   hostPredictionStats.predictionMissCount > 0u ||
-                   hostPredictionStats.rollbackScheduledCount > 0u ||
-                   clientPredictionStats.predictionHitCount > 0u ||
-                   clientPredictionStats.predictionMissCount > 0u ||
-                   clientPredictionStats.rollbackScheduledCount > 0u) {
-                    predictionHoldReleased = true;
-                }
-            }
-
             hostPeer.driver.preparePlaybackFramesForEmulationThread(
                 hostPeer.coordinator,
                 hostPeer.coordinator.isActive(),
@@ -3677,8 +3564,7 @@ private:
             bool hostCanAdvance = hostFrame + 1u <= hostPeer.driver.queuedThroughFrame();
             bool clientCanAdvance = clientFrame + 1u <= clientPeer.driver.queuedThroughFrame();
 
-            if(withinPredictionHoldWindow && !hostCanAdvance && !clientCanAdvance) {
-                predictionHoldReleased = true;
+            if(withinNetworkHoldWindow && !hostCanAdvance && !clientCanAdvance) {
                 pumpCoordinators(hostPeer, clientPeer, 0);
                 processAppHostResync(hostPeer);
                 processAppHostResync(clientPeer);
@@ -3706,10 +3592,6 @@ private:
                 clientFrame = clientPeer.emu.exactEmulationFrame();
                 hostCanAdvance = hostFrame + 1u <= hostPeer.driver.queuedThroughFrame();
                 clientCanAdvance = clientFrame + 1u <= clientPeer.driver.queuedThroughFrame();
-            } else if(!predictionHoldReleased &&
-                      options.predictionHoldFrameCount > 0u &&
-                      maxSimulationFrameSeen >= options.predictionHoldStartFrame + options.predictionHoldFrameCount) {
-                predictionHoldReleased = true;
             }
 
             hostPeer.emu.setSimulationSuspended(!hostCanAdvance);
@@ -3762,8 +3644,8 @@ private:
             }
             maxStallSteps = std::max(maxStallSteps, stallSteps);
 
-            if(hostPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u ||
-               clientPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + options.predictFrames + 16u) {
+            if(hostPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + 16u ||
+               clientPeer.maxObservedFutureBufferedFrames > options.inputDelayFrames + 16u) {
                 failureReason = "Future InputBuffer horizon grew beyond the expected bound under app flow.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "buffer_overfill", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.exitCode = RESULT_FAILED;
@@ -3771,8 +3653,8 @@ private:
                 return result;
             }
 
-            if(hostPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u ||
-               clientPeer.maxObservedPendingFrameCount > options.inputDelayFrames + options.predictFrames + 64u) {
+            if(hostPeer.maxObservedPendingFrameCount > options.inputDelayFrames + 64u ||
+               clientPeer.maxObservedPendingFrameCount > options.inputDelayFrames + 64u) {
                 failureReason = "Pending confirmed frame queue grew beyond the expected bound under app flow.";
                 result.report = buildAppReport(options, hostPeer, clientPeer, "pending_overfill", failureReason, lastCheckedFrame, maxStallSteps, assignmentSwapTriggered, assignmentSwapVerified, assignmentPatternVerified);
                 result.exitCode = RESULT_FAILED;
@@ -3963,7 +3845,6 @@ private:
         room.sessionId = 1;
         room.timelineEpoch = 1;
         room.inputDelayFrames = 0;
-        room.predictFrames = 0;
         room.participants = {
             makeParticipant(0, 0, 0),
             makeParticipant(1, 1, 20)
@@ -3981,11 +3862,7 @@ private:
                 {"recommendedDelay", recommendations.inputDelayFrames.has_value()
                     ? nlohmann::json(*recommendations.inputDelayFrames)
                     : nlohmann::json(nullptr)},
-                {"recommendedPredict", recommendations.predictFrames.has_value()
-                    ? nlohmann::json(*recommendations.predictFrames)
-                    : nlohmann::json(nullptr)},
                 {"currentDelay", snapshot.currentRecommendedDelay},
-                {"currentPredict", snapshot.currentFixedPredict},
                 {"stableFrameCount", snapshot.stableFrameCount},
                 {"lastAdjustmentFrame", snapshot.lastAdjustmentFrame},
                 {"lastDecisionReason", snapshot.lastDecisionReason}
@@ -3993,26 +3870,24 @@ private:
         };
 
         room.state = ConsoleNetplay::SessionState::ReadyCheck;
-        auto preSession = autoSettings.update(room, stats, 0, fps);
+        auto preSession = autoSettings.update(room, stats, fps);
         appendScenario("pre_session_jitter_bootstrap", preSession, autoSettings.snapshot());
-        if(!preSession.inputDelayFrames.has_value() || *preSession.inputDelayFrames != 3u ||
-           !preSession.predictFrames.has_value() || *preSession.predictFrames != 4u) {
+        if(!preSession.inputDelayFrames.has_value() || *preSession.inputDelayFrames != 3u) {
             result.exitCode = RESULT_FAILED;
             result.report = {
                 {"status", "failed"},
-                {"failureReason", "Auto settings did not derive expected pre-session delay/predict from jitter."},
+                {"failureReason", "Auto settings did not derive expected pre-session delay from jitter."},
                 {"scenarios", scenarios}
             };
             return result;
         }
 
         room.inputDelayFrames = *preSession.inputDelayFrames;
-        room.predictFrames = *preSession.predictFrames;
         room.state = ConsoleNetplay::SessionState::Running;
         room.currentFrame = 100;
-        auto warmup = autoSettings.update(room, stats, 0, fps);
+        auto warmup = autoSettings.update(room, stats, fps);
         appendScenario("running_window_init", warmup, autoSettings.snapshot());
-        if(warmup.inputDelayFrames.has_value() || warmup.predictFrames.has_value()) {
+        if(warmup.inputDelayFrames.has_value()) {
             result.exitCode = RESULT_FAILED;
             result.report = {
                 {"status", "failed"},
@@ -4024,7 +3899,7 @@ private:
 
         room.currentFrame = 220;
         stats.playbackStopCount = 1;
-        auto increase = autoSettings.update(room, stats, 0, fps);
+        auto increase = autoSettings.update(room, stats, fps);
         appendScenario("increase_after_stop", increase, autoSettings.snapshot());
         if(!increase.inputDelayFrames.has_value() || *increase.inputDelayFrames != 4u) {
             result.exitCode = RESULT_FAILED;
@@ -4035,21 +3910,11 @@ private:
             };
             return result;
         }
-        if(increase.predictFrames.has_value()) {
-            result.exitCode = RESULT_FAILED;
-            result.report = {
-                {"status", "failed"},
-                {"failureReason", "Auto settings should keep predict fixed during running session."},
-                {"scenarios", scenarios}
-            };
-            return result;
-        }
-
         room.inputDelayFrames = *increase.inputDelayFrames;
         stats.playbackStopCount = 1;
         for(uint32_t frame : {340u, 460u, 580u, 700u}) {
             room.currentFrame = frame;
-            auto hold = autoSettings.update(room, stats, 0, fps);
+            auto hold = autoSettings.update(room, stats, fps);
             appendScenario("stable_hold_" + std::to_string(frame), hold, autoSettings.snapshot());
             if(hold.inputDelayFrames.has_value()) {
                 result.exitCode = RESULT_FAILED;
@@ -4063,7 +3928,7 @@ private:
         }
 
         room.currentFrame = 820;
-        auto decrease = autoSettings.update(room, stats, 0, fps);
+        auto decrease = autoSettings.update(room, stats, fps);
         appendScenario("decrease_after_stability", decrease, autoSettings.snapshot());
         if(!decrease.inputDelayFrames.has_value() || *decrease.inputDelayFrames != 3u) {
             result.exitCode = RESULT_FAILED;
@@ -4086,129 +3951,6 @@ private:
 
     static RunArtifacts runSingleCase(const Options& options)
     {
-        if(options.predictionScriptMode != PredictionScriptMode::None && options.predictFrames > 0u) {
-            RunArtifacts result;
-            PeerState hostPeer("Host", true, options.hostInputSeed);
-            PeerState clientPeer("Client", false, options.clientInputSeed);
-            uint32_t lastCheckedFrame = 0;
-
-            const auto cleanup = [&]() {
-                clientPeer.coordinator.disconnect();
-                hostPeer.coordinator.disconnect();
-            };
-
-            std::string failureReason;
-            if(!bootstrapSession(hostPeer, clientPeer, options, failureReason)) {
-                result.report = buildReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame);
-                result.exitCode = RESULT_ERROR;
-                cleanup();
-                return result;
-            }
-
-            const auto hostSlot = localAssignedSlot(hostPeer.coordinator);
-            const auto clientSlot = localAssignedSlot(clientPeer.coordinator);
-            if(!hostSlot.has_value() || !clientSlot.has_value()) {
-                failureReason = "Missing local controller assignment for directed prediction test.";
-                result.report = buildReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame);
-                result.exitCode = RESULT_ERROR;
-                cleanup();
-                return result;
-            }
-
-            const uint32_t scriptStartFrame =
-                options.predictionScriptStartFrame == 0u
-                    ? options.predictionHoldStartFrame
-                    : options.predictionScriptStartFrame;
-            const uint32_t scriptEndFrame = scriptStartFrame + std::max<uint32_t>(1u, options.predictionScriptFrameCount) - 1u;
-            const uint32_t warmupEndFrame = scriptStartFrame > 0u ? (scriptStartFrame - 1u) : 0u;
-
-            for(uint32_t frame = 1u; frame <= warmupEndFrame; ++frame) {
-                hostPeer.coordinator.recordLocalInputFrame(frame, *hostSlot, 0u);
-                clientPeer.coordinator.recordLocalInputFrame(frame, *clientSlot, 0u);
-                pumpNetwork(hostPeer, clientPeer, 0);
-                hostPeer.coordinator.setLocalSimulationFrame(frame);
-                clientPeer.coordinator.setLocalSimulationFrame(frame);
-                lastCheckedFrame = frame;
-            }
-
-            for(uint32_t frame = scriptStartFrame; frame <= scriptEndFrame; ++frame) {
-                const uint64_t hostMask = buildPadMask(scriptedPredictionButtons(options, true, frame));
-                const uint64_t clientMask = buildPadMask(scriptedPredictionButtons(options, false, frame));
-                hostPeer.coordinator.recordLocalInputFrame(frame, *hostSlot, hostMask);
-                clientPeer.coordinator.recordLocalInputFrame(frame, *clientSlot, clientMask);
-
-                ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs hostPlayback;
-                ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs clientPlayback;
-                if(!hostPeer.coordinator.tryBuildPlaybackFrame(frame, true, hostPlayback) ||
-                   !clientPeer.coordinator.tryBuildPlaybackFrame(frame, true, clientPlayback)) {
-                    failureReason = "Failed to build predicted playback frame " + std::to_string(frame) + ".";
-                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-                hostPeer.coordinator.setLocalSimulationFrame(frame);
-                clientPeer.coordinator.setLocalSimulationFrame(frame);
-                lastCheckedFrame = frame;
-            }
-
-            for(uint32_t i = 0; i < options.startupTimeoutSteps; ++i) {
-                pumpNetwork(hostPeer, clientPeer, 0);
-                if(hostPeer.coordinator.latestConfirmedFrame() >= scriptEndFrame &&
-                   clientPeer.coordinator.latestConfirmedFrame() >= scriptEndFrame) {
-                    break;
-                }
-                if(i + 1u == options.startupTimeoutSteps) {
-                    failureReason = "Timed out waiting for delayed prediction inputs to arrive.";
-                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-            }
-
-            const auto& hostStats = hostPeer.coordinator.predictionStats();
-            const auto& clientStats = clientPeer.coordinator.predictionStats();
-            const bool hostRollbackPending = hostPeer.coordinator.consumePendingRollbackFrame().has_value();
-            const bool clientRollbackPending = clientPeer.coordinator.consumePendingRollbackFrame().has_value();
-
-            if(options.predictionScriptMode == PredictionScriptMode::HitAll) {
-                if(hostStats.predictionHitCount == 0u || clientStats.predictionHitCount == 0u ||
-                   hostStats.predictionMissCount != 0u || clientStats.predictionMissCount != 0u ||
-                   !hostRollbackPending || !clientRollbackPending) {
-                    failureReason = "Directed predict-all-hit scenario did not produce hit+rollback on both peers.";
-                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-            } else if(options.predictionScriptMode == PredictionScriptMode::MissAll) {
-                if(hostStats.predictionMissCount == 0u || clientStats.predictionMissCount == 0u ||
-                   !hostRollbackPending || !clientRollbackPending) {
-                    failureReason = "Directed predict-all-miss scenario did not produce miss+rollback on both peers.";
-                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-            } else if(options.predictionScriptMode == PredictionScriptMode::Partial) {
-                if(hostStats.predictionHitCount == 0u || clientStats.predictionHitCount == 0u ||
-                   hostStats.predictionMissCount == 0u || clientStats.predictionMissCount == 0u ||
-                   !hostRollbackPending || !clientRollbackPending) {
-                    failureReason = "Directed predict-partial scenario did not produce mixed hit/miss + rollback on both peers.";
-                    result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
-                    result.exitCode = RESULT_FAILED;
-                    cleanup();
-                    return result;
-                }
-            }
-
-            result.report = buildReport(options, hostPeer, clientPeer, "ok", "", lastCheckedFrame);
-            result.exitCode = EXIT_SUCCESS;
-            cleanup();
-            return result;
-        }
-
         RunArtifacts result;
         PeerState hostPeer("Host", true, options.hostInputSeed);
         PeerState clientPeer("Client", false, options.clientInputSeed);
@@ -4352,26 +4094,17 @@ private:
         addScenario("delay_10", delay10);
 
         if(baseOptions.appFlow && !baseOptions.baselineLockstep) {
-            Options predictHit = baseOptions;
-            predictHit.inputDelayFrames = 2;
-            predictHit.predictFrames = 2;
-            predictHit.networkPumpStride = 2;
-            predictHit.gameplayReceiveDelayMs = 12;
-            addScenario("predict_hit_window", predictHit);
-
             if(baseOptions.runtimeFlow) {
                 Options reconnect = baseOptions;
                 reconnect.frames = std::max<uint32_t>(baseOptions.frames, 120u);
                 reconnect.reconnectAfterFrames = 24u;
                 reconnect.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                reconnect.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
                 addScenario("reconnect_mid_session", reconnect);
 
                 Options forcedDesync = baseOptions;
                 forcedDesync.frames = std::max<uint32_t>(baseOptions.frames, 120u);
                 forcedDesync.forceDesyncFrame = 28u;
                 forcedDesync.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                forcedDesync.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
                 forcedDesync.desyncAddress = 0x0000u;
                 forcedDesync.desyncValueXor = 0x5Au;
                 addScenario("forced_desync_resync", forcedDesync);
@@ -4389,7 +4122,6 @@ private:
                 Options resetThenResync = baseOptions;
                 resetThenResync.frames = std::max<uint32_t>(baseOptions.frames, 160u);
                 resetThenResync.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                resetThenResync.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
                 resetThenResync.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
                 resetThenResync.hostLoopDtMs = 8u;
                 resetThenResync.clientLoopDtMs = 33u;
@@ -4402,7 +4134,6 @@ private:
                 Options extremeJitter = baseOptions;
                 extremeJitter.frames = std::max<uint32_t>(baseOptions.frames, 140u);
                 extremeJitter.inputDelayFrames = std::max<uint32_t>(2u, baseOptions.inputDelayFrames);
-                extremeJitter.predictFrames = std::max<uint32_t>(4u, baseOptions.predictFrames);
                 extremeJitter.gameplayReceiveDelayMs = std::max<uint32_t>(30u, baseOptions.gameplayReceiveDelayMs);
                 extremeJitter.networkPumpStride = std::max<uint32_t>(5u, baseOptions.networkPumpStride);
                 extremeJitter.hostLoopDtMs = 7u;
@@ -4414,13 +4145,10 @@ private:
                 Options burstLoss = baseOptions;
                 burstLoss.frames = std::max<uint32_t>(baseOptions.frames, 170u);
                 burstLoss.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                burstLoss.predictFrames = std::max<uint32_t>(5u, baseOptions.predictFrames);
                 burstLoss.hostLoopDtMs = 8u;
                 burstLoss.clientLoopDtMs = 33u;
                 burstLoss.hostStepStride = 1u;
                 burstLoss.clientStepStride = 2u;
-                burstLoss.predictionHoldStartFrame = 48u;
-                burstLoss.predictionHoldFrameCount = 14u;
                 addScenario("burst_loss_asymmetric", burstLoss);
 
                 Options jitterDesync = extremeJitter;
@@ -4433,7 +4161,6 @@ private:
                 Options reconnectDuringResync = baseOptions;
                 reconnectDuringResync.frames = std::max<uint32_t>(baseOptions.frames, 180u);
                 reconnectDuringResync.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                reconnectDuringResync.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
                 reconnectDuringResync.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
                 reconnectDuringResync.hostLoopDtMs = 8u;
                 reconnectDuringResync.clientLoopDtMs = 33u;
@@ -4449,7 +4176,6 @@ private:
                 Options reconnectExpiry = baseOptions;
                 reconnectExpiry.frames = std::max<uint32_t>(baseOptions.frames, 120u);
                 reconnectExpiry.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                reconnectExpiry.predictFrames = std::max<uint32_t>(2u, baseOptions.predictFrames);
                 reconnectExpiry.reconnectAfterFrames = 28u;
                 reconnectExpiry.reconnectReservationSecondsForTests = 1u;
                 reconnectExpiry.expectReconnectReservationExpiry = true;
@@ -4458,7 +4184,6 @@ private:
                 Options repeatedLoadState = baseOptions;
                 repeatedLoadState.frames = std::max<uint32_t>(baseOptions.frames, 190u);
                 repeatedLoadState.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                repeatedLoadState.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
                 repeatedLoadState.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
                 repeatedLoadState.hostLoopDtMs = 8u;
                 repeatedLoadState.clientLoopDtMs = 33u;
@@ -4478,7 +4203,6 @@ private:
                 Options hostResetBootstrap = baseOptions;
                 hostResetBootstrap.frames = std::max<uint32_t>(baseOptions.frames, 170u);
                 hostResetBootstrap.inputDelayFrames = std::max<uint32_t>(1u, baseOptions.inputDelayFrames);
-                hostResetBootstrap.predictFrames = std::max<uint32_t>(3u, baseOptions.predictFrames);
                 hostResetBootstrap.networkPumpStride = std::max<uint32_t>(2u, baseOptions.networkPumpStride);
                 hostResetBootstrap.hostLoopDtMs = 8u;
                 hostResetBootstrap.clientLoopDtMs = 33u;
@@ -4488,24 +4212,6 @@ private:
                 addScenario("host_reset_authoritative_bootstrap", hostResetBootstrap);
             }
 
-            Options predictAllHit = baseOptions;
-            predictAllHit.appFlow = false;
-            predictAllHit.inputDelayFrames = 1;
-            predictAllHit.predictFrames = 5;
-            predictAllHit.predictionHoldStartFrame = 90;
-            predictAllHit.predictionHoldFrameCount = 8;
-            predictAllHit.predictionScriptStartFrame = 96;
-            predictAllHit.predictionScriptFrameCount = 5;
-            predictAllHit.predictionScriptMode = PredictionScriptMode::HitAll;
-            addScenario("predict_all_hit", predictAllHit);
-
-            Options predictAllMiss = predictAllHit;
-            predictAllMiss.predictionScriptMode = PredictionScriptMode::MissAll;
-            addScenario("predict_all_miss", predictAllMiss);
-
-            Options predictPartial = predictAllHit;
-            predictPartial.predictionScriptMode = PredictionScriptMode::Partial;
-            addScenario("predict_partial", predictPartial);
         }
 
         Options seedMix = baseOptions;
@@ -4563,7 +4269,6 @@ private:
                 << ": " << scenario.name
                 << " frames=" << scenario.options.frames
                 << " inputDelay=" << scenario.options.inputDelayFrames
-                << " predict=" << scenario.options.predictFrames
                 << " pumpStride=" << scenario.options.networkPumpStride
                 << " hostSeed=" << scenario.options.hostInputSeed
                 << " clientSeed=" << scenario.options.clientInputSeed
@@ -4574,61 +4279,7 @@ private:
                 ? (scenario.options.runtimeFlow ? runSingleCaseRuntimeFlow(scenario.options)
                                                 : runSingleCaseAppFlow(scenario.options))
                 : runSingleCase(scenario.options);
-
-            if(caseResult.exitCode == EXIT_SUCCESS &&
-               scenario.options.appFlow &&
-               scenario.options.predictFrames > 0 &&
-               (scenario.options.networkPumpStride > 1 || scenario.options.predictionHoldFrameCount > 0)) {
-                const auto& hostReport = caseResult.report["host"];
-                const auto& clientReport = caseResult.report["client"];
-                const uint32_t hostHits = hostReport.value("predictionHitCount", 0u);
-                const uint32_t hostMisses = hostReport.value("predictionMissCount", 0u);
-                const uint32_t hostPredictedUses = hostReport.value("predictedFrameUseCount", 0u);
-                const uint32_t clientHits = clientReport.value("predictionHitCount", 0u);
-                const uint32_t clientMisses = clientReport.value("predictionMissCount", 0u);
-                const uint32_t clientPredictedUses = clientReport.value("predictedFrameUseCount", 0u);
-                const uint32_t rollbacks =
-                    hostReport.value("rollbackScheduledCount", 0u) +
-                    clientReport.value("rollbackScheduledCount", 0u);
-                const uint32_t predictionActivity =
-                    hostHits + hostMisses + hostPredictedUses +
-                    clientHits + clientMisses + clientPredictedUses +
-                    rollbacks;
-                if(predictionActivity == 0u) {
-                    caseResult.exitCode = RESULT_FAILED;
-                    caseResult.report["status"] = "failed";
-                    caseResult.report["failureReason"] = "Prediction scenario completed without any prediction or rollback activity.";
-                }
-
-                if(caseResult.exitCode == EXIT_SUCCESS && scenario.name == "predict_all_hit") {
-                    if(hostHits == 0u || clientHits == 0u ||
-                       hostMisses != 0u || clientMisses != 0u) {
-                        caseResult.exitCode = RESULT_FAILED;
-                        caseResult.report["status"] = "failed";
-                        caseResult.report["failureReason"] = "Expected all predicted frames to validate without misses.";
-                    }
-                }
-
-                if(caseResult.exitCode == EXIT_SUCCESS && scenario.name == "predict_all_miss") {
-                    if(hostMisses == 0u || clientMisses == 0u || rollbacks == 0u) {
-                        caseResult.exitCode = RESULT_FAILED;
-                        caseResult.report["status"] = "failed";
-                        caseResult.report["failureReason"] = "Expected all predicted frames to miss and schedule rollback.";
-                    }
-                }
-
-                if(caseResult.exitCode == EXIT_SUCCESS && scenario.name == "predict_partial") {
-                    if(hostHits == 0u || clientHits == 0u ||
-                       hostMisses == 0u || clientMisses == 0u ||
-                       rollbacks == 0u) {
-                        caseResult.exitCode = RESULT_FAILED;
-                        caseResult.report["status"] = "failed";
-                        caseResult.report["failureReason"] = "Expected partial prediction scenario to contain both hits and misses with rollback.";
-                    }
-                }
-            }
-
-            caseResult.report["scenario"] = scenario.name;
+            caseResult.report["scenario"] = scenario.name;
             aggregate.report["cases"].push_back(caseResult.report);
             aggregate.report["summary"].push_back({
                 {"scenario", scenario.name},
@@ -4636,14 +4287,8 @@ private:
                 {"mode", scenario.options.appFlow ? "app-flow" : "direct-core"},
                 {"frames", scenario.options.frames},
                 {"inputDelayFrames", scenario.options.inputDelayFrames},
-                {"predictFrames", scenario.options.predictFrames},
                 {"gameplayReceiveDelayMs", scenario.options.gameplayReceiveDelayMs},
                 {"networkPumpStride", scenario.options.networkPumpStride},
-                {"predictionHoldStartFrame", scenario.options.predictionHoldStartFrame},
-                {"predictionHoldFrameCount", scenario.options.predictionHoldFrameCount},
-                {"predictionScriptStartFrame", scenario.options.predictionScriptStartFrame},
-                {"predictionScriptFrameCount", scenario.options.predictionScriptFrameCount},
-                {"predictionScriptMode", static_cast<int>(scenario.options.predictionScriptMode)},
                 {"reconnectDuringResync", scenario.options.reconnectDuringResync},
                 {"hostSeed", scenario.options.hostInputSeed},
                 {"clientSeed", scenario.options.clientInputSeed},
@@ -4711,3 +4356,10 @@ public:
 };
 
 #endif
+
+
+
+
+
+
+

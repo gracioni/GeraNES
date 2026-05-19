@@ -67,7 +67,7 @@ public:
         ConfirmedInputBufferDriver::PlaybackQueueStats playbackQueueStats;
         std::optional<TimelineInputEntry> latestLocalInput;
         std::optional<TimelineInputEntry> latestRemoteInput;
-        RollbackStats predictionStats;
+        RollbackStats rollbackStats;
         FrameNumber localSimulationFrame = 0;
         FrameNumber publishedConfirmedFrame = 0;
         FrameNumber lastSubmittedLocalCrcFrame = 0;
