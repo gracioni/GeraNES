@@ -882,6 +882,10 @@ inline void GeraNESApp::menuBar() {
                 m_showMemoryViewerWindow = !m_showMemoryViewerWindow;
             }
 
+            if(ImGui::MenuItem("Memory Compare", nullptr, m_showMemoryCompareWindow, hasLoadedRom)) {
+                m_showMemoryCompareWindow = !m_showMemoryCompareWindow;
+            }
+
             if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow, hasLoadedRom)) {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }

@@ -210,6 +210,7 @@ private:
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
     bool m_showMemoryViewerWindow = false;
+    bool m_showMemoryCompareWindow = false;
     bool m_showPpuViewerWindow = false;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
@@ -261,6 +262,12 @@ private:
     uint32_t m_memoryViewerEditAddress = 0;
     uint8_t m_memoryViewerEditValue = 0;
     char m_memoryViewerEditText[3] = "00";
+    int m_memoryCompareType = 0;
+    int m_memoryCompareFilter = 1;
+    bool m_memoryCompareAutoRefresh = true;
+    std::vector<uint8_t> m_memoryCompareBaseline;
+    std::vector<uint8_t> m_memoryCompareCurrent;
+    std::string m_memoryCompareStatus;
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
 
@@ -444,6 +451,7 @@ private:
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
     void drawMemoryViewerWindow();
+    void drawMemoryCompareWindow();
     void loadCpuDebuggerSymbols();
     bool loadCpuDebuggerSymbolsFromFile(const std::string& path);
     void syncCpuDebugRuntimeState();

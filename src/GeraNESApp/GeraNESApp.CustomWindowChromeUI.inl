@@ -35,7 +35,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoDocking |
         ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus
+        ImGuiWindowFlags_NoNav
     )) {
         const ImVec2 winPos = ImGui::GetWindowPos();
         const ImVec2 winSize = ImGui::GetWindowSize();
@@ -74,7 +74,11 @@ inline void GeraNESApp::drawCustomWindowChrome()
                 ImGui::BeginDisabled();
             }
             ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+            ImGui::PushItemFlag(ImGuiItemFlags_NoTabStop, true);
+            ImGui::PushItemFlag(ImGuiItemFlags_NoNavDefaultFocus, true);
             const bool pressed = ImGui::InvisibleButton(id, ImVec2(controlButtonWidth, controlButtonHeight));
+            ImGui::PopItemFlag();
+            ImGui::PopItemFlag();
             ImGui::PopItemFlag();
             const bool hovered = ImGui::IsItemHovered();
             const bool active = ImGui::IsItemActive();
@@ -118,7 +122,11 @@ inline void GeraNESApp::drawCustomWindowChrome()
 
         ImGui::SetCursorScreenPos(ImVec2(winPos.x + controlsLeft + controlsWidth + 24.0f, winPos.y + 6.0f));
         ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+        ImGui::PushItemFlag(ImGuiItemFlags_NoTabStop, true);
+        ImGui::PushItemFlag(ImGuiItemFlags_NoNavDefaultFocus, true);
         ImGui::InvisibleButton("##ChromeDragArea", ImVec2(std::max(0.0f, winSize.x - (controlsLeft + controlsWidth + 24.0f) - buttonRowWidth - rightInset - 10.0f), titleBarHeight - 12.0f));
+        ImGui::PopItemFlag();
+        ImGui::PopItemFlag();
         ImGui::PopItemFlag();
         const bool dragAreaHovered = ImGui::IsItemHovered();
         const bool dragAreaActive = ImGui::IsItemActive();
@@ -158,7 +166,11 @@ inline void GeraNESApp::drawCustomWindowChrome()
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x + 0.08f, color.y + 0.08f, color.z + 0.08f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(std::max(0.0f, color.x - 0.06f), std::max(0.0f, color.y - 0.06f), std::max(0.0f, color.z - 0.06f), 1.0f));
             ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+            ImGui::PushItemFlag(ImGuiItemFlags_NoTabStop, true);
+            ImGui::PushItemFlag(ImGuiItemFlags_NoNavDefaultFocus, true);
             const bool pressed = ImGui::Button(id, ImVec2(buttonWidth, buttonHeight));
+            ImGui::PopItemFlag();
+            ImGui::PopItemFlag();
             ImGui::PopItemFlag();
             const ImVec2 min = ImGui::GetItemRectMin();
             const ImVec2 max = ImGui::GetItemRectMax();

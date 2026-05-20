@@ -4,6 +4,7 @@
 #include "GeraNESApp/GeraNESApp.NsfPlayerVisualizerUI.inl"
 #include "GeraNESApp/GeraNESApp.CpuDebugSharedUI.inl"
 #include "GeraNESApp/GeraNESApp.MemoryViewerWindowUI.inl"
+#include "GeraNESApp/GeraNESApp.MemoryCompareWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.CpuDebuggerWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.CpuBreakpointsWindowUI.inl"
 
@@ -95,6 +96,10 @@ inline void GeraNESApp::showGui()
 
     if(m_showMemoryViewerWindow) {
         drawMemoryViewerWindow();
+    }
+
+    if(m_showMemoryCompareWindow) {
+        drawMemoryCompareWindow();
     }
 
     if(m_showCpuDebuggerWindow) {
